@@ -1,0 +1,200 @@
+{% from "_macros.py.j2" import banner %}
+"""Test fixtures for the generated {{ feed.id }} pipeline.
+
+Runs against a real local SparkSession + delta-spark with an isolated
+per-session warehouse and metastore. Requires a JVM: set JAVA_HOME (and on
+Windows, HADOOP_HOME pointing at winutils) before running pytest.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+
+RUN_TS = datetime(2026, 1, 15, 9, 0, 0)
+EXAMPLE_FILE_NAME = {{ example_file_name | tojson }}
+DELIMITER = {{ delimiter | tojson }}
+
+
+@pytest.fixture(scope="session")
+def spark(tmp_path_factory):
+    if not os.environ.get("JAVA_HOME"):
+        raise RuntimeError(
+            "JAVA_HOME is not set. The generated tests run real Spark: install a "
+            "JRE 17 and export JAVA_HOME (Windows also needs HADOOP_HOME with "
+            "winutils.exe + hadoop.dll)."
+        )
+    from delta import configure_spark_with_delta_pip
+    from pyspark.sql import SparkSession
+
+    warehouse = tmp_path_factory.mktemp("warehouse")
+    metastore = tmp_path_factory.mktemp("metastore")
+    builder = (
+        SparkSession.builder.appName("{{ feed.slug }}-tests")
+        .master("local[2]")
+        .config("spark.sql.warehouse.dir", str(warehouse))
+        .config(
+            "spark.hadoop.javax.jdo.option.ConnectionURL",
+            f"jdbc:derby:;databaseName={metastore / 'metastore_db'};create=true",
+        )
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+        .config(
+            "spark.sql.catalog.spark_catalog",
+            "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+        )
+        .config("spark.ui.enabled", "false")
+        .config("spark.sql.shuffle.partitions", "2")
+    )
+    session = configure_spark_with_delta_pip(builder).getOrCreate()
+    session.sparkContext.setLogLevel("ERROR")
+    yield session
+    session.stop()
+
+
+@pytest.fixture(scope="session")
+def tables(spark):
+    from pipeline import feed_spec
+
+    feed_spec.ensure_tables(spark, catalog=None)
+    return feed_spec
+
+
+def sample_row(**overrides) -> dict[str, str]:
+    """One valid Detail row keyed by source column name."""
+    row = {
+{% for column, value in detail.column_samples %}
+        {{ column | tojson }}: {{ value | tojson }},
+{% endfor %}
+    }
+    row.update(overrides)
+    return row
+
+
+def detail_rows(n: int, key_prefix: str = "K") -> list[dict[str, str]]:
+    """n valid rows with unique natural keys."""
+    rows = []
+    for i in range(n):
+        overrides = {
+{% for column in detail_natural_key_source_columns %}
+            {{ column | tojson }}: f"{key_prefix}{i:04d}",
+{% endfor %}
+        }
+        rows.append(sample_row(**overrides))
+    return rows
+
+
+{% if is_segmented %}
+HEADER_SAMPLE = {
+{% for seg in segments if seg.name == "Header" %}
+{% for column, value in seg.column_samples %}
+    {{ column | tojson }}: {{ value | tojson }},
+{% endfor %}
+{% endfor %}
+}
+TRAILER_SAMPLE = {
+{% for seg in segments if seg.name == "Trailer" %}
+{% for column, value in seg.column_samples %}
+    {{ column | tojson }}: {{ value | tojson }},
+{% endfor %}
+{% endfor %}
+}
+TRAILER_COUNT_SOURCE_COLUMN = {{ trailer_count_source_column | py }}
+
+
+def write_source_file(
+    directory,
+    rows: list[dict[str, str]],
+    file_name: str = EXAMPLE_FILE_NAME,
+    trailer_count: int | None = None,
+    header_line: str | None = None,
+    trailer_line: str | None = None,
+    extra_lines: list[str] | None = None,
+) -> str:
+    """Write a Header/Detail/Trailer file; trailer count defaults to len(rows)."""
+    header = header_line if header_line is not None else DELIMITER.join(
+        HEADER_SAMPLE.values()
+    )
+    trailer_sample = dict(TRAILER_SAMPLE)
+    trailer_sample[TRAILER_COUNT_SOURCE_COLUMN] = str(
+        trailer_count if trailer_count is not None else len(rows)
+    )
+    trailer = trailer_line if trailer_line is not None else DELIMITER.join(
+        trailer_sample.values()
+    )
+    lines = [header, *[DELIMITER.join(row.values()) for row in rows], trailer]
+    lines += extra_lines or []
+    path = Path(directory) / file_name
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return str(path)
+{% else %}
+def write_source_file(
+    directory,
+    rows: list[dict[str, str]],
+    file_name: str = EXAMPLE_FILE_NAME,
+    drop_column: str | None = None,
+    extra_column: str | None = None,
+) -> str:
+    """Write a delimited file with header; supports drift mutations."""
+    if not rows:
+        raise ValueError("rows must be non-empty")
+    columns = [c for c in rows[0] if c != drop_column]
+    if extra_column:
+        columns = [*columns, extra_column]
+    lines = [DELIMITER.join(columns)]
+    for row in rows:
+        values = [row[c] for c in row if c != drop_column]
+        if extra_column:
+            values = [*values, "extra"]
+        lines.append(DELIMITER.join(values))
+    path = Path(directory) / file_name
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return str(path)
+{% endif %}
+{% if recycle %}
+
+
+REFERENCE_STAND_IN = "ref_stand_in.member_reference"
+
+
+@pytest.fixture(scope="session")
+def reference_stand_in(spark):
+    """Local stand-in for {{ recycle.reference_table }} (see reference.py)."""
+    spark.sql("CREATE DATABASE IF NOT EXISTS ref_stand_in")
+    spark.sql(
+        "CREATE TABLE IF NOT EXISTS ref_stand_in.member_reference ("
+        "`{{ recycle.reference_id_column }}` STRING"
+{% if recycle.reference_filter_column %}
+        ", `{{ recycle.reference_filter_column }}` STRING"
+{% endif %}
+        ") USING DELTA"
+    )
+    return REFERENCE_STAND_IN
+
+
+def add_reference_ids(spark, ids: list[str], matching_filter: bool = True) -> None:
+{% if recycle.reference_filter_column %}
+    filter_value = (
+        {{ recycle.reference_filter_value | tojson }} if matching_filter else "NO_MATCH"
+    )
+    rows = [(i, filter_value) for i in ids]
+    columns = [
+        {{ recycle.reference_id_column | tojson }},
+        {{ recycle.reference_filter_column | tojson }},
+    ]
+{% else %}
+    del matching_filter  # no filter in this feed's reference rule
+    rows = [(i,) for i in ids]
+    columns = [{{ recycle.reference_id_column | tojson }}]
+{% endif %}
+    spark.createDataFrame(rows, columns).write.format("delta").mode("append").saveAsTable(
+        REFERENCE_STAND_IN
+    )
+{% endif %}

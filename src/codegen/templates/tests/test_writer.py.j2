@@ -1,0 +1,73 @@
+{% from "_macros.py.j2" import banner %}
+"""Idempotent writes: re-ingest replaces, REC_CREATION_TIME is preserved."""
+{{ banner(provenance, feed) }}
+
+from datetime import timedelta
+
+from conftest import RUN_TS, detail_rows
+from pipeline import audit, feed_spec, mapping, writer
+
+SRC_FILE = "writer_idempotency_file"
+
+
+def _audited(spark, rows, run_ts):
+    columns = list(rows[0])
+    df = spark.createDataFrame([tuple(r[c] for c in columns) for r in rows], columns)
+    return audit.add_audit_columns(mapping.map_to_stage(df), feed_spec.LOBS[0], SRC_FILE, run_ts)
+
+
+def _stage_rows(spark):
+    table = feed_spec.qualified(
+        feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["stage_table"], catalog=None
+    )
+    return spark.table(table).where(f"SRC_FILE_NAME = '{SRC_FILE}'").collect()
+
+
+def test_reingest_same_file_does_not_duplicate(spark, tables):
+    rows = detail_rows(3, key_prefix="WRITER")
+    assert writer.merge_detail(spark, _audited(spark, rows, RUN_TS), catalog=None) == 3
+    later = RUN_TS + timedelta(hours=2)
+    assert writer.merge_detail(spark, _audited(spark, rows, later), catalog=None) == 3
+    assert len(_stage_rows(spark)) == 3
+
+
+def test_reingest_preserves_creation_time_and_advances_update_time(spark, tables):
+    rows = detail_rows(2, key_prefix="WRITERTS")
+    writer.merge_detail(spark, _audited(spark, rows, RUN_TS), catalog=None)
+    later = RUN_TS + timedelta(hours=3)
+    writer.merge_detail(spark, _audited(spark, rows, later), catalog=None)
+    for row in _stage_rows(spark):
+        if not row[feed_spec.NATURAL_KEY_COLUMNS[0]].startswith("WRITERTS"):
+            continue
+        assert row[audit.REC_CREATION_TIME_COLUMN] == RUN_TS
+        assert row[audit.REC_UPDATED_TIME_COLUMN] == later
+
+
+def test_record_processed_file_upserts(spark, tables):
+    writer.record_processed_file(spark, SRC_FILE, feed_spec.LOBS[0], RUN_TS, 3, 0, 0, None)
+    later = RUN_TS + timedelta(hours=2)
+    writer.record_processed_file(spark, SRC_FILE, feed_spec.LOBS[0], later, 3, 1, 0, None)
+    processed = (
+        spark.table(feed_spec.qualified(feed_spec.PROCESSED_FILES_TABLE, catalog=None))
+        .where(f"SRC_FILE_NAME = '{SRC_FILE}'")
+        .collect()
+    )
+    assert len(processed) == 1
+    assert processed[0]["ROWS_REJECTED"] == 1
+    assert writer.was_file_processed(spark, SRC_FILE, catalog=None)
+
+
+{% if is_segmented %}
+def test_replace_segment_is_idempotent(spark, tables):
+    from conftest import HEADER_SAMPLE
+
+    columns = list(HEADER_SAMPLE)
+    df = spark.createDataFrame([tuple(HEADER_SAMPLE.values())], columns)
+    header = audit.add_audit_columns(
+        mapping.map_to_stage(df, "Header"), feed_spec.LOBS[0], SRC_FILE, RUN_TS
+    )
+    writer.replace_segment(spark, header, "Header", SRC_FILE, catalog=None)
+    writer.replace_segment(spark, header, "Header", SRC_FILE, catalog=None)
+    table = feed_spec.qualified(feed_spec.SEGMENTS["Header"]["stage_table"], catalog=None)
+    assert spark.table(table).where(f"SRC_FILE_NAME = '{SRC_FILE}'").count() == 1
+{% endif %}

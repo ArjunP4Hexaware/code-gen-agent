@@ -1,0 +1,78 @@
+{% from "_macros.py.j2" import banner %}
+"""Schema drift check: missing column -> FAIL the file, extra column -> quarantine.
+
+{% if is_segmented %}
+Column reorders are transparent (selection is by name / by position
+within the expected count). A drift FAIL aborts the load before anything
+is written.
+{% else %}
+Column reorders are transparent (selection is by name). A drift FAIL
+aborts the load before anything is written.
+{% endif %}
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from pyspark.sql import DataFrame
+{% if is_segmented %}
+from pyspark.sql import functions as F
+{% endif %}
+
+from pipeline import feed_spec
+
+
+@dataclass(frozen=True)
+class DriftResult:
+    segment: str
+    ok: bool
+    missing_columns: list[str] = field(default_factory=list)
+    extra_columns: list[str] = field(default_factory=list)
+    rows_with_missing_fields: int = 0
+    rows_with_extra_fields: int = 0
+
+    @property
+    def quarantined(self) -> bool:
+        return bool(self.extra_columns) or self.rows_with_extra_fields > 0
+
+
+{% if is_segmented %}
+FIELD_COUNT_COLUMN = "_field_count"
+
+
+def check_drift(df: DataFrame, segment: str = feed_spec.DETAIL_SEGMENT) -> DriftResult:
+    """Positional dialect: compare each row's raw field count to the contract.
+
+    Fewer fields than the contract expects -> FAIL (a required column cannot
+    be located positionally). More fields -> the extras were not selected;
+    they are quarantined by count and the load proceeds.
+    """
+    expected = len(feed_spec.SEGMENTS[segment]["source_columns"])
+    counts = df.agg(
+        F.sum((F.col(FIELD_COUNT_COLUMN) < expected).cast("long")).alias("missing"),
+        F.sum((F.col(FIELD_COUNT_COLUMN) > expected).cast("long")).alias("extra"),
+    ).collect()[0]
+    rows_missing = counts["missing"] or 0
+    rows_extra = counts["extra"] or 0
+    return DriftResult(
+        segment=segment,
+        ok=rows_missing == 0,
+        rows_with_missing_fields=rows_missing,
+        rows_with_extra_fields=rows_extra,
+    )
+{% else %}
+def check_drift(df: DataFrame, segment: str = feed_spec.DETAIL_SEGMENT) -> DriftResult:
+    """Header dialect: compare the file's header names to the contract's."""
+    expected = feed_spec.SEGMENTS[segment]["source_columns"]
+    actual = df.columns
+    missing = [column for column in expected if column not in actual]
+    extra = [column for column in actual if column not in expected]
+    return DriftResult(
+        segment=segment,
+        ok=not missing,
+        missing_columns=missing,
+        extra_columns=extra,
+    )
+{% endif %}

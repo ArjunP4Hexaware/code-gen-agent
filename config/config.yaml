@@ -1,0 +1,87 @@
+# CodeGen / Data Engineer Agent — non-secret settings only.
+#
+# Credentials never live here. ANTHROPIC_API_KEY / DATABRICKS_* resolve from
+# the environment (see .env.example).
+#
+# Every number and name the generator uses lives in this file. A numeric
+# literal in generator logic is a bug (Code Review Agent convention).
+
+contracts:
+  # Directory holding the contract JSON files; pair paths are relative to it.
+  dir: fixtures/contracts
+  # Each pair joins one FRD feed contract with one STTM mapping contract.
+  pairs:
+    - frd: "FRD_Medicare Expansion-MIDS - Socially Determined.contract.json"
+      sttm: "sttm_mapping_contracts.json"
+    - frd: "FRD_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Ingestion_1005034.contract.json"
+      sttm: "sttm_mapping_contracts_caqh.SYNTHETIC.json"
+
+# Overrides for FRD feed_name -> STTM feed_id when normalization
+# (lowercase, non-alphanumeric -> _) is not enough. Empty by default.
+feed_aliases: {}
+
+output:
+  dir: out
+  reports_dir: reports
+
+naming:
+  # Side-table names derive from the (detail) stage table + these suffixes.
+  # Suffix case follows the stage table's case (EXT_TPL_CAQH_DTL -> _ERRORS).
+  errors_table_suffix: "_errors"
+  recycle_table_suffix: "_recycle"
+  processed_files_table_suffix: "_processed_files"
+
+defaults:
+  # Used only when a feed has a recycle rule with no window stated anywhere.
+  recycle_window_days: 7
+
+masking:
+  # PHI masking policy applied at every log/report/error egress.
+  policy: last4
+  visible_chars: 4
+  mask_char: "*"
+
+segments:
+  # Segmented feeds (Header/Detail/Trailer) carry a record-type discriminator
+  # as the first column of every row. ASSUMPTION pending the source
+  # dictionary — see docs/DESIGN.md open questions.
+  record_type_column: record_type
+  record_type_values:
+    Header: "H"
+    Detail: "D"
+    Trailer: "T"
+  # Source column on the Trailer segment carrying the Detail record count,
+  # reconciled by the generated DQ check.
+  trailer_count_column: record_count
+
+reasoning:
+  # Layer 2 — only free-text validation rules the deterministic compiler
+  # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;
+  # --dry-run forces mock.
+  model: claude-sonnet-5
+  max_tokens: 4096
+  # One retry with the validation error appended, then record a failure.
+  max_attempts: 2
+
+gate:
+  # Pre-flight of the Code Review Agent's checks over generated output.
+  run_generated_tests: true
+  ruff: true
+  structural_checks: true
+  # Debug-statement patterns the structural check scans generated code for.
+  debug_patterns:
+    - "breakpoint()"
+    - "pdb.set_trace("
+    - "print(\"DEBUG"
+    - "print('DEBUG"
+  # How many trailing pytest output lines the gate keeps in check details.
+  pytest_tail_lines: 15
+
+job:
+  # Recipients for generated Workflows email_notifications blocks; empty
+  # means the block is emitted with no addresses and the report flags it.
+  notification_emails: []
+  # Databricks Runtime / cluster shape for generated job JSON.
+  spark_version: "15.4.x-scala2.12"
+  node_type_id: "Standard_DS3_v2"
+  num_workers: 2

@@ -1,0 +1,71 @@
+{% from "_macros.py.j2" import banner %}
+"""Not-null enforcement: rows with a null/blank key column are rejected.
+
+Rejected rows land in the errors table with the offending column named and
+the key value masked{% if phi_columns %} (PHI leaves the pipeline masked, always){% endif %}. The load
+continues with the surviving rows.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from datetime import datetime
+from functools import reduce
+
+from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec, masking
+
+ERROR_TYPE_NOT_NULL = "NOT_NULL"
+
+
+def _is_blank(column: str) -> Column:
+    return F.col(column).isNull() | (F.length(F.trim(F.col(column))) == 0)
+
+
+def split_rejects(df: DataFrame) -> tuple[DataFrame, DataFrame]:
+    """(good rows, rejected rows) by the contract's not-null stage columns."""
+    if not feed_spec.NOT_NULL_COLUMNS:
+        return df, df.limit(0)
+    any_blank = reduce(
+        lambda left, right: left | right,
+        [_is_blank(column) for column in feed_spec.NOT_NULL_COLUMNS],
+    )
+    return df.where(~any_blank), df.where(any_blank)
+
+
+def _masked_key(column: str) -> Column:
+    value = F.col(column)
+    if column in feed_spec.PHI_COLUMNS:
+        value = masking.mask_column(value)
+    return F.coalesce(value, F.lit("<null>"))
+
+
+def write_rejects(
+    spark: SparkSession,
+    rejected: DataFrame,
+    lob: str,
+    src_file_name: str,
+    run_ts: datetime,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> int:
+    """Append one errors-table row per rejected row per blank key column."""
+    per_column = [
+        rejected.where(_is_blank(column)).select(
+            F.lit(lob).alias("LOB"),
+            F.lit(src_file_name).alias("SRC_FILE_NAME"),
+            F.lit(ERROR_TYPE_NOT_NULL).alias("ERROR_TYPE"),
+            F.lit(column).alias("COLUMN_NAME"),
+            _masked_key(feed_spec.NATURAL_KEY_COLUMNS[0]).alias("KEY_VALUE_MASKED"),
+            F.lit(run_ts).cast("timestamp").alias("REC_CREATION_TIME"),
+        )
+        for column in feed_spec.NOT_NULL_COLUMNS
+    ]
+    error_rows = reduce(lambda left, right: left.unionByName(right), per_column)
+    count = error_rows.count()
+    if count:
+        error_rows.write.format("delta").mode("append").saveAsTable(
+            feed_spec.qualified(feed_spec.ERRORS_TABLE, catalog)
+        )
+    return count

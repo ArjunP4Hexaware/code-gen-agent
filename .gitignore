@@ -1,0 +1,39 @@
+# Secrets — never commit credentials
+.env
+*.local.yaml
+
+# Reference repos (siblings vendored locally for style guidance, not part of this repo)
+reference/
+
+# Generated output and run artifacts
+out/
+reports/
+
+# Stray local-Spark droppings (see CLAUDE.md — delete on sight)
+metastore_db/
+derby.log
+spark-warehouse/
+
+# Demo UI — local state and build artifacts
+ui/backend/state/
+ui/frontend/node_modules/
+ui/frontend/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Office documents
+*.docx
+*.xlsx
+
+# Wheel-build detritus
+build/
+dist/
+*.whl
+ui/frontend/*.tsbuildinfo

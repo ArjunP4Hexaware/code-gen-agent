@@ -1,0 +1,46 @@
+{% from "_macros.py.j2" import banner %}
+"""Audit columns — pipeline-populated, never sourced from the file.
+
+LOB is a run parameter, SRC_FILE_NAME is the actual ingested file name, and
+the REC_*_TIME columns come from the injectable ``run_ts`` so recycle aging
+and backfills are deterministic and testable. ``REC_CREATION_TIME`` is
+preserved across re-ingests by the MERGE in ``writer.py``.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec
+
+LOB_COLUMN = "LOB"
+SRC_FILE_NAME_COLUMN = "SRC_FILE_NAME"
+REC_CREATION_TIME_COLUMN = "REC_CREATION_TIME"
+REC_UPDATED_TIME_COLUMN = "REC_UPDATED_TIME"
+
+
+class UnknownLobError(ValueError):
+    """The run's LOB parameter is not one the contract declares."""
+
+
+def check_lob(lob: str) -> str:
+    if lob not in feed_spec.LOBS:
+        raise UnknownLobError(f"LOB '{lob}' is not one of the contract's LOBs {feed_spec.LOBS}")
+    return lob
+
+
+def add_audit_columns(
+    df: DataFrame, lob: str, src_file_name: str, run_ts: datetime
+) -> DataFrame:
+    check_lob(lob)
+    timestamp = F.lit(run_ts).cast("timestamp")
+    return (
+        df.withColumn(LOB_COLUMN, F.lit(lob))
+        .withColumn(SRC_FILE_NAME_COLUMN, F.lit(src_file_name))
+        .withColumn(REC_CREATION_TIME_COLUMN, timestamp)
+        .withColumn(REC_UPDATED_TIME_COLUMN, timestamp)
+    )

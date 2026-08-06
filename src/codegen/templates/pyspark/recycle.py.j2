@@ -1,0 +1,135 @@
+{% from "_macros.py.j2" import banner %}
+"""Recycle rule: unmatched keys wait in the recycle table, retried each run.
+
+Contract semantics ({{ recycle.window_days }}-day window):
+- new rows whose `{{ recycle.key_stage_column }}` is absent from the reference go to
+  `{{ recycle.table }}` with status PENDING and a first-seen timestamp;
+- every run, PENDING rows inside the window are retried against the
+  reference — matches are returned for loading and marked PROCESSED;
+- PENDING rows older than the window are marked EXPIRED.
+
+All aging is computed against the injectable ``run_ts``, so the window is
+deterministic and testable.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from delta.tables import DeltaTable
+from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec, reference
+
+FIRST_SEEN_COLUMN = "FIRST_SEEN_TIME"
+STATUS_COLUMN = "RECYCLE_STATUS"
+
+
+@dataclass(frozen=True)
+class RecycleResult:
+    sent_to_recycle: int
+    reprocessed_from_backlog: int
+    expired: int
+    still_pending: int
+
+
+def split_by_reference(df: DataFrame, reference_ids: DataFrame) -> tuple[DataFrame, DataFrame]:
+    """(matched rows, unmatched rows) against the reference id set."""
+    id_column = reference.REFERENCE_ID_ALIAS
+    key = F.trim(F.col(feed_spec.RECYCLE_KEY_COLUMN))
+    joined = df.join(F.broadcast(reference_ids), key == F.col(id_column), "left")
+    matched = joined.where(F.col(id_column).isNotNull()).drop(id_column)
+    unmatched = joined.where(F.col(id_column).isNull()).drop(id_column)
+    return matched, unmatched
+
+
+def send_to_recycle(
+    spark: SparkSession,
+    unmatched: DataFrame,
+    run_ts: datetime,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> int:
+    """MERGE unmatched rows into the recycle table as PENDING.
+
+    Keyed on SRC_FILE_NAME + natural key so a retried file does not stack
+    duplicates; existing rows keep their original FIRST_SEEN_TIME (the
+    window ages from first sight, not the latest retry).
+    """
+    count = unmatched.count()
+    if count == 0:
+        return 0
+    with_status = unmatched.withColumn(
+        FIRST_SEEN_COLUMN, F.lit(run_ts).cast("timestamp")
+    ).withColumn(STATUS_COLUMN, F.lit(feed_spec.RECYCLE_STATUS_PENDING))
+    target = DeltaTable.forName(spark, feed_spec.qualified(feed_spec.RECYCLE_TABLE, catalog))
+    merge_keys = ["SRC_FILE_NAME", *feed_spec.NATURAL_KEY_COLUMNS]
+    condition = " AND ".join(f"t.`{key}` <=> s.`{key}`" for key in merge_keys)
+    (
+        target.alias("t")
+        .merge(with_status.alias("s"), condition)
+        .whenNotMatchedInsertAll()
+        .execute()
+    )
+    return count
+
+
+def process_backlog(
+    spark: SparkSession,
+    reference_ids: DataFrame,
+    run_ts: datetime,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> tuple[DataFrame, int, int, int]:
+    """Retry / expire the PENDING backlog.
+
+    Returns (rows to load to stage, reprocessed count, expired count,
+    still-pending count). Matched rows are marked PROCESSED; rows first seen
+    more than {{ recycle.window_days }} days before ``run_ts`` are marked EXPIRED.
+    """
+    table_name = feed_spec.qualified(feed_spec.RECYCLE_TABLE, catalog)
+    cutoff = run_ts - timedelta(days=feed_spec.RECYCLE_WINDOW_DAYS)
+    pending = F.col(STATUS_COLUMN) == feed_spec.RECYCLE_STATUS_PENDING
+
+    backlog = spark.table(table_name).where(pending)
+    in_window = backlog.where(F.col(FIRST_SEEN_COLUMN) >= F.lit(cutoff).cast("timestamp"))
+    matched, _ = split_by_reference(in_window, reference_ids)
+    stage_columns = [
+        column
+        for column, _dtype in feed_spec.stage_table_columns(feed_spec.DETAIL_SEGMENT)
+    ]
+    # Materialize before the status MERGE below: to_load reads WHERE
+    # status = PENDING, and the merge flips exactly those rows to PROCESSED —
+    # a lazy plan re-evaluated by the caller would come back empty.
+    to_load = matched.select(*stage_columns).localCheckpoint(eager=True)
+    reprocessed = to_load.count()
+
+    target = DeltaTable.forName(spark, table_name)
+    if reprocessed:
+        merge_keys = ["SRC_FILE_NAME", *feed_spec.NATURAL_KEY_COLUMNS]
+        condition = " AND ".join(f"t.`{key}` <=> s.`{key}`" for key in merge_keys)
+        status_pending = f"t.{STATUS_COLUMN} = '{feed_spec.RECYCLE_STATUS_PENDING}'"
+        (
+            target.alias("t")
+            .merge(matched.select(*merge_keys).distinct().alias("s"), condition)
+            .whenMatchedUpdate(
+                condition=status_pending,
+                set={STATUS_COLUMN: F.lit(feed_spec.RECYCLE_STATUS_PROCESSED)},
+            )
+            .execute()
+        )
+
+    expired_condition = (
+        f"{STATUS_COLUMN} = '{feed_spec.RECYCLE_STATUS_PENDING}' "
+        f"AND {FIRST_SEEN_COLUMN} < '{cutoff.isoformat(sep=' ')}'"
+    )
+    expired = spark.table(table_name).where(expired_condition).count()
+    if expired:
+        target.update(
+            condition=expired_condition,
+            set={STATUS_COLUMN: F.lit(feed_spec.RECYCLE_STATUS_EXPIRED)},
+        )
+
+    still_pending = spark.table(table_name).where(pending).count()
+    return to_load, reprocessed, expired, still_pending

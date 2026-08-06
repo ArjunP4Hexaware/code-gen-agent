@@ -1,0 +1,123 @@
+{% from "_macros.py.j2" import banner %}
+"""End-to-end: land -> load -> DQ -> report for one file."""
+{{ banner(provenance, feed) }}
+
+from conftest import RUN_TS, detail_rows, write_source_file
+from pipeline import feed_spec, orchestrator
+
+
+def _ingest(spark, path, **kwargs):
+    return orchestrator.ingest_file(
+        spark,
+        str(path),
+        feed_spec.LOBS[0],
+        run_ts=RUN_TS,
+        catalog=None,
+        **kwargs,
+    )
+
+
+{% if recycle %}
+def test_happy_path_loads_and_passes_dq(spark, tables, reference_stand_in, tmp_path):
+    from conftest import add_reference_ids
+
+    rows = detail_rows(3, key_prefix="E2E")
+    add_reference_ids(spark, [r[{{ detail_natural_key_source_columns[0] | tojson }}] for r in rows])
+    path = write_source_file(
+        tmp_path, rows, file_name={{ e2e_file_names[0] | tojson }}
+    )
+    result = _ingest(spark, path, reference_table=reference_stand_in, report_dir=str(tmp_path))
+    assert result.status == orchestrator.STATUS_LOADED, result
+    assert result.rows_loaded == 3
+    assert result.rows_recycled == 0
+    assert (tmp_path / f"{feed_spec.FEED_ID}__{result.src_file_name.replace('.', '_')}.md").exists()
+
+
+def test_unknown_member_rows_are_recycled(spark, tables, reference_stand_in, tmp_path):
+    rows = detail_rows(2, key_prefix="E2EUNK")
+    path = write_source_file(
+        tmp_path, rows, file_name={{ e2e_file_names[1] | tojson }}
+    )
+    result = _ingest(spark, path, reference_table=reference_stand_in)
+    assert result.rows_loaded == 0
+    assert result.rows_recycled == 2
+{% else %}
+def test_happy_path_loads_and_passes_dq(spark, tables, tmp_path):
+    rows = detail_rows(3, key_prefix="E2E")
+    path = write_source_file(
+        tmp_path, rows, file_name={{ e2e_file_names[0] | tojson }}
+    )
+    result = _ingest(spark, path, report_dir=str(tmp_path))
+    assert result.status == orchestrator.STATUS_LOADED, result
+    assert result.rows_loaded == 3
+    assert (tmp_path / f"{feed_spec.FEED_ID}__{result.src_file_name.replace('.', '_')}.md").exists()
+{% endif %}
+
+
+def test_null_key_rows_are_rejected_not_loaded(spark, tables{% if recycle %}, reference_stand_in{% endif %}, tmp_path):
+    rows = detail_rows(2, key_prefix="E2EREJ")
+    rows[0][{{ detail_natural_key_source_columns[0] | tojson }}] = ""
+{% if recycle %}
+    from conftest import add_reference_ids
+
+    add_reference_ids(spark, [rows[1][{{ detail_natural_key_source_columns[0] | tojson }}]])
+{% endif %}
+    path = write_source_file(
+        tmp_path, rows, file_name={{ e2e_file_names[2] | tojson }}
+    )
+    result = _ingest(spark, path{% if recycle %}, reference_table=reference_stand_in{% endif %})
+    assert result.rows_rejected == 1
+    assert result.rows_loaded == 1
+
+
+{% if is_segmented %}
+def test_layout_violation_fails_the_file(spark, tables{% if recycle %}, reference_stand_in{% endif %}, tmp_path):
+    from conftest import DELIMITER
+
+    marker = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["record_type_value"]
+    short_line = DELIMITER.join([marker, "too-short"])
+    path = write_source_file(
+        tmp_path,
+        detail_rows(1, key_prefix="E2EDRIFT"),
+        file_name={{ e2e_file_names[3] | tojson }},
+        extra_lines=[short_line],
+    )
+    result = _ingest(spark, path{% if recycle %}, reference_table=reference_stand_in{% endif %})
+    assert result.status == orchestrator.STATUS_DRIFT_FAIL
+    assert result.rows_loaded == 0
+{% else %}
+def test_missing_column_fails_the_file(spark, tables, tmp_path):
+    dropped = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"][-1]
+    path = write_source_file(
+        tmp_path,
+        detail_rows(1, key_prefix="E2EDRIFT"),
+        file_name={{ e2e_file_names[3] | tojson }},
+        drop_column=dropped,
+    )
+    result = _ingest(spark, path)
+    assert result.status == orchestrator.STATUS_DRIFT_FAIL
+    assert result.rows_loaded == 0
+{% endif %}
+
+
+def test_reingest_is_idempotent(spark, tables{% if recycle %}, reference_stand_in{% endif %}, tmp_path):
+    rows = detail_rows(2, key_prefix="E2EIDEM")
+{% if recycle %}
+    from conftest import add_reference_ids
+
+    add_reference_ids(spark, [r[{{ detail_natural_key_source_columns[0] | tojson }}] for r in rows])
+{% endif %}
+    path = write_source_file(
+        tmp_path, rows, file_name={{ e2e_file_names[4] | tojson }}
+    )
+    first = _ingest(spark, path{% if recycle %}, reference_table=reference_stand_in{% endif %})
+    second = _ingest(spark, path{% if recycle %}, reference_table=reference_stand_in{% endif %})
+    assert first.rows_loaded == 2
+    assert second.rows_loaded == 2
+    table = feed_spec.qualified(
+        feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["stage_table"], catalog=None
+    )
+    stage_count = (
+        spark.table(table).where(f"SRC_FILE_NAME = '{first.src_file_name}'").count()
+    )
+    assert stage_count == 2

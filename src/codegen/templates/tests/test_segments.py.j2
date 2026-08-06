@@ -1,0 +1,34 @@
+{% from "_macros.py.j2" import banner %}
+"""Header/Detail/Trailer splitting by record-type discriminator."""
+{{ banner(provenance, feed) }}
+
+from conftest import DELIMITER, detail_rows, write_source_file
+from pipeline import feed_spec, reader, segments
+
+
+def test_split_segments_by_record_type(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(3))
+    raw = reader.read_source(spark, str(path))
+    by_segment, unknown = segments.split_segments(raw)
+    assert set(by_segment) == set(feed_spec.SEGMENTS)
+    assert by_segment["Header"].count() == 1
+    assert by_segment[feed_spec.DETAIL_SEGMENT].count() == 3
+    assert by_segment["Trailer"].count() == 1
+    assert unknown.count() == 0
+
+
+def test_split_segments_flags_unknown_record_type(spark, tmp_path):
+    unknown_line = DELIMITER.join(["Z", "bogus", "row"])
+    path = write_source_file(tmp_path, detail_rows(1), extra_lines=[unknown_line])
+    raw = reader.read_source(spark, str(path))
+    _by_segment, unknown = segments.split_segments(raw)
+    assert unknown.count() == 1
+
+
+def test_segment_columns_are_source_names(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(1))
+    raw = reader.read_source(spark, str(path))
+    by_segment, _unknown = segments.split_segments(raw)
+    detail = by_segment[feed_spec.DETAIL_SEGMENT]
+    expected = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"]
+    assert detail.columns == [*expected, "_field_count"]

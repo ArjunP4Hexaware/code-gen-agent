@@ -1,0 +1,108 @@
+{% from "_macros.py.j2" import banner %}
+"""Deterministic synthetic fixtures for {{ feed.id }}.
+
+Built from the contract's sample data.
+
+Writes happy-path and edge-case files into ``data/incoming/`` next to this
+script. No randomness: identical runs produce identical bytes.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pathlib import Path
+
+DELIMITER = {{ delimiter | tojson }}
+OUT_DIR = Path(__file__).resolve().parent.parent / "data" / "incoming"
+
+SAMPLE_ROW: dict[str, str] = {
+{% for column, value in detail.column_samples %}
+    {{ column | tojson }}: {{ value | tojson }},
+{% endfor %}
+}
+KEY_COLUMNS = {{ detail_natural_key_source_columns | tojson }}
+{% if is_segmented %}
+HEADER_ROW: dict[str, str] = {
+{% for seg in segments if seg.name == "Header" %}
+{% for column, value in seg.column_samples %}
+    {{ column | tojson }}: {{ value | tojson }},
+{% endfor %}
+{% endfor %}
+}
+TRAILER_ROW: dict[str, str] = {
+{% for seg in segments if seg.name == "Trailer" %}
+{% for column, value in seg.column_samples %}
+    {{ column | tojson }}: {{ value | tojson }},
+{% endfor %}
+{% endfor %}
+}
+TRAILER_COUNT_COLUMN = {{ trailer_count_source_column | py }}
+{% endif %}
+
+
+def _rows(n: int, key_prefix: str) -> list[dict[str, str]]:
+    rows = []
+    for i in range(n):
+        row = dict(SAMPLE_ROW)
+        for column in KEY_COLUMNS:
+            row[column] = f"{key_prefix}{i:04d}"
+        rows.append(row)
+    return rows
+
+
+{% if is_segmented %}
+def _write(name: str, rows: list[dict[str, str]], trailer_count: int | None = None) -> None:
+    trailer = dict(TRAILER_ROW)
+    trailer[TRAILER_COUNT_COLUMN] = str(trailer_count if trailer_count is not None else len(rows))
+    lines = [
+        DELIMITER.join(HEADER_ROW.values()),
+        *[DELIMITER.join(row.values()) for row in rows],
+        DELIMITER.join(trailer.values()),
+    ]
+    path = OUT_DIR / name
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {path}")
+{% else %}
+def _write(name: str, rows: list[dict[str, str]], drop_last_column: bool = False) -> None:
+    columns = list(rows[0])
+    if drop_last_column:
+        columns = columns[:-1]
+    lines = [DELIMITER.join(columns)]
+    lines += [DELIMITER.join(row[c] for c in columns) for row in rows]
+    path = OUT_DIR / name
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {path}")
+{% endif %}
+
+
+def main() -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _write({{ e2e_file_names[0] | tojson }}, _rows(5, "HAPPY"))
+
+    null_key = _rows(3, "NULLKEY")
+    null_key[1][KEY_COLUMNS[0]] = ""
+    _write({{ e2e_file_names[1] | tojson }}, null_key)
+{% if is_segmented %}
+
+    # Trailer declares one more row than the file carries: DQ must flag it.
+    _write(
+        {{ e2e_file_names[2] | tojson }}, _rows(2, "SHORT"), trailer_count=3
+    )
+{% else %}
+
+    # Missing last column: the drift check must FAIL this file.
+    _write(
+        {{ e2e_file_names[2] | tojson }},
+        _rows(2, "DRIFT"),
+        drop_last_column=True,
+    )
+{% endif %}
+{% if recycle %}
+
+    # Keys absent from the reference: rows must land in the recycle table.
+    _write({{ e2e_file_names[3] | tojson }}, _rows(2, "UNKNOWNMBR"))
+{% endif %}
+
+
+if __name__ == "__main__":
+    main()

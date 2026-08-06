@@ -1,0 +1,34 @@
+# Databricks notebook source
+{% from "_macros.py.j2" import banner %}
+"""Thin Databricks notebook entrypoint: widgets -> orchestrator, nothing else."""
+{{ banner(provenance, feed) }}
+
+from datetime import datetime
+
+from pipeline import orchestrator
+
+# COMMAND ----------
+
+dbutils.widgets.text("file_path", "")  # noqa: F821 - dbutils exists on Databricks
+dbutils.widgets.text("lob", {{ lobs[0] | tojson }})  # noqa: F821
+dbutils.widgets.text("catalog", {{ (default_catalog or "") | tojson }})  # noqa: F821
+dbutils.widgets.text("run_ts", "")  # noqa: F821
+
+# COMMAND ----------
+
+file_path = dbutils.widgets.get("file_path")  # noqa: F821
+lob = dbutils.widgets.get("lob")  # noqa: F821
+catalog = dbutils.widgets.get("catalog") or None  # noqa: F821
+run_ts_raw = dbutils.widgets.get("run_ts")  # noqa: F821
+run_ts = datetime.fromisoformat(run_ts_raw) if run_ts_raw else None
+
+result = orchestrator.ingest_file(
+    spark,  # noqa: F821 - spark session is provided by Databricks
+    file_path,
+    lob,
+    run_ts=run_ts,
+    catalog=catalog,
+)
+print(result)
+if result.status not in (orchestrator.STATUS_LOADED,):
+    raise RuntimeError(f"ingest finished with status {result.status}")

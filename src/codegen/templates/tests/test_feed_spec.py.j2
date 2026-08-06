@@ -1,0 +1,40 @@
+{% from "_macros.py.j2" import banner %}
+"""Contract constants and table bootstrap for {{ feed.id }}."""
+{{ banner(provenance, feed) }}
+
+from conftest import EXAMPLE_FILE_NAME
+from pipeline import feed_spec
+
+
+def test_example_file_name_matches():
+    assert feed_spec.matches_file(EXAMPLE_FILE_NAME)
+
+
+def test_unrelated_file_name_does_not_match():
+    assert not feed_spec.matches_file("unrelated_file.dat")
+
+
+def test_qualified_two_part_without_catalog():
+    name = feed_spec.qualified("t", catalog=None)
+    assert name == f"{feed_spec.STAGE_SCHEMA}.t"
+
+
+def test_qualified_three_part_with_catalog():
+    assert feed_spec.qualified("t", catalog="cat") == f"cat.{feed_spec.STAGE_SCHEMA}.t"
+
+
+def test_stage_table_columns_end_with_audit_columns():
+    columns = feed_spec.stage_table_columns(feed_spec.DETAIL_SEGMENT)
+    audit_tail = columns[-len(feed_spec.AUDIT_COLUMNS) :]
+    assert audit_tail == feed_spec.AUDIT_COLUMNS
+    data_columns = columns[: -len(feed_spec.AUDIT_COLUMNS)]
+    assert all(dtype == "STRING" for _column, dtype in data_columns)
+
+
+def test_ensure_tables_creates_every_table(spark, tables):
+    expected = [feed_spec.SEGMENTS[s]["stage_table"] for s in feed_spec.SEGMENTS]
+    expected += [feed_spec.ERRORS_TABLE, feed_spec.PROCESSED_FILES_TABLE]
+    if feed_spec.HAS_RECYCLE:
+        expected.append(feed_spec.RECYCLE_TABLE)
+    for table in expected:
+        assert spark.catalog.tableExists(feed_spec.qualified(table, catalog=None)), table

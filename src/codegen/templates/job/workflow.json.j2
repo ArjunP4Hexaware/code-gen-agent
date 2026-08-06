@@ -1,0 +1,50 @@
+{
+  "_generated_by": "codegen-data-engineer-agent — DO NOT EDIT BY HAND",
+  "_feed": {{ feed.id | tojson }},
+  "_frd_sha256": {{ provenance.frd_sha | tojson }},
+  "_sttm_sha256": {{ provenance.sttm_sha | tojson }},
+  "_sla_from_contract": {{ sla_texts | tojson }},
+  "name": "ingest_{{ feed.slug }}",
+  "tasks": [
+    {
+      "task_key": "ingest_{{ feed.slug }}",
+      "notebook_task": {
+        "notebook_path": "/Workspace/pipelines/{{ feed.slug }}/notebook_entrypoint",
+        "base_parameters": {
+          "lob": {{ lobs[0] | tojson }},
+          "catalog": {{ (default_catalog or "") | tojson }},
+          "file_path": "",
+          "run_ts": ""
+        }
+      },
+      "job_cluster_key": "ingest_cluster"
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "ingest_cluster",
+      "new_cluster": {
+        "spark_version": {{ job.spark_version | tojson }},
+        "node_type_id": {{ job.node_type_id | tojson }},
+        "num_workers": {{ job.num_workers }}
+      }
+    }
+  ],
+{% if schedule %}
+  "schedule": {
+    "quartz_cron_expression": {{ schedule.quartz_cron_expression | tojson }},
+    "timezone_id": {{ schedule.timezone_id | tojson }},
+    "pause_status": "PAUSED"
+  },
+{% else %}
+  "_schedule_note": "SLA text was not unambiguously translatable to cron; schedule manually from _sla_from_contract.",
+{% endif %}
+{% if notifications.rule_texts %}
+  "_notification_rules_from_contract": {{ notifications.rule_texts | tojson }},
+  "email_notifications": {
+    "on_success": {{ notifications.emails | tojson }},
+    "on_failure": {{ notifications.emails | tojson }}
+  },
+{% endif %}
+  "max_concurrent_runs": 1
+}

@@ -1,0 +1,23 @@
+{% from "_macros.py.j2" import banner %}
+"""Source -> stage column mapping: 1:1 from the contract, no transformation.
+
+The load is AS-IS by contract: selection and rename only. Extra (quarantined)
+columns are dropped here because the selection is exactly the contract list.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec
+
+
+def map_to_stage(df: DataFrame, segment: str = feed_spec.DETAIL_SEGMENT) -> DataFrame:
+    """Select the segment's source columns, aliased to their stage names."""
+    spec = feed_spec.SEGMENTS[segment]
+    pairs = zip(spec["source_columns"], spec["stage_columns"], strict=True)
+    return df.select(
+        *[F.col(source).alias(stage) for source, stage in pairs]
+    )

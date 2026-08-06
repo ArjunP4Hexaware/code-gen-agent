@@ -1,0 +1,47 @@
+{% from "_macros.py.j2" import banner %}
+"""Reader: pattern matching and all-String parsing."""
+{{ banner(provenance, feed) }}
+
+import pytest
+
+from conftest import detail_rows, write_source_file
+from pipeline import feed_spec, reader
+
+
+def test_unrecognized_file_name_raises(spark, tmp_path):
+    bad = tmp_path / "unrelated_file.dat"
+    bad.write_text("x\n", encoding="utf-8")
+    with pytest.raises(reader.UnrecognizedFileError):
+        reader.read_source(spark, str(bad))
+
+
+{% if is_segmented %}
+def test_read_source_splits_lines_into_field_arrays(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(2))
+    df = reader.read_source(spark, str(path))
+    assert df.columns == [reader.RAW_FIELDS_COLUMN]
+    # header + 2 details + trailer
+    assert df.count() == 4
+
+
+def test_read_source_keeps_trailing_empty_fields(spark, tmp_path):
+    rows = detail_rows(1)
+    last_column = list(rows[0])[-1]
+    rows[0][last_column] = ""
+    path = write_source_file(tmp_path, rows)
+    df = reader.read_source(spark, str(path))
+    expected = len(feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"])
+    detail_marker = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["record_type_value"]
+    detail_line = [
+        row for row in df.collect() if row[reader.RAW_FIELDS_COLUMN][0] == detail_marker
+    ]
+    assert len(detail_line) == 1
+    assert len(detail_line[0][reader.RAW_FIELDS_COLUMN]) == expected
+{% else %}
+def test_read_source_headers_and_string_types(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(3))
+    df = reader.read_source(spark, str(path))
+    assert df.columns == feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"]
+    assert df.count() == 3
+    assert all(dtype == "string" for _name, dtype in df.dtypes)
+{% endif %}

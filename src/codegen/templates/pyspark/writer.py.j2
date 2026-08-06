@@ -1,0 +1,126 @@
+{% from "_macros.py.j2" import banner %}
+"""Idempotent stage writes.
+
+Detail rows MERGE on SRC_FILE_NAME + natural key: re-ingesting a file
+replaces its rows instead of duplicating them, and ``REC_CREATION_TIME`` is
+preserved on matched rows (only ``REC_UPDATED_TIME`` advances). The
+contract's "{{ stage_load_strategy }}" stage strategy is honored as a
+file-scoped replace — a re-sent file supersedes itself without touching
+other files' rows.
+{% if is_segmented %}
+
+Header/Trailer segments have no natural key; idempotency there is
+delete-by-file then append (one row each per file).
+{% endif %}
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from delta.tables import DeltaTable
+from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+from pipeline import audit, feed_spec
+
+
+def merge_detail(
+    spark: SparkSession,
+    df: DataFrame,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> int:
+    """MERGE detail rows into the stage table; returns the input row count."""
+    count = df.count()
+    if count == 0:
+        return 0
+    table = feed_spec.qualified(
+        feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["stage_table"], catalog
+    )
+    target = DeltaTable.forName(spark, table)
+    merge_keys = ["SRC_FILE_NAME", *feed_spec.NATURAL_KEY_COLUMNS]
+    condition = " AND ".join(f"t.`{key}` <=> s.`{key}`" for key in merge_keys)
+    update_set = {
+        column: F.col(f"s.`{column}`")
+        for column, _dtype in feed_spec.stage_table_columns(feed_spec.DETAIL_SEGMENT)
+        if column != audit.REC_CREATION_TIME_COLUMN
+    }
+    (
+        target.alias("t")
+        .merge(df.alias("s"), condition)
+        .whenMatchedUpdate(set=update_set)
+        .whenNotMatchedInsertAll()
+        .execute()
+    )
+    return count
+
+
+{% if is_segmented %}
+def replace_segment(
+    spark: SparkSession,
+    df: DataFrame,
+    segment: str,
+    src_file_name: str,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> int:
+    """Idempotent write for keyless segments: delete this file's rows, append."""
+    count = df.count()
+    table = feed_spec.qualified(feed_spec.SEGMENTS[segment]["stage_table"], catalog)
+    target = DeltaTable.forName(spark, table)
+    target.delete(F.col(audit.SRC_FILE_NAME_COLUMN) == F.lit(src_file_name))
+    if count:
+        df.write.format("delta").mode("append").saveAsTable(table)
+    return count
+
+
+{% endif %}
+def record_processed_file(
+    spark: SparkSession,
+    src_file_name: str,
+    lob: str,
+    run_ts: datetime,
+    rows_loaded: int,
+    rows_rejected: int,
+    rows_recycled: int,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> None:
+    """Upsert the run's outcome for this file into the processed-files table."""
+    table = feed_spec.qualified(feed_spec.PROCESSED_FILES_TABLE, catalog)
+    timestamp = F.lit(run_ts).cast("timestamp")
+    row = spark.createDataFrame(
+        [(src_file_name, lob, rows_loaded, rows_rejected, rows_recycled)],
+        ["SRC_FILE_NAME", "LOB", "ROWS_LOADED", "ROWS_REJECTED", "ROWS_RECYCLED"],
+    ).select(
+        F.col("SRC_FILE_NAME"),
+        F.col("LOB"),
+        F.col("ROWS_LOADED").cast("bigint"),
+        F.col("ROWS_REJECTED").cast("bigint"),
+        F.col("ROWS_RECYCLED").cast("bigint"),
+        timestamp.alias("REC_CREATION_TIME"),
+        timestamp.alias("REC_UPDATED_TIME"),
+    )
+    target = DeltaTable.forName(spark, table)
+    update_set = {
+        column: F.col(f"s.`{column}`")
+        for column, _dtype in feed_spec.PROCESSED_FILES_COLUMNS
+        if column != audit.REC_CREATION_TIME_COLUMN
+    }
+    (
+        target.alias("t")
+        .merge(row.alias("s"), "t.SRC_FILE_NAME = s.SRC_FILE_NAME")
+        .whenMatchedUpdate(set=update_set)
+        .whenNotMatchedInsertAll()
+        .execute()
+    )
+
+
+def was_file_processed(
+    spark: SparkSession,
+    src_file_name: str,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> bool:
+    table = feed_spec.qualified(feed_spec.PROCESSED_FILES_TABLE, catalog)
+    return (
+        spark.table(table).where(F.col("SRC_FILE_NAME") == F.lit(src_file_name)).count() > 0
+    )

@@ -1,0 +1,162 @@
+{% from "_macros.py.j2" import banner, pylist %}
+"""Feed spec for {{ feed.id }}: every contract-derived constant in one place.
+
+All other pipeline modules read from here; none of them hardcodes a table,
+column, or threshold. The same lists drive ``ensure_tables`` and the emitted
+``ddl/*.sql`` files, so the two can never drift.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+import re
+
+from pyspark.sql import SparkSession
+
+FEED_ID = {{ feed.id | tojson }}
+FEED_NAME = {{ feed.name | tojson }}
+SOURCE_SYSTEM = {{ feed.source_system | tojson }}
+LOBS = {{ pylist(lobs) }}
+
+FILE_FORMAT = {{ file_format | tojson }}
+DELIMITER = {{ delimiter | tojson }}
+FILE_NAME_PATTERNS = {{ pylist(file_name_patterns) }}
+_FILE_NAME_REGEXES = [
+{% for rx in file_regexes %}
+    re.compile(r"{{ rx }}", re.IGNORECASE),
+{% endfor %}
+]
+
+DEFAULT_CATALOG: str | None = {{ default_catalog | py }}
+STAGE_SCHEMA = {{ stage_schema | tojson }}
+
+IS_SEGMENTED = {{ "True" if is_segmented else "False" }}
+RECORD_TYPE_COLUMN: str | None = {{ record_type_column | py }}
+
+# segment name -> shape of its stage table. Source columns land 1:1 as
+# all-String stage columns; audit columns are appended, pipeline-populated.
+SEGMENTS: dict[str, dict] = {
+{% for seg in segments %}
+    {{ seg.name | tojson }}: {
+        "stage_table": {{ seg.stage_table | tojson }},
+        "record_type_value": {{ seg.record_type_value | py }},
+        "source_columns": {{ pylist(seg.source_columns, 12) }},
+        "stage_columns": {{ pylist(seg.stage_columns, 12) }},
+    },
+{% endfor %}
+}
+DETAIL_SEGMENT = "Detail"
+
+AUDIT_COLUMNS: list[tuple[str, str]] = [
+{% for name, dtype in audit_columns %}
+    ({{ name | tojson }}, {{ dtype | tojson }}),
+{% endfor %}
+]
+
+# Idempotency key: SRC_FILE_NAME + the contract's not-null (natural key)
+# columns, stage-side names.
+NATURAL_KEY_COLUMNS = {{ pylist(natural_key) }}
+NOT_NULL_COLUMNS = {{ pylist(natural_key) }}
+PHI_COLUMNS = {{ pylist(phi_columns) }}
+
+ERRORS_TABLE = {{ errors_table | tojson }}
+PROCESSED_FILES_TABLE = {{ processed_files_table | tojson }}
+ERRORS_COLUMNS: list[tuple[str, str]] = [
+    ("LOB", "STRING"),
+    ("SRC_FILE_NAME", "STRING"),
+    ("ERROR_TYPE", "STRING"),
+    ("COLUMN_NAME", "STRING"),
+    ("KEY_VALUE_MASKED", "STRING"),
+    ("REC_CREATION_TIME", "TIMESTAMP"),
+]
+PROCESSED_FILES_COLUMNS: list[tuple[str, str]] = [
+    ("SRC_FILE_NAME", "STRING"),
+    ("LOB", "STRING"),
+    ("ROWS_LOADED", "BIGINT"),
+    ("ROWS_REJECTED", "BIGINT"),
+    ("ROWS_RECYCLED", "BIGINT"),
+    ("REC_CREATION_TIME", "TIMESTAMP"),
+    ("REC_UPDATED_TIME", "TIMESTAMP"),
+]
+
+HAS_RECYCLE = {{ "True" if recycle else "False" }}
+{% if recycle %}
+RECYCLE_TABLE: str | None = {{ recycle.table | tojson }}
+RECYCLE_WINDOW_DAYS = {{ recycle.window_days }}
+RECYCLE_KEY_COLUMN: str | None = {{ recycle.key_stage_column | tojson }}
+# Reference lookup parsed from the STTM recycle validation text.
+REFERENCE_TABLE: str | None = {{ recycle.reference_table | tojson }}
+REFERENCE_ID_COLUMN: str | None = {{ recycle.reference_id_column | tojson }}
+REFERENCE_FILTER: str | None = {{ recycle.reference_filter | py }}
+RECYCLE_STATUS_COLUMNS: list[tuple[str, str]] = [
+    ("FIRST_SEEN_TIME", "TIMESTAMP"),
+    ("RECYCLE_STATUS", "STRING"),
+]
+RECYCLE_STATUS_PENDING = "PENDING"
+RECYCLE_STATUS_PROCESSED = "PROCESSED"
+RECYCLE_STATUS_EXPIRED = "EXPIRED"
+{% else %}
+RECYCLE_TABLE: str | None = None
+RECYCLE_WINDOW_DAYS = 0
+RECYCLE_KEY_COLUMN: str | None = None
+REFERENCE_TABLE: str | None = None
+REFERENCE_ID_COLUMN: str | None = None
+REFERENCE_FILTER: str | None = None
+{% endif %}
+
+{% if duplicate_rule_text %}
+# Compiled from FRD validation rule:
+{% for rule_line in (duplicate_rule_text | wordwrap(90, break_long_words=False)).splitlines() %}
+#   {{ rule_line }}
+{% endfor %}
+ALLOW_DUPLICATE_FILE_NAME = {{ "True" if allow_duplicate_file_name else "False" }}
+{% else %}
+# Re-ingesting a file replaces its rows via the idempotent MERGE, so
+# reprocessing is allowed by default.
+ALLOW_DUPLICATE_FILE_NAME = {{ "True" if allow_duplicate_file_name else "False" }}
+{% endif %}
+
+{% if trailer_count_stage_column %}
+# Trailer column reconciled against the Detail row count by DQ.
+TRAILER_COUNT_COLUMN: str | None = {{ trailer_count_stage_column | py }}
+{% else %}
+TRAILER_COUNT_COLUMN: str | None = None
+{% endif %}
+
+
+def qualified(table: str, catalog: str | None = DEFAULT_CATALOG, schema: str = STAGE_SCHEMA) -> str:
+    """Fully qualified table name; two-part when no catalog (local runs)."""
+    parts = [catalog, schema, table] if catalog else [schema, table]
+    return ".".join(parts)
+
+
+def matches_file(file_name: str) -> bool:
+    return any(rx.match(file_name) for rx in _FILE_NAME_REGEXES)
+
+
+def _create_table_sql(name: str, columns: list[tuple[str, str]]) -> str:
+    column_sql = ", ".join(f"`{col}` {dtype}" for col, dtype in columns)
+    return f"CREATE TABLE IF NOT EXISTS {name} ({column_sql}) USING DELTA"
+
+
+def stage_table_columns(segment: str) -> list[tuple[str, str]]:
+    """Stage tables: all source columns as STRING + typed audit columns."""
+    data_columns = [(col, "STRING") for col in SEGMENTS[segment]["stage_columns"]]
+    return data_columns + AUDIT_COLUMNS
+
+
+def ensure_tables(spark: SparkSession, catalog: str | None = DEFAULT_CATALOG) -> None:
+    """Create the schema and every table this pipeline writes, if missing."""
+    schema_name = f"{catalog}.{STAGE_SCHEMA}" if catalog else STAGE_SCHEMA
+    spark.sql(f"CREATE DATABASE IF NOT EXISTS {schema_name}")
+    for segment in SEGMENTS:
+        table = qualified(SEGMENTS[segment]["stage_table"], catalog)
+        spark.sql(_create_table_sql(table, stage_table_columns(segment)))
+    spark.sql(_create_table_sql(qualified(ERRORS_TABLE, catalog), ERRORS_COLUMNS))
+    spark.sql(
+        _create_table_sql(qualified(PROCESSED_FILES_TABLE, catalog), PROCESSED_FILES_COLUMNS)
+    )
+{% if recycle %}
+    recycle_columns = stage_table_columns(DETAIL_SEGMENT) + RECYCLE_STATUS_COLUMNS
+    spark.sql(_create_table_sql(qualified(RECYCLE_TABLE, catalog), recycle_columns))
+{% endif %}

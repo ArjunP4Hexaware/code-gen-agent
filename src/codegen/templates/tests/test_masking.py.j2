@@ -1,0 +1,28 @@
+{% from "_macros.py.j2" import banner %}
+"""PHI masking to last-{{ masking.visible_chars }}."""
+{{ banner(provenance, feed) }}
+
+from pipeline import masking
+
+
+def test_mask_value_none_stays_none():
+    assert masking.mask_value(None) is None
+
+
+def test_mask_value_short_masks_fully():
+    masked = masking.mask_value("123")
+    assert masked == masking.MASK_CHAR * 3
+
+
+def test_mask_value_long_keeps_last_visible_chars():
+    masked = masking.mask_value("123456789")
+    assert masked.endswith("6789")
+    assert masked[: -masking.VISIBLE_CHARS] == masking.MASK_CHAR * 5
+    assert "12345" not in masked
+
+
+def test_mask_column_matches_mask_value(spark):
+    values = [("123456789",), ("12",), (None,)]
+    df = spark.createDataFrame(values, ["v"])
+    masked = [row["m"] for row in df.select(masking.mask_column(df["v"]).alias("m")).collect()]
+    assert masked == [masking.mask_value(v[0]) for v in values]

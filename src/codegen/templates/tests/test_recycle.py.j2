@@ -1,0 +1,100 @@
+{% from "_macros.py.j2" import banner %}
+"""Recycle semantics: no-match -> PENDING, retry -> PROCESSED, {{ recycle.window_days }}-day expiry."""
+{{ banner(provenance, feed) }}
+
+from datetime import timedelta
+
+from conftest import RUN_TS, add_reference_ids, detail_rows
+from pipeline import audit, feed_spec, mapping, recycle, reference
+
+KNOWN_ID = "RECYCLE_KNOWN_0001"
+UNKNOWN_ID = "RECYCLE_UNKNOWN_0001"
+LATE_ID = "RECYCLE_LATE_0001"
+EXPIRING_ID = "RECYCLE_EXPIRING_0001"
+
+
+def _audited(spark, rows, src_file, run_ts=RUN_TS):
+    columns = list(rows[0])
+    df = spark.createDataFrame([tuple(r[c] for c in columns) for r in rows], columns)
+    return audit.add_audit_columns(
+        mapping.map_to_stage(df), feed_spec.LOBS[0], src_file, run_ts
+    )
+
+
+def _rows_with_key(key_value, n=1):
+    rows = detail_rows(n, key_prefix=key_value)
+    key_source = {{ detail_natural_key_source_columns[0] | tojson }}
+    for row in rows:
+        row[key_source] = key_value
+    return rows
+
+
+def _recycle_rows(spark, key_value):
+    return (
+        spark.table(feed_spec.qualified(feed_spec.RECYCLE_TABLE, catalog=None))
+        .where(f"{feed_spec.RECYCLE_KEY_COLUMN} = '{key_value}'")
+        .collect()
+    )
+
+
+def test_split_by_reference(spark, tables, reference_stand_in):
+    add_reference_ids(spark, [KNOWN_ID])
+    reference_ids = reference.load_reference(spark, reference_stand_in)
+    df = _audited(
+        spark,
+        [*_rows_with_key(KNOWN_ID), *_rows_with_key(UNKNOWN_ID)],
+        "recycle_split_file",
+    )
+    matched, unmatched = recycle.split_by_reference(df, reference_ids)
+    assert matched.count() == 1
+    assert unmatched.count() == 1
+
+
+def test_no_match_goes_to_recycle_as_pending(spark, tables, reference_stand_in):
+    reference_ids = reference.load_reference(spark, reference_stand_in)
+    df = _audited(spark, _rows_with_key(UNKNOWN_ID), "recycle_pending_file")
+    _matched, unmatched = recycle.split_by_reference(df, reference_ids)
+    sent = recycle.send_to_recycle(spark, unmatched, RUN_TS, catalog=None)
+    assert sent == 1
+    rows = _recycle_rows(spark, UNKNOWN_ID)
+    assert len(rows) == 1
+    assert rows[0][recycle.STATUS_COLUMN] == feed_spec.RECYCLE_STATUS_PENDING
+
+
+def test_backlog_match_is_reprocessed(spark, tables, reference_stand_in):
+    reference_ids = reference.load_reference(spark, reference_stand_in)
+    df = _audited(spark, _rows_with_key(LATE_ID), "recycle_late_file")
+    _matched, unmatched = recycle.split_by_reference(df, reference_ids)
+    recycle.send_to_recycle(spark, unmatched, RUN_TS, catalog=None)
+
+    # The member appears in the reference the next day; the backlog retries.
+    add_reference_ids(spark, [LATE_ID])
+    next_day = RUN_TS + timedelta(days=1)
+    reference_ids = reference.load_reference(spark, reference_stand_in)
+    to_load, reprocessed, _expired, _pending = recycle.process_backlog(
+        spark, reference_ids, next_day, catalog=None
+    )
+    loaded_keys = {row[feed_spec.RECYCLE_KEY_COLUMN] for row in to_load.collect()}
+    assert LATE_ID in loaded_keys
+    assert reprocessed >= 1
+    assert (
+        _recycle_rows(spark, LATE_ID)[0][recycle.STATUS_COLUMN]
+        == feed_spec.RECYCLE_STATUS_PROCESSED
+    )
+
+
+def test_backlog_expires_after_window(spark, tables, reference_stand_in):
+    reference_ids = reference.load_reference(spark, reference_stand_in)
+    df = _audited(spark, _rows_with_key(EXPIRING_ID), "recycle_expiry_file")
+    _matched, unmatched = recycle.split_by_reference(df, reference_ids)
+    recycle.send_to_recycle(spark, unmatched, RUN_TS, catalog=None)
+
+    past_window = RUN_TS + timedelta(days=feed_spec.RECYCLE_WINDOW_DAYS + 1)
+    _to_load, _reprocessed, expired, _pending = recycle.process_backlog(
+        spark, reference.load_reference(spark, reference_stand_in), past_window, catalog=None
+    )
+    assert expired >= 1
+    assert (
+        _recycle_rows(spark, EXPIRING_ID)[0][recycle.STATUS_COLUMN]
+        == feed_spec.RECYCLE_STATUS_EXPIRED
+    )

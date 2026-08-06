@@ -1,0 +1,203 @@
+{
+  "contract_name": "FRD_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Ingestion_1005034 feed-level mapping contract",
+  "generated_from_frd": "FRD_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Ingestion_1005034.docx",
+  "generated_date": "2026-07-20T05:47:40+00:00",
+  "generator": "frd-sttm-agent phase4 v0.1",
+  "status": "PASS",
+  "project": {
+    "project_id": "1005034",
+    "project_name": "Payment Integrity - TPL Inbound files ingestion to DL",
+    "business_context_summary": "Efficient solution to enable end‑to‑end traceability of member data across multiple source systems by ingesting raw source files from state and third‑party vendors into a centralized data lake."
+  },
+  "in_scope": [
+    "CAQH TPL Inbound Files ingestion into DL",
+    "CAQH (Council for Affordable Quality Healthcare) Vendor",
+    "Expose the data to On Prem TPL Application."
+  ],
+  "out_of_scope": [
+    "Following Files Ingestion",
+    "Acknowledge Files",
+    "State/ CAQH / Syrtis Error Files",
+    "TPL Outbound Files",
+    "Retro TPL Files",
+    "HMS/ DHP Recovery Claims",
+    "TPL Dashboard build, Web Based front-end application",
+    "Vendors other than listed in the ‘In Scope’"
+  ],
+  "assumptions_constraints_dependencies": [
+    {
+      "name": "Connectivity",
+      "description": "SFG connectivity between vendors and ACFC are already established.",
+      "acd_type": "Assumption"
+    },
+    {
+      "name": "Data Format Compatibility",
+      "description": "The data from the various sources can be transformed into a format compatible with DL 2.0",
+      "acd_type": "Assumption"
+    },
+    {
+      "name": "Consistent Data Sources",
+      "description": "Data sources will remain consistent and accessible.",
+      "acd_type": "Assumption"
+    },
+    {
+      "name": "QA testing scope",
+      "description": "Source systems have limited lower environments with masked data. QA team will need to work with developers/ Architects to perform QA testing in masked environment.",
+      "acd_type": "Constraint"
+    },
+    {
+      "name": "UAT signoff",
+      "description": "The team is expected to provide UAT signoff on the test results shared by QA team on QA data for the requirement to be finalized as per the change management process.",
+      "acd_type": "Dependency"
+    },
+    {
+      "name": "Data Source Availability",
+      "description": "The availability and reliability of data sources are critical. Any changes or downtime in these sources can impact the automation process.",
+      "acd_type": "Dependency"
+    },
+    {
+      "name": "Data Quality Rules",
+      "description": "Any data quality rules outside business/ consumer requirements to be documented separately by Data quality team.",
+      "acd_type": "Assumption"
+    },
+    {
+      "name": "Masking",
+      "description": "Files should be masked prior to performing Dev & QA testing. Files masking request can be submitted to ‘DL-ACFC: IS QACoE Delphix Admin’. ETA for masking is 2 weeks.",
+      "acd_type": "Dependency"
+    },
+    {
+      "name": "Access",
+      "description": "Access requests to DL 2.0 will be provided by data owner based on ticketing process.",
+      "acd_type": "Assumption"
+    }
+  ],
+  "feeds": [
+    {
+      "feed_name": "CAQH TPL Inbound Files",
+      "source_system": "CAQH",
+      "file_name_patterns": [
+        "YYYYMMDD_1022_1340_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1341_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1342_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1343_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1364_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1356_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1357_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1345_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1346_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1347_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1355_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1353_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1352_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1354_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1358_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1359_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1362_COBReport_*_P_I_1_T.txt",
+        "YYYYMMDD_1022_1363_COBReport_*_P_I_1_T.txt"
+      ],
+      "file_format": "txt",
+      "delimiter": "|",
+      "record_segments": [
+        "Header",
+        "Detail",
+        "Trailer"
+      ],
+      "frequency": "Weekly Monday 8 PM",
+      "load_windows_sla": [
+        "File should be loaded before business hours 8 AM.",
+        "Files received during business hours should be loaded after 5 PM."
+      ],
+      "lobs": [
+        "REG#1 0100",
+        "REG#1 0500",
+        "REG#1 0530",
+        "REG#1 0540",
+        "REG#1 0550",
+        "REG#1 2400",
+        "REG#1 7100",
+        "REG#1 7200",
+        "REG#2 0900",
+        "REG#2 5400",
+        "REG#5 1200",
+        "REG#5 2600",
+        "REG#6 6400",
+        "REG#6 7700"
+      ],
+      "domain": "Member",
+      "sub_domain": "Third Party Liability",
+      "landing_location": "mftlanding/inbound/member/tpl/caqh",
+      "stage_target": {
+        "catalog": "pr_dlk",
+        "schema": "stg_mbr",
+        "tables": [
+          "EXT_TPL_CAQH_HDR",
+          "EXT_TPL_CAQH_DTL",
+          "EXT_TPL_CAQH_TRL",
+          "EXT_TPL_CAQH_DTL_RECYCLE"
+        ],
+        "load_strategy": "Truncate and Load"
+      },
+      "standard_target": {
+        "catalog": null,
+        "schema": null,
+        "tables": [],
+        "load_strategy": "Append"
+      },
+      "validation_rules": [
+        "Process shall fail when file layout is not as per source dictionary.",
+        "Duplicate file name check shall be turned off as vendor may re‑send the corrected file with same file name.",
+        "Files are pipe delimited and contain incremental changes.",
+        "LOB_ID field should be mapped to ‘Payer Area’ field.",
+        "Member ID validation should be performed against Facets for existence.",
+        "Invalid records will be moved to Recycle table.",
+        "Process should load the files AS‑IS after Member ID validation and should not perform any data transformation while loading into Data Lake.",
+        "Process should populate source File name, Load timestamp, LOB ID, File type fields in the target tables.",
+        "Success and Failure Notification will be sent to the Source Prod Support team.",
+        "Email notification will be sent post job completion."
+      ],
+      "recycle_rule": "Invalid records will be moved to Recycle table, retained for 15 days.",
+      "history_backfill": "History files up to 3 years should be loaded into Data Lake; one‑time movement from O drive to ADLS based on start date provided by source team.",
+      "archive_retention": "Files: 7 Years; Data: Corporate retention schedule.",
+      "phi_pii_notes": null,
+      "sttm_reference": "STTM_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Mapping_Document_1005034__.xlsx",
+      "requirement_ids": [
+        "SRQ226433",
+        "BR226408",
+        "SIR226434",
+        "NFR226414",
+        "NFR226421",
+        "NFR226418",
+        "NFR226420",
+        "NFR226419",
+        "NFR226415",
+        "NFR226417",
+        "NFR226416",
+        "NFR226422",
+        "MDST231070",
+        "MDA231068",
+        "MDT231141",
+        "MDDQ231071",
+        "MDV231142"
+      ]
+    }
+  ],
+  "system_interfaces": [
+    "Connectivity with on Prem TPL Database (Requirement ID: SIR226434)"
+  ],
+  "open_items": [
+    "SR# for SFG Template: TBD"
+  ],
+  "_provenance": {
+    "enrichments": [
+      "project_id=1005034 (regex; agent returned null)",
+      "feed 'CAQH TPL Inbound Files': lobs=14 Region/LOB pairs (regex; agent returned empty)"
+    ],
+    "ambiguities": [],
+    "grounding": {
+      "strict_checked": 62,
+      "strict_failed": [],
+      "advisory_checked": 37,
+      "advisory_flagged": []
+    }
+  }
+}

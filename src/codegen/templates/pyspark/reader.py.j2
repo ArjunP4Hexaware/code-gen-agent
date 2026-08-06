@@ -1,0 +1,69 @@
+{% from "_macros.py.j2" import banner %}
+"""Source file -> DataFrame, all columns String, nothing dropped or cast.
+{% if is_segmented %}
+
+Segmented feed: rows are read as raw delimited lines; ``segments.py`` splits
+them into Header/Detail/Trailer DataFrames by the record-type discriminator.
+{% endif %}
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from pyspark.sql import DataFrame, SparkSession
+{% if is_segmented %}
+from pyspark.sql import functions as F
+{% endif %}
+
+from pipeline import feed_spec
+
+
+class UnrecognizedFileError(ValueError):
+    """The file name matches none of the contract's name patterns."""
+
+
+def check_file_name(path: str) -> str:
+    file_name = Path(path).name
+    if not feed_spec.matches_file(file_name):
+        raise UnrecognizedFileError(
+            f"'{file_name}' matches no contract pattern {feed_spec.FILE_NAME_PATTERNS}"
+        )
+    return file_name
+
+
+{% if is_segmented %}
+RAW_LINE_COLUMN = "value"
+RAW_FIELDS_COLUMN = "_fields"
+
+
+def read_source(spark: SparkSession, path: str) -> DataFrame:
+    """Read raw lines and split on the delimiter into an array column.
+
+    No header row: segmented files carry the record type as the first field
+    of every line. Blank lines are dropped; field arrays keep trailing empty
+    strings (split limit -1) so positional mapping stays intact.
+    """
+    check_file_name(path)
+    lines = spark.read.text(path)
+    non_blank = lines.where(F.length(F.trim(F.col(RAW_LINE_COLUMN))) > 0)
+    delimiter_literal = (
+        "\\" + feed_spec.DELIMITER if feed_spec.DELIMITER == "|" else feed_spec.DELIMITER
+    )
+    return non_blank.select(
+        F.split(F.col(RAW_LINE_COLUMN), delimiter_literal, -1).alias(RAW_FIELDS_COLUMN)
+    )
+{% else %}
+def read_source(spark: SparkSession, path: str) -> DataFrame:
+    """Read the delimited file with a header row; every column arrives String."""
+    check_file_name(path)
+    return (
+        spark.read.option("header", True)
+        .option("delimiter", feed_spec.DELIMITER)
+        .option("inferSchema", False)
+        .option("quote", '"')
+        .option("escape", '"')
+        .csv(path)
+    )
+{% endif %}

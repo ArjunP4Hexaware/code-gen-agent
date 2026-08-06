@@ -1,0 +1,34 @@
+{% from "_macros.py.j2" import banner %}
+"""Audit columns are pipeline-populated with the injectable run_ts."""
+{{ banner(provenance, feed) }}
+
+import pytest
+
+from conftest import RUN_TS, sample_row
+from pipeline import audit, feed_spec, mapping
+
+
+def _stage_frame(spark):
+    row = sample_row()
+    columns = list(row)
+    return mapping.map_to_stage(spark.createDataFrame([tuple(row.values())], columns))
+
+
+def test_add_audit_columns_values(spark):
+    df = audit.add_audit_columns(_stage_frame(spark), feed_spec.LOBS[0], "file.csv", RUN_TS)
+    collected = df.collect()[0]
+    assert collected[audit.LOB_COLUMN] == feed_spec.LOBS[0]
+    assert collected[audit.SRC_FILE_NAME_COLUMN] == "file.csv"
+    assert collected[audit.REC_CREATION_TIME_COLUMN] == RUN_TS
+    assert collected[audit.REC_UPDATED_TIME_COLUMN] == RUN_TS
+
+
+def test_audit_columns_match_contract(spark):
+    df = audit.add_audit_columns(_stage_frame(spark), feed_spec.LOBS[0], "file.csv", RUN_TS)
+    for column, _dtype in feed_spec.AUDIT_COLUMNS:
+        assert column in df.columns
+
+
+def test_unknown_lob_rejected(spark):
+    with pytest.raises(audit.UnknownLobError):
+        audit.add_audit_columns(_stage_frame(spark), "NOT_A_LOB", "file.csv", RUN_TS)

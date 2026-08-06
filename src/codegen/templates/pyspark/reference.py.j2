@@ -1,0 +1,37 @@
+{% from "_macros.py.j2" import banner %}
+"""Reference lookup for the recycle rule.
+
+Contract: match `{{ recycle.key_stage_column }}` against
+`{{ recycle.reference_id_column }}` in `{{ recycle.reference_table }}`{% if recycle.reference_filter %}
+where {{ recycle.reference_filter }}{% endif %}.
+
+``reference_table`` is injectable so local tests can point at a stand-in
+table; the default is the contract's table, which resolves only in an
+environment where it exists (Databricks with the Facets share mounted).
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec
+
+REFERENCE_ID_ALIAS = "_reference_id"
+
+
+def load_reference(
+    spark: SparkSession, reference_table: str | None = None
+) -> DataFrame:
+    """Distinct valid ids from the reference table, one column, trimmed."""
+    table_name = reference_table or feed_spec.REFERENCE_TABLE
+    df = spark.table(table_name)
+{% if recycle.reference_filter %}
+    df = df.where({{ recycle.reference_filter | tojson }})
+{% endif %}
+    return (
+        df.select(F.trim(F.col(feed_spec.REFERENCE_ID_COLUMN)).alias(REFERENCE_ID_ALIAS))
+        .where(F.col(REFERENCE_ID_ALIAS).isNotNull())
+        .distinct()
+    )

@@ -1,0 +1,200 @@
+{% from "_macros.py.j2" import banner %}
+"""Land -> load -> DQ -> report for one file. Each stage is idempotent and
+independently observable; this module only sequences them and aggregates
+their structured results.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from pyspark.sql import SparkSession
+
+from pipeline import (
+    audit,
+    dq,
+    drift,
+    feed_spec,
+    mapping,
+    reader,
+{% if recycle %}
+    recycle,
+    reference,
+{% endif %}
+    rejects,
+    run_report,
+{% if is_segmented %}
+    segments,
+{% endif %}
+    writer,
+)
+
+STATUS_LOADED = "LOADED"
+STATUS_LOADED_DQ_FAILURES = "LOADED_WITH_DQ_FAILURES"
+STATUS_DRIFT_FAIL = "DRIFT_FAIL"
+STATUS_SKIPPED_DUPLICATE = "SKIPPED_DUPLICATE"
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    src_file_name: str
+    lob: str
+    run_ts: datetime
+    status: str
+    rows_loaded: int = 0
+    rows_rejected: int = 0
+    rows_recycled: int = 0
+    rows_reprocessed: int = 0
+    rows_expired: int = 0
+    drift: list[drift.DriftResult] = field(default_factory=list)
+    dq: list[dq.DqCheck] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return self.status == STATUS_LOADED
+
+
+def ingest_file(
+    spark: SparkSession,
+    path: str,
+    lob: str,
+    run_ts: datetime | None = None,
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+{% if recycle %}
+    reference_table: str | None = None,
+{% endif %}
+    report_dir: str | None = None,
+) -> IngestResult:
+    """Ingest one source file end to end; returns a structured result."""
+    run_ts = run_ts or datetime.now()
+    src_file_name = reader.check_file_name(path)
+    audit.check_lob(lob)
+    feed_spec.ensure_tables(spark, catalog)
+
+    if not feed_spec.ALLOW_DUPLICATE_FILE_NAME and writer.was_file_processed(
+        spark, src_file_name, catalog
+    ):
+        return _finish(
+            IngestResult(src_file_name, lob, run_ts, STATUS_SKIPPED_DUPLICATE), report_dir
+        )
+
+    raw = reader.read_source(spark, path)
+{% if is_segmented %}
+    by_segment, unknown = segments.split_segments(raw)
+    unknown_count = unknown.count()
+    drift_results = [drift.check_drift(by_segment[name], name) for name in feed_spec.SEGMENTS]
+    layout_ok = all(result.ok for result in drift_results) and unknown_count == 0
+    if not layout_ok:
+        # FRD: "Process shall fail when file layout is not as per source
+        # dictionary." Unknown record types count as a layout violation.
+        return _finish(
+            IngestResult(
+                src_file_name, lob, run_ts, STATUS_DRIFT_FAIL, drift=drift_results
+            ),
+            report_dir,
+        )
+    detail_source = by_segment[feed_spec.DETAIL_SEGMENT].drop(drift.FIELD_COUNT_COLUMN)
+    detail = mapping.map_to_stage(detail_source, feed_spec.DETAIL_SEGMENT)
+{% else %}
+    drift_results = [drift.check_drift(raw)]
+    if not drift_results[0].ok:
+        return _finish(
+            IngestResult(
+                src_file_name, lob, run_ts, STATUS_DRIFT_FAIL, drift=drift_results
+            ),
+            report_dir,
+        )
+    detail = mapping.map_to_stage(raw)
+{% endif %}
+
+    with_audit = audit.add_audit_columns(detail, lob, src_file_name, run_ts)
+{% if trailer_count_stage_column %}
+    detail_rows_in_file = with_audit.count()
+{% endif %}
+    good, rejected = rejects.split_rejects(with_audit)
+    rows_rejected = rejects.write_rejects(
+        spark, rejected, lob, src_file_name, run_ts, catalog
+    )
+
+{% if recycle %}
+    reference_ids = reference.load_reference(spark, reference_table)
+    backlog_rows, rows_reprocessed, rows_expired, _pending = recycle.process_backlog(
+        spark, reference_ids, run_ts, catalog
+    )
+    reprocessed_this_file = 0
+    if rows_reprocessed:
+        writer.merge_detail(spark, backlog_rows, catalog)
+        # Backlog rows keep their original SRC_FILE_NAME; only ones from this
+        # file count toward this file's stage reconciliation.
+        reprocessed_this_file = backlog_rows.where(
+            backlog_rows[audit.SRC_FILE_NAME_COLUMN] == src_file_name
+        ).count()
+    matched, unmatched = recycle.split_by_reference(good, reference_ids)
+    rows_recycled = recycle.send_to_recycle(spark, unmatched, run_ts, catalog)
+    rows_loaded = writer.merge_detail(spark, matched, catalog)
+    expected_stage_rows = rows_loaded + reprocessed_this_file
+{% else %}
+    rows_reprocessed = 0
+    rows_expired = 0
+    rows_recycled = 0
+    rows_loaded = writer.merge_detail(spark, good, catalog)
+    expected_stage_rows = rows_loaded
+{% endif %}
+{% if is_segmented %}
+
+    for segment_name in feed_spec.SEGMENTS:
+        if segment_name == feed_spec.DETAIL_SEGMENT:
+            continue
+        segment_df = mapping.map_to_stage(
+            by_segment[segment_name].drop(drift.FIELD_COUNT_COLUMN), segment_name
+        )
+        segment_df = audit.add_audit_columns(segment_df, lob, src_file_name, run_ts)
+        writer.replace_segment(spark, segment_df, segment_name, src_file_name, catalog)
+{% endif %}
+
+    writer.record_processed_file(
+        spark,
+        src_file_name,
+        lob,
+        run_ts,
+        rows_loaded,
+        rows_rejected,
+        rows_recycled,
+        catalog,
+    )
+    dq_checks = dq.run_dq(
+        spark,
+        src_file_name,
+        expected_stage_rows,
+{% if trailer_count_stage_column %}
+        detail_rows_in_file,
+{% endif %}
+        catalog,
+    )
+    status = STATUS_LOADED if all(check.passed for check in dq_checks) else (
+        STATUS_LOADED_DQ_FAILURES
+    )
+    return _finish(
+        IngestResult(
+            src_file_name,
+            lob,
+            run_ts,
+            status,
+            rows_loaded=rows_loaded,
+            rows_rejected=rows_rejected,
+            rows_recycled=rows_recycled,
+            rows_reprocessed=rows_reprocessed,
+            rows_expired=rows_expired,
+            drift=drift_results,
+            dq=dq_checks,
+        ),
+        report_dir,
+    )
+
+
+def _finish(result: IngestResult, report_dir: str | None) -> IngestResult:
+    if report_dir is not None:
+        run_report.write_report(result, report_dir)
+    return result

@@ -1,0 +1,32 @@
+{% from "_macros.py.j2" import banner %}
+"""Source -> stage mapping is 1:1 rename-only, extras dropped."""
+{{ banner(provenance, feed) }}
+
+from conftest import sample_row
+from pipeline import feed_spec, mapping
+
+
+def _source_frame(spark, rows):
+    columns = list(rows[0])
+    data = [tuple(row[c] for c in columns) for row in rows]
+    return spark.createDataFrame(data, columns)
+
+
+def test_map_to_stage_renames_to_stage_columns(spark):
+    df = _source_frame(spark, [sample_row()])
+    mapped = mapping.map_to_stage(df)
+    assert mapped.columns == feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["stage_columns"]
+
+
+def test_map_to_stage_preserves_values(spark):
+    row = sample_row()
+    mapped = mapping.map_to_stage(_source_frame(spark, [row])).collect()[0]
+    spec = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]
+    for source, stage in zip(spec["source_columns"], spec["stage_columns"], strict=True):
+        assert mapped[stage] == row[source], (source, stage)
+
+
+def test_map_to_stage_drops_unexpected_columns(spark):
+    row = {**sample_row(), "surprise_column": "x"}
+    mapped = mapping.map_to_stage(_source_frame(spark, [row]))
+    assert "surprise_column" not in mapped.columns

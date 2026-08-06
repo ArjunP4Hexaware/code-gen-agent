@@ -1,0 +1,26 @@
+{% from "_macros.py.j2" import banner %}
+"""Reference lookup: distinct trimmed ids{% if recycle.reference_filter %}, filtered by {{ recycle.reference_filter }}{% endif %}."""
+{{ banner(provenance, feed) }}
+
+from conftest import add_reference_ids
+from pipeline import reference
+
+
+def test_load_reference_returns_distinct_trimmed_ids(spark, reference_stand_in):
+    add_reference_ids(spark, ["REF001", "REF001", " REF002 "])
+    ids = {
+        row[reference.REFERENCE_ID_ALIAS]
+        for row in reference.load_reference(spark, reference_stand_in).collect()
+    }
+    assert {"REF001", "REF002"} <= ids
+
+
+{% if recycle.reference_filter %}
+def test_load_reference_applies_contract_filter(spark, reference_stand_in):
+    add_reference_ids(spark, ["FILTERED_OUT_ID"], matching_filter=False)
+    ids = {
+        row[reference.REFERENCE_ID_ALIAS]
+        for row in reference.load_reference(spark, reference_stand_in).collect()
+    }
+    assert "FILTERED_OUT_ID" not in ids
+{% endif %}

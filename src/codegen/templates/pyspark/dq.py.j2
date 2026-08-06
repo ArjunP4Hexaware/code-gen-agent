@@ -1,0 +1,112 @@
+{% from "_macros.py.j2" import banner %}
+"""Post-load data quality checks, gating promotion of the run.
+
+- reconciliation: stage rows for this file == rows the load reported;
+- not-null verification: no stage row has a blank key column;
+- duplicate-key: no (SRC_FILE_NAME, natural key) group has more than one row{% if trailer_count_stage_column %};
+- trailer reconciliation: the Trailer's {{ trailer_count_stage_column }} equals the
+  Detail row count for the file{% endif %}.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec
+
+
+@dataclass(frozen=True)
+class DqCheck:
+    name: str
+    passed: bool
+    detail: str
+
+
+def _stage_for_file(spark: SparkSession, src_file_name: str, catalog: str | None):
+    table = feed_spec.qualified(
+        feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["stage_table"], catalog
+    )
+    return spark.table(table).where(F.col("SRC_FILE_NAME") == F.lit(src_file_name))
+
+
+def run_dq(
+    spark: SparkSession,
+    src_file_name: str,
+    expected_loaded: int,
+{% if trailer_count_stage_column %}
+    detail_rows_in_file: int = 0,
+{% endif %}
+    catalog: str | None = feed_spec.DEFAULT_CATALOG,
+) -> list[DqCheck]:
+    checks: list[DqCheck] = []
+    staged = _stage_for_file(spark, src_file_name, catalog)
+
+    actual = staged.count()
+    checks.append(
+        DqCheck(
+            name="row_reconciliation",
+            passed=actual == expected_loaded,
+            detail=f"stage has {actual} rows for this file, load reported {expected_loaded}",
+        )
+    )
+
+    for column in feed_spec.NOT_NULL_COLUMNS:
+        blank = staged.where(
+            F.col(column).isNull() | (F.length(F.trim(F.col(column))) == 0)
+        ).count()
+        checks.append(
+            DqCheck(
+                name=f"not_null:{column}",
+                passed=blank == 0,
+                detail=f"{blank} stage rows have a blank {column}",
+            )
+        )
+
+    duplicate_groups = (
+        staged.groupBy("SRC_FILE_NAME", *feed_spec.NATURAL_KEY_COLUMNS)
+        .count()
+        .where(F.col("count") > 1)
+        .count()
+    )
+    checks.append(
+        DqCheck(
+            name="duplicate_key",
+            passed=duplicate_groups == 0,
+            detail=f"{duplicate_groups} duplicate (SRC_FILE_NAME, natural key) groups",
+        )
+    )
+{% if trailer_count_stage_column %}
+
+    trailer_table = feed_spec.qualified(feed_spec.SEGMENTS["Trailer"]["stage_table"], catalog)
+    trailer_counts = (
+        spark.table(trailer_table)
+        .where(F.col("SRC_FILE_NAME") == F.lit(src_file_name))
+        .select(F.col({{ trailer_count_stage_column | tojson }}).cast("bigint").alias("_n"))
+        .collect()
+    )
+    if len(trailer_counts) == 1 and trailer_counts[0]["_n"] is not None:
+        declared = trailer_counts[0]["_n"]
+        checks.append(
+            DqCheck(
+                name="trailer_reconciliation",
+                passed=declared == detail_rows_in_file,
+                detail=(
+                    f"trailer declares {declared} detail rows, "
+                    f"file carried {detail_rows_in_file} (loaded + rejected + recycled)"
+                ),
+            )
+        )
+    else:
+        checks.append(
+            DqCheck(
+                name="trailer_reconciliation",
+                passed=False,
+                detail=f"expected exactly one trailer count, found {len(trailer_counts)}",
+            )
+        )
+{% endif %}
+    return checks

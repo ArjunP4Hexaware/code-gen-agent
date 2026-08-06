@@ -1,0 +1,66 @@
+{% from "_macros.py.j2" import banner %}
+"""Post-load DQ: reconciliation, not-null verify, duplicate-key{% if trailer_count_stage_column %}, trailer recon{% endif %}."""
+{{ banner(provenance, feed) }}
+
+from conftest import RUN_TS, detail_rows
+from pipeline import audit, dq, feed_spec, mapping, writer
+
+SRC_FILE = "dq_check_file"
+
+
+def _load(spark, rows, src_file=SRC_FILE):
+    columns = list(rows[0])
+    df = spark.createDataFrame([tuple(r[c] for c in columns) for r in rows], columns)
+    audited = audit.add_audit_columns(
+        mapping.map_to_stage(df), feed_spec.LOBS[0], src_file, RUN_TS
+    )
+    return writer.merge_detail(spark, audited, catalog=None)
+
+
+{% if is_segmented %}
+def _load_trailer(spark, declared_count, src_file=SRC_FILE):
+    from conftest import TRAILER_COUNT_SOURCE_COLUMN, TRAILER_SAMPLE
+
+    trailer = dict(TRAILER_SAMPLE)
+    trailer[TRAILER_COUNT_SOURCE_COLUMN] = str(declared_count)
+    columns = list(trailer)
+    df = spark.createDataFrame([tuple(trailer.values())], columns)
+    audited = audit.add_audit_columns(
+        mapping.map_to_stage(df, "Trailer"), feed_spec.LOBS[0], src_file, RUN_TS
+    )
+    writer.replace_segment(spark, audited, "Trailer", src_file, catalog=None)
+
+
+def test_all_checks_pass_on_clean_load(spark, tables):
+    loaded = _load(spark, detail_rows(3, key_prefix="DQOK"))
+    _load_trailer(spark, declared_count=3)
+    checks = dq.run_dq(spark, SRC_FILE, loaded, detail_rows_in_file=3, catalog=None)
+    assert all(check.passed for check in checks), [c for c in checks if not c.passed]
+
+
+def test_trailer_mismatch_fails(spark, tables):
+    src_file = "dq_trailer_mismatch_file"
+    loaded = _load(spark, detail_rows(2, key_prefix="DQTRL"), src_file)
+    _load_trailer(spark, declared_count=99, src_file=src_file)
+    checks = dq.run_dq(spark, src_file, loaded, detail_rows_in_file=2, catalog=None)
+    trailer_check = next(c for c in checks if c.name == "trailer_reconciliation")
+    assert not trailer_check.passed
+{% else %}
+def test_all_checks_pass_on_clean_load(spark, tables):
+    loaded = _load(spark, detail_rows(3, key_prefix="DQOK"))
+    checks = dq.run_dq(spark, SRC_FILE, loaded, catalog=None)
+    assert all(check.passed for check in checks), [c for c in checks if not c.passed]
+{% endif %}
+
+
+def test_reconciliation_fails_on_wrong_expected_count(spark, tables):
+    src_file = "dq_recon_file"
+    _load(spark, detail_rows(2, key_prefix="DQRECON"), src_file)
+{% if is_segmented %}
+    _load_trailer(spark, declared_count=2, src_file=src_file)
+    checks = dq.run_dq(spark, src_file, 99, detail_rows_in_file=2, catalog=None)
+{% else %}
+    checks = dq.run_dq(spark, src_file, 99, catalog=None)
+{% endif %}
+    recon = next(c for c in checks if c.name == "row_reconciliation")
+    assert not recon.passed

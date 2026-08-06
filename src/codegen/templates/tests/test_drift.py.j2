@@ -1,0 +1,67 @@
+{% from "_macros.py.j2" import banner %}
+"""Schema drift: missing -> FAIL, extra -> quarantine."""
+{{ banner(provenance, feed) }}
+
+{% if is_segmented %}
+from conftest import DELIMITER, detail_rows, write_source_file
+from pipeline import drift, feed_spec, reader, segments
+{% else %}
+from conftest import detail_rows, write_source_file
+from pipeline import drift, feed_spec, reader
+{% endif %}
+
+
+{% if is_segmented %}
+def _detail_frame(spark, tmp_path, **kwargs):
+    path = write_source_file(tmp_path, detail_rows(2), **kwargs)
+    raw = reader.read_source(spark, str(path))
+    by_segment, _unknown = segments.split_segments(raw)
+    return by_segment[feed_spec.DETAIL_SEGMENT]
+
+
+def test_expected_field_count_is_ok(spark, tmp_path):
+    result = drift.check_drift(_detail_frame(spark, tmp_path))
+    assert result.ok
+    assert not result.quarantined
+
+
+def test_short_detail_row_fails(spark, tmp_path):
+    marker = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["record_type_value"]
+    short_line = DELIMITER.join([marker, "only-two-fields"])
+    df = _detail_frame(spark, tmp_path, extra_lines=[short_line])
+    result = drift.check_drift(df)
+    assert not result.ok
+    assert result.rows_with_missing_fields == 1
+
+
+def test_long_detail_row_quarantines(spark, tmp_path):
+    rows = detail_rows(1)
+    long_line = DELIMITER.join([*rows[0].values(), "surplus"])
+    df = _detail_frame(spark, tmp_path, extra_lines=[long_line])
+    result = drift.check_drift(df)
+    assert result.ok
+    assert result.rows_with_extra_fields == 1
+    assert result.quarantined
+{% else %}
+def test_exact_header_is_ok(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(2))
+    result = drift.check_drift(reader.read_source(spark, str(path)))
+    assert result.ok
+    assert not result.quarantined
+
+
+def test_missing_column_fails(spark, tmp_path):
+    dropped = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"][-1]
+    path = write_source_file(tmp_path, detail_rows(2), drop_column=dropped)
+    result = drift.check_drift(reader.read_source(spark, str(path)))
+    assert not result.ok
+    assert result.missing_columns == [dropped]
+
+
+def test_extra_column_quarantines(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(2), extra_column="surprise_column")
+    result = drift.check_drift(reader.read_source(spark, str(path)))
+    assert result.ok
+    assert result.extra_columns == ["surprise_column"]
+    assert result.quarantined
+{% endif %}

@@ -1,0 +1,42 @@
+{% from "_macros.py.j2" import banner %}
+"""PHI masking to last-{{ masking.visible_chars }} for every log/report/error egress.
+
+Raw PHI values live only inside the warehouse data tables; anything leaving
+the pipeline (reports, error records, log lines) passes through here first.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pyspark.sql import Column
+from pyspark.sql import functions as F
+
+VISIBLE_CHARS = {{ masking.visible_chars }}
+MASK_CHAR = {{ masking.mask_char | tojson }}
+
+
+def mask_value(value: str | None) -> str | None:
+    """Mask a python string to last-{{ masking.visible_chars }}; short values mask fully."""
+    if value is None:
+        return None
+    if len(value) <= VISIBLE_CHARS:
+        return MASK_CHAR * len(value)
+    return MASK_CHAR * (len(value) - VISIBLE_CHARS) + value[-VISIBLE_CHARS:]
+
+
+# Spark 3.5's repeat()/substring() accept only plain-int lengths, so the
+# column mask is regex-based: any char with VISIBLE_CHARS more chars after it.
+_ALL_BUT_TAIL_PATTERN = ".(?=" + "." * VISIBLE_CHARS + ")"
+# regexp_replace replacement string: escape its two special characters.
+_MASK_REPLACEMENT = MASK_CHAR.replace("\\", "\\\\").replace("$", "\\$")
+
+
+def mask_column(column: Column) -> Column:
+    """Column-level equivalent of :func:`mask_value`."""
+    masked_to_tail = F.regexp_replace(column, _ALL_BUT_TAIL_PATTERN, _MASK_REPLACEMENT)
+    masked_fully = F.regexp_replace(column, ".", _MASK_REPLACEMENT)
+    return (
+        F.when(column.isNull(), F.lit(None).cast("string"))
+        .when(F.length(column) <= F.lit(VISIBLE_CHARS), masked_fully)
+        .otherwise(masked_to_tail)
+    )

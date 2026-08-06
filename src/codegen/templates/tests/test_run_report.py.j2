@@ -1,0 +1,32 @@
+{% from "_macros.py.j2" import banner %}
+"""Run report rendering and writing."""
+{{ banner(provenance, feed) }}
+
+from conftest import RUN_TS
+from pipeline import feed_spec, orchestrator, run_report
+
+
+def _result():
+    return orchestrator.IngestResult(
+        src_file_name="report_test_file",
+        lob=feed_spec.LOBS[0],
+        run_ts=RUN_TS,
+        status=orchestrator.STATUS_LOADED,
+        rows_loaded=5,
+        rows_rejected=1,
+        rows_recycled=2,
+    )
+
+
+def test_render_report_contains_counts_and_status():
+    text = run_report.render_report(_result())
+    assert feed_spec.FEED_ID in text
+    assert "rows loaded to stage: 5" in text
+    assert "rows rejected (not-null): 1" in text
+    assert orchestrator.STATUS_LOADED in text
+
+
+def test_write_report_creates_file(tmp_path):
+    path = run_report.write_report(_result(), str(tmp_path))
+    assert path.exists()
+    assert path.read_text(encoding="utf-8").startswith("# Ingest report")

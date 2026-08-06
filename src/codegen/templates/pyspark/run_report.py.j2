@@ -1,0 +1,57 @@
+{% from "_macros.py.j2" import banner %}
+"""Per-run markdown ingest report. Everything here is already PHI-masked
+upstream — raw PHI never reaches this module.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from pipeline import feed_spec
+
+
+def render_report(result) -> str:
+    """Markdown summary of one IngestResult (see orchestrator.py)."""
+    lines = [
+        f"# Ingest report — {feed_spec.FEED_ID}",
+        "",
+        f"- **File**: {result.src_file_name}",
+        f"- **LOB**: {result.lob}",
+        f"- **Run timestamp**: {result.run_ts.isoformat(sep=' ')}",
+        f"- **Status**: {result.status}",
+        "",
+        "## Counts",
+        "",
+        f"- rows loaded to stage: {result.rows_loaded}",
+        f"- rows rejected (not-null): {result.rows_rejected}",
+        f"- rows sent to recycle: {result.rows_recycled}",
+        f"- recycle backlog reprocessed: {result.rows_reprocessed}",
+        f"- recycle rows expired: {result.rows_expired}",
+        "",
+        "## Drift",
+        "",
+    ]
+    for drift_result in result.drift:
+        state = "OK" if drift_result.ok else "FAIL"
+        if drift_result.quarantined:
+            state += " (extra columns quarantined)"
+        lines.append(
+            f"- {drift_result.segment}: {state}"
+            f" missing={drift_result.missing_columns or drift_result.rows_with_missing_fields}"
+            f" extra={drift_result.extra_columns or drift_result.rows_with_extra_fields}"
+        )
+    lines += ["", "## DQ checks", ""]
+    for check in result.dq:
+        lines.append(f"- {'PASS' if check.passed else 'FAIL'} `{check.name}`: {check.detail}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_report(result, report_dir: str) -> Path:
+    directory = Path(report_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_name = result.src_file_name.replace(".", "_")
+    path = directory / f"{feed_spec.FEED_ID}__{safe_name}.md"
+    path.write_text(render_report(result), encoding="utf-8", newline="\n")
+    return path

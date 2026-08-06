@@ -1,0 +1,47 @@
+{% from "_macros.py.j2" import banner %}
+"""Split raw delimited lines into per-segment DataFrames (Header/Detail/Trailer).
+
+The first field of every line is the record-type discriminator
+(`{{ record_type_column }}`). ASSUMPTION pending the source dictionary — see the
+generated README. Rows whose discriminator matches no known segment are
+returned separately so the caller can fail loudly.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec, reader
+
+RECORD_TYPE_FIELD_INDEX = 0
+
+
+def split_segments(raw: DataFrame) -> tuple[dict[str, DataFrame], DataFrame]:
+    """Raw field-array rows -> ({segment: DataFrame with source columns}, unknown rows).
+
+    Each segment DataFrame carries that segment's source column names plus
+    ``_field_count`` (the raw field count, for the drift check). Extra
+    trailing fields beyond the expected list are not selected — the drift
+    check quarantines them by count.
+    """
+    fields = F.col(reader.RAW_FIELDS_COLUMN)
+    discriminator = fields.getItem(RECORD_TYPE_FIELD_INDEX)
+
+    known_values = {
+        segment: spec["record_type_value"] for segment, spec in feed_spec.SEGMENTS.items()
+    }
+    by_segment: dict[str, DataFrame] = {}
+    for segment, record_type_value in known_values.items():
+        source_columns = feed_spec.SEGMENTS[segment]["source_columns"]
+        selected = [
+            fields.getItem(position).alias(column)
+            for position, column in enumerate(source_columns)
+        ]
+        by_segment[segment] = raw.where(discriminator == record_type_value).select(
+            *selected, F.size(fields).alias("_field_count")
+        )
+
+    unknown = raw.where(~discriminator.isin(list(known_values.values())))
+    return by_segment, unknown

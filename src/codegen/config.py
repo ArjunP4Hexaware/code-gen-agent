@@ -154,7 +154,6 @@ class ReasoningConfig(BaseModel):
     model: str
     max_tokens: int = Field(gt=0)
     max_attempts: int = Field(gt=0)
-    temperature: float = Field(ge=0, le=1)
 
 
 class GateConfig(BaseModel):

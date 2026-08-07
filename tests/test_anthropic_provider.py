@@ -87,7 +87,8 @@ def test_config_knobs_are_forwarded_to_the_api_call(config, monkeypatch):
     _provider(config).complete(_pack())
     assert messages.last_kwargs["model"] == config.reasoning.model
     assert messages.last_kwargs["max_tokens"] == config.reasoning.max_tokens
-    assert messages.last_kwargs["temperature"] == config.reasoning.temperature == 0
+    # Sampling params 400 on this model family — must never be sent.
+    assert "temperature" not in messages.last_kwargs
 
 
 def test_prose_preamble_is_tolerated(config, monkeypatch):

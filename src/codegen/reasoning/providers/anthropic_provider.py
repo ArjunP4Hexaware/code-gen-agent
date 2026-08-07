@@ -89,7 +89,6 @@ class AnthropicProvider:
         self._model = config.reasoning.model
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
-        self._temperature = config.reasoning.temperature
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         user_prompt = "Context pack (the only citable text):\n" + json.dumps(
@@ -97,10 +96,11 @@ class AnthropicProvider:
         )
         errors: list[str] = []
         for _ in range(self._max_attempts):
+            # No sampling params: claude-opus-4-8 rejects temperature/top_p/top_k
+            # with a 400 (removed on Opus 4.7+) — proven by the first live run.
             message = self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
-                temperature=self._temperature,
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
             )

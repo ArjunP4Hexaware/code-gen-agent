@@ -100,9 +100,8 @@ reasoning:
   # Proven against our key by frd-to-sttm's live E2E runs (2026-08-07).
   model: claude-opus-4-8
   max_tokens: 8192
-  # 0 = deterministic-as-possible live output; candidates.json still varies
-  # only where the model itself does.
-  temperature: 0
+  # No temperature knob: sampling params are removed on this model family —
+  # the API returns 400 if one is sent. Live output varies run to run.
   # One retry with the validation error appended, then record a failure.
   max_attempts: 2
 

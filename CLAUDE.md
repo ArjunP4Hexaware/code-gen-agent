@@ -86,7 +86,10 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   with a real billed call — first live E2E is upcoming. Live LLM use is
   confined to Layer 2 (reasoning/review); code generation itself is
   deterministic Jinja2 by design. Model name lives in config
-  (`reasoning.model`).
+  (`reasoning.model`). claude-opus-4-8 rejects sampling parameters
+  (`temperature`/`top_p`/`top_k` return a 400), so no temperature knob
+  exists and live Layer-2 output is inherently non-deterministic — do not
+  re-add one.
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
 

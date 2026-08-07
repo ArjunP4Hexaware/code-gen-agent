@@ -31,10 +31,13 @@ _SYSTEM_PROMPT = (
     "literal null for non-code classifications (never omit the key)\n"
     '  "rationale": why this classification and sketch\n'
     '  "citations": a non-empty list of EXACT verbatim substrings copied from '
-    "the provided contract text that support your answer\n"
+    "the rule_text or the contract_excerpts entries ONLY — these are the only "
+    "citable material. The column lists (available_source_columns, "
+    "available_stage_columns, audit_columns) are context, not citable material: "
+    "never use a bare column name as a citation.\n"
     "Ground every claim in the provided context pack only. Citations that are "
-    "not exact substrings of the pack are rejected. Use only columns listed in "
-    "the pack."
+    "not exact substrings of the rule_text or contract_excerpts are rejected. "
+    "Use only columns listed in the pack."
 )
 
 

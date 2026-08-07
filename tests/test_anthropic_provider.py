@@ -91,6 +91,16 @@ def test_config_knobs_are_forwarded_to_the_api_call(config, monkeypatch):
     assert "temperature" not in messages.last_kwargs
 
 
+def test_system_prompt_scopes_citations_to_citable_material():
+    # Live E2E #1: the model cited a bare column name from the pack's column
+    # lists, which the grounding check (rule_text + contract_excerpts only)
+    # rightly rejected. The prompt must state that scope explicitly.
+    from codegen.reasoning.providers.anthropic_provider import _SYSTEM_PROMPT
+
+    assert "contract_excerpts entries ONLY" in _SYSTEM_PROMPT
+    assert "context, not citable material" in _SYSTEM_PROMPT
+
+
 def test_prose_preamble_is_tolerated(config, monkeypatch):
     wrapped = f"Here is the JSON you asked for:\n{VALID_JSON}\nHope this helps!"
     messages = _install_fake_anthropic(monkeypatch, [wrapped])

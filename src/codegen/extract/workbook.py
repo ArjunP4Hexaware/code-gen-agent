@@ -127,6 +127,7 @@ def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
 
     mapping_sheets = [n for n in sheet_names if n.startswith(config.mapping_sheet_prefix)]
     if not mapping_sheets:
+        _reject_segmented_family(workbook, config, path.name)
         raise WorkbookParseError(
             f"{path.name}: no mapping sheets found (prefix {config.mapping_sheet_prefix!r}); "
             f"sheets present: {sheet_names}"
@@ -138,6 +139,58 @@ def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
         file_details=_parse_file_details(workbook, config, path.name),
         sheets=tuple(_parse_mapping_sheet(workbook[n], config) for n in mapping_sheets),
     )
+
+
+# How many leading rows to scan for a band-label row when checking whether a
+# prefix-less workbook belongs to the segmented layout family (its bands sit
+# below a key:value metadata block, row 9 in the observed real workbook).
+_FAMILY_SCAN_ROWS = 30
+
+# The segmented family's band vocabulary includes a shorter source label.
+_SOURCE_BAND_VARIANTS = {"source layout"}
+
+
+def _reject_segmented_family(workbook, config: ExtractorConfig, name: str) -> None:
+    """Content-based recognition of the segmented (CAQH-style) layout
+    family, so it gets an accurate diagnostic instead of the misleading
+    'no mapping sheets found'. Signature: some row's cells resolve to >= 2
+    band labels (including the 'Source Layout' variant), with a key:value
+    metadata block above it and/or a Segment column in the header row
+    beneath it."""
+    labels = config.band_labels
+    band_vocabulary = {
+        _norm(labels.source),
+        _norm(labels.stage),
+        _norm(labels.standard),
+    } | _SOURCE_BAND_VARIANTS
+
+    for sheet_name in workbook.sheetnames:
+        ws = workbook[sheet_name]
+        rows = [
+            row
+            for _, row in zip(
+                range(_FAMILY_SCAN_ROWS), ws.iter_rows(values_only=True), strict=False
+            )
+        ]
+        for index, row in enumerate(rows):
+            found = {v for v in (_norm(c) for c in row) if v in band_vocabulary}
+            if len(found) < 2:
+                continue
+            metadata_above = any(
+                r[0] is not None and len(r) > 1 and r[1] is not None for r in rows[:index]
+            )
+            header_row = rows[index + 1] if index + 1 < len(rows) else ()
+            segment_header = any(_norm(c).startswith("segment") for c in header_row)
+            if metadata_above or segment_header:
+                raise SegmentedWorkbookError(
+                    f"{name}: sheet {sheet_name!r} matches the segmented (metadata-block"
+                    f" + band-row) layout family — band labels {sorted(found)} on row "
+                    f"{index + 1}"
+                    + (", key:value metadata block above" if metadata_above else "")
+                    + (", per-row Segment column in the header" if segment_header else "")
+                    + ". This layout family is recognized but unsupported in v1 "
+                    "(flat dialect only) — see docs/SEGMENTED_MODE_DESIGN.md"
+                )
 
 
 # ------------------------------------------------------------- metadata sheets

@@ -27,33 +27,34 @@ src/codegen/        contracts/ (pydantic models, both dialects, frozen),
                     classifier), reasoning/ (Layer 2: providers, verbatim
                     grounding), emit/ (Jinja2 + notebook assembler), gate/
                     (preflight, tests, verdict), report/, templates/, cli.py, config.py
-tests/              54 generator tests, offline, no Spark needed
+tests/              58 generator tests, offline, no Spark needed
 config/config.yaml  every knob — contract pairs, extractor layout, naming, masking, gate, job
 fixtures/contracts/ 2 real FRD + MIDS STTM + SYNTHETIC CAQH STTM + CV/golden FRD + expected extract
 fixtures/workbooks/ anonymized golden STTM workbook (extractor input; re-included past *.xlsx ignore)
-docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md (workbook survey), media/
+docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md, media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
 ```
 
 ## STTM workbook extractor (codegen extract-sttm)
 
-Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract);
-`feed_id` is `normalize_feed_name(FRD feed_name)` — the resolver's join
-invariant, NOT the stage table name — and format/delimiter/standard-target
-presence come from the FRD side. Recycle validation text stays VERBATIM
-(the resolver also accepts the client "Check with <col> from ... <table>
-FOR <filter>" phrasing). FLAT only — segmented (H/D/T) raises
-`SegmentedWorkbookError`. Header resolution is fuzzy + config-driven
-(`extractor:` knob); trailing `NA` rows become `audit_columns`, never
-`fields[]`; `Comment` → `value_spec`. The CV/golden pair is byte-tested
-against its committed expected output; it can NEVER match the MIDS fixture
+Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract); `feed_id`
+is `normalize_feed_name(FRD feed_name)` — the resolver's join invariant, NOT the
+stage table name — and format/delimiter/standard-target presence come from the FRD side. Recycle validation text stays VERBATIM
+(the resolver also accepts the client "Check with ... FOR ..." phrasing).
+FLAT only — segmented (H/D/T) raises `SegmentedWorkbookError`; a prefix-less
+workbook matching the family signature gets the docs/SEGMENTED_MODE_DESIGN.md
+diagnostic. Header resolution is fuzzy + config-driven (`extractor:` knob);
+trailing `NA` rows → `audit_columns`, never `fields[]`; `Comment` →
+`value_spec`; file-name pairing canonicalizes date placeholders (CCYY→YYYY,
+case-insensitive) and stays fail-loud. The CV/golden pair is byte-tested against
+its committed expected output and can NEVER match the MIDS fixture
 (different universe — docs/EXTRACTOR_RECON.md §4d).
 
 ## Setup / run / test
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
-.venv/bin/python -m pytest -q          # 54 passed, no Spark, no network
+.venv/bin/python -m pytest -q          # 58 passed, no Spark, no network
 
 # Generate everything from the fixture contracts (mock Layer 2, no network)
 .venv/bin/python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests

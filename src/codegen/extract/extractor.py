@@ -117,13 +117,28 @@ def _match_frd_feed(sheet: SheetIR, frd: FrdContract) -> FrdFeed:
     return matches[0]
 
 
+def _canonical_file_name(name: str) -> str:
+    """Comparison form for FILE_DETAILS↔FRD file-name matching: real pairs
+    drift on date-placeholder notation only (FRD patterns say CCYY/CCYYMMDD
+    where workbooks say YYYY/YYYYMMDD, sometimes with case drift in the
+    surrounding name). Deliberately narrow — no similarity matching."""
+    return name.strip().lower().replace("ccyy", "yyyy")
+
+
 def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
-    matches = [row for row in ir.file_details if row.file_name in feed.file_name_patterns]
+    canonical_patterns = {_canonical_file_name(p) for p in feed.file_name_patterns}
+    matches = [
+        row
+        for row in ir.file_details
+        if _canonical_file_name(row.file_name) in canonical_patterns
+    ]
     if len(matches) != 1:
         raise ExtractionError(
             f"feed {feed.feed_name!r}: {len(matches)} FILE_DETAILS rows match its "
             f"file_name_patterns {feed.file_name_patterns} "
-            f"(FILE_DETAILS file names: {[r.file_name for r in ir.file_details]})"
+            f"(FILE_DETAILS file names: {[r.file_name for r in ir.file_details]}; "
+            "compared after date-placeholder canonicalization: CCYY->YYYY, "
+            "case-insensitive)"
         )
     return matches[0]
 

@@ -236,6 +236,79 @@ def test_frd_feed_with_no_sheet_is_loud(tmp_path, config):
         extract_contract(WORKBOOK, _doctored_frd(tmp_path, _mutate), config)
 
 
+# ------------------------------------- FILE_DETAILS date-placeholder pairing
+
+
+def test_ccyy_patterns_pair_via_canonicalization(tmp_path, config):
+    # Models the real-pair finding: FRD patterns say CCYY/CCYYMMDD where the
+    # workbook FILE_DETAILS names say YYYY/YYYYMMDD. Exact membership fails;
+    # canonicalized membership must pair all three feeds.
+    def _mutate(data):
+        only_ccyy = {
+            "cv_community_demographic_risk": ["demographic_extract_CCYY_MM.csv"],
+            "cv_community_risk": ["community_metrics_CCYY_MM.csv"],
+            "cv_individual_risk": ["cv_ind_risk_data_package_mrdn_OH_CCYYMMDD_HHMM.psv"],
+        }
+        for feed in data["feeds"]:
+            feed["file_name_patterns"] = only_ccyy[feed["feed_name"]]
+
+    contract = extract_contract(
+        WORKBOOK, _doctored_frd(tmp_path, _mutate), config, generated_date=GENERATED_DATE
+    )
+    # Pairing succeeded, and the emitted name_pattern stays the VERBATIM
+    # workbook file name (canonicalization is comparison-only).
+    assert [f.source_file.name_pattern for f in contract.feeds] == [
+        "demographic_extract_YYYY_MM.csv",
+        "community_metrics_YYYY_MM.csv",
+        "cv_ind_risk_data_package_mrdn_OH_YYYYMMDD_HHMM.psv",
+    ]
+
+
+def test_unrelated_filename_still_fails_pairing(tmp_path, config):
+    def _mutate(data):
+        data["feeds"][2]["file_name_patterns"] = ["totally_unrelated_file.psv"]
+
+    with pytest.raises(ExtractionError, match="cv_individual_risk.*0 FILE_DETAILS rows"):
+        extract_contract(WORKBOOK, _doctored_frd(tmp_path, _mutate), config)
+
+
+# --------------------------------------- segmented layout-family diagnostic
+
+
+def _write_segmented_family_workbook(path: Path) -> Path:
+    """Minimal synthetic sheet with the family signature: key:value
+    metadata block, band-label row (with the 'Source Layout' variant),
+    and a per-row Segment column in the header row. Generic names only."""
+    workbook = Workbook()
+    ws = workbook.active
+    ws.title = "feed_x"
+    ws.append(["File(s)", "feed_x_*.txt"])
+    ws.append(["File type", "txt (pipe delimited)"])
+    ws.append(["Source Layout"] + [None] * 4 + ["Stage Layer"] + [None] * 3
+              + ["Standard Layer"])
+    ws.append(["#", "Field Name", "Data Type", "Segment", "PII",
+               "Schema", "TableName", "ColumnName", "DataType", "Schema"])
+    workbook.save(path)
+    return path
+
+
+def test_segmented_family_gets_the_accurate_diagnostic(tmp_path, config):
+    path = _write_segmented_family_workbook(tmp_path / "family.xlsx")
+    with pytest.raises(SegmentedWorkbookError, match="SEGMENTED_MODE_DESIGN"):
+        parse_workbook(path, config.extractor)
+
+
+def test_alien_workbook_still_gets_the_original_error(tmp_path, config):
+    workbook = Workbook()
+    ws = workbook.active
+    ws.title = "notes"
+    ws.append(["hello", "world"])
+    path = tmp_path / "alien.xlsx"
+    workbook.save(path)
+    with pytest.raises(WorkbookParseError, match="no mapping sheets found"):
+        parse_workbook(path, config.extractor)
+
+
 # --------------------------------------------------------- emitted contract
 
 

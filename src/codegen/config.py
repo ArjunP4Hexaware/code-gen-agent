@@ -156,6 +156,22 @@ class ReasoningConfig(BaseModel):
     max_attempts: int = Field(gt=0)
 
 
+class DemoConfig(BaseModel):
+    """The demo UI's Live/Replay pipeline inputs (CV/golden universe)."""
+
+    model_config = _MODEL_CONFIG
+
+    # Contract pair for replay + the FRD side of a live extract-sttm run.
+    frd: str
+    sttm: str
+    # Workbook the live demo extracts from (repo-relative path).
+    workbook: str
+    # Cost-confirmation copy shown before a live run fires.
+    estimated_calls: int = Field(gt=0)
+    estimated_cost_usd: float = Field(gt=0)
+    estimated_seconds: int = Field(gt=0)
+
+
 class GateConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -187,6 +203,7 @@ class Config(BaseModel):
     segments: SegmentsConfig
     extractor: ExtractorConfig
     reasoning: ReasoningConfig
+    demo: DemoConfig
     gate: GateConfig
     job: JobConfig
 

@@ -105,6 +105,18 @@ reasoning:
   # One retry with the validation error appended, then record a failure.
   max_attempts: 2
 
+demo:
+  # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
+  # Replay resolves frd+sttm directly; Live extracts the workbook first
+  # (extract-sttm) and generates from the extracted contract.
+  frd: "FRD_demo_cv_golden.contract.json"
+  sttm: "sttm_mapping_contracts_cv_golden.json"
+  workbook: fixtures/workbooks/demo_sttm_cv_golden.xlsx
+  # Cost-confirmation copy for the live run (measured 2026-08-07 live E2E).
+  estimated_calls: 3
+  estimated_cost_usd: 0.10
+  estimated_seconds: 20
+
 gate:
   # Pre-flight of the Code Review Agent's checks over generated output.
   run_generated_tests: true

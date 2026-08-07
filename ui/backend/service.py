@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -40,6 +41,8 @@ STATE_DIR = Path(__file__).resolve().parent / "state"
 DECISIONS_PATH = STATE_DIR / "decisions.json"
 
 Decision = Literal["pending", "approved", "rejected"]
+# Which pipeline produced the state the UI is showing.
+RunMode = Literal["mock", "live", "replay"]
 
 
 class FeedRun(BaseModel):
@@ -73,6 +76,32 @@ class GenerationStore:
         self.runs: dict[str, FeedRun] = {}
         self.failures: list[FailedRun] = []
         self.has_run = False
+        # Demo modes (live/replay) swap the whole result set and read files
+        # from their own isolated roots; mock is the default.
+        self.mode: RunMode = "mock"
+        self.label: str | None = None
+        self.out_root: Path = REPO_ROOT / self.config.output.dir
+        self.reports_root: Path = REPO_ROOT / self.config.output.reports_dir
+
+    def adopt(
+        self,
+        runs: dict[str, FeedRun],
+        failures: list[FailedRun],
+        *,
+        mode: RunMode,
+        label: str | None,
+        out_root: Path,
+        reports_root: Path,
+    ) -> None:
+        """Atomically swap the served state for a demo (live/replay) run."""
+        with self._lock:
+            self.runs = runs
+            self.failures = failures
+            self.mode = mode
+            self.label = label
+            self.out_root = out_root
+            self.reports_root = reports_root
+            self.has_run = True
 
     # -- generation ---------------------------------------------------------
 
@@ -84,6 +113,11 @@ class GenerationStore:
         skip_tests: bool = True,
     ) -> None:
         with self._lock:
+            # A plain generate returns the UI to mock state and default roots.
+            self.mode = "mock"
+            self.label = None
+            self.out_root = REPO_ROOT / self.config.output.dir
+            self.reports_root = REPO_ROOT / self.config.output.reports_dir
             contracts_dir = REPO_ROOT / self.config.contracts.dir
             failures: list[FailedRun] = []
             for pair in self.config.contracts.pairs:
@@ -111,15 +145,36 @@ class GenerationStore:
                 self.failures.extend(failures)
             self.has_run = True
 
-    def _generate_feed(self, spec: ResolvedFeedSpec, *, dry_run: bool, skip_tests: bool) -> FeedRun:
+    def _generate_feed(
+        self,
+        spec: ResolvedFeedSpec,
+        *,
+        dry_run: bool,
+        skip_tests: bool,
+        out_root: Path | None = None,
+        reports_dir: Path | None = None,
+        candidates_override: list[RuleCandidate] | None = None,
+        on_stage: Callable[[str], None] | None = None,
+    ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
-        out_root = REPO_ROOT / self.config.output.dir
-        reports_dir = REPO_ROOT / self.config.output.reports_dir
+        # out_root/reports_dir isolate demo runs; candidates_override replays
+        # a recorded Layer-2 result instead of calling any provider.
+        stage = on_stage or (lambda _detail: None)
+        out_root = out_root if out_root is not None else REPO_ROOT / self.config.output.dir
+        reports_dir = (
+            reports_dir if reports_dir is not None else REPO_ROOT / self.config.output.reports_dir
+        )
         feed_dir = out_root / spec.feed_slug
 
+        stage("compiling rules")
         outcomes = compile_rules(spec)
-        provider = build_provider(self.config, dry_run)
-        candidates = run_reasoning(spec, outcomes, provider)
+        if candidates_override is not None:
+            candidates = candidates_override
+        else:
+            stage("Layer-2 reasoning" + ("" if dry_run else " (live)"))
+            provider = build_provider(self.config, dry_run)
+            candidates = run_reasoning(spec, outcomes, provider)
+        stage("emitting code")
 
         duplicate_outcome = next(
             (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
@@ -138,6 +193,7 @@ class GenerationStore:
         written = emit_feed(context, out_root)
         self._write_candidates_artifact(candidates, feed_dir)
 
+        stage("gate")
         checks = run_preflight(feed_dir, self.config)
         tests_skipped = skip_tests or not self.config.gate.run_generated_tests
         if not tests_skipped:
@@ -189,8 +245,12 @@ class GenerationStore:
     # -- file access --------------------------------------------------------
 
     def read_generated_file(self, feed_slug: str, rel_path: str) -> str:
-        """Read one generated file; refuses paths outside the feed's out dir."""
-        feed_dir = (REPO_ROOT / self.config.output.dir / feed_slug).resolve()
+        """Read one generated file; refuses paths outside the feed's out dir.
+
+        Reads from the CURRENT mode's output root, so live/replay runs serve
+        their own isolated artifacts.
+        """
+        feed_dir = (self.out_root / feed_slug).resolve()
         target = (feed_dir / rel_path).resolve()
         if not target.is_relative_to(feed_dir):
             raise PermissionError(f"path escapes feed directory: {rel_path}")
@@ -199,7 +259,7 @@ class GenerationStore:
         return target.read_text(encoding="utf-8")
 
     def read_report(self, feed_slug: str) -> str | None:
-        path = REPO_ROOT / self.config.output.reports_dir / f"{feed_slug}.md"
+        path = self.reports_root / f"{feed_slug}.md"
         if not path.is_file():
             return None
         return path.read_text(encoding="utf-8")

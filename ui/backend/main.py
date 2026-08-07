@@ -26,6 +26,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from codegen.config import load_dotenv
+from ui.backend.demo import DemoRunner, LiveRunInProgress
+from ui.backend.replay import list_replay_sets, load_replay_set
 from ui.backend.service import Decision, FeedRun, GenerationStore
 
 # Same .env resolution as the CLI. Inert while the UI hardwires dry_run=True
@@ -45,10 +47,19 @@ except Exception as exc:  # noqa: BLE001 — surfaced via /api/feeds, never hidd
     startup_error = f"{type(exc).__name__}: {exc}"
 
 
+runner: DemoRunner | None = DemoRunner(store) if store is not None else None
+
+
 def _require_store() -> GenerationStore:
     if store is None:
         raise HTTPException(503, f"pipeline unavailable — {startup_error}")
     return store
+
+
+def _require_runner() -> DemoRunner:
+    if runner is None:
+        raise HTTPException(503, f"pipeline unavailable — {startup_error}")
+    return runner
 
 
 @asynccontextmanager
@@ -120,11 +131,15 @@ def list_feeds() -> dict:
         return {
             "feeds": [],
             "failures": [{"label": "startup", "error": f"pipeline unavailable — {startup_error}"}],
+            "mode": "mock",
+            "label": None,
         }
     decisions = store.load_decisions()
     return {
         "feeds": [_summary(run, decisions) for run in store.runs.values()],
         "failures": [f.model_dump() for f in store.failures],
+        "mode": store.mode,
+        "label": store.label,
     }
 
 
@@ -179,12 +194,75 @@ class GenerateRequest(BaseModel):
 
 @app.post("/api/generate")
 def generate(req: GenerateRequest) -> dict:
-    _require_store().generate(
-        only_slug=req.feed_slug, dry_run=req.dry_run, skip_tests=req.skip_tests
-    )
+    # Always mock here regardless of the request body: with a real key in the
+    # backend env, honoring dry_run=False would allow billed calls without the
+    # cost confirmation. The ONLY live path is /api/demo/run-live.
+    _require_store().generate(only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests)
     if req.feed_slug is not None and req.feed_slug not in _require_store().runs:
         raise HTTPException(404, f"no resolved feed matches {req.feed_slug!r}")
     return list_feeds()
+
+
+# -- demo modes: replay + live ----------------------------------------------- #
+
+
+@app.get("/api/replay/sets")
+def replay_sets() -> dict:
+    return {"sets": [s.model_dump() for s in list_replay_sets()]}
+
+
+class ReplayLoadRequest(BaseModel):
+    set: str
+
+
+@app.post("/api/replay/load")
+def replay_load(req: ReplayLoadRequest) -> dict:
+    try:
+        load_replay_set(_require_store(), req.set)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return list_feeds()
+
+
+@app.get("/api/demo/live-available")
+def live_available() -> dict:
+    # Boolean ONLY — never the key, never env contents.
+    return {"available": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+
+
+class LiveRunRequest(BaseModel):
+    confirm: bool = False
+
+
+@app.post("/api/demo/run-live")
+def run_live(req: LiveRunRequest) -> dict:
+    if not req.confirm:
+        raise HTTPException(400, "live run requires explicit confirm: true (billed API calls)")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(400, "live run unavailable: no ANTHROPIC_API_KEY in the backend env")
+    _require_store()
+    try:
+        _require_runner().start_live()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _require_runner().status()
+
+
+@app.get("/api/demo/status")
+def demo_status() -> dict:
+    demo = _require_store().config.demo
+    return {
+        **_require_runner().status(),
+        "mode": _require_store().mode,
+        "label": _require_store().label,
+        "estimates": {
+            "calls": demo.estimated_calls,
+            "cost_usd": demo.estimated_cost_usd,
+            "seconds": demo.estimated_seconds,
+        },
+    }
 
 
 @app.get("/api/feeds/{slug}/file")

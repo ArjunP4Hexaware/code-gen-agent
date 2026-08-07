@@ -42,24 +42,21 @@ Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract);
 invariant, NOT the stage table name — and format/delimiter/standard-target
 presence come from the FRD side. Recycle validation text stays VERBATIM
 (the resolver also accepts the client "Check with <col> from ... <table>
-FOR <filter>" phrasing). FLAT dialect only — segmented (H/D/T) raises
+FOR <filter>" phrasing). FLAT only — segmented (H/D/T) raises
 `SegmentedWorkbookError`. Header resolution is fuzzy + config-driven
 (`extractor:` knob); trailing `NA` rows become `audit_columns`, never
 `fields[]`; `Comment` → `value_spec`. The CV/golden pair is byte-tested
-against its committed expected output; it can NEVER match the MIDS
-fixture (different universe — docs/EXTRACTOR_RECON.md §4d).
+against its committed expected output; it can NEVER match the MIDS fixture
+(different universe — docs/EXTRACTOR_RECON.md §4d).
 
 ## Setup / run / test
 
 ```bash
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"      # deps + pytest/ruff/pyspark, from pyproject
-
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
 .venv/bin/python -m pytest -q          # 54 passed, no Spark, no network
 
 # Generate everything from the fixture contracts (mock Layer 2, no network)
-.venv/bin/python -m codegen.cli generate-all \
-    --config config/config.yaml --dry-run --skip-tests
+.venv/bin/python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests
 ```
 
 Expected with current fixtures: **all 4 feeds PASS_WITH_FLAGS** (every feed
@@ -82,13 +79,12 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   only when `ANTHROPIC_API_KEY` is set, and `--dry-run` forces mock — no
   key ⇒ zero network. Model name lives in config (`reasoning.model`).
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
-  `None`, never a default. PHI is masked to last-4 at every
-  log/report/error egress.
+  `None`, never a default. PHI masked to last-4 at every egress.
 
 ## Branching model
 
-All development happens on `staging`. `main` is the deployment branch;
-`staging` merges to `main` only after testing.
+All development on `staging`; `main` is the deployment branch — `staging`
+merges to `main` only after testing.
 
 ## Fixtures & data rules
 
@@ -105,8 +101,8 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
 - **The CAQH STTM contract is synthetic** — `extract-sttm` is flat-only, so
   CAQH (segmented) still cannot be extracted; the MIDS STTM contract
   predates the extractor (out-of-repo; no committed workbook reproduces it).
-  The CAQH record-type discriminator (first field, H/D/T, `config.segments`)
-  is an assumption pending the source dictionary; CAQH's standard target is
+  The record-type discriminator (first field, H/D/T, `config.segments`) is
+  an assumption pending the source dictionary; CAQH's standard target is
   empty in the FRD (stage-only, load AS-IS) — confirm with the source team.
 - `FrdContract._provenance.ambiguities` accepts plain strings (older
   contracts) AND the structured `GatedAmbiguity` objects current
@@ -117,7 +113,7 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
 - `ui/backend/service.py::GenerationStore._generate_feed` mirrors
   `cli._generate_feed` step for step — keep them in sync if CLI
   orchestration changes. UI runs are always dry-run + skip-tests.
-- Generated job JSON cluster shape/schedule is a config guess; only
-  "Weekly Monday 8 PM" compiles to cron, MIDS ships unscheduled.
-- The client's existing pipeline stack is unknown — output targets plain
-  PySpark + Workflows, structured for a mechanical DLT port.
+- Generated job JSON cluster shape/schedule is a config guess; only "Weekly
+  Monday 8 PM" compiles to cron, MIDS ships unscheduled. The client's
+  pipeline stack is unknown — output targets plain PySpark + Workflows,
+  structured for a mechanical DLT port.

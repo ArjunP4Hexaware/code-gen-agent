@@ -28,9 +28,11 @@ venv/
 .ruff_cache/
 *.egg-info/
 
-# Office documents
+# Office documents — blanket guard against real client docs entering the
+# repo. Anonymized workbook fixtures are re-included explicitly below.
 *.docx
 *.xlsx
+!fixtures/workbooks/*.xlsx
 
 # Wheel-build detritus
 build/

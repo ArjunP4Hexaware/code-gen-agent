@@ -54,6 +54,35 @@ Running the generated Spark tests locally needs a JVM: set `JAVA_HOME`
 to the venv interpreter. Skip them with `--skip-tests` or
 `gate.run_generated_tests: false` in config.
 
+## Extracting an STTM mapping contract from a client workbook
+
+`extract-sttm` is the committed workbook→contract tool (deterministic, no
+LLM, no network). It takes the client-authored STTM workbook **plus the
+paired FRD feed contract** — `feed_id` derives from the FRD feed name via
+the resolver's `normalize_feed_name` invariant, and format/delimiter/
+standard-target presence are FRD-side facts the workbook doesn't state:
+
+```bash
+.venv/Scripts/python -m codegen.cli extract-sttm \
+    --workbook fixtures/workbooks/demo_sttm_cv_golden.xlsx \
+    --frd-contract FRD_demo_cv_golden.contract.json \
+    --out out/sttm_extracted.json \
+    --generated-date 2026-08-07        # inject for byte-reproducible output
+```
+
+Layout knowledge (sheet names, band labels, header synonyms, audit-row
+markers) lives under `extractor:` in `config/config.yaml` — header
+resolution is fuzzy because real workbooks mix several header dialects.
+Trailing `NA` rows become `audit_columns`; a `Comment` column becomes
+`value_spec`; recycle validation text is kept **verbatim** (the resolver
+accepts the client phrasing). **Flat dialect only**: a segmented
+(Header/Detail/Trailer) workbook is a hard error — the synthetic CAQH
+contract remains that dialect's stand-in. Unresolvable headers, unpaired
+feeds, and schema-invalid output all fail loudly naming the sheet/column/
+feed. The committed expected output for the golden pair is
+`fixtures/contracts/sttm_mapping_contracts_cv_golden.json` (byte-compared
+in tests).
+
 ## Repository layout
 
 | Path | What |
@@ -62,12 +91,14 @@ to the venv interpreter. Skip them with `--skip-tests` or
 | `src/codegen/resolve/` | FRD⋈STTM join → `ResolvedFeedSpec`; disagreements raise `ContractMismatchError` |
 | `src/codegen/rules/` | deterministic classifier for free-text validation rules |
 | `src/codegen/reasoning/` | Layer 2: context packs, providers (mock/Anthropic), verbatim grounding check |
+| `src/codegen/extract/` | workbook→STTM-mapping-contract extractor (flat dialect; `extract-sttm` CLI) |
 | `src/codegen/emit/` | render context + Jinja2 emitter + single-notebook assembler (`notebook.py`) |
 | `src/codegen/templates/` | the full template inventory (pipeline, DDL, job, tests, fixtures) |
 | `src/codegen/gate/` | preflight (ruff, debug/secrets scan, test-per-module), generated-test runner, verdict |
 | `src/codegen/report/` | per-feed generation report |
 | `config/config.yaml` | every knob; no numeric literals live in generator logic |
-| `fixtures/contracts/` | real MIDS + CAQH FRD contracts; **synthetic** CAQH STTM stand-in |
+| `fixtures/contracts/` | real MIDS + CAQH FRD contracts; **synthetic** CAQH STTM stand-in; CV/golden FRD + expected extractor output |
+| `fixtures/workbooks/` | anonymized golden STTM workbook (extractor input fixture) |
 | `tests/` | generator's own test suite (no Spark needed) |
 
 ## Development

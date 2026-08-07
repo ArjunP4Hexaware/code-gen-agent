@@ -54,6 +54,7 @@ its committed expected output and can NEVER match the MIDS fixture
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
+# Live Layer-2 runs additionally need the Anthropic SDK: -e ".[dev,live]"
 .venv/bin/python -m pytest -q          # 58 passed, no Spark, no network
 
 # Generate everything from the fixture contracts (mock Layer 2, no network)

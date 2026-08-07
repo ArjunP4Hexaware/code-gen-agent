@@ -97,8 +97,12 @@ reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;
   # --dry-run forces mock.
-  model: claude-sonnet-5
-  max_tokens: 4096
+  # Proven against our key by frd-to-sttm's live E2E runs (2026-08-07).
+  model: claude-opus-4-8
+  max_tokens: 8192
+  # 0 = deterministic-as-possible live output; candidates.json still varies
+  # only where the model itself does.
+  temperature: 0
   # One retry with the validation error appended, then record a failure.
   max_attempts: 2
 

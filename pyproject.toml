@@ -19,6 +19,11 @@ dev = [
     "pyspark>=3.5,<4.0",
     "delta-spark>=3.2,<4.0",
 ]
+# Live Layer-2 provider only; the default install stays offline/mock.
+# Pin tracks frd-to-sttm's proven major version.
+live = [
+    "anthropic>=0.60,<1",
+]
 # Demo UI backend only (ui/backend); the generator itself never needs these.
 ui = [
     "fastapi>=0.111",

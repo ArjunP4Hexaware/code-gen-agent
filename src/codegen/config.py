@@ -8,12 +8,33 @@ were never passed to it.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+
+
+def load_dotenv(path: str | Path = ".env") -> None:
+    """Tiny KEY=VALUE loader; never overrides variables already in the env.
+
+    Shared by every entry point (CLI and UI backend) so ANTHROPIC_API_KEY
+    resolves the same way everywhere without a python-dotenv dependency.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 class ContractPair(BaseModel):
@@ -133,6 +154,7 @@ class ReasoningConfig(BaseModel):
     model: str
     max_tokens: int = Field(gt=0)
     max_attempts: int = Field(gt=0)
+    temperature: float = Field(ge=0, le=1)
 
 
 class GateConfig(BaseModel):

@@ -41,7 +41,7 @@ Every generation ends in a computed three-state gate verdict per feed:
 
 ```bash
 python -m venv .venv
-.venv/Scripts/pip install -e .            # or: pip install -e ".[dev]" equivalents in pyproject
+.venv/Scripts/pip install -e .            # or: pip install -e ".[dev]"; add ",live" for the Anthropic SDK
 cp .env.example .env                      # optional; only needed for real creds
 
 # generate everything from the fixture contracts (mock Layer 2, no network)

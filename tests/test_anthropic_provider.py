@@ -35,9 +35,11 @@ class _FakeMessages:
     def __init__(self, responses: list[str]):
         self._responses = list(responses)
         self.calls = 0
+        self.last_kwargs: dict = {}
 
     def create(self, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         text = self._responses.pop(0)
         block = types.SimpleNamespace(type="text", text=text)
         return types.SimpleNamespace(content=[block])
@@ -75,6 +77,31 @@ def test_fenced_json_is_unwrapped(config, monkeypatch):
 
 def test_invalid_then_valid_retries_once(config, monkeypatch):
     messages = _install_fake_anthropic(monkeypatch, ["not json at all", VALID_JSON])
+    response = _provider(config).complete(_pack())
+    assert messages.calls == 2
+    assert response.classification == "mappable"
+
+
+def test_config_knobs_are_forwarded_to_the_api_call(config, monkeypatch):
+    messages = _install_fake_anthropic(monkeypatch, [VALID_JSON])
+    _provider(config).complete(_pack())
+    assert messages.last_kwargs["model"] == config.reasoning.model
+    assert messages.last_kwargs["max_tokens"] == config.reasoning.max_tokens
+    assert messages.last_kwargs["temperature"] == config.reasoning.temperature == 0
+
+
+def test_prose_preamble_is_tolerated(config, monkeypatch):
+    wrapped = f"Here is the JSON you asked for:\n{VALID_JSON}\nHope this helps!"
+    messages = _install_fake_anthropic(monkeypatch, [wrapped])
+    response = _provider(config).complete(_pack())
+    assert messages.calls == 1
+    assert response.rationale == "because"
+
+
+def test_malformed_fence_enters_retry_not_crash(config, monkeypatch):
+    # A bare "```" used to raise ValueError from str.index and escape the
+    # retry loop entirely; it must now count as a normal invalid attempt.
+    messages = _install_fake_anthropic(monkeypatch, ["```", VALID_JSON])
     response = _provider(config).complete(_pack())
     assert messages.calls == 2
     assert response.classification == "mappable"

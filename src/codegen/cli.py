@@ -16,11 +16,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
-from codegen.config import Config, load_config
+from codegen.config import Config, load_config, load_dotenv
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
@@ -31,21 +30,6 @@ from codegen.reasoning.engine import RuleCandidate
 from codegen.report import console_summary, write_generation_report
 from codegen.resolve.resolver import ContractMismatchError, resolve_pair
 from codegen.rules.compiler import compile_rules
-
-
-def _load_dotenv(path: Path) -> None:
-    """Tiny KEY=VALUE loader; never overrides variables already in the env."""
-    if not path.is_file():
-        return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip("'\"")
-        if key and key not in os.environ:
-            os.environ[key] = value
 
 
 def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) -> Path | None:
@@ -216,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    _load_dotenv(Path(".env"))
+    load_dotenv()
     config = load_config(args.config)
 
     if args.command == "extract-sttm":

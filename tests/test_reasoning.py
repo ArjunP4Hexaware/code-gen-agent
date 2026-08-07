@@ -7,8 +7,28 @@ from codegen.reasoning.engine import run_reasoning
 from codegen.reasoning.grounding import grounding_failures
 from codegen.reasoning.providers import build_provider
 from codegen.reasoning.providers.mock import MockProvider
-from codegen.reasoning.schema import CandidateResponse
+from codegen.reasoning.schema import CandidateResponse, ContextPack
 from codegen.rules.compiler import compile_rules
+
+
+def _pack_with_excerpt(excerpt: str) -> ContextPack:
+    return ContextPack(
+        feed_id="feed",
+        rule_text="the rule",
+        contract_excerpts=[excerpt],
+        available_source_columns=[],
+        available_stage_columns=[],
+        audit_columns=[],
+    )
+
+
+def _response_citing(citation: str) -> CandidateResponse:
+    return CandidateResponse(
+        classification="mappable",
+        code_candidate=None,
+        rationale="grounding-normalization test",
+        citations=[citation],
+    )
 
 
 def _unmapped(spec):
@@ -52,6 +72,28 @@ def test_verbatim_citation_passes(specs_by_id):
         citations=[outcome.rule_text],
     )
     assert grounding_failures(pack, response) == []
+
+
+def test_json_escaped_citation_passes():
+    # The pack reaches the model as indented JSON, so a faithful copy may
+    # carry \" and \n escapes; those must not read as fabrication.
+    pack = _pack_with_excerpt('Reject rows where "RECORD_TYPE" is\nnot H')
+    response = _response_citing('where \\"RECORD_TYPE\\" is\\nnot H')
+    assert grounding_failures(pack, response) == []
+
+
+def test_curly_quote_citation_passes():
+    pack = _pack_with_excerpt('Reject rows where "RECORD_TYPE" is not H')
+    response = _response_citing("where “RECORD_TYPE” is not H")
+    assert grounding_failures(pack, response) == []
+
+
+def test_fabricated_citation_still_fails_after_normalization():
+    pack = _pack_with_excerpt('Reject rows where "RECORD_TYPE" is not H')
+    response = _response_citing("all rows must carry a checksum column")
+    failures = grounding_failures(pack, response)
+    assert len(failures) == 1
+    assert "not verbatim" in failures[0]
 
 
 def test_provider_failure_is_recorded_not_raised(specs_by_id):

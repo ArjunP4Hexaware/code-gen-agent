@@ -17,7 +17,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from codegen.config import load_dotenv
 from ui.backend.service import Decision, FeedRun, GenerationStore
+
+# Same .env resolution as the CLI. Inert while the UI hardwires dry_run=True
+# (mock provider), but keeps env parity for the day a live knob lands.
+load_dotenv()
 
 CONFIG_PATH = "config/config.yaml"
 

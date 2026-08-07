@@ -1,6 +1,7 @@
 """Real Layer 2 backend. Only constructed when ANTHROPIC_API_KEY is set and
 dry-run is off (see ``build_provider``); ``anthropic`` is imported lazily so
-the package is not a hard dependency of the deterministic path.
+the package is not a hard dependency of the deterministic path (install the
+``live`` extra to get it).
 
 The model is asked for a single JSON object matching CandidateResponse. Each
 invalid attempt is retried with the validation error appended, up to
@@ -21,11 +22,13 @@ _SYSTEM_PROMPT = (
     "You are a data-engineering assistant proposing a REVIEW CANDIDATE for one "
     "free-text validation rule from an ingestion contract. Your output is never "
     "deployed directly; an engineer reviews it.\n"
-    "Respond with a single JSON object and nothing else, with keys:\n"
+    "Respond with exactly one JSON object and nothing else — no preamble, no "
+    "markdown fences, no commentary after it. The object must contain exactly "
+    "these four keys, always all present, and no others:\n"
     '  "classification": one of "mappable", "orchestration_config", '
     '"notification", "out_of_scope"\n'
-    '  "code_candidate": a short PySpark sketch as a string, or null for '
-    "non-code classifications\n"
+    '  "code_candidate": a short PySpark sketch as a string, or the JSON '
+    "literal null for non-code classifications (never omit the key)\n"
     '  "rationale": why this classification and sketch\n'
     '  "citations": a non-empty list of EXACT verbatim substrings copied from '
     "the provided contract text that support your answer\n"
@@ -35,15 +38,45 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _first_balanced_object(text: str) -> str | None:
+    """Return the first ``{...}`` block with balanced, string-aware braces."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
+
+
 def _extract_json(text: str) -> str:
-    """Tolerate a fenced code block around the JSON object."""
+    """Isolate the JSON object from a response that may carry prose or fences.
+
+    Never raises: with no object present the stripped text is returned as-is
+    and the schema validation downstream turns it into a normal retry.
+    """
     stripped = text.strip()
-    if stripped.startswith("```"):
-        first_newline = stripped.index("\n")
-        stripped = stripped[first_newline:].strip()
-        if stripped.endswith("```"):
-            stripped = stripped[: stripped.rfind("```")].strip()
-    return stripped
+    if stripped.startswith("{") and stripped.endswith("}"):
+        return stripped
+    candidate = _first_balanced_object(stripped)
+    return candidate if candidate is not None else stripped
 
 
 class AnthropicProvider:
@@ -56,6 +89,7 @@ class AnthropicProvider:
         self._model = config.reasoning.model
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
+        self._temperature = config.reasoning.temperature
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         user_prompt = "Context pack (the only citable text):\n" + json.dumps(
@@ -66,6 +100,7 @@ class AnthropicProvider:
             message = self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
+                temperature=self._temperature,
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
             )

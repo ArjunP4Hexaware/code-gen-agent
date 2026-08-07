@@ -27,11 +27,13 @@ src/codegen/        contracts/ (pydantic models, both dialects, frozen),
                     classifier), reasoning/ (Layer 2: providers, verbatim
                     grounding), emit/ (Jinja2 + notebook assembler), gate/
                     (preflight, tests, verdict), report/, templates/, cli.py, config.py
-tests/              58 generator tests, offline, no Spark needed
+tests/              80 tests, offline, no Spark needed (15 demo-UI tests
+                    skip cleanly when the [ui] extra isn't installed)
 config/config.yaml  every knob — contract pairs, extractor layout, naming, masking, gate, job
 fixtures/contracts/ 2 real FRD + MIDS STTM + SYNTHETIC CAQH STTM + CV/golden FRD + expected extract
 fixtures/workbooks/ anonymized golden STTM workbook (extractor input; re-included past *.xlsx ignore)
-docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md, media/
+docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
+                    LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script), media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
 ```
 
@@ -55,7 +57,7 @@ its committed expected output and can NEVER match the MIDS fixture
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
 # Live Layer-2 runs additionally need the Anthropic SDK: -e ".[dev,live]"
-.venv/bin/python -m pytest -q          # 58 passed, no Spark, no network
+.venv/bin/python -m pytest -q          # 80 passed, no Spark, no network
 
 # Generate everything from the fixture contracts (mock Layer 2, no network)
 .venv/bin/python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests

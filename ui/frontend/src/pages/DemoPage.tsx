@@ -9,13 +9,15 @@ import { VerdictChip } from "../components/VerdictChip";
    Every number and quote on screen is real output from the latest run —
    nothing is mocked. Navigate with the buttons or ← / → keys. */
 
+// The tour deliberately ENDS on the human decision: every run — mock, live
+// or replay — terminates at the candidate approve/reject queue (HITL).
 const STEP_TITLES = [
   "What this is",
   "Contracts go in",
   "Layer 1 — deterministic",
-  "Layer 2 — AI, sandboxed",
   "The safety gate",
   "What comes out",
+  "Layer 2 — the human decision",
 ];
 
 export function DemoPage({ data }: { data: FeedsResponse | null }) {
@@ -29,9 +31,13 @@ export function DemoPage({ data }: { data: FeedsResponse | null }) {
     return (feeds.find((f) => f.candidate_count > 0) ?? feeds[0])?.feed_slug ?? null;
   }, [data]);
 
-  useEffect(() => {
+  const refreshFeed = useCallback(() => {
     if (exampleSlug) api.feed(exampleSlug).then(setFeed).catch(() => setFeed(null));
   }, [exampleSlug]);
+
+  useEffect(() => {
+    refreshFeed();
+  }, [refreshFeed]);
 
   const last = STEP_TITLES.length - 1;
   const next = useCallback(() => setStep((s) => Math.min(s + 1, last)), [last]);
@@ -69,9 +75,9 @@ export function DemoPage({ data }: { data: FeedsResponse | null }) {
         {step === 0 && <StepWhat data={data} />}
         {step === 1 && <StepContracts feed={feed} />}
         {step === 2 && <StepLayer1 feed={feed} />}
-        {step === 3 && <StepLayer2 feed={feed} />}
-        {step === 4 && <StepGate feed={feed} />}
-        {step === 5 && <StepDeliverable data={data} feed={feed} />}
+        {step === 3 && <StepGate feed={feed} />}
+        {step === 4 && <StepDeliverable data={data} feed={feed} />}
+        {step === 5 && <StepHitlReview feed={feed} onDecided={refreshFeed} />}
       </div>
 
       <div className="demo-nav">
@@ -234,47 +240,90 @@ function StepLayer1({ feed }: { feed: FeedDetail | null }) {
   );
 }
 
-function StepLayer2({ feed }: { feed: FeedDetail | null }) {
+function StepHitlReview({
+  feed,
+  onDecided,
+}: {
+  feed: FeedDetail | null;
+  onDecided: () => void;
+}) {
+  const [busy, setBusy] = useState<number | null>(null);
   if (!feed) return <div className="empty">Loading example feed…</div>;
-  const candidate = feed.candidates[0];
+
+  const decide = async (index: number, decision: "approved" | "rejected", current: string) => {
+    setBusy(index);
+    try {
+      // Clicking the already-selected decision resets to pending.
+      await api.decide(feed.feed_slug, index, current === decision ? "pending" : decision);
+      onDecided();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <>
       <p className="demo-lead">
-        Free-text rules that no pattern can classify go to the AI — but the AI works in a{" "}
-        <strong>sandbox</strong>. Its suggestions land in a review queue as JSON, never in the
-        generated pipeline.
+        The demo ends where every run ends: with a <strong>human decision</strong>. Free-text
+        rules no pattern could classify went to the AI in a sandbox — its suggestions landed
+        here, in a review queue, <strong>pending engineer approval</strong>. Nothing merges
+        into the pipeline until a person says so.
       </p>
       <ul className="demo-list">
         <li>
           Every suggestion must <strong>quote the contract verbatim</strong> — a grounding check
           rejects anything it can't find in the source text.
         </li>
-        <li>An engineer approves or rejects each one; merging stays a manual step.</li>
-        <li>With no API key (or in dry-run) a mock provider runs — zero network calls.</li>
+        <li>Approve or reject below — the decision is recorded; merging stays a manual step.</li>
       </ul>
-      {candidate ? (
-        <div className="demo-quote">
-          <div className="q">“{candidate.rule_text}”</div>
-          <div className="a">
-            {candidate.response ? (
-              <>
-                <ClassBadge classification={candidate.response.classification} />{" "}
-                <span className={`pill ${candidate.grounded ? "grounded" : "ungrounded"}`}>
-                  {candidate.grounded ? "✓ grounded" : "✗ NOT grounded"}
-                </span>
-                <div style={{ marginTop: 8 }}>{candidate.response.rationale}</div>
-              </>
-            ) : (
-              <em>provider returned no usable response — recorded as a failure, not hidden</em>
-            )}
-          </div>
-        </div>
-      ) : (
+      {feed.candidates.length === 0 ? (
         <p className="demo-fact">This feed had no ambiguous rules — the queue is empty.</p>
+      ) : (
+        feed.candidates.map((candidate) => (
+          <div className="demo-quote" key={candidate.index}>
+            <div className="q">“{candidate.rule_text}”</div>
+            <div className="a">
+              {candidate.response ? (
+                <>
+                  <ClassBadge classification={candidate.response.classification} />{" "}
+                  <span className={`pill ${candidate.grounded ? "grounded" : "ungrounded"}`}>
+                    {candidate.grounded ? "✓ grounded" : "✗ NOT grounded"}
+                  </span>
+                  <span className="pill">provider: {candidate.provider}</span>
+                  <div style={{ marginTop: 8 }}>{candidate.response.rationale}</div>
+                </>
+              ) : (
+                <em>provider returned no usable response — recorded as a failure, not hidden</em>
+              )}
+              <div className="decision-row" style={{ marginTop: 10 }}>
+                <button
+                  className={`btn approve${candidate.review.decision === "approved" ? " selected" : ""}`}
+                  disabled={busy === candidate.index}
+                  onClick={() => decide(candidate.index, "approved", candidate.review.decision)}
+                >
+                  ✓ Approve
+                </button>
+                <button
+                  className={`btn reject${candidate.review.decision === "rejected" ? " selected" : ""}`}
+                  disabled={busy === candidate.index}
+                  onClick={() => decide(candidate.index, "rejected", candidate.review.decision)}
+                >
+                  ✗ Reject
+                </button>
+                <span className="status">
+                  {candidate.review.decision === "pending"
+                    ? "Pending engineer approval"
+                    : `Marked ${candidate.review.decision}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))
       )}
       <p className="demo-fact">
-        {feed.candidate_count} candidate{feed.candidate_count === 1 ? "" : "s"} for{" "}
-        <code>{feed.feed_slug}</code>, {feed.candidates_pending} awaiting review — see the{" "}
+        {feed.candidates_pending} of {feed.candidate_count} candidate
+        {feed.candidate_count === 1 ? "" : "s"} still pending for <code>{feed.feed_slug}</code>{" "}
+        — the full queue lives on the{" "}
         <Link to={`/feeds/${feed.feed_slug}?tab=candidates`}>Layer-2 review tab</Link>.
       </p>
     </>

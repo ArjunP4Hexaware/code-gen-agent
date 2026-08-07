@@ -1,0 +1,25 @@
+# Databricks App manifest (template: frd-to-sttm's review_app_react/app.yaml,
+# per the documented app.yaml schema: command + env). A custom Python command
+# because this is a FastAPI process that also serves the frontend's built
+# static assets — see ui/backend/main.py's StaticFiles mount.
+#
+# Port: DATABRICKS_APP_PORT is injected by the platform at runtime;
+# ui/backend/main.py reads it directly (fallback CODEGEN_UI_PORT, then 8571).
+#
+# Deploy prerequisites:
+#   1. cd ui/frontend && npm install && npm run build   (dist/ must exist)
+#   2. An app secret resource holding the Anthropic key, referenced below —
+#      Live mode is disabled in the UI when the variable is absent, so the
+#      app also runs keyless with Replay + mock only.
+#
+# KNOWN GAP (untested, same as frd-to-sttm's gap #3): long-request/SSE
+# behavior through the Databricks Apps reverse proxy is unvalidated. The
+# live run avoids long-held requests by design (POST returns immediately;
+# progress is short polls of /api/demo/status), but the proxy's timeout
+# behavior for the ~20s pipeline thread and poll cadence has not been
+# exercised on a real Apps deployment.
+command: ["python", "-m", "ui.backend.main"]
+
+env:
+  - name: "ANTHROPIC_API_KEY"
+    valueFrom: "anthropic-api-key" # app secret resource key, set at deploy time

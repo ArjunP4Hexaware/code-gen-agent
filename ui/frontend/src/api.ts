@@ -37,9 +37,35 @@ export interface FeedSummary {
   files_written: number;
 }
 
+export type RunMode = "mock" | "live" | "replay";
+
 export interface FeedsResponse {
   feeds: FeedSummary[];
   failures: { label: string; error: string }[];
+  mode: RunMode;
+  label: string | null;
+}
+
+export interface ReplaySet {
+  name: string;
+  date: string | null;
+  feeds: string[];
+  has_call_log: boolean;
+}
+
+export interface DemoStage {
+  stage: string;
+  detail: string;
+  at: number;
+}
+
+export interface DemoStatus {
+  state: "idle" | "running" | "done" | "failed";
+  stages: DemoStage[];
+  error: string | null;
+  mode: RunMode;
+  label: string | null;
+  estimates: { calls: number; cost_usd: number; seconds: number };
 }
 
 export interface RuleOutcome {
@@ -130,4 +156,19 @@ export const api = {
         body: JSON.stringify({ decision, note: note ?? null }),
       },
     ),
+  replaySets: () => request<{ sets: ReplaySet[] }>("/api/replay/sets"),
+  replayLoad: (set: string) =>
+    request<FeedsResponse>("/api/replay/load", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ set }),
+    }),
+  liveAvailable: () => request<{ available: boolean }>("/api/demo/live-available"),
+  runLive: () =>
+    request<DemoStatus>("/api/demo/run-live", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    }),
+  demoStatus: () => request<DemoStatus>("/api/demo/status"),
 };

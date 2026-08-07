@@ -152,12 +152,20 @@ function OverviewTab({ feed }: { feed: FeedDetail }) {
           </div>
           <div className="panel-body">
             <ul className="flag-list">
-              {feed.flags.map((f) => (
-                <li key={f}>
-                  <span className="verdict-dot PASS_WITH_FLAGS fdot" />
-                  <span>{f}</span>
-                </li>
-              ))}
+              {feed.flags.map((f) => {
+                // The HITL centerpiece: candidates awaiting a human decision
+                // get called out distinctly from housekeeping flags.
+                const hitl = f.includes("pending engineer approval");
+                return (
+                  <li key={f} className={hitl ? "flag-hitl" : undefined}>
+                    <span className="verdict-dot PASS_WITH_FLAGS fdot" />
+                    <span>
+                      {hitl ? <span className="hitl-tag">PENDING ENGINEER APPROVAL</span> : null}
+                      {f}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

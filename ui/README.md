@@ -40,6 +40,26 @@ Vite proxy makes most /api calls same-origin anyway, so dev usually works
 without it, but set it to be safe.) Single-port mode is same-origin and
 needs no CORS.
 
+## Run modes (Live / Replay / Mock)
+
+The **Run modes** page picks how results are produced; a badge + banner
+always show which mode the UI is in:
+
+- **Mock** (default): deterministic stand-in provider, zero network — what
+  the startup generation and the "Generate all feeds" button run.
+- **Replay**: loads a tracked live run from `fixtures/replay/<set>/`
+  instantly — the deterministic pipeline re-runs locally with the recorded
+  Anthropic candidates injected; zero API calls, no key needed.
+- **Live**: the full pipeline for real — extract-sttm on the demo workbook →
+  generate with live Layer-2 reasoning → gate. Gated on a key being present
+  in the backend env, requires an explicit cost confirmation (~3 calls,
+  ≈$0.10), rejects concurrent runs (409), and writes to an isolated
+  `out/demo_<timestamp>/` directory. `POST /api/generate` is hardwired to
+  mock — the confirmed live endpoint is the only billed path.
+
+The guided demo tour ends on the Layer-2 **human review** step in every
+mode: candidates sit pending engineer approval until a person decides.
+
 ## What it shows
 
 - **Dashboard** — one card per resolved feed with the three-state gate

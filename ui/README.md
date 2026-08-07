@@ -4,18 +4,41 @@ A thin front door onto the generator: it invokes the same in-process pipeline
 the CLI runs (`resolve → compile rules → Layer 2 → render → gate → report`)
 and renders its structured artifacts. No generation logic lives in the UI.
 
-## Run (two terminals, from the repo root)
+## Run — single-port mode (Apps-shaped, recommended for demos)
+
+One process serves the API and the built frontend, mirroring the shape a
+Databricks Apps deployment expects:
+
+```bash
+.venv/bin/pip install -e ".[ui]"          # first time only
+./run_demo.sh                              # builds frontend if stale, serves http://localhost:8571
+```
+
+The backend mounts `ui/frontend/dist` at `/` (with an index.html fallback
+for client-side routes, and a no-store HTML shell so rebuilds never leave a
+stale cached page) whenever a build exists. Port/host resolution:
+`DATABRICKS_APP_PORT` (injected by Databricks Apps) → `CODEGEN_UI_PORT` →
+`8571`; bind host is `0.0.0.0` (Apps requirement) unless `CODEGEN_UI_HOST`
+overrides it. If config/fixtures are missing at startup, the app comes up
+with empty state and reports the problem via `/api/feeds` instead of
+crashing.
+
+## Run — dev mode (two terminals, from the repo root)
 
 ```bash
 # 1. Backend — generates all feeds on startup (dry-run, tests skipped)
-.venv/bin/pip install -e ".[ui]"          # first time only
-.venv/bin/uvicorn ui.backend.main:app --reload --port 8571
+CODEGEN_UI_DEV=1 .venv/bin/uvicorn ui.backend.main:app --reload --port 8571
 
 # 2. Frontend
 cd ui/frontend
 npm install                                # first time only
 npm run dev                                # http://localhost:5173
 ```
+
+`CODEGEN_UI_DEV=1` enables the CORS allowance for the Vite origin. (The
+Vite proxy makes most /api calls same-origin anyway, so dev usually works
+without it, but set it to be safe.) Single-port mode is same-origin and
+needs no CORS.
 
 ## What it shows
 

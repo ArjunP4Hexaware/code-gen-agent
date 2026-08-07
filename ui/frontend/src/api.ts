@@ -63,9 +63,17 @@ export interface DemoStatus {
   state: "idle" | "running" | "done" | "failed";
   stages: DemoStage[];
   error: string | null;
+  last_run_label: string | null;
   mode: RunMode;
   label: string | null;
   estimates: { calls: number; cost_usd: number; seconds: number };
+}
+
+export interface PastLiveRun {
+  name: string;
+  timestamp: string | null;
+  feeds: string[];
+  complete: boolean;
 }
 
 export interface RuleOutcome {
@@ -171,4 +179,12 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
   demoStatus: () => request<DemoStatus>("/api/demo/status"),
+  liveRuns: () => request<{ runs: PastLiveRun[] }>("/api/demo/live-runs"),
+  loadLiveRun: (run: string) =>
+    request<FeedsResponse>("/api/demo/load-live-run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ run }),
+    }),
+  resetDecisions: () => request<FeedsResponse>("/api/decisions/reset", { method: "POST" }),
 };

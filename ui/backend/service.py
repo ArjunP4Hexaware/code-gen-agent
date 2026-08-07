@@ -39,6 +39,9 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_DIR = Path(__file__).resolve().parent / "state"
 DECISIONS_PATH = STATE_DIR / "decisions.json"
+# v2: decisions are scoped per run (mock / demo_<ts> / replay set) so an
+# approval made while rehearsing one state never bleeds into another.
+DECISIONS_VERSION = 2
 
 Decision = Literal["pending", "approved", "rejected"]
 # Which pipeline produced the state the UI is showing.
@@ -225,22 +228,49 @@ class GenerationStore:
 
     # -- review decisions ---------------------------------------------------
 
-    def load_decisions(self) -> dict[str, dict[str, dict]]:
+    @property
+    def run_key(self) -> str:
+        """Identity of the currently loaded run: decisions are scoped to it."""
+        return self.label or "mock"
+
+    @staticmethod
+    def _load_all_decisions() -> dict[str, dict[str, dict[str, dict]]]:
         if not DECISIONS_PATH.is_file():
             return {}
-        return json.loads(DECISIONS_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(DECISIONS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("version") != DECISIONS_VERSION:
+            # Pre-v2 shape was keyed by rule alone and bled across runs and
+            # modes — disposable dev state, deliberately discarded.
+            return {}
+        return payload.get("runs", {})
+
+    @staticmethod
+    def _write_all_decisions(runs: dict) -> None:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {"version": DECISIONS_VERSION, "runs": runs}
+        DECISIONS_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    def load_decisions(self) -> dict[str, dict[str, dict]]:
+        """Decisions for the CURRENT run only — each run starts pending."""
+        return self._load_all_decisions().get(self.run_key, {})
 
     def save_decision(
         self, feed_slug: str, candidate_index: int, decision: Decision, note: str | None
     ) -> dict:
         with self._lock:
-            decisions = self.load_decisions()
-            feed_decisions = decisions.setdefault(feed_slug, {})
+            all_runs = self._load_all_decisions()
+            feed_decisions = all_runs.setdefault(self.run_key, {}).setdefault(feed_slug, {})
             entry = {"decision": decision, "note": note}
             feed_decisions[str(candidate_index)] = entry
-            STATE_DIR.mkdir(parents=True, exist_ok=True)
-            DECISIONS_PATH.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
+            self._write_all_decisions(all_runs)
             return entry
+
+    def reset_decisions(self) -> None:
+        """Clear the CURRENT run's slate (other runs' decisions are kept)."""
+        with self._lock:
+            all_runs = self._load_all_decisions()
+            if all_runs.pop(self.run_key, None) is not None:
+                self._write_all_decisions(all_runs)
 
     # -- file access --------------------------------------------------------
 

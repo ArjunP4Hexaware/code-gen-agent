@@ -27,7 +27,12 @@ from starlette.responses import Response
 
 from codegen.config import load_dotenv
 from ui.backend.demo import DemoRunner, LiveRunInProgress
-from ui.backend.replay import list_replay_sets, load_replay_set
+from ui.backend.replay import (
+    list_past_live_runs,
+    list_replay_sets,
+    load_past_live_run,
+    load_replay_set,
+)
 from ui.backend.service import Decision, FeedRun, GenerationStore
 
 # Same .env resolution as the CLI. Inert while the UI hardwires dry_run=True
@@ -223,6 +228,33 @@ def replay_load(req: ReplayLoadRequest) -> dict:
         raise HTTPException(404, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(500, str(exc)) from exc
+    return list_feeds()
+
+
+@app.post("/api/decisions/reset")
+def reset_decisions() -> dict:
+    """Presenter's clean-slate button: clears the CURRENT run's decisions."""
+    _require_store().reset_decisions()
+    return list_feeds()
+
+
+@app.get("/api/demo/live-runs")
+def live_runs() -> dict:
+    return {"runs": [r.model_dump() for r in list_past_live_runs(_require_store())]}
+
+
+class LiveRunLoadRequest(BaseModel):
+    run: str
+
+
+@app.post("/api/demo/load-live-run")
+def load_live_run(req: LiveRunLoadRequest) -> dict:
+    try:
+        load_past_live_run(_require_store(), req.run)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return list_feeds()
 
 

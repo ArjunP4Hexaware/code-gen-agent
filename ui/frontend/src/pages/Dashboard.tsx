@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import type { Classification, FeedsResponse, FeedSummary } from "../api";
+import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { StatTile } from "../components/StatTile";
@@ -97,11 +98,27 @@ export function Dashboard({
   data,
   generating,
   onGenerateAll,
+  onFeedsChanged,
 }: {
   data: FeedsResponse | null;
   generating: boolean;
   onGenerateAll: () => void;
+  onFeedsChanged: () => void | Promise<void>;
 }) {
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const resetDecisions = async () => {
+    setResetting(true);
+    try {
+      await api.resetDecisions();
+      await onFeedsChanged();
+    } finally {
+      setResetting(false);
+      setConfirmReset(false);
+    }
+  };
+
   const feeds = data?.feeds ?? [];
   const byVerdict = (v: string) => feeds.filter((f) => f.verdict === v).length;
   const pending = feeds.reduce((n, f) => n + f.candidates_pending, 0);
@@ -121,11 +138,50 @@ export function Dashboard({
             deterministically or routed to a reviewed Layer-2 candidate — nothing lands unreviewed.
           </div>
         </div>
-        <button className="btn primary" onClick={onGenerateAll} disabled={generating}>
-          {generating ? <span className="spin" /> : null}
-          {generating ? "Generating…" : "Generate all feeds"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn"
+            onClick={() => setConfirmReset(true)}
+            disabled={resetting}
+            title="Clear all approve/reject decisions recorded for the currently loaded run"
+          >
+            Reset decisions
+          </button>
+          <button className="btn primary" onClick={onGenerateAll} disabled={generating}>
+            {generating ? <span className="spin" /> : null}
+            {generating ? "Generating…" : "Generate all feeds"}
+          </button>
+        </div>
       </div>
+
+      {confirmReset ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h2>Reset review decisions?</h2>
+            <p>
+              Clears every approve/reject recorded for the currently loaded run
+              {data?.label ? (
+                <>
+                  {" "}
+                  (<code>{data.label}</code>)
+                </>
+              ) : (
+                <> (mock state)</>
+              )}
+              . Candidates return to <strong>pending engineer approval</strong>. Decisions made
+              under other runs are untouched.
+            </p>
+            <div className="decision-row" style={{ marginTop: 14 }}>
+              <button className="btn primary" onClick={resetDecisions} disabled={resetting}>
+                {resetting ? "Resetting…" : "Reset — clean slate"}
+              </button>
+              <button className="btn" onClick={() => setConfirmReset(false)} disabled={resetting}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {data?.failures.length ? (
         <div className="error-banner">

@@ -31,7 +31,10 @@ export function App() {
     refresh();
   }, [refresh]);
 
-  const generateAll = useCallback(async () => {
+  const [confirmGenerate, setConfirmGenerate] = useState(false);
+
+  const doGenerateAll = useCallback(async () => {
+    setConfirmGenerate(false);
     setGenerating(true);
     try {
       setData(await api.generate());
@@ -42,6 +45,13 @@ export function App() {
       setGenerating(false);
     }
   }, []);
+
+  // From LIVE or REPLAY state a mock regenerate replaces the view the
+  // presenter is standing on — never on a stray click.
+  const generateAll = useCallback(() => {
+    if (data && data.mode !== "mock") setConfirmGenerate(true);
+    else void doGenerateAll();
+  }, [data, doGenerateAll]);
 
   return (
     <div className="shell">
@@ -109,11 +119,42 @@ export function App() {
             ) : null}
           </div>
         ) : null}
+        {confirmGenerate && data ? (
+          <div className="modal-overlay" role="dialog" aria-modal="true">
+            <div className="modal">
+              <h2>Replace the current {data.mode.toUpperCase()} results?</h2>
+              <p>
+                This replaces the current {data.mode === "live" ? "live" : "replayed"} results
+                {data.label ? (
+                  <>
+                    {" "}
+                    (<code>{data.label}</code>)
+                  </>
+                ) : null}{" "}
+                with a fresh <strong>mock</strong> run. You can reload them afterwards from
+                the Run modes page.
+              </p>
+              <div className="decision-row" style={{ marginTop: 14 }}>
+                <button className="btn primary" onClick={doGenerateAll}>
+                  Continue — run mock
+                </button>
+                <button className="btn" onClick={() => setConfirmGenerate(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <Routes>
           <Route
             path="/"
             element={
-              <Dashboard data={data} generating={generating} onGenerateAll={generateAll} />
+              <Dashboard
+                data={data}
+                generating={generating}
+                onGenerateAll={generateAll}
+                onFeedsChanged={refresh}
+              />
             }
           />
           <Route path="/modes" element={<ModesPage onFeedsChanged={refresh} />} />

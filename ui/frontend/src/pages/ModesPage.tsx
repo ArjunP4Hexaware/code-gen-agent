@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type DemoStatus, type ReplaySet } from "../api";
+import { api, type DemoStatus, type PastLiveRun, type ReplaySet } from "../api";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
@@ -9,6 +9,7 @@ import { api, type DemoStatus, type ReplaySet } from "../api";
 export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
   const navigate = useNavigate();
   const [sets, setSets] = useState<ReplaySet[] | null>(null);
+  const [liveRuns, setLiveRuns] = useState<PastLiveRun[] | null>(null);
   const [liveAvailable, setLiveAvailable] = useState<boolean | null>(null);
   const [status, setStatus] = useState<DemoStatus | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -16,14 +17,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
+  const refreshLiveRuns = useCallback(() => {
+    api.liveRuns().then((r) => setLiveRuns(r.runs)).catch(() => setLiveRuns([]));
+  }, []);
+
   useEffect(() => {
     api.replaySets().then((r) => setSets(r.sets)).catch(() => setSets([]));
     api.liveAvailable().then((r) => setLiveAvailable(r.available)).catch(() => setLiveAvailable(false));
     api.demoStatus().then(setStatus).catch(() => setStatus(null));
+    refreshLiveRuns();
     return () => {
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
     };
-  }, []);
+  }, [refreshLiveRuns]);
 
   const poll = useCallback(() => {
     if (pollRef.current !== null) window.clearInterval(pollRef.current);
@@ -34,6 +40,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         if (s.state === "done" || s.state === "failed") {
           if (pollRef.current !== null) window.clearInterval(pollRef.current);
           pollRef.current = null;
+          refreshLiveRuns();
           if (s.state === "done") await onFeedsChanged();
         }
       } catch {
@@ -69,6 +76,24 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [poll]);
+
+  // Restore a completed live run's results as LIVE state, from anywhere.
+  const loadLiveRun = useCallback(
+    async (name: string) => {
+      setLoadingSet(name);
+      setError(null);
+      try {
+        await api.loadLiveRun(name);
+        await onFeedsChanged();
+        navigate("/");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoadingSet(null);
+      }
+    },
+    [navigate, onFeedsChanged],
+  );
 
   const running = status?.state === "running";
   const est = status?.estimates;
@@ -176,12 +201,61 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   ))}
                 </ul>
                 {status.state === "done" ? (
-                  <button className="btn primary" onClick={() => navigate("/")}>
+                  <button
+                    className="btn primary"
+                    disabled={loadingSet !== null}
+                    onClick={() =>
+                      status.last_run_label
+                        ? loadLiveRun(status.last_run_label)
+                        : navigate("/")
+                    }
+                  >
                     View results →
                   </button>
                 ) : null}
               </div>
             ) : null}
+
+            <div className="panel-subhead">Past live runs</div>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Completed live runs stay on disk — reload one to restore its results (LIVE
+              state, that run's real candidates) without spending anything. These are this
+              machine's run history, not the tracked replay fixtures.
+            </p>
+            {liveRuns === null ? (
+              <div className="empty">Scanning past runs…</div>
+            ) : liveRuns.length === 0 ? (
+              <div className="empty">No past live runs on this machine yet.</div>
+            ) : (
+              liveRuns.map((r) => (
+                <div className="replay-row" key={r.name}>
+                  <div>
+                    <div className="replay-name">
+                      {r.name}
+                      <span className="mode-badge mode-live" style={{ marginLeft: 8 }}>
+                        LIVE RUN
+                      </span>
+                      {!r.complete ? (
+                        <span className="pill ungrounded" style={{ marginLeft: 6 }}>
+                          failed — not loadable
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="hint">
+                      {r.timestamp ? `${r.timestamp} · ` : ""}
+                      {r.complete ? `${r.feeds.length} feeds` : "no results produced"}
+                    </div>
+                  </div>
+                  <button
+                    className="btn primary"
+                    disabled={!r.complete || loadingSet !== null || running}
+                    onClick={() => loadLiveRun(r.name)}
+                  >
+                    {loadingSet === r.name ? "Loading…" : "Load"}
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

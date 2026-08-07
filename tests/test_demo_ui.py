@@ -15,10 +15,30 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
 from ui.backend.demo import DemoRunner, LiveRunInProgress  # noqa: E402
-from ui.backend.replay import list_replay_sets, load_replay_set  # noqa: E402
+from ui.backend.replay import (  # noqa: E402
+    list_past_live_runs,
+    list_replay_sets,
+    load_past_live_run,
+    load_replay_set,
+)
 from ui.backend.service import GenerationStore  # noqa: E402
 
 REPLAY_SET = "live_e2e_20260807"
+
+
+@pytest.fixture()
+def decisions_path(monkeypatch, tmp_path):
+    """Point decision persistence at a scratch file, away from real state."""
+    from ui.backend import service
+
+    path = tmp_path / "decisions.json"
+    monkeypatch.setattr(service, "DECISIONS_PATH", path)
+    return path
+
+
+def _adopt_empty(store: GenerationStore, *, mode: str, label: str | None) -> None:
+    store.adopt({}, [], mode=mode, label=label, out_root=store.out_root,
+                reports_root=store.reports_root)
 
 
 @pytest.fixture()
@@ -119,6 +139,81 @@ def test_replay_load_rebuilds_live_state_offline(monkeypatch, tmp_path):
             assert candidate.grounded
     # Isolation: replay artifacts live under their own root, not default out/.
     assert store.out_root.name == f"replay_{REPLAY_SET}"
+
+
+def test_decisions_are_scoped_to_the_run(decisions_path):
+    store = GenerationStore("config/config.yaml")
+    store.save_decision("feed_a", 0, "approved", None)  # run_key "mock"
+    assert store.load_decisions()["feed_a"]["0"]["decision"] == "approved"
+
+    # Same rule under a different run starts pending, and its decision
+    # never bleeds back into mock.
+    _adopt_empty(store, mode="live", label="demo_20990101_000000")
+    assert store.load_decisions() == {}
+    store.save_decision("feed_a", 0, "rejected", None)
+    assert store.load_decisions()["feed_a"]["0"]["decision"] == "rejected"
+
+    _adopt_empty(store, mode="mock", label=None)
+    assert store.load_decisions()["feed_a"]["0"]["decision"] == "approved"
+
+
+def test_pre_v2_decisions_shape_is_discarded(decisions_path):
+    import json as json_mod
+
+    decisions_path.write_text(
+        json_mod.dumps({"cv_x": {"0": {"decision": "approved", "note": None}}})
+    )
+    store = GenerationStore("config/config.yaml")
+    assert store.load_decisions() == {}
+
+
+def test_reset_decisions_clears_only_current_run(decisions_path):
+    store = GenerationStore("config/config.yaml")
+    store.save_decision("feed_a", 0, "approved", None)  # mock
+    _adopt_empty(store, mode="replay", label="some_set")
+    store.save_decision("feed_a", 0, "approved", None)  # some_set
+    store.reset_decisions()
+    assert store.load_decisions() == {}
+    _adopt_empty(store, mode="mock", label=None)
+    assert store.load_decisions()["feed_a"]["0"]["decision"] == "approved"
+
+
+def test_reset_decisions_endpoint(client, decisions_path):
+    response = client.post("/api/decisions/reset")
+    assert response.status_code == 200
+    assert "mode" in response.json()
+
+
+def test_past_live_run_discovery_completed_vs_failed(tmp_path):
+    store = GenerationStore("config/config.yaml")
+    good = tmp_path / "demo_20260101_010101" / "feed_x" / "candidates"
+    good.mkdir(parents=True)
+    (good / "candidates.json").write_text("[]")
+    (tmp_path / "demo_20260101_020202").mkdir()  # died before any feed
+    (tmp_path / "not_a_demo_dir").mkdir()
+
+    runs = {r.name: r for r in list_past_live_runs(store, root=tmp_path)}
+    assert set(runs) == {"demo_20260101_010101", "demo_20260101_020202"}
+    assert runs["demo_20260101_010101"].complete
+    assert runs["demo_20260101_010101"].timestamp == "2026-01-01 01:01:01"
+    assert runs["demo_20260101_010101"].feeds == ["feed_x"]
+    assert not runs["demo_20260101_020202"].complete
+
+
+def test_incomplete_live_run_refuses_to_load(tmp_path):
+    store = GenerationStore("config/config.yaml")
+    (tmp_path / "demo_20260101_020202").mkdir()
+    with pytest.raises(RuntimeError, match="failed before producing results"):
+        load_past_live_run(store, "demo_20260101_020202", root=tmp_path)
+    with pytest.raises(FileNotFoundError):
+        load_past_live_run(store, "demo_nonexistent", root=tmp_path)
+
+
+def test_live_runs_endpoint_shape(client):
+    payload = client.get("/api/demo/live-runs").json()
+    assert "runs" in payload
+    for run in payload["runs"]:
+        assert {"name", "timestamp", "feeds", "complete"} <= set(run)
 
 
 def test_replay_load_unknown_set_raises():

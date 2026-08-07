@@ -35,9 +35,17 @@ class DemoRunner:
         self.state: str = "idle"  # idle | running | done | failed
         self.stages: list[dict] = []
         self.error: str | None = None
+        # Label of the most recent COMPLETED run, so the UI can restore its
+        # results (via the past-live-run loader) from any later state.
+        self.last_run_label: str | None = None
 
     def status(self) -> dict:
-        return {"state": self.state, "stages": list(self.stages), "error": self.error}
+        return {
+            "state": self.state,
+            "stages": list(self.stages),
+            "error": self.error,
+            "last_run_label": self.last_run_label,
+        }
 
     def start_live(self) -> None:
         with self._lock:
@@ -105,3 +113,4 @@ class DemoRunner:
             out_root=run_root,
             reports_root=reports_root,
         )
+        self.last_run_label = label

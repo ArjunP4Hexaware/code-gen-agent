@@ -862,3 +862,14 @@ table.data tr:last-child td { border-bottom: none; }
   font-weight: 750;
   letter-spacing: 0.06em;
 }
+
+.panel-subhead {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #e5e9ef);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #5c6672);
+}

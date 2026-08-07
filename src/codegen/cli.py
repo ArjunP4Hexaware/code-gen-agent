@@ -3,6 +3,8 @@
 Commands:
   generate      one FRD+STTM pair (optionally one feed of it)
   generate-all  every pair listed in config.contracts.pairs
+  extract-sttm  extract an STTM mapping contract from a client workbook
+                paired with its FRD feed contract (deterministic, no LLM)
 
 Per feed: resolve -> compile rules -> Layer 2 over unmapped rules -> render
 templates -> write candidates artifact -> gate -> report. A feed that fails
@@ -139,6 +141,29 @@ def _run_pairs(
     return 1 if failed else 0
 
 
+def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
+    from codegen.extract import ExtractionError, WorkbookParseError, extract_to_file
+
+    try:
+        workbook_path = Path(args.workbook)
+        if not workbook_path.is_file():
+            raise FileNotFoundError(f"workbook not found: {workbook_path}")
+        contract = extract_to_file(
+            workbook_path,
+            _contract_path(args.frd_contract, config),
+            Path(args.out),
+            config,
+            contract_name=args.contract_name,
+            generated_date=args.generated_date,
+        )
+    except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
+        print(f"{'FAIL':<15} extract-sttm — {exc}")
+        return 1
+    feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
+    print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
+    return 0
+
+
 def _contract_path(value: str, config: Config) -> Path:
     path = Path(value)
     if path.is_file():
@@ -175,9 +200,27 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 
+    extract = subparsers.add_parser(
+        "extract-sttm",
+        help="extract an STTM mapping contract from a workbook + FRD contract pair",
+    )
+    extract.add_argument("--config", default="config/config.yaml")
+    extract.add_argument("--workbook", required=True, help="client STTM workbook (.xlsx)")
+    extract.add_argument("--frd-contract", required=True)
+    extract.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    extract.add_argument("--contract-name", help="override the derived contract_name")
+    extract.add_argument(
+        "--generated-date",
+        help="YYYY-MM-DD stamped as generated_date; defaults to today "
+        "(inject for byte-reproducible output)",
+    )
+
     args = parser.parse_args(argv)
     _load_dotenv(Path(".env"))
     config = load_config(args.config)
+
+    if args.command == "extract-sttm":
+        return _extract_sttm(args, config)
 
     if args.command == "generate":
         try:

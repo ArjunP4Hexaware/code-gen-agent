@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -68,6 +68,65 @@ class SegmentsConfig(BaseModel):
     trailer_count_column: str
 
 
+class ExtractorBandLabels(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    source: str
+    stage: str
+    standard: str
+
+
+class ExtractorFileDetailsHeaders(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    vendor: list[str]
+    file_name: list[str]
+    frequency: list[str]
+
+
+# Logical source-block columns the workbook parser must be able to resolve.
+_REQUIRED_HEADER_KEYS = {
+    "source_column",
+    "description",
+    "sample_value",
+    "source_datatype",
+    "null_check",
+    "phi",
+    "mandatory",
+}
+_OPTIONAL_HEADER_KEYS = {"value_spec"}
+
+
+class ExtractorConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    file_details_sheet: str
+    version_history_sheet: str
+    mapping_sheet_prefix: str
+    band_labels: ExtractorBandLabels
+    header_synonyms: dict[str, list[str]]
+    table_block_headers: list[str] = Field(min_length=4, max_length=4)
+    recycle_header_prefix: str
+    audit_source_markers: list[str] = Field(min_length=1)
+    file_details_headers: ExtractorFileDetailsHeaders
+    recycle_on_match: str
+    recycle_on_no_match: str
+
+    @model_validator(mode="after")
+    def _check_header_synonym_keys(self) -> ExtractorConfig:
+        keys = set(self.header_synonyms)
+        missing = _REQUIRED_HEADER_KEYS - keys
+        unknown = keys - _REQUIRED_HEADER_KEYS - _OPTIONAL_HEADER_KEYS
+        problems = []
+        if missing:
+            problems.append(f"missing required header_synonyms keys: {sorted(missing)}")
+        if unknown:
+            problems.append(f"unknown header_synonyms keys: {sorted(unknown)}")
+        if problems:
+            raise ValueError("extractor config: " + "; ".join(problems))
+        return self
+
+
 class ReasoningConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -105,6 +164,7 @@ class Config(BaseModel):
     defaults: DefaultsConfig
     masking: MaskingConfig
     segments: SegmentsConfig
+    extractor: ExtractorConfig
     reasoning: ReasoningConfig
     gate: GateConfig
     job: JobConfig

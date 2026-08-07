@@ -54,6 +54,45 @@ segments:
   # reconciled by the generated DQ check.
   trailer_count_column: record_count
 
+extractor:
+  # Workbook→STTM-mapping-contract extractor (codegen.cli extract-sttm).
+  # Flat dialect only; a segmented (Header/Detail/Trailer) layout is a hard
+  # error — see CLAUDE.md and docs/EXTRACTOR_RECON.md.
+  file_details_sheet: FILE_DETAILS
+  version_history_sheet: VERSION_HISTORY
+  mapping_sheet_prefix: "MAPPING-"
+  # Row-1 band labels (compared after lowercasing + whitespace collapse).
+  band_labels:
+    source: "source file layout"
+    stage: "stage layer"
+    standard: "standard layer"
+  # Row-2 source-block header synonyms per logical column, same normalization.
+  # Three header dialects exist in the one golden workbook alone
+  # (docs/EXTRACTOR_RECON.md §3a); extend these lists for new client layouts.
+  header_synonyms:
+    source_column: ["database column name", "database name", "client data table column name"]
+    description: ["description"]
+    sample_value: ["sample value", "example values"]
+    source_datatype: ["datatype", "data type"]
+    null_check: ["null check"]
+    phi: ["phi field", "phi/pii field"]
+    mandatory: ["mandatory field", "mandatory"]
+    value_spec: ["comment"]
+  # Stage/Standard block headers (normalized); order-independent.
+  table_block_headers: ["schema", "tablename", "columnname", "datatype"]
+  # A header starting with this (normalized) marks the per-row recycle column.
+  recycle_header_prefix: "recycle flag"
+  # Source-side cell values (normalized) marking a trailing audit row.
+  audit_source_markers: ["na"]
+  file_details_headers:
+    vendor: ["vendor"]
+    file_name: ["filename", "file name"]
+    frequency: ["frequency"]
+  # RecycleSpec boilerplate emitted around the VERBATIM workbook validation
+  # text (phrasing mirrors the existing MIDS contract fixture).
+  recycle_on_match: "Process record into stage table"
+  recycle_on_no_match: "Load record to Recycle Table with recycle flag enabled for {window_days} days; retry on subsequent runs"
+
 reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;

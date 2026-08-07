@@ -58,11 +58,46 @@ class GroundingSummary(BaseModel):
     advisory_flagged: list[str]
 
 
+class AmbiguityContext(BaseModel):
+    """Mirrors frd-to-sttm-agent's ``frdsttm.models.AmbiguityContext``.
+
+    Which fields are populated depends on the ambiguity kind; the producer
+    serializes with defaults omitted, so (unlike the rest of this module)
+    absent keys here mean "not applicable", not drift.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    feed_names: list[str] = Field(default_factory=list)
+    feed_indices: list[int] = Field(default_factory=list)
+    rule: str | None = None
+    field: str | None = None
+    agent_value: str | None = None
+    content_value: str | None = None
+    path: str | None = None
+    feed_index: int | None = None
+
+
+class GatedAmbiguity(BaseModel):
+    """Mirrors frd-to-sttm-agent's ``frdsttm.models.GatedAmbiguity`` — the
+    structured ``_provenance.ambiguities`` entry current contracts carry
+    (older contracts carry plain strings; both shapes are accepted)."""
+
+    model_config = _MODEL_CONFIG
+
+    id: str
+    kind: Literal["attribution", "disagreement", "advisory_grounding"]
+    text: str
+    has_candidates: bool
+    candidates: list[str] = Field(default_factory=list)
+    context: AmbiguityContext = Field(default_factory=AmbiguityContext)
+
+
 class Provenance(BaseModel):
     model_config = _MODEL_CONFIG
 
     enrichments: list[str]
-    ambiguities: list[str]
+    ambiguities: list[str | GatedAmbiguity]
     grounding: GroundingSummary
 
 

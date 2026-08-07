@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from codegen.resolve.resolver import ContractMismatchError, resolve_pair
+from codegen.resolve.resolver import ContractMismatchError, _parse_reference, resolve_pair
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -44,6 +44,39 @@ def test_caqh_resolves_segmented_with_recycle(caqh_spec):
 def test_side_tables_follow_stage_table_case(caqh_spec):
     assert caqh_spec.errors_table.table == "EXT_TPL_CAQH_DTL_ERRORS"
     assert caqh_spec.recycle.recycle_table.table == "EXT_TPL_CAQH_DTL_RECYCLE"
+
+
+# Recycle reference parsing accepts BOTH the canonical phrasing and the
+# client phrasing carried verbatim from workbooks/FRDs (decision D3).
+
+
+def test_reference_canonical_and_client_phrasings_agree():
+    canonical = _parse_reference(
+        "Match member_id against SUBS_ID in PR_STD.COREMEMBER.CM_SUBS_MASTER "
+        "where GRP_CK = 47",
+        "feed",
+    )
+    client = _parse_reference(
+        "Check with SUBS_ID from CoreMember in the PR_STD.COREMEMBER.CM_SUBS_MASTER "
+        "FOR GRP_CK = 47,\nif available process it else load this to the Recycle Table "
+        "with Recycle Flag Enabled for 7 days.",
+        "feed",
+    )
+    assert canonical == client == ("PR_STD.COREMEMBER.CM_SUBS_MASTER", "SUBS_ID", "GRP_CK = 47")
+
+
+def test_client_phrasing_without_table_alias_parses():
+    # The MIDS FRD's own phrasing: table directly after "from", no alias.
+    assert _parse_reference(
+        "Check with SBSB_ID from PR_STD.FACETS.CMC_SBSB_SUBSC FOR GRGR_CK = 31, "
+        "if unavailable process to Recycle Table",
+        "feed",
+    ) == ("PR_STD.FACETS.CMC_SBSB_SUBSC", "SBSB_ID", "GRGR_CK = 31")
+
+
+def test_malformed_reference_is_still_loud():
+    with pytest.raises(ContractMismatchError, match="not parseable"):
+        _parse_reference("recycle unmatched records nightly", "feed")
 
 
 def test_delimiter_mismatch_is_loud(config, tmp_path):

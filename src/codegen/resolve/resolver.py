@@ -26,11 +26,24 @@ from codegen.contracts.sttm import SttmContract, SttmFeed
 # Format -> implied delimiter when a contract leaves it null.
 _FORMAT_DELIMITERS = {"csv": ",", "psv": "|"}
 
-# Parses the STTM recycle validation text, e.g.
+# Parses the STTM recycle validation text. Canonical form:
 # "Match member_id against SBSB_ID in PR_STD.FACETS.CMC_SBSB_SUBSC where GRGR_CK = 31"
 _REFERENCE_RE = re.compile(
     r"against\s+(?P<id_column>\w+)\s+in\s+(?P<table>[\w.]+)"
     r"(?:\s+where\s+(?P<filter>.+?))?\s*$",
+    re.IGNORECASE,
+)
+
+# Client phrasing, carried VERBATIM from workbooks/FRDs (never rewritten), e.g.
+# "Check with SUBS_ID from CoreMember in the PR_STD.COREMEMBER.CM_SUBS_MASTER
+#  FOR GRP_CK = 47, if available process it else ..." — the table is the
+# dotted name, with or without a prose alias ("from CoreMember in the ...")
+# before it; the filter runs to the first comma/newline.
+_CLIENT_REFERENCE_RE = re.compile(
+    r"check\s+with\s+(?P<id_column>\w+)\s+from\s+"
+    r"(?:[\w ]+?\s+in\s+(?:the\s+)?)?"
+    r"(?P<table>\w+(?:\.\w+)+)"
+    r"(?:\s+for\s+(?P<filter>[^,\n)]+))?",
     re.IGNORECASE,
 )
 
@@ -83,16 +96,23 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
 
 
 def _parse_reference(validation_text: str, feed: str) -> tuple[str, str, str | None]:
-    match = _REFERENCE_RE.search(validation_text)
+    match = _REFERENCE_RE.search(validation_text) or _CLIENT_REFERENCE_RE.search(validation_text)
     if match is None:
         raise ContractMismatchError(
             feed,
             [
                 "recycle validation text is not parseable as "
-                f"'against <id_column> in <table> [where <filter>]': {validation_text!r}"
+                "'against <id_column> in <table> [where <filter>]' or "
+                "'Check with <id_column> from ... <table> [FOR <filter>]': "
+                f"{validation_text!r}"
             ],
         )
-    return match.group("table"), match.group("id_column"), match.group("filter")
+    filter_text = match.group("filter")
+    return (
+        match.group("table"),
+        match.group("id_column"),
+        filter_text.strip() if filter_text else None,
+    )
 
 
 def _frd_window_days(frd_feed: FrdFeed) -> int | None:

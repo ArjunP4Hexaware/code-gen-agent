@@ -76,9 +76,16 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   numeric literals in generator logic; the loader is loud on typo'd keys.
 - No secrets in the repo, ever. Credentials only via environment / `.env`
   (gitignored; `.env.example` documents the names).
-- The LLM provider is **mock by default**; `AnthropicProvider` activates
-  only when `ANTHROPIC_API_KEY` is set, and `--dry-run` forces mock — no
-  key ⇒ zero network. Model name lives in config (`reasoning.model`).
+- Program policy: **Anthropic is the sole model vendor** across the
+  AmeriHealth agents program. The LLM provider is **mock by default**:
+  `build_provider` selects the deterministic mock unless
+  `ANTHROPIC_API_KEY` is set and dry-run is off — zero network otherwise.
+  The live path (`reasoning/providers/anthropic_provider.py`) is
+  implemented and unit-tested (stubbed SDK) but has not yet been validated
+  with a real billed call — first live E2E is upcoming. Live LLM use is
+  confined to Layer 2 (reasoning/review); code generation itself is
+  deterministic Jinja2 by design. Model name lives in config
+  (`reasoning.model`).
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
 

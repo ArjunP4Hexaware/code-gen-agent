@@ -26,6 +26,13 @@ Design rationale: [`docs/DESIGN.md`](docs/DESIGN.md). Operating workflow:
    and every citation must appear verbatim in the contract text or the
    candidate is marked ungrounded. Without `ANTHROPIC_API_KEY` (or with
    `--dry-run`) a deterministic mock runs and nothing touches the network.
+   Program policy: **Anthropic is the sole model vendor** across the
+   AmeriHealth agents program. The live Anthropic path
+   (`src/codegen/reasoning/providers/anthropic_provider.py`) is implemented
+   and unit-tested (stubbed SDK) but not yet validated with a real billed
+   call — the first live E2E is upcoming. Live LLM use stays confined to
+   this reasoning/review layer; code generation itself is deterministic
+   Jinja2 by design (Layer 1).
 
 Every generation ends in a computed three-state gate verdict per feed:
 **PASS / PASS_WITH_FLAGS / FAIL** (see `docs/WORKFLOW.md` for semantics).

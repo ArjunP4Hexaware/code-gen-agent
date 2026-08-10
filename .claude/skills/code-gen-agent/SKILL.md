@@ -1,6 +1,6 @@
 ---
 name: code-gen-agent
-description: Read this when (a) working in or asking about the `code-gen-agent` repository — the CodeGen / Data Engineer Agent that emits Databricks PySpark + Delta ingestion pipelines from approved FRD + STTM contracts for the AmeriHealth Caritas program (questions about the two-layer trust architecture, `generate-all`, `extract-sttm`, PASS/PASS_WITH_FLAGS/FAIL verdicts, the Run modes demo UI, or the live/replay fixtures under `fixtures/replay/`); OR (b) designing a *different* agent — for a different client, domain, or artifact type — that must generate code, transformations, or configuration from an already-approved structured specification (an approved mapping document, schema contract, API spec, control matrix, config manifest, etc.) rather than from free-form natural-language prompting, where correctness has to be provable, output must be byte-stable, and a shared verdict vocabulary needs to survive across a multi-agent pipeline. Covers the reusable pattern (Part B) as well as the concrete implementation (Part A).
+description: Read this when (a) designing an agent — for any client, domain, or artifact type — that must generate code, transformations, or configuration from an already-approved structured specification (an approved mapping document, schema contract, API spec, control matrix, config manifest, etc.) rather than from free-form natural-language prompting, where correctness has to be provable, output must be byte-stable, and a shared verdict vocabulary needs to survive across a multi-agent pipeline; OR (b) working in or asking about the `code-gen-agent` repository itself — the CodeGen / Data Engineer Agent that emits Databricks PySpark + Delta ingestion pipelines from approved FRD + STTM contracts for the AmeriHealth Caritas program (questions about the two-layer trust architecture, `generate-all`, `extract-sttm`, PASS/PASS_WITH_FLAGS/FAIL verdicts, the Run modes demo UI, or the live/replay fixtures under `fixtures/replay/`). Covers the reusable pattern (Part B) as well as the concrete implementation (Part A).
 ---
 
 # code-gen-agent — implementation + reusable pattern
@@ -183,70 +183,69 @@ downstream contract), reach for a different pattern.
 
 ### The essentials
 
-The following are **essential** to the pattern. Skip any of them and the
-pattern breaks.
+Skip any of them and the pattern breaks.
 
-1. **Approved structured input is the source of truth.** The agent's job
+1. **Approved structured input is the source of truth. [essential]** The agent's job
    is not to interpret intent — it is to compile a signed-off artifact
    into runnable code. If the artifact is wrong, the agent should faithfully
    emit the wrong code and let the reviewer catch it, not "improve" it.
-2. **Two layers, LLM in a bounded corner.** Layer 1 is a deterministic
+2. **Two layers, LLM in a bounded corner. [essential]** Layer 1 is a deterministic
    compiler over everything the spec pins down. Layer 2 is only where the
    spec has genuine free text the compiler cannot classify. Every fact the
    spec *could* express in structure must live in Layer 1.
-3. **Layer 2 output is a review artifact, not generated code.** A file the
+3. **Layer 2 output is a review artifact, not generated code. [essential]** A file the
    engineer reads and merges by hand. The agent proposes; a human confirms.
    Even an approval does not self-merge. This preserves the audit line.
-4. **Verbatim grounding on every model claim.** If Layer 2 cites the spec,
+4. **Verbatim grounding on every model claim. [essential]** If Layer 2 cites the spec,
    the citation must be found literally in the source. No paraphrasing,
    no invented references. Failed grounding rejects the candidate.
-5. **Byte-stable output.** No timestamps, no randomness, no clock reads in
+5. **Byte-stable output. [essential]** No timestamps, no randomness, no clock reads in
    the emitter. Inject any needed dates. Same input, same bytes — every
    time. This is what makes diffs reviewable and CI trustworthy.
-6. **Provenance banner in every emitted file.** Input artifact names +
+6. **Provenance banner in every emitted file. [essential]** Input artifact names +
    content hashes. A reader of the output alone can reconstruct which
    version of the spec produced it.
-7. **A shared verdict vocabulary across the pipeline.** A fixed enum —
+7. **A shared verdict vocabulary across the pipeline. [essential]** A fixed enum —
    e.g. `PASS / PASS_WITH_FLAGS / FAIL` — that every agent in the chain
    understands the same way. **Include the honest-middle state** ("clean
    but something needs a human"). Without it, teams collapse everything
    to green/red and lose the case that matters most: correct code with a
    pending human decision.
-8. **Config-driven, no magic numbers in generator logic.** Every knob
+8. **Config-driven, no magic numbers in generator logic. [essential]** Every knob
    (naming, layout, cluster shape, gate rules) lives in one config file
    that is loud on typos. Templates read from it; generator code does not
    inline literals.
-9. **Mock-by-default LLM path.** No key → deterministic mock, no network.
+9. **Mock-by-default LLM path. [essential]** No key → deterministic mock, no network.
    Tests and dev loops run offline. The live path is a single opt-in
    (`API_KEY` present + `--dry-run` off).
-10. **A gate step that computes the verdict.** Lint the generated code
+10. **A gate step that computes the verdict. [essential]** Lint the generated code
     with the same rules as the generator itself, scan for debug/secret
     patterns, require a test per module, and — if a JVM/runtime is
     available — actually run the generated tests. The verdict comes from
     the gate's outputs, not from a human decision at the end.
-11. **Replay fixtures for demos and CI.** Commit at least one full run of
+11. **Replay fixtures for demos and CI. [essential]** Commit at least one full run of
     real-model output as a tracked fixture, and build the UI/CLI to load
     it byte-for-byte. Live demos need a proven fallback that works with
     no key and no network.
 
-### What is incidental (swap freely)
+### What is incidental
 
-- **PySpark + Delta + Databricks** — target platform. Replace with
+- **PySpark + Delta + Databricks** *(incidental — swap freely)* — target platform. Replace with
   Snowflake, dbt, Airflow, Terraform, OpenAPI-to-Kotlin, whatever fits.
-- **FRD + STTM** — the specific artifact names. Your equivalents might be
+- **FRD + STTM** *(incidental — swap freely)* — the specific artifact names. Your equivalents might be
   "API spec + auth policy" or "schema contract + retention rules."
-- **Jinja2** — the templating engine. Any deterministic template system
+- **Jinja2** *(incidental — swap freely)* — the templating engine. Any deterministic template system
   works; the essential property is *no logic beyond what the spec pins
   down*.
-- **Anthropic Claude / `claude-opus-4-8`** — the model. Any tool-capable
+- **Anthropic Claude / `claude-opus-4-8`** *(incidental — swap freely)* — the model. Any tool-capable
   LLM works for Layer 2, provided you can enforce grounding externally.
   (Program policy pinned this vendor; the pattern does not.)
-- **Pydantic v2 frozen models** — the schema enforcer. Any strict schema
+- **Pydantic v2 frozen models** *(incidental — swap freely)* — the schema enforcer. Any strict schema
   library that fails loud on unknown fields is fine.
-- **Three verdict states** — the shape is essential; the exact labels are
+- **Three verdict states** *(incidental — swap freely)* — the shape is essential; the exact labels are
   not. Some domains benefit from four or five (e.g. adding a
   `NEEDS_UPSTREAM` for spec-side problems).
-- **`ruff`** — the linter. Whatever language you emit, use its most
+- **`ruff`** *(incidental — swap freely)* — the linter. Whatever language you emit, use its most
   authoritative linter/type-checker and hold the *generated* code to the
   same standard as the generator source.
 

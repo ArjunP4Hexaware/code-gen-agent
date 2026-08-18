@@ -1,121 +1,10 @@
----
-name: code-gen-agent
-description: Read this when (a) designing an agent — for any client, domain, or artifact type — that must generate code, transformations, or configuration from an already-approved structured specification (an approved mapping document, schema contract, API spec, control matrix, config manifest, etc.) rather than from free-form natural-language prompting, where correctness has to be provable, output must be byte-stable, and a shared verdict vocabulary needs to survive across a multi-agent pipeline; OR (b) working in or asking about the `code-gen-agent` repository itself — the CodeGen / Data Engineer Agent that emits Databricks PySpark + Delta ingestion pipelines from approved FRD + STTM contracts for the AmeriHealth Caritas program (questions about the two-layer trust architecture, `generate-all`, `extract-sttm`, PASS/PASS_WITH_FLAGS/FAIL verdicts, the Run modes demo UI, or the live/replay fixtures under `fixtures/replay/`). Covers the reusable pattern (Part B) as well as the concrete implementation (Part A).
----
+# CodeGen / Data Engineer Agent — Native Rebuild Specification
 
-# code-gen-agent — implementation + reusable pattern
-
-Two parts. **Part A** is the concrete agent in this repo — fully
-self-contained, including the complete Databricks Genie Code rebuild
-specification. **Part B** abstracts the design so another team can lift
-it into an unrelated project.
-
-> **Import note.** Only this SKILL.md file travels into the AmeriHealth
-> Databricks workspace — no other file in this repo (`README.md`,
-> `CLAUDE.md`, `docs/`, `references/`) is reachable from inside Genie
-> Code. Part A below is written to be sufficient on its own for that
-> reason; every "read more" pointer in this file to another repo file is
-> for local Claude Code / repo development only, never a build
-> dependency.
+> **Scope of this document.** A functional and architectural specification, written to be sufficient to rebuild the agent from scratch on **Databricks Genie Code** using **Lakeflow Declarative Pipelines (LDP)**, **Unity Catalog (UC)**, and **Databricks Model Serving / AI Gateway** — instead of the current Python-CLI + Jinja2 + Anthropic-SDK stack. It describes *what* each component does and *why*, in prose, tables, and pseudocode. It deliberately avoids pasting source, exact function bodies, or literal Pydantic classes; those live in the existing repo and should not be transcribed here.
 
 ---
 
-## Part A — This agent, concretely
-
-### Databricks Unit (DBU) budget — read before generating anything
-
-Arjun and Soham share a **450-DBU/month** pool (recurring, not one-time)
-across both engineers and all five agents in this program. Genie Code's
-own build/iterate loop and the resulting pipeline's runtime compute both
-draw against it, so both need to be efficient — not just the finished
-architecture.
-
-| Agent | Monthly DBU guardrail | Real Databricks footprint |
-|---|---|---|
-| FRD → STTM | ~150 | 4 chained serverless notebooks + UC volumes — **cost center** |
-| **CodeGen (this agent)** | **~120** | **Generated Spark tests need a JVM cluster — cost center** |
-| SQL Optimization | ~130 | Warehouse EXPLAIN/DESCRIBE/telemetry queries — **cost center** |
-| BRD → FRD | ~30 | Databricks App hosting only — light |
-| Code Review | ~10 | Runs off Databricks entirely; audit-sink stub only — near-zero |
-| *(10 DBU/month held as shared pod buffer)* | | |
-
-This agent's only real Databricks-compute dependency is running the
-**generated Spark test suite**, which needs a JVM — everything else
-(Jinja2 rendering, `extract-sttm`, the demo UI) is local and touches no
-workspace resource. These are planning guardrails, not automatic limits
-— check the workspace usage/cost dashboard against this table monthly;
-if a wave is trending over its guardrail before it's done, stop and
-re-scope rather than keep spending.
-
-**Minimizing Genie Code build cost (the biggest lever):**
-
-The largest controllable cost is how many separate generation passes it
-takes Genie Code to go from "empty folder + spec" to a working agent —
-not the runtime footprint above. Attack it directly:
-
-- **Give Genie Code the complete spec in one import, not incremental
-  prompts.** Every open design question Genie Code has to explore or ask
-  about is a billed pass; every question the spec already answers is one
-  it doesn't spend a turn discovering.
-- **This SKILL.md is fully self-contained — nothing else needs to be
-  imported.** The complete target architecture, stage-by-stage design,
-  design constraints, acceptance criteria, and Anthropic-adaptation notes
-  are inlined below (§1–§8 of this Part A). There is no separate rebuild
-  document to point Genie Code at; everything it needs is already in the
-  one file it has.
-- **Request full-scope generation per layer in one pass** (e.g.,
-  "generate the Layer 1 Jinja2 templates and emitter now," then
-  separately "generate the Layer 2 reasoning + grounding path"), not
-  file-by-file back-and-forth.
-- **Treat this file's two-layer architecture and verdict vocabulary as
-  fixed scope.** Don't ask Genie Code to propose alternatives — that
-  exploration is billed iteration the spec has already resolved.
-- **Review generated code yourself, outside Genie Code**, rather than
-  prompting it to re-explain or re-justify what it wrote.
-- **Batch fixes** into one follow-up prompt instead of correcting issues
-  one at a time across many small turns.
-- **Cap generation passes per agent** (e.g., 5–8) and stop to reassess if
-  you hit it — that's a signal the spec is underspecified, not a signal
-  to keep prompting.
-
-**General doctrine — applies everywhere in this repo:**
-
-- **Serverless first.** Use serverless notebooks/jobs/SQL warehouses
-  wherever the workspace offers them — they bill only for execution
-  seconds and scale to zero between Genie Code turns. If a classic
-  cluster is unavoidable, use the smallest single-node instance type and
-  set auto-termination to 10–15 minutes; never leave the default.
-- **Local/mock/replay first.** Iterate against this repo's existing
-  offline paths (local dev, mock providers, replay fixtures, `--dry-run`)
-  for as long as possible. Reserve real Databricks compute for a small
-  number of deliberate validation checkpoints, not every change.
-- **Capture every successful live run once.** This repo's record/replay
-  seam exists exactly so a working path never needs to be re-run, and
-  re-spent, to prove it still works.
-- **No scheduled/cron jobs during the build phase.** Trigger runs
-  manually, only when there's something new to validate.
-
-**Specific to this agent:**
-
-- Default every `generate-all` invocation Genie Code runs while
-  iterating to `--dry-run --skip-tests` — this is already the documented
-  quickstart path and makes zero network/compute calls.
-- Drop `--skip-tests` only for a deliberate, occasional validation pass,
-  on the **smallest single-node** compute the workspace offers, with a
-  short (10–15 min) auto-termination — never a standing cluster.
-- Layer 2 (the LLM path) is **mock-by-default** already — no
-  `ANTHROPIC_API_KEY` ⇒ no network, no spend. Keep that the default
-  through the whole build phase. The "first live E2E on Databricks Apps"
-  open item should be a single, deliberate, budgeted run near the end of
-  Wave 1 — capture it as a replay fixture immediately so it never needs
-  re-spending.
-- The demo UI already always runs `--dry-run --skip-tests` by design —
-  don't change that to make a demo "feel more real"; it's already the
-  cheap path.
-
----
-
-### 1. Product Context
+## 1. Product Context
 
 The agent is the **third link in a five-agent AI-in-Engineering program**: BRD → FRD → FRD → STTM → **CodeGen** → Code Review (SQL Optimization is standalone). Its inputs and output are content contracts with the neighboring agents:
 
@@ -133,7 +22,7 @@ The rebuild must preserve that division of labor. The LLM is never the arbiter o
 
 ---
 
-### 2. End-to-End Pipeline
+## 2. End-to-End Pipeline
 
 Five stages, all triggered per invocation against one resolved feed (there is no continuously-running data-transformation loop in this agent — see §6.1 for why that matters to the target architecture):
 
@@ -142,12 +31,12 @@ Five stages, all triggered per invocation against one resolved feed (there is no
    │ Resolve  │ → │  Classify  │ → │  Layer 1 Emit │ → │   Layer 2    │ → │  Gate + │
    │FRD ⋈ STTM│   │   rules    │   │ (Jinja2: DDL, │   │  Reasoning   │   │  Report │
    │          │   │(determinis-│   │  PySpark, job,│   │ (unmapped    │   │(verdict,│
-   │          │   │    tic)    │   │  tests, notebook│  │ rules only,  │   │notebook)│
+   │          │   │    tic)    │   │ tests, notebook│  │ rules only,  │   │notebook)│
    │          │   │            │   │  assembly)    │   │ mock default)│   │         │
    └──────────┘   └────────────┘   └───────────────┘   └──────────────┘   └─────────┘
 ```
 
-#### 2.1 Stage 1 — Contract Resolution
+### 2.1 Stage 1 — Contract Resolution
 
 **Purpose.** Join one FRD feed contract with one STTM mapping contract into a single flattened `ResolvedFeedSpec` — the only object every downstream template reads. Nothing downstream ever touches the raw contracts again.
 
@@ -166,7 +55,7 @@ Five stages, all triggered per invocation against one resolved feed (there is no
 
 **On Genie Code / LDP.** A pure Python transformation step (no model calls, no I/O beyond reading the two contract JSON artifacts from a UC Volume). No streaming table or continuous trigger is appropriate — it runs once per invocation, on demand.
 
-#### 2.2 Stage 2 — Rule Classification
+### 2.2 Stage 2 — Rule Classification
 
 **Purpose.** Deterministically sort every FRD free-text `validation_rule` into one of six outcomes, so only genuinely unclassifiable text ever reaches the LLM.
 
@@ -185,7 +74,7 @@ Five stages, all triggered per invocation against one resolved feed (there is no
 
 **On Genie Code / LDP.** Another pure Python transformation step. No model calls; safe to run at full LDP-pipeline speed with no cost concern.
 
-#### 2.3 Stage 3 — Layer 1 Deterministic Emission (Jinja2)
+### 2.3 Stage 3 — Layer 1 Deterministic Emission (Jinja2)
 
 **Purpose.** Compile everything the contract pins down into byte-stable, production-shaped output. This is the bulk of the agent's value and carries zero LLM risk.
 
@@ -200,8 +89,6 @@ out/<feed_id>/
   job/            Databricks Workflows job JSON + a thin notebook entrypoint
   tests/          pytest suite FOR THE GENERATED CODE (local SparkSession + delta-spark)
   tools/          make_fixtures.py — synthetic data derived from the contract's sample_value fields
-  candidates/     candidates.json — the Layer 2 review artifact (see §2.4, §3.6)
-  ruff.toml       lint config matching the generator's own rules (see §7.7)
   README.md       what was generated, from which contracts, verdict summary
 ```
 
@@ -222,7 +109,7 @@ out/<feed_id>/
 
 **On Genie Code / LDP.** A deterministic transformation step producing files into a UC Volume (or, if the target platform prefers it, Delta rows holding the rendered text plus metadata — see §6.2). No model calls. This step can run on every invocation without cost concern; it is not the DBU-sensitive part of the pipeline.
 
-#### 2.4 Stage 4 — Layer 2 Reasoning
+### 2.4 Stage 4 — Layer 2 Reasoning
 
 **Purpose.** Propose a classification, a code sketch, and grounded rationale for each `unmapped` rule — never write code directly. See §3 for the full design contract; this subsection is the pipeline-position summary only.
 
@@ -230,7 +117,7 @@ out/<feed_id>/
 
 **On Genie Code / LDP.** The one step in this pipeline that calls a model. See §6.1 and §6.3 for why this argues for an on-demand Genie Code notebook/job step rather than a continuously-triggered LDP table.
 
-#### 2.5 Stage 5 — Gate, Report, and Notebook Assembly
+### 2.5 Stage 5 — Gate, Report, and Notebook Assembly
 
 **Purpose.** Compute the three-state verdict, write the per-run generation report, and assemble the single runnable notebook.
 
@@ -266,7 +153,7 @@ Layer 1 output + Layer 2 candidates
 
 **On Genie Code / LDP.** Pure code. The `run_generated_tests` step is the one place in this whole pipeline that needs a JVM — see §6.1 for the compute-shape implication.
 
-#### 2.6 `extract-sttm` — a separate deterministic tool
+### 2.6 `extract-sttm` — a separate deterministic tool
 
 **Purpose.** When only a client-authored Excel workbook exists (no STTM mapping contract yet), deterministically convert it into one, paired with the FRD contract whose `feed_id` (via `normalize_feed_name`) and format/delimiter/standard-target facts anchor the extraction.
 
@@ -278,7 +165,7 @@ Layer 1 output + Layer 2 candidates
 
 - **Flat dialect only.** The extractor recognizes one layout family: a `FILE_DETAILS` + `VERSION_HISTORY` + per-feed `MAPPING-<TABLE>` sheet structure, with a band-label row (`Source File Layout` / `Stage Layer` / `Standard Layer`), fuzzy header-synonym matching (three header dialects already observed in one golden workbook), and trailing `NA` rows recognized as audit columns.
 - **A segmented (Header/Detail/Trailer) workbook is a hard error (`SegmentedWorkbookError`), by design, not a bug.** The parser detects the family by content (a key:value metadata block, a `Source Layout` band variant, and/or a per-row `Segment` column), not by filename, and refuses rather than guessing. This is why the CAQH feed ships with a clearly-labeled **synthetic** STTM contract (`"synthetic": true` in the payload) instead of an extracted real one.
-- **Segmented-dialect v2 is a scoped, not-yet-built backlog item** (`docs/SEGMENTED_MODE_DESIGN.md` — local repo only, not part of the Databricks import), with two named blockers that must be resolved by a human before it can be built, not inferred from the workbook alone:
+- **Segmented-dialect v2 is a scoped, not-yet-built backlog item** (`docs/SEGMENTED_MODE_DESIGN.md`), with two named blockers that must be resolved by a human before it can be built, not inferred from the workbook alone:
   1. The Header/Detail/Trailer record-type discriminator (assumed to be the row's first column, values `H`/`D`/`T`) is **unverified** — the real CAQH workbook confirms segment *membership* per field but never states the literal discriminator values anywhere in the sheet.
   2. The real CAQH workbook's Standard Layer is **fully populated** (per-segment target tables, "Load as is" transformations), while the committed FRD contract's standard target is empty and the synthetic STTM says stage-only. This is a genuine contradiction between two supposedly-authoritative sources and has been escalated for a human decision — a rebuild must not silently pick one.
 
@@ -286,41 +173,39 @@ Layer 1 output + Layer 2 candidates
 
 ---
 
-### 3. Layer 2 Reasoning — Design Contract
+## 3. Layer 2 Reasoning — Design Contract
 
-Because this is the one place a model touches the pipeline, and the one real DBU cost driver for this agent's build (see the DBU budget section above), it gets its own design contract.
+Because this is the one place a model touches the pipeline, and the one real DBU cost driver for this agent's build (see the SKILL.md's DBU budget section), it gets its own design contract.
 
-#### 3.1 What reaches the model
+### 3.1 What reaches the model
 
 **Only rule-compiler-classified `unmapped` outcomes** — never a `mappable`, `flagged`, `notification`, `orchestration_config`, or `out_of_scope` rule, and never generated code. Per unmapped rule, the model receives a **context pack**: the rule text, all of that feed's contract validation-rule excerpts plus SLA/frequency strings, and the source/stage/audit column name lists (as *context*, explicitly not as citable material — see §3.3).
 
-#### 3.2 Request shape
+### 3.2 Request shape
 
 **One prompt in, one JSON object out — no streaming, no tool use, no multi-turn conversation beyond the retry loop below.** The system prompt states the exact four required output keys (`classification`, `code_candidate`, `rationale`, `citations`) and forbids omitting any of them (a non-code classification still requires the JSON literal `null` for `code_candidate`, never an omitted key). The user message is the context pack rendered as indented JSON.
 
 **This repo's retry policy differs from a "no repair loop" design — state this plainly, do not assume it matches the FRD→STTM agent's pattern.** A schema-invalid response is retried, with the validation error appended to a *grown* prompt, up to `config.reasoning.max_attempts` total attempts (currently 2) — not treated as an immediate hard failure. Exhausting attempts raises a `ProviderError`, which the pipeline catches and records as a **provider-failure candidate** (a flag, never a crashed generation). This is a deliberate, verified design choice for this agent; do not "fix" it into parity with the other agent's no-retry policy without a decision to do so.
 
-#### 3.3 Grounding — the citable-set boundary (a live-validated lesson)
+### 3.3 Grounding — the citable-set boundary (a live-validated lesson)
 
 Every citation the model returns must be an **exact verbatim substring** of the rule text or a contract-excerpt entry in the pack — nothing else is citable. This was tightened after the first live run: the model cited a bare column name copied from the pack's `available_source_columns` list, which the system prompt at the time did not clearly exclude. **The system prompt must state the citable set explicitly** ("rule_text and contract_excerpts entries ONLY — column lists are context, not citable material") — this is not optional prose polish, it is what separates a real grounding failure from a false one. A candidate with any non-groundable citation is marked ungrounded in the report; it is never silently dropped, and it never promotes to a clean gate state.
 
-#### 3.4 Mock-by-default gating
+### 3.4 Mock-by-default gating
 
 `MockProvider` is the default for every test and every `--dry-run` invocation — deterministic, offline, zero cost. `AnthropicProvider` (or its Databricks-native successor) activates **only** when a live credential is present and dry-run is off. No key ⇒ no network call, no spend. A rebuild must preserve this gate exactly: the absence of a credential must never silently degrade a live-intended run to mock, and the presence of a credential during a dry run must never silently promote a mock-intended run to live.
 
-#### 3.5 No sampling parameters (a real, billed lesson)
+### 3.5 No sampling parameters (a real, billed lesson)
 
 The model family behind this agent's `reasoning.model` config value (`claude-opus-4-8` at time of writing; Opus 4.7+ generally) **rejects `temperature`/`top_p`/`top_k` with an HTTP 400** — discovered on the very first live attempt, when every one of three calls was rejected before processing (the 400s were not billed, but the run produced zero live signal that day). **Do not add a sampling-parameter knob to the request or to config.** Live output is therefore inherently non-deterministic run-to-run; `candidates.json` is a snapshot for engineer review, never a byte-stable expectation, and no test may assert its exact content against a live provider.
 
-**Open question, not yet verified:** whether this restriction transfers to whatever Databricks Model Serving endpoint fronts this agent's Layer 2 call. See §8.8 — re-probe independently rather than assuming either way.
-
-#### 3.6 Output artifact is a review artifact, never generated code
+### 3.6 Output artifact is a review artifact, never generated code
 
 `candidates.json` (plus a per-run markdown rationale) is read by an engineer, who implements an approved candidate **by hand, in a follow-up commit**. There is deliberately no auto-merge mechanism in v1 — the mechanism that would promote an approved candidate into a generated module (regenerate with an approvals file? patch?) is an explicit, not-yet-made v2 decision, held open until an engineer has actually used the review artifact format. A rebuild must not "complete" this for convenience; that erases the audit line the two-layer design exists to protect.
 
 ---
 
-### 4. Verdict & Review Model
+## 4. Verdict & Review Model
 
 **Three-state vocabulary, computed entirely in code, never by the model:**
 
@@ -338,41 +223,41 @@ The model family behind this agent's `reasoning.model` config value (`claude-opu
 
 ---
 
-### 5. Design Constraints a Rebuild Must Respect (Hard-Won Lessons)
+## 5. Design Constraints a Rebuild Must Respect (Hard-Won Lessons)
 
-#### 5.1 The rule compiler is the whole point — do not let more reach the model
+### 5.1 The rule compiler is the whole point — do not let more reach the model
 
 Only `unmapped` rules should ever be sent to Layer 2. If a rebuild finds itself routing `flagged` or `mappable` rules to the model "for a second opinion," that is a regression against the entire two-layer design — it reintroduces exactly the non-determinism and audit-trail loss the deterministic-first architecture exists to prevent.
 
-#### 5.2 Byte-stability has no exceptions in Layer 1
+### 5.2 Byte-stability has no exceptions in Layer 1
 
 No timestamps, no clock reads, no non-deterministic ordering anywhere in the emit path. Provenance banners carry a content hash of the *inputs*, never a generation timestamp. `extract-sttm` accepts an injected `--generated-date` for the same reason — the rebuild must offer an equivalent injection point rather than defaulting to "now."
 
-#### 5.3 Segmented dialects are a hard boundary, not a best-effort parse
+### 5.3 Segmented dialects are a hard boundary, not a best-effort parse
 
 `extract-sttm` refusing a segmented workbook outright (rather than guessing at a layout it wasn't built for) is the correct behavior, proven out by two live blockers discovered on real inspection of the actual CAQH workbook (§2.6): an unverifiable record-type discriminator, and a genuine contradiction between the workbook's populated Standard Layer and the committed contracts' stage-only assumption. **A rebuild must not resolve either blocker by inference** — both require a human decision from the source team, and the existing repo has already escalated them rather than guessing. Preserve the hard-error behavior until both are resolved.
 
-#### 5.4 No sampling parameters, ever, on this model family
+### 5.4 No sampling parameters, ever, on this model family
 
 See §3.5. This was discovered the expensive way (a fully-failed first live attempt). Do not reintroduce a `temperature`/`top_p`/`top_k` knob without first confirming the target Databricks Model Serving endpoint's actual constraint — it may or may not carry the same restriction as the direct Anthropic path.
 
-#### 5.5 The citable-set boundary must be explicit in the prompt, not implied
+### 5.5 The citable-set boundary must be explicit in the prompt, not implied
 
 See §3.3. "Ground every claim in the provided context" is not specific enough — a model reasonably treats an entire context pack as citable unless told otherwise. State the citable set (`rule_text` + `contract_excerpts` only) explicitly, and treat column-name lists as context-only. This is a proven, live-validated fix, not a theoretical concern.
 
-#### 5.6 Never regenerate over a hand-edit silently
+### 5.6 Never regenerate over a hand-edit silently
 
 The provenance banner's warning is a real behavioral contract: any manual edit to a file under `out/` is silently reverted on the next `generate` invocation. A rebuild must preserve this — the fix path is always "edit the contract or the template, then regenerate," never "patch the output directly."
 
-#### 5.7 The client's downstream pipeline stack is genuinely unknown
+### 5.7 The client's downstream pipeline stack is genuinely unknown
 
 Output targets plain PySpark + Databricks Workflows, structured module-for-module specifically so a Lakeflow Declarative Pipelines port is mechanical later (drift checks map to Auto Loader expectations, DQ checks map to LDP expectations, the orchestrator maps to a Workflow DAG). **This existing "structured for a later DLT port" design intent is directly relevant to §6** — the rebuild target for *this agent's own runtime* is Genie Code/LDP, but the *code this agent emits* should keep being structured the same portable way, since the emitted pipeline is a separate deployable artifact aimed at whatever the client's actual production stack turns out to be.
 
 ---
 
-### 6. Target Architecture on Databricks Genie Code
+## 6. Target Architecture on Databricks Genie Code
 
-#### 6.1 Runtime shape — an important divergence from the FRD→STTM agent's target
+### 6.1 Runtime shape — an important divergence from the FRD→STTM agent's target
 
 **This agent is fundamentally on-demand, not continuous.** Unlike the FRD→STTM agent (which processes an arbitrary, ongoing stream of incoming FRDs through a fixed four-stage pipeline, and is well modeled as an always-available Lakeflow Declarative Pipeline), CodeGen is invoked **once per approved contract pair**, produces a bounded set of output files, and then is done until the next contract changes. A rebuild should resist modeling this as a continuously-triggered LDP streaming table for its own sake — the natural shape is:
 
@@ -380,7 +265,7 @@ Output targets plain PySpark + Databricks Workflows, structured module-for-modul
 - Internally, the five stages (§2.1–2.5) can still be Lakeflow Declarative Pipeline **steps** within that one triggered run, which gets the benefits of LDP's lineage/observability without paying for a permanently-materialized streaming table that has nothing to stream most of the time.
 - **The generated PySpark pipeline this agent emits is a wholly separate artifact**, meant to be deployed as **its own** Databricks Job / LDP pipeline in the target ingestion project — it is not part of this agent's own runtime and must not be confused with it in the target architecture diagram.
 
-#### 6.2 Table & volume topology
+### 6.2 Table & volume topology
 
 ```
 Unity Catalog
@@ -406,11 +291,11 @@ UC Volumes
 
 **Caution — do not over-fit a Delta-table shape onto this agent just for consistency with FRD→STTM.** That agent's per-stage Delta rows exist because it processes many documents over time and needs a durable per-document record. CodeGen's natural persistence unit is the **generated file tree per feed**, which already carries its own provenance (contract names + sha256) in every file's banner — a single lightweight `codegen_runs` audit table is enough; do not invent additional Delta tables to mirror the other agent's shape.
 
-#### 6.3 Databricks Model Serving for Layer 2
+### 6.3 Databricks Model Serving for Layer 2
 
 Layer 2 (§3) is the only step needing model access. On the target platform this becomes a Databricks Model Serving (Foundation Model API or external-model endpoint via AI Gateway) call in place of the direct Anthropic SDK client — see §8 for the specific rework items. Because this step runs **at most a handful of times per feed** (one call per `unmapped` rule; the live-run record shows full-pipeline runs completing in 1–5 calls), it should be invoked from **inside** the same on-demand Genie Code run as everything else, not as a separately-triggered serving job.
 
-#### 6.4 Config surface (parameterize the pipeline; do not hardcode)
+### 6.4 Config surface (parameterize the pipeline; do not hardcode)
 
 | Setting | Purpose |
 |---|---|
@@ -431,11 +316,11 @@ Genie Code / job parameters should map cleanly to these names, the same discipli
 
 ---
 
-### 7. Acceptance Criteria — What "Done" Looks Like
+## 7. Acceptance Criteria — What "Done" Looks Like
 
 The current test suite (80 test functions across 11 files, all offline, no Spark needed to *render* — a JVM is needed only to *execute* the generated tests) is the strongest available specification of correct behavior. A rebuild is not done until an equivalent suite is green. Grouped by theme:
 
-#### 7.1 Contract resolution
+### 7.1 Contract resolution
 
 - Matching feed names (via normalization and via `feed_aliases`) resolve; a feed present on only one side is a named `ContractMismatchError`, not a skip.
 - Delimiter inference and conflict detection for `csv`/`psv`/`txt`.
@@ -443,12 +328,12 @@ The current test suite (80 test functions across 11 files, all offline, no Spark
 - Segmented-feed target validation: every STTM `stage_table` must be one of the FRD's declared stage tables.
 - Natural key derivation from `load_rules.not_null_columns`, never hardcoded.
 
-#### 7.2 Rule classification
+### 7.2 Rule classification
 
 - Each of the six classification outcomes (§2.2) fires on its representative fixture example.
 - Exactly the `unmapped` outcomes reach Layer 2 — a test should assert that no other class ever appears in a reasoning call.
 
-#### 7.3 Layer 1 byte-stability
+### 7.3 Layer 1 byte-stability
 
 - Identical contract inputs produce byte-identical output across repeated runs (no timestamps, no incidental ordering differences).
 - Provenance banner carries the correct contract names and content hash.
@@ -457,28 +342,28 @@ The current test suite (80 test functions across 11 files, all offline, no Spark
 - Segmented-feed splitting and trailer-count reconciliation.
 - Notebook assembly: `TemplateGapError` on any cross-module namespace collision; assembled notebook and canonical module files never diverge.
 
-#### 7.4 Layer 2 grounding and gating
+### 7.4 Layer 2 grounding and gating
 
 - A citation that is an exact substring of `rule_text` or a `contract_excerpts` entry passes; a citation from the column-name lists fails (§3.3's live-validated fix, pinned as a regression test).
 - Schema-invalid model output retries up to `max_attempts`, then raises `ProviderError`, which the pipeline turns into a failure-flagged candidate — generation of deterministic modules still completes.
 - No sampling parameters are ever sent in the provider request (§3.5) — a stub test should assert this directly against the request payload.
 - Mock provider is the default with no credential present or with `--dry-run`; a live provider requires an explicit, present credential.
 
-#### 7.5 Gate verdict computation
+### 7.5 Gate verdict computation
 
 - Clean feed (no unmapped rules, ruff clean, tests pass) → `PASS`.
 - Any flagged/notification/out_of_scope rule, or any pending/ungrounded candidate, or skipped tests → `PASS_WITH_FLAGS`, **never** `FAIL`.
 - Ruff failure, structural-check failure, contract mismatch, or a failing generated test → `FAIL`.
 - A Layer-2 provider failure alone never produces `FAIL`.
 
-#### 7.6 `extract-sttm`
+### 7.6 `extract-sttm`
 
 - The committed golden CV/demo pair reproduces its expected output byte-for-byte (given an injected `--generated-date`).
 - A segmented workbook (matching the family signature — key:value metadata block, `Source Layout` band variant, or a per-row `Segment` column) raises `SegmentedWorkbookError` and never silently falls through to the flat parser.
 - Fuzzy header-synonym resolution across at least the header dialects already observed in real client workbooks.
 - Feed-pairing via `normalize_feed_name` against the paired FRD contract, with a named error on an unpaired feed.
 
-#### 7.7 Generated code quality (the gate's own claim)
+### 7.7 Generated code quality (the gate's own claim)
 
 - Generated code passes the same `ruff` rules the generator source is held to.
 - No debug-statement patterns (`breakpoint()`, `pdb.set_trace(`, debug `print(...)`) in generated output.
@@ -487,13 +372,13 @@ The current test suite (80 test functions across 11 files, all offline, no Spark
 
 ---
 
-### 8. Anthropic / Claude-Specific Adaptation Notes
+## 8. Anthropic / Claude-Specific Adaptation Notes
 
 Everything in this section is a rework item for the port to Databricks Model Serving / AI Gateway. Nothing else in the pipeline is provider-specific.
 
 1. **Model client.** The current plain `anthropic.Anthropic().messages.create(...)` call (non-streaming — this repo does **not** stream, unlike the FRD→STTM agent's extraction path, because output per call is small: a few hundred tokens) must be replaced by a **Databricks Model Serving** invocation — the Foundation Model API for a Claude-family endpoint, an external-model endpoint via AI Gateway, or the `databricks-sdk` serving client. The request shape (one system prompt + one user message containing the context pack as JSON) is preserved; only the transport changes.
 
-2. **Model identifier.** `config.reasoning.model` (currently `claude-opus-4-8`, an **Anthropic-side model id**) becomes a **Serving endpoint name** (or Foundation Model id) on the Databricks target. This is already read purely from config — no hardcoded model name anywhere in `src`/`tests`/`ui` — so the port touches only the config value and its documentation, not code.
+2. **Model identifier.** `config.reasoning.model` (currently `claude-opus-4-8`, an **Anthropic-side model id**) becomes a **Serving endpoint name** (or Foundation Model id) on the Databricks target. This is already read purely from config — `grep` confirms no hardcoded model name anywhere in `src`/`tests`/`ui` — so the port touches only the config value and its documentation, not code.
 
 3. **Auth / secret scope.** Today the client reads `ANTHROPIC_API_KEY` from the environment (loaded by the CLI's own tiny `.env` reader, which never overrides an already-set environment variable). On a Foundation Model endpoint, **workspace identity handles auth** and the secret entirely drops out. If routing through AI Gateway to an external Anthropic key, a Databricks secret scope is retained, but its consumer becomes the Gateway, not this agent's code.
 
@@ -511,207 +396,8 @@ Everything in this section is a rework item for the port to Databricks Model Ser
 
 10. **Packaging.** `anthropic` is lazy-imported (only inside `AnthropicProvider.__init__`) so the deterministic path never needs it installed; it lives behind a `live` extra in `pyproject.toml`. The equivalent Databricks Model Serving client package (`databricks-sdk` or the relevant Foundation Model client) should follow the same lazy-import-behind-an-extra discipline, so the deterministic Layer-1-only path keeps working with zero optional dependencies installed.
 
-11. **Documentation references.** `docs/LIVE_RUN_RECORD.md` and `docs/LIVE_PATH_RECON.md` (local repo only, not part of the Databricks import) cite Anthropic-specific behaviors (the temperature-400 discovery, exact token/cost measurements, SDK-specific error handling). Retain them as historical context in the git repo — the numbers are real and valuable — but the runbook that ships with the rebuild must reflect the Databricks-native cost/observability surface (Model Serving usage tables, endpoint metrics), not the Anthropic dashboard.
+11. **Documentation references.** `docs/LIVE_RUN_RECORD.md` and `docs/LIVE_PATH_RECON.md` cite Anthropic-specific behaviors (the temperature-400 discovery, exact token/cost measurements, SDK-specific error handling). Retain them as historical context — the numbers are real and valuable — but the runbook that ships with the rebuild must reflect the Databricks-native cost/observability surface (Model Serving usage tables, endpoint metrics), not the Anthropic dashboard.
 
 ---
 
-### Demo UI + replay fixtures
-
-`ui/` is a FastAPI (8571) + Vite/React (5173) dashboard for the client demo.
-Two run modes:
-
-- **Live** — real Anthropic call, ~3 billed calls, ≈ $0.10, ~20s;
-  confirmation dialog required; output isolated to `out/demo_<timestamp>/`
-- **Replay** — loads a tracked fixture from `fixtures/replay/<run_id>/`
-  byte-for-byte; zero API calls; works offline on a fresh clone
-
-Replay layout (each fixture is a full committed live run):
-
-```
-fixtures/replay/<run_id>/
-  README.md
-  call_log.json                         # per-call model/tokens/latency/stop reason
-  <feed_slug>/candidates.json           # Layer-2 review artifact
-  <feed_slug>/report.md                 # generation report with verdict
-```
-
-Ships today: `live_e2e_20260807/` with three CV feeds, all PASS_WITH_FLAGS.
-
-### Key docs — local repo / Claude Code development only
-
-These files live in this git repo for local development and future Claude
-Code sessions; **none of them are reachable once only this SKILL.md is
-imported into the AmeriHealth Databricks workspace.** Everything Genie
-Code needs for the actual build is inlined in §1–§8 above.
-
-- [`README.md`](../../../README.md) — quick start, two-layer architecture,
-  `extract-sttm` usage, repo layout table
-- [`CLAUDE.md`](../../../CLAUDE.md) — working conventions: config doctrine,
-  branching (staging→main), fixture rules, known gaps, extractor invariants
-- [`docs/DEMO_RUNBOOK.md`](../../../docs/DEMO_RUNBOOK.md) — client demo
-  choreography, contingency, safety rails, and the 2026-08-07 rehearsal
-  findings
-- [`docs/DESIGN.md`](../../../docs/DESIGN.md) and
-  [`docs/WORKFLOW.md`](../../../docs/WORKFLOW.md) — design rationale and
-  the gate verdict semantics
-- [`docs/NATIVE_REBUILD_SPEC.md`](../../../docs/NATIVE_REBUILD_SPEC.md) —
-  the standalone source this SKILL.md's §1–§8 were merged from; kept in
-  the repo as a local reference, but its content now lives above so there
-  is no need to open it separately
-- [`app.yaml`](../../../app.yaml) — Databricks Apps manifest (see gap #1
-  below)
-
-Deeper design references — split out to keep the git repo tidy (local
-only):
-
-- [`references/deep-dive.md`](references/deep-dive.md) — file-level tour
-  of `src/codegen/` and the config-doctrine rules
-- [`references/reusable-checklist.md`](references/reusable-checklist.md) —
-  Part B expanded as a build checklist for a new project
-
-### Known open items (do not present as done)
-
-1. **First live E2E on an actual Databricks Apps deployment is still
-   pending.** The Anthropic provider path is unit-tested with a stubbed
-   SDK but has not been validated against a real workspace. The UI polls
-   short intervals rather than streaming to minimize the untested-proxy
-   surface — this is about the local demo UI's own deployment (`app.yaml`,
-   local repo only), not the agent rebuild itself.
-2. **Segmented (Header/Detail/Trailer) STTM workbooks are out of extractor
-   scope** — see §2.6 and §5.3 above for the full detail and the two
-   named blockers.
-3. **Layer-2 approval-to-merge is v2** — see §3.6 and §4 above; decisions
-   do not gate, merging stays a manual engineer step.
-4. **No live-credential `.env` is committed** (there never was one; an
-   earlier claim was stale).
-
-### How to run
-
-```bash
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"                 # add ",live,ui" for demo UI + Anthropic SDK
-.venv/bin/python -m pytest -q                      # 80 tests, offline
-.venv/bin/python -m codegen.cli generate-all \
-    --config config/config.yaml --dry-run --skip-tests
-```
-
-Generated Spark tests need `JAVA_HOME` (Java 17) + `PYSPARK_PYTHON` set to
-the venv interpreter. Confirm you are on `staging` before edits — `main`
-is deploy-only.
-
----
-
-## Part B — The reusable pattern
-
-Lift this section when building a different agent that must generate
-code, transformations, or configuration from an *approved* structured
-artifact. The AmeriHealth specifics fall away; the shape survives.
-
-### When this pattern applies
-
-You are building an agent when **all** of these hold:
-
-- The upstream artifact is **approved** — signed off by a human, versioned,
-  and machine-readable (JSON/YAML/protobuf/OpenAPI/CSV/xlsx-with-schema).
-  Not a free-form user prompt.
-- The output is **executable** (code, SQL, IaC, config) — correctness is
-  provable by lint/type/test, not by "reads well."
-- The output feeds a **downstream reviewer or agent** — so the emitter's
-  contract with that reviewer is stable.
-- Regenerating the same input must produce the same bytes; ambiguity or
-  free-text corners must be surfaced, not silently guessed.
-
-If any of these are missing (input is free-form, output is prose, no
-downstream contract), reach for a different pattern.
-
-### The essentials
-
-Skip any of them and the pattern breaks.
-
-1. **Approved structured input is the source of truth. [essential]** The agent's job
-   is not to interpret intent — it is to compile a signed-off artifact
-   into runnable code. If the artifact is wrong, the agent should faithfully
-   emit the wrong code and let the reviewer catch it, not "improve" it.
-2. **Two layers, LLM in a bounded corner. [essential]** Layer 1 is a deterministic
-   compiler over everything the spec pins down. Layer 2 is only where the
-   spec has genuine free text the compiler cannot classify. Every fact the
-   spec *could* express in structure must live in Layer 1.
-3. **Layer 2 output is a review artifact, not generated code. [essential]** A file the
-   engineer reads and merges by hand. The agent proposes; a human confirms.
-   Even an approval does not self-merge. This preserves the audit line.
-4. **Verbatim grounding on every model claim. [essential]** If Layer 2 cites the spec,
-   the citation must be found literally in the source. No paraphrasing,
-   no invented references. Failed grounding rejects the candidate.
-5. **Byte-stable output. [essential]** No timestamps, no randomness, no clock reads in
-   the emitter. Inject any needed dates. Same input, same bytes — every
-   time. This is what makes diffs reviewable and CI trustworthy.
-6. **Provenance banner in every emitted file. [essential]** Input artifact names +
-   content hashes. A reader of the output alone can reconstruct which
-   version of the spec produced it.
-7. **A shared verdict vocabulary across the pipeline. [essential]** A fixed enum —
-   e.g. `PASS / PASS_WITH_FLAGS / FAIL` — that every agent in the chain
-   understands the same way. **Include the honest-middle state** ("clean
-   but something needs a human"). Without it, teams collapse everything
-   to green/red and lose the case that matters most: correct code with a
-   pending human decision.
-8. **Config-driven, no magic numbers in generator logic. [essential]** Every knob
-   (naming, layout, cluster shape, gate rules) lives in one config file
-   that is loud on typos. Templates read from it; generator code does not
-   inline literals.
-9. **Mock-by-default LLM path. [essential]** No key → deterministic mock, no network.
-   Tests and dev loops run offline. The live path is a single opt-in
-   (`API_KEY` present + `--dry-run` off).
-10. **A gate step that computes the verdict. [essential]** Lint the generated code
-    with the same rules as the generator itself, scan for debug/secret
-    patterns, require a test per module, and — if a JVM/runtime is
-    available — actually run the generated tests. The verdict comes from
-    the gate's outputs, not from a human decision at the end.
-11. **Replay fixtures for demos and CI. [essential]** Commit at least one full run of
-    real-model output as a tracked fixture, and build the UI/CLI to load
-    it byte-for-byte. Live demos need a proven fallback that works with
-    no key and no network.
-
-### What is incidental
-
-- **PySpark + Delta + Databricks** *(incidental — swap freely)* — target platform. Replace with
-  Snowflake, dbt, Airflow, Terraform, OpenAPI-to-Kotlin, whatever fits.
-- **FRD + STTM** *(incidental — swap freely)* — the specific artifact names. Your equivalents might be
-  "API spec + auth policy" or "schema contract + retention rules."
-- **Jinja2** *(incidental — swap freely)* — the templating engine. Any deterministic template system
-  works; the essential property is *no logic beyond what the spec pins
-  down*.
-- **Anthropic Claude / `claude-opus-4-8`** *(incidental — swap freely)* — the model. Any tool-capable
-  LLM works for Layer 2, provided you can enforce grounding externally.
-  (Program policy pinned this vendor; the pattern does not.)
-- **Pydantic v2 frozen models** *(incidental — swap freely)* — the schema enforcer. Any strict schema
-  library that fails loud on unknown fields is fine.
-- **Three verdict states** *(incidental — swap freely)* — the shape is essential; the exact labels are
-  not. Some domains benefit from four or five (e.g. adding a
-  `NEEDS_UPSTREAM` for spec-side problems).
-- **`ruff`** *(incidental — swap freely)* — the linter. Whatever language you emit, use its most
-  authoritative linter/type-checker and hold the *generated* code to the
-  same standard as the generator source.
-
-### Anti-patterns this design rules out
-
-- Letting Layer 2 write directly into generated modules "just this once"
-  for a stubborn case — the audit line disappears immediately.
-- Silent defaults for missing spec fields. Missing must be `None`, and
-  the emitter must fail loudly or classify the row as unmapped.
-- A single boolean pass/fail gate. You will collapse the honest middle
-  state and either ship flagged output as green or block clean output as
-  red.
-- A "temperature knob" or any run-to-run variation source in Layer 1.
-  Reviews depend on stable diffs.
-- Free-form prompt input alongside the structured spec ("also apply this
-  hint"). Every ad-hoc input erodes reproducibility. If it matters, add
-  it to the spec schema.
-
-### Where to look next
-
-- [`references/reusable-checklist.md`](references/reusable-checklist.md) —
-  the Part B essentials expanded as a build-order checklist with the
-  concrete file/module shapes this repo settled on.
-- [`references/deep-dive.md`](references/deep-dive.md) — the `src/codegen/`
-  tour, useful as a worked example when scaffolding an equivalent
-  package.
+*End of specification.*

@@ -1,13 +1,33 @@
 # CodeGen / Data Engineer Agent — working notes
 
+> **Read first, every session:** read
+> `../amerihealth-project-master-context-document.md` in its entirety before
+> working in this repo. It is the program-wide master context document
+> (scope, timeline, all three agents, open gaps, and known-stale claims in
+> this file). This file remains authoritative for this repo specifically.
+
 ## Purpose & pipeline position
 
 Generates production-shaped Databricks ingestion pipelines (PySpark + Delta
 Lake) from approved machine-readable contracts — one FRD feed contract plus
-one STTM mapping contract per feed. It is the **third agent** in the
-five-agent AI-in-Engineering program at AmeriHealth Caritas: BRD→FRD →
-FRD→STTM (produces the FRD feed contracts consumed here) → **CodeGen** →
-Code Review (reviews what this repo emits; SQL Optimization is standalone).
+one STTM mapping contract per feed. It is the **second agent** in the
+three-agent AI-in-Engineering program at AmeriHealth Caritas: FRD→STTM
+(produces the FRD feed contracts consumed here) → **CodeGen** → Code Review
+(reviews what this repo emits).
+
+**Scope cut 2026-08-21:** the program dropped from five agents to three —
+BRD→FRD and SQL Optimization are no longer in scope. Do not build them or
+add dependencies on them.
+
+**Where this runs:** Hexaware builds, ACFC rebuilds. This repo is the
+Hexaware-side reference implementation; the production agent gets rebuilt
+inside ACFC's own environment with Claude Code, using this as the
+blueprint. Nothing here deploys to ACFC directly — anything that cannot be
+re-derived from the contracts, config, and docs does not survive the
+hand-off. **Current program priority is FRD→STTM's live Databricks App
+(due 2026-08-24), not this repo** — see the workspace-level `CLAUDE.md` one
+directory up.
+
 Two-layer trust rule (never violate): **Layer 1** is deterministic Jinja2 —
 everything derivable from the contracts, byte-stable, every file stamped
 with a provenance banner carrying the contract names + sha256. **Layer 2**
@@ -112,6 +132,17 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
 
 - **There is no live-credential `.env` in this repo** (an earlier claim in
   this file that one existed was stale).
+- **`extract-sttm` has never been run on FRD→STTM's own output.** It is
+  validated against *client* workbooks (the CV/golden pair is byte-tested),
+  not against what `04_sttm_render` emits upstream. Checked 2026-08-21: the
+  upstream `sheet_per_table` dialect does match this extractor's sheet
+  names, band labels and header synonyms — but it emits no `Comment` column
+  (→ `value_spec` empty) and no `Recycle Flag` column (→ the verbatim
+  validation text, i.e. this repo's entire Layer-2 input, is dropped
+  *silently*), and its `single_sheet` CAQH dialect is incompatible outright
+  (no `MAPPING-` prefix, `Source Layout` vs `Source File Layout`, different
+  header dialect). Closing that round trip is a real integration task; do
+  not assume the pipeline joins up.
 - **The CAQH STTM contract is synthetic** — `extract-sttm` is flat-only, so
   CAQH (segmented) still cannot be extracted; the MIDS STTM contract
   predates the extractor (out-of-repo; no committed workbook reproduces it).

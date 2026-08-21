@@ -33,8 +33,7 @@ config/config.yaml  every knob — contract pairs, extractor layout, naming, mas
 fixtures/contracts/ 2 real FRD + MIDS STTM + SYNTHETIC CAQH STTM + CV/golden FRD + expected extract
 fixtures/workbooks/ anonymized golden STTM workbook (extractor input; re-included past *.xlsx ignore)
 docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
-                    LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script), media/,
-                    code-gen-agent_overview_deck.pptx (ACFC overview deck; regen: scripts/build_acfc_deck.py)
+                    LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script), media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
 ```
 

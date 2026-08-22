@@ -10,11 +10,14 @@ contracts:
   # Directory holding the contract JSON files; pair paths are relative to it.
   dir: fixtures/contracts
   # Each pair joins one FRD feed contract with one STTM mapping contract.
-  pairs:
-    - frd: "FRD_Medicare Expansion-MIDS - Socially Determined.contract.json"
-      sttm: "sttm_mapping_contracts.json"
-    - frd: "FRD_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Ingestion_1005034.contract.json"
-      sttm: "sttm_mapping_contracts_caqh.SYNTHETIC.json"
+  # EMPTY since 2026-08-22: the two tracked pairs (MIDS real-FRD contract +
+  # MIDS STTM; CAQH real-FRD contract + SYNTHETIC CAQH STTM) were deleted
+  # from the repo on the "no client documents in the repository" rule.
+  # `codegen generate-all` and the demo UI's startup generate have nothing to
+  # run until anonymized pairs are restored here; `codegen generate
+  # --frd-contract X --sttm-contract Y` still works with explicit paths, and
+  # the fixture-driven tests skip rather than fail.
+  pairs: []
 
 # Overrides for FRD feed_name -> STTM feed_id when normalization
 # (lowercase, non-alphanumeric -> _) is not enough. Empty by default.
@@ -107,6 +110,11 @@ reasoning:
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
+  # NOTE 2026-08-22: these three files were deleted with the rest of
+  # fixtures/ (see contracts.pairs above). The names are kept because the
+  # demo config model requires them and they are anonymized-universe names,
+  # not client document titles; Live/Replay fail loudly with "file not found"
+  # until anonymized copies are restored at these paths.
   # Replay resolves frd+sttm directly; Live extracts the workbook first
   # (extract-sttm) and generates from the extracted contract.
   frd: "FRD_demo_cv_golden.contract.json"

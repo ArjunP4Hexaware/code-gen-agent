@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from codegen.cli import main
@@ -13,6 +14,8 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_generate_all_dry_run(tmp_path, monkeypatch, capsys):
     raw = yaml.safe_load((REPO / "config" / "config.yaml").read_text(encoding="utf-8"))
+    if not raw["contracts"]["pairs"]:
+        pytest.skip("contract fixtures removed from the repo 2026-08-22; pairs not configured")
     raw["output"]["dir"] = str(tmp_path / "out")
     raw["output"]["reports_dir"] = str(tmp_path / "reports")
     raw["gate"]["run_generated_tests"] = False

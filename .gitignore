@@ -28,11 +28,19 @@ venv/
 .ruff_cache/
 *.egg-info/
 
-# Office documents — blanket guard against real client docs entering the
-# repo. Anonymized workbook fixtures are re-included explicitly below.
+# Office documents and FRD/STTM artifacts — blanket guard against client docs
+# entering the repo. 2026-08-22: fixtures/contracts/ (incl. two contracts
+# derived from REAL client FRDs), fixtures/workbooks/ and fixtures/replay/
+# were deleted and git rm'd on the "no client documents in the repository"
+# rule; the `!fixtures/workbooks/*.xlsx` re-include that used to live here
+# was removed with them on purpose — do not add it back. Any future fixture
+# material must be anonymized first AND tracked by a deliberate decision.
 *.docx
 *.xlsx
-!fixtures/workbooks/*.xlsx
+*.contract.json
+fixtures/contracts/
+fixtures/workbooks/
+fixtures/replay/
 
 # Wheel-build detritus
 build/

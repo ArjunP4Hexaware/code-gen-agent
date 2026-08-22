@@ -48,7 +48,10 @@ class ContractsConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     dir: str
-    pairs: list[ContractPair] = Field(min_length=1)
+    # May be empty (since 2026-08-22 the repo ships no contract fixtures);
+    # generate-all refuses to run on an empty list instead of silently
+    # succeeding -- see cli.py.
+    pairs: list[ContractPair]
 
 
 class OutputConfig(BaseModel):

@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("fastapi")
+
+REPO = Path(__file__).resolve().parents[1]
 
 from fastapi.testclient import TestClient  # noqa: E402
 from ui.backend.demo import DemoRunner, LiveRunInProgress  # noqa: E402
@@ -24,6 +27,13 @@ from ui.backend.replay import (  # noqa: E402
 from ui.backend.service import GenerationStore  # noqa: E402
 
 REPLAY_SET = "live_e2e_20260807"
+# The tracked replay set was removed from the repo 2026-08-22 (no client
+# documents, raw or derived, in the repository); the two tests that read it
+# skip until an anonymized set is restored under fixtures/replay/.
+needs_replay_set = pytest.mark.skipif(
+    not (REPO / "fixtures" / "replay" / REPLAY_SET / "call_log.json").is_file(),
+    reason="tracked replay set removed from the repo 2026-08-22",
+)
 
 
 @pytest.fixture()
@@ -113,6 +123,7 @@ def test_live_available_is_boolean_only(client, monkeypatch):
     assert "test-key-never-echoed" not in payload.get("available", True).__repr__()
 
 
+@needs_replay_set
 def test_replay_discovery_finds_tracked_set():
     sets = {s.name: s for s in list_replay_sets()}
     assert REPLAY_SET in sets
@@ -122,6 +133,7 @@ def test_replay_discovery_finds_tracked_set():
     assert len(tracked.feeds) == 3
 
 
+@needs_replay_set
 def test_replay_load_rebuilds_live_state_offline(monkeypatch, tmp_path):
     # No key, no network: replay must still produce full pipeline state with
     # the recorded anthropic candidates injected.

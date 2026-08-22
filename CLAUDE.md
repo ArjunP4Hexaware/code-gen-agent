@@ -47,11 +47,16 @@ src/codegen/        contracts/ (pydantic models, both dialects, frozen),
                     classifier), reasoning/ (Layer 2: providers, verbatim
                     grounding), emit/ (Jinja2 + notebook assembler), gate/
                     (preflight, tests, verdict), report/, templates/, cli.py, config.py
-tests/              80 tests, offline, no Spark needed (15 demo-UI tests
-                    skip cleanly when the [ui] extra isn't installed)
-config/config.yaml  every knob — contract pairs, extractor layout, naming, masking, gate, job
-fixtures/contracts/ 2 real FRD + MIDS STTM + SYNTHETIC CAQH STTM + CV/golden FRD + expected extract
-fixtures/workbooks/ anonymized golden STTM workbook (extractor input; re-included past *.xlsx ignore)
+tests/              62 tests, offline, no Spark needed; 31 of them SKIP since
+                    2026-08-22 because the fixtures they drive on were removed
+                    (see "Fixtures & data rules"); 15 demo-UI tests also skip
+                    when the [ui] extra isn't installed
+config/config.yaml  every knob — contract pairs (EMPTY since 2026-08-22), extractor layout,
+                    naming, masking, gate, job
+fixtures/           GONE since 2026-08-22 — contracts/ (2 real-FRD contracts + MIDS STTM +
+                    SYNTHETIC CAQH STTM + CV/golden FRD + expected extract), workbooks/
+                    (anonymized golden STTM) and replay/ (live E2E set) were deleted and
+                    git rm'd; .gitignore now blocks all three paths
 docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
                     LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script), media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
@@ -122,9 +127,28 @@ merges to `main` only after testing.
 
 ## Fixtures & data rules
 
+**No FRD/STTM material is in this repo — as of 2026-08-22.** On Arjun's
+instruction that no client documents (raw or derived) live in any repo,
+`fixtures/contracts/` (two of which were contracts derived from *real*
+client FRDs, plus the MIDS STTM, the synthetic CAQH STTM and the CV/golden
+pair), `fixtures/workbooks/`, `fixtures/replay/`, and the gitignored `out/`
+and `reports/` (generated pipelines embedding CAQH/MIDS field names) were
+deleted from the working tree and `git rm`'d. They remain in git history
+until a purge is decided. What changed to keep the repo coherent:
+`config.contracts.pairs` is `[]` (the model no longer requires ≥1 pair);
+`codegen generate-all` and the demo UI's startup generate refuse loudly on an
+empty list; `codegen generate --frd-contract X --sttm-contract Y` still works
+with explicit paths; the `demo:` config section keeps its (anonymized-universe)
+file names but the files are absent, so Live/Replay fail with file-not-found
+until anonymized copies are restored; every fixture-driven test skips with an
+explicit reason rather than failing (`tests/conftest.py` `require_fixture_files`
+/ `_pair_paths`). Restoring anonymized fixtures at the configured paths
+re-enables the full 80-test suite unchanged.
+
 Offline fixtures only — tests and dry-run generation must pass with zero
-credentials and zero network. No real client data beyond the approved
-contract/workbook fixtures; new fixture material must be anonymized first.
+credentials and zero network. No real client data, ever; any new fixture
+material must be anonymized first AND tracked by a deliberate decision (the
+`.gitignore` re-include for workbooks was removed for that reason).
 Generated output is byte-stable by design — no timestamps or randomness in
 generated files; keep it that way (extract-sttm: inject `--generated-date`).
 

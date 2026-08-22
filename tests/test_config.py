@@ -8,7 +8,10 @@ from codegen.config import load_config
 
 
 def test_real_config_loads(config):
-    assert config.contracts.pairs
+    # pairs may be empty since 2026-08-22 (fixtures removed); the section and
+    # its contracts dir must still parse.
+    assert config.contracts.dir
+    assert isinstance(config.contracts.pairs, list)
     assert config.masking.policy == "last4"
     assert config.gate.pytest_tail_lines > 0
 

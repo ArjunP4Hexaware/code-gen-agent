@@ -104,8 +104,8 @@ in tests).
 | `src/codegen/gate/` | preflight (ruff, debug/secrets scan, test-per-module), generated-test runner, verdict |
 | `src/codegen/report/` | per-feed generation report |
 | `config/config.yaml` | every knob; no numeric literals live in generator logic |
-| `fixtures/contracts/` | real MIDS + CAQH FRD contracts; **synthetic** CAQH STTM stand-in; CV/golden FRD + expected extractor output |
-| `fixtures/workbooks/` | anonymized golden STTM workbook (extractor input fixture) |
+| `fixtures/contracts/` | **removed 2026-08-22** (no client documents in the repo — see CLAUDE.md "Fixtures & data rules"); formerly real MIDS + CAQH FRD contracts, synthetic CAQH STTM, CV/golden FRD + expected extractor output |
+| `fixtures/workbooks/` | **removed 2026-08-22**; formerly the anonymized golden STTM workbook (extractor input fixture) |
 | `tests/` | generator's own test suite (no Spark needed) |
 
 ## Development

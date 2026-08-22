@@ -34,6 +34,12 @@ WORKBOOK = REPO / "fixtures" / "workbooks" / "demo_sttm_cv_golden.xlsx"
 FRD = REPO / "fixtures" / "contracts" / "FRD_demo_cv_golden.contract.json"
 EXPECTED = REPO / "fixtures" / "contracts" / "sttm_mapping_contracts_cv_golden.json"
 CONFIG = REPO / "config" / "config.yaml"
+if not (WORKBOOK.exists() and FRD.exists() and EXPECTED.exists()):
+    pytest.skip(
+        "CV/golden workbook + contract fixtures removed from the repo 2026-08-22 "
+        "(no client documents in the repository); restore anonymized copies to run",
+        allow_module_level=True,
+    )
 # Injected so extraction is byte-reproducible; must match the committed
 # expected-output fixture's generated_date.
 GENERATED_DATE = "2026-08-07"

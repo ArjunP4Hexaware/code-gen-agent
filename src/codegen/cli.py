@@ -219,6 +219,15 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         only_feed = args.feed
     else:
+        if not config.contracts.pairs:
+            # Empty since 2026-08-22 (contract fixtures removed from the repo).
+            # Refuse loudly rather than report a silent zero-feed success.
+            print(
+                f"{'FAIL':<15} config.contracts.pairs is empty -- nothing to generate. "
+                "Restore anonymized contract pairs in config/config.yaml or run "
+                "`codegen generate --frd-contract X --sttm-contract Y`."
+            )
+            return 1
         contracts_dir = Path(config.contracts.dir)
         pairs = [(contracts_dir / p.frd, contracts_dir / p.sttm) for p in config.contracts.pairs]
         only_feed = None

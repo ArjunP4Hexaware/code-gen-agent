@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from codegen.config import load_dotenv
+from ui.backend import sharepoint_routes
 from ui.backend.demo import DemoRunner, LiveRunInProgress
 from ui.backend.replay import (
     list_past_live_runs,
@@ -83,6 +84,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CodeGen / Data Engineer Agent — demo UI", lifespan=lifespan)
+
+# SharePoint picker + confirm-gated publish. Registered before the "/" static
+# mount below (which would otherwise swallow these paths) and bound to the
+# same store, so publish addresses the CURRENT mode's artifact roots. With no
+# store the routes answer 503 rather than 500 — the same posture as the rest
+# of the app when startup generation failed.
+sharepoint_routes.bind_store(store)
+app.include_router(sharepoint_routes.router)
 
 # CORS is only needed when the frontend is served from a different origin —
 # i.e. the two-process dev workflow's Vite server. Single-port mode is

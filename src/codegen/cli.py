@@ -5,6 +5,11 @@ Commands:
   generate-all  every pair listed in config.contracts.pairs
   extract-sttm  extract an STTM mapping contract from a client workbook
                 paired with its FRD feed contract (deterministic, no LLM)
+  sharepoint-fetch    library -> local input dir (workbooks + contracts)
+  sharepoint-publish  one feed's generated artifacts -> library output folder
+
+The two sharepoint-* commands are the transport seam at the edges; the
+generation path between them never opens a socket (codegen/sharepoint.py).
 
 Per feed: resolve -> compile rules -> Layer 2 over unmapped rules -> render
 templates -> write candidates artifact -> gate -> report. A feed that fails
@@ -148,6 +153,127 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+def _sharepoint_fetch(args: argparse.Namespace, config: Config) -> int:
+    """Pull the library's workbooks/contracts into a local input directory.
+
+    The read-side edge of the transport seam (codegen.sharepoint's module
+    docstring has the full rationale). Deliberately a separate command rather
+    than a flag on `extract-sttm`: keeping the network at the edge is what
+    lets the generator stay offline and credential-free, and it means a
+    re-run after a parse fix does not re-download anything.
+
+    Fetching nothing is an error, not a no-op — an empty library folder and a
+    successful fetch must not look the same to whatever runs next.
+    """
+    from codegen.sharepoint import (
+        SUPPORTED_SUFFIXES,
+        GraphError,
+        SharePointConfigError,
+        build_client,
+        config_for,
+    )
+
+    try:
+        cfg = config_for(config.sharepoint)
+        client = build_client(cfg)
+        print(f"site:    {cfg.host}{cfg.site_path}")
+        print(f"library: {cfg.library}  folder: {cfg.input_folder or '<root>'}")
+        print(f"dest:    {args.dest}")
+        fetched = client.fetch_to_dir(args.dest, suffixes=SUPPORTED_SUFFIXES)
+    except (SharePointConfigError, GraphError) as exc:
+        print(f"{'FAIL':<15} sharepoint-fetch — {exc}")
+        return 1
+
+    for item in fetched:
+        print(f"{'FETCHED':<15} {item.name} — {item.size:,} bytes, modified {item.modified}")
+    if not fetched:
+        print(
+            f"{'FAIL':<15} sharepoint-fetch — no supported documents in "
+            f"{cfg.library}/{cfg.input_folder or '<root>'} "
+            f"(supported: {sorted(SUPPORTED_SUFFIXES)}). Upload an STTM workbook or an "
+            f"FRD contract, or check sharepoint.input_folder in config/config.yaml."
+        )
+        return 1
+    print(f"\n{len(fetched)} file(s) -> {args.dest}")
+    return 0
+
+
+def _publishable(args: argparse.Namespace, config: Config) -> list[Path]:
+    """The artifact list for one publish call, with containment enforced.
+
+    `--path` addresses one file relative to the feed's output directory and
+    is resolved-and-checked the same way the UI's file reader does: a library
+    write must never be steerable outside `out/<feed_slug>/` by a `..`.
+    With no `--path`, the deliverables are the feed's generation report and
+    its assembled notebook — the two artifacts a reviewer hands over.
+    """
+    feed_dir = (Path(config.output.dir) / args.feed).resolve()
+    if args.path:
+        target = (feed_dir / args.path).resolve()
+        if not target.is_relative_to(feed_dir):
+            raise ValueError(f"path escapes the feed directory: {args.path}")
+        return [target]
+    return [
+        Path(config.output.reports_dir).resolve() / f"{args.feed}.md",
+        feed_dir / f"{args.feed}.ipynb",
+    ]
+
+
+def _sharepoint_publish(args: argparse.Namespace, config: Config) -> int:
+    """Publish one feed's generated artifacts to the library output folder.
+
+    The write-side edge. Publishing is deliberately NOT folded into
+    `generate`: generation re-runs every time a rule or a contract changes,
+    and a re-generate is not automatically a re-publish — the human gate sits
+    between them. Running this command IS that gate, which is why it takes no
+    `--confirm` flag; the UI endpoint, which a stray POST could reach, does
+    require one.
+
+    Publishing nothing is an error for the same reason a silent no-op is
+    wrong upstream: downstream it is indistinguishable from success.
+    """
+    from codegen.sharepoint import (
+        GraphError,
+        SharePointConfigError,
+        build_client,
+        config_for,
+        published_name,
+    )
+
+    try:
+        artifacts = _publishable(args, config)
+    except ValueError as exc:
+        print(f"{'FAIL':<15} sharepoint-publish — {exc}")
+        return 1
+
+    missing = [p for p in artifacts if not p.is_file()]
+    if missing:
+        print(
+            f"{'FAIL':<15} sharepoint-publish — nothing to publish for {args.feed!r}: "
+            + ", ".join(str(p) for p in missing)
+            + ". Run `codegen generate` (or generate-all) first."
+        )
+        return 1
+
+    try:
+        cfg = config_for(config.sharepoint)
+        client = build_client(cfg)
+        print(f"site:      {cfg.host}{cfg.site_path}")
+        print(f"library:   {cfg.library}  folder: {cfg.output_folder or '<root>'}")
+        for path in artifacts:
+            name = published_name(args.feed, path.name)
+            result = client.upload_file(path, name=name)
+            print(f"{'PUBLISHED':<15} {name} — {path.stat().st_size:,} bytes "
+                  f"-> {result.get('webUrl', '<no url>')}")
+    except (SharePointConfigError, GraphError) as exc:
+        print(f"{'FAIL':<15} sharepoint-publish — {exc}")
+        return 1
+
+    print(f"\n{len(artifacts)} artifact(s) published to "
+          f"{cfg.library}/{cfg.output_folder or '<root>'}.")
+    return 0
+
+
 def _contract_path(value: str, config: Config) -> Path:
     path = Path(value)
     if path.is_file():
@@ -199,12 +325,39 @@ def main(argv: list[str] | None = None) -> int:
         "(inject for byte-reproducible output)",
     )
 
+    fetch = subparsers.add_parser(
+        "sharepoint-fetch",
+        help="download STTM workbooks / FRD contracts from the SharePoint library",
+    )
+    fetch.add_argument("--config", default="config/config.yaml")
+    fetch.add_argument(
+        "--dest", required=True, help="local directory the documents land in"
+    )
+
+    publish = subparsers.add_parser(
+        "sharepoint-publish",
+        help="publish one feed's generated artifacts to the SharePoint library",
+    )
+    publish.add_argument("--config", default="config/config.yaml")
+    publish.add_argument("--feed", required=True, help="feed_slug to publish")
+    publish.add_argument(
+        "--path",
+        help="one file relative to out/<feed_slug>/ (default: the feed's "
+        "report + assembled notebook)",
+    )
+
     args = parser.parse_args(argv)
     load_dotenv()
     config = load_config(args.config)
 
     if args.command == "extract-sttm":
         return _extract_sttm(args, config)
+
+    if args.command == "sharepoint-fetch":
+        return _sharepoint_fetch(args, config)
+
+    if args.command == "sharepoint-publish":
+        return _sharepoint_publish(args, config)
 
     if args.command == "generate":
         try:

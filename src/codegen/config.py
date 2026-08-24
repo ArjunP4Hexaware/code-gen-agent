@@ -175,6 +175,25 @@ class DemoConfig(BaseModel):
     estimated_seconds: int = Field(gt=0)
 
 
+class SharePointSettings(BaseModel):
+    """Non-secret SharePoint knobs (codegen.sharepoint reads these).
+
+    Identity and the client secret are deliberately absent: SHAREPOINT_
+    TENANT_ID / _CLIENT_ID / _CLIENT_SECRET resolve from the environment, so
+    a deployment's tenant never lands in the tracked config file. Every field
+    here defaults to empty — SharePoint is optional, and an unconfigured repo
+    must load its config and run the whole generator exactly as before.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    host: str = ""            # e.g. contoso.sharepoint.com
+    site_path: str = ""       # server-relative, must start with '/'
+    library: str = ""         # document library display name
+    input_folder: str = ""    # workbooks + contracts in; "" = library root
+    output_folder: str = ""   # generated artifacts out
+
+
 class GateConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -209,6 +228,10 @@ class Config(BaseModel):
     demo: DemoConfig
     gate: GateConfig
     job: JobConfig
+    # Optional: a config.yaml with no `sharepoint:` section still loads, and
+    # every SharePoint entry point then fails loudly on the missing values
+    # rather than this being a load-time error for repos that never use it.
+    sharepoint: SharePointSettings = SharePointSettings()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

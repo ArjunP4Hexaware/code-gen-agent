@@ -139,6 +139,27 @@ gate:
   # How many trailing pytest output lines the gate keeps in check details.
   pytest_tail_lines: 15
 
+sharepoint:
+  # Microsoft Graph transport (codegen.sharepoint) — the document library is
+  # the program's system of record: STTM workbooks and FRD contracts in,
+  # generated artifacts out. NON-SECRET knobs only.
+  #
+  # Identity and the secret are env-only and never belong in this file:
+  #   SHAREPOINT_TENANT_ID, SHAREPOINT_CLIENT_ID, SHAREPOINT_CLIENT_SECRET
+  # (see .env.example). Each knob below is also overridable by the uppercased
+  # env var of the same name (SHAREPOINT_HOST, SHAREPOINT_SITE_PATH, ...) so a
+  # deployment can point at its own site without editing the tracked config.
+  #
+  # Empty = SharePoint unconfigured. That is a supported state: the UI hides
+  # the picker, the CLI subcommands fail loudly naming the remedy, and every
+  # other command is unaffected. Nothing here has been run against a real
+  # tenant yet — see CLAUDE.md "Known gaps".
+  host: ""              # e.g. contoso.sharepoint.com
+  site_path: ""         # server-relative, must start with '/' — e.g. /sites/DataOffice
+  library: ""           # document library display name; blank falls back to "Documents"
+  input_folder: ""      # workbooks + contracts live here; "" = library root
+  output_folder: ""     # generated artifacts are published here (the ONLY path we write)
+
 job:
   # Recipients for generated Workflows email_notifications blocks; empty
   # means the block is emitted with no addresses and the report flags it.

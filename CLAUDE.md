@@ -41,16 +41,19 @@ FAIL (semantics in `docs/WORKFLOW.md`).
 ## Repo layout
 
 ```
-src/codegen/        contracts/ (pydantic models, both dialects, frozen),
+src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
+                    contracts/ (pydantic models, both dialects, frozen),
                     resolve/ (FRD⋈STTM join → ResolvedFeedSpec), extract/
                     (workbook→STTM extractor, see below), rules/ (rule
                     classifier), reasoning/ (Layer 2: providers, verbatim
                     grounding), emit/ (Jinja2 + notebook assembler), gate/
                     (preflight, tests, verdict), report/, templates/, cli.py, config.py
-tests/              62 tests, offline, no Spark needed; 31 of them SKIP since
+tests/              137 tests, offline, no Spark needed; 31 of them SKIP since
                     2026-08-22 because the fixtures they drive on were removed
-                    (see "Fixtures & data rules"); 15 demo-UI tests also skip
-                    when the [ui] extra isn't installed
+                    (see "Fixtures & data rules"); the demo-UI and SharePoint-
+                    route tests also skip when the [ui] extra (or httpx) isn't
+                    installed. Run pytest for the live count rather than
+                    trusting a number written down here.
 config/config.yaml  every knob — contract pairs (EMPTY since 2026-08-22), extractor layout,
                     naming, masking, gate, job
 fixtures/           GONE since 2026-08-22 — contracts/ (2 real-FRD contracts + MIDS STTM +
@@ -60,6 +63,8 @@ fixtures/           GONE since 2026-08-22 — contracts/ (2 real-FRD contracts +
 docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
                     LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script), media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
+                    backend/sharepoint_routes.py: picker + confirm-gated publish
+inputs/sharepoint/  gitignored landing dir for documents pulled from SharePoint
 ```
 
 ## STTM workbook extractor (codegen extract-sttm)
@@ -119,6 +124,83 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   re-add one.
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
+
+## SharePoint / Microsoft Graph (added 2026-08-23)
+
+Ported from frd-to-sttm-agent-v2's integration. The document library is the
+program's system of record: STTM workbooks and FRD contracts in, generated
+artifacts out. `src/codegen/sharepoint.py` is the whole transport.
+
+**It is a seam at the edges, deliberately outside resolve/emit/gate.** The
+generator's inputs and outputs are files on disk; SharePoint attaches before
+(`codegen sharepoint-fetch`) and after (`codegen sharepoint-publish`).
+Keeping the network at the edge is what lets Layer 1 stay deterministic,
+offline and credential-free. **Do not "simplify" this by calling Graph from
+inside `extract-sttm` or the resolver.**
+
+- **Standard library only** (`urllib.request`). Graph is plain REST; no SDK,
+  no new runtime dependency. (`httpx` was added to the `dev` extra — it is
+  test-only: `fastapi.testclient` is httpx-backed and the [ui] extra did not
+  pull it, so the demo-UI tests could not actually run.)
+- **App-only client credentials.** Secret from `SHAREPOINT_CLIENT_SECRET`
+  (env or the gitignored `.env`), same resolution as `ANTHROPIC_API_KEY`.
+  Excluded from `SharePointConfig.__repr__` so it cannot reach a traceback.
+  Required Graph APPLICATION permission with admin consent: `Sites.Selected`
+  on the target site, preferred over tenant-wide `Files.ReadWrite.All`.
+- **Config split follows this repo's doctrine, not the source repo's.**
+  frd-to-sttm reads every knob from notebook widgets/env. Here the non-secret
+  knobs (host, site_path, library, input/output folder) live in
+  `config/config.yaml` under `sharepoint:`, and identity + secret are
+  env-only so a tenant is never committed. `param_from_config` layers them:
+  env var > YAML > default. The section is OPTIONAL — a config without it
+  still loads and every other command is unaffected.
+- **Fail-loud, both directions.** Missing config raises naming both remedies.
+  A short download raises rather than leaving a truncated .xlsx for openpyxl
+  to report as a layout problem. A missing library lists what the site has.
+  Fetching nothing and publishing nothing are both errors, not no-ops.
+- **Publish is separate from generate on purpose.** Generation re-runs every
+  time a rule or contract changes, and a re-generate is not a re-publish —
+  the human gate sits between them. Running `sharepoint-publish` IS that
+  gate, which is why the CLI takes no `--confirm` (mirroring the source
+  repo's standalone publish notebook); the HTTP endpoint, which a stray POST
+  could reach, DOES require `{"confirm": true}`.
+- **Write scope is one folder.** `sharepoint.output_folder` is the only path
+  this repo ever writes to. Keep the app registration's write grant scoped
+  to it.
+- **Publish names are qualified.** `<feed_slug>.md` / `<feed_slug>.ipynb`
+  publish under their own name; anything else (`bronze.py`, `ddl.sql`) is
+  prefixed `<feed_slug>__`, because those names repeat across feeds and a
+  flat library folder has no other way to stop the second feed overwriting
+  the first.
+- **UI routes** (`ui/backend/sharepoint_routes.py`): a picked document is
+  downloaded into `inputs/sharepoint/` — the same place `sharepoint-fetch
+  --dest` writes — so it starts through the existing generate path. There is
+  deliberately no second "generate from SharePoint" execution path. Status
+  codes say whose problem it is: 503 not configured, 502 Graph refused, 400
+  bad request, 404 no such feed/artifact, 413 over a cap. The panel renders
+  nothing when unconfigured.
+
+### Deliberately NOT ported
+
+- **No `jobs_runner.py` equivalent.** In frd-to-sttm that module triggers the
+  bundle-deployed `frd_sttm_pipeline` job via the Jobs API, because its demo
+  runs are Spark notebook tasks whose artifacts must land in Unity Catalog.
+  This repo has no `databricks.yml`, no bundle and no job to trigger:
+  generation is in-process Jinja2 plus an optional Anthropic call, needs no
+  cluster, and `ui/backend/service.py` already runs it directly. Building a
+  Jobs-API path here would mean inventing a job that does not exist. The
+  durability problem it solved (container artifacts are ephemeral) is
+  addressed instead by publishing artifacts to SharePoint.
+- **No `_sharepoint.py` shim.** That exists so `%run ./_sharepoint` and a
+  local `from _sharepoint import ...` both resolve; this repo has no
+  notebooks and no `%run`.
+- **No duplicate-input short-circuit.** frd-to-sttm's locate flow presents an
+  existing `<doc_id>.sttm.xlsx` instead of regenerating, keyed on a 1:1
+  FRD→STTM naming convention. Here one workbook yields N feeds whose slugs
+  are only known AFTER resolution, so there is no pre-run name to key on.
+  `POST /api/sharepoint/locate` returns `already_published` as INFORMATION
+  for the operator instead; it never decides on their behalf. Closing this
+  properly needs a content hash, same as the upstream repo's open item.
 
 ## Branching model
 

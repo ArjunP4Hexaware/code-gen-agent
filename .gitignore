@@ -9,6 +9,11 @@ reference/
 out/
 reports/
 
+# Documents pulled from SharePoint (codegen sharepoint-fetch / the UI picker).
+# These are CLIENT documents — raw or derived, they must never be tracked
+# (see CLAUDE.md "Fixtures & data rules"). The landing dir is ignored whole.
+inputs/
+
 # Stray local-Spark droppings (see CLAUDE.md — delete on sight)
 metastore_db/
 derby.log

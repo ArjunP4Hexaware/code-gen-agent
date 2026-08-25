@@ -433,7 +433,7 @@ Genie Code / job parameters should map cleanly to these names, the same discipli
 
 ### 7. Acceptance Criteria — What "Done" Looks Like
 
-The current test suite (80 test functions across 11 files, all offline, no Spark needed to *render* — a JVM is needed only to *execute* the generated tests) is the strongest available specification of correct behavior. A rebuild is not done until an equivalent suite is green. Grouped by theme:
+The current test suite (run `pytest -q` for the live count — all offline, no Spark needed to *render*; a JVM is needed only to *execute* the generated tests; fixture-driven tests skip unless the anonymized CV/golden fixtures are restored from git history) is the strongest available specification of correct behavior. A rebuild is not done until an equivalent suite is green. Grouped by theme:
 
 #### 7.1 Contract resolution
 
@@ -522,10 +522,10 @@ Two run modes:
 
 - **Live** — real Anthropic call, ~3 billed calls, ≈ $0.10, ~20s;
   confirmation dialog required; output isolated to `out/demo_<timestamp>/`
-- **Replay** — loads a tracked fixture from `fixtures/replay/<run_id>/`
-  byte-for-byte; zero API calls; works offline on a fresh clone
+- **Replay** — loads a recorded run from `fixtures/replay/<run_id>/`
+  byte-for-byte; zero API calls; no key or network needed
 
-Replay layout (each fixture is a full committed live run):
+Replay layout (each fixture is a full recorded live run):
 
 ```
 fixtures/replay/<run_id>/
@@ -535,7 +535,25 @@ fixtures/replay/<run_id>/
   <feed_slug>/report.md                 # generation report with verdict
 ```
 
-Ships today: `live_e2e_20260807/` with three CV feeds, all PASS_WITH_FLAGS.
+**Fixtures are no longer tracked (2026-08-22):** `fixtures/` was deleted
+and gitignored on the "no client documents in the repository" rule, so a
+fresh clone has NO replay set and Replay (and Live) fail loudly with
+file-not-found. The anonymized CV/golden demo set — `live_e2e_20260807/`
+(three CV feeds, all PASS_WITH_FLAGS), the demo contract pair, and the
+golden workbook — survives in git history at `044752e^` and may be
+restored to the working tree as untracked files (restored 2026-08-25 on
+this machine). Restore with `git show`, never `git checkout` (checkout
+would stage the paths and re-track them):
+
+```bash
+git show "044752e^:fixtures/contracts/FRD_demo_cv_golden.contract.json" \
+  > fixtures/contracts/FRD_demo_cv_golden.contract.json   # etc. for the
+  # sttm_mapping_contracts_cv_golden.json, demo_sttm_cv_golden.xlsx and
+  # every file under fixtures/replay/live_e2e_20260807/
+```
+
+Do NOT restore the other historical fixtures (MIDS/CAQH contracts) — those
+are client-derived and must stay out of the working tree.
 
 ### Key docs — local repo / Claude Code development only
 
@@ -590,7 +608,10 @@ only):
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"                 # add ",live,ui" for demo UI + Anthropic SDK
-.venv/bin/python -m pytest -q                      # 80 tests, offline
+.venv/bin/python -m pytest -q   # offline; fixture-driven tests skip unless the
+                                # anonymized CV/golden fixtures are restored (see
+                                # "Demo UI + replay fixtures" above); run pytest
+                                # for the live count, don't trust a written one
 .venv/bin/python -m codegen.cli generate-all \
     --config config/config.yaml --dry-run --skip-tests
 ```

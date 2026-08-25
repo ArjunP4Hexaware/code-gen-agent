@@ -225,7 +225,12 @@ file names but the files are absent, so Live/Replay fail with file-not-found
 until anonymized copies are restored; every fixture-driven test skips with an
 explicit reason rather than failing (`tests/conftest.py` `require_fixture_files`
 / `_pair_paths`). Restoring anonymized fixtures at the configured paths
-re-enables the full 80-test suite unchanged.
+re-enables the full 80-test suite unchanged. The anonymized CV/golden set
+(demo FRD + STTM contracts, golden workbook, and the `live_e2e_20260807`
+replay set) survives at `044752e^` and may be restored **working-tree-only**
+with `git show "044752e^:<path>" > <path>` — never `git checkout`, which
+would stage and re-track the paths (done locally 2026-08-25; the MIDS/CAQH
+client-derived contracts must NOT be restored).
 
 Offline fixtures only — tests and dry-run generation must pass with zero
 credentials and zero network. No real client data, ever; any new fixture

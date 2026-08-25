@@ -1,21 +1,40 @@
-# CodeGen Agent — Manager Demo Script (2026-08-25)
+# CodeGen Agent — Manager Demo Script (2026-08-25, 4 PM)
 
 Personal, machine-specific script for today's demo. Companion to the
 committed `docs/DEMO_RUNBOOK.md` (the rehearsed client runbook) — this
-version reflects the exact state of this machine as of the 2026-08-25
-afternoon build: server running, blank base state, choose-an-STTM gating
-live, Anthropic key verified working.
+version reflects the exact state of this machine after the Raj-feedback
+pass (`staging` @ `raj-feedback:` commit): the **three-input model**
+(STTM + standards stub + load-pattern FAQ) is now visible in every
+generated artifact, server running, choose-an-STTM gating live,
+Anthropic key verified working earlier today.
 
 ---
 
 ## 0. Current state (already done — nothing to prepare)
 
 - Server **running** at http://localhost:8571 (single-port mode: FastAPI
-  serves API + built frontend), sitting in the **blank base state**: MOCK
-  badge, empty dashboard, STTM workbook shows ***none chosen***, and
-  **"Generate from this STTM…" is disabled** until a workbook is picked.
+  serves API + built frontend, launched from the Claude Code session), with
+  the **`live_e2e_20260807` replay set already loaded** — REPLAY badge,
+  three CV feeds on the dashboard. For the blank base state (MOCK badge,
+  empty dashboard, ***none chosen***), restart the backend (§1) and
+  refresh; either starting point works for the walk below.
+- **Three-input model is live in the output** (committed on `staging`,
+  `raj-feedback:` prefix): every generated module carries an
+  `Inputs (three-input model)` banner block, notebooks list prerequisite
+  tables instead of executing DDL (`create_tables: false`), job names get
+  frequency prefixes (`Y_ingest_*` / `M_ingest_*`), and the gate now adds
+  the honesty flags (`faq_unanswered:*`, `load_mode_not_enforced`,
+  `standards_stub`). Feeds show **~10 flags, not 2** — that's the feature,
+  not a regression; §2 Step 5½ is the beat that sells it. Suite: 143
+  passed / 27 skipped, ruff clean, emit byte-stability re-verified.
+- FAQ answer files exist and are tracked: `fixtures/faq/<slug>.faq.yaml`
+  for the 3 CV feeds — only contract-derived prefills filled (load mode +
+  frequency, with quoted evidence), everything else honestly `unknown`.
+- Stale MIDS/CAQH-derived output purged from `out/` and `reports/`.
 - Anthropic SDK installed (`.[live]` extra), key present and **proven** —
-  two successful live runs today, all stages green, 3 feeds each.
+  two successful live runs earlier today, all stages green, 3 feeds each.
+  Live runs generate through the same mirrored path, so a fresh live run
+  shows the three-input banner and flags too.
 - The live card is titled **"Generate a Pipeline"** and reads as two
   steps: **Choose STTM…** (picker) then **Generate from this STTM…**
   (unlocks only after a pick). A **Clear** button beside the chosen name
@@ -27,8 +46,10 @@ live, Anthropic key verified working.
 
 ## 1. If the server needs a restart
 
-From the repo root (don't use `run_demo.sh` — it hardcodes the Linux venv
-path):
+The current server was started in the background by the Claude Code
+session — stop that one first (ask Claude to stop it, or end the
+`python.exe` bound to :8571 in Task Manager), then from the repo root
+(don't use `run_demo.sh` — it hardcodes the Linux venv path):
 
 ```powershell
 .venv\Scripts\python.exe -m ui.backend.main
@@ -83,11 +104,14 @@ where the document would come from — the slot exists, the document
 doesn't. Own them; honesty is the pitch:
 
 > "Two gaps we're naming ourselves. One: the generator wants the client's
-> coding standards document for best performance — we don't have it yet,
-> so it runs without. Two: this FRD is an anonymized stand-in, not the
-> real FRD with the paths to the actual files. So the pipeline you're
-> about to watch is real end-to-end, but the *case* it represents is not
-> — plug in the real documents and this same run becomes the real thing."
+> engineering standards document — we don't have it yet, so it runs on a
+> declared **stub**: the config slot exists, it already drives job naming
+> and the tables-are-a-prerequisite behavior, and every output flags
+> itself `standards_stub` until the real document replaces it. Two: this
+> FRD is an anonymized stand-in, not the real FRD with the paths to the
+> actual files. So the pipeline you're about to watch is real end-to-end,
+> but the *case* it represents is not — plug in the real documents and
+> this same run becomes the real thing."
 
 Then click **"Generate from this STTM…"**. Read the confirmation dialog
 aloud — it names the input workbook, repeats the input-gaps caveat, then
@@ -116,13 +140,65 @@ feeds, all **PASS WITH FLAGS**:
 > "The honest middle state — the code is clean, but something needs a
 > human. That's correct behavior, not a failure."
 
+Each feed now shows **~10 flags** — pre-empt it before anyone reads it as
+trouble:
+
+> "Ten flags, and most of them are questions, not defects: every
+> load-pattern question nobody has answered yet is a named flag. The gate
+> refuses to let an unanswered question look like a decision."
+
 ### Step 5 — One feed's detail
 
 Click any feed card (e.g. `cv_community_risk`). On the **Overview** tab:
 
 - Gate checks all green — ruff, debug patterns, secrets, test-per-module.
-- The **Flags** panel — the orange *PENDING ENGINEER APPROVAL* call-out
-  is the bridge to the finale.
+- The **Flags** panel — walk it top to bottom: six `faq_unanswered:*`
+  (the open load-pattern questions), `load_mode_not_enforced` (declared
+  truncate-and-load; the writer still does MERGE-by-file — branching is
+  v2), `standards_stub`, and the orange *PENDING ENGINEER APPROVAL*
+  call-out — that last one is the bridge to the finale.
+
+### Step 5½ — The three-input model (~60s, the new beat)
+
+Stay on the feed detail and show the three inputs *in the output*:
+
+1. **Generated code tab → `pipeline/writer.py`** — scroll to the top-of-file
+   banner and read the `Inputs (three-input model)` block aloud: STTM
+   sha256, `Engineering standards  STUB — awaiting client engineering
+   standards document`, `Load-pattern FAQ ..... 2 answered (2 from
+   contract), 6 unknown`, Collibra dataset IDs *not yet integrated
+   (planned)*, then the last two lines — **declared** load mode vs the
+   **actual** write behavior:
+
+   > "Every generated file declares its inputs and their honesty level.
+   > Three inputs: the approved STTM contract — real; the client's
+   > engineering standards — a declared stub until their document lands;
+   > and a per-feed load-pattern FAQ — two answers prefilled from the
+   > contract with the quoted evidence, six still waiting on an engineer."
+
+2. **Generated code tab → `job/workflow.json`** — the job name:
+   `M_ingest_cv_individual_risk` / `Y_ingest_cv_community_risk` — the
+   standards input already naming jobs by load frequency (FAQ-sourced).
+3. **Notebook tab** — scroll to the *Prerequisite tables* cell near the
+   top: under `create_tables: false` (the MVP prerequisite — tables
+   already exist at the client) the notebook **lists** the required
+   tables instead of creating them; the `ddl/` files are still emitted,
+   marked REFERENCE only.
+4. (Optional, terminal) `fixtures/faq/cv_individual_risk.faq.yaml` — one
+   answered question with `source: contract` and the quoted evidence
+   string; everything unanswered simply isn't there.
+
+If asked "so what's real and what's stubbed?" — the one-breath version:
+
+> "Everything structural still compiles deterministically from the
+> approved contracts, byte-stable — that path is unchanged. What's new is
+> that the generator reads three inputs and every file says which were
+> real for that run. The standards input is an honest stub that already
+> drives job naming and the prerequisite-tables behavior. The FAQ
+> captures the load-pattern questions with a source on every answer, and
+> unanswered ones become gate flags, never silent defaults. And a
+> declared load mode doesn't change the write path yet — the writer says
+> so itself; that's the v2 work."
 
 ### Step 6 — The finale: Layer-2 review tab
 

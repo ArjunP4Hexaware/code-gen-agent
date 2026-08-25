@@ -9,6 +9,17 @@
 # WARNING: the STTM contract is SYNTHETIC — regenerate when the real mapping
 # workbook extract lands (see fixtures/contracts/*SYNTHETIC*.json notes).
 {% endif %}
+# Inputs (three-input model):
+#   STTM contract ........ {{ provenance.sttm_sha[:16] }}
+#   Engineering standards  {{ provenance.inputs.standards_status }}
+#   Load-pattern FAQ ..... {{ provenance.inputs.answered }} answered ({{ provenance.inputs.from_contract }} from contract), {{ provenance.inputs.unknown }} unknown
+{% if provenance.inputs.dataset_source or provenance.inputs.dataset_target %}
+#   Collibra dataset IDs . source={{ provenance.inputs.dataset_source or "?" }} target={{ provenance.inputs.dataset_target or "?" }}
+{% else %}
+#   Collibra dataset IDs . not yet integrated (planned)
+{% endif %}
+# Declared load mode: {{ provenance.inputs.load_mode }} (source: {{ provenance.inputs.load_mode_source }})
+# Write behavior in this version: {{ provenance.inputs.writer_behavior }} (load-mode branching: v2)
 {%- endmacro %}
 
 {% macro pylist(items, indent_spaces=4) -%}

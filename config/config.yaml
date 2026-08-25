@@ -125,6 +125,26 @@ demo:
   estimated_cost_usd: 0.10
   estimated_seconds: 20
 
+engineering_standards:
+  # Three-input model, input #2 — STUB until the client's engineering
+  # standards document lands. The stub status is surfaced in every banner and
+  # as a gate flag; nothing here silently pretends to be the real document.
+  status: "STUB — awaiting client engineering standards document"
+  job_prefix_by_frequency: {daily: "D_", weekly: "W_", monthly: "M_", yearly: "Y_", adhoc: "A_"}
+  job_name_pattern: "{prefix}ingest_{slug}"
+  # MVP prerequisite: raw/stage/standard tables already exist. DDL files are
+  # emitted as REFERENCE only; the notebook lists prerequisite tables instead
+  # of creating them.
+  create_tables: false
+  type_mapping: []   # e.g. [{source: float, target: DOUBLE}]
+
+load_pattern_faq:
+  # Three-input model, input #3 — per-feed load-pattern Q&A answer files
+  # (<feed_slug>.faq.yaml in per_feed_dir). Missing file => all answers
+  # default with source "unknown", each surfaced as a gate flag.
+  schema_version: 1
+  per_feed_dir: "fixtures/faq"
+
 gate:
   # Pre-flight of the Code Review Agent's checks over generated output.
   run_generated_tests: true

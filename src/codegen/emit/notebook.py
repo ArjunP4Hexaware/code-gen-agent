@@ -190,6 +190,28 @@ def _intro_cell(context: dict[str, Any]) -> dict[str, Any]:
             "**WARNING:** the STTM contract is SYNTHETIC — regenerate when the real",
             "mapping workbook extract lands.",
         ]
+    inputs = provenance["inputs"]
+    if inputs["dataset_source"] or inputs["dataset_target"]:
+        dataset_line = (
+            f"source={inputs['dataset_source'] or '?'} target={inputs['dataset_target'] or '?'}"
+        )
+    else:
+        dataset_line = "not yet integrated (planned)"
+    lines += [
+        "",
+        "**Inputs (three-input model):**",
+        "",
+        f"- STTM contract: sha256 `{provenance['sttm_sha'][:16]}`",
+        f"- Engineering standards: {inputs['standards_status']}",
+        f"- Load-pattern FAQ: {inputs['answered']} answered "
+        f"({inputs['from_contract']} from contract), {inputs['unknown']} unknown",
+        f"- Collibra dataset IDs: {dataset_line}",
+        "",
+        f"**Declared load mode:** {inputs['load_mode']} (source: {inputs['load_mode_source']})",
+        "",
+        f"**Write behavior in this version:** {inputs['writer_behavior']} "
+        "(load-mode branching: v2)",
+    ]
     lines += [
         "",
         "Run top to bottom on Databricks. Each module cell registers itself as",
@@ -258,6 +280,31 @@ def _ddl_cells(ddl_sources: list[tuple[str, str]]) -> list[dict[str, Any]]:
     return [md, _code_cell("ddl", "\n".join(parts) + "\n")]
 
 
+def _prerequisite_cell(context: dict[str, Any]) -> dict[str, Any]:
+    """Under create_tables=false the notebook creates nothing — it lists the
+    tables the target environment must already have (MVP prerequisite)."""
+    prefix = f"{context['default_catalog']}." if context["default_catalog"] else ""
+    schema = context["stage_schema"]
+    tables = [f"{prefix}{schema}.{seg['stage_table']}" for seg in context["segments"]]
+    tables.append(f"{prefix}{schema}.{context['errors_table']}")
+    tables.append(f"{prefix}{schema}.{context['processed_files_table']}")
+    if context["recycle"]:
+        tables.append(f"{prefix}{schema}.{context['recycle']['table']}")
+    if context["standard"]:
+        std = context["standard"]
+        std_prefix = f"{std['catalog']}." if std["catalog"] else ""
+        tables.append(f"{std_prefix}{std['schema']}.{std['table']}")
+    text = (
+        "## Prerequisite tables (create_tables=false)\n"
+        "\n"
+        "MVP prerequisite: these tables must already exist in the target\n"
+        "environment. The `ddl/` files are emitted for REFERENCE only and are\n"
+        "not executed by this notebook.\n"
+        "\n" + "\n".join(f"- `{table}`" for table in tables) + "\n"
+    )
+    return _md_cell("prerequisites", text)
+
+
 def _module_cells(name: str, source: str, bindings: _Bindings) -> list[dict[str, Any]]:
     docstring = ast.get_docstring(ast.parse(source))
     summary = docstring.strip().splitlines()[0] if docstring else ""
@@ -316,7 +363,10 @@ def build_notebook(
     _check_import_order([name for name, _ in module_sources], bindings_by_label)
 
     cells = [_intro_cell(context), _bootstrap_cell(context)]
-    cells += _ddl_cells(ddl_sources)
+    if context["standards"]["create_tables"]:
+        cells += _ddl_cells(ddl_sources)
+    else:
+        cells.append(_prerequisite_cell(context))
     for name, source in module_sources:
         cells += _module_cells(name, source, bindings_by_label[f"pipeline/{name}.py"])
     cells += _entrypoint_cells(entrypoint_source)

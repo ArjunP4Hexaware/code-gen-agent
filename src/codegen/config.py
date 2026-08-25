@@ -194,6 +194,54 @@ class SharePointSettings(BaseModel):
     output_folder: str = ""   # generated artifacts out
 
 
+class TypeMappingEntry(BaseModel):
+    """One source→target datatype override from the client standards doc."""
+
+    model_config = _MODEL_CONFIG
+
+    source: str
+    target: str
+
+
+class EngineeringStandardsConfig(BaseModel):
+    """Client engineering/coding standards — STUB until the real document lands.
+
+    Optional section: a config.yaml without it loads with these defaults, so
+    the three-input model degrades honestly (the banner and gate flags say
+    STUB) rather than blocking generation on a document we don't have.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    status: str = "STUB — awaiting client engineering standards document"
+    job_prefix_by_frequency: dict[str, str] = Field(
+        default_factory=lambda: {
+            "daily": "D_",
+            "weekly": "W_",
+            "monthly": "M_",
+            "yearly": "Y_",
+            "adhoc": "A_",
+        }
+    )
+    job_name_pattern: str = "{prefix}ingest_{slug}"
+    # MVP prerequisite: raw/stage/standard tables already exist in the target
+    # environment; DDL is emitted as reference only and the notebook lists the
+    # tables as prerequisites instead of creating them.
+    create_tables: bool = False
+    type_mapping: list[TypeMappingEntry] = Field(default_factory=list)
+
+
+class LoadPatternFaqConfig(BaseModel):
+    """Where per-feed load-pattern FAQ answer files live (codegen.faq)."""
+
+    model_config = _MODEL_CONFIG
+
+    schema_version: int = 1
+    # <feed_slug>.faq.yaml per feed; a missing file means every answer
+    # defaults with source "unknown" — never an error.
+    per_feed_dir: str = "fixtures/faq"
+
+
 class GateConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -232,6 +280,10 @@ class Config(BaseModel):
     # every SharePoint entry point then fails loudly on the missing values
     # rather than this being a load-time error for repos that never use it.
     sharepoint: SharePointSettings = SharePointSettings()
+    # Optional (three-input model, added for the Raj feedback pass): both
+    # sections default so an older config still loads unchanged.
+    engineering_standards: EngineeringStandardsConfig = EngineeringStandardsConfig()
+    load_pattern_faq: LoadPatternFaqConfig = LoadPatternFaqConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

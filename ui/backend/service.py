@@ -26,6 +26,7 @@ from codegen.config import Config, load_config
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
+from codegen.faq import faq_for_spec
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
@@ -191,6 +192,9 @@ class GenerationStore:
             provider = build_provider(self.config, dry_run)
             candidates = run_reasoning(spec, outcomes, provider)
         stage("emitting code")
+        # Three-input model: mirrors cli._generate_feed — FAQ file answers
+        # plus contract prefills; missing file => defaults, flagged by gate.
+        faq = faq_for_spec(spec, self.config, base_dir=REPO_ROOT)
 
         duplicate_outcome = next(
             (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
@@ -205,6 +209,7 @@ class GenerationStore:
             notification_rule_texts=[
                 o.rule_text for o in outcomes if o.classification == "notification"
             ],
+            faq=faq,
         )
         written = emit_feed(context, out_root)
         self._write_candidates_artifact(candidates, feed_dir)
@@ -218,8 +223,25 @@ class GenerationStore:
                 run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
             ]
 
-        gate = compute_verdict(spec.feed_id, outcomes, candidates, checks, tests_skipped)
-        write_generation_report(spec, written, outcomes, candidates, gate, reports_dir, out_root)
+        gate = compute_verdict(
+            spec.feed_id,
+            outcomes,
+            candidates,
+            checks,
+            tests_skipped,
+            faq=faq,
+            standards=self.config.engineering_standards,
+        )
+        write_generation_report(
+            spec,
+            written,
+            outcomes,
+            candidates,
+            gate,
+            reports_dir,
+            out_root,
+            inputs_summary=context["provenance"]["inputs"],
+        )
         return FeedRun(
             spec=spec,
             outcomes=outcomes,

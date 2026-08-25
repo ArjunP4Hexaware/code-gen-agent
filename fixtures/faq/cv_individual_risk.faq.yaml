@@ -1,0 +1,14 @@
+# Load-pattern FAQ — cv_individual_risk (CV/golden anonymized universe).
+# Only contract-derived prefills are filled; everything else awaits an
+# engineer's answer and is flagged by the gate until then.
+schema_version: 1
+load_mode:
+  value: truncate_and_load
+  source: contract
+  evidence: 'stage_target.load_strategy: "Truncate and Load"'
+load_frequency:
+  value: monthly
+  source: contract
+  evidence: >-
+    FRD frequency: "Monthly Run; File reception: between 11-15th of every
+    month during Standard business hours before 5 PM EST"

@@ -4,10 +4,10 @@
   "_frd_sha256": {{ provenance.frd_sha | tojson }},
   "_sttm_sha256": {{ provenance.sttm_sha | tojson }},
   "_sla_from_contract": {{ sla_texts | tojson }},
-  "name": "ingest_{{ feed.slug }}",
+  "name": {{ job_name | tojson }},
   "tasks": [
     {
-      "task_key": "ingest_{{ feed.slug }}",
+      "task_key": {{ job_name | tojson }},
       "notebook_task": {
         "notebook_path": "/Workspace/pipelines/{{ feed.slug }}/notebook_entrypoint",
         "base_parameters": {

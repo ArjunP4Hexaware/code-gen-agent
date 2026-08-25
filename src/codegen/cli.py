@@ -28,6 +28,7 @@ from codegen.config import Config, load_config, load_dotenv
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
+from codegen.faq import faq_for_spec
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
@@ -63,6 +64,9 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus
+    # contract prefills; missing file => all defaults, flagged by the gate.
+    faq = faq_for_spec(spec, config)
 
     duplicate_outcome = next(
         (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
@@ -80,6 +84,7 @@ def _generate_feed(
         notification_rule_texts=[
             o.rule_text for o in outcomes if o.classification == "notification"
         ],
+        faq=faq,
     )
     written = emit_feed(context, out_root)
     _write_candidates_artifact(candidates, feed_dir)
@@ -89,8 +94,25 @@ def _generate_feed(
     if not tests_skipped:
         checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
 
-    gate = compute_verdict(spec.feed_id, outcomes, candidates, checks, tests_skipped)
-    write_generation_report(spec, written, outcomes, candidates, gate, reports_dir, out_root)
+    gate = compute_verdict(
+        spec.feed_id,
+        outcomes,
+        candidates,
+        checks,
+        tests_skipped,
+        faq=faq,
+        standards=config.engineering_standards,
+    )
+    write_generation_report(
+        spec,
+        written,
+        outcomes,
+        candidates,
+        gate,
+        reports_dir,
+        out_root,
+        inputs_summary=context["provenance"]["inputs"],
+    )
     print(console_summary(spec, gate))
     return gate
 

@@ -37,6 +37,38 @@ Design rationale: [`docs/DESIGN.md`](docs/DESIGN.md). Operating workflow:
 Every generation ends in a computed three-state gate verdict per feed:
 **PASS / PASS_WITH_FLAGS / FAIL** (see `docs/WORKFLOW.md` for semantics).
 
+## Inputs (three-input model)
+
+Generation reads three inputs per feed; every generated file's provenance
+banner says exactly which of them were real for that run:
+
+1. **STTM mapping contract** (+ its paired FRD feed contract) — the source
+   of truth, unchanged. Everything structural still comes from here.
+2. **Engineering standards** (`engineering_standards:` in
+   `config/config.yaml`) — **STUB today**: awaiting the client's standards
+   document. What already works: job names are rendered from
+   `job_name_pattern` with a frequency prefix
+   (`M_ingest_<slug>`, `Y_ingest_<slug>`, …), and `create_tables: false`
+   (the MVP prerequisite — raw/stage/standard tables already exist) turns
+   the notebook's DDL cells into a prerequisite-tables list; `ddl/*.sql`
+   files are still emitted, marked REFERENCE only. The stub status is
+   surfaced as a `standards_stub` gate flag until the real document lands.
+3. **Per-feed load-pattern FAQ** (`fixtures/faq/<feed_slug>.faq.yaml`,
+   `load_pattern_faq:` in config) — the engineer's answers to the
+   load-pattern questions (load mode, master file, dedup, existing-record
+   policy, frequency, reject threshold, integrity checks, Collibra dataset
+   IDs). Each answer carries its `source` (`engineer|frd|contract|unknown`);
+   `load_mode` and `load_frequency` prefill from the contract pair with the
+   quoted text as evidence, a missing file just means every answer is
+   `unknown`, and each unanswered question becomes a `faq_unanswered:` gate
+   flag.
+
+**What is v2 (declared, not enforced):** the generated writer is still
+unconditionally MERGE-by-file — a declared `load_mode` does not branch the
+write path yet, and every feed carries a `load_mode_not_enforced` flag
+saying so. Collibra dataset IDs are recorded in the FAQ (deliberately not
+on the STTM schema) but not yet wired to Collibra.
+
 ## Quick start
 
 ```bash

@@ -12,8 +12,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from codegen.config import Config
+from codegen.config import Config, EngineeringStandardsConfig
 from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
+from codegen.faq import WRITER_BEHAVIOR, LoadPatternFaq, summarize
 
 # Contract file-name patterns use date placeholders; longest tokens first so
 # CCYYMMDD is consumed before CCYY / MM. "*" is a free wildcard.
@@ -181,6 +182,15 @@ def schedule_from_sla(frequency: str | None) -> dict[str, str] | None:
     return {"quartz_cron_expression": f"0 0 {hour} ? * {day}", "timezone_id": "America/New_York"}
 
 
+def resolve_job_name(
+    standards: EngineeringStandardsConfig, faq: LoadPatternFaq, slug: str
+) -> str:
+    """Job name from the standards pattern; unknown frequency → empty prefix,
+    which with the default pattern degrades to the legacy ``ingest_<slug>``."""
+    prefix = standards.job_prefix_by_frequency.get(faq.load_frequency.value, "")
+    return standards.job_name_pattern.format(prefix=prefix, slug=slug)
+
+
 def _segment_context(
     segment: SegmentSpec, spec: ResolvedFeedSpec, config: Config
 ) -> dict[str, Any]:
@@ -216,8 +226,12 @@ def build_context(
     allow_duplicate_file_name: bool,
     duplicate_rule_text: str | None,
     notification_rule_texts: list[str],
+    faq: LoadPatternFaq | None = None,
 ) -> dict[str, Any]:
     """Everything the templates interpolate, and nothing they compute."""
+    # No file read here — callers load the FAQ (codegen.faq.faq_for_spec) so
+    # rendering stays a pure function of its arguments. None → all defaults.
+    faq = faq if faq is not None else LoadPatternFaq()
     segments = [_segment_context(s, spec, config) for s in spec.segments]
     detail = next(s for s in segments if s["is_detail"])
 
@@ -298,7 +312,19 @@ def build_context(
             "sttm_name": spec.sttm_contract_name,
             "sttm_sha": spec.sttm_contract_sha256,
             "synthetic": spec.sttm_is_synthetic,
+            # Three-input model summary for the banner: what each input
+            # contributed and what is still stubbed/unknown.
+            "inputs": {
+                "standards_status": config.engineering_standards.status,
+                "writer_behavior": WRITER_BEHAVIOR,
+                **summarize(faq),
+            },
         },
+        "standards": {
+            "status": config.engineering_standards.status,
+            "create_tables": config.engineering_standards.create_tables,
+        },
+        "job_name": resolve_job_name(config.engineering_standards, faq, spec.feed_slug),
         "lobs": spec.lobs,
         "file_name_patterns": spec.file_name_patterns,
         "file_regexes": [pattern_to_regex(p) for p in spec.file_name_patterns],

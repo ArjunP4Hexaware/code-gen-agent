@@ -34,6 +34,33 @@ def _contracts_section(spec: ResolvedFeedSpec) -> list[str]:
     ]
 
 
+def _inputs_section(inputs_summary: dict | None) -> list[str]:
+    """Three-input model header — mirrors the provenance banner block."""
+    if inputs_summary is None:
+        return []
+    if inputs_summary["dataset_source"] or inputs_summary["dataset_target"]:
+        dataset_line = (
+            f"source={inputs_summary['dataset_source'] or '?'} "
+            f"target={inputs_summary['dataset_target'] or '?'}"
+        )
+    else:
+        dataset_line = "not yet integrated (planned)"
+    return [
+        "## Inputs (three-input model)",
+        "",
+        f"- Engineering standards: {inputs_summary['standards_status']}",
+        f"- Load-pattern FAQ: {inputs_summary['answered']} answered "
+        f"({inputs_summary['from_contract']} from contract), "
+        f"{inputs_summary['unknown']} unknown",
+        f"- Collibra dataset IDs: {dataset_line}",
+        f"- Declared load mode: {inputs_summary['load_mode']} "
+        f"(source: {inputs_summary['load_mode_source']})",
+        f"- Write behavior in this version: {inputs_summary['writer_behavior']} "
+        "(load-mode branching: v2)",
+        "",
+    ]
+
+
 def _files_section(written_files: list[Path], out_root: Path) -> list[str]:
     lines = ["## Files emitted", ""]
     for path in written_files:
@@ -116,9 +143,11 @@ def write_generation_report(
     gate: GateResult,
     reports_dir: Path,
     out_root: Path,
+    inputs_summary: dict | None = None,
 ) -> Path:
     lines: list[str] = [f"# Generation report — {spec.feed_id}", ""]
     lines += _contracts_section(spec)
+    lines += _inputs_section(inputs_summary)
     lines += _files_section(written_files, out_root)
     lines += _rules_section(outcomes)
     lines += _candidates_section(candidates)

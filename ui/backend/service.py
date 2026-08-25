@@ -70,6 +70,10 @@ class FailedRun(BaseModel):
     error: str
 
 
+class NothingToGenerateError(RuntimeError):
+    """Raised when a generate is requested but config lists no contract pairs."""
+
+
 class GenerationStore:
     """In-memory results of the latest run, plus persisted review decisions."""
 
@@ -116,6 +120,15 @@ class GenerationStore:
         skip_tests: bool = True,
     ) -> None:
         with self._lock:
+            # Refuse loudly BEFORE touching state (mirrors the CLI): with no
+            # pairs, resetting mode/out_root here would strand a loaded
+            # live/replay run's feeds pointing at roots that hold no files.
+            if not self.config.contracts.pairs:
+                raise NothingToGenerateError(
+                    "config.contracts.pairs is empty — nothing to generate. "
+                    "Restore anonymized contract pairs in config/config.yaml, "
+                    "or load a replay set / past live run instead."
+                )
             # A plain generate returns the UI to mock state and default roots.
             self.mode = "mock"
             self.label = None

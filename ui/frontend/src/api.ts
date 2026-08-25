@@ -67,6 +67,20 @@ export interface DemoStatus {
   mode: RunMode;
   label: string | null;
   estimates: { calls: number; cost_usd: number; seconds: number };
+  sttm_workbook?: string;
+  sttm_chosen?: boolean;
+}
+
+export interface SttmWorkbook {
+  name: string;
+  source: string;
+  selected: boolean;
+}
+
+export interface InputDocumentScan {
+  kind: string;
+  matches: string[];
+  stand_in?: string;
 }
 
 export interface PastLiveRun {
@@ -172,6 +186,17 @@ export const api = {
       body: JSON.stringify({ set }),
     }),
   liveAvailable: () => request<{ available: boolean }>("/api/demo/live-available"),
+  demoWorkbooks: () => request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbooks"),
+  selectWorkbook: (name: string) =>
+    request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+  clearWorkbook: () =>
+    request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
+  inputDocuments: () =>
+    request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
   runLive: () =>
     request<DemoStatus>("/api/demo/run-live", {
       method: "POST",

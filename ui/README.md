@@ -50,12 +50,24 @@ always show which mode the UI is in:
 - **Replay**: loads a tracked live run from `fixtures/replay/<set>/`
   instantly — the deterministic pipeline re-runs locally with the recorded
   Anthropic candidates injected; zero API calls, no key needed.
-- **Live**: the full pipeline for real — extract-sttm on the demo workbook →
-  generate with live Layer-2 reasoning → gate. Gated on a key being present
-  in the backend env, requires an explicit cost confirmation (~3 calls,
-  ≈$0.10), rejects concurrent runs (409), and writes to an isolated
-  `out/demo_<timestamp>/` directory. `POST /api/generate` is hardwired to
-  mock — the confirmed live endpoint is the only billed path.
+- **Live** (card titled "Generate a Pipeline"): the full pipeline for real —
+  **choose an STTM workbook**, then extract-sttm on it → generate with live
+  Layer-2 reasoning → gate. The choice is enforced: the card opens at
+  "none chosen" and the run button stays disabled until a pick; the picker
+  (`GET /api/demo/workbooks`, `POST`/`DELETE /api/demo/workbook`) scans the
+  fixtures workbook dir plus the `inputs/sharepoint` landing folder, a Clear
+  button returns to "none chosen", and the selection can't change mid-run
+  (409). The card also surfaces **known input gaps** — coding standards
+  document, real FRD with actual file paths — as attach slots backed by
+  `GET /api/demo/input-documents`, a live scan of `inputs/sharepoint`
+  (listing only; the generator does not consume these yet, and runs proceed
+  without them with an explicit not-an-accurate-case caveat). Gated on a key
+  being present in the backend env, requires an explicit cost confirmation
+  (~3 calls, ≈$0.10), rejects concurrent runs (409), and writes to an
+  isolated `out/demo_<timestamp>/` directory. `POST /api/generate` is
+  hardwired to mock — the confirmed live endpoint is the only billed path —
+  and with `contracts.pairs` empty it refuses loudly (409) before touching
+  any loaded state.
 
 The guided demo tour ends on the Layer-2 **human review** step in every
 mode: candidates sit pending engineer approval until a person decides.

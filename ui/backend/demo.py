@@ -15,6 +15,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from codegen.extract import extract_to_file
 from codegen.resolve.resolver import resolve_pair
@@ -38,6 +39,72 @@ class DemoRunner:
         # Label of the most recent COMPLETED run, so the UI can restore its
         # results (via the past-live-run loader) from any later state.
         self.last_run_label: str | None = None
+        # The operator's chosen STTM workbook. None = the config default.
+        # In-memory only: a restart returns to config.demo.workbook.
+        self.selected_workbook: Path | None = None
+
+    # -- STTM workbook choice ------------------------------------------------
+
+    def _workbook_dirs(self) -> tuple[tuple[str, Path], ...]:
+        """Directories a live run's STTM may come from, with display labels.
+
+        The config workbook's own directory, plus the SharePoint landing dir
+        (where ``sharepoint-fetch --dest`` and the UI picker deliver files).
+        """
+        configured = REPO_ROOT / self._store.config.demo.workbook
+        return (
+            (configured.parent.relative_to(REPO_ROOT).as_posix(), configured.parent),
+            ("inputs/sharepoint", REPO_ROOT / "inputs" / "sharepoint"),
+        )
+
+    def effective_workbook(self) -> Path:
+        return self.selected_workbook or (REPO_ROOT / self._store.config.demo.workbook)
+
+    def workbook_choices(self) -> list[dict]:
+        """Every .xlsx a live run could consume, flagged with the selection.
+
+        Only an EXPLICIT pick counts as selected — before one, the UI shows
+        "none chosen" and no row is badged, even though a run would fall
+        back to the config default.
+        """
+        effective = self.selected_workbook
+        seen: set[str] = set()
+        choices: list[dict] = []
+        for source, directory in self._workbook_dirs():
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*.xlsx")):
+                if path.name.startswith("~$") or path.name in seen:  # Excel lock files / dupes
+                    continue
+                seen.add(path.name)
+                choices.append(
+                    {"name": path.name, "source": source, "selected": path == effective}
+                )
+        return choices
+
+    def select_workbook(self, name: str) -> Path:
+        """Pick a workbook BY NAME from the scanned dirs — never a raw path."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
+        for _source, directory in self._workbook_dirs():
+            if not directory.is_dir():
+                continue
+            for path in directory.glob("*.xlsx"):
+                if path.name == name and not path.name.startswith("~$"):
+                    self.selected_workbook = path
+                    return path
+        raise FileNotFoundError(
+            f"no STTM workbook named {name!r} in "
+            + " or ".join(src for src, _ in self._workbook_dirs())
+        )
+
+    def clear_workbook(self) -> None:
+        """Back to 'none chosen' — the presenter's reset for the choose step."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
+        self.selected_workbook = None
 
     def status(self) -> dict:
         return {
@@ -76,7 +143,7 @@ class DemoRunner:
         run_root.mkdir(parents=True, exist_ok=True)
 
         frd_path = REPO_ROOT / config.contracts.dir / config.demo.frd
-        workbook_path = REPO_ROOT / config.demo.workbook
+        workbook_path = self.effective_workbook()
         contract_path = run_root / "extracted_sttm.contract.json"
 
         self._stage("extracting workbook", f"{workbook_path.name} → STTM mapping contract")

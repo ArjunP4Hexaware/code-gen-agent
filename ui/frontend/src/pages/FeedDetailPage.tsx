@@ -456,12 +456,18 @@ function NotebookTab({ slug }: { slug: string }) {
 /* ---------- Code ---------- */
 
 function CodeTab({ feed }: { feed: FeedDetail }) {
-  // written_files are repo-relative (out/<slug>/...); the file API wants
-  // paths relative to the feed dir. The notebook has its own tab.
-  const prefix = `out/${feed.feed_slug}/`;
+  // written_files are repo-relative; the file API wants paths relative to
+  // the feed dir. Mock runs write out/<slug>/..., live/replay runs write
+  // out/demo_<ts>/<slug>/... — locate the feed-dir segment instead of
+  // assuming the mock prefix. The notebook has its own tab.
+  const marker = `/${feed.feed_slug}/`;
   const files = feed.written_files
-    .filter((f) => f.startsWith(prefix) && !f.endsWith(".ipynb"))
-    .map((f) => f.slice(prefix.length))
+    .filter((f) => !f.endsWith(".ipynb"))
+    .map((f) => {
+      const at = f.indexOf(marker);
+      return at >= 0 ? f.slice(at + marker.length) : null;
+    })
+    .filter((f): f is string => f !== null)
     .sort();
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<string>("");

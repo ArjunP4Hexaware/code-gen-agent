@@ -34,7 +34,13 @@ from ui.backend.replay import (
     load_past_live_run,
     load_replay_set,
 )
-from ui.backend.service import Decision, FeedRun, GenerationStore
+from ui.backend.service import (
+    REPO_ROOT,
+    Decision,
+    FeedRun,
+    GenerationStore,
+    NothingToGenerateError,
+)
 
 # Same .env resolution as the CLI. Inert while the UI hardwires dry_run=True
 # (mock provider), but keeps env parity for the day a live knob lands.
@@ -211,7 +217,12 @@ def generate(req: GenerateRequest) -> dict:
     # Always mock here regardless of the request body: with a real key in the
     # backend env, honoring dry_run=False would allow billed calls without the
     # cost confirmation. The ONLY live path is /api/demo/run-live.
-    _require_store().generate(only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests)
+    try:
+        _require_store().generate(
+            only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests
+        )
+    except NothingToGenerateError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if req.feed_slug is not None and req.feed_slug not in _require_store().runs:
         raise HTTPException(404, f"no resolved feed matches {req.feed_slug!r}")
     return list_feeds()
@@ -303,6 +314,71 @@ def demo_status() -> dict:
             "cost_usd": demo.estimated_cost_usd,
             "seconds": demo.estimated_seconds,
         },
+        # Which STTM workbook a live run would consume — file name only, so
+        # the "choose an STTM" step is legible in the UI before firing.
+        # sttm_chosen distinguishes an operator's explicit pick from the
+        # config-default fallback, so the UI can demand the choice up front.
+        "sttm_workbook": _require_runner().effective_workbook().name,
+        "sttm_chosen": _require_runner().selected_workbook is not None,
+    }
+
+
+@app.get("/api/demo/workbooks")
+def demo_workbooks() -> dict:
+    """STTM workbooks a live run could consume (fixtures + sharepoint inbox)."""
+    return {"workbooks": _require_runner().workbook_choices()}
+
+
+class WorkbookSelectRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/demo/workbook")
+def select_workbook(req: WorkbookSelectRequest) -> dict:
+    try:
+        _require_runner().select_workbook(req.name)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"workbooks": _require_runner().workbook_choices()}
+
+
+@app.delete("/api/demo/workbook")
+def clear_workbook() -> dict:
+    """Return the choose-an-STTM step to 'none chosen'."""
+    try:
+        _require_runner().clear_workbook()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"workbooks": _require_runner().workbook_choices()}
+
+
+@app.get("/api/demo/input-documents")
+def input_documents() -> dict:
+    """Scan the SharePoint inbox for the documents the run SHOULD have.
+
+    Backs the "known input gaps" attach buttons: a real scan of
+    inputs/sharepoint/, so the empty state is honest and a document dropped
+    (or fetched) there shows up without a restart. Listing only — wiring a
+    found document into the generator is pending.
+    """
+    inbox = REPO_ROOT / "inputs" / "sharepoint"
+
+    def scan(patterns: list[str]) -> list[str]:
+        if not inbox.is_dir():
+            return []
+        return sorted({p.name for pat in patterns for p in inbox.glob(pat) if p.is_file()})
+
+    return {
+        "documents": [
+            {"kind": "coding_standards", "matches": scan(["*.pdf", "*.docx", "*.md"])},
+            {
+                "kind": "frd",
+                "matches": scan(["*.contract.json"]),
+                "stand_in": Path(_require_store().config.demo.frd).name,
+            },
+        ]
     }
 
 

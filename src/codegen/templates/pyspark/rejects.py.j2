@@ -9,6 +9,7 @@ continues with the surviving rows.
 
 from __future__ import annotations
 
+import operator
 from datetime import datetime
 from functools import reduce
 
@@ -29,7 +30,7 @@ def split_rejects(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     if not feed_spec.NOT_NULL_COLUMNS:
         return df, df.limit(0)
     any_blank = reduce(
-        lambda left, right: left | right,
+        operator.or_,
         [_is_blank(column) for column in feed_spec.NOT_NULL_COLUMNS],
     )
     return df.where(~any_blank), df.where(any_blank)
@@ -62,7 +63,7 @@ def write_rejects(
         )
         for column in feed_spec.NOT_NULL_COLUMNS
     ]
-    error_rows = reduce(lambda left, right: left.unionByName(right), per_column)
+    error_rows = reduce(DataFrame.unionByName, per_column)
     count = error_rows.count()
     if count:
         error_rows.write.format("delta").mode("append").saveAsTable(

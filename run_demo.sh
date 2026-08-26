@@ -19,4 +19,11 @@ if [ ! -f "$DIST/index.html" ] || [ -n "$(find "$FRONTEND/src" "$FRONTEND/index.
   (cd "$FRONTEND" && npm run build)
 fi
 
-exec .venv/bin/python -m ui.backend.main
+# venv layout differs by OS: POSIX puts python under bin/, Windows (Git
+# Bash) under Scripts/. Pick whichever exists so the launcher runs on both.
+if [ -x .venv/bin/python ]; then
+  PYTHON=.venv/bin/python
+else
+  PYTHON=.venv/Scripts/python.exe
+fi
+exec "$PYTHON" -m ui.backend.main

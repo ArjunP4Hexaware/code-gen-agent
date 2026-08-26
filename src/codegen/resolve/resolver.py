@@ -368,6 +368,8 @@ def _resolve_one(
         feed_name=frd_feed.feed_name,
         source_system=frd_feed.source_system,
         lobs=frd_feed.lobs,
+        domain=frd_feed.domain,
+        sub_domain=frd_feed.sub_domain,
         file_name_patterns=frd_feed.file_name_patterns,
         file_format=frd_feed.file_format,
         delimiter=delimiter,

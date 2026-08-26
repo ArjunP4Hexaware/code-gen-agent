@@ -9,7 +9,7 @@
     {
       "task_key": {{ job_name | tojson }},
       "notebook_task": {
-        "notebook_path": "/Workspace/pipelines/{{ feed.slug }}/notebook_entrypoint",
+        "notebook_path": "/Workspace/pipelines/{{ feed.slug }}/{{ workspace_notebook_name }}",
         "base_parameters": {
           "lob": {{ lobs[0] | tojson }},
           "catalog": {{ (default_catalog or "") | tojson }},
@@ -17,6 +17,7 @@
           "run_ts": ""
         }
       },
+      "timeout_seconds": {{ job.timeout_seconds }},
       "job_cluster_key": "ingest_cluster"
     }
   ],
@@ -26,10 +27,12 @@
       "new_cluster": {
         "spark_version": {{ job.spark_version | tojson }},
         "node_type_id": {{ job.node_type_id | tojson }},
-        "num_workers": {{ job.num_workers }}
+        "num_workers": {{ job.num_workers }}{% if job.runtime_engine %},
+        "runtime_engine": {{ job.runtime_engine | tojson }}{% endif +%}
       }
     }
   ],
+  "timeout_seconds": {{ job.timeout_seconds }},
 {% if schedule %}
   "schedule": {
     "quartz_cron_expression": {{ schedule.quartz_cron_expression | tojson }},
@@ -41,10 +44,10 @@
 {% endif %}
 {% if notifications.rule_texts %}
   "_notification_rules_from_contract": {{ notifications.rule_texts | tojson }},
+{% endif %}
   "email_notifications": {
     "on_success": {{ notifications.emails | tojson }},
     "on_failure": {{ notifications.emails | tojson }}
   },
-{% endif %}
   "max_concurrent_runs": 1
 }

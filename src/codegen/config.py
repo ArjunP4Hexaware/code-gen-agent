@@ -204,11 +204,20 @@ class TypeMappingEntry(BaseModel):
 
 
 class EngineeringStandardsConfig(BaseModel):
-    """Client engineering/coding standards — STUB until the real document lands.
+    """Client engineering/coding standards (three-input model, input #2).
 
-    Optional section: a config.yaml without it loads with these defaults, so
-    the three-input model degrades honestly (the banner and gate flags say
-    STUB) rather than blocking generation on a document we don't have.
+    The DEFAULTS here are still the honest STUB (a config.yaml without this
+    section degrades to the legacy behavior and the gate flags it); the real
+    values — from the EDO Data Engineering Naming Standards and EDO Data
+    Engineering Coding Standards documents — live in config/config.yaml.
+
+    Naming placeholders available to ``job_name_pattern`` /
+    ``notebook_name_pattern`` (resolved in codegen.emit.context):
+    ``{prefix}`` ``{slug}`` ``{feed}`` (the slug, sanitized uppercase)
+    ``{product}`` ``{subproduct}`` ``{source}``
+    ``{domain}`` ``{subdomain}`` ``{lob}`` ``{frequency}``. Unresolvable
+    components render empty and consecutive underscores collapse, so a
+    partially-known feed still gets a deterministic, legal name.
     """
 
     model_config = _MODEL_CONFIG
@@ -224,6 +233,24 @@ class EngineeringStandardsConfig(BaseModel):
         }
     )
     job_name_pattern: str = "{prefix}ingest_{slug}"
+    # EDO Databricks naming: NB_<product>_<subproduct>_<domain>_<subdomain>_
+    # <functionality>. Empty = legacy "notebook_entrypoint" workspace leaf.
+    notebook_name_pattern: str = ""
+    # EDO naming-standard abbreviation tables (3-char product/sub-product
+    # codes, source/domain/LOB/frequency abbreviations). Lookups are
+    # case-insensitive on the normalized key; an unmapped value falls back to
+    # its sanitized uppercase form rather than failing generation.
+    product_code: str = ""
+    sub_product_code: str = ""
+    source_abbreviations: dict[str, str] = Field(default_factory=dict)
+    domain_abbreviations: dict[str, str] = Field(default_factory=dict)
+    lob_abbreviations: dict[str, str] = Field(default_factory=dict)
+    frequency_abbreviations: dict[str, str] = Field(default_factory=dict)
+    # A feed with no resolvable frequency ships unscheduled, i.e. it runs
+    # ad hoc — the EDO abbreviation for that is the honest default.
+    unknown_frequency_abbreviation: str = "ADH"
+    # A feed spanning more than one LOB uses the EDO "All" abbreviation.
+    multi_lob_abbreviation: str = "ALL"
     # MVP prerequisite: raw/stage/standard tables already exist in the target
     # environment; DDL is emitted as reference only and the notebook lists the
     # tables as prerequisites instead of creating them.
@@ -259,6 +286,12 @@ class JobConfig(BaseModel):
     spark_version: str
     node_type_id: str
     num_workers: int = Field(ge=0)
+    # EDO coding standard: never leave the default (7-day) timeout in place —
+    # set it to expected execution hours + 1. Emitted as timeout_seconds.
+    timeout_hours: int = Field(gt=0, default=2)
+    # EDO coding standard: DBR >= 15.4 LTS with Photon enabled. Empty = omit
+    # the runtime_engine key from the generated cluster spec.
+    runtime_engine: str = ""
 
 
 class Config(BaseModel):

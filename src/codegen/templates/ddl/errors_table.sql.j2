@@ -14,4 +14,6 @@ CREATE TABLE IF NOT EXISTS {{ qualified_prefix }}{{ stage_schema }}.{{ errors_ta
     `COLUMN_NAME` STRING,
     `KEY_VALUE_MASKED` STRING,
     `REC_CREATION_TIME` TIMESTAMP
-) USING DELTA;
+) USING DELTA
+-- EDO coding standard: Liquid Clustering for new tables (DBR >= 15.4).
+CLUSTER BY AUTO;

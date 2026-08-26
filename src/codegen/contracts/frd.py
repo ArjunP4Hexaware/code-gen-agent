@@ -13,7 +13,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 GateStatus = Literal["PASS", "PASS_WITH_FLAGS", "FAIL"]
-LoadStrategy = Literal["Truncate and Load", "Append"]
+# "Upsert" added 2026-08-26: the SFMC Email Campaign FRD declares a standard-
+# layer "Upsert" strategy (stage stays Truncate and Load). The generated
+# writer's MERGE already implements upsert semantics; the literal was the gap.
+LoadStrategy = Literal["Truncate and Load", "Append", "Upsert"]
 RecordSegment = Literal["Header", "Detail", "Trailer"]
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)

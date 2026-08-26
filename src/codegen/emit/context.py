@@ -19,6 +19,12 @@ from codegen.faq import WRITER_BEHAVIOR, LoadPatternFaq, summarize
 # Contract file-name patterns use date placeholders; longest tokens first so
 # CCYYMMDD is consumed before CCYY / MM. "*" is a free wildcard.
 _PLACEHOLDER_MAP = {
+    # Combined date-time stamps first: tokens only substitute when bounded by
+    # non-alphanumerics, so SFMC-style contiguous "YYYYMMDDHHMMSS" must be a
+    # token of its own or it would be treated as a literal (found 2026-08-26
+    # against the SFMC Email Campaign FRD's file-name pattern).
+    "CCYYMMDDHHMMSS": r"\d{14}",
+    "YYYYMMDDHHMMSS": r"\d{14}",
     "CCYYMMDD": r"\d{8}",
     "YYYYMMDD": r"\d{8}",
     "HHMMSS": r"\d{6}",
@@ -66,6 +72,7 @@ _QUARTZ_DAYS = {
     "sun": "SUN",
 }
 _HOURS_PER_HALF_DAY = 12
+_SECONDS_PER_HOUR = 3600
 
 
 class TemplateGapError(ValueError):
@@ -105,6 +112,8 @@ def pattern_to_regex(name_pattern: str) -> str:
 
 
 _EXAMPLE_SUBSTITUTIONS = {
+    "CCYYMMDDHHMMSS": "20260115090000",
+    "YYYYMMDDHHMMSS": "20260115090000",
     "CCYYMMDD": "20260115",
     "YYYYMMDD": "20260115",
     "HHMMSS": "090000",
@@ -127,6 +136,8 @@ def example_file_name(name_pattern: str, variant: int = 0) -> str:
     day = 15 + variant
     substitutions = {
         **_EXAMPLE_SUBSTITUTIONS,
+        "CCYYMMDDHHMMSS": f"202601{day:02d}090000",
+        "YYYYMMDDHHMMSS": f"202601{day:02d}090000",
         "CCYYMMDD": f"202601{day:02d}",
         "YYYYMMDD": f"202601{day:02d}",
         "DD": f"{day:02d}",
@@ -182,13 +193,97 @@ def schedule_from_sla(frequency: str | None) -> dict[str, str] | None:
     return {"quartz_cron_expression": f"0 0 {hour} ? * {day}", "timezone_id": "America/New_York"}
 
 
+def _sanitize_name_part(value: str | None) -> str:
+    """EDO name component: uppercase, runs of non-alphanumerics → ``_``."""
+    if value is None:
+        return ""
+    return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").upper()
+
+
+def _abbreviate(value: str | None, abbreviations: dict[str, str]) -> str:
+    """EDO abbreviation-table lookup (case-insensitive on the sanitized key);
+    an unmapped value falls back to its sanitized uppercase form."""
+    if value is None:
+        return ""
+    normalized = _sanitize_name_part(value)
+    by_normalized = {_sanitize_name_part(k): v for k, v in abbreviations.items()}
+    return by_normalized.get(normalized, normalized)
+
+
+def _name_components(
+    standards: EngineeringStandardsConfig,
+    faq: LoadPatternFaq,
+    slug: str,
+    *,
+    source: str | None,
+    domain: str | None,
+    sub_domain: str | None,
+    lobs: tuple[str, ...] | list[str],
+) -> dict[str, str]:
+    """Every placeholder either naming pattern may interpolate."""
+    if len(lobs) == 1:
+        lob = _abbreviate(lobs[0], standards.lob_abbreviations)
+    else:
+        lob = standards.multi_lob_abbreviation if lobs else ""
+    frequency = standards.frequency_abbreviations.get(
+        faq.load_frequency.value, standards.unknown_frequency_abbreviation
+    )
+    return {
+        "prefix": standards.job_prefix_by_frequency.get(faq.load_frequency.value, ""),
+        "slug": slug,
+        "feed": _sanitize_name_part(slug),
+        "product": _sanitize_name_part(standards.product_code),
+        "subproduct": _sanitize_name_part(standards.sub_product_code),
+        "source": _abbreviate(source, standards.source_abbreviations),
+        "domain": _abbreviate(domain, standards.domain_abbreviations),
+        "subdomain": _abbreviate(sub_domain, standards.domain_abbreviations),
+        "lob": lob,
+        "frequency": frequency,
+    }
+
+
+def _collapse_name(name: str) -> str:
+    """Empty components leave doubled separators behind; collapse them."""
+    return re.sub(r"__+", "_", name).strip("_")
+
+
 def resolve_job_name(
-    standards: EngineeringStandardsConfig, faq: LoadPatternFaq, slug: str
+    standards: EngineeringStandardsConfig,
+    faq: LoadPatternFaq,
+    slug: str,
+    *,
+    source: str | None = None,
+    domain: str | None = None,
+    sub_domain: str | None = None,
+    lobs: tuple[str, ...] | list[str] = (),
 ) -> str:
-    """Job name from the standards pattern; unknown frequency → empty prefix,
-    which with the default pattern degrades to the legacy ``ingest_<slug>``."""
-    prefix = standards.job_prefix_by_frequency.get(faq.load_frequency.value, "")
-    return standards.job_name_pattern.format(prefix=prefix, slug=slug)
+    """Job/workflow name from the standards pattern (EDO naming standard:
+    ``WF_<product>_<subproduct>_<sources>_<domain>_<subdomain>_<lob>_<freq>``).
+    With the stub default pattern and an unknown frequency this degrades to
+    the legacy ``ingest_<slug>``."""
+    components = _name_components(
+        standards, faq, slug, source=source, domain=domain, sub_domain=sub_domain, lobs=lobs
+    )
+    return _collapse_name(standards.job_name_pattern.format(**components))
+
+
+def resolve_notebook_name(
+    standards: EngineeringStandardsConfig,
+    faq: LoadPatternFaq,
+    slug: str,
+    *,
+    source: str | None = None,
+    domain: str | None = None,
+    sub_domain: str | None = None,
+    lobs: tuple[str, ...] | list[str] = (),
+) -> str | None:
+    """EDO workspace notebook name (``NB_...``); None when unconfigured."""
+    if not standards.notebook_name_pattern:
+        return None
+    components = _name_components(
+        standards, faq, slug, source=source, domain=domain, sub_domain=sub_domain, lobs=lobs
+    )
+    return _collapse_name(standards.notebook_name_pattern.format(**components))
 
 
 def _segment_context(
@@ -324,7 +419,26 @@ def build_context(
             "status": config.engineering_standards.status,
             "create_tables": config.engineering_standards.create_tables,
         },
-        "job_name": resolve_job_name(config.engineering_standards, faq, spec.feed_slug),
+        "job_name": resolve_job_name(
+            config.engineering_standards,
+            faq,
+            spec.feed_slug,
+            source=spec.source_system,
+            domain=spec.domain,
+            sub_domain=spec.sub_domain,
+            lobs=spec.lobs,
+        ),
+        # EDO workspace notebook name; the legacy leaf when unconfigured.
+        "workspace_notebook_name": resolve_notebook_name(
+            config.engineering_standards,
+            faq,
+            spec.feed_slug,
+            source=spec.source_system,
+            domain=spec.domain,
+            sub_domain=spec.sub_domain,
+            lobs=spec.lobs,
+        )
+        or "notebook_entrypoint",
         "lobs": spec.lobs,
         "file_name_patterns": spec.file_name_patterns,
         "file_regexes": [pattern_to_regex(p) for p in spec.file_name_patterns],
@@ -368,5 +482,8 @@ def build_context(
             "spark_version": config.job.spark_version,
             "node_type_id": config.job.node_type_id,
             "num_workers": config.job.num_workers,
+            # EDO coding standard: never ship the platform default timeout.
+            "timeout_seconds": config.job.timeout_hours * _SECONDS_PER_HOUR,
+            "runtime_engine": config.job.runtime_engine,
         },
     }

@@ -99,6 +99,57 @@ def test_job_name_falls_back_to_legacy_when_frequency_unknown():
     )
 
 
+def test_edo_workflow_name_from_config(config):
+    """The tracked config carries the EDO WF_ pattern + abbreviation tables."""
+    faq = LoadPatternFaq(load_frequency=FaqAnswer(value="daily", source="contract"))
+    name = resolve_job_name(
+        config.engineering_standards,
+        faq,
+        "sfmc_email_campaign_tracking",
+        source="Salesforce Marketing Cloud",
+        domain="member",
+        sub_domain="outreach",
+        lobs=["All"],
+    )
+    assert name == "WF_DLK_NSP_SFMC_EMAIL_CAMPAIGN_TRACKING_MBR_OUTREACH_ALL_DLY"
+
+
+def test_edo_workflow_name_collapses_unknown_components(config):
+    """A feed with no domain/LOB still gets a legal, collapsed name."""
+    name = resolve_job_name(
+        config.engineering_standards,
+        LoadPatternFaq(),
+        "some_feed",
+        source=None,
+        domain=None,
+        sub_domain=None,
+        lobs=[],
+    )
+    assert name == "WF_DLK_NSP_SOME_FEED_ADH"
+    assert "__" not in name
+
+
+def test_edo_notebook_name_from_config(config):
+    from codegen.emit.context import resolve_notebook_name
+
+    name = resolve_notebook_name(
+        config.engineering_standards,
+        LoadPatternFaq(),
+        "sfmc_email_campaign_tracking",
+        domain="member",
+        sub_domain="outreach",
+    )
+    assert name == "NB_DLK_NSP_MBR_OUTREACH_INGEST"
+
+
+def test_notebook_name_none_when_pattern_unset():
+    from codegen.emit.context import resolve_notebook_name
+
+    assert (
+        resolve_notebook_name(EngineeringStandardsConfig(), LoadPatternFaq(), "x") is None
+    )
+
+
 # -- gate flags (verdict logic untouched) ------------------------------------
 
 
@@ -113,7 +164,14 @@ def test_faq_and_standards_flags_never_fail(config):
     assert any(
         f.startswith("load_mode_not_enforced: declared truncate_and_load") for f in gate.flags
     )
-    assert any(f.startswith("standards_stub:") for f in gate.flags)
+    # The EDO standards documents landed 2026-08-26 (config.yaml), so the
+    # tracked config no longer raises the stub flag; the model DEFAULT still
+    # does, keeping the honest degrade for configs without the section.
+    assert not any(f.startswith("standards_stub:") for f in gate.flags)
+    default_gate = compute_verdict(
+        "feed", [], [], [], False, standards=EngineeringStandardsConfig()
+    )
+    assert any(f.startswith("standards_stub:") for f in default_gate.flags)
 
 
 def test_no_faq_no_standards_keeps_old_behavior():

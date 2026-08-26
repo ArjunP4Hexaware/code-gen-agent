@@ -126,12 +126,83 @@ demo:
   estimated_seconds: 20
 
 engineering_standards:
-  # Three-input model, input #2 — STUB until the client's engineering
-  # standards document lands. The stub status is surfaced in every banner and
-  # as a gate flag; nothing here silently pretends to be the real document.
-  status: "STUB — awaiting client engineering standards document"
+  # Three-input model, input #2 — REAL as of 2026-08-26: the EDO Data
+  # Engineering Naming Standards + EDO Data Engineering Coding Standards
+  # documents. The abbreviation tables below are transcribed from the Naming
+  # Standards document; deviations are documented in
+  # docs/EDO_STANDARDS_ALIGNMENT.md.
+  status: "EDO Data Engineering Naming + Coding Standards (received 2026-08-26)"
   job_prefix_by_frequency: {daily: "D_", weekly: "W_", monthly: "M_", yearly: "Y_", adhoc: "A_"}
-  job_name_pattern: "{prefix}ingest_{slug}"
+  # EDO Databricks WORKFLOW convention:
+  #   WF_<3 Char Product>_<3 Char Sub-Product>_<Sources>_<Domain>_<Subdomain>_
+  #   <Region/LOB>_<Frequency>
+  # {feed} (the feed slug, sanitized uppercase) stands in for the <Sources>
+  # component: the slug already carries the vendor prefix AND keeps names
+  # unique when one vendor ships several feeds into the same domain (the bare
+  # source abbreviation would collide). See docs/EDO_STANDARDS_ALIGNMENT.md.
+  job_name_pattern: "WF_{product}_{subproduct}_{feed}_{domain}_{subdomain}_{lob}_{frequency}"
+  # EDO Databricks NOTEBOOK convention:
+  #   NB_<3 Char Product>_<3 Char Sub-Product>_<Domain>_<Subdomain>_<Functionality>
+  notebook_name_pattern: "NB_{product}_{subproduct}_{domain}_{subdomain}_INGEST"
+  # Product / Sub-Product codes (Naming Standards tables 3.2 / 3.3): this
+  # agent generates Data Lake ingestion pipelines with no sub-product.
+  product_code: "DLK"
+  sub_product_code: "NSP"
+  # Source/Target abbreviations (table 3.1) + vendor names seen in contracts.
+  source_abbreviations:
+    FACETS: FACETS
+    JIVA: JIVA
+    CDR: CDR
+    UTIL: UTIL
+    "Enterprise Data Warehouse": EDWH
+    eLTSS: LTSS
+    File: FILE
+    "Salesforce Marketing Cloud": SFMC
+  # Domain/Subdomain abbreviations (table 3.4). Unmapped values fall back to
+  # their sanitized uppercase form (e.g. OUTREACH) rather than failing.
+  domain_abbreviations:
+    CLAIMS: CLM
+    CLINICAL: CLIN
+    PROVIDER: PRV
+    NETWORK: NWK
+    VISION: VISN
+    PHARMACY: RX
+    DENTAL: DNTL
+    MEMBER: MBR
+    ENROLLMENT: ENRL
+    ELIGIBLITY: ELIG      # spelling as in the standards document
+    ELIGIBILITY: ELIG
+    COVERAGE: CVRG
+    LABORATORY: LAB
+    MEDICATION: MED
+    IMMUNIZATION: IMNZ
+    "VITAL SIGN": VTL
+    GENERIC: GNR
+  # Region/LOB abbreviations (table 3.5); multi-LOB feeds use "ALL".
+  lob_abbreviations:
+    All: ALL
+    "All Region": REG_ALL
+    EXCHANGE: REG_EXCH
+    MMP: REG_MMP
+    "REGION 1": REG_1
+    "REGION 2": REG_2
+    "REGION 5": REG_5
+    "REGION 6": REG_6
+  # Frequency abbreviations (table 3.6), keyed by the FAQ vocabulary.
+  frequency_abbreviations:
+    hourly: HRL
+    daily: DLY
+    weekly: WKL
+    fortnightly: FRT
+    monthly: MTH
+    quarterly: QTR
+    yearly: YRL
+    adhoc: ADH
+    onetime: ONT
+    history: HST
+  # No resolvable frequency => the job ships unscheduled, i.e. ad hoc.
+  unknown_frequency_abbreviation: ADH
+  multi_lob_abbreviation: ALL
   # MVP prerequisite: raw/stage/standard tables already exist. DDL files are
   # emitted as REFERENCE only; the notebook lists prerequisite tables instead
   # of creating them.
@@ -181,10 +252,16 @@ sharepoint:
   output_folder: ""     # generated artifacts are published here (the ONLY path we write)
 
 job:
-  # Recipients for generated Workflows email_notifications blocks; empty
-  # means the block is emitted with no addresses and the report flags it.
-  notification_emails: []
+  # EDO coding standard: EVERY pipeline must send both success and failure
+  # email alerts to the Production Support team DL. The generated
+  # email_notifications block is now always emitted with these recipients.
+  notification_emails: ["DLAzureDataLakeProdSupport@amerihealthcaritas.com"]
   # Databricks Runtime / cluster shape for generated job JSON.
+  # EDO coding standard: DBR >= 15.4 LTS with Photon enabled only.
   spark_version: "15.4.x-scala2.12"
   node_type_id: "Standard_DS3_v2"
   num_workers: 2
+  runtime_engine: "PHOTON"
+  # EDO coding standard: never leave the platform default (7-day) timeout —
+  # set execution hours + 1. The SFMC FRD's file SLA is 6 hours => 7.
+  timeout_hours: 7

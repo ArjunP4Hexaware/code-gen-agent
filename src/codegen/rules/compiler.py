@@ -42,13 +42,24 @@ class RuleOutcome(BaseModel):
 
 
 _NULL_REJECT_RE = re.compile(r"If the (?P<column>\w+) column is NULL,? reject", re.IGNORECASE)
+# FRD Data Quality phrasing (SFMC Email Campaign FRD, 2026-08-26): the
+# incomplete-record rejection over the STTM's mandatory columns — exactly
+# what rejects.py compiles from load_rules.not_null_columns.
+_MANDATORY_REJECT_RE = re.compile(
+    r"incomplete record rejection|mandatory columns?\b.{0,80}?\breject", re.IGNORECASE | re.DOTALL
+)
 _LAYOUT_RE = re.compile(r"fail when file layout is not as per source dictionary", re.IGNORECASE)
 _DUPLICATE_FILE_RE = re.compile(r"Duplicate file name check.*?turned off", re.IGNORECASE)
 _PIPE_DELIMITED_RE = re.compile(r"pipe[\s-]delimited", re.IGNORECASE)
 _FACETS_VALIDATION_RE = re.compile(r"validation should be performed against Facets", re.IGNORECASE)
 _AS_IS_RE = re.compile(r"(AS[-‑]IS|should not perform any data transformation)", re.IGNORECASE)
 _RECYCLE_RE = re.compile(r"recycle", re.IGNORECASE)
-_NOTIFICATION_RE = re.compile(r"notification will be sent", re.IGNORECASE)
+# Both the legacy "notification will be sent" and the SFMC FRD / EDO coding
+# standard phrasing ("Email notification should be sent to the Support
+# team ... whenever there is an issue").
+_NOTIFICATION_RE = re.compile(
+    r"notification (?:will|should|shall) be sent|email notification", re.IGNORECASE
+)
 _AUDIT_POPULATE_RE = re.compile(
     r"populate (?P<fields>.+?) fields? in the target tables", re.IGNORECASE
 )
@@ -108,6 +119,32 @@ def _classify_null_reject(spec: ResolvedFeedSpec, rule: str, match: re.Match) ->
         feature="null_reject",
         grounding=match.group(0),
         notes=f"compiled: rejects.py enforces not-null on '{column}' into the errors table",
+    )
+
+
+def _classify_mandatory_reject(spec: ResolvedFeedSpec, rule: str, match: re.Match) -> RuleOutcome:
+    if not spec.not_null_columns:
+        return RuleOutcome(
+            feed_id=spec.feed_id,
+            rule_text=rule,
+            classification="flagged",
+            feature=None,
+            grounding=match.group(0),
+            notes=(
+                "rule wants incomplete records rejected but the STTM lists no "
+                "not-null/mandatory columns — contracts disagree; resolve before compiling"
+            ),
+        )
+    return RuleOutcome(
+        feed_id=spec.feed_id,
+        rule_text=rule,
+        classification="mappable",
+        feature="null_reject",
+        grounding=match.group(0),
+        notes=(
+            f"compiled: rejects.py enforces not-null on the {len(spec.not_null_columns)} "
+            "STTM mandatory column(s) into the errors table"
+        ),
     )
 
 
@@ -180,6 +217,10 @@ def _classify_one(spec: ResolvedFeedSpec, rule: str) -> RuleOutcome:
     match = _NULL_REJECT_RE.search(rule)
     if match:
         return _classify_null_reject(spec, rule, match)
+
+    match = _MANDATORY_REJECT_RE.search(rule)
+    if match:
+        return _classify_mandatory_reject(spec, rule, match)
 
     match = _LAYOUT_RE.search(rule)
     if match:

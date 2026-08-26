@@ -61,7 +61,9 @@ fixtures/           GONE since 2026-08-22 — contracts/ (2 real-FRD contracts +
                     (anonymized golden STTM) and replay/ (live E2E set) were deleted and
                     git rm'd; .gitignore now blocks all three paths
 docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
-                    LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script), media/
+                    LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script),
+                    EDO_STANDARDS_ALIGNMENT.md (clause-by-clause map of the EDO
+                    naming/coding standards to the generator, incl. deviations), media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
                     backend/sharepoint_routes.py: picker + confirm-gated publish
 inputs/sharepoint/  gitignored landing dir for documents pulled from SharePoint
@@ -124,6 +126,17 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   re-add one.
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
+- **Engineering standards are REAL as of 2026-08-26** (three-input model
+  input #2 is no longer a stub): the EDO Data Engineering Naming + Coding
+  Standards live as data in `config.yaml engineering_standards:` (WF_/NB_
+  naming patterns + abbreviation tables) and `job:` (prod-support alert DL
+  on success AND failure, `timeout_hours`, Photon, DBR 15.4). The
+  `standards_stub` gate flag is gone for the tracked config; the MODEL
+  defaults keep the stub so a config without the section still degrades
+  honestly. Clause-by-clause map + deviations:
+  `docs/EDO_STANDARDS_ALIGNMENT.md`. The DDL templates emit
+  `CLUSTER BY AUTO` (Liquid Clustering) and `LoadStrategy` accepts
+  `"Upsert"` (the SFMC FRD's standard-layer strategy).
 
 ## SharePoint / Microsoft Graph (added 2026-08-23)
 

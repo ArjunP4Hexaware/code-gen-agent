@@ -16,4 +16,6 @@ CREATE TABLE IF NOT EXISTS {{ qualified_prefix }}{{ stage_schema }}.{{ recycle.t
 {% endfor %}
     `FIRST_SEEN_TIME` TIMESTAMP,
     `RECYCLE_STATUS` STRING
-) USING DELTA;
+) USING DELTA
+-- EDO coding standard: Liquid Clustering for new tables (DBR >= 15.4).
+CLUSTER BY AUTO;

@@ -3,12 +3,55 @@
 from __future__ import annotations
 
 from collections import Counter
+from types import SimpleNamespace
 
 from codegen.rules.compiler import compile_rules
 
 
 def _by_class(spec):
     return Counter(outcome.classification for outcome in compile_rules(spec))
+
+
+def _stub_spec(rules, not_null=("MEMBER_ID",)):
+    """Just enough ResolvedFeedSpec surface for the non-column classifiers."""
+    return SimpleNamespace(
+        feed_id="stub_feed",
+        validation_rules=list(rules),
+        not_null_columns=list(not_null),
+        segments=[],
+        recycle=None,
+        audit_columns=[],
+    )
+
+
+# -- SFMC Email Campaign FRD phrasings (2026-08-26) ---------------------------
+
+
+def test_incomplete_record_rejection_compiles_to_null_reject():
+    rule = (
+        "Incomplete Record Rejection Process: all the mandatory columns are "
+        "listed in the STTM; records with a null mandatory column shall be rejected."
+    )
+    (outcome,) = compile_rules(_stub_spec([rule]))
+    assert outcome.classification == "mappable"
+    assert outcome.feature == "null_reject"
+    assert outcome.grounding in rule
+
+
+def test_incomplete_record_rejection_without_mandatory_columns_is_flagged():
+    rule = "Incomplete Record Rejection Process shall reject bad records."
+    (outcome,) = compile_rules(_stub_spec([rule], not_null=()))
+    assert outcome.classification == "flagged"
+
+
+def test_email_notification_should_be_sent_classifies_as_notification():
+    rule = (
+        "Email notification should be sent to the Support team "
+        "(dlazuredatalakeprodsupport@amerihealthcaritas.com) whenever there is "
+        "an issue while ingesting data from inbound files."
+    )
+    (outcome,) = compile_rules(_stub_spec([rule]))
+    assert outcome.classification == "notification"
 
 
 def test_community_feeds_flag_member_id_and_recycle(specs_by_id):

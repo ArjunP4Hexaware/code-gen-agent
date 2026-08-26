@@ -77,6 +77,10 @@ class ResolvedFeedSpec(BaseModel):
     feed_name: str  # the FRD's display name
     source_system: str
     lobs: list[str] = Field(min_length=1)
+    # FRD business-domain placement, carried through for EDO-standard naming
+    # (workflow/notebook name components). None on contracts predating this.
+    domain: str | None = None
+    sub_domain: str | None = None
 
     # Source file shape (delimiter already reconciled between contracts)
     file_name_patterns: list[str] = Field(min_length=1)

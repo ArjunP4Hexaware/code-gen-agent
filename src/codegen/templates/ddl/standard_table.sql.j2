@@ -15,4 +15,6 @@ CREATE TABLE IF NOT EXISTS {{ standard_qualified_prefix }}{{ standard.schema }}.
 {% for name, dtype in audit_columns %}
     `{{ name }}` {{ dtype }}{{ "," if not loop.last }}
 {% endfor %}
-) USING DELTA;
+) USING DELTA
+-- EDO coding standard: Liquid Clustering for new tables (DBR >= 15.4).
+CLUSTER BY AUTO;

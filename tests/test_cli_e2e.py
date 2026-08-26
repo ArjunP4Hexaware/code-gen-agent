@@ -20,12 +20,22 @@ REPO = Path(__file__).resolve().parents[1]
 CV_FRD = "FRD_demo_cv_golden.contract.json"
 CV_STTM = "sttm_mapping_contracts_cv_golden.json"
 CV_FEEDS = ["cv_community_demographic_risk", "cv_community_risk", "cv_individual_risk"]
-# From fixtures/faq/<slug>.faq.yaml: yearly → Y_, monthly → M_ (standards
-# job_prefix_by_frequency).
+# EDO naming standard (config.yaml job_name_pattern): WF_<product>_
+# <subproduct>_<feed>_<domain>_<subdomain>_<lob>_<frequency>. Frequency comes
+# from fixtures/faq/<slug>.faq.yaml (yearly → YRL, monthly → MTH); the CV
+# domains have no EDO abbreviation so they fall back to sanitized uppercase.
 EXPECTED_JOB_NAMES = {
-    "cv_community_demographic_risk": "Y_ingest_cv_community_demographic_risk",
-    "cv_community_risk": "Y_ingest_cv_community_risk",
-    "cv_individual_risk": "M_ingest_cv_individual_risk",
+    "cv_community_demographic_risk": (
+        "WF_DLK_NSP_CV_COMMUNITY_DEMOGRAPHIC_RISK_"
+        "SOCIAL_DETERMINANTS_OF_HEALTH_PUBLIC_OHDS_YRL"
+    ),
+    "cv_community_risk": (
+        "WF_DLK_NSP_CV_COMMUNITY_RISK_SOCIAL_DETERMINANTS_OF_HEALTH_PUBLIC_OHDS_YRL"
+    ),
+    "cv_individual_risk": (
+        "WF_DLK_NSP_CV_INDIVIDUAL_RISK_CARE_MANAGEMENT_"
+        "SOCIAL_DETERMINANTS_OF_HEALTH_OHDS_MTH"
+    ),
 }
 
 
@@ -72,6 +82,7 @@ def test_generate_all_dry_run(tmp_path, monkeypatch, capsys):
         report_text = (tmp_path / "reports" / f"{feed}.md").read_text(encoding="utf-8")
         assert "PASS_WITH_FLAGS" in report_text
         assert "## Inputs (three-input model)" in report_text
-        assert "standards_stub:" in report_text
+        # The EDO standards documents landed 2026-08-26; the stub flag is gone.
+        assert "standards_stub:" not in report_text
         assert "load_mode_not_enforced: declared truncate_and_load" in report_text
         assert "faq_unanswered:" in report_text

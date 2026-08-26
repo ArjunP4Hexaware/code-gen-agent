@@ -20,7 +20,13 @@ SAMPLE_ROW: dict[str, str] = {
     {{ column | tojson }}: {{ value | tojson }},
 {% endfor %}
 }
-KEY_COLUMNS = {{ detail_natural_key_source_columns | tojson }}
+{# One column per line: a wide natural key (SFMC has 8 columns) must not
+   produce a line the generated code's own ruff gate rejects. #}
+KEY_COLUMNS = [
+{% for column in detail_natural_key_source_columns %}
+    {{ column | tojson }},
+{% endfor %}
+]
 {% if is_segmented %}
 HEADER_ROW: dict[str, str] = {
 {% for seg in segments if seg.name == "Header" %}

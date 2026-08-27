@@ -1,55 +1,66 @@
-# CodeGen Agent — Manager Demo Script (2026-08-25, 4 PM)
+# CodeGen Agent — Client Demo Script (2026-08-28, 5 PM)
 
-Personal, machine-specific script for today's demo. Companion to the
-committed `docs/DEMO_RUNBOOK.md` (the rehearsed client runbook) — this
-version reflects the exact state of this machine after the Raj-feedback
-pass (`staging` @ `raj-feedback:` commit): the **three-input model**
-(STTM + standards stub + load-pattern FAQ) is now visible in every
-generated artifact, server running, choose-an-STTM gating live,
-Anthropic key verified working earlier today.
+Personal, machine-specific script for tomorrow's client demo. Companion
+to the committed `docs/DEMO_RUNBOOK.md` (the rehearsed client runbook) —
+this version reflects the exact state of this machine after the
+demo-readiness pass (`staging` @ `4f9b096`, frontend frozen at the
+`3cb9468` build): the **three-input model** plus the new demo panels
+(documents card, source-files panel with live convention check, synthetic
+Databricks shell block), server running, choose-an-STTM gating live,
+Anthropic key proven with live runs on 2026-08-27.
 
 ---
 
 ## 0. Current state (already done — nothing to prepare)
 
 - Server **running** at http://localhost:8571 (single-port mode: FastAPI
-  serves API + built frontend, launched from the Claude Code session), with
-  the **`live_e2e_20260807` replay set already loaded** — REPLAY badge,
-  three CV feeds on the dashboard. For the blank base state (MOCK badge,
-  empty dashboard, ***none chosen***), restart the backend (§1) and
-  refresh; either starting point works for the walk below.
-- **Three-input model is live in the output** (committed on `staging`,
-  `raj-feedback:` prefix): every generated module carries an
-  `Inputs (three-input model)` banner block, notebooks list prerequisite
-  tables instead of executing DDL (`create_tables: false`), job names get
-  frequency prefixes (`Y_ingest_*` / `M_ingest_*`), and the gate now adds
-  the honesty flags (`faq_unanswered:*`, `load_mode_not_enforced`,
-  `standards_stub`). Feeds show **~10 flags, not 2** — that's the feature,
-  not a regression; §2 Step 5½ is the beat that sells it. Suite: 143
-  passed / 27 skipped, ruff clean, emit byte-stability re-verified.
+  serves API + the frozen `3cb9468` frontend build), started **detached**
+  on 2026-08-27 (PID 2968 — survives the Claude Code session ending; do
+  NOT rebuild the frontend before the demo). It is in the state a fresh
+  walk wants: ***none chosen***, decisions reset, LIVE key armed. Loading
+  a past run or replay set is one click if you prefer a populated
+  dashboard.
+- **New demo panels are live on the Generate card** (Part A,
+  demo-readiness): the green **Input documents** card (three client
+  reference documents present by name, scanned via
+  `CODEGEN_INPUT_DOCS_DIR` in the gitignored `.env`), the **Source files
+  this run will read** table (SYNTHETIC badges on stand-in values), the
+  **Convention check — real FRD 1005310** block (read live from the docx
+  at request time), and the collapsible **In the Databricks workspace**
+  shell block. §2 Step 2 walks all of them.
+- **Three-input model is live in the output**: every generated module
+  carries an `Inputs (three-input model)` banner block, notebooks list
+  prerequisite tables instead of executing DDL (`create_tables: false`),
+  job names get frequency prefixes, and the gate adds the honesty flags
+  (`faq_unanswered:*`, `load_mode_not_enforced`). Feeds show **~9-10
+  flags, not 2** — that's the feature, not a regression; §2 Step 5½ is
+  the beat that sells it. Suite: 170 passed / 27 skipped, ruff clean;
+  generation path byte-identical to the `pre-demo-2026-08-27` tag.
 - FAQ answer files exist and are tracked: `fixtures/faq/<slug>.faq.yaml`
   for the 3 CV feeds — only contract-derived prefills filled (load mode +
   frequency, with quoted evidence), everything else honestly `unknown`.
-- Stale MIDS/CAQH-derived output purged from `out/` and `reports/`.
 - Anthropic SDK installed (`.[live]` extra), key present and **proven** —
-  two successful live runs earlier today, all stages green, 3 feeds each.
-  Live runs generate through the same mirrored path, so a fresh live run
-  shows the three-input banner and flags too.
+  two successful live runs on 2026-08-27 (`demo_20260827_142427`,
+  `demo_20260827_162317`), all stages green, 3 feeds PASS_WITH_FLAGS
+  each; both reloadable for free under **Past live runs**. Replay
+  contingency (`live_e2e_20260807`) still tracked.
+- A full walkthrough recording exists for reference/pre-reads:
+  `codegen_demo_walkthrough_2026-08-27.gif` + `.mp4` in Downloads (GIF
+  emailed to Arjun 2026-08-27).
 - The live card is titled **"Generate a Pipeline"** and reads as two
   steps: **Choose STTM…** (picker) then **Generate from this STTM…**
   (unlocks only after a pick). A **Clear** button beside the chosen name
   returns it to *none chosen* at any time.
-- Past run `demo_20260825_111028` is reloadable for free under **Past
-  live runs**; replay contingency (`live_e2e_20260807`) verified today.
 - Refresh the browser tab right before presenting so it shows the fresh
   blank state.
 
 ## 1. If the server needs a restart
 
-The current server was started in the background by the Claude Code
-session — stop that one first (ask Claude to stop it, or end the
-`python.exe` bound to :8571 in Task Manager), then from the repo root
-(don't use `run_demo.sh` — it hardcodes the Linux venv path):
+The current server (PID 2968) was started detached via `Start-Process`,
+so it is NOT tied to any terminal. If it must be restarted: end the
+`python.exe` bound to :8571 (Task Manager, or `Stop-Process -Id 2968`),
+then from the repo root (don't use `run_demo.sh` — it hardcodes the
+Linux venv path):
 
 ```powershell
 .venv\Scripts\python.exe -m ui.backend.main

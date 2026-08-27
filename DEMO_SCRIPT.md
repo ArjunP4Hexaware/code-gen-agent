@@ -96,26 +96,45 @@ choice looks from the terminal. And if you fumble or want to re-run the
 moment, the **Clear** button next to the chosen name puts the card
 straight back to *none chosen* — no restart.)
 
-Before firing, point at the **Known input gaps** panel — two amber
-call-outs on the card, each with its own input slot (**Attach…** /
-**Provide…**). Click one live: the dialog does a real scan of
-`inputs/sharepoint/` and reports *Not present*, with instructions on
-where the document would come from — the slot exists, the document
-doesn't. Own them; honesty is the pitch:
+Before firing, walk the card top to bottom — three beats, in the order
+they sit on screen:
 
-> "Two gaps we're naming ourselves. One: the generator wants the client's
-> engineering standards document — we don't have it yet, so it runs on a
-> declared **stub**: the config slot exists, it already drives job naming
-> and the tables-are-a-prerequisite behavior, and every output flags
-> itself `standards_stub` until the real document replaces it. Two: this
-> FRD is an anonymized stand-in, not the real FRD with the paths to the
-> actual files. So the pipeline you're about to watch is real end-to-end,
-> but the *case* it represents is not — plug in the real documents and
-> this same run becomes the real thing."
+**The Input documents card** (green, three checked names). Point at the
+file names — the real FRD 1005310 and the two architecture decks, found
+by name in the configured input directory:
+
+> "The generator's inputs are *named client documents*, not prompts —
+> swap the document, behavior changes. The card is live: drop a file in
+> the input directory and it goes green; take it away and the gap comes
+> back. And it says on its face what's wired today: display only, wiring
+> into generation is the next step."
+
+**The remaining gap** (one amber call-out): the demo FRD is an anonymized
+stand-in. Don't apologize — point at the **Source files this run will
+read** panel directly above it:
+
+> "One gap we're naming ourselves: this FRD is an anonymized stand-in,
+> not the real FRD with the paths to the actual client files. Here's
+> every column a real FRD would fill — landing root, file patterns,
+> format, frequency, targets — and everything the stand-in lacks wears a
+> **SYNTHETIC** badge that tells you exactly where in the real FRD the
+> value lives. And the **Convention check** block below it is the proof
+> the shape is right: the real 1005310's ADLS location, read live from
+> the document, sitting beside the synthesized template path — same
+> convention, real vs stand-in."
+
+**The shell block** ("In the Databricks workspace", collapsed). Expand it
+once:
+
+> "This is what `fs ls` shows once the Databricks seam lands — today it's
+> rendered from the FRD's landing location and file patterns, and it says
+> so in the header. When the seam is live, this becomes a real listing."
 
 Then click **"Generate from this STTM…"**. Read the confirmation dialog
-aloud — it names the input workbook, repeats the input-gaps caveat, then
-the cost: ~3 billed API calls, ≈ $0.10, ~20 seconds:
+aloud — it names the input workbook, repeats the one remaining caveat
+(a demo FRD without the real file paths — the run is real, the case it
+represents is not), then the cost: ~3 billed API calls, ≈ $0.10, ~20
+seconds:
 
 > "The demo tells you what it costs before it spends anything."
 

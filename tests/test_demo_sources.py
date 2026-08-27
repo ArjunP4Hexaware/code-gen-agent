@@ -279,6 +279,34 @@ def test_source_files_endpoint(client, monkeypatch, tmp_path):
     assert len(payload["feeds"]) == 3
 
 
+@needs_demo_frd
+def test_convention_panel_absent_where_document_absent(client, monkeypatch, tmp_path):
+    """Portability guard: the convention panel reads a client FRD that lives
+    OUTSIDE the repo. On a machine without it (the ACFC port reads the
+    client's own inputs dir), the endpoint must answer 200 with the panel
+    simply absent — no error, no stack trace, no local path leaking."""
+    monkeypatch.delenv("CODEGEN_INPUT_DOCS_DIR", raising=False)
+    # Stand in for a checkout whose inputs/ dirs hold no matching document.
+    store = ui_main._require_store()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    demo = store.config.demo.model_copy(
+        update={
+            "input_documents": store.config.demo.input_documents.model_copy(
+                update={"dirs": [str(empty)]}
+            )
+        }
+    )
+    monkeypatch.setattr(store, "config", store.config.model_copy(update={"demo": demo}))
+
+    response = client.get("/api/demo/source-files")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["convention_check"] is None
+    assert ".docx" not in response.text
+    assert "Traceback" not in response.text
+
+
 def _reference_documents(client) -> dict:
     docs = client.get("/api/demo/input-documents").json()["documents"]
     by_kind = {d["kind"]: d for d in docs}

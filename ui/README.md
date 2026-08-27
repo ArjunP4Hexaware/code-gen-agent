@@ -57,7 +57,10 @@ always show which mode the UI is in:
   (`GET /api/demo/workbooks`, `POST`/`DELETE /api/demo/workbook`) scans the
   fixtures workbook dir plus the `inputs/sharepoint` landing folder, a Clear
   button returns to "none chosen", and the selection can't change mid-run
-  (409). The card also surfaces **known input gaps** — coding standards
+  (409). The "Convention check" panel (real-FRD values read live from the
+  docx) exists only where that document exists — in the ACFC port it reads
+  from the client's own inputs dir; absent the document, the panel is
+  simply absent. The card also surfaces **known input gaps** — coding standards
   document, real FRD with actual file paths — as attach slots backed by
   `GET /api/demo/input-documents`, a live scan of `inputs/sharepoint`
   (listing only; the generator does not consume these yet, and runs proceed

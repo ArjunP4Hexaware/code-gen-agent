@@ -125,6 +125,39 @@ demo:
   estimated_cost_usd: 0.10
   estimated_seconds: 20
 
+  # Reference documents the documents card checks for — DISPLAY ONLY in this
+  # build; wiring these into generation is the next step. Filenames as they
+  # appear in the client SharePoint library, matched case-insensitively (a
+  # leading numeric upload prefix like "1787853350398_" is stripped) against
+  # every directory in `dirs`. The env var CODEGEN_INPUT_DOCS_DIR
+  # (os.pathsep-separated; ":" on POSIX, ";" on Windows) overrides `dirs` —
+  # env > YAML, same as the SharePoint knobs — so machine-specific locations
+  # stay in the gitignored .env, never here.
+  input_documents:
+    expected:
+      - "FRD_STG_STD_SFMC_Email_Campaign_Tracking_Details_Ingestion_1005310.docx"
+      - "FRD-to-STTM-Agent-Data-Governance-Architecture.pptx"
+      - "FRD-to-STTM-Agent-Solution-Architecture.pptx"
+    dirs:
+      - inputs/sharepoint
+      - inputs/standards
+
+  # "Source files this run will read" panel. The landing-root template
+  # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS
+  # Location) as a template — the literal client path never lives in this
+  # repo. Rendered (and badged SYNTHETIC) only for feeds whose contract has
+  # no landing_location; slugs use the resolver's normalize_feed_name rule.
+  source_files:
+    landing_root_template: "mftlanding/inbound/{domain}/{sub_domain}/{source_system}"
+    # Stand-in load strategies (badged SYNTHETIC): the real values come from
+    # the FRD's Structural Metadata → Load Strategy STG / STD rows.
+    load_strategy: { stage: "Truncate and Load", standard: "Upsert" }
+
+  # UC volume coordinates for the synthetic `databricks fs ls` block.
+  # PLACEHOLDERS until Databricks discovery replaces them with real values;
+  # the shell block stays labelled SYNTHETIC until a live listing exists.
+  databricks_paths: { catalog: hexaware_demo, schema: landing, volume: mft }
+
 engineering_standards:
   # Three-input model, input #2 — REAL as of 2026-08-26: the EDO Data
   # Engineering Naming Standards + EDO Data Engineering Coding Standards

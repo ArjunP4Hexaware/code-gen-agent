@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
+import { MetadataSheetPanel } from "../components/MetadataSheetPanel";
 import { StatTile } from "../components/StatTile";
 import { VerdictChip } from "../components/VerdictChip";
 
@@ -221,6 +222,14 @@ export function Dashboard({
           ))}
         </div>
       )}
+
+      {feeds.length > 0 ? (
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-body">
+            <MetadataSheetPanel refreshKey={`${data?.mode}-${data?.label}`} />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

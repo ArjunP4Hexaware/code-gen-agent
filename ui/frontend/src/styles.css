@@ -960,3 +960,41 @@ table.data tr:last-child td { border-bottom: none; }
   overflow-x: auto;
   user-select: none;
 }
+
+/* -- Metadata-sheet preview panel (ACFC framework output shape) -- */
+
+.sheet-tab-strip { display: flex; gap: 6px; margin: 6px 0; }
+.sheet-tab.active {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+  font-weight: 650;
+}
+
+/* Per-cell provenance: background tint + a small chip dot with the badge
+   tooltip. Colors mirror the exported workbook's fills. */
+.sheet-cell-from_sttm { background: rgba(12, 163, 12, 0.08); }
+.sheet-cell-from_sttm_unmapped { background: rgba(12, 163, 12, 0.14); }
+.sheet-cell-from_frd { background: rgba(42, 120, 214, 0.08); }
+.sheet-cell-synthetic { background: rgba(250, 178, 25, 0.14); }
+.sheet-cell-needs_template { background: rgba(137, 135, 129, 0.12); }
+
+.prov-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+.prov-from_sttm { background: var(--good); }
+.prov-from_sttm_unmapped { background: var(--good); outline: 1px solid var(--good-text); }
+.prov-from_frd { background: var(--accent); }
+.prov-synthetic { background: var(--warning); }
+.prov-needs_template { background: var(--muted); }
+
+.sheet-feed-row td {
+  background: var(--page);
+  font-weight: 650;
+  border-top: 2px solid var(--hairline);
+}

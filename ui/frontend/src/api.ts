@@ -122,6 +122,37 @@ export interface SourceFilesResponse {
   convention_check: ConventionCheck | null;
 }
 
+export type ProvenanceBadge =
+  | "from_sttm"
+  | "from_sttm_unmapped"
+  | "from_frd"
+  | "synthetic"
+  | "needs_template";
+
+export interface MetadataSheetRow {
+  values: Record<string, string | number>;
+  badges: Record<string, { badge: ProvenanceBadge; tooltip?: string }>;
+  feed_slug?: string;
+}
+
+export interface MetadataSheetTab {
+  headers: string[];
+  rows: MetadataSheetRow[];
+  state?: string;
+}
+
+export interface MetadataSheetResponse {
+  layout_note: string;
+  run_label: string | null;
+  tabs: Record<string, MetadataSheetTab>;
+  coverage: {
+    derived: number;
+    synthetic: number;
+    needs_template: number;
+    total: number;
+  };
+}
+
 export interface PastLiveRun {
   name: string;
   timestamp: string | null;
@@ -237,6 +268,7 @@ export const api = {
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
   sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),
+  metadataSheet: () => request<MetadataSheetResponse>("/api/demo/metadata-sheet"),
   runLive: () =>
     request<DemoStatus>("/api/demo/run-live", {
       method: "POST",

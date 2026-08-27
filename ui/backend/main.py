@@ -27,6 +27,11 @@ from starlette.responses import Response
 
 from codegen.config import load_dotenv
 from codegen.demo_sources import scan_reference_documents, source_files_payload
+from codegen.metadata_sheet import (
+    metadata_sheet_payload,
+    workbook_bytes,
+    workbook_filename,
+)
 from ui.backend import sharepoint_routes
 from ui.backend.demo import DemoRunner, LiveRunInProgress
 from ui.backend.replay import (
@@ -401,6 +406,56 @@ def demo_source_files() -> dict:
         return source_files_payload(_require_store().config, REPO_ROOT)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+def _metadata_sheet_inputs(store: GenerationStore):
+    """The current run's specs + unmapped rule texts, if any run is loaded."""
+    if not store.runs:
+        return None, None
+    specs = [run.spec for run in store.runs.values()]
+    unmapped = {
+        run.spec.feed_slug: {
+            o.rule_text for o in run.outcomes if o.classification == "unmapped"
+        }
+        for run in store.runs.values()
+    }
+    return specs, unmapped
+
+
+@app.get("/api/demo/metadata-sheet")
+def metadata_sheet() -> dict:
+    """Display-only preview of the ACFC metadata sheet (see codegen.metadata_sheet)."""
+    store = _require_store()
+    specs, unmapped = _metadata_sheet_inputs(store)
+    try:
+        return metadata_sheet_payload(
+            store.config, REPO_ROOT, specs=specs,
+            unmapped_by_slug=unmapped, run_label=store.label,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get("/api/demo/metadata-sheet.xlsx")
+def metadata_sheet_xlsx() -> Response:
+    """The same preview as a downloadable workbook — built in memory, never
+    written to disk on the serving path."""
+    store = _require_store()
+    specs, unmapped = _metadata_sheet_inputs(store)
+    try:
+        payload = metadata_sheet_payload(
+            store.config, REPO_ROOT, specs=specs,
+            unmapped_by_slug=unmapped, run_label=store.label,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return Response(
+        content=workbook_bytes(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{workbook_filename(payload)}"'
+        },
+    )
 
 
 @app.get("/api/feeds/{slug}/file")

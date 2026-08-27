@@ -156,7 +156,25 @@ demo:
   # UC volume coordinates for the synthetic `databricks fs ls` block.
   # PLACEHOLDERS until Databricks discovery replaces them with real values;
   # the shell block stays labelled SYNTHETIC until a live listing exists.
+  # (B0 2026-08-27 + Option A decision: no landing volume exists in the
+  # Hexaware workspace; these stay placeholders on purpose.)
   databricks_paths: { catalog: hexaware_demo, schema: landing, volume: mft }
+
+  # Metadata-sheet preview for ACFC's metadata-driven framework — DISPLAY
+  # ONLY. Stand-in layout: the tab names and headers are OUR guess at the
+  # client's metadata Excel template. TODO: replace with the client's
+  # template (tabs + headers) once received; values carry over. Headers in
+  # `always_blank` are assigned by the ACFC framework / manually by client
+  # instruction — the agent leaves them blank and flags them.
+  metadata_sheet:
+    tabs:
+      file_layout:
+        headers: [pipeline_id, group_id, object_id, feed_name, source_system, landing_path, file_pattern, file_format, delimiter, has_header, has_trailer, frequency]
+      load_config:
+        headers: [pipeline_id, object_id, layer, target_schema, target_table, load_strategy, dedup_keys, cluster_id, service_principal]
+      columns:
+        headers: [object_id, ordinal, column_name, data_type, nullable, source_column, transformation]
+    always_blank: [pipeline_id, group_id, object_id, cluster_id, service_principal]
 
 engineering_standards:
   # Three-input model, input #2 — REAL as of 2026-08-26: the EDO Data

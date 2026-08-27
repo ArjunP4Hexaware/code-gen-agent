@@ -446,7 +446,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   ))}
                   {state === "all" ? (
                     <div className="hint" style={{ marginTop: 6 }}>
-                      Read by the generator's naming, path and structural checks.
+                      Drives the generator's naming, path and structural checks via
+                      config.
                     </div>
                   ) : null}
                 </div>

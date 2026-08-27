@@ -42,7 +42,17 @@
 - **B1 pending explicit go** after the 5 PM demo — nothing beyond B0 in
   this session.
 
-### After 5 PM demo (needs a frontend rebuild — do not do before)
+- **Freeze amendment (2026-08-27, on explicit instruction):** one frontend
+  change was made and rebuilt before the demo — the documents card's
+  green-state note now reads "Drives the generator's naming, path and
+  structural checks via config" (the old "Read by …" wording overstated
+  runtime behavior; the standards enter via reviewed config transcription,
+  not document parsing). The running server picked up the new bundle
+  (`index-BQUJNkmp.js`) without a restart. `dist/` is now the staging
+  HEAD build, no longer the literal 3cb9468 bundle; everything else,
+  including the shell-header text below, remains deferred.
+
+### After 5 PM demo (the remaining deferred frontend change)
 
 Replace the shell block's SYNTHETIC header in
 `ui/frontend/src/pages/ModesPage.tsx` (the `.shell-note` div) with

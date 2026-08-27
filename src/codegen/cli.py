@@ -363,6 +363,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     demo_sources.add_argument("--config", default="config/config.yaml")
 
+    demo_metadata = subparsers.add_parser(
+        "demo-metadata-sheet",
+        help="print the metadata-sheet preview JSON, or write it as .xlsx "
+        "(display only; pure read, no network)",
+    )
+    demo_metadata.add_argument("--config", default="config/config.yaml")
+    demo_metadata.add_argument("--xlsx", help="write the workbook here instead of printing JSON")
+
     publish = subparsers.add_parser(
         "sharepoint-publish",
         help="publish one feed's generated artifacts to the SharePoint library",
@@ -392,6 +400,42 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{'FAIL':<15} demo-source-files — {exc}")
             return 1
         print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.command == "demo-metadata-sheet":
+        # Same payload as GET /api/demo/metadata-sheet — display data only.
+        # The STTM-derived cells resolve from the demo contract pair when its
+        # fixture files exist; otherwise the columns tab is empty, honestly.
+        from codegen.metadata_sheet import build_workbook, metadata_sheet_payload
+
+        contracts_dir = Path(config.contracts.dir)
+        frd_path = contracts_dir / config.demo.frd
+        sttm_path = contracts_dir / config.demo.sttm
+        specs = unmapped = None
+        if frd_path.is_file() and sttm_path.is_file():
+            specs = resolve_pair(frd_path, sttm_path, config)
+            unmapped = {
+                spec.feed_slug: {
+                    o.rule_text
+                    for o in compile_rules(spec)
+                    if o.classification == "unmapped"
+                }
+                for spec in specs
+            }
+        try:
+            payload = metadata_sheet_payload(
+                config, Path.cwd(), specs=specs, unmapped_by_slug=unmapped
+            )
+        except FileNotFoundError as exc:
+            print(f"{'FAIL':<15} demo-metadata-sheet — {exc}")
+            return 1
+        if args.xlsx:
+            build_workbook(payload).save(args.xlsx)
+            coverage = payload["coverage"]
+            print(f"{'WRITTEN':<15} {args.xlsx} — {coverage['derived']}/{coverage['total']} "
+                  "cells derived from documents")
+        else:
+            print(json.dumps(payload, indent=2))
         return 0
 
     if args.command == "sharepoint-fetch":

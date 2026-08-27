@@ -9,6 +9,7 @@ import {
   type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
+import { MetadataSheetPanel } from "../components/MetadataSheetPanel";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
@@ -386,6 +387,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   </div>
                   <pre className="shell-pre">{sourceFiles.shell_listing.join("\n")}</pre>
                 </details>
+                <MetadataSheetPanel
+                  refreshKey={`${status?.state}-${status?.last_run_label}`}
+                />
               </>
             ) : null}
 

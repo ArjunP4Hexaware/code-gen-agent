@@ -215,6 +215,58 @@ class DemoDatabricksPathsConfig(BaseModel):
     volume: str = "mft"
 
 
+class DemoMetadataTabConfig(BaseModel):
+    """One tab of the metadata-sheet preview: its column headers, in order."""
+
+    model_config = _MODEL_CONFIG
+
+    headers: list[str] = Field(min_length=1)
+
+
+def _default_metadata_tabs() -> dict[str, DemoMetadataTabConfig]:
+    return {
+        "file_layout": DemoMetadataTabConfig(
+            headers=[
+                "pipeline_id", "group_id", "object_id", "feed_name", "source_system",
+                "landing_path", "file_pattern", "file_format", "delimiter",
+                "has_header", "has_trailer", "frequency",
+            ]
+        ),
+        "load_config": DemoMetadataTabConfig(
+            headers=[
+                "pipeline_id", "object_id", "layer", "target_schema", "target_table",
+                "load_strategy", "dedup_keys", "cluster_id", "service_principal",
+            ]
+        ),
+        "columns": DemoMetadataTabConfig(
+            headers=[
+                "object_id", "ordinal", "column_name", "data_type", "nullable",
+                "source_column", "transformation",
+            ]
+        ),
+    }
+
+
+class DemoMetadataSheetConfig(BaseModel):
+    """Stand-in layout for the ACFC metadata-sheet preview (display only).
+
+    The tab names and headers are OUR guess at the client's metadata Excel
+    template; the client's template defines the real tabs and columns, and
+    the panel says so on its face. ``always_blank`` headers are assigned by
+    the client's framework (or manually, by client instruction) — the agent
+    leaves them empty and flags them rather than guessing.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    tabs: dict[str, DemoMetadataTabConfig] = Field(default_factory=_default_metadata_tabs)
+    always_blank: list[str] = Field(
+        default_factory=lambda: [
+            "pipeline_id", "group_id", "object_id", "cluster_id", "service_principal",
+        ]
+    )
+
+
 class DemoConfig(BaseModel):
     """The demo UI's Live/Replay pipeline inputs (CV/golden universe)."""
 
@@ -234,6 +286,7 @@ class DemoConfig(BaseModel):
     input_documents: DemoInputDocumentsConfig = DemoInputDocumentsConfig()
     source_files: DemoSourceFilesConfig = DemoSourceFilesConfig()
     databricks_paths: DemoDatabricksPathsConfig = DemoDatabricksPathsConfig()
+    metadata_sheet: DemoMetadataSheetConfig = DemoMetadataSheetConfig()
 
 
 class SharePointSettings(BaseModel):

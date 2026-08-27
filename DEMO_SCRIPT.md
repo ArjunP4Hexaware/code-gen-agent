@@ -141,6 +141,22 @@ once:
 > rendered from the FRD's landing location and file patterns, and it says
 > so in the header. When the seam is live, this becomes a real listing."
 
+**The metadata sheet preview** ("For ACFC's framework", below the shell
+block — the beat for Nikshit and Raj). Click through the three tabs, point
+at the coverage line:
+
+> "The notebook you'll see generated is what the agent does *today*. For
+> your metadata-driven framework, this is the output shape it becomes: a
+> reviewable metadata sheet, not code. Every cell is badged with where its
+> value came from — the FRD, the STTM, or a stand-in — and the coverage
+> line tells you how many values came from your documents. The three ID
+> columns, cluster and service principal are blank *by design*: your
+> framework assigns those, so **the agent refuses to guess**. And the
+> layout itself — tabs, headers — is our stand-in until your metadata
+> template arrives; the values carry over. Review the sheet, approve it,
+> and insertion goes through your existing metadata path; a workflow then
+> wraps your common notebook with the assigned IDs."
+
 Then click **"Generate from this STTM…"**. Read the confirmation dialog
 aloud — it names the input workbook, repeats the one remaining caveat
 (a demo FRD without the real file paths — the run is real, the case it
@@ -169,6 +185,15 @@ feeds, all **PASS WITH FLAGS**:
 
 > "The honest middle state — the code is clean, but something needs a
 > human. That's correct behavior, not a failure."
+
+At the bottom of the dashboard, the **metadata sheet preview** reappears —
+and now its `columns` tab is populated from the run's mapping contract
+(every mapped column, ordinal preserved, all badged *from STTM*). One
+line, pointing at the coverage numbers:
+
+> "Same sheet as before the run — but now the columns tab is filled from
+> the mapping contract this run extracted. The download button gives the
+> reviewable Excel, provenance sheet included."
 
 Each feed now shows **~10 flags** — pre-empt it before anyone reads it as
 trouble:

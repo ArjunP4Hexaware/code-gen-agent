@@ -79,8 +79,47 @@ export interface SttmWorkbook {
 
 export interface InputDocumentScan {
   kind: string;
-  matches: string[];
+  // kind "frd": live scan of inputs/sharepoint for a real FRD contract.
+  matches?: string[];
   stand_in?: string;
+  // kind "reference_documents": expected client documents vs what the
+  // configured input dirs actually hold. `present` paths stay server-side.
+  expected?: string[];
+  present?: { name: string; path: string }[];
+  missing?: string[];
+}
+
+export interface SourceFileValue {
+  value: string;
+  synthetic: boolean;
+}
+
+export interface SourceFileFeed {
+  feed_name: string;
+  landing_root: SourceFileValue;
+  file_name_patterns: string[];
+  file_format: string | null;
+  delimiter: string | null;
+  frequency: string | null;
+  stage_target: string | null;
+  standard_target: string | null;
+  load_strategy: { stage: string; standard: string; synthetic: boolean };
+}
+
+export interface ConventionCheck {
+  source: string;
+  adls_location?: string;
+  target_schema?: string;
+  load_strategy_stg?: string;
+  load_strategy_std?: string;
+  object_format?: string;
+}
+
+export interface SourceFilesResponse {
+  frd_contract: string;
+  feeds: SourceFileFeed[];
+  shell_listing: string[];
+  convention_check: ConventionCheck | null;
 }
 
 export interface PastLiveRun {
@@ -197,6 +236,7 @@ export const api = {
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
+  sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),
   runLive: () =>
     request<DemoStatus>("/api/demo/run-live", {
       method: "POST",

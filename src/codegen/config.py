@@ -159,6 +159,62 @@ class ReasoningConfig(BaseModel):
     max_attempts: int = Field(gt=0)
 
 
+class DemoInputDocumentsConfig(BaseModel):
+    """Reference documents the demo documents card checks for (display only).
+
+    ``expected`` holds filenames as they appear in the client SharePoint
+    library; matching is case-insensitive and strips a leading numeric upload
+    prefix. ``dirs`` are repo-relative scan directories, overridable by the
+    env var ``CODEGEN_INPUT_DOCS_DIR`` (``os.pathsep``-separated) — env >
+    YAML, same as the SharePoint knobs. Both default empty: a config without
+    the section loads and the card simply lists nothing as expected.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    expected: list[str] = Field(default_factory=list)
+    dirs: list[str] = Field(default_factory=list)
+
+
+class DemoLoadStrategyConfig(BaseModel):
+    """Stand-in load strategies shown (badged SYNTHETIC) on the demo panel."""
+
+    model_config = _MODEL_CONFIG
+
+    stage: str = "Truncate and Load"
+    standard: str = "Upsert"
+
+
+class DemoSourceFilesConfig(BaseModel):
+    """Synthesis knobs for the "source files this run will read" panel.
+
+    ``landing_root_template`` encodes the client's landing-path CONVENTION
+    (as stated in the real FRD's Structural Metadata) as a template — the
+    literal client path never lives in this repo; it is displayed only when
+    read from the document itself at runtime.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    landing_root_template: str = "mftlanding/inbound/{domain}/{sub_domain}/{source_system}"
+    load_strategy: DemoLoadStrategyConfig = DemoLoadStrategyConfig()
+
+
+class DemoDatabricksPathsConfig(BaseModel):
+    """Placeholder UC volume coordinates for the synthetic shell listing.
+
+    Placeholders until Databricks discovery replaces them with real values;
+    the shell block stays labelled SYNTHETIC until a live listing exists.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    catalog: str = "hexaware_demo"
+    # "schema" shadows BaseModel.schema; keep the YAML name via alias.
+    schema_name: str = Field(default="landing", alias="schema")
+    volume: str = "mft"
+
+
 class DemoConfig(BaseModel):
     """The demo UI's Live/Replay pipeline inputs (CV/golden universe)."""
 
@@ -173,6 +229,11 @@ class DemoConfig(BaseModel):
     estimated_calls: int = Field(gt=0)
     estimated_cost_usd: float = Field(gt=0)
     estimated_seconds: int = Field(gt=0)
+    # Display-only panels (codegen.demo_sources); all default so an older
+    # config still loads unchanged.
+    input_documents: DemoInputDocumentsConfig = DemoInputDocumentsConfig()
+    source_files: DemoSourceFilesConfig = DemoSourceFilesConfig()
+    databricks_paths: DemoDatabricksPathsConfig = DemoDatabricksPathsConfig()
 
 
 class SharePointSettings(BaseModel):

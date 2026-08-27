@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from codegen.config import load_dotenv
+from codegen.demo_sources import scan_reference_documents, source_files_payload
 from ui.backend import sharepoint_routes
 from ui.backend.demo import DemoRunner, LiveRunInProgress
 from ui.backend.replay import (
@@ -356,12 +357,14 @@ def clear_workbook() -> dict:
 
 @app.get("/api/demo/input-documents")
 def input_documents() -> dict:
-    """Scan the SharePoint inbox for the documents the run SHOULD have.
+    """The documents card's data: reference documents + the FRD stand-in.
 
-    Backs the "known input gaps" attach buttons: a real scan of
-    inputs/sharepoint/, so the empty state is honest and a document dropped
-    (or fetched) there shows up without a restart. Listing only — wiring a
-    found document into the generator is pending.
+    ``reference_documents`` is a live scan of the configured input dirs
+    (``demo.input_documents``, env-overridable) against the expected client
+    reference documents — present entries carry the resolved path for the
+    backend's own use; the UI shows names only. Listing only — wiring a
+    found document into the generator is the next step. The ``frd`` kind is
+    unchanged: a scan of the SharePoint inbox for a real FRD contract.
     """
     inbox = REPO_ROOT / "inputs" / "sharepoint"
 
@@ -372,7 +375,10 @@ def input_documents() -> dict:
 
     return {
         "documents": [
-            {"kind": "coding_standards", "matches": scan(["*.pdf", "*.docx", "*.md"])},
+            {
+                "kind": "reference_documents",
+                **scan_reference_documents(_require_store().config, REPO_ROOT),
+            },
             {
                 "kind": "frd",
                 "matches": scan(["*.contract.json"]),
@@ -380,6 +386,21 @@ def input_documents() -> dict:
             },
         ]
     }
+
+
+@app.get("/api/demo/source-files")
+def demo_source_files() -> dict:
+    """The "source files this run will read" panel + synthetic shell listing.
+
+    Display data only, rendered server-side (no path logic in TypeScript);
+    reads the demo FRD contract at request time and, when the real FRD .docx
+    is present in the input dirs, its Structural Metadata convention values —
+    nothing is cached to disk.
+    """
+    try:
+        return source_files_payload(_require_store().config, REPO_ROOT)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @app.get("/api/feeds/{slug}/file")

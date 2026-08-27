@@ -6,12 +6,30 @@ import {
   type InputDocumentScan,
   type PastLiveRun,
   type ReplaySet,
+  type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
    Both land on the same results UI; the guided demo then walks it. */
+
+// One-line notes naming where the real value comes from — shown as the
+// SYNTHETIC badge tooltip. Honesty is the pitch.
+const LANDING_TOOLTIP =
+  "The real FRD states this under Structural Metadata → ADLS Location; " +
+  "this build carries an anonymized stand-in.";
+const STRATEGY_TOOLTIP =
+  "The real FRD states these under Structural Metadata → Load Strategy STG / STD; " +
+  "this build carries a config stand-in.";
+
+function SyntheticBadge({ title }: { title: string }) {
+  return (
+    <span className="pill synthetic" title={title}>
+      SYNTHETIC
+    </span>
+  );
+}
 
 export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
   const navigate = useNavigate();
@@ -22,8 +40,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [confirming, setConfirming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [workbooks, setWorkbooks] = useState<SttmWorkbook[] | null>(null);
-  const [docModal, setDocModal] = useState<"coding_standards" | "frd" | null>(null);
+  const [docModal, setDocModal] = useState<"reference_documents" | "frd" | null>(null);
   const [docScan, setDocScan] = useState<InputDocumentScan[] | null>(null);
+  const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
   const [loadingSet, setLoadingSet] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -36,6 +55,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.replaySets().then((r) => setSets(r.sets)).catch(() => setSets([]));
     api.liveAvailable().then((r) => setLiveAvailable(r.available)).catch(() => setLiveAvailable(false));
     api.demoStatus().then(setStatus).catch(() => setStatus(null));
+    // The documents card and the source-files panel render on load — both
+    // are live reads on the backend, nothing is cached to disk.
+    api.inputDocuments().then((r) => setDocScan(r.documents)).catch(() => setDocScan([]));
+    api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
     refreshLiveRuns();
     return () => {
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
@@ -126,11 +149,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   }, []);
 
-  // Input-gap attach flow: a real scan of inputs/sharepoint each open, so a
-  // document dropped there appears without a restart. Empty today — honestly.
-  const openDocModal = useCallback((kind: "coding_standards" | "frd") => {
+  // Document attach flow: a fresh scan each open, so a document dropped into
+  // an input directory appears without a restart.
+  const openDocModal = useCallback((kind: "reference_documents" | "frd") => {
     setDocModal(kind);
-    setDocScan(null);
     api.inputDocuments().then((r) => setDocScan(r.documents)).catch(() => setDocScan([]));
   }, []);
 
@@ -235,28 +257,206 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ) : null}
             </p>
-            <p className="hint" style={{ marginTop: 0 }}>
+            {sourceFiles && sourceFiles.feeds.length > 0 ? (
+              <>
+                <div className="panel-subhead">Source files this run will read</div>
+                <p className="hint" style={{ marginTop: 0 }}>
+                  From the demo FRD contract <code>{sourceFiles.frd_contract}</code>, read
+                  at request time.
+                </p>
+                <div className="source-files-scroll">
+                  <table className="source-files-table">
+                    <thead>
+                      <tr>
+                        <th>feed</th>
+                        <th>landing root</th>
+                        <th>file patterns</th>
+                        <th>format</th>
+                        <th>frequency</th>
+                        <th>stage target</th>
+                        <th>standard target</th>
+                        <th>load strategy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sourceFiles.feeds.map((f) => (
+                        <tr key={f.feed_name}>
+                          <td>
+                            <code>{f.feed_name}</code>
+                          </td>
+                          <td>
+                            <code>{f.landing_root.value}</code>
+                            {f.landing_root.synthetic ? (
+                              <SyntheticBadge title={LANDING_TOOLTIP} />
+                            ) : null}
+                          </td>
+                          <td>
+                            {f.file_name_patterns.length === 0 ? (
+                              <em className="hint">none in FRD</em>
+                            ) : (
+                              f.file_name_patterns.map((p) => (
+                                <div key={p}>
+                                  <code>{p}</code>
+                                </div>
+                              ))
+                            )}
+                          </td>
+                          <td>
+                            {f.file_format}
+                            {f.delimiter ? (
+                              <span className="hint"> · {f.delimiter}</span>
+                            ) : null}
+                          </td>
+                          <td className="sf-wrap">
+                            {f.frequency ?? <em className="hint">not stated in FRD</em>}
+                          </td>
+                          <td>{f.stage_target ? <code>{f.stage_target}</code> : "—"}</td>
+                          <td>{f.standard_target ? <code>{f.standard_target}</code> : "—"}</td>
+                          <td>
+                            <div>
+                              {f.load_strategy.stage} <span className="hint">(stage)</span>
+                            </div>
+                            <div>
+                              {f.load_strategy.standard}{" "}
+                              <span className="hint">(standard)</span>
+                            </div>
+                            {f.load_strategy.synthetic ? (
+                              <SyntheticBadge title={STRATEGY_TOOLTIP} />
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {sourceFiles.convention_check ? (
+                  <>
+                    <div className="panel-subhead">
+                      Convention check — real FRD 1005310
+                    </div>
+                    <p className="hint" style={{ marginTop: 0 }}>
+                      Read live from <code>{sourceFiles.convention_check.source}</code>{" "}
+                      (Structural Metadata), at request time — the client's real
+                      convention beside the synthesized paths above.
+                    </p>
+                    <div className="source-files-scroll">
+                      <table className="source-files-table">
+                        <tbody>
+                          {(
+                            [
+                              ["ADLS Location", sourceFiles.convention_check.adls_location],
+                              ["Target Schema", sourceFiles.convention_check.target_schema],
+                              [
+                                "Load Strategy STG",
+                                sourceFiles.convention_check.load_strategy_stg,
+                              ],
+                              [
+                                "Load Strategy STD",
+                                sourceFiles.convention_check.load_strategy_std,
+                              ],
+                              [
+                                "Object / data Format",
+                                sourceFiles.convention_check.object_format,
+                              ],
+                            ] as [string, string | undefined][]
+                          )
+                            .filter(([, v]) => v)
+                            .map(([label, value]) => (
+                              <tr key={label}>
+                                <td>{label}</td>
+                                <td>
+                                  <code>{value}</code>
+                                </td>
+                                <td>
+                                  <span className="hint">from document</span>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : null}
+                <details className="shell-block">
+                  <summary>In the Databricks workspace</summary>
+                  <div className="shell-note">
+                    SYNTHETIC — rendered from the FRD's landing location and file
+                    patterns; not a live listing. The Databricks seam replaces this with
+                    real <code>fs ls</code> output.
+                  </div>
+                  <pre className="shell-pre">{sourceFiles.shell_listing.join("\n")}</pre>
+                </details>
+              </>
+            ) : null}
+
+            <p className="hint" style={{ marginTop: 12 }}>
               <strong>Step 2 — generate.</strong> Extract the chosen STTM into a mapping
               contract → deterministic generate → live AI reasoning on the unmapped rules →
               safety gate. Makes billed API calls.
             </p>
 
+            <div className="panel-subhead">Input documents</div>
+            {(() => {
+              const refDocs = docScan?.find((d) => d.kind === "reference_documents");
+              const expected = refDocs?.expected ?? [];
+              const presentNames = new Set((refDocs?.present ?? []).map((p) => p.name));
+              const state =
+                expected.length === 0 || presentNames.size === 0
+                  ? "none"
+                  : (refDocs?.missing ?? []).length === 0
+                    ? "all"
+                    : "partial";
+              return state === "none" ? (
+                <div
+                  className="flag-hitl"
+                  style={{
+                    padding: "8px 10px",
+                    marginTop: 6,
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ flex: 1 }}>
+                    <strong>No reference documents found.</strong>{" "}
+                    <span className="hint">
+                      The generator's naming, path and structural checks are grounded in
+                      the client FRD and architecture decks; none are present in the
+                      configured input directories. Runs proceed without them.
+                    </span>
+                  </span>
+                  <button className="btn" onClick={() => openDocModal("reference_documents")}>
+                    Attach…
+                  </button>
+                </div>
+              ) : (
+                <div className={`doc-card ${state === "all" ? "doc-card-all" : "doc-card-partial"}`}>
+                  <div className="doc-card-title">
+                    {state === "all"
+                      ? "Reference documents attached"
+                      : "Some reference documents are missing"}
+                  </div>
+                  {expected.map((name) => (
+                    <div className="doc-card-row" key={name}>
+                      <span className="doc-card-mark">
+                        {presentNames.has(name) ? "✓" : "☐"}
+                      </span>
+                      <code>{name}</code>
+                    </div>
+                  ))}
+                  {state === "all" ? (
+                    <div className="hint" style={{ marginTop: 6 }}>
+                      Read by the generator's naming, path and structural checks.
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
+            <p className="hint" style={{ margin: "4px 0 0", fontSize: 11 }}>
+              Display only in this build — wiring these into generation is the next step.
+            </p>
+
             <div className="panel-subhead">Known input gaps</div>
-            <div
-              className="flag-hitl"
-              style={{ padding: "8px 10px", marginTop: 6, display: "flex", gap: 12, alignItems: "center" }}
-            >
-              <span style={{ flex: 1 }}>
-                <strong>No coding standards document.</strong>{" "}
-                <span className="hint">
-                  The generator needs the client's coding standards document for best
-                  performance; none is wired in yet. Runs proceed without it.
-                </span>
-              </span>
-              <button className="btn" onClick={() => openDocModal("coding_standards")}>
-                Attach…
-              </button>
-            </div>
             <div
               className="flag-hitl"
               style={{ padding: "8px 10px", margin: "6px 0 12px", display: "flex", gap: 12, alignItems: "center" }}
@@ -377,35 +577,77 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
             <h2>
-              {docModal === "coding_standards"
-                ? "Attach the coding standards document"
+              {docModal === "reference_documents"
+                ? "Attach the reference documents"
                 : "Provide the real FRD contract"}
             </h2>
             {docModal === "frd" ? (
+              <>
+                <p className="hint">
+                  Currently in use:{" "}
+                  <code>{docScan?.find((d) => d.kind === "frd")?.stand_in ?? "…"}</code> —
+                  an anonymized demo stand-in without the real file paths.
+                </p>
+                <p className="hint">
+                  Scanned live from <code>inputs/sharepoint</code> — the landing folder{" "}
+                  <code>sharepoint-fetch</code> and the SharePoint picker deliver
+                  documents to.
+                </p>
+              </>
+            ) : (
               <p className="hint">
-                Currently in use:{" "}
-                <code>{docScan?.find((d) => d.kind === "frd")?.stand_in ?? "…"}</code> — an
-                anonymized demo stand-in without the real file paths.
+                Filenames as they appear in the client SharePoint library, matched live
+                against the configured input directories on every open. Drop a file there
+                — or fetch it from the SharePoint library — and it will appear here.
               </p>
-            ) : null}
-            <p className="hint">
-              Scanned live from <code>inputs/sharepoint</code> — the landing folder{" "}
-              <code>sharepoint-fetch</code> and the SharePoint picker deliver documents to.
-            </p>
+            )}
             {(() => {
-              const scan = docScan?.find((d) => d.kind === docModal);
               if (docScan === null) return <div className="empty">Scanning…</div>;
-              if (!scan || scan.matches.length === 0)
+              if (docModal === "reference_documents") {
+                const refDocs = docScan.find((d) => d.kind === "reference_documents");
+                const expected = refDocs?.expected ?? [];
+                const presentNames = new Set(
+                  (refDocs?.present ?? []).map((p) => p.name),
+                );
+                if (expected.length === 0)
+                  return (
+                    <div className="empty">
+                      No reference documents configured (demo.input_documents in
+                      config/config.yaml).
+                    </div>
+                  );
+                return (
+                  <>
+                    {expected.map((name) => (
+                      <div className="doc-card-row" key={name} style={{ marginTop: 8 }}>
+                        <span className="doc-card-mark">
+                          {presentNames.has(name) ? "✓" : "☐"}
+                        </span>
+                        <code>{name}</code>
+                        <span className="hint">
+                          {presentNames.has(name) ? "present" : "missing"}
+                        </span>
+                      </div>
+                    ))}
+                    <p className="hint" style={{ marginTop: 10 }}>
+                      Display only in this build — wiring these into generation is the
+                      next step.
+                    </p>
+                  </>
+                );
+              }
+              const scan = docScan.find((d) => d.kind === "frd");
+              if (!scan || (scan.matches ?? []).length === 0)
                 return (
                   <div className="empty">
-                    {docModal === "coding_standards"
-                      ? "Not present. Drop the client's coding standards document (.pdf, .docx or .md) into inputs/sharepoint/ — or fetch it from the SharePoint library — and it will appear here."
-                      : "Not present. Fetch the real FRD contract (.contract.json) from the SharePoint library into inputs/sharepoint/ and it will appear here. Until then, runs use the demo stand-in."}
+                    Not present. Fetch the real FRD contract (.contract.json) from the
+                    SharePoint library into inputs/sharepoint/ and it will appear here.
+                    Until then, runs use the demo stand-in.
                   </div>
                 );
               return (
                 <>
-                  {scan.matches.map((m) => (
+                  {(scan.matches ?? []).map((m) => (
                     <div
                       key={m}
                       className="flag-hitl"
@@ -493,8 +735,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               default output are never touched.
             </p>
             <p className="hint">
-              Known input gaps apply: no coding standards document, and a demo FRD without
-              the real file paths — the run is real, the case it represents is not.
+              Known input gap applies: a demo FRD without the real file paths — the run is
+              real, the case it represents is not.
             </p>
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn primary" onClick={fireLive}>

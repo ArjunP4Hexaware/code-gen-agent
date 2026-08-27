@@ -7,6 +7,7 @@ Commands:
                 paired with its FRD feed contract (deterministic, no LLM)
   sharepoint-fetch    library -> local input dir (workbooks + contracts)
   sharepoint-publish  one feed's generated artifacts -> library output folder
+  demo-source-files   the demo UI's source-files display JSON (pure read)
 
 The two sharepoint-* commands are the transport seam at the edges; the
 generation path between them never opens a socket (codegen/sharepoint.py).
@@ -356,6 +357,12 @@ def main(argv: list[str] | None = None) -> int:
         "--dest", required=True, help="local directory the documents land in"
     )
 
+    demo_sources = subparsers.add_parser(
+        "demo-source-files",
+        help="print the demo UI's source-files JSON (pure read, no network)",
+    )
+    demo_sources.add_argument("--config", default="config/config.yaml")
+
     publish = subparsers.add_parser(
         "sharepoint-publish",
         help="publish one feed's generated artifacts to the SharePoint library",
@@ -374,6 +381,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "extract-sttm":
         return _extract_sttm(args, config)
+
+    if args.command == "demo-source-files":
+        # Same JSON as GET /api/demo/source-files — display data only.
+        from codegen.demo_sources import source_files_payload
+
+        try:
+            payload = source_files_payload(config, Path.cwd())
+        except FileNotFoundError as exc:
+            print(f"{'FAIL':<15} demo-source-files — {exc}")
+            return 1
+        print(json.dumps(payload, indent=2))
+        return 0
 
     if args.command == "sharepoint-fetch":
         return _sharepoint_fetch(args, config)

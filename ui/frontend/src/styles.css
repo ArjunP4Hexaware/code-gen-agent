@@ -873,3 +873,90 @@ table.data tr:last-child td { border-bottom: none; }
   text-transform: uppercase;
   color: var(--muted, #5c6672);
 }
+
+/* -- Modes page: documents card, source-files panel, synthetic shell block -- */
+
+.pill.synthetic {
+  color: var(--warning-text);
+  border-color: rgba(250, 178, 25, 0.55);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.doc-card {
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 6px;
+}
+.doc-card-all {
+  background: rgba(12, 163, 12, 0.07);
+  border-color: rgba(12, 163, 12, 0.35);
+}
+.doc-card-partial {
+  background: rgba(250, 178, 25, 0.08);
+  border-color: rgba(250, 178, 25, 0.45);
+}
+.doc-card-title { font-weight: 650; font-size: 13px; margin-bottom: 6px; }
+.doc-card-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.doc-card-mark { width: 14px; flex: none; }
+.doc-card-all .doc-card-mark { color: var(--good-text); }
+
+.source-files-scroll { overflow-x: auto; margin-top: 6px; }
+.source-files-table { border-collapse: collapse; font-size: 12px; }
+.source-files-table th,
+.source-files-table td {
+  border-top: 1px solid var(--hairline);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+/* The one prose column: wrap in a readable measure instead of nowrap. */
+.source-files-table td.sf-wrap {
+  white-space: normal;
+  min-width: 240px;
+  max-width: 340px;
+}
+.source-files-table th {
+  color: var(--muted);
+  font-weight: 600;
+  border-top: none;
+  white-space: nowrap;
+}
+.source-files-table code {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Terminal-styled, non-interactive stand-in listing (colors follow the
+   sidebar's dark palette). */
+.shell-block {
+  background: var(--sidebar-bg);
+  color: var(--sidebar-ink);
+  border-radius: 6px;
+  margin-top: 12px;
+  font-family: var(--mono);
+}
+.shell-block summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  user-select: none;
+}
+.shell-note { padding: 0 12px 6px; font-size: 11px; color: var(--warning); }
+.shell-note code { font-family: var(--mono); }
+.shell-pre {
+  margin: 0;
+  padding: 8px 12px 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  user-select: none;
+}

@@ -65,15 +65,18 @@ def _reject_traversal(name: str) -> None:
         raise FileNotFoundError(name)
 
 
-def _resolve_demo_specs(store: GenerationStore, sttm_path=None) -> dict:
-    """Resolve the demo FRD against the given (or golden) STTM contract."""
+def _resolve_demo_specs(store: GenerationStore, sttm_path=None,
+                        frd_path=None) -> dict:
+    """Resolve the run's FRD (or the demo golden) against the given (or
+    golden) STTM contract."""
     config = store.config
     contracts_dir = REPO_ROOT / config.contracts.dir
     sttm = sttm_path if sttm_path is not None else contracts_dir / config.demo.sttm
+    frd = frd_path if frd_path is not None else contracts_dir / config.demo.frd
     try:
-        specs = resolve_pair(contracts_dir / config.demo.frd, sttm, config)
+        specs = resolve_pair(frd, sttm, config)
     except (ContractMismatchError, ValueError) as exc:
-        raise RuntimeError(f"demo contract pair failed to resolve: {exc}") from exc
+        raise RuntimeError(f"contract pair failed to resolve: {exc}") from exc
     return {spec.feed_slug: spec for spec in specs}
 
 
@@ -86,8 +89,14 @@ def _rebuild_state(
     label: str,
     out_root,
     reports_root,
+    output_mode: str | None = None,
 ) -> None:
-    """Deterministic pipeline re-run with recorded candidates injected."""
+    """Deterministic pipeline re-run with recorded candidates injected.
+
+    A feed with NO candidates file is a legitimate state (every rule
+    compiled deterministically — e.g. the MIDS feeds) and replays with an
+    empty override, never an error.
+    """
     runs: dict[str, FeedRun] = {}
     failures: list[FailedRun] = []
     for slug, candidates_path in candidate_files.items():
@@ -97,8 +106,11 @@ def _rebuild_state(
                 FailedRun(label=slug, error="recorded feed not in the run's contract pair")
             )
             continue
-        payload = json.loads(candidates_path.read_text(encoding="utf-8"))
-        candidates = [RuleCandidate.model_validate(entry) for entry in payload]
+        if candidates_path is not None and candidates_path.is_file():
+            payload = json.loads(candidates_path.read_text(encoding="utf-8"))
+            candidates = [RuleCandidate.model_validate(entry) for entry in payload]
+        else:
+            candidates = []
         runs[slug] = store._generate_feed(  # noqa: SLF001 — same-package collaborator
             spec,
             dry_run=True,
@@ -106,6 +118,7 @@ def _rebuild_state(
             out_root=out_root,
             reports_dir=reports_root,
             candidates_override=candidates,
+            output_mode=output_mode,
         )
     store.adopt(
         runs,
@@ -169,10 +182,20 @@ def list_past_live_runs(store: GenerationStore, root=None) -> list[PastLiveRun]:
     for entry in sorted(out_dir.glob("demo_*"), reverse=True):
         if not entry.is_dir():
             continue
+        # A generated feed dir is marked by its emitted artefacts — NOT by
+        # candidates.json: a feed whose rules all compiled deterministically
+        # has no candidates at all (the MIDS feeds), and framework-mode runs
+        # emit no README. Any of these markers means the feed generated.
         feeds = sorted(
             child.name
             for child in entry.iterdir()
-            if (child / "candidates" / "candidates.json").is_file()
+            if child.is_dir()
+            and (
+                (child / "README.md").is_file()
+                or (child / "ddl").is_dir()
+                or (child / "framework").is_dir()
+                or (child / "candidates" / "candidates.json").is_file()
+            )
         )
         runs.append(
             PastLiveRun(
@@ -203,12 +226,36 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
 
     run_dir = out_dir / name
     extracted = run_dir / EXTRACTED_CONTRACT_NAME
+    # The run's OWN pair: runs record the FRD they used (frd.contract.json)
+    # and their metadata; older runs fall back to the demo golden FRD and an
+    # output mode inferred from what the feed dirs actually hold.
+    run_frd = run_dir / "frd.contract.json"
+    meta_path = run_dir / "run_meta.json"
+    output_mode = None
+    if meta_path.is_file():
+        try:
+            output_mode = json.loads(meta_path.read_text(encoding="utf-8")).get(
+                "output_mode"
+            )
+        except ValueError:
+            output_mode = None
+    if output_mode is None and run.feeds:
+        first = run_dir / run.feeds[0]
+        has_framework = (first / "framework").is_dir()
+        has_pipeline = (first / "pipeline").is_dir()
+        output_mode = ("both" if has_framework and has_pipeline
+                       else "framework" if has_framework else "notebook")
     _rebuild_state(
         store,
-        _resolve_demo_specs(store, sttm_path=extracted if extracted.is_file() else None),
+        _resolve_demo_specs(
+            store,
+            sttm_path=extracted if extracted.is_file() else None,
+            frd_path=run_frd if run_frd.is_file() else None,
+        ),
         {slug: run_dir / slug / "candidates" / "candidates.json" for slug in run.feeds},
         mode="live",
         label=name,
         out_root=run_dir,
         reports_root=run_dir / "reports",
+        output_mode=output_mode,
     )

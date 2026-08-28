@@ -171,6 +171,12 @@ demo:
       - inputs/standards
       - inputs/databricks
 
+  # Explicit STTM->FRD pairing (canonical stems: lowercase, upload prefix
+  # and " (n)" copy suffix stripped, no extension). Checked before ticket-
+  # number pairing; the token heuristic only ever SUGGESTS in the UI.
+  pairing_map:
+    "sttm-medicare expansion-mids-social determine": "frd_medicare expansion-mids - socially determined"
+
   # "Source files this run will read" panel. The landing-root template
   # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS
   # Location) as a template — the literal client path never lives in this
@@ -182,12 +188,15 @@ demo:
     # the FRD's Structural Metadata → Load Strategy STG / STD rows.
     load_strategy: { stage: "Truncate and Load", standard: "Upsert" }
 
-  # UC volume coordinates for the synthetic `databricks fs ls` block.
-  # PLACEHOLDERS until Databricks discovery replaces them with real values;
-  # the shell block stays labelled SYNTHETIC until a live listing exists.
-  # (B0 2026-08-27 + Option A decision: no landing volume exists in the
-  # Hexaware workspace; these stay placeholders on purpose.)
-  databricks_paths: { catalog: hexaware_demo, schema: landing, volume: mft }
+  # UC volume coordinates the shell block renders/lists against — REAL as
+  # of 2026-08-27: the volume is created and seeded with SYNTHETIC files by
+  # `codegen databricks-seed-landing` (the seam's first write task, the one
+  # the Option A header named). Live mode lists it through the volumes
+  # seam; synthetic mode remains the offline fallback.
+  databricks_paths: { catalog: soham_workspace, schema: codegen_agent, volume: mftlanding }
+  # live | synthetic | auto (live when creds resolve and the volume exists,
+  # else synthetic — honestly labelled either way).
+  shell_listing: auto
 
   # Metadata-sheet preview for ACFC's metadata-driven framework — DISPLAY
   # ONLY. Stand-in layout: the tab names and headers are OUR guess at the
@@ -361,6 +370,17 @@ databricks:
   serving_endpoint: databricks-claude-opus-4-8
   # No wrapper job exists in the Hexaware workspace; supplied by the client.
   wrapper_notebook_path: ""
+  # The ONE writable volume (guarded by construction in codegen.databricks:
+  # anything outside soham_workspace.codegen_agent.* is refused). Seeded
+  # with synthetic files only — never client documents.
+  landing_volume: mftlanding
+  # SELECT-only table-read allowlist (read_table_rows renders the statement
+  # itself; callers never pass SQL). Reads wake the serverless warehouse —
+  # DBU spend from the shared pool. FRD contracts come from the upstream
+  # FRD->STTM agent's table; a missing contract means "run that agent
+  # first", never a workaround here.
+  readable_tables:
+    - soham_workspace.sttm_agent.frd_contracts
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

@@ -52,6 +52,22 @@
   HEAD build, no longer the literal 3cb9468 bundle; everything else,
   including the shell-header text below, remains deferred.
 
+## 2026-08-28 (early) — seam's first write task DONE
+
+- `soham_workspace.codegen_agent.mftlanding` created and seeded with 4
+  SYNTHETIC files (~27 KB, from the resolved demo spec; manifest in
+  `out/_seed_manifest.json`) by `codegen databricks-seed-landing --apply`
+  (typed confirm given). The shell block is **LIVE** (green header, real
+  names/sizes/timestamps) with the synthetic renderer as the honest
+  fallback (`demo.shell_listing: auto`; creds-pulled rehearsal showed
+  SYNTHETIC + one-line reason). Write surface is exactly
+  {ensure_volume, upload_file}, prefix-guarded to
+  soham_workspace.codegen_agent.* — no deletes exist. This ticks the
+  Option A header's "seam's first write task".
+- **Push rule re-armed (Soham)**: no `git push` without a typed go in the
+  same session. (One prior push — main, after "merge to main" — was on
+  inferred rather than literal instruction; disclosed.)
+
 ## 2026-08-27 (late evening) — go B1 + Option B framework output
 
 - **B1 merged** (`fc62008`): warehouse/serving/catalog surface on the

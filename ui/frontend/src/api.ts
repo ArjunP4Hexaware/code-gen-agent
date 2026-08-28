@@ -85,6 +85,33 @@ export interface DemoStatus {
   sttm_workbook?: string;
   sttm_chosen?: boolean;
   output_mode?: OutputMode;
+  frd_name?: string;
+  frd_chosen?: boolean;
+  frd_warning?: boolean;
+  error_hint?: {
+    sttm: string;
+    frd_used: string;
+    candidate_doc_id: string;
+    message: string;
+  } | null;
+}
+
+export interface FrdChoice {
+  doc_id: string;
+  status: string;
+  n_feeds: string;
+  audited_at: string;
+  paired: boolean;
+  suggested: boolean;
+}
+
+export interface FrdChoicesResponse {
+  sttm: string;
+  current: { label: string; chosen: boolean };
+  upstream: FrdChoice[];
+  upstream_error: string | null;
+  local: string[];
+  no_contract: string[];
 }
 
 export interface SttmWorkbook {
@@ -135,6 +162,10 @@ export interface SourceFilesResponse {
   frd_contract: string;
   feeds: SourceFileFeed[];
   shell_listing: string[];
+  shell_mode: "live" | "synthetic";
+  shell_reason: string | null;
+  shell_source: string | null;
+  shell_listed_at: string | null;
   convention_check: ConventionCheck | null;
 }
 
@@ -142,6 +173,13 @@ export interface DatabricksDocument {
   name: string;
   size: number;
   volume: string;
+  // Server-side dedupe against the local input dirs:
+  state: "fetchable" | "fetched" | "differs";
+  local_name?: string;
+  // STTM entries: conservative ticket-number pairing.
+  companion_frd?: string;
+  // FRD entries: true when an STTM claims this FRD as its companion.
+  paired?: boolean;
 }
 
 export interface DatabricksDocumentsResponse {
@@ -331,6 +369,14 @@ export const api = {
     }),
   clearWorkbook: () =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
+  frdChoices: () => request<FrdChoicesResponse>("/api/demo/frd-choices"),
+  selectFrd: (kind: "upstream" | "local", id: string) =>
+    request<{ selected: string; feeds: unknown }>("/api/demo/frd", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, id }),
+    }),
+  clearFrd: () => request<{ selected: null }>("/api/demo/frd", { method: "DELETE" }),
   setOutputMode: (mode: OutputMode | null) =>
     request<DemoStatus>("/api/demo/output-mode", {
       method: "POST",

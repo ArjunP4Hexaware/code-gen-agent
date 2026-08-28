@@ -337,7 +337,141 @@ def demo_status() -> dict:
         "output_mode": (
             _require_runner().output_mode or _require_store().config.output.mode
         ),
+        # The FRD side of the pair. frd_warning: the STTM is an explicit
+        # non-golden pick while the FRD is still the pinned demo golden —
+        # a feed-match failure is likely; the human decides, no auto-fix.
+        "frd_name": (_require_runner().selected_frd_label
+                     or _require_store().config.demo.frd),
+        "frd_chosen": _require_runner().selected_frd is not None,
+        "frd_warning": (
+            _require_runner().selected_workbook is not None
+            and _require_runner().selected_workbook.name
+            != Path(_require_store().config.demo.workbook).name
+            and _require_runner().selected_frd is None
+        ),
+        "error_hint": _require_runner().error_hint,
     }
+
+
+@app.get("/api/demo/frd-choices")
+def frd_choices() -> dict:
+    """FRD options for the chooser: upstream contracts (FRD→STTM agent's
+    table, with audit stamps and pairing vs the current STTM), local
+    contract JSONs, and documents with NO contract (not selectable — "run
+    the FRD→STTM agent first"). Upstream unreachable → that section absent
+    with a reason, everything else still renders."""
+    from codegen.demo_sources import (
+        canonical_document_name,
+        document_stem,
+        pair_sttm_with_frd,
+        suggest_pairs,
+    )
+    from codegen.upstream_contracts import list_contracts
+
+    store = _require_store()
+    runner = _require_runner()
+    sttm_name = runner.effective_workbook().name
+
+    upstream_rows: list[dict] = []
+    upstream_error: str | None = None
+    try:
+        contracts = list_contracts(store.config)
+    except Exception as exc:  # noqa: BLE001 — chooser stays usable offline
+        contracts, upstream_error = [], str(exc).splitlines()[0][:160]
+    doc_ids = [row["doc_id"] for row in contracts]
+    paired = pair_sttm_with_frd([sttm_name], doc_ids,
+                                explicit_map=store.config.demo.pairing_map)
+    suggested = suggest_pairs([sttm_name], doc_ids)
+    for row in contracts:
+        upstream_rows.append({
+            **row,
+            "paired": paired.get(sttm_name) == row["doc_id"],
+            "suggested": (suggested.get(sttm_name) == row["doc_id"]
+                          and paired.get(sttm_name) != row["doc_id"]),
+        })
+
+    contracts_dir = REPO_ROOT / store.config.contracts.dir
+    local = sorted(
+        {p.name for d in (contracts_dir, REPO_ROOT / "inputs" / "databricks",
+                          REPO_ROOT / "inputs" / "sharepoint")
+         if d.is_dir()
+         for p in d.glob("*.contract.json")}
+    )
+
+    upstream_stems = {document_stem(d) for d in doc_ids}
+    orphans = sorted({
+        p.name
+        for d in (REPO_ROOT / "inputs" / "databricks",
+                  REPO_ROOT / "inputs" / "sharepoint")
+        if d.is_dir()
+        for p in d.glob("*.docx")
+        if canonical_document_name(p.name).startswith("frd")
+        and document_stem(p.name) not in upstream_stems
+    })
+
+    return {
+        "sttm": sttm_name,
+        "current": {
+            "label": runner.selected_frd_label or store.config.demo.frd,
+            "chosen": runner.selected_frd is not None,
+        },
+        "upstream": upstream_rows,
+        "upstream_error": upstream_error,
+        "local": local,
+        "no_contract": orphans,
+    }
+
+
+class FrdSelectRequest(BaseModel):
+    kind: str  # "upstream" | "local"
+    id: str    # doc_id (upstream) or file name (local)
+
+
+@app.post("/api/demo/frd")
+def select_frd(req: FrdSelectRequest) -> dict:
+    from codegen.upstream_contracts import UpstreamContractError, materialize
+
+    store = _require_store()
+    runner = _require_runner()
+    try:
+        if req.kind == "upstream":
+            path, contract, meta = materialize(store.config, req.id, REPO_ROOT)
+            runner.select_frd(path, req.id)
+            feeds = [{
+                "feed_name": f.feed_name,
+                "stage": f"{f.stage_target.schema_name}."
+                         f"{','.join(f.stage_target.tables)}",
+                "standard": (f"{f.standard_target.schema_name}."
+                             f"{','.join(f.standard_target.tables)}"
+                             if f.standard_target.tables else None),
+            } for f in contract.feeds]
+            return {"selected": req.id, "kind": "upstream",
+                    "audited_at": meta["audited_at"], "feeds": feeds}
+        if req.kind == "local":
+            if "/" in req.id or "\\" in req.id or ".." in req.id:
+                raise HTTPException(400, f"invalid contract name {req.id!r}")
+            for directory in (REPO_ROOT / store.config.contracts.dir,
+                              REPO_ROOT / "inputs" / "databricks",
+                              REPO_ROOT / "inputs" / "sharepoint"):
+                candidate = directory / req.id
+                if candidate.is_file():
+                    runner.select_frd(candidate, req.id)
+                    return {"selected": req.id, "kind": "local", "feeds": None}
+            raise HTTPException(404, f"no local contract named {req.id!r}")
+        raise HTTPException(400, f"unknown kind {req.kind!r}")
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except UpstreamContractError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.delete("/api/demo/frd")
+def clear_frd() -> dict:
+    try:
+        _require_runner().clear_frd()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"selected": None}
 
 
 class OutputModeRequest(BaseModel):

@@ -845,6 +845,11 @@ table.data tr:last-child td { border-bottom: none; }
   border-radius: 12px;
   padding: 22px 24px;
   max-width: 460px;
+  /* Narrow viewports get the remaining width; long lists scroll inside
+     the dialog instead of pushing Cancel off-screen. */
+  width: min(460px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow-y: auto;
   box-shadow: 0 18px 50px rgba(15, 23, 32, 0.28);
 }
 .modal h2 { margin-top: 0; }
@@ -1009,3 +1014,52 @@ table.data tr:last-child td { border-bottom: none; }
 .pill.gc-verified { color: var(--good-text); border-color: rgba(12, 163, 12, 0.4); }
 .pill.gc-attention { color: var(--warning-text); border-color: rgba(250, 178, 25, 0.55); }
 .pill.gc-pending_run { color: var(--muted); border-color: var(--border); }
+
+/* -- STTM chooser rows: overflow-safe layout ---------------------------- */
+/* Filename gets the flexible space (min-width: 0 so it can actually
+   shrink); source/state chips are fixed and never escape the row. Names
+   are middle-truncated in JS (the trailing suffix distinguishes files),
+   with the full name in title. */
+.chooser-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  text-align: left;
+}
+.chooser-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  display: block;
+}
+.chooser-main { flex: 1; min-width: 0; }
+.chooser-main .chooser-name { flex: none; }
+.chooser-meta { display: block; white-space: normal; font-size: 11px; }
+.chooser-chip {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chooser-fetched { color: var(--good-text); font-weight: 650; }
+.chooser-frds { margin-top: 12px; }
+.chooser-frds summary { cursor: pointer; user-select: none; }
+
+/* Live shell block: green header when the listing is real; command lines
+   soft-wrap with a hanging indent instead of side-scrolling. */
+.shell-note-live { color: var(--good); }
+.shell-pre {
+  overflow-x: visible;
+}
+.shell-line {
+  padding-left: 2ch;
+  text-indent: -2ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.shell-cmd { margin-top: 4px; }

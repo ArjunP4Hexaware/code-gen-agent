@@ -40,13 +40,117 @@ from codegen.config import Config
 from codegen.contracts.frd import FrdContract, FrdFeed, TargetSpec
 from codegen.resolve.resolver import normalize_feed_name
 
-# Leading numeric upload prefix some libraries prepend on upload.
+# Leading numeric upload prefix some libraries prepend on upload, and the
+# " (n)" copy suffix browsers append before the extension on re-download.
 _UPLOAD_PREFIX = re.compile(r"^\d+_")
+_COPY_SUFFIX = re.compile(r"\s*\(\d+\)(?=\.[^.]+$|$)")
 
 
-def _canonical_name(name: str) -> str:
-    """Case-insensitive match key with any numeric upload prefix stripped."""
-    return _UPLOAD_PREFIX.sub("", name).lower()
+def canonical_document_name(name: str) -> str:
+    """THE document-name match key, shared by every list that compares names
+    (documents card, STTM chooser dedupe, FRD pairing): case-insensitive,
+    numeric upload prefix stripped, ``" (n)"`` copy suffix stripped."""
+    return _COPY_SUFFIX.sub("", _UPLOAD_PREFIX.sub("", name)).lower()
+
+
+# Backwards-compatible internal alias.
+_canonical_name = canonical_document_name
+
+# A shared ticket/project number (6+ digits, e.g. 1005034) is the one
+# CONSERVATIVE signal that an STTM and an FRD belong together; anything
+# fuzzier risks false pairs, and no match means no pairing.
+_TICKET_RE = re.compile(r"\d{6,}")
+
+
+def _pair_key(name: str) -> frozenset[str]:
+    return frozenset(_TICKET_RE.findall(canonical_document_name(name)))
+
+
+def document_stem(name: str) -> str:
+    """Canonical stem: canonical name minus the extension."""
+    canonical = canonical_document_name(name)
+    return re.sub(r"\.[^.]+$", "", canonical).strip()
+
+
+def pair_sttm_with_frd(sttm_names: list[str], frd_names: list[str],
+                       explicit_map: dict[str, str] | None = None) -> dict[str, str]:
+    """{sttm name -> companion frd name}. Precedence: the EXPLICIT pairing
+    map (canonical stems, from config — ships the MIDS pair) first, then a
+    shared ticket number where exactly one FRD matches exactly one STTM.
+    Ambiguity pairs nothing — conservative by design. The ≥3-token stem
+    heuristic lives in ``suggest_pairs`` and is a UI SUGGESTION only,
+    never an automatic pairing."""
+    explicit_map = {document_stem(k): document_stem(v)
+                    for k, v in (explicit_map or {}).items()}
+    frd_by_stem = {document_stem(f): f for f in frd_names}
+    explicit_pairs: dict[str, str] = {}
+    for sttm in sttm_names:
+        mapped = explicit_map.get(document_stem(sttm))
+        if mapped and mapped in frd_by_stem:
+            explicit_pairs[sttm] = frd_by_stem[mapped]
+    remaining_sttm = [s for s in sttm_names if s not in explicit_pairs]
+    remaining_frd = [f for f in frd_names
+                     if f not in set(explicit_pairs.values())]
+    return {**explicit_pairs,
+            **_pair_by_ticket(remaining_sttm, remaining_frd)}
+
+
+def _token_prefix(name: str, count: int = 3) -> tuple[str, ...]:
+    tokens = [t for t in re.split(r"[\s_\-]+", document_stem(name)) if t]
+    # Drop the frd/sttm role prefix so the content tokens align.
+    if tokens and tokens[0] in ("frd", "sttm"):
+        tokens = tokens[1:]
+    return tuple(tokens[:count])
+
+
+def suggest_pairs(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
+    """UI-suggestion-only heuristic: the first >=3 tokens match after
+    squashing. Uniqueness-constrained both ways; ambiguity = no suggestion.
+    NEVER used to auto-pair — the person confirms with a click."""
+    frd_by_prefix: dict[tuple, list[str]] = {}
+    for frd in frd_names:
+        prefix = _token_prefix(frd)
+        if len(prefix) >= 3:
+            frd_by_prefix.setdefault(prefix, []).append(frd)
+    suggestions: dict[str, str] = {}
+    claimed: dict[str, str] = {}
+    for sttm in sttm_names:
+        prefix = _token_prefix(sttm)
+        candidates = frd_by_prefix.get(prefix, []) if len(prefix) >= 3 else []
+        if len(candidates) != 1:
+            continue
+        frd = candidates[0]
+        if frd in claimed:
+            suggestions.pop(claimed[frd], None)
+            continue
+        claimed[frd] = sttm
+        suggestions[sttm] = frd
+    return suggestions
+
+
+def _pair_by_ticket(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
+    """Ticket-number pairing (the pre-map behaviour), same conservatism."""
+    frd_by_ticket: dict[str, list[str]] = {}
+    for frd in frd_names:
+        for ticket in _pair_key(frd):
+            frd_by_ticket.setdefault(ticket, []).append(frd)
+    pairs: dict[str, str] = {}
+    claimed: dict[str, str] = {}
+    for sttm in sttm_names:
+        candidates = {
+            frd
+            for ticket in _pair_key(sttm)
+            for frd in frd_by_ticket.get(ticket, [])
+        }
+        if len(candidates) != 1:
+            continue
+        frd = next(iter(candidates))
+        if frd in claimed:  # two STTMs claiming one FRD → drop both
+            pairs.pop(claimed[frd], None)
+            continue
+        claimed[frd] = sttm
+        pairs[sttm] = frd
+    return pairs
 
 
 # -- reference documents ----------------------------------------------------- #
@@ -156,10 +260,12 @@ def feed_source_files(feed: FrdFeed, config: Config) -> dict:
 
 
 def shell_listing(feed_rows: list[dict], config: Config) -> list[str]:
-    """The synthetic ``databricks fs ls`` block, one command + files per feed.
+    """The SYNTHETIC ``databricks fs ls`` block — the offline fallback.
 
     Rendered server-side so no path logic lives in TypeScript. Date
-    placeholders in the file patterns stay as-is.
+    placeholders in the file patterns stay as-is. The live twin is
+    ``live_shell_listing`` below; ``resolve_shell_listing`` picks per
+    ``demo.shell_listing`` (live | synthetic | auto) and labels honestly.
     """
     db = config.demo.databricks_paths
     lines: list[str] = []
@@ -173,6 +279,113 @@ def shell_listing(feed_rows: list[dict], config: Config) -> list[str]:
         else:
             lines.append("(no file name patterns in the FRD)")
     return lines
+
+
+# -- live shell listing (the seam's landing volume) --------------------------- #
+
+# auto-mode existence probe cache: one workspace round-trip per minute, max.
+_LANDING_PROBE_CACHE: dict = {"key": None, "at": 0.0, "ok": False, "reason": ""}
+_LANDING_PROBE_TTL_SECONDS = 60.0
+
+
+def _landing_available(config: Config) -> tuple[bool, str]:
+    """(available, reason) — creds resolve AND the landing volume exists."""
+    import time
+
+    from codegen.databricks import (
+        DatabricksConfigError,
+        config_for,
+        landing_volume_exists,
+    )
+
+    try:
+        cfg = config_for(config.databricks)
+        key = f"{cfg.catalog}.{cfg.schema}.{cfg.landing_volume}"
+    except DatabricksConfigError as exc:
+        return False, str(exc).split(".")[0]
+    now = time.time()
+    if (_LANDING_PROBE_CACHE["key"] == key
+            and now - _LANDING_PROBE_CACHE["at"] < _LANDING_PROBE_TTL_SECONDS):
+        return _LANDING_PROBE_CACHE["ok"], _LANDING_PROBE_CACHE["reason"]
+    try:
+        ok = landing_volume_exists(cfg)
+        reason = "" if ok else f"volume {key} does not exist"
+    except Exception as exc:  # noqa: BLE001 — incl. raw SDK auth errors: the
+        # probe must degrade to synthetic, never surface a 500.
+        ok, reason = False, str(exc).splitlines()[0][:120]
+    _LANDING_PROBE_CACHE.update(key=key, at=now, ok=ok, reason=reason)
+    return ok, reason
+
+
+def live_shell_listing(feed_rows: list[dict], config: Config) -> tuple[list[str], str]:
+    """The REAL listing, grouped under each feed's landing root.
+
+    Returns (lines, volume full name); raises on any seam problem — the
+    caller decides how to fall back, never this function.
+    """
+    from codegen.databricks import config_for, list_landing
+
+    cfg = config_for(config.databricks)
+    entries = list_landing(cfg)
+    db = config.demo.databricks_paths
+    root = f"dbfs:/Volumes/{db.catalog}/{db.schema_name}/{db.volume}"
+
+    lines: list[str] = []
+    claimed: set[str] = set()
+    for row in feed_rows:
+        prefix = row["landing_root"]["value"].strip("/")
+        lines.append(f"$ databricks fs ls {root}/{prefix}/")
+        matching = [e for e in entries if e["path"].startswith(prefix + "/")]
+        for entry in matching:
+            claimed.add(entry["path"])
+            lines.append(f"{entry['name']}  {entry['size']:,} B  {entry['modified']}")
+        if not matching:
+            lines.append("(empty)")
+    leftovers = [e for e in entries if e["path"] not in claimed]
+    if leftovers:
+        lines.append(f"$ databricks fs ls {root}/")
+        for entry in leftovers:
+            lines.append(f"{entry['path']}  {entry['size']:,} B  {entry['modified']}")
+    return lines, f"{db.catalog}.{db.schema_name}.{db.volume}"
+
+
+def resolve_shell_listing(feed_rows: list[dict], config: Config,
+                          mode: str | None = None) -> dict:
+    """{lines, mode, reason, source, listed_at} per demo.shell_listing.
+
+    live: real listing or a LOUD-but-graceful synthetic fallback with the
+    one-line reason. auto: live only when creds resolve and the volume
+    exists (cached probe). synthetic: the offline renderer, as before.
+    """
+    from datetime import datetime
+
+    requested = mode or config.demo.shell_listing
+    result = {
+        "lines": shell_listing(feed_rows, config),
+        "mode": "synthetic",
+        "reason": None,
+        "source": None,
+        "listed_at": None,
+    }
+    if requested == "synthetic":
+        return result
+    if requested == "auto":
+        available, reason = _landing_available(config)
+        if not available:
+            result["reason"] = reason or "landing volume unavailable"
+            return result
+    try:
+        lines, source = live_shell_listing(feed_rows, config)
+    except Exception as exc:  # noqa: BLE001 — one-line reason, never a stack trace
+        result["reason"] = str(exc).splitlines()[0][:160]
+        return result
+    return {
+        "lines": lines,
+        "mode": "live",
+        "reason": None,
+        "source": source,
+        "listed_at": datetime.now().strftime("%H:%M:%S"),
+    }
 
 
 # -- live convention check from the real FRD docx ----------------------------- #
@@ -262,10 +475,13 @@ def read_frd_convention(docx_path: Path) -> dict | None:
 # -- the one payload both the endpoint and the CLI serve ---------------------- #
 
 
-def source_files_payload(config: Config, base_dir: Path, env=None) -> dict:
+def source_files_payload(config: Config, base_dir: Path, env=None,
+                         shell_mode: str | None = None) -> dict:
     """Everything ``GET /api/demo/source-files`` returns; also printed by
-    ``codegen demo-source-files``. Loads the demo FRD contract the same way
-    the resolver does; pure read, no network."""
+    ``codegen demo-source-files``. Contract/docx reads are local;
+    ``shell_mode`` (None = config's demo.shell_listing) may add ONE
+    workspace listing call for the live shell block — the CLI pins
+    "synthetic" to stay offline."""
     frd_path = base_dir / config.contracts.dir / config.demo.frd
     if not frd_path.is_file():
         raise FileNotFoundError(f"demo FRD contract not found: {frd_path}")
@@ -280,9 +496,14 @@ def source_files_payload(config: Config, base_dir: Path, env=None) -> dict:
     if frd_docx is not None:
         convention = read_frd_convention(Path(frd_docx["path"]))
 
+    shell = resolve_shell_listing(feed_rows, config, mode=shell_mode)
     return {
         "frd_contract": Path(config.demo.frd).name,
         "feeds": feed_rows,
-        "shell_listing": shell_listing(feed_rows, config),
+        "shell_listing": shell["lines"],
+        "shell_mode": shell["mode"],
+        "shell_reason": shell["reason"],
+        "shell_source": shell["source"],
+        "shell_listed_at": shell["listed_at"],
         "convention_check": convention,
     }

@@ -45,6 +45,39 @@ class DemoRunner:
         # Output mode override (notebook | framework | both). None = the
         # config default; in-memory only, same as the workbook choice.
         self.output_mode: str | None = None
+        # The chosen FRD contract path. None = the demo golden (config.demo
+        # .frd) — the pinned default that keeps the golden path byte-
+        # identical. Set via /api/demo/frd (local file or a materialized
+        # upstream contract); in-memory only.
+        self.selected_frd: Path | None = None
+        self.selected_frd_label: str | None = None
+        # Structured hint for the failed-run card: when a feed-match
+        # failure has a known companion FRD, the UI renders a one-click
+        # "choose the pair" button from this. Never an auto-retry.
+        self.error_hint: dict | None = None
+
+    def effective_frd(self) -> Path:
+        return self.selected_frd or (
+            REPO_ROOT / self._store.config.contracts.dir / self._store.config.demo.frd
+        )
+
+    def select_frd(self, path: Path, label: str) -> None:
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change the FRD while a live run is in progress"
+                )
+        self.selected_frd = path
+        self.selected_frd_label = label
+
+    def clear_frd(self) -> None:
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change the FRD while a live run is in progress"
+                )
+        self.selected_frd = None
+        self.selected_frd_label = None
 
     def select_output_mode(self, mode: str | None) -> None:
         with self._lock:
@@ -148,6 +181,40 @@ class DemoRunner:
             self.error = f"{type(exc).__name__}: {exc}"
             self.state = "failed"
 
+    def _attach_pairing_hint(self, exc: Exception, workbook_path: Path,
+                             frd_label: str) -> None:
+        """On a feed-match failure, name the FRD the run used and — when
+        the pairing helpers know a companion — offer it. Information only;
+        choosing remains the human's act, and there is no auto-retry."""
+        if "matches 0 FRD feeds" not in str(exc):
+            return
+        try:
+            from codegen.demo_sources import pair_sttm_with_frd, suggest_pairs
+            from codegen.upstream_contracts import list_contracts
+
+            doc_ids = [row["doc_id"] for row in list_contracts(self._store.config)]
+            explicit = pair_sttm_with_frd(
+                [workbook_path.name], doc_ids,
+                explicit_map=self._store.config.demo.pairing_map,
+            )
+            suggested = suggest_pairs([workbook_path.name], doc_ids)
+            candidate = explicit.get(workbook_path.name) or suggested.get(
+                workbook_path.name
+            )
+        except Exception:  # noqa: BLE001, S110 — offline: the hint is optional
+            candidate = None
+        if candidate:
+            self.error_hint = {
+                "sttm": workbook_path.name,
+                "frd_used": frd_label,
+                "candidate_doc_id": candidate,
+                "message": (
+                    f"This run used FRD '{frd_label}'. A companion FRD "
+                    f"'{candidate}' is available from the FRD→STTM agent; "
+                    "choose it in the STTM picker."
+                ),
+            }
+
     def _stage(self, name: str, detail: str = "") -> None:
         self.stages.append({"stage": name, "detail": detail, "at": time.time()})
 
@@ -158,14 +225,40 @@ class DemoRunner:
         reports_root = run_root / "reports"
         run_root.mkdir(parents=True, exist_ok=True)
 
-        frd_path = REPO_ROOT / config.contracts.dir / config.demo.frd
+        frd_path = self.effective_frd()
+        frd_label = self.selected_frd_label or frd_path.name
         workbook_path = self.effective_workbook()
         contract_path = run_root / "extracted_sttm.contract.json"
 
-        self._stage("extracting workbook", f"{workbook_path.name} → STTM mapping contract")
-        extract_to_file(workbook_path, frd_path, contract_path, config)
+        self.error_hint = None
+        # Self-contained run directory: copy the FRD the run actually used
+        # (content-identical => provenance hashes unchanged) and record run
+        # metadata, so a past run reloads with ITS pair — never the pinned
+        # demo golden (the View-results bug of 2026-08-27).
+        import json as json_module
+        import shutil
 
-        self._stage("resolving contracts", f"{config.demo.frd} ⋈ extracted contract")
+        run_frd = run_root / "frd.contract.json"
+        shutil.copyfile(frd_path, run_frd)
+        (run_root / "run_meta.json").write_text(
+            json_module.dumps({
+                "frd_label": frd_label,
+                "sttm_workbook": workbook_path.name,
+                "output_mode": self.output_mode or config.output.mode,
+            }, indent=2) + "\n",
+            encoding="utf-8", newline="\n",
+        )
+        frd_path = run_frd
+
+        self._stage("extracting workbook",
+                    f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
+        try:
+            extract_to_file(workbook_path, frd_path, contract_path, config)
+        except Exception as exc:
+            self._attach_pairing_hint(exc, workbook_path, frd_label)
+            raise
+
+        self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
         specs = resolve_pair(frd_path, contract_path, config)
 
         runs: dict[str, FeedRun] = {}

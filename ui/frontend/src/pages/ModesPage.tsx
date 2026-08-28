@@ -4,6 +4,7 @@ import {
   api,
   type DatabricksDocumentsResponse,
   type DemoStatus,
+  type FrdChoicesResponse,
   type GovernanceChecksResponse,
   type GovernanceStatus,
   type InputDocumentScan,
@@ -35,6 +36,16 @@ function SyntheticBadge({ title }: { title: string }) {
       SYNTHETIC
     </span>
   );
+}
+
+// Middle-ellipsis: the trailing ticket/suffix (e.g. "_1005034 (1).xlsx") is
+// how these files are told apart, so the END must stay visible — plain
+// text-overflow ellipsis would hide exactly the distinguishing part. The
+// full name always travels in title for hover.
+function middleTruncate(name: string, max = 46): string {
+  if (name.length <= max) return name;
+  const tail = 16;
+  return `${name.slice(0, max - tail - 1)}…${name.slice(-tail)}`;
 }
 
 const REQ_LABELS: Record<RequirementStatus, string> = {
@@ -72,6 +83,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
   // null = unconfigured/unreachable → the Databricks section renders nothing.
   const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
+  const [frdChoices, setFrdChoices] = useState<FrdChoicesResponse | null>(null);
   const [fetching, setFetching] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<InputRequirementsResponse | null>(null);
   const [governance, setGovernance] = useState<GovernanceChecksResponse | null>(null);
@@ -175,23 +187,60 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => setWorkbooks([]));
     // 503 (unconfigured) or failure → section absent, same as SharePoint.
     api.databricksDocuments().then(setDbDocs).catch(() => setDbDocs(null));
+    api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
+  }, []);
+
+  const chooseFrd = useCallback(async (kind: "upstream" | "local", id: string) => {
+    setError(null);
+    try {
+      await api.selectFrd(kind, id);
+      setStatus(await api.demoStatus());
+      api.frdChoices().then(setFrdChoices).catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const resetFrd = useCallback(async () => {
+    setError(null);
+    try {
+      await api.clearFrd();
+      setStatus(await api.demoStatus());
+      api.frdChoices().then(setFrdChoices).catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
 
   // Pull one document from a UC volume into inputs/databricks — it then
   // appears through the ordinary scan, the same path a local file takes.
-  const fetchFromDatabricks = useCallback(async (volume: string, name: string) => {
-    setError(null);
-    setFetching(name);
-    try {
-      await api.databricksFetch(volume, name);
-      const r = await api.demoWorkbooks();
-      setWorkbooks(r.workbooks);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setFetching(null);
-    }
-  }, []);
+  // A paired STTM fetches its companion FRD in the same action.
+  const fetchFromDatabricks = useCallback(
+    async (doc: { volume: string; name: string; companion_frd?: string }) => {
+      setError(null);
+      setFetching(doc.name);
+      try {
+        await api.databricksFetch(doc.volume, doc.name);
+        if (doc.companion_frd) {
+          const companion = dbDocs?.documents.frd.find(
+            (f) => f.name === doc.companion_frd,
+          );
+          if (companion) await api.databricksFetch(companion.volume, companion.name);
+        }
+        const [wb, docs] = await Promise.all([
+          api.demoWorkbooks(),
+          api.databricksDocuments().catch(() => null),
+        ]);
+        setWorkbooks(wb.workbooks);
+        if (docs) setDbDocs(docs);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setFetching(null);
+      }
+    },
+    [dbDocs],
+  );
 
   const chooseWorkbook = useCallback(async (name: string) => {
     setError(null);
@@ -199,6 +248,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       const r = await api.selectWorkbook(name);
       setWorkbooks(r.workbooks);
       setStatus(await api.demoStatus());
+      // Pairing (companion FRD) depends on the chosen STTM.
+      api.frdChoices().then(setFrdChoices).catch(() => {});
       setChoosing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -311,6 +362,27 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 >
                   Clear
                 </button>
+              ) : null}
+            </p>
+            <p style={{ margin: "0 0 10px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span>
+                FRD contract: <code>{status?.frd_name ?? "…"}</code>
+                {status?.frd_chosen ? null : (
+                  <span className="hint"> (demo golden — default)</span>
+                )}
+              </span>
+              {status?.frd_chosen ? (
+                <button className="btn" disabled={running} onClick={resetFrd}
+                        title="Back to the demo golden default">
+                  Reset
+                </button>
+              ) : null}
+              {status?.frd_warning ? (
+                <span className="pill req-missing"
+                      title="Pick the companion FRD in the STTM chooser">
+                  This STTM does not appear to belong to the demo FRD — expect a
+                  feed-match failure.
+                </span>
               ) : null}
             </p>
             {sourceFiles && sourceFiles.feeds.length > 0 ? (
@@ -435,13 +507,31 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 ) : null}
                 <details className="shell-block">
                   <summary>In the Databricks workspace</summary>
-                  <div className="shell-note">
-                    SYNTHETIC — no landing volume exists in the Hexaware workspace yet;
-                    creating one (e.g. <code>soham_workspace.codegen_agent.mftlanding</code>)
-                    is the Databricks seam's first write task. Rendered from the FRD's
-                    landing location and file patterns, not a live listing.
+                  {sourceFiles.shell_mode === "live" ? (
+                    <div className="shell-note shell-note-live">
+                      LIVE — listed from <code>{sourceFiles.shell_source}</code> at{" "}
+                      {sourceFiles.shell_listed_at}
+                    </div>
+                  ) : (
+                    <div className="shell-note">
+                      SYNTHETIC
+                      {sourceFiles.shell_reason
+                        ? ` (live listing unavailable: ${sourceFiles.shell_reason})`
+                        : ""}{" "}
+                      — rendered from the FRD's landing location and file patterns,
+                      not a live listing.
+                    </div>
+                  )}
+                  <div className="shell-pre">
+                    {sourceFiles.shell_listing.map((line, i) => (
+                      <div
+                        key={i}
+                        className={`shell-line${line.startsWith("$ ") ? " shell-cmd" : ""}`}
+                      >
+                        {line}
+                      </div>
+                    ))}
                   </div>
-                  <pre className="shell-pre">{sourceFiles.shell_listing.join("\n")}</pre>
                 </details>
                 <MetadataSheetPanel
                   refreshKey={`${status?.state}-${status?.last_run_label}`}
@@ -679,6 +769,22 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {status.state === "failed" && status.error ? (
                   <div className="error-banner" style={{ marginTop: 8 }}>
                     {status.error}
+                    {status.error_hint ? (
+                      <div style={{ marginTop: 8 }}>
+                        <div className="hint">{status.error_hint.message}</div>
+                        <button
+                          className="btn"
+                          style={{ marginTop: 6 }}
+                          onClick={async () => {
+                            await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
+                            openChooser();
+                          }}
+                        >
+                          Choose companion FRD "
+                          {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <ul className="stage-list">
@@ -698,11 +804,26 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   <button
                     className="btn primary"
                     disabled={loadingSet !== null}
-                    onClick={() =>
-                      status.last_run_label
-                        ? loadLiveRun(status.last_run_label)
-                        : navigate("/")
-                    }
+                    onClick={async () => {
+                      // A just-finished run's results are ALREADY adopted in
+                      // the store — navigate straight there instead of
+                      // reloading from disk (the reload path is for the
+                      // Past-live-runs list).
+                      if (
+                        status.last_run_label &&
+                        status.label === status.last_run_label &&
+                        status.mode === "live"
+                      ) {
+                        await onFeedsChanged();
+                        navigate("/");
+                        return;
+                      }
+                      if (status.last_run_label) {
+                        loadLiveRun(status.last_run_label);
+                      } else {
+                        navigate("/");
+                      }
+                    }}
                   >
                     View results →
                   </button>
@@ -870,54 +991,182 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               workbooks.map((w) => (
                 <button
                   key={w.name}
-                  className="btn"
-                  style={{
-                    display: "flex",
-                    width: "100%",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                    marginTop: 8,
-                  }}
+                  className="btn chooser-row"
                   onClick={() => chooseWorkbook(w.name)}
                 >
-                  <code>{w.name}</code>
-                  <span className="hint">
+                  <code className="chooser-name" title={w.name}>
+                    {middleTruncate(w.name)}
+                  </code>
+                  <span className="chooser-chip">
                     {w.source}
                     {w.selected ? " · selected" : ""}
                   </span>
                 </button>
               ))
             )}
-            {dbDocs ? (
+            {dbDocs && dbDocs.documents.sttm.length > 0 ? (
               <>
                 <p className="hint" style={{ margin: "14px 0 4px" }}>
-                  In the Databricks volumes{" "}
+                  STTM workbooks in{" "}
                   <code>
                     {dbDocs.catalog}.{dbDocs.schema}
                   </code>{" "}
                   — fetch lands the file in <code>inputs/databricks</code> and it
                   joins the list above:
                 </p>
-                {[...dbDocs.documents.sttm, ...dbDocs.documents.frd].map((d) => (
-                  <div
-                    key={`${d.volume}/${d.name}`}
-                    className="replay-row"
-                    style={{ padding: "6px 0" }}
-                  >
-                    <div>
-                      <code>{d.name}</code>{" "}
-                      <span className="hint">
-                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
-                      </span>
-                    </div>
+                {dbDocs.documents.sttm.map((d) =>
+                  d.state === "fetched" ? (
                     <button
-                      className="btn"
-                      disabled={fetching !== null}
-                      onClick={() => fetchFromDatabricks(d.volume, d.name)}
+                      key={`${d.volume}/${d.name}`}
+                      className="btn chooser-row"
+                      title={`${d.name} — already fetched; click to choose the local copy`}
+                      onClick={() => chooseWorkbook(d.local_name ?? d.name)}
                     >
-                      {fetching === d.name ? "Fetching…" : "Fetch"}
+                      <span className="chooser-main">
+                        <code className="chooser-name" title={d.name}>
+                          {middleTruncate(d.name)}
+                        </code>
+                        <span className="hint chooser-meta">
+                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.companion_frd
+                            ? " · includes companion FRD — fetched together"
+                            : ""}
+                        </span>
+                      </span>
+                      <span className="chooser-chip chooser-fetched">Fetched ✓</span>
                     </button>
+                  ) : (
+                    <div key={`${d.volume}/${d.name}`} className="chooser-row">
+                      <span className="chooser-main">
+                        <code className="chooser-name" title={d.name}>
+                          {middleTruncate(d.name)}
+                        </code>
+                        <span className="hint chooser-meta">
+                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.state === "differs" ? " · differs from local copy" : ""}
+                          {d.companion_frd
+                            ? " · includes companion FRD — fetched together"
+                            : ""}
+                        </span>
+                      </span>
+                      <button
+                        className="btn"
+                        style={{ flex: "none" }}
+                        disabled={fetching !== null}
+                        onClick={() => fetchFromDatabricks(d)}
+                      >
+                        {fetching === d.name
+                          ? "Fetching…"
+                          : d.state === "differs"
+                            ? "Re-fetch"
+                            : "Fetch"}
+                      </button>
+                    </div>
+                  ),
+                )}
+              </>
+            ) : null}
+            {dbDocs && dbDocs.documents.frd.length > 0 ? (
+              <details className="chooser-frds">
+                <summary className="hint">
+                  Companion FRDs in the volume ({dbDocs.documents.frd.length})
+                </summary>
+                <p className="hint" style={{ margin: "6px 0 2px", fontSize: 11 }}>
+                  Fetching an FRD lands it in <code>inputs/databricks</code> for the
+                  documents card and contract use — an FRD is never choosable as the
+                  STTM.
+                </p>
+                {dbDocs.documents.frd.map((d) => (
+                  <div key={`${d.volume}/${d.name}`} className="chooser-row">
+                    <span className="chooser-main">
+                      <code className="chooser-name" title={d.name}>
+                        {middleTruncate(d.name)}
+                      </code>
+                      <span className="hint chooser-meta">
+                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                        {d.paired ? " · companion of an STTM above" : ""}
+                        {d.state === "differs" ? " · differs from local copy" : ""}
+                      </span>
+                    </span>
+                    {d.state === "fetched" ? (
+                      <span className="chooser-chip chooser-fetched">Fetched ✓</span>
+                    ) : (
+                      <button
+                        className="btn"
+                        style={{ flex: "none" }}
+                        disabled={fetching !== null}
+                        onClick={() => fetchFromDatabricks(d)}
+                      >
+                        {fetching === d.name
+                          ? "Fetching…"
+                          : d.state === "differs"
+                            ? "Re-fetch"
+                            : "Fetch FRD"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </details>
+            ) : null}
+            {frdChoices ? (
+              <>
+                <p className="hint" style={{ margin: "14px 0 4px" }}>
+                  <strong>FRD for this run</strong> — currently{" "}
+                  <code>{frdChoices.current.label}</code>
+                  {frdChoices.current.chosen ? "" : " (demo golden — default)"}.
+                  Contracts come from the FRD→STTM agent; a document without a
+                  contract is not selectable.
+                </p>
+                {frdChoices.upstream_error ? (
+                  <div className="hint" style={{ fontSize: 11 }}>
+                    FRD→STTM agent table unavailable: {frdChoices.upstream_error}
+                  </div>
+                ) : null}
+                {frdChoices.upstream.map((c) => (
+                  <button
+                    key={c.doc_id}
+                    className="btn chooser-row"
+                    title={c.doc_id}
+                    onClick={() => chooseFrd("upstream", c.doc_id)}
+                  >
+                    <span className="chooser-main">
+                      <code className="chooser-name" title={c.doc_id}>
+                        {middleTruncate(c.doc_id)}
+                      </code>
+                      <span className="hint chooser-meta">
+                        from FRD→STTM agent · {c.status} · {c.n_feeds} feed(s) ·
+                        audited {c.audited_at}
+                      </span>
+                    </span>
+                    {c.paired ? (
+                      <span className="chooser-chip chooser-fetched">companion FRD</span>
+                    ) : c.suggested ? (
+                      <span className="chooser-chip pill req-partial">
+                        looks like a pair — confirm
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+                {frdChoices.local.map((name) => (
+                  <button
+                    key={name}
+                    className="btn chooser-row"
+                    onClick={() => chooseFrd("local", name)}
+                  >
+                    <code className="chooser-name" title={name}>
+                      {middleTruncate(name)}
+                    </code>
+                    <span className="chooser-chip">local contract</span>
+                  </button>
+                ))}
+                {frdChoices.no_contract.map((name) => (
+                  <div key={name} className="chooser-row" title={name}>
+                    <span className="chooser-main">
+                      <code className="chooser-name">{middleTruncate(name)}</code>
+                      <span className="hint chooser-meta">
+                        no contract — run the FRD→STTM agent for this document first
+                      </span>
+                    </span>
                   </div>
                 ))}
               </>
@@ -949,8 +1198,13 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               default output are never touched.
             </p>
             <p className="hint">
-              Known input gap applies: a demo FRD without the real file paths — the run is
-              real, the case it represents is not.
+              {status?.frd_chosen
+                ? "Client documents in play: live runs on client STTM/FRD pairs are " +
+                  "permitted only per the program's client-document process (Venu's " +
+                  "email approval). The demo CV golden remains the default rehearsal " +
+                  "pair; mock runs need no approval."
+                : "Known input gap applies: a demo FRD without the real file paths — " +
+                  "the run is real, the case it represents is not."}
             </p>
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn primary" onClick={fireLive}>

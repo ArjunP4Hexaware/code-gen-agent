@@ -317,6 +317,9 @@ class DemoConfig(BaseModel):
     # exists, else synthetic — the response says which branch ran).
     shell_listing: Literal["live", "synthetic", "auto"] = "synthetic"
     input_documents: DemoInputDocumentsConfig = DemoInputDocumentsConfig()
+    # Explicit STTM->FRD pairing by canonical document stem — checked FIRST
+    # (before ticket numbers); the token heuristic is a UI suggestion only.
+    pairing_map: dict[str, str] = Field(default_factory=dict)
     source_files: DemoSourceFilesConfig = DemoSourceFilesConfig()
     databricks_paths: DemoDatabricksPathsConfig = DemoDatabricksPathsConfig()
     metadata_sheet: DemoMetadataSheetConfig = DemoMetadataSheetConfig()
@@ -367,6 +370,10 @@ class DatabricksSettings(BaseModel):
     # The ONE writable volume (codegen.databricks.WRITABLE_PREFIX guards it
     # by construction); seeded with synthetic files by databricks-seed-landing.
     landing_volume: str = ""
+    # Allowlist for read_table_rows (SELECT-only, statement rendered in
+    # code). Reading any table NOT listed here is refused. First read wakes
+    # the serverless warehouse = DBU spend.
+    readable_tables: list[str] = Field(default_factory=list)
 
 
 class TypeMappingEntry(BaseModel):

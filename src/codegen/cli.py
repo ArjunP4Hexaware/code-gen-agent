@@ -591,8 +591,10 @@ def main(argv: list[str] | None = None) -> int:
         "generate", parents=[common], help="generate one contract pair"
     )
     generate.add_argument("--feed", help="generate only this feed_id from the pair")
-    generate.add_argument("--frd-contract", required=True)
-    generate.add_argument("--sttm-contract", required=True)
+    generate.add_argument("--frd-contract", "--frd", dest="frd_contract", required=True,
+                          help="FRD contract JSON (the pair's FRD side)")
+    generate.add_argument("--sttm-contract", "--sttm", dest="sttm_contract", required=True,
+                          help="STTM mapping contract JSON (the pair's STTM side)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 

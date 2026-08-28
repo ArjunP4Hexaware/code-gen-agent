@@ -289,6 +289,7 @@ def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, 
         lambda cfg: {"frd": [], "sttm": [{"name": "map.xlsx", "size": 5,
                                           "volume": "sttm_raw"}]},
     )
+    monkeypatch.setattr(databricks_routes, "FETCH_DIR", tmp_path / "none")
     payload = client.get("/api/databricks/documents").json()
     assert payload["catalog"] == "soham_workspace"
     assert payload["documents"]["sttm"][0]["name"] == "map.xlsx"
@@ -311,3 +312,42 @@ def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, 
         "/api/databricks/fetch", json={"volume": "nope", "name": "map.xlsx"}
     )
     assert response.status_code == 400
+
+
+def test_documents_route_dedupe_states_and_pairing(client, monkeypatch, tmp_path):
+    """fetched (same size) / differs (size mismatch) / fetchable, matched via
+    the shared canonical name (upload prefix + copy suffix + case); the
+    1005034 pair is annotated, the unpaired STTM is not."""
+    monkeypatch.setattr(databricks_routes, "FETCH_DIR", tmp_path)
+    (tmp_path / "STTM_A_1005034 (1).xlsx").write_bytes(b"12345")       # 5 bytes
+    (tmp_path / "999_sttm_b.XLSX").write_bytes(b"different-content")   # != 5
+
+    monkeypatch.setattr(
+        databricks_routes, "list_documents",
+        lambda cfg: {
+            "sttm": [
+                {"name": "STTM_A_1005034 (1).xlsx", "size": 5, "volume": "sttm_raw"},
+                {"name": "STTM_B.xlsx", "size": 5, "volume": "sttm_raw"},
+                {"name": "STTM_C_new.xlsx", "size": 7, "volume": "sttm_raw"},
+            ],
+            "frd": [
+                {"name": "FRD_A_1005034.docx", "size": 9, "volume": "frd_raw"},
+                {"name": "FRD_unrelated.docx", "size": 9, "volume": "frd_raw"},
+            ],
+        },
+    )
+    payload = client.get("/api/databricks/documents").json()
+    sttm = {e["name"]: e for e in payload["documents"]["sttm"]}
+    frd = {e["name"]: e for e in payload["documents"]["frd"]}
+
+    assert sttm["STTM_A_1005034 (1).xlsx"]["state"] == "fetched"
+    assert sttm["STTM_A_1005034 (1).xlsx"]["local_name"] == "STTM_A_1005034 (1).xlsx"
+    assert sttm["STTM_B.xlsx"]["state"] == "differs"       # matched 999_sttm_b.XLSX
+    assert sttm["STTM_B.xlsx"]["local_name"] == "999_sttm_b.XLSX"
+    assert sttm["STTM_C_new.xlsx"]["state"] == "fetchable"
+
+    assert sttm["STTM_A_1005034 (1).xlsx"]["companion_frd"] == "FRD_A_1005034.docx"
+    assert "companion_frd" not in sttm["STTM_B.xlsx"]
+    assert frd["FRD_A_1005034.docx"]["paired"] is True
+    assert frd["FRD_unrelated.docx"]["paired"] is False
+    assert frd["FRD_A_1005034.docx"]["state"] == "fetchable"

@@ -37,6 +37,16 @@ function SyntheticBadge({ title }: { title: string }) {
   );
 }
 
+// Middle-ellipsis: the trailing ticket/suffix (e.g. "_1005034 (1).xlsx") is
+// how these files are told apart, so the END must stay visible — plain
+// text-overflow ellipsis would hide exactly the distinguishing part. The
+// full name always travels in title for hover.
+function middleTruncate(name: string, max = 46): string {
+  if (name.length <= max) return name;
+  const tail = 16;
+  return `${name.slice(0, max - tail - 1)}…${name.slice(-tail)}`;
+}
+
 const REQ_LABELS: Record<RequirementStatus, string> = {
   filled: "filled",
   partial: "partial",
@@ -179,19 +189,33 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
 
   // Pull one document from a UC volume into inputs/databricks — it then
   // appears through the ordinary scan, the same path a local file takes.
-  const fetchFromDatabricks = useCallback(async (volume: string, name: string) => {
-    setError(null);
-    setFetching(name);
-    try {
-      await api.databricksFetch(volume, name);
-      const r = await api.demoWorkbooks();
-      setWorkbooks(r.workbooks);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setFetching(null);
-    }
-  }, []);
+  // A paired STTM fetches its companion FRD in the same action.
+  const fetchFromDatabricks = useCallback(
+    async (doc: { volume: string; name: string; companion_frd?: string }) => {
+      setError(null);
+      setFetching(doc.name);
+      try {
+        await api.databricksFetch(doc.volume, doc.name);
+        if (doc.companion_frd) {
+          const companion = dbDocs?.documents.frd.find(
+            (f) => f.name === doc.companion_frd,
+          );
+          if (companion) await api.databricksFetch(companion.volume, companion.name);
+        }
+        const [wb, docs] = await Promise.all([
+          api.demoWorkbooks(),
+          api.databricksDocuments().catch(() => null),
+        ]);
+        setWorkbooks(wb.workbooks);
+        if (docs) setDbDocs(docs);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setFetching(null);
+      }
+    },
+    [dbDocs],
+  );
 
   const chooseWorkbook = useCallback(async (name: string) => {
     setError(null);
@@ -870,57 +894,122 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               workbooks.map((w) => (
                 <button
                   key={w.name}
-                  className="btn"
-                  style={{
-                    display: "flex",
-                    width: "100%",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                    marginTop: 8,
-                  }}
+                  className="btn chooser-row"
                   onClick={() => chooseWorkbook(w.name)}
                 >
-                  <code>{w.name}</code>
-                  <span className="hint">
+                  <code className="chooser-name" title={w.name}>
+                    {middleTruncate(w.name)}
+                  </code>
+                  <span className="chooser-chip">
                     {w.source}
                     {w.selected ? " · selected" : ""}
                   </span>
                 </button>
               ))
             )}
-            {dbDocs ? (
+            {dbDocs && dbDocs.documents.sttm.length > 0 ? (
               <>
                 <p className="hint" style={{ margin: "14px 0 4px" }}>
-                  In the Databricks volumes{" "}
+                  STTM workbooks in{" "}
                   <code>
                     {dbDocs.catalog}.{dbDocs.schema}
                   </code>{" "}
                   — fetch lands the file in <code>inputs/databricks</code> and it
                   joins the list above:
                 </p>
-                {[...dbDocs.documents.sttm, ...dbDocs.documents.frd].map((d) => (
-                  <div
-                    key={`${d.volume}/${d.name}`}
-                    className="replay-row"
-                    style={{ padding: "6px 0" }}
-                  >
-                    <div>
-                      <code>{d.name}</code>{" "}
-                      <span className="hint">
-                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
-                      </span>
-                    </div>
+                {dbDocs.documents.sttm.map((d) =>
+                  d.state === "fetched" ? (
                     <button
-                      className="btn"
-                      disabled={fetching !== null}
-                      onClick={() => fetchFromDatabricks(d.volume, d.name)}
+                      key={`${d.volume}/${d.name}`}
+                      className="btn chooser-row"
+                      title={`${d.name} — already fetched; click to choose the local copy`}
+                      onClick={() => chooseWorkbook(d.local_name ?? d.name)}
                     >
-                      {fetching === d.name ? "Fetching…" : "Fetch"}
+                      <span className="chooser-main">
+                        <code className="chooser-name" title={d.name}>
+                          {middleTruncate(d.name)}
+                        </code>
+                        <span className="hint chooser-meta">
+                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.companion_frd
+                            ? " · includes companion FRD — fetched together"
+                            : ""}
+                        </span>
+                      </span>
+                      <span className="chooser-chip chooser-fetched">Fetched ✓</span>
                     </button>
+                  ) : (
+                    <div key={`${d.volume}/${d.name}`} className="chooser-row">
+                      <span className="chooser-main">
+                        <code className="chooser-name" title={d.name}>
+                          {middleTruncate(d.name)}
+                        </code>
+                        <span className="hint chooser-meta">
+                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.state === "differs" ? " · differs from local copy" : ""}
+                          {d.companion_frd
+                            ? " · includes companion FRD — fetched together"
+                            : ""}
+                        </span>
+                      </span>
+                      <button
+                        className="btn"
+                        style={{ flex: "none" }}
+                        disabled={fetching !== null}
+                        onClick={() => fetchFromDatabricks(d)}
+                      >
+                        {fetching === d.name
+                          ? "Fetching…"
+                          : d.state === "differs"
+                            ? "Re-fetch"
+                            : "Fetch"}
+                      </button>
+                    </div>
+                  ),
+                )}
+              </>
+            ) : null}
+            {dbDocs && dbDocs.documents.frd.length > 0 ? (
+              <details className="chooser-frds">
+                <summary className="hint">
+                  Companion FRDs in the volume ({dbDocs.documents.frd.length})
+                </summary>
+                <p className="hint" style={{ margin: "6px 0 2px", fontSize: 11 }}>
+                  Fetching an FRD lands it in <code>inputs/databricks</code> for the
+                  documents card and contract use — an FRD is never choosable as the
+                  STTM.
+                </p>
+                {dbDocs.documents.frd.map((d) => (
+                  <div key={`${d.volume}/${d.name}`} className="chooser-row">
+                    <span className="chooser-main">
+                      <code className="chooser-name" title={d.name}>
+                        {middleTruncate(d.name)}
+                      </code>
+                      <span className="hint chooser-meta">
+                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                        {d.paired ? " · companion of an STTM above" : ""}
+                        {d.state === "differs" ? " · differs from local copy" : ""}
+                      </span>
+                    </span>
+                    {d.state === "fetched" ? (
+                      <span className="chooser-chip chooser-fetched">Fetched ✓</span>
+                    ) : (
+                      <button
+                        className="btn"
+                        style={{ flex: "none" }}
+                        disabled={fetching !== null}
+                        onClick={() => fetchFromDatabricks(d)}
+                      >
+                        {fetching === d.name
+                          ? "Fetching…"
+                          : d.state === "differs"
+                            ? "Re-fetch"
+                            : "Fetch FRD"}
+                      </button>
+                    )}
                   </div>
                 ))}
-              </>
+              </details>
             ) : null}
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => setChoosing(false)}>

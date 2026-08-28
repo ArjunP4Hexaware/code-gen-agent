@@ -40,13 +40,57 @@ from codegen.config import Config
 from codegen.contracts.frd import FrdContract, FrdFeed, TargetSpec
 from codegen.resolve.resolver import normalize_feed_name
 
-# Leading numeric upload prefix some libraries prepend on upload.
+# Leading numeric upload prefix some libraries prepend on upload, and the
+# " (n)" copy suffix browsers append before the extension on re-download.
 _UPLOAD_PREFIX = re.compile(r"^\d+_")
+_COPY_SUFFIX = re.compile(r"\s*\(\d+\)(?=\.[^.]+$|$)")
 
 
-def _canonical_name(name: str) -> str:
-    """Case-insensitive match key with any numeric upload prefix stripped."""
-    return _UPLOAD_PREFIX.sub("", name).lower()
+def canonical_document_name(name: str) -> str:
+    """THE document-name match key, shared by every list that compares names
+    (documents card, STTM chooser dedupe, FRD pairing): case-insensitive,
+    numeric upload prefix stripped, ``" (n)"`` copy suffix stripped."""
+    return _COPY_SUFFIX.sub("", _UPLOAD_PREFIX.sub("", name)).lower()
+
+
+# Backwards-compatible internal alias.
+_canonical_name = canonical_document_name
+
+# A shared ticket/project number (6+ digits, e.g. 1005034) is the one
+# CONSERVATIVE signal that an STTM and an FRD belong together; anything
+# fuzzier risks false pairs, and no match means no pairing.
+_TICKET_RE = re.compile(r"\d{6,}")
+
+
+def _pair_key(name: str) -> frozenset[str]:
+    return frozenset(_TICKET_RE.findall(canonical_document_name(name)))
+
+
+def pair_sttm_with_frd(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
+    """{sttm name -> companion frd name} where exactly one FRD shares a
+    ticket number with exactly one STTM. Ambiguity (several candidates on
+    either side) pairs nothing — conservative by design."""
+    frd_by_ticket: dict[str, list[str]] = {}
+    for frd in frd_names:
+        for ticket in _pair_key(frd):
+            frd_by_ticket.setdefault(ticket, []).append(frd)
+    pairs: dict[str, str] = {}
+    claimed: dict[str, str] = {}
+    for sttm in sttm_names:
+        candidates = {
+            frd
+            for ticket in _pair_key(sttm)
+            for frd in frd_by_ticket.get(ticket, [])
+        }
+        if len(candidates) != 1:
+            continue
+        frd = next(iter(candidates))
+        if frd in claimed:  # two STTMs claiming one FRD → drop both
+            pairs.pop(claimed[frd], None)
+            continue
+        claimed[frd] = sttm
+        pairs[sttm] = frd
+    return pairs
 
 
 # -- reference documents ----------------------------------------------------- #

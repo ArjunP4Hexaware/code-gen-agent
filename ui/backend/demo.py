@@ -231,6 +231,25 @@ class DemoRunner:
         contract_path = run_root / "extracted_sttm.contract.json"
 
         self.error_hint = None
+        # Self-contained run directory: copy the FRD the run actually used
+        # (content-identical => provenance hashes unchanged) and record run
+        # metadata, so a past run reloads with ITS pair — never the pinned
+        # demo golden (the View-results bug of 2026-08-27).
+        import json as json_module
+        import shutil
+
+        run_frd = run_root / "frd.contract.json"
+        shutil.copyfile(frd_path, run_frd)
+        (run_root / "run_meta.json").write_text(
+            json_module.dumps({
+                "frd_label": frd_label,
+                "sttm_workbook": workbook_path.name,
+                "output_mode": self.output_mode or config.output.mode,
+            }, indent=2) + "\n",
+            encoding="utf-8", newline="\n",
+        )
+        frd_path = run_frd
+
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
         try:

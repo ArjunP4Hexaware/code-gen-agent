@@ -145,7 +145,11 @@ def test_requirements_check_worst_feed_status_wins(tmp_path):
 def test_payload_reason_when_deck_absent(config, tmp_path, monkeypatch):
     monkeypatch.setenv("CODEGEN_INPUT_DOCS_DIR", str(tmp_path))
     payload = input_requirements_payload(config, REPO)
-    assert payload == {"check": None, "reason": "requirements document not present"}
+    assert payload == {
+        "check": None,
+        "document_check": None,
+        "reason": "requirements document not present",
+    }
 
 
 # -- endpoint ------------------------------------------------------------------ #

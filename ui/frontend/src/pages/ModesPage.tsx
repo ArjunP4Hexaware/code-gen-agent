@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   api,
+  type DatabricksDocumentsResponse,
   type DemoStatus,
   type InputDocumentScan,
+  type InputRequirementsResponse,
   type PastLiveRun,
   type ReplaySet,
+  type RequirementStatus,
   type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
@@ -32,6 +35,17 @@ function SyntheticBadge({ title }: { title: string }) {
   );
 }
 
+const REQ_LABELS: Record<RequirementStatus, string> = {
+  filled: "filled",
+  partial: "partial",
+  missing: "missing",
+  not_captured: "not captured",
+};
+
+function RequirementChip({ status }: { status: RequirementStatus }) {
+  return <span className={`pill req-${status}`}>{REQ_LABELS[status]}</span>;
+}
+
 export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
   const navigate = useNavigate();
   const [sets, setSets] = useState<ReplaySet[] | null>(null);
@@ -44,6 +58,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [docModal, setDocModal] = useState<"reference_documents" | "frd" | null>(null);
   const [docScan, setDocScan] = useState<InputDocumentScan[] | null>(null);
   const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
+  // null = unconfigured/unreachable → the Databricks section renders nothing.
+  const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
+  const [fetching, setFetching] = useState<string | null>(null);
+  const [requirements, setRequirements] = useState<InputRequirementsResponse | null>(null);
   const [loadingSet, setLoadingSet] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -60,6 +78,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     // are live reads on the backend, nothing is cached to disk.
     api.inputDocuments().then((r) => setDocScan(r.documents)).catch(() => setDocScan([]));
     api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
+    api.inputRequirements().then(setRequirements).catch(() => setRequirements(null));
     refreshLiveRuns();
     return () => {
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
@@ -131,11 +150,29 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   );
 
   // Open the STTM picker with a fresh scan each time, so a workbook just
-  // fetched from SharePoint shows up without a reload.
+  // fetched from SharePoint or Databricks shows up without a reload.
   const openChooser = useCallback(() => {
     setChoosing(true);
     setWorkbooks(null);
     api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => setWorkbooks([]));
+    // 503 (unconfigured) or failure → section absent, same as SharePoint.
+    api.databricksDocuments().then(setDbDocs).catch(() => setDbDocs(null));
+  }, []);
+
+  // Pull one document from a UC volume into inputs/databricks — it then
+  // appears through the ordinary scan, the same path a local file takes.
+  const fetchFromDatabricks = useCallback(async (volume: string, name: string) => {
+    setError(null);
+    setFetching(name);
+    try {
+      await api.databricksFetch(volume, name);
+      const r = await api.demoWorkbooks();
+      setWorkbooks(r.workbooks);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFetching(null);
+    }
   }, []);
 
   const chooseWorkbook = useCallback(async (name: string) => {
@@ -459,7 +496,45 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             })()}
             <p className="hint" style={{ margin: "4px 0 0", fontSize: 11 }}>
               Display only in this build — wiring these into generation is the next step.
+              The input-requirements deck below is the exception: it is read and used.
             </p>
+
+            {requirements?.check ? (
+              <>
+                <div className="panel-subhead">Input requirements check</div>
+                <p className="hint" style={{ marginTop: 0 }}>
+                  The demo FRD contract, evaluated against the eleven Structural
+                  Metadata rows of <code>{requirements.check.source}</code> — read live
+                  from the document at request time.{" "}
+                  {requirements.check.summary.filled} filled ·{" "}
+                  {requirements.check.summary.partial} partial ·{" "}
+                  {requirements.check.summary.missing} missing ·{" "}
+                  {requirements.check.summary.not_captured} not captured by the
+                  contract shape.
+                </p>
+                <div className="source-files-scroll">
+                  <table className="source-files-table">
+                    <tbody>
+                      {requirements.check.rows.map((r) => (
+                        <tr key={r.row}>
+                          <td>{r.row}</td>
+                          <td>
+                            <RequirementChip status={r.status} />
+                          </td>
+                          <td className="sf-wrap">
+                            <span className="hint">{r.how_to_fill}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="hint" style={{ margin: "4px 0 0", fontSize: 11 }}>
+                  A missing or not-captured row is flagged, never guessed — the row
+                  names and guidance come from the document itself.
+                </p>
+              </>
+            ) : null}
 
             <div className="panel-subhead">Known input gaps</div>
             <div
@@ -713,6 +788,39 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))
             )}
+            {dbDocs ? (
+              <>
+                <p className="hint" style={{ margin: "14px 0 4px" }}>
+                  In the Databricks volumes{" "}
+                  <code>
+                    {dbDocs.catalog}.{dbDocs.schema}
+                  </code>{" "}
+                  — fetch lands the file in <code>inputs/databricks</code> and it
+                  joins the list above:
+                </p>
+                {[...dbDocs.documents.sttm, ...dbDocs.documents.frd].map((d) => (
+                  <div
+                    key={`${d.volume}/${d.name}`}
+                    className="replay-row"
+                    style={{ padding: "6px 0" }}
+                  >
+                    <div>
+                      <code>{d.name}</code>{" "}
+                      <span className="hint">
+                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                      </span>
+                    </div>
+                    <button
+                      className="btn"
+                      disabled={fetching !== null}
+                      onClick={() => fetchFromDatabricks(d.volume, d.name)}
+                    >
+                      {fetching === d.name ? "Fetching…" : "Fetch"}
+                    </button>
+                  </div>
+                ))}
+              </>
+            ) : null}
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => setChoosing(false)}>
                 Cancel

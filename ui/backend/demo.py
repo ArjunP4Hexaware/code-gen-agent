@@ -55,6 +55,9 @@ class DemoRunner:
         return (
             (configured.parent.relative_to(REPO_ROOT).as_posix(), configured.parent),
             ("inputs/sharepoint", REPO_ROOT / "inputs" / "sharepoint"),
+            # Where `codegen databricks-fetch` and the UI's volume fetch land
+            # documents — same treatment as the SharePoint inbox.
+            ("inputs/databricks", REPO_ROOT / "inputs" / "databricks"),
         )
 
     def effective_workbook(self) -> Path:

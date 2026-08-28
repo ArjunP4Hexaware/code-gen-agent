@@ -122,6 +122,36 @@ export interface SourceFilesResponse {
   convention_check: ConventionCheck | null;
 }
 
+export interface DatabricksDocument {
+  name: string;
+  size: number;
+  volume: string;
+}
+
+export interface DatabricksDocumentsResponse {
+  catalog: string;
+  schema: string;
+  documents: { frd: DatabricksDocument[]; sttm: DatabricksDocument[] };
+}
+
+export type RequirementStatus = "filled" | "partial" | "missing" | "not_captured";
+
+export interface InputRequirementRow {
+  row: string;
+  how_to_fill: string;
+  status: RequirementStatus;
+  feeds: Record<string, RequirementStatus>;
+}
+
+export interface InputRequirementsResponse {
+  check: {
+    source: string;
+    rows: InputRequirementRow[];
+    summary: Record<RequirementStatus, number>;
+  } | null;
+  reason: string | null;
+}
+
 export type ProvenanceBadge =
   | "from_sttm"
   | "from_sttm_unmapped"
@@ -269,6 +299,16 @@ export const api = {
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
   sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),
   metadataSheet: () => request<MetadataSheetResponse>("/api/demo/metadata-sheet"),
+  inputRequirements: () =>
+    request<InputRequirementsResponse>("/api/demo/input-requirements"),
+  databricksDocuments: () =>
+    request<DatabricksDocumentsResponse>("/api/databricks/documents"),
+  databricksFetch: (volume: string, name: string) =>
+    request<{ fetched: string; dest: string }>("/api/databricks/fetch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ volume, name }),
+    }),
   runLive: () =>
     request<DemoStatus>("/api/demo/run-live", {
       method: "POST",

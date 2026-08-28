@@ -27,12 +27,13 @@ from starlette.responses import Response
 
 from codegen.config import load_dotenv
 from codegen.demo_sources import scan_reference_documents, source_files_payload
+from codegen.input_requirements import input_requirements_payload
 from codegen.metadata_sheet import (
     metadata_sheet_payload,
     workbook_bytes,
     workbook_filename,
 )
-from ui.backend import sharepoint_routes
+from ui.backend import databricks_routes, sharepoint_routes
 from ui.backend.demo import DemoRunner, LiveRunInProgress
 from ui.backend.replay import (
     list_past_live_runs,
@@ -104,6 +105,9 @@ app = FastAPI(title="CodeGen / Data Engineer Agent — demo UI", lifespan=lifesp
 # of the app when startup generation failed.
 sharepoint_routes.bind_store(store)
 app.include_router(sharepoint_routes.router)
+# Databricks volumes: same posture — 503 when unconfigured, panel hidden.
+databricks_routes.bind_store(store)
+app.include_router(databricks_routes.router)
 
 # CORS is only needed when the frontend is served from a different origin —
 # i.e. the two-process dev workflow's Vite server. Single-port mode is
@@ -420,6 +424,14 @@ def _metadata_sheet_inputs(store: GenerationStore):
         for run in store.runs.values()
     }
     return specs, unmapped
+
+
+@app.get("/api/demo/input-requirements")
+def input_requirements() -> dict:
+    """The FRD contract evaluated against the client requirements deck,
+    read LIVE from the input dirs (codegen.input_requirements). The one
+    reference document consumed in processing; absent deck → absent check."""
+    return input_requirements_payload(_require_store().config, REPO_ROOT)
 
 
 @app.get("/api/demo/metadata-sheet")

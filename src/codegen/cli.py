@@ -7,6 +7,7 @@ Commands:
                 paired with its FRD feed contract (deterministic, no LLM)
   sharepoint-fetch    library -> local input dir (workbooks + contracts)
   sharepoint-publish  one feed's generated artifacts -> library output folder
+  databricks-fetch    UC volumes -> local input dir (FRDs + STTM workbooks)
   demo-source-files   the demo UI's source-files display JSON (pure read)
 
 The two sharepoint-* commands are the transport seam at the edges; the
@@ -371,6 +372,17 @@ def main(argv: list[str] | None = None) -> int:
     demo_metadata.add_argument("--config", default="config/config.yaml")
     demo_metadata.add_argument("--xlsx", help="write the workbook here instead of printing JSON")
 
+    db_fetch = subparsers.add_parser(
+        "databricks-fetch",
+        help="download raw FRD/STTM documents from the Unity Catalog volumes "
+        "(read-only; requires the [databricks] extra)",
+    )
+    db_fetch.add_argument("--config", default="config/config.yaml")
+    db_fetch.add_argument(
+        "--dest", default="inputs/databricks",
+        help="local directory the documents land in (default: inputs/databricks)",
+    )
+
     publish = subparsers.add_parser(
         "sharepoint-publish",
         help="publish one feed's generated artifacts to the SharePoint library",
@@ -440,6 +452,40 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sharepoint-fetch":
         return _sharepoint_fetch(args, config)
+
+    if args.command == "databricks-fetch":
+        # Read-side edge of the Databricks volumes seam — same posture as
+        # sharepoint-fetch: fetch to local disk, then generate from disk.
+        from codegen.databricks import (
+            DatabricksConfigError,
+            DatabricksTransportError,
+            config_for,
+            fetch_document,
+            list_documents,
+        )
+
+        try:
+            cfg = config_for(config.databricks)
+            listing = list_documents(cfg)
+            print(f"volumes: {cfg.catalog}.{cfg.schema}.{cfg.frd_volume} + "
+                  f".{cfg.sttm_volume}  (profile {cfg.profile})")
+            fetched = 0
+            for kind, files in listing.items():
+                volume = cfg.frd_volume if kind == "frd" else cfg.sttm_volume
+                for item in files:
+                    local = fetch_document(cfg, volume, item["name"], args.dest)
+                    print(f"{'FETCHED':<15} {local.name} — {item['size']:,} bytes")
+                    fetched += 1
+        except (DatabricksConfigError, DatabricksTransportError) as exc:
+            print(f"{'FAIL':<15} databricks-fetch — {exc}")
+            return 1
+        if not fetched:
+            print(f"{'FAIL':<15} databricks-fetch — no supported documents in "
+                  "either volume. Upload an STTM workbook or an FRD document, or "
+                  "check the `databricks:` section of config/config.yaml.")
+            return 1
+        print(f"\n{fetched} file(s) -> {args.dest}")
+        return 0
 
     if args.command == "sharepoint-publish":
         return _sharepoint_publish(args, config)

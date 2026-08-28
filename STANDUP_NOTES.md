@@ -66,7 +66,8 @@ checks (`8a0daf4`). Suite 170 → 207 passed / 27 skipped; generation
 byte-identical throughout (tags `pre-demo-2026-08-27`, `post-mgr-demo`).
 B1 (warehouse/EXPLAIN/FMAPI/UC-grounding) remains gated on explicit go.
 
-### After 5 PM demo (the remaining deferred frontend change)
+### ~~After 5 PM demo~~ — DONE 2026-08-27 evening (go B1 §0): the Option A
+### shell-header text below is applied, rebuilt and serving.
 
 Replace the shell block's SYNTHETIC header in
 `ui/frontend/src/pages/ModesPage.tsx` (the `.shell-note` div) with

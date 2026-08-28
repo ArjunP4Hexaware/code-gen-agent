@@ -1,0 +1,35 @@
+[
+  {
+    "call_index": 1,
+    "model": "claude-opus-4-8",
+    "temperature": null,
+    "max_tokens": 8192,
+    "user_prompt_chars": 5693,
+    "input_tokens": 3003,
+    "output_tokens": 243,
+    "stop_reason": "end_turn",
+    "seconds": 4.27
+  },
+  {
+    "call_index": 2,
+    "model": "claude-opus-4-8",
+    "temperature": null,
+    "max_tokens": 8192,
+    "user_prompt_chars": 23101,
+    "input_tokens": 10039,
+    "output_tokens": 234,
+    "stop_reason": "end_turn",
+    "seconds": 6.78
+  },
+  {
+    "call_index": 3,
+    "model": "claude-opus-4-8",
+    "temperature": null,
+    "max_tokens": 8192,
+    "user_prompt_chars": 3985,
+    "input_tokens": 2158,
+    "output_tokens": 258,
+    "stop_reason": "end_turn",
+    "seconds": 4.22
+  }
+]

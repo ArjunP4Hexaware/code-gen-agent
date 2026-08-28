@@ -1,0 +1,64 @@
+{
+  "contract_name": "sttm_mapping_contracts_sfmc",
+  "generated_from_workbook": "STTM_MMCC_Email_Campaign_Tracking_Ingestion_Lakehouse_1005310.xlsx",
+  "sttm_version": "1.0",
+  "generated_date": "2026-08-26",
+  "notes": [
+    "SYNTHETIC stand-in authored from the FRD's upsert-key and DQ statements; the real STTM workbook was not available. Local validation only — NOT TRACKED."
+  ],
+  "synthetic": true,
+  "feeds": [
+    {
+      "feed_id": "sfmc_email_campaign_tracking",
+      "source_system": "Salesforce Marketing Cloud",
+      "mapping_sheet": "MAPPING-SFMC_EMAIL_TRACKING",
+      "source_file": {
+        "name_pattern": "SFMC_CampaignInteractions_YYYYMMDDHHMMSS.csv",
+        "format": "csv",
+        "delimiter": ",",
+        "frequency": "Daily"
+      },
+      "stage": {"schema": "stg_mbr", "table": "sfmc_member_outreach_email_tracking"},
+      "standard": {"schema": "mbr", "table": "sfmc_member_outreach_email_tracking"},
+      "load_rules": {
+        "not_null_columns": [
+          "MEMBER_ID", "MEMBER_SFX", "LOB_ID", "SUBSCRIBER_EMAIL",
+          "EMAIL_DTM", "CAMPAIGN_NAME", "INTERACTION_NAME", "INTERACTION_TYPE"
+        ],
+        "mandatory_columns": [
+          "MEMBER_ID", "MEMBER_SFX", "LOB_ID", "SUBSCRIBER_EMAIL",
+          "EMAIL_DTM", "CAMPAIGN_NAME", "INTERACTION_NAME", "INTERACTION_TYPE"
+        ],
+        "phi_columns": ["SUBSCRIBER_EMAIL", "PATIENT_MEDICAID_ID"],
+        "recycle": {
+          "applies_to": "PATIENT_MEDICAID_ID",
+          "enabled": true,
+          "validation": "Check with MEDICAID_NO from Facets in the PR_STD.FACETS.CMC_SBSB_SUBSC FOR GRGR_CK = 31, if available process it else load record to recycle table",
+          "on_match": "Process record into stage table",
+          "on_no_match": "Load record to Recycle Table with recycle flag enabled for 7 days; retry on subsequent runs",
+          "recycle_window_days": 7
+        }
+      },
+      "audit_columns": [
+        {"column": "LOB", "datatype": "String"},
+        {"column": "SRC_FILE_NAME", "datatype": "String"},
+        {"column": "REC_CREATION_TIME", "datatype": "Timestamp"},
+        {"column": "REC_UPDATED_TIME", "datatype": "Timestamp"}
+      ],
+      "field_count": 11,
+      "fields": [
+        {"source_column": "MEMBER_ID", "description": "Member identifier", "sample_value": "100000001", "source_datatype": "string", "nullable": false, "phi": false, "mandatory": true, "stage_column": "MEMBER_ID", "stage_datatype": "string", "standard_column": "MEMBER_ID", "standard_datatype": "string"},
+        {"source_column": "MEMBER_SFX", "description": "Member suffix", "sample_value": "01", "source_datatype": "string", "nullable": false, "phi": false, "mandatory": true, "stage_column": "MEMBER_SFX", "stage_datatype": "string", "standard_column": "MEMBER_SFX", "standard_datatype": "string"},
+        {"source_column": "LOB_ID", "description": "Line of business identifier", "sample_value": "EXCH", "source_datatype": "string", "nullable": false, "phi": false, "mandatory": true, "stage_column": "LOB_ID", "stage_datatype": "string", "standard_column": "LOB_ID", "standard_datatype": "string"},
+        {"source_column": "SUBSCRIBER_EMAIL", "description": "Subscriber email address", "sample_value": "member@example.com", "source_datatype": "string", "nullable": false, "phi": true, "mandatory": true, "stage_column": "SUBSCRIBER_EMAIL", "stage_datatype": "string", "standard_column": "SUBSCRIBER_EMAIL", "standard_datatype": "string"},
+        {"source_column": "EMAIL_DTM", "description": "Email interaction datetime", "sample_value": "2026-08-26 06:15:00", "source_datatype": "datetime", "nullable": false, "phi": false, "mandatory": true, "stage_column": "EMAIL_DTM", "stage_datatype": "string", "standard_column": "EMAIL_DTM", "standard_datatype": "timestamp"},
+        {"source_column": "CAMPAIGN_NAME", "description": "Campaign name", "sample_value": "Redetermination2026", "source_datatype": "string", "nullable": false, "phi": false, "mandatory": true, "stage_column": "CAMPAIGN_NAME", "stage_datatype": "string", "standard_column": "CAMPAIGN_NAME", "standard_datatype": "string"},
+        {"source_column": "INTERACTION_NAME", "description": "Interaction name", "sample_value": "WelcomeKitOpen", "source_datatype": "string", "nullable": false, "phi": false, "mandatory": true, "stage_column": "INTERACTION_NAME", "stage_datatype": "string", "standard_column": "INTERACTION_NAME", "standard_datatype": "string"},
+        {"source_column": "INTERACTION_TYPE", "description": "Interaction type (open/click/bounce)", "sample_value": "OPEN", "source_datatype": "string", "nullable": false, "phi": false, "mandatory": true, "stage_column": "INTERACTION_TYPE", "stage_datatype": "string", "standard_column": "INTERACTION_TYPE", "standard_datatype": "string"},
+        {"source_column": "CAMPAIGN_TYPE", "description": "Campaign type (Redetermination, E-Welcome Kit, Payment Reminder, Birth Date)", "sample_value": "REDETERMINATION", "source_datatype": "string", "nullable": true, "phi": false, "mandatory": false, "stage_column": "CAMPAIGN_TYPE", "stage_datatype": "string", "standard_column": "CAMPAIGN_TYPE", "standard_datatype": "string"},
+        {"source_column": "EMAIL_STATUS", "description": "Delivery status", "sample_value": "DELIVERED", "source_datatype": "string", "nullable": true, "phi": false, "mandatory": false, "stage_column": "EMAIL_STATUS", "stage_datatype": "string", "standard_column": "EMAIL_STATUS", "standard_datatype": "string"},
+        {"source_column": "PATIENT_MEDICAID_ID", "description": "Patient Medicaid identifier (recycle reference key)", "sample_value": "MDC000012345", "source_datatype": "string", "nullable": true, "phi": true, "mandatory": false, "stage_column": "PATIENT_MEDICAID_ID", "stage_datatype": "string", "standard_column": "PATIENT_MEDICAID_ID", "standard_datatype": "string"}
+      ]
+    }
+  ]
+}

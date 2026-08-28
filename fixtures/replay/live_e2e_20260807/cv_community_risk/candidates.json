@@ -1,0 +1,17 @@
+[
+  {
+    "feed_id": "cv_community_risk",
+    "rule_text": "If the ZIP_CODE column is NULL, then we are rejecting the record and moving it to the reject table from the below files.",
+    "provider": "anthropic",
+    "response": {
+      "classification": "mappable",
+      "code_candidate": "valid_df = df.filter(F.col(\"zip_code\").isNotNull())\nreject_df = df.filter(F.col(\"zip_code\").isNull())\n# route reject_df to the reject table",
+      "rationale": "The rule specifies a deterministic per-record null check on the ZIP_CODE column, which maps to the available zip_code source/stage column. Records where the column is NULL are rejected and routed to a reject table, expressible as a PySpark filter partitioning valid vs reject rows.",
+      "citations": [
+        "If the ZIP_CODE column is NULL, then we are rejecting the record and moving it to the reject table from the below files."
+      ]
+    },
+    "grounded": true,
+    "failure_notes": []
+  }
+]

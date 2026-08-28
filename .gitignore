@@ -33,20 +33,10 @@ venv/
 .ruff_cache/
 *.egg-info/
 
-# Office documents and FRD/STTM artifacts — blanket guard against client docs
-# entering the repo. 2026-08-22: fixtures/contracts/ (incl. two contracts
-# derived from REAL client FRDs), fixtures/workbooks/ and fixtures/replay/
-# were deleted and git rm'd on the "no client documents in the repository"
-# rule; the `!fixtures/workbooks/*.xlsx` re-include that used to live here
-# was removed with them on purpose — do not add it back. Any future fixture
-# material must be anonymized first AND tracked by a deliberate decision.
-*.docx
-*.xlsx
+# FRD/STTM documents and derived contracts are TRACKED as of 2026-08-28
+# (program go-ahead reported by Soham, reversing the 2026-08-22 removal).
+# Client reference decks stay out.
 *.pptx
-*.contract.json
-fixtures/contracts/
-fixtures/workbooks/
-fixtures/replay/
 
 # Wheel-build detritus
 build/

@@ -107,6 +107,11 @@ reasoning:
   # the API returns 400 if one is sent. Live output varies run to run.
   # One retry with the validation error appended, then record a failure.
   max_attempts: 2
+  # Layer-2 transport: anthropic (default) | databricks_fmapi (same Claude
+  # model via the databricks.serving_endpoint — transport only; needs the
+  # [databricks] extra and resolvable workspace auth; mock still wins on
+  # dry-run and on unresolvable creds).
+  provider: anthropic
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
@@ -318,10 +323,24 @@ databricks:
   # unconfigured: the UI hides the panel, the CLI fails loudly naming the
   # remedy, and everything else is unaffected.
   profile: DEFAULT
+  # NOTE: catalog/schema here address the REAL document volumes the fetch
+  # seam reads (uploaded 2026-08-27). The demo shell block's placeholders
+  # live separately under demo.databricks_paths — no landing volume exists
+  # in the workspace yet (Option A decision).
   catalog: soham_workspace
   schema: codegen_agent
   frd_volume: frd_raw
   sttm_volume: sttm_raw
+  # B1 (discovery 2026-08-27, docs/DATABRICKS_DISCOVERY.md):
+  # "Serverless Starter Warehouse", serverless PRO, auto-stop 10 min.
+  # EXPLAIN is the ONLY statement shape this seam sends — and an EXPLAIN
+  # wakes the warehouse, which bills DBUs from the shared ~120/month pool.
+  warehouse_id: "172877b5178f7bb7"
+  # Matches reasoning.model exactly: the same Claude model, served by
+  # Databricks FMAPI. A transport, not a vendor change.
+  serving_endpoint: databricks-claude-opus-4-8
+  # No wrapper job exists in the Hexaware workspace; supplied by the client.
+  wrapper_notebook_path: ""
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

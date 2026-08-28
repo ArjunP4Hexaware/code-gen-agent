@@ -436,9 +436,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 <details className="shell-block">
                   <summary>In the Databricks workspace</summary>
                   <div className="shell-note">
-                    SYNTHETIC — rendered from the FRD's landing location and file
-                    patterns; not a live listing. The Databricks seam replaces this with
-                    real <code>fs ls</code> output.
+                    SYNTHETIC — no landing volume exists in the Hexaware workspace yet;
+                    creating one (e.g. <code>soham_workspace.codegen_agent.mftlanding</code>)
+                    is the Databricks seam's first write task. Rendered from the FRD's
+                    landing location and file patterns, not a live listing.
                   </div>
                   <pre className="shell-pre">{sourceFiles.shell_listing.join("\n")}</pre>
                 </details>

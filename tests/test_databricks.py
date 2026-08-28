@@ -118,6 +118,145 @@ def test_fetch_document_cleans_up_part_file_on_failure(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+# -- B1 surface: catalog reads, EXPLAIN, job read, chat (all stubbed) ---------- #
+
+
+def test_profile_resolution_and_optional_b1_knobs():
+    # Profile always resolves: env DATABRICKS_PROFILE > DATABRICKS_CONFIG_PROFILE
+    # > YAML > DEFAULT; the B1 knobs stay optional at config time.
+    cfg = db.config_for(_settings(profile=""), env={})
+    assert cfg.profile == "DEFAULT"
+    cfg = db.config_for(_settings(profile=""), env={"DATABRICKS_CONFIG_PROFILE": "WORK"})
+    assert cfg.profile == "WORK"
+    assert cfg.warehouse_id == "" and cfg.serving_endpoint == ""
+
+
+def test_explain_and_chat_raise_named_errors_when_unconfigured():
+    cfg = db.config_for(_settings(), env={})
+    with pytest.raises(db.DatabricksConfigError, match="warehouse_id"):
+        db.explain(cfg, "SELECT 1", client=object())
+    with pytest.raises(db.DatabricksConfigError, match="serving_endpoint"):
+        db.chat(cfg, [{"role": "user", "content": "x"}], client=object())
+
+
+class _StubTables:
+    def __init__(self, table=None, raises=None):
+        self.table, self.raises = table, raises
+
+    def get(self, full_name):
+        if self.raises:
+            raise self.raises
+        return self.table
+
+
+def _table(full_name="c.s.t", columns=(), properties=None):
+    return SimpleNamespace(
+        full_name=full_name,
+        table_type=SimpleNamespace(value="MANAGED"),
+        columns=[SimpleNamespace(name=n, type_text=t) for n, t in columns],
+        properties=properties or {},
+    )
+
+
+def test_table_exists_and_describe_and_properties():
+    cfg = db.config_for(_settings(), env={})
+    table = _table(columns=(("id", "string"), ("amount", "double")),
+                   properties={"delta.enableChangeDataFeed": "true"})
+    client = SimpleNamespace(tables=_StubTables(table=table))
+    assert db.table_exists(cfg, "c.s.t", client=client) is True
+    described = db.describe_table(cfg, "c.s.t", client=client)
+    assert described["columns"] == [{"name": "id", "type": "string"},
+                                    {"name": "amount", "type": "double"}]
+    assert db.table_properties(cfg, "c.s.t", client=client) == {
+        "delta.enableChangeDataFeed": "true"
+    }
+    missing = SimpleNamespace(tables=_StubTables(
+        raises=RuntimeError("TABLE_DOES_NOT_EXIST: does not exist")))
+    assert db.table_exists(cfg, "c.s.nope", client=missing) is False
+    denied = SimpleNamespace(tables=_StubTables(raises=RuntimeError("PERMISSION_DENIED")))
+    with pytest.raises(db.DatabricksTransportError, match="PERMISSION_DENIED"):
+        db.table_exists(cfg, "c.s.t", client=denied)
+
+
+def test_explain_prefixes_and_returns_plan():
+    cfg = db.config_for(_settings(warehouse_id="wh123"), env={})
+    captured = {}
+
+    def execute_statement(statement, warehouse_id, wait_timeout):
+        captured.update(statement=statement, warehouse_id=warehouse_id)
+        return SimpleNamespace(
+            status=SimpleNamespace(state=SimpleNamespace(value="SUCCEEDED"), error=None),
+            result=SimpleNamespace(data_array=[["== Physical Plan =="], ["Scan t"]]),
+        )
+
+    client = SimpleNamespace(
+        statement_execution=SimpleNamespace(execute_statement=execute_statement)
+    )
+    plan = db.explain(cfg, "SELECT * FROM t;", client=client)
+    # Never executed as written: the statement is EXPLAIN-prefixed.
+    assert captured["statement"] == "EXPLAIN SELECT * FROM t"
+    assert captured["warehouse_id"] == "wh123"
+    assert "Physical Plan" in plan
+
+
+def test_explain_surfaces_failure_state():
+    cfg = db.config_for(_settings(warehouse_id="wh123"), env={})
+    client = SimpleNamespace(statement_execution=SimpleNamespace(
+        execute_statement=lambda **_: SimpleNamespace(
+            status=SimpleNamespace(state=SimpleNamespace(value="FAILED"),
+                                   error=SimpleNamespace(message="syntax error")),
+            result=None,
+        )
+    ))
+    with pytest.raises(db.DatabricksTransportError, match="syntax error"):
+        db.explain(cfg, "EXPLAIN SELECT nope", client=client)
+
+
+def test_get_job_reads_settings_only():
+    cfg = db.config_for(_settings(), env={})
+    job = SimpleNamespace(
+        job_id=42,
+        settings=SimpleNamespace(
+            name="wrapper",
+            tasks=[SimpleNamespace(task_key="run_wrapper")],
+            parameters=[SimpleNamespace(name="object_id")],
+        ),
+    )
+    client = SimpleNamespace(jobs=SimpleNamespace(get=lambda job_id: job))
+    assert db.get_job(cfg, 42, client=client) == {
+        "job_id": 42, "name": "wrapper",
+        "tasks": ["run_wrapper"], "parameters": ["object_id"],
+    }
+
+
+def test_chat_uses_endpoint_and_returns_content():
+    cfg = db.config_for(_settings(serving_endpoint="databricks-claude-opus-4-8"),
+                        env={})
+    captured = {}
+
+    def query(name, messages, max_tokens):
+        captured.update(name=name, count=len(messages), max_tokens=max_tokens)
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content="hello"))])
+
+    client = SimpleNamespace(serving_endpoints=SimpleNamespace(query=query))
+    text = db.chat(cfg, [{"role": "user", "content": "hi"}], max_tokens=50,
+                   client=client)
+    assert text == "hello"
+    assert captured == {"name": "databricks-claude-opus-4-8", "count": 1,
+                        "max_tokens": 50}
+
+
+def test_no_write_shaped_api_exists():
+    # The governance "never writes back" control introspects for these; the
+    # suite enforces the same invariant directly.
+    forbidden = ("execute", "create_job", "run_now", "upload", "write", "put")
+    exported = [n for n in dir(db) if not n.startswith("_")]
+    offenders = [n for n in exported
+                 if any(w == n.lower() or n.lower().startswith(w) for w in forbidden)]
+    assert offenders == []
+
+
 # -- routes (offline: transport monkeypatched at the routes seam) -------------- #
 
 pytest.importorskip("fastapi")

@@ -234,7 +234,6 @@ def _landing_available(config: Config) -> tuple[bool, str]:
 
     from codegen.databricks import (
         DatabricksConfigError,
-        DatabricksTransportError,
         config_for,
         landing_volume_exists,
     )
@@ -251,7 +250,8 @@ def _landing_available(config: Config) -> tuple[bool, str]:
     try:
         ok = landing_volume_exists(cfg)
         reason = "" if ok else f"volume {key} does not exist"
-    except (DatabricksConfigError, DatabricksTransportError) as exc:
+    except Exception as exc:  # noqa: BLE001 — incl. raw SDK auth errors: the
+        # probe must degrade to synthetic, never surface a 500.
         ok, reason = False, str(exc).splitlines()[0][:120]
     _LANDING_PROBE_CACHE.update(key=key, at=now, ok=ok, reason=reason)
     return ok, reason

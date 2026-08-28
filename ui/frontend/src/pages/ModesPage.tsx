@@ -4,6 +4,8 @@ import {
   api,
   type DatabricksDocumentsResponse,
   type DemoStatus,
+  type GovernanceChecksResponse,
+  type GovernanceStatus,
   type InputDocumentScan,
   type InputRequirementsResponse,
   type PastLiveRun,
@@ -46,6 +48,16 @@ function RequirementChip({ status }: { status: RequirementStatus }) {
   return <span className={`pill req-${status}`}>{REQ_LABELS[status]}</span>;
 }
 
+const GC_LABELS: Record<GovernanceStatus, string> = {
+  verified: "verified",
+  attention: "attention",
+  pending_run: "awaiting a run",
+};
+
+function GovernanceChip({ status }: { status: GovernanceStatus }) {
+  return <span className={`pill gc-${status}`}>{GC_LABELS[status]}</span>;
+}
+
 export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
   const navigate = useNavigate();
   const [sets, setSets] = useState<ReplaySet[] | null>(null);
@@ -62,6 +74,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
   const [fetching, setFetching] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<InputRequirementsResponse | null>(null);
+  const [governance, setGovernance] = useState<GovernanceChecksResponse | null>(null);
   const [loadingSet, setLoadingSet] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -79,6 +92,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.inputDocuments().then((r) => setDocScan(r.documents)).catch(() => setDocScan([]));
     api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
     api.inputRequirements().then(setRequirements).catch(() => setRequirements(null));
+    api.governanceChecks().then(setGovernance).catch(() => setGovernance(null));
     refreshLiveRuns();
     return () => {
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
@@ -95,7 +109,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
           if (pollRef.current !== null) window.clearInterval(pollRef.current);
           pollRef.current = null;
           refreshLiveRuns();
-          if (s.state === "done") await onFeedsChanged();
+          if (s.state === "done") {
+            await onFeedsChanged();
+            // Run-dependent checks flip from "awaiting a run" once loaded.
+            api.governanceChecks().then(setGovernance).catch(() => {});
+          }
         }
       } catch {
         /* transient poll failure — keep polling */
@@ -495,8 +513,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               );
             })()}
             <p className="hint" style={{ margin: "4px 0 0", fontSize: 11 }}>
-              Display only in this build — wiring these into generation is the next step.
-              The input-requirements deck below is the exception: it is read and used.
+              All four documents are read and used in the request-time checks below.
+              None of them alters generated output — the generation path stays
+              contract-driven, byte-stable.
             </p>
 
             {requirements?.check ? (
@@ -533,6 +552,58 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   A missing or not-captured row is flagged, never guessed — the row
                   names and guidance come from the document itself.
                 </p>
+                {requirements.check && requirements.document_check ? (
+                  <>
+                    <p className="hint" style={{ margin: "10px 0 4px" }}>
+                      The same rows checked against the <strong>real FRD document</strong>{" "}
+                      (<code>{requirements.document_check.source}</code>, Structural
+                      Metadata read live):{" "}
+                      {requirements.document_check.summary.filled ?? 0} filled ·{" "}
+                      {requirements.document_check.summary.partial ?? 0} partial ·{" "}
+                      {requirements.document_check.summary.missing ?? 0} missing.
+                    </p>
+                    <div>
+                      {requirements.document_check.rows.map((r) => (
+                        <span key={r.row} style={{ marginRight: 10, whiteSpace: "nowrap" }}>
+                          <RequirementChip status={r.status} />{" "}
+                          <span className="hint">{r.row}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            {governance && governance.checks.length > 0 ? (
+              <>
+                <div className="panel-subhead">Reference-architecture checks</div>
+                <p className="hint" style={{ marginTop: 0 }}>
+                  Controls stated by the governance and solution architecture decks,
+                  read live from the documents and evaluated against the loaded run:{" "}
+                  {governance.summary.verified} verified ·{" "}
+                  {governance.summary.attention} need attention ·{" "}
+                  {governance.summary.pending_run} awaiting a run.
+                </p>
+                <div className="source-files-scroll">
+                  <table className="source-files-table">
+                    <tbody>
+                      {governance.checks.map((c, i) => (
+                        <tr key={i}>
+                          <td>
+                            <GovernanceChip status={c.status} />
+                          </td>
+                          <td className="sf-wrap" title={c.deck}>
+                            {c.control}
+                          </td>
+                          <td className="sf-wrap">
+                            <span className="hint">{c.evidence}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             ) : null}
 

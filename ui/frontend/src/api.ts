@@ -149,7 +149,27 @@ export interface InputRequirementsResponse {
     rows: InputRequirementRow[];
     summary: Record<RequirementStatus, number>;
   } | null;
+  document_check: {
+    source: string;
+    rows: { row: string; status: RequirementStatus }[];
+    summary: Record<string, number>;
+  } | null;
   reason: string | null;
+}
+
+export type GovernanceStatus = "verified" | "attention" | "pending_run";
+
+export interface GovernanceCheck {
+  control: string;
+  deck: string;
+  status: GovernanceStatus;
+  evidence: string;
+}
+
+export interface GovernanceChecksResponse {
+  checks: GovernanceCheck[];
+  summary: Record<GovernanceStatus, number>;
+  absent_decks: string[];
 }
 
 export type ProvenanceBadge =
@@ -301,6 +321,8 @@ export const api = {
   metadataSheet: () => request<MetadataSheetResponse>("/api/demo/metadata-sheet"),
   inputRequirements: () =>
     request<InputRequirementsResponse>("/api/demo/input-requirements"),
+  governanceChecks: () =>
+    request<GovernanceChecksResponse>("/api/demo/governance-checks"),
   databricksDocuments: () =>
     request<DatabricksDocumentsResponse>("/api/databricks/documents"),
   databricksFetch: (volume: string, name: string) =>

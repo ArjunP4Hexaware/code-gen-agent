@@ -194,6 +194,36 @@ def _squash(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
+def read_docx_label_values(docx_path: Path) -> dict[str, str] | None:
+    """Every table cell's (squashed label → next-cell text), first wins.
+
+    The generic reader behind document-level checks: FRD metadata tables are
+    label/value rows, so downstream callers can ask "does the document carry
+    a non-empty value under this label?" without knowing the table layout.
+    Returns None when the file cannot be parsed (same posture as
+    ``read_frd_convention``)."""
+    try:
+        with zipfile.ZipFile(docx_path) as archive:
+            root = ET.fromstring(archive.read("word/document.xml"))
+    except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError):
+        return None
+
+    def cell_text(tc) -> str:
+        paragraphs = (
+            "".join(t.text or "" for t in p.iter(f"{_W}t")) for p in tc.iter(f"{_W}p")
+        )
+        return re.sub(r"\s+", " ", " ".join(paragraphs)).strip()
+
+    values: dict[str, str] = {}
+    for row in root.iter(f"{_W}tr"):
+        cells = [cell_text(tc) for tc in row.iter(f"{_W}tc")]
+        for i, cell in enumerate(cells[:-1]):
+            key = _squash(cell)
+            if key and key not in values:
+                values[key] = cells[i + 1]
+    return values
+
+
 def read_frd_convention(docx_path: Path) -> dict | None:
     """Read Structural Metadata values live from the FRD .docx (stdlib only).
 

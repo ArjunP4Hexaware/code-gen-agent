@@ -155,9 +155,48 @@ def requirements_check(pptx_path: Path, contract: FrdContract) -> dict | None:
     return {"source": pptx_path.name, "rows": rows, "summary": summary}
 
 
+def document_requirements_check(pptx_path: Path, docx_path: Path) -> dict | None:
+    """The REAL FRD document evaluated against the deck's requirement rows.
+
+    Both documents are read live: the deck supplies the row names, the FRD
+    docx supplies its label→value table cells (via
+    ``read_docx_label_values``). A row is ``filled`` when the document
+    carries a non-empty value under that label, ``missing`` when the label
+    is absent or empty. Compound labels ("Domain and Sub-domain") fall back
+    to their parts. Returns None when either document fails to parse."""
+    from codegen.demo_sources import read_docx_label_values
+
+    requirements = read_requirements(pptx_path)
+    labels = read_docx_label_values(docx_path)
+    if requirements is None or labels is None:
+        return None
+
+    def status(row_name: str) -> str:
+        key = _squash(row_name)
+        if key in labels:
+            return "filled" if labels[key] else "missing"
+        parts = [p for p in re.split(r"\band\b|/", row_name.lower()) if p.strip()]
+        if len(parts) > 1:
+            found = [labels.get(_squash(p), "") for p in parts if _squash(p) in labels]
+            if found and len(found) == len(parts):
+                return "filled" if all(found) else "partial"
+            if any(found):
+                return "partial"
+        return "missing"
+
+    rows = []
+    summary = {"filled": 0, "partial": 0, "missing": 0}
+    for requirement in requirements:
+        row_status = status(requirement["row"])
+        summary[row_status] += 1
+        rows.append({"row": requirement["row"], "status": row_status})
+    return {"source": docx_path.name, "rows": rows, "summary": summary}
+
+
 def input_requirements_payload(config: Config, base_dir: Path, env=None) -> dict:
     """The endpoint payload: the deck found via the documents-card scan
-    (same dirs, same matching) evaluated against the demo FRD contract."""
+    (same dirs, same matching) evaluated against the demo FRD contract —
+    and, when the real FRD .docx is present, against that document too."""
     import json
 
     from codegen.demo_sources import scan_reference_documents
@@ -169,15 +208,29 @@ def input_requirements_payload(config: Config, base_dir: Path, env=None) -> dict
         None,
     )
     if deck is None:
-        return {"check": None, "reason": "requirements document not present"}
+        return {"check": None, "document_check": None,
+                "reason": "requirements document not present"}
 
     frd_path = base_dir / config.contracts.dir / config.demo.frd
     if not frd_path.is_file():
-        return {"check": None, "reason": "demo FRD contract not found"}
+        return {"check": None, "document_check": None,
+                "reason": "demo FRD contract not found"}
     contract = FrdContract.model_validate(
         json.loads(frd_path.read_text(encoding="utf-8"))
     )
     check = requirements_check(Path(deck["path"]), contract)
     if check is None:
-        return {"check": None, "reason": "requirements document did not parse"}
-    return {"check": check, "reason": None}
+        return {"check": None, "document_check": None,
+                "reason": "requirements document did not parse"}
+
+    # The real FRD document, when present, gets the same evaluation — the
+    # deck's own "filled counts the real FRDs on hand" exercise, live.
+    document_check = None
+    frd_docx = next(
+        (p for p in documents["present"] if p["name"].lower().endswith(".docx")), None
+    )
+    if frd_docx is not None:
+        document_check = document_requirements_check(
+            Path(deck["path"]), Path(frd_docx["path"])
+        )
+    return {"check": check, "document_check": document_check, "reason": None}

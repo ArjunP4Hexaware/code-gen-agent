@@ -27,6 +27,7 @@ from starlette.responses import Response
 
 from codegen.config import load_dotenv
 from codegen.demo_sources import scan_reference_documents, source_files_payload
+from codegen.governance_checks import RunFacts, governance_checks_payload
 from codegen.input_requirements import input_requirements_payload
 from codegen.metadata_sheet import (
     metadata_sheet_payload,
@@ -424,6 +425,39 @@ def _metadata_sheet_inputs(store: GenerationStore):
         for run in store.runs.values()
     }
     return specs, unmapped
+
+
+@app.get("/api/demo/governance-checks")
+def governance_checks() -> dict:
+    """The two architecture decks' stated controls, read live and evaluated
+    against the loaded run (codegen.governance_checks)."""
+    store = _require_store()
+    decisions = store.load_decisions()
+    runs = list(store.runs.values())
+    candidates = [c for run in runs for c in run.candidates]
+    pending = sum(
+        1
+        for run in runs
+        for i in range(len(run.candidates))
+        if _decision_for(run.spec.feed_slug, i, decisions)["decision"] == "pending"
+    )
+    facts = RunFacts(
+        loaded=bool(runs),
+        mode=store.mode if runs else None,
+        feeds=len(runs),
+        fingerprinted_feeds=sum(
+            1 for run in runs
+            if run.spec.frd_contract_sha256 and run.spec.sttm_contract_sha256
+        ),
+        candidates=len(candidates),
+        grounded_candidates=sum(1 for c in candidates if c.grounded),
+        pending_reviews=pending,
+        reports_on_disk=sum(
+            1 for run in runs if store.read_report(run.spec.feed_slug) is not None
+        ),
+        candidate_providers=tuple(c.provider for c in candidates),
+    )
+    return governance_checks_payload(store.config, REPO_ROOT, facts)
 
 
 @app.get("/api/demo/input-requirements")

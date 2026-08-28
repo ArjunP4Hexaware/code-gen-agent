@@ -58,6 +58,7 @@ def _generate_feed(
     *,
     dry_run: bool,
     skip_tests: bool,
+    output_mode: str | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -88,13 +89,36 @@ def _generate_feed(
         ],
         faq=faq,
     )
-    written = emit_feed(context, out_root)
+    # Option A ("notebook") is today's path, byte for byte. Option B
+    # ("framework") renders the SAME pipeline into a scratch tree so the
+    # gate checks stay identical, but persists only ddl/ + framework/;
+    # "both" persists everything. MIRRORED in service._generate_feed.
+    effective_mode = output_mode or config.output.mode
+    framework_artefacts = None
+    if effective_mode == "framework":
+        written, checks, tests_skipped, ddl_sources = _emit_framework_only(
+            context, spec, config, feed_dir, skip_tests
+        )
+        framework_artefacts = _run_emit_framework(
+            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None
+        )
+        written = [*written, *framework_artefacts.files]
+    else:
+        written = emit_feed(context, out_root)
+        checks = None  # computed below, exactly as before
+        if effective_mode == "both":
+            ddl_sources = _read_ddl_sources(feed_dir)
+            framework_artefacts = _run_emit_framework(
+                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None
+            )
+            written = [*written, *framework_artefacts.files]
     _write_candidates_artifact(candidates, feed_dir)
 
-    checks = run_preflight(feed_dir, config)
-    tests_skipped = skip_tests or not config.gate.run_generated_tests
-    if not tests_skipped:
-        checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
+    if checks is None:
+        checks = run_preflight(feed_dir, config)
+        tests_skipped = skip_tests or not config.gate.run_generated_tests
+        if not tests_skipped:
+            checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
 
     gate = compute_verdict(
         spec.feed_id,
@@ -115,8 +139,63 @@ def _generate_feed(
         out_root,
         inputs_summary=context["provenance"]["inputs"],
     )
+    if framework_artefacts is not None:
+        # Appended AFTER the standard report so report/ stays untouched and
+        # notebook-mode reports remain byte-identical.
+        from codegen.emit.framework import report_section
+
+        with open(reports_dir / f"{spec.feed_slug}.md", "a",
+                  encoding="utf-8", newline="\n") as handle:
+            handle.write(report_section(framework_artefacts))
     print(console_summary(spec, gate))
     return gate
+
+
+def _read_ddl_sources(feed_dir: Path) -> list[tuple[str, str]]:
+    return sorted(
+        (p.name, p.read_text(encoding="utf-8"))
+        for p in (feed_dir / "ddl").glob("*.sql")
+    )
+
+
+def _emit_framework_only(context, spec, config, feed_dir, skip_tests):
+    """Framework mode: full render + gate checks in a scratch tree (so the
+    verdict is IDENTICAL to notebook mode), persisting only ddl/."""
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        emit_feed(context, tmp_root)
+        tmp_feed_dir = tmp_root / spec.feed_slug
+        checks = run_preflight(tmp_feed_dir, config)
+        tests_skipped = skip_tests or not config.gate.run_generated_tests
+        if not tests_skipped:
+            checks = [*checks,
+                      run_generated_tests(tmp_feed_dir, config.gate.pytest_tail_lines)]
+        ddl_sources = _read_ddl_sources(tmp_feed_dir)
+        feed_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(tmp_feed_dir / "ddl", feed_dir / "ddl", dirs_exist_ok=True)
+    written = [feed_dir / "ddl" / name for name, _ in ddl_sources]
+    return written, checks, tests_skipped, ddl_sources
+
+
+def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
+                        base_dir):
+    from codegen.emit.framework import emit_framework
+
+    contracts_dir = Path(config.contracts.dir)
+    if base_dir is not None:
+        contracts_dir = base_dir / contracts_dir
+    frd_path = contracts_dir / spec.frd_contract_name
+    return emit_framework(
+        spec, faq, ddl_sources, config, out_root,
+        base_dir=base_dir,
+        frd_path=frd_path if frd_path.is_file() else None,
+        unmapped_rule_texts={
+            o.rule_text for o in outcomes if o.classification == "unmapped"
+        },
+    )
 
 
 def _run_pairs(
@@ -126,6 +205,7 @@ def _run_pairs(
     only_feed: str | None,
     dry_run: bool,
     skip_tests: bool,
+    output_mode: str | None = None,
 ) -> int:
     failed = False
     matched_feed = False
@@ -141,7 +221,8 @@ def _run_pairs(
                 continue
             matched_feed = True
             try:
-                gate = _generate_feed(spec, config, dry_run=dry_run, skip_tests=skip_tests)
+                gate = _generate_feed(spec, config, dry_run=dry_run,
+                                      skip_tests=skip_tests, output_mode=output_mode)
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -323,6 +404,14 @@ def main(argv: list[str] | None = None) -> int:
         "--skip-tests",
         action="store_true",
         help="skip running the generated pytest suites",
+    )
+    common.add_argument(
+        "--output-mode",
+        choices=["notebook", "framework", "both"],
+        default=None,
+        help="override output.mode: notebook (Option A, default), framework "
+        "(Option B: DDL scripts + config rows + inserts for the existing "
+        "ingestion framework), or both",
     )
 
     generate = subparsers.add_parser(
@@ -517,7 +606,8 @@ def main(argv: list[str] | None = None) -> int:
         only_feed = None
 
     return _run_pairs(
-        pairs, config, only_feed=only_feed, dry_run=args.dry_run, skip_tests=args.skip_tests
+        pairs, config, only_feed=only_feed, dry_run=args.dry_run,
+        skip_tests=args.skip_tests, output_mode=args.output_mode
     )
 
 

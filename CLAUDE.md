@@ -209,6 +209,31 @@ inside `extract-sttm` or the resolver.**
   bad request, 404 no such feed/artifact, 413 over a cap. The panel renders
   nothing when unconfigured.
 
+## Output modes (Option A / Option B, added 2026-08-27)
+
+`output.mode: notebook | framework | both` (CLI `--output-mode`, UI
+selector). **Option A** ("notebook", the default) is today's output byte
+for byte — a fresh standalone pipeline, the ~10% case; guarded by
+`tests/snapshots/notebook_mode.json` (sha256 per emitted file for the CV
+pair — regenerate deliberately, never casually). **Option B**
+("framework") is the primary ACFC path per the Aug 25/26 calls: an
+*addition* to the existing metadata-driven ingestion framework (~90% of
+runs) — `out/<slug>/framework/` holds `ddl_scripts.xlsx`,
+`config_rows.xlsx` (THE approval artefact; built by `codegen.
+metadata_sheet`, the single source of truth for the row layout — a
+stand-in until the client's template arrives, values carry over),
+`config_inserts.sql` (sqlserver|lakebase dialect via `framework:` config;
+plain INSERTs, idempotency belongs to the framework's load path) and
+`ADDITION.md`. Framework mode still renders the FULL pipeline into a
+scratch tree so gate checks and verdicts are identical across modes; it
+persists only ddl/ + framework/. **Never-invent-IDs:** `always_blank`
+columns render as `framework.id_placeholder` and are flagged — assigned
+by the client's framework or manually by client instruction, never by the
+agent. Workbook serialization is pinned byte-stable
+(`stable_workbook_bytes`). The FAQ gained `has_header`/`has_trailer`
+companions (NOT questions — banner/flag counts untouched) feeding the
+"from FAQ" badge.
+
 ## Databricks volumes seam (added 2026-08-27)
 
 `src/codegen/databricks.py` — the UC-volumes twin of the SharePoint seam,

@@ -134,6 +134,22 @@ read** panel directly above it:
 > the document, sitting beside the synthesized template path — same
 > convention, real vs stand-in."
 
+**The Output selector** (Notebook / Framework artefacts / Both — the beat
+for Nikshit). Click **Framework artefacts**:
+
+> "Two shapes of deliverable from the same approved STTM. The notebook is
+> the ~10% case — a fresh standalone pipeline. Framework artefacts are the
+> ~90% case — an *addition* to your existing ingestion framework: DDL
+> scripts, config rows, insert statements. Same generation, same gate,
+> same verdict — only what lands on disk changes. After a run, open
+> `config_rows.xlsx` and `ADDITION.md` from the results page: the config
+> rows are the approval artefact, the inserts run only after approval
+> through your metadata path, and the ID columns are blank because your
+> framework assigns them — **the agent refuses to guess**."
+
+(Reset to **Notebook** — or leave **Both** — before firing, per what you
+want the results walk to show.)
+
 **The shell block** ("In the Databricks workspace", collapsed). Expand it
 once:
 

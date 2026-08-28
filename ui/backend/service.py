@@ -60,6 +60,9 @@ class FeedRun(BaseModel):
     gate: GateResult
     written_files: list[str]  # repo-relative, posix
     error: str | None = None
+    # Option B artefact summary (framework/both modes): file names, row
+    # counts per tab, badge coverage, framework-assigned blank columns.
+    framework: dict | None = None
 
 
 class FailedRun(BaseModel):
@@ -119,6 +122,7 @@ class GenerationStore:
         only_slug: str | None = None,
         dry_run: bool = True,
         skip_tests: bool = True,
+        output_mode: str | None = None,
     ) -> None:
         with self._lock:
             # Refuse loudly BEFORE touching state (mirrors the CLI): with no
@@ -152,7 +156,8 @@ class GenerationStore:
                         continue
                     try:
                         self.runs[spec.feed_slug] = self._generate_feed(
-                            spec, dry_run=dry_run, skip_tests=skip_tests
+                            spec, dry_run=dry_run, skip_tests=skip_tests,
+                            output_mode=output_mode,
                         )
                     except TemplateGapError as exc:
                         failures.append(FailedRun(label=spec.feed_id, error=f"template gap: {exc}"))
@@ -172,6 +177,7 @@ class GenerationStore:
         reports_dir: Path | None = None,
         candidates_override: list[RuleCandidate] | None = None,
         on_stage: Callable[[str], None] | None = None,
+        output_mode: str | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
         # out_root/reports_dir isolate demo runs; candidates_override replays
@@ -211,17 +217,44 @@ class GenerationStore:
             ],
             faq=faq,
         )
-        written = emit_feed(context, out_root)
+        # Option A/B branch — MIRRORS cli._generate_feed (its helpers are
+        # reused directly so the two cannot drift).
+        from codegen.cli import _emit_framework_only, _read_ddl_sources, _run_emit_framework
+
+        effective_mode = output_mode or self.config.output.mode
+        framework_artefacts = None
+        checks = None
+        tests_skipped = skip_tests or not self.config.gate.run_generated_tests
+        if effective_mode == "framework":
+            stage("framework artefacts")
+            written, checks, tests_skipped, ddl_sources = _emit_framework_only(
+                context, spec, self.config, feed_dir, skip_tests
+            )
+            framework_artefacts = _run_emit_framework(
+                spec, faq, ddl_sources, self.config, out_root, outcomes,
+                base_dir=REPO_ROOT,
+            )
+            written = [*written, *framework_artefacts.files]
+        else:
+            written = emit_feed(context, out_root)
+            if effective_mode == "both":
+                stage("framework artefacts")
+                ddl_sources = _read_ddl_sources(feed_dir)
+                framework_artefacts = _run_emit_framework(
+                    spec, faq, ddl_sources, self.config, out_root, outcomes,
+                    base_dir=REPO_ROOT,
+                )
+                written = [*written, *framework_artefacts.files]
         self._write_candidates_artifact(candidates, feed_dir)
 
         stage("gate")
-        checks = run_preflight(feed_dir, self.config)
-        tests_skipped = skip_tests or not self.config.gate.run_generated_tests
-        if not tests_skipped:
-            checks = [
-                *checks,
-                run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
-            ]
+        if checks is None:
+            checks = run_preflight(feed_dir, self.config)
+            if not tests_skipped:
+                checks = [
+                    *checks,
+                    run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
+                ]
 
         gate = compute_verdict(
             spec.feed_id,
@@ -242,12 +275,26 @@ class GenerationStore:
             out_root,
             inputs_summary=context["provenance"]["inputs"],
         )
+        framework_summary = None
+        if framework_artefacts is not None:
+            from codegen.emit.framework import report_section
+
+            with open(reports_dir / f"{spec.feed_slug}.md", "a",
+                      encoding="utf-8", newline="\n") as handle:
+                handle.write(report_section(framework_artefacts))
+            framework_summary = {
+                "files": [p.name for p in framework_artefacts.files],
+                "row_counts": framework_artefacts.row_counts,
+                "coverage": framework_artefacts.coverage,
+                "flagged_blank_columns": framework_artefacts.flagged_blank_columns,
+            }
         return FeedRun(
             spec=spec,
             outcomes=outcomes,
             candidates=candidates,
             gate=gate,
             written_files=[p.relative_to(REPO_ROOT).as_posix() for p in written],
+            framework=framework_summary,
         )
 
     @staticmethod
@@ -322,6 +369,16 @@ class GenerationStore:
         if not target.is_file():
             raise FileNotFoundError(rel_path)
         return target.read_text(encoding="utf-8")
+
+    def read_generated_bytes(self, feed_slug: str, rel_path: str) -> bytes:
+        """Binary twin of read_generated_file (xlsx downloads); same containment."""
+        feed_dir = (self.out_root / feed_slug).resolve()
+        target = (feed_dir / rel_path).resolve()
+        if not target.is_relative_to(feed_dir):
+            raise PermissionError(f"path escapes feed directory: {rel_path}")
+        if not target.is_file():
+            raise FileNotFoundError(rel_path)
+        return target.read_bytes()
 
     def read_report(self, feed_slug: str) -> str | None:
         path = self.reports_root / f"{feed_slug}.md"

@@ -42,6 +42,19 @@ class DemoRunner:
         # The operator's chosen STTM workbook. None = the config default.
         # In-memory only: a restart returns to config.demo.workbook.
         self.selected_workbook: Path | None = None
+        # Output mode override (notebook | framework | both). None = the
+        # config default; in-memory only, same as the workbook choice.
+        self.output_mode: str | None = None
+
+    def select_output_mode(self, mode: str | None) -> None:
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change the output mode while a live run is in progress"
+                )
+        if mode is not None and mode not in ("notebook", "framework", "both"):
+            raise ValueError(f"unknown output mode {mode!r}")
+        self.output_mode = mode
 
     # -- STTM workbook choice ------------------------------------------------
 
@@ -167,6 +180,7 @@ class DemoRunner:
                     out_root=run_root,
                     reports_dir=reports_root,
                     on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
+                    output_mode=self.output_mode,
                 )
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))

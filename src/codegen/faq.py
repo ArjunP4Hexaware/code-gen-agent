@@ -97,6 +97,13 @@ class LoadPatternFaq(BaseModel):
     # data_integrity_checks: none | not_null_keys | custom
     data_integrity_checks: FaqAnswer = FaqAnswer(value="none")
     dataset_ids: DatasetIds = DatasetIds()
+    # Companions for the framework config rows (NOT questions — not in
+    # QUESTION_FIELDS, so banner/flag counts are untouched): whether the
+    # file's first row carries column names, and whether a trailer record
+    # exists. The FRD template lacks both; an engineer's FAQ answer is the
+    # honest source until the client's metadata template arrives.
+    has_header: FaqAnswer = FaqAnswer(value="unknown")
+    has_trailer: FaqAnswer = FaqAnswer(value="unknown")
 
 
 # The question fields (order fixed — it is the banner/flag order). dedup_keys

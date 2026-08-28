@@ -35,7 +35,22 @@ export interface FeedSummary {
   candidate_count: number;
   candidates_pending: number;
   files_written: number;
+  framework: FrameworkSummary | null;
 }
+
+export interface FrameworkSummary {
+  files: string[];
+  row_counts: Record<string, number>;
+  coverage: {
+    derived: number;
+    synthetic: number;
+    needs_template: number;
+    total: number;
+  };
+  flagged_blank_columns: string[];
+}
+
+export type OutputMode = "notebook" | "framework" | "both";
 
 export type RunMode = "mock" | "live" | "replay";
 
@@ -69,6 +84,7 @@ export interface DemoStatus {
   estimates: { calls: number; cost_usd: number; seconds: number };
   sttm_workbook?: string;
   sttm_chosen?: boolean;
+  output_mode?: OutputMode;
 }
 
 export interface SttmWorkbook {
@@ -315,6 +331,12 @@ export const api = {
     }),
   clearWorkbook: () =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
+  setOutputMode: (mode: OutputMode | null) =>
+    request<DemoStatus>("/api/demo/output-mode", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode }),
+    }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
   sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),

@@ -46,11 +46,11 @@ src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
                     classifier), reasoning/ (Layer 2: providers, verbatim
                     grounding), emit/ (Jinja2 + notebook assembler), gate/
                     (preflight, tests, verdict), report/, templates/, cli.py, config.py
-tests/              137 tests, offline, no Spark needed; 31 of them SKIP since
-                    2026-08-22 because the fixtures they drive on were removed
-                    (see "Fixtures & data rules"); the demo-UI and SharePoint-
-                    route tests also skip when the [ui] extra (or httpx) isn't
-                    installed. Run pytest for the live count rather than
+tests/              offline, no Spark needed; some SKIP when the fixtures they
+                    drive on are absent (see "Fixtures & data rules"); the
+                    demo-UI and SharePoint-route tests also skip when the [ui]
+                    extra (or httpx) isn't installed. Run pytest for the live
+                    count rather than
                     trusting a number written down here.
 config/config.yaml  every knob — contract pairs (EMPTY since 2026-08-22), extractor layout,
                     naming, masking, gate, job
@@ -87,15 +87,17 @@ its committed expected output and can NEVER match the MIDS fixture
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
 # Live Layer-2 runs additionally need the Anthropic SDK: -e ".[dev,live]"
-.venv/bin/python -m pytest -q          # 80 passed, no Spark, no network
+.venv/bin/python -m pytest -q          # no Spark, no network
 
 # Generate everything from the fixture contracts (mock Layer 2, no network)
 .venv/bin/python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests
 ```
 
-Expected with current fixtures: **all 4 feeds PASS_WITH_FLAGS** (every feed
-has flagged/notification/unmapped rules — correct behavior, not a failure).
-Output lands in `out/<feed_slug>/` (module tree, DDL, tests,
+`contracts.pairs` is empty (see "Fixtures & data rules"), so `generate-all`
+refuses loudly; generate via explicit paths (`codegen generate
+--frd-contract X --sttm-contract Y`) or the demo UI's golden pair. A feed
+with flagged/notification/unmapped rules verdicts PASS_WITH_FLAGS — correct
+behavior, not a failure. Output lands in `out/<feed_slug>/` (module tree, DDL, tests,
 job JSON, one assembled runnable `.ipynb`) with a markdown report per feed
 in `reports/` — both gitignored. Running the *generated* Spark tests (drop
 `--skip-tests`) needs a JVM: `JAVA_HOME` → Java 17, `PYSPARK_PYTHON` → the
@@ -165,47 +167,14 @@ Keeping the network at the edge is what lets Layer 1 stay deterministic,
 offline and credential-free. **Do not "simplify" this by calling Graph from
 inside `extract-sttm` or the resolver.**
 
-- **Standard library only** (`urllib.request`). Graph is plain REST; no SDK,
-  no new runtime dependency. (`httpx` was added to the `dev` extra — it is
-  test-only: `fastapi.testclient` is httpx-backed and the [ui] extra did not
-  pull it, so the demo-UI tests could not actually run.)
-- **App-only client credentials.** Secret from `SHAREPOINT_CLIENT_SECRET`
-  (env or the gitignored `.env`), same resolution as `ANTHROPIC_API_KEY`.
-  Excluded from `SharePointConfig.__repr__` so it cannot reach a traceback.
-  Required Graph APPLICATION permission with admin consent: `Sites.Selected`
-  on the target site, preferred over tenant-wide `Files.ReadWrite.All`.
-- **Config split follows this repo's doctrine, not the source repo's.**
-  frd-to-sttm reads every knob from notebook widgets/env. Here the non-secret
-  knobs (host, site_path, library, input/output folder) live in
-  `config/config.yaml` under `sharepoint:`, and identity + secret are
-  env-only so a tenant is never committed. `param_from_config` layers them:
-  env var > YAML > default. The section is OPTIONAL — a config without it
-  still loads and every other command is unaffected.
-- **Fail-loud, both directions.** Missing config raises naming both remedies.
-  A short download raises rather than leaving a truncated .xlsx for openpyxl
-  to report as a layout problem. A missing library lists what the site has.
-  Fetching nothing and publishing nothing are both errors, not no-ops.
-- **Publish is separate from generate on purpose.** Generation re-runs every
-  time a rule or contract changes, and a re-generate is not a re-publish —
-  the human gate sits between them. Running `sharepoint-publish` IS that
-  gate, which is why the CLI takes no `--confirm` (mirroring the source
-  repo's standalone publish notebook); the HTTP endpoint, which a stray POST
-  could reach, DOES require `{"confirm": true}`.
-- **Write scope is one folder.** `sharepoint.output_folder` is the only path
-  this repo ever writes to. Keep the app registration's write grant scoped
-  to it.
-- **Publish names are qualified.** `<feed_slug>.md` / `<feed_slug>.ipynb`
-  publish under their own name; anything else (`bronze.py`, `ddl.sql`) is
-  prefixed `<feed_slug>__`, because those names repeat across feeds and a
-  flat library folder has no other way to stop the second feed overwriting
-  the first.
-- **UI routes** (`ui/backend/sharepoint_routes.py`): a picked document is
-  downloaded into `inputs/sharepoint/` — the same place `sharepoint-fetch
-  --dest` writes — so it starts through the existing generate path. There is
-  deliberately no second "generate from SharePoint" execution path. Status
-  codes say whose problem it is: 503 not configured, 502 Graph refused, 400
-  bad request, 404 no such feed/artifact, 413 over a cap. The panel renders
-  nothing when unconfigured.
+Mechanics (stdlib-only transport, app-only credentials via
+`SHAREPOINT_CLIENT_SECRET`, config split, fail-loud rules, the
+publish-is-the-human-gate design, one-folder write scope, qualified publish
+names, UI route status codes):
+`.claude/skills/code-gen-agent/references/sharepoint-seam.md` — read it
+before touching `sharepoint.py`, the publish flow, or the UI routes. No
+secrets in the repo; the `sharepoint:` config section is optional and
+non-secret.
 
 ## Output modes (Option A / Option B, added 2026-08-27)
 
@@ -281,10 +250,20 @@ credentials instead of a profile. `databricks-sdk` via the optional
 `DATABRICKS_HOST` uncommented in `.env` — the SDK prefers env over
 profile and will try to reach it. The FMAPI provider (`chat()` here +
 `reasoning/providers/databricks_provider.py`) got its explicit go and is
-LIVE as of 2026-08-28. Everything else write-shaped (tables, jobs, UC
-grounding gate checks — "B1") stays NOT BUILT pending explicit go; the
-governance check "never writes back" introspects this module and flips if
-a write-shaped function ever appears (an FMAPI query is a read).
+LIVE as of 2026-08-28. **Artifact publish got its explicit go
+2026-08-28 too**: `publish_artifacts` (+ generalized `ensure_volume`) is
+the human-gated outbound half — the UC twin of `sharepoint-publish` —
+targeting `databricks.output_volume` (default `generated`), per-feed
+directories, confirm-gated over HTTP (`POST /api/databricks/publish`),
+no `--confirm` on the CLI (`codegen databricks-publish`) because running
+it IS the gate. The UI's publish panel (Dashboard) lets the user pick
+any catalog.schema.volume, but every write resolves through
+`_guarded_full_name` — `WRITABLE_PREFIX` refusal is enforced in code,
+and the governance "never writes back" check sanctions exactly
+{ensure_volume, upload_file, publish_artifacts}. Everything else
+write-shaped (tables, jobs) stays NOT BUILT pending explicit go; the
+check flips if any other write-shaped function appears (an FMAPI query
+is a read).
 
 **Databricks App deployment (2026-08-28):** the demo UI runs as the
 workspace app `codegen-agent`
@@ -345,7 +324,7 @@ file names but the files are absent, so Live/Replay fail with file-not-found
 until anonymized copies are restored; every fixture-driven test skips with an
 explicit reason rather than failing (`tests/conftest.py` `require_fixture_files`
 / `_pair_paths`). Restoring anonymized fixtures at the configured paths
-re-enables the full 80-test suite unchanged. The anonymized CV/golden set
+re-enables the full test suite unchanged. The anonymized CV/golden set
 (demo FRD + STTM contracts, golden workbook, and the `live_e2e_20260807`
 replay set) survives at `044752e^` and may be restored **working-tree-only**
 with `git show "044752e^:<path>" > <path>` — never `git checkout`, which

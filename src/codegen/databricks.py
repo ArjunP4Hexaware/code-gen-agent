@@ -70,7 +70,8 @@ class DatabricksVolumesConfig:
     serving_endpoint: str = ""      # FMAPI chat endpoint (Claude via Databricks)
     wrapper_notebook_path: str = ""  # no wrapper job exists in the Hexaware
     #                                  workspace; supplied by the client
-    landing_volume: str = ""        # the ONE writable volume (see below)
+    landing_volume: str = ""        # writable: synthetic landing files (see below)
+    output_volume: str = ""         # writable: human-gated artifact publish
     readable_tables: tuple = ()     # allowlist for read_table_rows
 
 
@@ -88,6 +89,7 @@ _YAML_KEYS = {
     "databricks_serving_endpoint": "serving_endpoint",
     "databricks_wrapper_notebook_path": "wrapper_notebook_path",
     "databricks_landing_volume": "landing_volume",
+    "databricks_output_volume": "output_volume",
 }
 # readable_tables is list-valued and comes from YAML only (no env override).
 
@@ -124,6 +126,7 @@ def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
         "serving_endpoint": knob("databricks_serving_endpoint"),
         "wrapper_notebook_path": knob("databricks_wrapper_notebook_path"),
         "landing_volume": knob("databricks_landing_volume"),
+        "output_volume": knob("databricks_output_volume"),
         "readable_tables": tuple(getattr(settings, "readable_tables", ()) or ())
         if settings is not None else (),
     }
@@ -381,14 +384,19 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
 WRITABLE_PREFIX = "soham_workspace.codegen_agent."
 
 
-def _landing_full_name(cfg: DatabricksConfig) -> str:
-    if not cfg.landing_volume:
+def _guarded_full_name(cfg: DatabricksConfig, volume: str, knob: str,
+                       catalog: str = "", schema: str = "") -> str:
+    """catalog.schema.volume for a WRITE target — every write path resolves
+    its name here, so the WRITABLE_PREFIX policy cannot be bypassed. The
+    optional catalog/schema overrides exist for the UI's publish picker; a
+    target outside the prefix is refused loudly, never silently redirected."""
+    if not volume:
         raise DatabricksConfigError(
-            "databricks.landing_volume is not configured — set it in the "
+            f"databricks.{knob} is not configured — set it in the "
             "`databricks:` section of config/config.yaml (or "
-            "DATABRICKS_LANDING_VOLUME)."
+            f"DATABRICKS_{knob.upper()})."
         )
-    full_name = f"{cfg.catalog}.{cfg.schema}.{cfg.landing_volume}"
+    full_name = f"{catalog or cfg.catalog}.{schema or cfg.schema}.{volume}"
     if not full_name.startswith(WRITABLE_PREFIX):
         raise DatabricksConfigError(
             f"refusing to write to {full_name!r}: the only writable location "
@@ -397,9 +405,22 @@ def _landing_full_name(cfg: DatabricksConfig) -> str:
     return full_name
 
 
-def ensure_volume(cfg: DatabricksConfig, client=None) -> dict:
-    """Create the landing volume if absent. Returns {full_name, created}."""
-    full_name = _landing_full_name(cfg)
+def _landing_full_name(cfg: DatabricksConfig) -> str:
+    return _guarded_full_name(cfg, cfg.landing_volume, "landing_volume")
+
+
+def ensure_volume(cfg: DatabricksConfig, client=None, volume: str = "",
+                  knob: str = "landing_volume", catalog: str = "",
+                  schema: str = "") -> dict:
+    """Create a writable volume if absent. Returns {full_name, created}.
+
+    Default target stays the landing volume (back-compat); the publish path
+    passes its own volume + knob (and, from the UI picker, catalog/schema
+    overrides). Either way the name resolves through ``_guarded_full_name``,
+    so WRITABLE_PREFIX holds here too.
+    """
+    name = volume or cfg.landing_volume
+    full_name = _guarded_full_name(cfg, name, knob, catalog=catalog, schema=schema)
     client = client if client is not None else _client(cfg)
     try:
         client.volumes.read(full_name)
@@ -414,9 +435,9 @@ def ensure_volume(cfg: DatabricksConfig, client=None) -> dict:
         from databricks.sdk.service.catalog import VolumeType
 
         client.volumes.create(
-            catalog_name=cfg.catalog,
-            schema_name=cfg.schema,
-            name=cfg.landing_volume,
+            catalog_name=catalog or cfg.catalog,
+            schema_name=schema or cfg.schema,
+            name=name,
             volume_type=VolumeType.MANAGED,
         )
         return {"full_name": full_name, "created": True}
@@ -457,6 +478,48 @@ def upload_file(cfg: DatabricksConfig, relative_path: str, data: bytes,
     except Exception as exc:  # noqa: BLE001
         raise DatabricksTransportError(f"upload of {target} failed: {exc}") from exc
     return target
+
+
+def publish_artifacts(cfg: DatabricksConfig, feed_slug: str, files: list,
+                      catalog: str = "", schema: str = "", volume: str = "",
+                      force: bool = False, client=None) -> list[dict]:
+    """Upload one feed's reviewed artifacts into the output volume.
+
+    THE human-gated outbound half of the volumes seam — the UC twin of
+    ``sharepoint-publish``. Publishing is something a reviewer does on
+    purpose, per feed, after the gate verdict; it is never a side effect of
+    generating. Targets land under ``<volume>/<feed_slug>/<file name>`` (a
+    per-feed directory, so artifact names repeating across feeds cannot
+    collide). The catalog/schema/volume may be overridden per call (the UI's
+    picker), but every name resolves through ``_guarded_full_name`` — a
+    target outside WRITABLE_PREFIX is refused loudly, and the governance
+    check sanctions exactly this function beyond the landing seeder.
+    """
+    full_name = _guarded_full_name(
+        cfg, volume or cfg.output_volume, "output_volume",
+        catalog=catalog, schema=schema,
+    )
+    slug = feed_slug.strip().strip("/")
+    if not slug or "/" in slug or ".." in slug:
+        raise DatabricksTransportError(f"invalid feed slug: {feed_slug!r}")
+    client = client if client is not None else _client(cfg)
+    root = f"/Volumes/{full_name.replace('.', '/')}/{slug}"
+    published: list[dict] = []
+    import io
+
+    for path in files:
+        data = path.read_bytes()
+        target = f"{root}/{path.name}"
+        try:
+            client.files.upload(target, io.BytesIO(data), overwrite=force)
+        except Exception as exc:  # noqa: BLE001
+            raise DatabricksTransportError(
+                f"upload of {target} failed: {exc}"
+            ) from exc
+        published.append(
+            {"name": path.name, "path": target, "size_bytes": len(data)}
+        )
+    return published
 
 
 def list_landing(cfg: DatabricksConfig, prefix: str = "",

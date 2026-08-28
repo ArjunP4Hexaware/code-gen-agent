@@ -367,9 +367,12 @@ class DatabricksSettings(BaseModel):
     warehouse_id: str = ""           # EXPLAIN-only; waking it bills DBUs
     serving_endpoint: str = ""       # FMAPI chat endpoint (Claude transport)
     wrapper_notebook_path: str = ""  # client-supplied; none exists here yet
-    # The ONE writable volume (codegen.databricks.WRITABLE_PREFIX guards it
-    # by construction); seeded with synthetic files by databricks-seed-landing.
+    # The writable volumes (codegen.databricks.WRITABLE_PREFIX guards both
+    # by construction): landing_volume is seeded with synthetic files by
+    # databricks-seed-landing; output_volume receives reviewed artifacts via
+    # the human-gated `databricks-publish` (2026-08-28 explicit go).
     landing_volume: str = ""
+    output_volume: str = ""
     # Allowlist for read_table_rows (SELECT-only, statement rendered in
     # code). Reading any table NOT listed here is refused. First read wakes
     # the serverless warehouse = DBU spend.

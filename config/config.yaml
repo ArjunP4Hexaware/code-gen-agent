@@ -380,6 +380,11 @@ databricks:
   # anything outside soham_workspace.codegen_agent.* is refused). Seeded
   # with synthetic files only — never client documents.
   landing_volume: mftlanding
+  # Default target for the human-gated artifact publish (databricks-publish
+  # CLI / the UI's publish panel). The panel lets the user pick any
+  # catalog.schema.volume, but code refuses anything outside
+  # WRITABLE_PREFIX — publishing never touches client schemas.
+  output_volume: generated
   # SELECT-only table-read allowlist (read_table_rows renders the statement
   # itself; callers never pass SQL). Reads wake the serverless warehouse —
   # DBU spend from the shared pool. FRD contracts come from the upstream

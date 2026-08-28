@@ -1,5 +1,11 @@
 # Databricks Apps runtime install (the platform pip-installs this file).
 # Local dev keeps using `pip install -e ".[dev]"` — this exists ONLY for
 # the Apps deployment: the package itself plus the UI backend and the
-# Databricks seam (FMAPI Layer-2 transport + volumes fetch).
+# Databricks seam (FMAPI Layer-2 transport + volumes/publish).
+#
+# IMPORTANT: the Apps runtime caches the installed environment keyed on
+# this file's content — a deploy that changes src/ WITHOUT changing this
+# file can serve stale code. Bump the marker below (and the pyproject
+# version) whenever src/ changes.
+# codegen-version-marker: 0.2.0
 .[ui,databricks]

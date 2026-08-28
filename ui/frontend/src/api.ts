@@ -182,6 +182,22 @@ export interface DatabricksDocument {
   paired?: boolean;
 }
 
+export interface DatabricksPublishTarget {
+  available: boolean;
+  reason: string;
+  catalog?: string;
+  schema?: string;
+  volume?: string;
+  writable_prefix: string;
+}
+
+export interface DatabricksPublishResult {
+  published: boolean;
+  volume: string;
+  volume_created: boolean;
+  artifacts: { name: string; path: string; size_bytes: number }[];
+}
+
 export interface DatabricksDocumentsResponse {
   catalog: string;
   schema: string;
@@ -393,6 +409,19 @@ export const api = {
     request<GovernanceChecksResponse>("/api/demo/governance-checks"),
   databricksDocuments: () =>
     request<DatabricksDocumentsResponse>("/api/databricks/documents"),
+  databricksPublishTarget: () =>
+    request<DatabricksPublishTarget>("/api/databricks/publish-target"),
+  databricksPublish: (body: {
+    feed_slug: string;
+    catalog: string;
+    schema_name: string;
+    volume: string;
+  }) =>
+    request<DatabricksPublishResult>("/api/databricks/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, confirm: true }),
+    }),
   databricksFetch: (volume: string, name: string) =>
     request<{ fetched: string; dest: string }>("/api/databricks/fetch", {
       method: "POST",

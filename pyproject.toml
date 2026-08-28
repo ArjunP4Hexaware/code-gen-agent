@@ -1,6 +1,9 @@
 [project]
 name = "codegen-data-engineer-agent"
-version = "0.1.0"
+# Bump on every Apps redeploy that changes src/ — the Apps pip install
+# reuses its cached wheel for an unchanged version, silently deploying
+# stale code against fresh config (bitten 2026-08-28).
+version = "0.2.0"
 description = "Generates Databricks ingestion pipelines (PySpark + Delta) from approved machine-readable contracts"
 requires-python = ">=3.11"
 dependencies = [

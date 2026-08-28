@@ -179,6 +179,45 @@ def test_env_override_is_pathsep_separated(config, tmp_path):
     assert (REPO / "inputs" / "sharepoint") in yaml_dirs
 
 
+# -- shared document-name helpers (chooser dedupe + FRD pairing) --------------- #
+
+
+def test_canonical_document_name_strips_prefix_copy_suffix_case():
+    from codegen.demo_sources import canonical_document_name as canon
+
+    assert canon("1787853350398_FRD_X.docx") == "frd_x.docx"
+    assert canon("STTM_Mapping_1005034__ (1).xlsx") == "sttm_mapping_1005034__.xlsx"
+    assert canon("Name (2)") == "name"
+    # " (n)" strips only as a copy suffix, never from the middle of a name.
+    assert canon("Vantage (CV) extract.xlsx") == "vantage (cv) extract.xlsx"
+    assert canon("A.docx") == canon("123_a (1).DOCX")
+
+
+def test_pairing_by_shared_ticket_number():
+    from codegen.demo_sources import pair_sttm_with_frd
+
+    sttm = ["STTM_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Mapping_1005034__ (1).xlsx",
+            "STTM-Medicare Expansion-MIDS-Social Determine (1).xlsx"]
+    frd = ["FRD_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Ingestion_1005034 (1).docx",
+           "FRD_Medicare Expansion-MIDS - Socially Determined (1).docx"]
+    pairs = pair_sttm_with_frd(sttm, frd)
+    # 1005034 pairs; MIDS has no shared ticket → conservatively unpaired.
+    assert pairs == {sttm[0]: frd[0]}
+
+
+def test_pairing_is_conservative_on_ambiguity():
+    from codegen.demo_sources import pair_sttm_with_frd
+
+    # Two FRDs share the ticket → no pairing for that STTM.
+    assert pair_sttm_with_frd(["STTM_1005034.xlsx"],
+                              ["FRD_A_1005034.docx", "FRD_B_1005034.docx"]) == {}
+    # Two STTMs claim one FRD → neither pairs.
+    assert pair_sttm_with_frd(["STTM_A_1005034.xlsx", "STTM_B_1005034.xlsx"],
+                              ["FRD_1005034.docx"]) == {}
+    # No tickets anywhere → nothing pairs.
+    assert pair_sttm_with_frd(["STTM_plain.xlsx"], ["FRD_plain.docx"]) == {}
+
+
 # -- docx convention reader (synthetic document only) -------------------------- #
 
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

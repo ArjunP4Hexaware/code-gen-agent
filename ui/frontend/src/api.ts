@@ -142,6 +142,13 @@ export interface DatabricksDocument {
   name: string;
   size: number;
   volume: string;
+  // Server-side dedupe against the local input dirs:
+  state: "fetchable" | "fetched" | "differs";
+  local_name?: string;
+  // STTM entries: conservative ticket-number pairing.
+  companion_frd?: string;
+  // FRD entries: true when an STTM claims this FRD as its companion.
+  paired?: boolean;
 }
 
 export interface DatabricksDocumentsResponse {

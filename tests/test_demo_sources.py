@@ -112,7 +112,7 @@ def test_shell_listing_one_command_then_patterns(config):
     rows = [feed_source_files(_feed(), config)]
     lines = shell_listing(rows, config)
     assert lines[0] == (
-        "$ databricks fs ls dbfs:/Volumes/hexaware_demo/landing/mft/"
+        "$ databricks fs ls dbfs:/Volumes/soham_workspace/codegen_agent/mftlanding/"
         "mftlanding/inbound/care_management/public/civic_vantage_cv/"
     )
     assert lines[1:] == ["extract_YYYY_MM.csv"]

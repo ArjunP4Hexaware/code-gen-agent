@@ -133,20 +133,31 @@ def _check_audit_trail(facts: RunFacts) -> tuple[str, str]:
 
 
 def _check_read_only_seams(facts: RunFacts) -> tuple[str, str]:
-    # Structural, not run-dependent: the Databricks seam must expose no
-    # workspace write. Introspected live so a future write API cannot slip
-    # in without this control flipping.
+    # Structural, not run-dependent: document sources must stay read-only.
+    # The ONE sanctioned write surface (2026-08-27) is the landing-volume
+    # seeder — exactly {ensure_volume, upload_file}, guarded by
+    # WRITABLE_PREFIX in code. Anything write-shaped beyond that flips this
+    # control; so does losing the prefix guard.
     import codegen.databricks as databricks_module
 
-    writers = [
+    sanctioned = {"ensure_volume", "upload_file"}
+    writers = {
         name for name in dir(databricks_module)
-        if any(w in name.lower() for w in ("upload", "write", "put", "publish"))
-    ]
-    if writers:
-        return "attention", f"write-shaped functions found: {writers}"
+        if any(w in name.lower() for w in
+               ("upload", "write", "put", "publish", "delete", "remove"))
+        and name != "WRITABLE_PREFIX"
+    }
+    unsanctioned = writers - sanctioned
+    if unsanctioned:
+        return "attention", f"unsanctioned write-shaped functions: {sorted(unsanctioned)}"
+    if not str(getattr(databricks_module, "WRITABLE_PREFIX", "")).startswith(
+        "soham_workspace.codegen_agent."
+    ):
+        return "attention", "the landing write guard (WRITABLE_PREFIX) is missing"
     return "verified", (
-        "the Databricks volumes seam exposes list + download only; "
-        "SharePoint publish is a separate, confirm-gated act"
+        "document sources are read-only; the only write surface is the "
+        "landing seeder, constrained by construction to "
+        f"{databricks_module.WRITABLE_PREFIX}* — no deletes exist anywhere"
     )
 
 

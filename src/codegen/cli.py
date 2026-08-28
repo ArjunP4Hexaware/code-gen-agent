@@ -379,6 +379,179 @@ def _sharepoint_publish(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+# Filename date-token table for the landing seeder. Tokens resolve only at
+# word boundaries (so OH / MIDS stay literal); HHMM/HH use a fixed synthetic
+# delivery time of 06:00. Anything date-ish left after resolution is flagged
+# and kept literal — the seeder never guesses.
+_SEED_TOKEN_TABLE: tuple[tuple[str, str], ...] = (
+    ("CCYYMMDD", "%Y%m%d"),
+    ("YYYYMMDD", "%Y%m%d"),
+    ("CCYY", "%Y"),
+    ("YYYY", "%Y"),
+    ("MM", "%m"),
+    ("DD", "%d"),
+    ("HHMM", "0600"),
+    ("HH", "06"),
+)
+_SEED_LEFTOVER_RE = None  # compiled lazily in _resolve_pattern_tokens
+
+
+def _resolve_pattern_tokens(pattern: str, date) -> tuple[str, list[str]]:
+    """(resolved filename, flagged leftover tokens)."""
+    import re as re_module
+
+    global _SEED_LEFTOVER_RE  # noqa: PLW0603 — lazy compile, module cache
+    if _SEED_LEFTOVER_RE is None:
+        _SEED_LEFTOVER_RE = re_module.compile(
+            r"(?<![A-Za-z])(?:CC|YY|MM|DD|HH|SS)[A-Z]*(?![a-z])"
+        )
+    resolved = pattern
+    for token, replacement in _SEED_TOKEN_TABLE:
+        value = date.strftime(replacement) if "%" in replacement else replacement
+        resolved = re_module.sub(
+            rf"(?<![A-Za-z]){token}(?![A-Za-z])", value, resolved
+        )
+    flagged = _SEED_LEFTOVER_RE.findall(resolved)
+    return resolved, flagged
+
+
+def _synthetic_file_bytes(spec, filename: str) -> bytes:
+    """Deterministic synthetic content: header row from the spec's source
+    columns + 3 obviously-fake rows (seeded RNG keyed by filename; values
+    like MBR000001 — never real-looking PII, never client data)."""
+    import random
+
+    columns = [f.source_column for seg in spec.segments for f in seg.fields]
+    delimiter = spec.delimiter or ","
+    rng = random.Random(f"{spec.feed_slug}/{filename}")
+    rows = [delimiter.join(columns)]
+    for _ in range(3):
+        rows.append(delimiter.join(
+            f"{column[:3].upper()}{rng.randint(0, 999999):06d}"
+            for column in columns
+        ))
+    return ("\n".join(rows) + "\n").encode("utf-8")
+
+
+def _databricks_seed_landing(args: argparse.Namespace, config: Config) -> int:
+    """Seed the landing volume with synthetic files (the seam's first write).
+
+    Dry-run by default; --apply creates the volume, uploads, lists back and
+    verifies. The target is read from config ONLY and guarded by
+    codegen.databricks.WRITABLE_PREFIX — there is no target argument.
+    """
+    import hashlib
+    from datetime import datetime
+
+    from codegen.databricks import (
+        DatabricksConfigError,
+        DatabricksTransportError,
+        config_for,
+        ensure_volume,
+        list_landing,
+        upload_file,
+    )
+    from codegen.resolve.resolver import resolve_pair
+
+    date = datetime.strptime(args.date, "%Y%m%d") if args.date else datetime.now()
+
+    contracts_dir = Path(config.contracts.dir)
+    frd_path = contracts_dir / config.demo.frd
+    sttm_path = contracts_dir / config.demo.sttm
+    if not (frd_path.is_file() and sttm_path.is_file()):
+        print(f"{'FAIL':<15} databricks-seed-landing — demo contract pair not found "
+              f"({frd_path.name}, {sttm_path.name}); synthetic content comes from "
+              "the resolved demo spec only.")
+        return 1
+    specs = resolve_pair(frd_path, sttm_path, config)
+
+    files: list[tuple[str, bytes]] = []
+    flagged_tokens: list[str] = []
+    seen: set[str] = set()
+    for spec in specs:
+        root = (spec.landing_location or "").replace("\\", "/").strip("/")
+        if not root:
+            print(f"{'SKIP':<15} {spec.feed_slug} — no landing_location in the FRD")
+            continue
+        for pattern in spec.file_name_patterns:
+            name, flagged = _resolve_pattern_tokens(pattern, date)
+            flagged_tokens += [f"{spec.feed_slug}/{pattern}: {t}" for t in flagged]
+            relative = f"{root}/{name}"
+            if relative in seen:  # CCYY and YYYY variants resolve identically
+                continue
+            seen.add(relative)
+            files.append((relative, _synthetic_file_bytes(spec, name)))
+
+    try:
+        cfg = config_for(config.databricks)
+        target = f"{cfg.catalog}.{cfg.schema}.{cfg.landing_volume}"
+    except DatabricksConfigError as exc:
+        print(f"{'FAIL':<15} databricks-seed-landing — {exc}")
+        return 1
+
+    print(f"target volume: {target}  (the ONLY writable location)")
+    for relative, data in files:
+        print(f"{'WOULD UPLOAD' if not args.apply else 'QUEUED':<15} "
+              f"{relative} — {len(data):,} bytes")
+    for note in flagged_tokens:
+        print(f"{'FLAGGED':<15} unresolved token left literal: {note}")
+    if not args.apply:
+        print(f"\nDRY RUN — {len(files)} file(s), nothing written. "
+              "Re-run with --apply to create the volume and upload.")
+        return 0
+
+    answer = input(
+        f"\nType 'yes' to create/seed {target} with {len(files)} synthetic "
+        "file(s): "
+    )
+    if answer.strip() != "yes":
+        print(f"{'ABORTED':<15} confirmation not given — nothing written.")
+        return 1
+
+    try:
+        state = ensure_volume(cfg)
+        print(f"{'CREATED' if state['created'] else 'EXISTED':<15} {state['full_name']}")
+        for relative, data in files:
+            path = upload_file(cfg, relative, data, force=args.force)
+            print(f"{'UPLOADED':<15} {path} — {len(data):,} bytes")
+        listed = list_landing(cfg)
+    except (DatabricksConfigError, DatabricksTransportError) as exc:
+        print(f"{'FAIL':<15} databricks-seed-landing — {exc}")
+        return 1
+
+    # Verify: everything sent must list back with the size we sent.
+    listed_sizes = {entry["path"]: entry["size"] for entry in listed}
+    mismatches = [
+        f"{relative}: sent {len(data):,} B, listed "
+        f"{listed_sizes.get(relative, 'MISSING')}"
+        for relative, data in files
+        if listed_sizes.get(relative) != len(data)
+    ]
+    if mismatches:
+        print(f"{'FAIL':<15} verification mismatch:\n  - " + "\n  - ".join(mismatches))
+        return 1
+
+    manifest = {
+        "volume": target,
+        "seeded_at": datetime.now().isoformat(timespec="seconds"),
+        "date_token": date.strftime("%Y%m%d"),
+        "files": [
+            {"path": relative, "bytes": len(data),
+             "sha256": hashlib.sha256(data).hexdigest()}
+            for relative, data in files
+        ],
+    }
+    manifest_path = Path(config.output.dir) / "_seed_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n",
+                             encoding="utf-8", newline="\n")
+    print(f"\n{'VERIFIED':<15} {len(files)} file(s) listed back with matching sizes")
+    for entry in listed:
+        print(f"  {entry['path']}  {entry['size']:,} B  {entry['modified']}")
+    print(f"manifest -> {manifest_path}")
+    return 0
+
+
 def _contract_path(value: str, config: Config) -> Path:
     path = Path(value)
     if path.is_file():
@@ -453,6 +626,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     demo_sources.add_argument("--config", default="config/config.yaml")
 
+    seed = subparsers.add_parser(
+        "databricks-seed-landing",
+        help="seed the landing volume with SYNTHETIC files from the demo spec "
+        "(dry-run by default; the ONLY writable location is guarded in code)",
+    )
+    seed.add_argument("--config", default="config/config.yaml")
+    seed.add_argument("--apply", action="store_true",
+                      help="actually create the volume and upload (typed 'yes' "
+                      "confirmation required); default is a dry-run print")
+    seed.add_argument("--force", action="store_true",
+                      help="allow overwriting files that already exist in the volume")
+    seed.add_argument("--date", help="YYYYMMDD resolved into filename date tokens "
+                      "(CCYY/YYYY/MM/DD; HHMM fixed at 0600); default today")
+
     demo_metadata = subparsers.add_parser(
         "demo-metadata-sheet",
         help="print the metadata-sheet preview JSON, or write it as .xlsx "
@@ -496,7 +683,8 @@ def main(argv: list[str] | None = None) -> int:
         from codegen.demo_sources import source_files_payload
 
         try:
-            payload = source_files_payload(config, Path.cwd())
+            # shell_mode pinned synthetic: this command stays offline.
+            payload = source_files_payload(config, Path.cwd(), shell_mode="synthetic")
         except FileNotFoundError as exc:
             print(f"{'FAIL':<15} demo-source-files — {exc}")
             return 1
@@ -541,6 +729,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sharepoint-fetch":
         return _sharepoint_fetch(args, config)
+
+    if args.command == "databricks-seed-landing":
+        return _databricks_seed_landing(args, config)
 
     if args.command == "databricks-fetch":
         # Read-side edge of the Databricks volumes seam — same posture as

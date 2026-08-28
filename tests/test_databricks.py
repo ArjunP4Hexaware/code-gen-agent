@@ -247,14 +247,22 @@ def test_chat_uses_endpoint_and_returns_content():
                         "max_tokens": 50}
 
 
-def test_no_write_shaped_api_exists():
+def test_write_surface_is_exactly_the_sanctioned_landing_seeder():
     # The governance "never writes back" control introspects for these; the
-    # suite enforces the same invariant directly.
-    forbidden = ("execute", "create_job", "run_now", "upload", "write", "put")
+    # suite enforces the same invariant directly. Since the live shell block,
+    # the ONE sanctioned write surface is {ensure_volume, upload_file},
+    # guarded by WRITABLE_PREFIX; execute/create_job/run_now/deletes remain
+    # forbidden absolutely.
+    forbidden = ("execute", "create_job", "run_now", "delete", "remove")
     exported = [n for n in dir(db) if not n.startswith("_")]
     offenders = [n for n in exported
                  if any(w == n.lower() or n.lower().startswith(w) for w in forbidden)]
     assert offenders == []
+    write_shaped = {n for n in exported
+                    if any(w in n.lower() for w in ("upload", "write", "put"))
+                    and n != "WRITABLE_PREFIX"}
+    assert write_shaped == {"upload_file"}
+    assert db.WRITABLE_PREFIX == "soham_workspace.codegen_agent."
 
 
 # -- routes (offline: transport monkeypatched at the routes seam) -------------- #

@@ -99,7 +99,10 @@ def test_solution_deck_structural_checks(tmp_path):
     ])
     checks = deck_checks(deck, "solution", _LOADED)
     assert [c["status"] for c in checks] == ["verified", "verified"]
-    assert "list + download only" in checks[0]["evidence"]
+    # Since the landing seeder, the control verifies the write surface is
+    # exactly the sanctioned, prefix-guarded seeder.
+    assert "constrained by construction" in checks[0]["evidence"]
+    assert "no deletes exist anywhere" in checks[0]["evidence"]
     assert "zero live model calls" in checks[1]["evidence"]
 
 

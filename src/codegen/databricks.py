@@ -150,6 +150,12 @@ def _client(cfg: DatabricksVolumesConfig):
             "databricks-sdk is not installed — install the optional extra: "
             'pip install -e ".[databricks]"'
         ) from exc
+    # A Databricks Apps runtime (or any env-auth context) injects
+    # DATABRICKS_HOST plus client credentials; the SDK's unified auth
+    # resolves those on its own, and passing profile= would fail where no
+    # ~/.databrickscfg exists. The named profile is the local-machine path.
+    if os.environ.get("DATABRICKS_HOST"):
+        return WorkspaceClient()
     return WorkspaceClient(profile=cfg.profile)
 
 

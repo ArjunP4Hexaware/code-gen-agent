@@ -110,18 +110,23 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
 - No secrets in the repo, ever. Credentials only via environment / `.env`
   (gitignored; `.env.example` documents the names).
 - Program policy: **Anthropic is the sole model vendor** across the
-  AmeriHealth agents program. The LLM provider is **mock by default**:
-  `build_provider` selects the deterministic mock unless
-  `ANTHROPIC_API_KEY` is set and dry-run is off — zero network otherwise.
-  The live path (`reasoning/providers/anthropic_provider.py`) is
-  implemented and unit-tested (stubbed SDK) but has not yet been validated
-  with a real billed call — first live E2E is upcoming. Live LLM use is
-  confined to Layer 2 (reasoning/review); code generation itself is
-  deterministic Jinja2 by design. Model name lives in config
-  (`reasoning.model`). claude-opus-4-8 rejects sampling parameters
-  (`temperature`/`top_p`/`top_k` return a 400), so no temperature knob
-  exists and live Layer-2 output is inherently non-deterministic — do not
-  re-add one.
+  AmeriHealth agents program. Mock always wins on dry-run; live selection
+  is transport-dependent (2026-08-28): the tracked config's
+  `reasoning.provider` is **`databricks_fmapi`** (Claude via the workspace
+  serving endpoint `databricks.serving_endpoint` — a transport, not a
+  vendor change; resolves from YAML + workspace auth, no Anthropic key),
+  with `anthropic` (key-gated on `ANTHROPIC_API_KEY`) still available.
+  CAUTION: because FMAPI resolves without any env secret, tests that touch
+  live paths must pin the provider — `tests/test_demo_ui.py`'s `client`
+  fixture does this; a 2026-08-28 pytest run fired real FMAPI calls before
+  that guard existed. First live FMAPI E2E: 2026-08-28 (CV golden pair,
+  candidates verified). Live LLM use is confined to Layer 2
+  (reasoning/review); code generation itself is deterministic Jinja2 by
+  design. Model name lives in config (`reasoning.model`, currently
+  `claude-opus-5`). The Claude 4.8/5 API families reject sampling
+  parameters (`temperature`/`top_p`/`top_k` return a 400), so no
+  temperature knob exists and live Layer-2 output is inherently
+  non-deterministic — do not re-add one.
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
 - **Client framework doctrine (Aug 26 framework calls, encoded 2026-08-27):**
@@ -268,14 +273,30 @@ The client's raw documents live in `soham_workspace.codegen_agent.frd_raw`
 instruction — Databricks volumes are allowed to hold client documents;
 this REPO still is not). Non-secret knobs in `config/config.yaml`
 `databricks:` (profile/catalog/schema/volumes; env `DATABRICKS_*` >
-YAML); auth resolves from the named profile (CLI OAuth keyring) —
-`databricks-sdk` via the optional `[databricks]` extra, keyless import.
-CAUTION: never leave a placeholder `DATABRICKS_HOST` uncommented in
-`.env` — the SDK prefers env over profile and will try to reach it.
-Everything write-shaped (tables, jobs, EXPLAIN, FMAPI provider, UC
+YAML); auth resolves from the named profile (CLI OAuth keyring) — except
+when `DATABRICKS_HOST` is set in the env (a Databricks Apps runtime),
+where `_client()` lets the SDK's unified auth resolve the injected
+credentials instead of a profile. `databricks-sdk` via the optional
+`[databricks]` extra, keyless import. CAUTION: never leave a placeholder
+`DATABRICKS_HOST` uncommented in `.env` — the SDK prefers env over
+profile and will try to reach it. The FMAPI provider (`chat()` here +
+`reasoning/providers/databricks_provider.py`) got its explicit go and is
+LIVE as of 2026-08-28. Everything else write-shaped (tables, jobs, UC
 grounding gate checks — "B1") stays NOT BUILT pending explicit go; the
 governance check "never writes back" introspects this module and flips if
-a write-shaped function ever appears.
+a write-shaped function ever appears (an FMAPI query is a read).
+
+**Databricks App deployment (2026-08-28):** the demo UI runs as the
+workspace app `codegen-agent`
+(https://codegen-agent-7405617821962942.2.azure.databricksapps.com),
+source synced to `/Workspace/Users/2000198474@hexaware.com/
+codegen-agent-app` via `databricks sync --full` with `--include` for the
+gitignored `ui/frontend/dist`, `fixtures/` (anonymized CV golden only)
+and `inputs/standards/`; `requirements.txt` (`.[ui,databricks]`) is the
+Apps pip install; `app.yaml` carries no secret — Layer 2 rides FMAPI on
+the app's service principal, which holds CAN_QUERY on the serving
+endpoint via the app's `llm-endpoint` resource. Redeploy = re-sync + 
+`databricks apps deploy codegen-agent --source-code-path <that path>`.
 
 ## Demo panels + reference-document checks (added 2026-08-27, display/check only)
 

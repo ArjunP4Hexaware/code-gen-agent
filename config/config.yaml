@@ -121,7 +121,8 @@ reasoning:
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;
   # --dry-run forces mock.
   # Proven against our key by frd-to-sttm's live E2E runs (2026-08-07).
-  model: claude-opus-4-8
+  # claude-opus-5 per the 2026-08-28 decision (Databricks App + FMAPI).
+  model: claude-opus-5
   max_tokens: 8192
   # No temperature knob: sampling params are removed on this model family —
   # the API returns 400 if one is sent. Live output varies run to run.
@@ -131,7 +132,7 @@ reasoning:
   # model via the databricks.serving_endpoint — transport only; needs the
   # [databricks] extra and resolvable workspace auth; mock still wins on
   # dry-run and on unresolvable creds).
-  provider: anthropic
+  provider: databricks_fmapi
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
@@ -166,6 +167,11 @@ demo:
       # Read at request time by the input-requirements check (the one
       # reference document that IS consumed in processing, not display-only).
       - "FRD-and-Dictionary-Input-Requirements.pptx"
+      # EDO standards source documents (added 2026-08-28). Display/presence
+      # only — the standards themselves live as data in engineering_standards:
+      # and job:; these are the reference originals those values came from.
+      - "EDO Data Engineering Naming Standards.docx"
+      - "EDO Data Engineering Coding Standards.docx"
     dirs:
       - inputs/sharepoint
       - inputs/standards
@@ -367,7 +373,7 @@ databricks:
   warehouse_id: "172877b5178f7bb7"
   # Matches reasoning.model exactly: the same Claude model, served by
   # Databricks FMAPI. A transport, not a vendor change.
-  serving_endpoint: databricks-claude-opus-4-8
+  serving_endpoint: databricks-claude-opus-5
   # No wrapper job exists in the Hexaware workspace; supplied by the client.
   wrapper_notebook_path: ""
   # The ONE writable volume (guarded by construction in codegen.databricks:

@@ -53,3 +53,6 @@ build/
 dist/
 *.whl
 ui/frontend/*.tsbuildinfo
+
+# databricks sync state (local CLI bookkeeping)
+.databricks/

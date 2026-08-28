@@ -56,6 +56,22 @@ def canonical_document_name(name: str) -> str:
 # Backwards-compatible internal alias.
 _canonical_name = canonical_document_name
 
+
+def find_frd_docx(present: list[dict]) -> dict | None:
+    """The FRD document among the documents-card matches: a ``.docx`` whose
+    canonical name starts with ``frd``. "Any .docx" stopped being safe the
+    moment the EDO standards documents joined the expected list — they are
+    reference material, never the FRD under evaluation."""
+    return next(
+        (
+            p
+            for p in present
+            if p["name"].lower().endswith(".docx")
+            and canonical_document_name(p["name"]).startswith("frd")
+        ),
+        None,
+    )
+
 # A shared ticket/project number (6+ digits, e.g. 1005034) is the one
 # CONSERVATIVE signal that an STTM and an FRD belong together; anything
 # fuzzier risks false pairs, and no match means no pairing.
@@ -490,9 +506,7 @@ def source_files_payload(config: Config, base_dir: Path, env=None,
 
     convention = None
     documents = scan_reference_documents(config, base_dir, env)
-    frd_docx = next(
-        (p for p in documents["present"] if p["name"].lower().endswith(".docx")), None
-    )
+    frd_docx = find_frd_docx(documents["present"])
     if frd_docx is not None:
         convention = read_frd_convention(Path(frd_docx["path"]))
 

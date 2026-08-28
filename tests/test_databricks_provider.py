@@ -60,9 +60,12 @@ def test_unresolvable_workspace_config_degrades_to_mock(config):
     assert build_provider(broken, dry_run=False).name == "mock"
 
 
-def test_default_provider_stays_anthropic_shaped(config, monkeypatch):
+def test_tracked_config_selects_fmapi(config, monkeypatch):
+    # 2026-08-28: the tracked config's Layer-2 transport IS databricks_fmapi
+    # (Databricks App deployment); it resolves from YAML alone, no key.
+    # Construction only — the endpoint is never called here.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert build_provider(config, dry_run=False).name == "mock"
+    assert build_provider(config, dry_run=False).name == "databricks_fmapi"
 
 
 def test_missing_serving_endpoint_is_a_named_error(config):
@@ -94,7 +97,7 @@ def test_valid_response_first_try(config, monkeypatch):
     response = provider.complete(_pack())
     assert response.classification == "mappable"
     assert calls["count"] == 1
-    assert calls["kwargs"][0]["endpoint"] == "databricks-claude-opus-4-8"
+    assert calls["kwargs"][0]["endpoint"] == "databricks-claude-opus-5"
     # System prompt travels as a chat message; no sampling params exist.
     assert calls["kwargs"][0]["messages"][0]["role"] == "system"
 

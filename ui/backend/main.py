@@ -290,10 +290,36 @@ def load_live_run(req: LiveRunLoadRequest) -> dict:
     return list_feeds()
 
 
+def _live_ready() -> tuple[bool, str]:
+    """Whether a live (non-mock) Layer-2 run can happen, and why not.
+
+    Mirrors ``build_provider``'s selection exactly: databricks_fmapi needs a
+    resolvable workspace config; anthropic needs ANTHROPIC_API_KEY. Boolean +
+    provider name ONLY — never the key, never env contents.
+    """
+    if store is None:
+        return False, "backend has no config loaded"
+    provider = store.config.reasoning.provider
+    if provider == "databricks_fmapi":
+        from codegen.databricks import DatabricksConfigError, config_for
+
+        try:
+            cfg = config_for(store.config.databricks)
+        except DatabricksConfigError:
+            return False, "Databricks workspace config does not resolve"
+        if not cfg.serving_endpoint:
+            return False, "databricks.serving_endpoint is not configured"
+        return True, ""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return False, "no ANTHROPIC_API_KEY in the backend env"
+    return True, ""
+
+
 @app.get("/api/demo/live-available")
 def live_available() -> dict:
-    # Boolean ONLY — never the key, never env contents.
-    return {"available": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+    available, _reason = _live_ready()
+    provider = store.config.reasoning.provider if store is not None else None
+    return {"available": available, "provider": provider}
 
 
 class LiveRunRequest(BaseModel):
@@ -304,8 +330,9 @@ class LiveRunRequest(BaseModel):
 def run_live(req: LiveRunRequest) -> dict:
     if not req.confirm:
         raise HTTPException(400, "live run requires explicit confirm: true (billed API calls)")
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise HTTPException(400, "live run unavailable: no ANTHROPIC_API_KEY in the backend env")
+    available, reason = _live_ready()
+    if not available:
+        raise HTTPException(400, f"live run unavailable: {reason}")
     _require_store()
     try:
         _require_runner().start_live()

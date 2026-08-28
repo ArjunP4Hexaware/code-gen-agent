@@ -8,9 +8,13 @@
 #
 # Deploy prerequisites:
 #   1. cd ui/frontend && npm install && npm run build   (dist/ must exist)
-#   2. An app secret resource holding the Anthropic key, referenced below —
-#      Live mode is disabled in the UI when the variable is absent, so the
-#      app also runs keyless with Replay + mock only.
+#   2. Live Layer-2 rides Databricks FMAPI (reasoning.provider:
+#      databricks_fmapi) — no Anthropic key secret needed. The app's
+#      service principal must hold CAN_QUERY on the configured
+#      databricks.serving_endpoint (and read access on the UC volumes /
+#      frd_contracts table for the fetch panels). Auth inside the app is
+#      the platform-injected env (DATABRICKS_HOST + client credentials);
+#      codegen.databricks._client uses it whenever DATABRICKS_HOST is set.
 #
 # KNOWN GAP (untested, same as frd-to-sttm's gap #3): long-request/SSE
 # behavior through the Databricks Apps reverse proxy is unvalidated. The
@@ -19,7 +23,3 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
-
-env:
-  - name: "ANTHROPIC_API_KEY"
-    valueFrom: "anthropic-api-key" # app secret resource key, set at deploy time

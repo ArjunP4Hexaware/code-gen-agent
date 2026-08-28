@@ -1,0 +1,5 @@
+# Databricks Apps runtime install (the platform pip-installs this file).
+# Local dev keeps using `pip install -e ".[dev]"` — this exists ONLY for
+# the Apps deployment: the package itself plus the UI backend and the
+# Databricks seam (FMAPI Layer-2 transport + volumes fetch).
+.[ui,databricks]

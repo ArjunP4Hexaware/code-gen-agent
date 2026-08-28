@@ -1049,3 +1049,17 @@ table.data tr:last-child td { border-bottom: none; }
 .chooser-fetched { color: var(--good-text); font-weight: 650; }
 .chooser-frds { margin-top: 12px; }
 .chooser-frds summary { cursor: pointer; user-select: none; }
+
+/* Live shell block: green header when the listing is real; command lines
+   soft-wrap with a hanging indent instead of side-scrolling. */
+.shell-note-live { color: var(--good); }
+.shell-pre {
+  overflow-x: visible;
+}
+.shell-line {
+  padding-left: 2ch;
+  text-indent: -2ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.shell-cmd { margin-top: 4px; }

@@ -135,6 +135,10 @@ export interface SourceFilesResponse {
   frd_contract: string;
   feeds: SourceFileFeed[];
   shell_listing: string[];
+  shell_mode: "live" | "synthetic";
+  shell_reason: string | null;
+  shell_source: string | null;
+  shell_listed_at: string | null;
   convention_check: ConventionCheck | null;
 }
 

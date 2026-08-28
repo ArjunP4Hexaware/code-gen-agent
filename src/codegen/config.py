@@ -229,10 +229,11 @@ class DemoSourceFilesConfig(BaseModel):
 
 
 class DemoDatabricksPathsConfig(BaseModel):
-    """Placeholder UC volume coordinates for the synthetic shell listing.
+    """UC volume coordinates the shell block renders/lists against.
 
-    Placeholders until Databricks discovery replaces them with real values;
-    the shell block stays labelled SYNTHETIC until a live listing exists.
+    Real since 2026-08-27: the landing volume is created and seeded with
+    SYNTHETIC files by `codegen databricks-seed-landing`; live mode lists
+    it through the volumes seam, synthetic mode stays the offline fallback.
     """
 
     model_config = _MODEL_CONFIG
@@ -311,6 +312,10 @@ class DemoConfig(BaseModel):
     estimated_seconds: int = Field(gt=0)
     # Display-only panels (codegen.demo_sources); all default so an older
     # config still loads unchanged.
+    # Shell-block source: live (list the real landing volume) | synthetic
+    # (offline renderer) | auto (live when creds resolve and the volume
+    # exists, else synthetic — the response says which branch ran).
+    shell_listing: Literal["live", "synthetic", "auto"] = "synthetic"
     input_documents: DemoInputDocumentsConfig = DemoInputDocumentsConfig()
     source_files: DemoSourceFilesConfig = DemoSourceFilesConfig()
     databricks_paths: DemoDatabricksPathsConfig = DemoDatabricksPathsConfig()
@@ -359,6 +364,9 @@ class DatabricksSettings(BaseModel):
     warehouse_id: str = ""           # EXPLAIN-only; waking it bills DBUs
     serving_endpoint: str = ""       # FMAPI chat endpoint (Claude transport)
     wrapper_notebook_path: str = ""  # client-supplied; none exists here yet
+    # The ONE writable volume (codegen.databricks.WRITABLE_PREFIX guards it
+    # by construction); seeded with synthetic files by databricks-seed-landing.
+    landing_volume: str = ""
 
 
 class TypeMappingEntry(BaseModel):

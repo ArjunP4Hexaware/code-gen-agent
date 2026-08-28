@@ -8,8 +8,12 @@ local disk BEFORE generation starts, and the generator's inputs remain files
 on disk. Do NOT "simplify" this by reading volumes from inside the extractor
 or the resolver — Layer 1 stays deterministic, offline and credential-free.
 
-READ-ONLY by policy for this seam: list and download. No table writes, no
-SQL, no job runs live here; those belong to the (separately gated) B1 work.
+Document sources stay READ-ONLY: list and download, no deletes, ever. The
+ONE write surface (added with the live shell block) is the landing-volume
+seeder — ``ensure_volume`` / ``upload_file`` — constrained BY CONSTRUCTION
+to ``WRITABLE_PREFIX`` (soham_workspace.codegen_agent.): any other
+catalog/schema is refused before a client is even built. No table writes,
+no SQL, no job runs live here.
 
 Dependencies: ``databricks-sdk`` via the optional ``[databricks]`` extra.
 This module imports cleanly with the extra absent and with zero environment
@@ -30,6 +34,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
 
 # What the generator can consume from a volume: STTM workbooks for
@@ -63,6 +68,7 @@ class DatabricksVolumesConfig:
     serving_endpoint: str = ""      # FMAPI chat endpoint (Claude via Databricks)
     wrapper_notebook_path: str = ""  # no wrapper job exists in the Hexaware
     #                                  workspace; supplied by the client
+    landing_volume: str = ""        # the ONE writable volume (see below)
 
 
 # The B1 surface grew beyond volumes; both names refer to the same config.
@@ -78,6 +84,7 @@ _YAML_KEYS = {
     "databricks_warehouse_id": "warehouse_id",
     "databricks_serving_endpoint": "serving_endpoint",
     "databricks_wrapper_notebook_path": "wrapper_notebook_path",
+    "databricks_landing_volume": "landing_volume",
 }
 
 
@@ -112,6 +119,7 @@ def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
         "warehouse_id": knob("databricks_warehouse_id"),
         "serving_endpoint": knob("databricks_serving_endpoint"),
         "wrapper_notebook_path": knob("databricks_wrapper_notebook_path"),
+        "landing_volume": knob("databricks_landing_volume"),
     }
     required = ("catalog", "schema", "frd_volume", "sttm_volume")
     missing = sorted(k for k in required if not values[k])
@@ -348,4 +356,151 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
     except Exception as exc:  # noqa: BLE001
         raise DatabricksTransportError(
             f"serving_endpoints.query({name!r}) failed: {exc}"
+        ) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Landing-volume write surface (the seam's first write task). The ONLY
+# writable location, by construction: any target outside WRITABLE_PREFIX is
+# refused before a client exists. Volume creation and file upload only —
+# no deletes anywhere in this module, and no overwrite without force.
+# --------------------------------------------------------------------------- #
+
+WRITABLE_PREFIX = "soham_workspace.codegen_agent."
+
+
+def _landing_full_name(cfg: DatabricksConfig) -> str:
+    if not cfg.landing_volume:
+        raise DatabricksConfigError(
+            "databricks.landing_volume is not configured — set it in the "
+            "`databricks:` section of config/config.yaml (or "
+            "DATABRICKS_LANDING_VOLUME)."
+        )
+    full_name = f"{cfg.catalog}.{cfg.schema}.{cfg.landing_volume}"
+    if not full_name.startswith(WRITABLE_PREFIX):
+        raise DatabricksConfigError(
+            f"refusing to write to {full_name!r}: the only writable location "
+            f"is under {WRITABLE_PREFIX}* (session policy, enforced in code)."
+        )
+    return full_name
+
+
+def ensure_volume(cfg: DatabricksConfig, client=None) -> dict:
+    """Create the landing volume if absent. Returns {full_name, created}."""
+    full_name = _landing_full_name(cfg)
+    client = client if client is not None else _client(cfg)
+    try:
+        client.volumes.read(full_name)
+        return {"full_name": full_name, "created": False}
+    except Exception as exc:  # noqa: BLE001 — only not-found means "create it"
+        message = str(exc).lower()
+        if "does not exist" not in message and "not found" not in message:
+            raise DatabricksTransportError(
+                f"volumes.read({full_name!r}) failed: {exc}"
+            ) from exc
+    try:
+        from databricks.sdk.service.catalog import VolumeType
+
+        client.volumes.create(
+            catalog_name=cfg.catalog,
+            schema_name=cfg.schema,
+            name=cfg.landing_volume,
+            volume_type=VolumeType.MANAGED,
+        )
+        return {"full_name": full_name, "created": True}
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(
+            f"volumes.create({full_name!r}) failed: {exc}"
+        ) from exc
+
+
+def upload_file(cfg: DatabricksConfig, relative_path: str, data: bytes,
+                force: bool = False, client=None) -> str:
+    """Upload one synthetic file into the landing volume; returns the path.
+
+    ``relative_path`` is the volume-relative target (e.g.
+    ``mftlanding/inbound/.../file.csv``). Refuses '..' segments and, without
+    ``force``, refuses to overwrite an existing file.
+    """
+    full_name = _landing_full_name(cfg)
+    clean = relative_path.replace("\\", "/").strip("/")
+    if not clean or ".." in clean.split("/"):
+        raise DatabricksTransportError(f"invalid landing path: {relative_path!r}")
+    target = f"/Volumes/{full_name.replace('.', '/')}/{clean}"
+    client = client if client is not None else _client(cfg)
+    if not force:
+        try:
+            client.files.get_metadata(target)
+            raise DatabricksTransportError(
+                f"{target} already exists — re-run with --force to overwrite."
+            )
+        except DatabricksTransportError:
+            raise
+        except Exception:  # noqa: BLE001, S110 — absent file: proceed to upload
+            pass
+    try:
+        import io
+
+        client.files.upload(target, io.BytesIO(data), overwrite=force)
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(f"upload of {target} failed: {exc}") from exc
+    return target
+
+
+def list_landing(cfg: DatabricksConfig, prefix: str = "",
+                 client=None) -> list[dict]:
+    """Recursive listing of the landing volume: [{path, name, size, modified}].
+
+    ``path`` is volume-relative (posix). Read-only; a missing volume raises
+    (the shell block's auto mode treats that as "fall back to synthetic").
+    """
+    full_name = _landing_full_name(cfg)
+    root = f"/Volumes/{full_name.replace('.', '/')}"
+    start = f"{root}/{prefix.strip('/')}" if prefix.strip("/") else root
+    client = client if client is not None else _client(cfg)
+
+    entries: list[dict] = []
+
+    def walk(directory: str) -> None:
+        for entry in client.files.list_directory_contents(directory):
+            if entry.is_directory:
+                walk(entry.path)
+            else:
+                relative = entry.path[len(root):].lstrip("/")
+                modified = ""
+                if entry.last_modified:
+                    from datetime import datetime
+
+                    modified = datetime.fromtimestamp(
+                        entry.last_modified / 1000, tz=UTC
+                    ).strftime("%Y-%m-%d %H:%M:%S")
+                entries.append({
+                    "path": relative,
+                    "name": entry.name,
+                    "size": entry.file_size or 0,
+                    "modified": modified,
+                })
+
+    try:
+        walk(start)
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(
+            f"listing {start} failed: {exc}"
+        ) from exc
+    return sorted(entries, key=lambda e: e["path"])
+
+
+def landing_volume_exists(cfg: DatabricksConfig, client=None) -> bool:
+    """Cheap existence probe for the shell block's auto mode."""
+    full_name = _landing_full_name(cfg)
+    client = client if client is not None else _client(cfg)
+    try:
+        client.volumes.read(full_name)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc).lower()
+        if "does not exist" in message or "not found" in message:
+            return False
+        raise DatabricksTransportError(
+            f"volumes.read({full_name!r}) failed: {exc}"
         ) from exc

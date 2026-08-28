@@ -459,13 +459,31 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 ) : null}
                 <details className="shell-block">
                   <summary>In the Databricks workspace</summary>
-                  <div className="shell-note">
-                    SYNTHETIC — no landing volume exists in the Hexaware workspace yet;
-                    creating one (e.g. <code>soham_workspace.codegen_agent.mftlanding</code>)
-                    is the Databricks seam's first write task. Rendered from the FRD's
-                    landing location and file patterns, not a live listing.
+                  {sourceFiles.shell_mode === "live" ? (
+                    <div className="shell-note shell-note-live">
+                      LIVE — listed from <code>{sourceFiles.shell_source}</code> at{" "}
+                      {sourceFiles.shell_listed_at}
+                    </div>
+                  ) : (
+                    <div className="shell-note">
+                      SYNTHETIC
+                      {sourceFiles.shell_reason
+                        ? ` (live listing unavailable: ${sourceFiles.shell_reason})`
+                        : ""}{" "}
+                      — rendered from the FRD's landing location and file patterns,
+                      not a live listing.
+                    </div>
+                  )}
+                  <div className="shell-pre">
+                    {sourceFiles.shell_listing.map((line, i) => (
+                      <div
+                        key={i}
+                        className={`shell-line${line.startsWith("$ ") ? " shell-cmd" : ""}`}
+                      >
+                        {line}
+                      </div>
+                    ))}
                   </div>
-                  <pre className="shell-pre">{sourceFiles.shell_listing.join("\n")}</pre>
                 </details>
                 <MetadataSheetPanel
                   refreshKey={`${status?.state}-${status?.last_run_label}`}

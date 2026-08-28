@@ -255,6 +255,14 @@ client documents, and a LIVE run sends their content to the model API —
 live runs on client STTM/FRD pairs are permitted only per the program's
 client-document process (Venu's email approval); the demo CV golden
 remains the default rehearsal pair, and mock runs need no approval.
+**Live runs are self-contained (View-results fix, 2026-08-28):** every
+live run copies its FRD into `out/demo_<ts>/frd.contract.json` and writes
+`run_meta.json` (frd_label / sttm_workbook / output_mode); the past-run
+loader reloads with the run's OWN pair and recorded output mode (older
+dirs fall back to the demo golden + inferred mode). Run completeness keys
+on emitted artefacts (README / ddl / framework / candidates.json) — a
+feed with ZERO Layer-2 candidates (all rules compiled deterministically,
+e.g. MIDS) is complete and replays with an empty candidate list.
 
 ## Databricks volumes seam (added 2026-08-27)
 

@@ -804,11 +804,26 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   <button
                     className="btn primary"
                     disabled={loadingSet !== null}
-                    onClick={() =>
-                      status.last_run_label
-                        ? loadLiveRun(status.last_run_label)
-                        : navigate("/")
-                    }
+                    onClick={async () => {
+                      // A just-finished run's results are ALREADY adopted in
+                      // the store — navigate straight there instead of
+                      // reloading from disk (the reload path is for the
+                      // Past-live-runs list).
+                      if (
+                        status.last_run_label &&
+                        status.label === status.last_run_label &&
+                        status.mode === "live"
+                      ) {
+                        await onFeedsChanged();
+                        navigate("/");
+                        return;
+                      }
+                      if (status.last_run_label) {
+                        loadLiveRun(status.last_run_label);
+                      } else {
+                        navigate("/");
+                      }
+                    }}
                   >
                     View results →
                   </button>

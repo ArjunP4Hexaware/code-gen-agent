@@ -1,11 +1,5 @@
 # CodeGen / Data Engineer Agent — working notes
 
-> **Read first, every session:** read
-> `../amerihealth-project-master-context-document.md` in its entirety before
-> working in this repo. It is the program-wide master context document
-> (scope, timeline, all three agents, open gaps, and known-stale claims in
-> this file). This file remains authoritative for this repo specifically.
-
 ## Purpose & pipeline position
 
 Generates production-shaped Databricks ingestion pipelines (PySpark + Delta
@@ -25,8 +19,7 @@ inside ACFC's own environment with Claude Code, using this as the
 blueprint. Nothing here deploys to ACFC directly — anything that cannot be
 re-derived from the contracts, config, and docs does not survive the
 hand-off. **Current program priority is FRD→STTM's live Databricks App
-(due 2026-08-24), not this repo** — see the workspace-level `CLAUDE.md` one
-directory up.
+(due 2026-08-24), not this repo.**
 
 Two-layer trust rule (never violate): **Layer 1** is deterministic Jinja2 —
 everything derivable from the contracts, byte-stable, every file stamped
@@ -302,30 +295,11 @@ untouched and byte-stable (verified against tags `pre-demo-2026-08-27` /
 
 ### Deliberately NOT ported
 
-- **No `jobs_runner.py` equivalent — reason REVISED 2026-08-27 (B1).** The
-  original reason (kept for history): frd-to-sttm's module triggers its
-  bundle-deployed job because its demo runs are Spark notebook tasks; this
-  repo had no bundle, no job to trigger, and generation runs in-process, so
-  a Jobs-API path would have invented a job that does not exist. The revised
-  reason: the client now runs **metadata-driven Databricks Workflows around
-  a common wrapper notebook** and ADF is out of scope — so the emitted
-  `workflow.json` has a real target, and the missing piece is the CLIENT'S
-  wrapper job, not a runner of ours. The seam therefore gained read-only
-  `get_job` (inspect the wrapper's parameters when it exists;
-  `databricks.wrapper_notebook_path` stays empty until the client supplies
-  it) and still ships NO execute/create_job/run_now — running jobs belongs
-  to the client's framework, never to the agent (a suite test and the
-  governance "never writes back" check both enforce the absence).
-- **No `_sharepoint.py` shim.** That exists so `%run ./_sharepoint` and a
-  local `from _sharepoint import ...` both resolve; this repo has no
-  notebooks and no `%run`.
-- **No duplicate-input short-circuit.** frd-to-sttm's locate flow presents an
-  existing `<doc_id>.sttm.xlsx` instead of regenerating, keyed on a 1:1
-  FRD→STTM naming convention. Here one workbook yields N feeds whose slugs
-  are only known AFTER resolution, so there is no pre-run name to key on.
-  `POST /api/sharepoint/locate` returns `already_published` as INFORMATION
-  for the operator instead; it never decides on their behalf. Closing this
-  properly needs a content hash, same as the upstream repo's open item.
+Three frd-to-sttm features are deliberately absent (`jobs_runner.py`, the
+`_sharepoint.py` shim, the duplicate-input short-circuit) — rationale in
+`.claude/skills/code-gen-agent/references/deep-dive.md` § "Deliberately
+NOT ported"; read it before porting anything from that repo. Running jobs
+belongs to the client's framework, never to the agent.
 
 ## Branching model
 

@@ -42,6 +42,7 @@ venv/
 # material must be anonymized first AND tracked by a deliberate decision.
 *.docx
 *.xlsx
+*.pptx
 *.contract.json
 fixtures/contracts/
 fixtures/workbooks/

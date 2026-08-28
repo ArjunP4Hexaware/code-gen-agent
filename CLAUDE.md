@@ -42,6 +42,11 @@ FAIL (semantics in `docs/WORKFLOW.md`).
 
 ```
 src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
+                    databricks.py (UC volumes transport, read-only, needs the
+                    [databricks] extra; added 2026-08-27),
+                    demo_sources.py / metadata_sheet.py / input_requirements.py /
+                    governance_checks.py (request-time display+check modules,
+                    all OUTSIDE the generation path; added 2026-08-27),
                     contracts/ (pydantic models, both dialects, frozen),
                     resolve/ (FRD⋈STTM join → ResolvedFeedSpec), extract/
                     (workbook→STTM extractor, see below), rules/ (rule
@@ -192,6 +197,42 @@ inside `extract-sttm` or the resolver.**
   codes say whose problem it is: 503 not configured, 502 Graph refused, 400
   bad request, 404 no such feed/artifact, 413 over a cap. The panel renders
   nothing when unconfigured.
+
+## Databricks volumes seam (added 2026-08-27)
+
+`src/codegen/databricks.py` — the UC-volumes twin of the SharePoint seam,
+READ-ONLY (list + download), same edge doctrine: fetch documents to local
+disk (`codegen databricks-fetch` → `inputs/databricks/`, also the UI's
+per-file Fetch in the STTM chooser), then generation proceeds from disk.
+The client's raw documents live in `soham_workspace.codegen_agent.frd_raw`
+/ `.sttm_raw` (uploaded 2026-08-27, un-anonymized, on explicit user
+instruction — Databricks volumes are allowed to hold client documents;
+this REPO still is not). Non-secret knobs in `config/config.yaml`
+`databricks:` (profile/catalog/schema/volumes; env `DATABRICKS_*` >
+YAML); auth resolves from the named profile (CLI OAuth keyring) —
+`databricks-sdk` via the optional `[databricks]` extra, keyless import.
+CAUTION: never leave a placeholder `DATABRICKS_HOST` uncommented in
+`.env` — the SDK prefers env over profile and will try to reach it.
+Everything write-shaped (tables, jobs, EXPLAIN, FMAPI provider, UC
+grounding gate checks — "B1") stays NOT BUILT pending explicit go; the
+governance check "never writes back" introspects this module and flips if
+a write-shaped function ever appears.
+
+## Demo panels + reference-document checks (added 2026-08-27, display/check only)
+
+The Run-modes card grew config-driven panels — documents card
+(`demo.input_documents`, env `CODEGEN_INPUT_DOCS_DIR` override),
+source-files table + convention check (real FRD docx read live),
+synthetic `databricks fs ls` block (`demo.databricks_paths` placeholders,
+Option A), metadata-sheet preview for ACFC's metadata-driven framework
+(`demo.metadata_sheet`, provenance-badged cells + xlsx download), and the
+reference-document checks: the input-requirements deck's eleven rows
+evaluated against the demo contract AND the real FRD document, plus the
+two architecture decks' stated controls evaluated against the loaded run.
+All of it reads documents at request time, caches nothing, commits
+nothing, and NONE of it alters generated output — the generation path is
+untouched and byte-stable (verified against tags `pre-demo-2026-08-27` /
+`post-mgr-demo`). CLI twins: `demo-source-files`, `demo-metadata-sheet`.
 
 ### Deliberately NOT ported
 

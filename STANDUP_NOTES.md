@@ -52,6 +52,20 @@
   HEAD build, no longer the literal 3cb9468 bundle; everything else,
   including the shell-header text below, remains deferred.
 
+## 2026-08-27 (evening) — post-freeze additions, all merged to staging
+
+On explicit instruction, the freeze was superseded by further feature
+work; the server was rebuilt/restarted several times and now runs staging
+HEAD (blank base state). Landed, in order: metadata-sheet preview
+(`202ac06`), documents card note fix (`bb81d41`), Databricks volumes seam
++ input-requirements check (`be96156` — client FRDs/STTMs uploaded
+un-anonymized to `soham_workspace.codegen_agent.{frd_raw,sttm_raw}` on
+explicit instruction, fetchable via `codegen databricks-fetch` and the
+STTM chooser), and all four reference documents consumed in request-time
+checks (`8a0daf4`). Suite 170 → 207 passed / 27 skipped; generation
+byte-identical throughout (tags `pre-demo-2026-08-27`, `post-mgr-demo`).
+B1 (warehouse/EXPLAIN/FMAPI/UC-grounding) remains gated on explicit go.
+
 ### After 5 PM demo (the remaining deferred frontend change)
 
 Replace the shell block's SYNTHETIC header in

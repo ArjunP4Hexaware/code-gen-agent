@@ -32,6 +32,13 @@ ui = [
     "fastapi>=0.111",
     "uvicorn>=0.30",
 ]
+# Databricks volumes transport only (codegen.databricks) — the edge seam
+# that fetches FRD/STTM documents from Unity Catalog volumes. Optional by
+# the same doctrine as SharePoint: the generator itself never opens a
+# Databricks connection, and every other command runs without this extra.
+databricks = [
+    "databricks-sdk>=0.30",
+]
 
 [project.scripts]
 codegen = "codegen.cli:main"

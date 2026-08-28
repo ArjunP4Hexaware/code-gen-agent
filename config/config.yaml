@@ -138,9 +138,13 @@ demo:
       - "FRD_STG_STD_SFMC_Email_Campaign_Tracking_Details_Ingestion_1005310.docx"
       - "FRD-to-STTM-Agent-Data-Governance-Architecture.pptx"
       - "FRD-to-STTM-Agent-Solution-Architecture.pptx"
+      # Read at request time by the input-requirements check (the one
+      # reference document that IS consumed in processing, not display-only).
+      - "FRD-and-Dictionary-Input-Requirements.pptx"
     dirs:
       - inputs/sharepoint
       - inputs/standards
+      - inputs/databricks
 
   # "Source files this run will read" panel. The landing-root template
   # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS
@@ -301,6 +305,23 @@ sharepoint:
   library: ""           # document library display name; blank falls back to "Documents"
   input_folder: ""      # workbooks + contracts live here; "" = library root
   output_folder: ""     # generated artifacts are published here (the ONLY path we write)
+
+databricks:
+  # Unity Catalog volumes transport (codegen.databricks) — raw client FRD
+  # documents and STTM workbooks in; READ-ONLY (list + download). The seam
+  # sits at the edge like SharePoint: `codegen databricks-fetch` lands files
+  # in inputs/databricks/ and generation proceeds from local disk.
+  #
+  # NON-SECRET knobs only; auth is whatever the named profile resolves
+  # (CLI OAuth keyring here — no token in this repo, ever). Each knob is
+  # overridable by the uppercased DATABRICKS_* env var. Empty = Databricks
+  # unconfigured: the UI hides the panel, the CLI fails loudly naming the
+  # remedy, and everything else is unaffected.
+  profile: DEFAULT
+  catalog: soham_workspace
+  schema: codegen_agent
+  frd_volume: frd_raw
+  sttm_volume: sttm_raw
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

@@ -308,6 +308,27 @@ class SharePointSettings(BaseModel):
     output_folder: str = ""   # generated artifacts out
 
 
+class DatabricksSettings(BaseModel):
+    """Non-secret Databricks volumes knobs (codegen.databricks reads these).
+
+    Credentials are deliberately absent: auth is whatever the named profile
+    resolves (CLI OAuth keyring, or DATABRICKS_HOST/TOKEN env for a
+    deployment). Every field defaults empty — Databricks is optional, and an
+    unconfigured repo loads its config and runs the whole generator exactly
+    as before. Each knob is overridable by the uppercased DATABRICKS_* env
+    var of the same name (env > YAML).
+    """
+
+    model_config = _MODEL_CONFIG
+
+    profile: str = ""       # ~/.databrickscfg profile name
+    catalog: str = ""       # e.g. soham_workspace
+    # "schema" shadows BaseModel.schema; keep the YAML name via alias.
+    schema_name: str = Field(default="", alias="schema")
+    frd_volume: str = ""    # raw client FRD documents in
+    sttm_volume: str = ""   # raw client STTM workbooks in
+
+
 class TypeMappingEntry(BaseModel):
     """One source→target datatype override from the client standards doc."""
 
@@ -427,6 +448,8 @@ class Config(BaseModel):
     # every SharePoint entry point then fails loudly on the missing values
     # rather than this being a load-time error for repos that never use it.
     sharepoint: SharePointSettings = SharePointSettings()
+    # Optional, same posture: the Databricks volumes transport seam.
+    databricks: DatabricksSettings = DatabricksSettings()
     # Optional (three-input model, added for the Raj feedback pass): both
     # sections default so an older config still loads unchanged.
     engineering_standards: EngineeringStandardsConfig = EngineeringStandardsConfig()

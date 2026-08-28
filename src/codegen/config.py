@@ -157,6 +157,11 @@ class ReasoningConfig(BaseModel):
     model: str
     max_tokens: int = Field(gt=0)
     max_attempts: int = Field(gt=0)
+    # Layer-2 transport: "anthropic" (default, direct API) or
+    # "databricks_fmapi" (the same Claude model served by Databricks
+    # Foundation Model APIs — a transport, not a vendor change; Anthropic
+    # remains the sole model vendor). Mock always wins on dry-run.
+    provider: str = "anthropic"
 
 
 class DemoInputDocumentsConfig(BaseModel):
@@ -327,6 +332,10 @@ class DatabricksSettings(BaseModel):
     schema_name: str = Field(default="", alias="schema")
     frd_volume: str = ""    # raw client FRD documents in
     sttm_volume: str = ""   # raw client STTM workbooks in
+    # B1 knobs — empty means the function needing one fails loudly:
+    warehouse_id: str = ""           # EXPLAIN-only; waking it bills DBUs
+    serving_endpoint: str = ""       # FMAPI chat endpoint (Claude transport)
+    wrapper_notebook_path: str = ""  # client-supplied; none exists here yet
 
 
 class TypeMappingEntry(BaseModel):

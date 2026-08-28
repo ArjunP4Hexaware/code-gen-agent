@@ -29,7 +29,27 @@ class Provider(Protocol):
 def build_provider(config: Config, dry_run: bool) -> Provider:
     from codegen.reasoning.providers.mock import MockProvider
 
-    if dry_run or not os.environ.get("ANTHROPIC_API_KEY"):
+    if dry_run:
+        return MockProvider()
+
+    # databricks_fmapi: the same Claude model over Databricks FMAPI — a
+    # transport, not a vendor change. Selected only when explicitly
+    # configured AND the workspace config resolves; otherwise the safe
+    # degradation is the same as a missing Anthropic key: mock.
+    if config.reasoning.provider == "databricks_fmapi":
+        from codegen.databricks import DatabricksConfigError, config_for
+
+        try:
+            config_for(config.databricks)
+        except DatabricksConfigError:
+            return MockProvider()
+        from codegen.reasoning.providers.databricks_provider import (
+            DatabricksFmapiProvider,
+        )
+
+        return DatabricksFmapiProvider(config)
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return MockProvider()
     from codegen.reasoning.providers.anthropic_provider import AnthropicProvider
 

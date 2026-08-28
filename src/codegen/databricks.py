@@ -48,13 +48,25 @@ class DatabricksTransportError(RuntimeError):
 
 @dataclass(frozen=True)
 class DatabricksVolumesConfig:
-    """Every knob this seam uses. No secrets — auth is profile/env resolved."""
+    """Every knob this seam uses. No secrets — auth is profile/env resolved
+    (the SDK's unified auth; ``DATABRICKS_HOST``/``DATABRICKS_TOKEN`` remain
+    supported env overrides, never stored here and never in ``repr``)."""
 
     profile: str      # ~/.databrickscfg profile name, e.g. DEFAULT
     catalog: str      # e.g. soham_workspace
     schema: str       # e.g. codegen_agent
     frd_volume: str   # raw FRD documents in
     sttm_volume: str  # raw STTM workbooks in
+    # B1 additions — each empty until configured; the function needing one
+    # raises the named remedy rather than guessing:
+    warehouse_id: str = ""          # EXPLAIN-only; waking it bills DBUs
+    serving_endpoint: str = ""      # FMAPI chat endpoint (Claude via Databricks)
+    wrapper_notebook_path: str = ""  # no wrapper job exists in the Hexaware
+    #                                  workspace; supplied by the client
+
+
+# The B1 surface grew beyond volumes; both names refer to the same config.
+DatabricksConfig = DatabricksVolumesConfig
 
 
 _YAML_KEYS = {
@@ -63,6 +75,9 @@ _YAML_KEYS = {
     "databricks_schema": "schema_name",
     "databricks_frd_volume": "frd_volume",
     "databricks_sttm_volume": "sttm_volume",
+    "databricks_warehouse_id": "warehouse_id",
+    "databricks_serving_endpoint": "serving_endpoint",
+    "databricks_wrapper_notebook_path": "wrapper_notebook_path",
 }
 
 
@@ -84,13 +99,22 @@ def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
         return ""
 
     values = {
-        "profile": knob("databricks_profile"),
+        # DATABRICKS_PROFILE > the SDK's own DATABRICKS_CONFIG_PROFILE >
+        # YAML > "DEFAULT" — a profile always resolves; auth may still fail
+        # at SDK time, loudly.
+        "profile": (knob("databricks_profile")
+                    or env.get("DATABRICKS_CONFIG_PROFILE", "")
+                    or "DEFAULT"),
         "catalog": knob("databricks_catalog"),
         "schema": knob("databricks_schema"),
         "frd_volume": knob("databricks_frd_volume"),
         "sttm_volume": knob("databricks_sttm_volume"),
+        "warehouse_id": knob("databricks_warehouse_id"),
+        "serving_endpoint": knob("databricks_serving_endpoint"),
+        "wrapper_notebook_path": knob("databricks_wrapper_notebook_path"),
     }
-    missing = sorted(k for k, v in values.items() if not v)
+    required = ("catalog", "schema", "frd_volume", "sttm_volume")
+    missing = sorted(k for k in required if not values[k])
     if missing:
         raise DatabricksConfigError(
             "Databricks volumes are not configured — missing: " + ", ".join(missing) + ". "
@@ -184,3 +208,144 @@ def fetch_document(
     target = dest / name
     tmp.replace(target)
     return target
+
+
+# --------------------------------------------------------------------------- #
+# B1 surface: catalog reads, EXPLAIN, job read, FMAPI chat. READ-ONLY by
+# construction — there is deliberately no execute, no create_job, no run_now
+# anywhere in this module, and the governance "never writes back" check
+# introspects for write-shaped names.
+# --------------------------------------------------------------------------- #
+
+
+def _require(cfg: DatabricksConfig, knob: str) -> str:
+    value = getattr(cfg, knob)
+    if not value:
+        raise DatabricksConfigError(
+            f"databricks.{knob} is not configured — set it in the `databricks:` "
+            f"section of config/config.yaml or the DATABRICKS_{knob.upper()} "
+            "environment variable."
+        )
+    return value
+
+
+def table_exists(cfg: DatabricksConfig, full_name: str, client=None) -> bool:
+    client = client if client is not None else _client(cfg)
+    try:
+        client.tables.get(full_name)
+        return True
+    except Exception as exc:  # noqa: BLE001 — only not-found maps to False
+        if "does not exist" in str(exc).lower() or "not found" in str(exc).lower():
+            return False
+        raise DatabricksTransportError(
+            f"tables.get({full_name!r}) failed: {exc}"
+        ) from exc
+
+
+def describe_table(cfg: DatabricksConfig, full_name: str, client=None) -> dict:
+    """Columns and types, verbatim from Unity Catalog."""
+    client = client if client is not None else _client(cfg)
+    try:
+        table = client.tables.get(full_name)
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(
+            f"tables.get({full_name!r}) failed: {exc}"
+        ) from exc
+    return {
+        "full_name": table.full_name,
+        "table_type": str(table.table_type.value if table.table_type else ""),
+        "columns": [
+            {"name": c.name, "type": c.type_text} for c in (table.columns or [])
+        ],
+    }
+
+
+def table_properties(cfg: DatabricksConfig, full_name: str, client=None) -> dict:
+    client = client if client is not None else _client(cfg)
+    try:
+        table = client.tables.get(full_name)
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(
+            f"tables.get({full_name!r}) failed: {exc}"
+        ) from exc
+    return dict(table.properties or {})
+
+
+def explain(cfg: DatabricksConfig, sql: str, warehouse_id: str | None = None,
+            client=None) -> str:
+    """Run ``EXPLAIN`` for one statement on the SQL warehouse. NOTHING ELSE.
+
+    The only statement shape this seam may send: anything not starting with
+    EXPLAIN is prefixed, never executed as-is. COST: the configured
+    warehouse auto-stops after 10 minutes — an EXPLAIN wakes it, and that
+    wake bills DBUs from the shared pool. Call deliberately.
+    """
+    warehouse = warehouse_id or _require(cfg, "warehouse_id")
+    statement = sql.strip().rstrip(";")
+    if not statement.lower().startswith("explain"):
+        statement = f"EXPLAIN {statement}"
+    client = client if client is not None else _client(cfg)
+    try:
+        response = client.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse, wait_timeout="50s"
+        )
+        state = str(response.status.state.value if response.status else "")
+        if state != "SUCCEEDED":
+            message = ""
+            if response.status and response.status.error:
+                message = response.status.error.message or ""
+            raise DatabricksTransportError(
+                f"EXPLAIN finished {state or 'without status'}: {message}"
+            )
+        rows = (response.result.data_array or []) if response.result else []
+        return "\n".join(cell for row in rows for cell in row if cell)
+    except DatabricksTransportError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(f"EXPLAIN failed: {exc}") from exc
+
+
+def get_job(cfg: DatabricksConfig, job_id: int, client=None) -> dict:
+    """Read one job's settings (name, tasks, parameters). Never runs it."""
+    client = client if client is not None else _client(cfg)
+    try:
+        job = client.jobs.get(job_id=job_id)
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(f"jobs.get({job_id}) failed: {exc}") from exc
+    settings = job.settings
+    return {
+        "job_id": job.job_id,
+        "name": settings.name if settings else None,
+        "tasks": [t.task_key for t in (settings.tasks or [])] if settings else [],
+        "parameters": [p.name for p in (settings.parameters or [])] if settings else [],
+    }
+
+
+def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = None,
+         max_tokens: int = 1024, client=None) -> str:
+    """One chat completion via a Foundation Model API serving endpoint.
+
+    Anthropic remains the sole model vendor — FMAPI serving a Claude model
+    is a TRANSPORT, not a vendor change. ``messages`` are
+    ``{"role": ..., "content": ...}`` dicts; no sampling parameters, ever
+    (same no-temperature rule as the Anthropic provider).
+    """
+    name = endpoint or _require(cfg, "serving_endpoint")
+    client = client if client is not None else _client(cfg)
+    try:
+        from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
+
+        sdk_messages = [
+            ChatMessage(role=ChatMessageRole(m["role"]), content=m["content"])
+            for m in messages
+        ]
+        response = client.serving_endpoints.query(
+            name=name, messages=sdk_messages, max_tokens=max_tokens
+        )
+        return response.choices[0].message.content or ""
+    except DatabricksConfigError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(
+            f"serving_endpoints.query({name!r}) failed: {exc}"
+        ) from exc

@@ -131,6 +131,17 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   re-add one.
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
+- **Client framework doctrine (Aug 26 framework calls, encoded 2026-08-27):**
+  job parameters carry IDs the wrapper resolves from metadata, NEVER inline
+  SQL (~250 KB parameter cap); all new tables managed with
+  `CLUSTER BY AUTO` and CDF on (NOT workspace defaults — must be explicit
+  DDL, per B0 observation); the agent never creates target tables and never
+  runs jobs; Anthropic is the sole model vendor — Databricks FMAPI serving
+  a Claude model (`reasoning.provider: databricks_fmapi`,
+  `databricks.serving_endpoint`) is a transport, not a vendor change. The
+  only SQL shape the seam may send is `EXPLAIN` (`codegen.databricks
+  .explain` enforces the prefix), and an EXPLAIN wakes the auto-stopped
+  warehouse = DBU spend from the shared ~120/month pool.
 - **Engineering standards are REAL as of 2026-08-26** (three-input model
   input #2 is no longer a stub): the EDO Data Engineering Naming + Coding
   Standards live as data in `config.yaml engineering_standards:` (WF_/NB_
@@ -236,15 +247,20 @@ untouched and byte-stable (verified against tags `pre-demo-2026-08-27` /
 
 ### Deliberately NOT ported
 
-- **No `jobs_runner.py` equivalent.** In frd-to-sttm that module triggers the
-  bundle-deployed `frd_sttm_pipeline` job via the Jobs API, because its demo
-  runs are Spark notebook tasks whose artifacts must land in Unity Catalog.
-  This repo has no `databricks.yml`, no bundle and no job to trigger:
-  generation is in-process Jinja2 plus an optional Anthropic call, needs no
-  cluster, and `ui/backend/service.py` already runs it directly. Building a
-  Jobs-API path here would mean inventing a job that does not exist. The
-  durability problem it solved (container artifacts are ephemeral) is
-  addressed instead by publishing artifacts to SharePoint.
+- **No `jobs_runner.py` equivalent — reason REVISED 2026-08-27 (B1).** The
+  original reason (kept for history): frd-to-sttm's module triggers its
+  bundle-deployed job because its demo runs are Spark notebook tasks; this
+  repo had no bundle, no job to trigger, and generation runs in-process, so
+  a Jobs-API path would have invented a job that does not exist. The revised
+  reason: the client now runs **metadata-driven Databricks Workflows around
+  a common wrapper notebook** and ADF is out of scope — so the emitted
+  `workflow.json` has a real target, and the missing piece is the CLIENT'S
+  wrapper job, not a runner of ours. The seam therefore gained read-only
+  `get_job` (inspect the wrapper's parameters when it exists;
+  `databricks.wrapper_notebook_path` stays empty until the client supplies
+  it) and still ships NO execute/create_job/run_now — running jobs belongs
+  to the client's framework, never to the agent (a suite test and the
+  governance "never writes back" check both enforce the absence).
 - **No `_sharepoint.py` shim.** That exists so `%run ./_sharepoint` and a
   local `from _sharepoint import ...` both resolve; this repo has no
   notebooks and no `%run`.

@@ -223,6 +223,52 @@ export function Dashboard({
         </div>
       )}
 
+      {feeds.some((f) => f.framework) ? (
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-head">
+            <h2>Framework artefacts (Option B)</h2>
+            <span className="hint">
+              config rows are the approval artefact; inserts run only after approval
+            </span>
+          </div>
+          <div className="panel-body">
+            {feeds
+              .filter((f) => f.framework)
+              .map((f) => (
+                <div key={f.feed_slug} style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 650, marginBottom: 4 }}>
+                    <code>{f.feed_slug}</code>{" "}
+                    <span className="hint">
+                      {Object.entries(f.framework!.row_counts)
+                        .map(([tab, n]) => `${tab} ${n}`)
+                        .join(" · ")}{" "}
+                      · {f.framework!.coverage.derived}/{f.framework!.coverage.total}{" "}
+                      derived
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {f.framework!.files.map((name) => (
+                      <a
+                        key={name}
+                        className="btn"
+                        href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
+                        download
+                      >
+                        {name}
+                      </a>
+                    ))}
+                  </div>
+                  <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
+                    Framework-assigned IDs left blank:{" "}
+                    {f.framework!.flagged_blank_columns.join(", ") || "none"} — the
+                    agent never invents them.
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
       {feeds.length > 0 ? (
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-body">

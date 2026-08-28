@@ -153,6 +153,7 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
         "candidate_count": len(run.candidates),
         "candidates_pending": pending,
         "files_written": len(run.written_files),
+        "framework": run.framework,
     }
 
 
@@ -331,7 +332,51 @@ def demo_status() -> dict:
         # config-default fallback, so the UI can demand the choice up front.
         "sttm_workbook": _require_runner().effective_workbook().name,
         "sttm_chosen": _require_runner().selected_workbook is not None,
+        # Output mode a run would use (Option A notebook / Option B
+        # framework / both) — the runner's override or the config default.
+        "output_mode": (
+            _require_runner().output_mode or _require_store().config.output.mode
+        ),
     }
+
+
+class OutputModeRequest(BaseModel):
+    mode: str | None = None  # notebook | framework | both; null = config default
+
+
+@app.post("/api/demo/output-mode")
+def select_output_mode(req: OutputModeRequest) -> dict:
+    try:
+        _require_runner().select_output_mode(req.mode)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return demo_status()
+
+
+@app.get("/api/feeds/{slug}/download")
+def download_generated_file(slug: str, path: str) -> Response:
+    """Binary download (framework workbooks / inserts) with containment."""
+    if slug not in _require_store().runs:
+        raise HTTPException(404, f"no generated feed named {slug!r}")
+    try:
+        payload = _require_store().read_generated_bytes(slug, path)
+    except PermissionError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, f"file not found: {path}") from exc
+    name = Path(path).name
+    media = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if name.endswith(".xlsx")
+        else "text/plain; charset=utf-8"
+    )
+    return Response(
+        content=payload,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @app.get("/api/demo/workbooks")

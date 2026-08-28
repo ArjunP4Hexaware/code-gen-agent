@@ -52,6 +52,22 @@
   HEAD build, no longer the literal 3cb9468 bundle; everything else,
   including the shell-header text below, remains deferred.
 
+## 2026-08-27 (late evening) — go B1 + Option B framework output
+
+- **B1 merged** (`fc62008`): warehouse/serving/catalog surface on the
+  Databricks seam (EXPLAIN-only, no execute/create_job/run_now — suite-
+  enforced), `databricks_fmapi` Layer-2 provider (transport only; Anthropic
+  stays default), Option A shell-header applied and serving. Live smoke
+  (describe_table + one ≤50-token chat) **pending explicit cost
+  confirmation** — nothing billed yet; the warehouse stayed asleep.
+- **Option B merged**: `output.mode notebook|framework|both` — framework =
+  DDL workbook + config rows (approval artefact, from the metadata-sheet
+  layout) + dialected inserts + ADDITION.md under `out/<slug>/framework/`;
+  verdicts identical across modes; Option A guarded byte-for-byte by
+  `tests/snapshots/notebook_mode.json`; UI Output selector + results
+  downloads. Open question for Nikshit noted in the session report:
+  common-wrapper vs per-project "master notebook".
+
 ## 2026-08-27 (evening) — post-freeze additions, all merged to staging
 
 On explicit instruction, the freeze was superseded by further feature

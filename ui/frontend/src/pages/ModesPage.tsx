@@ -455,6 +455,35 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               safety gate. Makes billed API calls.
             </p>
 
+            <div className="panel-subhead">Output</div>
+            <p style={{ margin: "6px 0 4px", display: "flex", gap: 8 }}>
+              {(["notebook", "framework", "both"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`btn sheet-tab${(status?.output_mode ?? "notebook") === mode ? " active" : ""}`}
+                  disabled={running}
+                  onClick={async () => {
+                    try {
+                      setStatus(await api.setOutputMode(mode));
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    }
+                  }}
+                >
+                  {mode === "notebook"
+                    ? "Notebook"
+                    : mode === "framework"
+                      ? "Framework artefacts"
+                      : "Both"}
+                </button>
+              ))}
+            </p>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Framework artefacts = DDL scripts + config rows + insert statements for
+              the existing ingestion framework — the ~90% case, adding a feed to what
+              already runs. Notebook = a fresh standalone pipeline — the ~10% case.
+            </p>
+
             <div className="panel-subhead">Input documents</div>
             {(() => {
               const refDocs = docScan?.find((d) => d.kind === "reference_documents");

@@ -26,6 +26,26 @@ feed_aliases: {}
 output:
   dir: out
   reports_dir: reports
+  # Option A ("notebook" — today's output, a fresh standalone pipeline, the
+  # ~10% case) | Option B ("framework" — DDL scripts + config rows + insert
+  # statements for the existing ingestion framework, the ~90% case) | both.
+  # CLI --output-mode and the UI selector override per run.
+  mode: notebook
+
+framework:
+  # Option B knobs. The row layout is NOT here — demo.metadata_sheet is the
+  # single source of truth (a stand-in until the client's template arrives;
+  # values carry over).
+  metadata_layout: demo.metadata_sheet
+  # sqlserver | lakebase — the framework DB the inserts target. The store is
+  # moving toward Databricks-native; the adapter stays thin and swappable.
+  sql_dialect: sqlserver
+  # How always_blank ID columns render in inserts: assigned by the ACFC
+  # framework / manual by client instruction — never invented by the agent.
+  id_placeholder: "NULL"
+  # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout};
+  # an unlisted tab inserts into a table named after the tab.
+  tables: {}
 
 naming:
   # Side-table names derive from the (detail) stage table + these suffixes.

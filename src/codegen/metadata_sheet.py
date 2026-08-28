@@ -49,6 +49,9 @@ BADGE_LABELS = {
     "from_sttm": "from STTM",
     "from_sttm_unmapped": "from STTM (unmapped)",
     "from_frd": "from FRD",
+    # The load-pattern FAQ is an INPUT (three-input model), not a guess:
+    # an engineer-answered value fills cells the FRD cannot.
+    "from_faq": "from FAQ",
     "synthetic": "SYNTHETIC",
     "needs_template": "NEEDS CLIENT TEMPLATE",
 }
@@ -92,8 +95,18 @@ def _row(headers: list[str], always_blank: set[str], cells: dict[str, dict],
 # -- per-tab row builders ------------------------------------------------------ #
 
 
+def _faq_cell(answer, tooltip_prefix: str):
+    """A from-FAQ cell when the engineer (or a prefill) answered; else None."""
+    if answer is None or answer.source == "unknown":
+        return None
+    tooltip = f"{tooltip_prefix} (source: {answer.source}"
+    if answer.evidence:
+        tooltip += f'; evidence: "{answer.evidence}"'
+    return _cell(answer.value, "from_faq", tooltip + ")")
+
+
 def _file_layout_row(feed: FrdFeed, config: Config,
-                     spec: ResolvedFeedSpec | None) -> dict[str, dict]:
+                     spec: ResolvedFeedSpec | None, faq=None) -> dict[str, dict]:
     source = feed_source_files(feed, config)  # Part A's synthesis rules, reused
     landing = source["landing_root"]
     cells = {
@@ -107,13 +120,20 @@ def _file_layout_row(feed: FrdFeed, config: Config,
         "file_pattern": _cell("; ".join(feed.file_name_patterns), "from_frd"),
         "file_format": _cell(feed.file_format, "from_frd"),
         # The FRD template has no column-header-row indicator; record
-        # segments DO state whether a Trailer record exists.
-        "has_header": _cell(
+        # segments DO state whether a Trailer record exists. The load-pattern
+        # FAQ (an input, not a guess) fills what the FRD lacks.
+        "has_header": _faq_cell(getattr(faq, "has_header", None),
+                                "load-pattern FAQ answer")
+        or _cell(
             "", "needs_template",
             "no column-header-row indicator exists in the FRD contract",
         ),
-        "has_trailer": _cell(
-            "yes" if "Trailer" in feed.record_segments else "no", "from_frd"
+        "has_trailer": (
+            _cell("yes", "from_frd")
+            if "Trailer" in feed.record_segments
+            else _faq_cell(getattr(faq, "has_trailer", None),
+                           "load-pattern FAQ answer")
+            or _cell("no", "from_frd")
         ),
     }
     if feed.delimiter:
@@ -129,12 +149,17 @@ def _file_layout_row(feed: FrdFeed, config: Config,
     if feed.frequency:
         cells["frequency"] = _cell(feed.frequency, "from_frd")
     else:
-        cells["frequency"] = _cell("", "needs_template", "not stated in the FRD")
+        cells["frequency"] = (
+            _faq_cell(getattr(faq, "load_frequency", None),
+                      "load-pattern FAQ answer")
+            or _cell("", "needs_template", "not stated in the FRD")
+        )
     return cells
 
 
 def _load_config_rows(feed: FrdFeed, config: Config,
-                      spec: ResolvedFeedSpec | None) -> list[dict[str, dict]]:
+                      spec: ResolvedFeedSpec | None,
+                      faq=None) -> list[dict[str, dict]]:
     strategy = config.demo.source_files.load_strategy
     rows: list[dict[str, dict]] = []
     for layer, target, strategy_value in (
@@ -143,17 +168,24 @@ def _load_config_rows(feed: FrdFeed, config: Config,
     ):
         if not target.tables:
             continue  # stage-only feeds declare no standard target
+        faq_keys = ", ".join(getattr(faq, "dedup_keys", []) or [])
         if layer == "standard" and spec is not None:
             dedup = _cell(
                 ", ".join(spec.natural_key_columns), "from_sttm",
                 "the mapping contract's natural key columns",
             )
+        elif layer == "standard" and faq_keys:
+            dedup = _cell(faq_keys, "from_faq", "load-pattern FAQ dedup_keys")
         elif layer == "standard":
             dedup = _cell("", "needs_template",
                           "key columns come from the mapping contract — no run yet")
         else:
-            dedup = _cell("", "needs_template",
-                          "load-pattern FAQ: dedup_within_file is unanswered")
+            dedup = (
+                _faq_cell(getattr(faq, "dedup_within_file", None),
+                          "load-pattern FAQ answer")
+                or _cell("", "needs_template",
+                         "load-pattern FAQ: dedup_within_file is unanswered")
+            )
         rows.append({
             "layer": _cell(layer, "from_frd"),
             "target_schema": _cell(target.schema_name, "from_frd"),
@@ -203,11 +235,14 @@ def metadata_sheet_payload(
     specs: list[ResolvedFeedSpec] | None = None,
     unmapped_by_slug: dict[str, set[str]] | None = None,
     run_label: str | None = None,
+    faq_by_slug: dict | None = None,
+    frd_path: Path | None = None,
 ) -> dict:
     """The whole preview. ``specs`` (a run's resolved feeds) populate the
     STTM-derived cells; without them the ``columns`` tab is empty with an
     explicit state and STTM-derived cells fall back to needs_template."""
-    frd_path = base_dir / config.contracts.dir / config.demo.frd
+    if frd_path is None:
+        frd_path = base_dir / config.contracts.dir / config.demo.frd
     if not frd_path.is_file():
         raise FileNotFoundError(f"demo FRD contract not found: {frd_path}")
     contract = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
@@ -216,22 +251,27 @@ def metadata_sheet_payload(
     always_blank = set(sheet.always_blank)
     spec_by_id = {s.feed_id: s for s in (specs or [])}
     unmapped_by_slug = unmapped_by_slug or {}
+    faq_by_slug = faq_by_slug or {}
 
     tabs: dict[str, dict] = {}
     for name, tab in sheet.tabs.items():
         rows: list[dict] = []
         if name == "file_layout":
             for feed in contract.feeds:
-                spec = spec_by_id.get(normalize_feed_name(feed.feed_name))
+                slug = normalize_feed_name(feed.feed_name)
+                spec = spec_by_id.get(slug)
                 rows.append(_row(tab.headers, always_blank,
-                                 _file_layout_row(feed, config, spec),
-                                 feed_slug=normalize_feed_name(feed.feed_name)))
+                                 _file_layout_row(feed, config, spec,
+                                                  faq=faq_by_slug.get(slug)),
+                                 feed_slug=slug))
         elif name == "load_config":
             for feed in contract.feeds:
-                spec = spec_by_id.get(normalize_feed_name(feed.feed_name))
-                for cells in _load_config_rows(feed, config, spec):
+                slug = normalize_feed_name(feed.feed_name)
+                spec = spec_by_id.get(slug)
+                for cells in _load_config_rows(feed, config, spec,
+                                               faq=faq_by_slug.get(slug)):
                     rows.append(_row(tab.headers, always_blank, cells,
-                                     feed_slug=normalize_feed_name(feed.feed_name)))
+                                     feed_slug=slug))
         elif name == "columns":
             for spec in specs or []:
                 unmapped = unmapped_by_slug.get(spec.feed_slug, set())
@@ -248,7 +288,8 @@ def metadata_sheet_payload(
             for entry in row["badges"].values():
                 total += 1
                 badge = entry["badge"]
-                if badge in ("from_sttm", "from_sttm_unmapped", "from_frd"):
+                if badge in ("from_sttm", "from_sttm_unmapped", "from_frd",
+                             "from_faq"):
                     derived += 1
                 elif badge == "synthetic":
                     synthetic += 1
@@ -274,14 +315,25 @@ _BADGE_FILLS = {
     "from_sttm": "C6EFCE",           # light green
     "from_sttm_unmapped": "C6EFCE",  # light green (same family)
     "from_frd": "DDEBF7",            # light blue
+    "from_faq": "E4DFEC",            # light purple — engineer-answered input
     "synthetic": "FFE699",           # amber
     "needs_template": "D9D9D9",      # grey
 }
 
 
+def _pin_workbook_properties(workbook: Workbook) -> None:
+    """Byte-stable output doctrine: no wall-clock timestamps in artefacts."""
+    from datetime import datetime
+
+    fixed = datetime(2026, 1, 1)
+    workbook.properties.created = fixed
+    workbook.properties.modified = fixed
+
+
 def build_workbook(payload: dict) -> Workbook:
     """One worksheet per tab + a ``_provenance`` sheet, cells filled by badge."""
     workbook = Workbook()
+    _pin_workbook_properties(workbook)
     workbook.remove(workbook.active)
     provenance_rows: list[tuple] = []
 
@@ -315,11 +367,38 @@ def build_workbook(payload: dict) -> Workbook:
     return workbook
 
 
+def stable_workbook_bytes(workbook: Workbook) -> bytes:
+    """Byte-stable .xlsx serialization (repo doctrine: no wall-clock in
+    artefacts). openpyxl stamps ``modified`` and the zip member headers with
+    now() at save time; this rewrites both to a fixed instant so the same
+    workbook always serializes to the same bytes."""
+    import re
+    import zipfile
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    source = zipfile.ZipFile(io.BytesIO(buffer.getvalue()))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as destination:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                data = re.sub(
+                    rb"<dcterms:modified[^>]*>[^<]*</dcterms:modified>",
+                    b'<dcterms:modified xsi:type="dcterms:W3CDTF">'
+                    b"2026-01-01T00:00:00Z</dcterms:modified>",
+                    data,
+                )
+            pinned = zipfile.ZipInfo(info.filename, date_time=(2026, 1, 1, 0, 0, 0))
+            pinned.compress_type = zipfile.ZIP_DEFLATED
+            pinned.external_attr = info.external_attr
+            destination.writestr(pinned, data)
+    return out.getvalue()
+
+
 def workbook_bytes(payload: dict) -> bytes:
     """In-memory .xlsx — nothing is written to disk on the serving path."""
-    buffer = io.BytesIO()
-    build_workbook(payload).save(buffer)
-    return buffer.getvalue()
+    return stable_workbook_bytes(build_workbook(payload))
 
 
 def workbook_filename(payload: dict) -> str:

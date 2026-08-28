@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -59,6 +60,28 @@ class OutputConfig(BaseModel):
 
     dir: str
     reports_dir: str
+    # Option A ("notebook", the default — today's output exactly), Option B
+    # ("framework": DDL scripts + config rows + insert statements for the
+    # existing ingestion framework, no notebook/module tree), or "both".
+    mode: Literal["notebook", "framework", "both"] = "notebook"
+
+
+class FrameworkConfig(BaseModel):
+    """Option B knobs — the additive output for ACFC's ingestion framework.
+
+    The row layout is NOT duplicated here: ``metadata_layout`` names the
+    single source of truth (``demo.metadata_sheet``) the config rows are
+    built from. ``always_blank`` ID columns render as ``id_placeholder`` in
+    the inserts — assigned by the client's framework, never invented.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    metadata_layout: str = "demo.metadata_sheet"
+    sql_dialect: Literal["sqlserver", "lakebase"] = "sqlserver"
+    id_placeholder: str = "NULL"
+    # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout}.
+    tables: dict[str, str] = Field(default_factory=dict)
 
 
 class NamingConfig(BaseModel):
@@ -463,6 +486,8 @@ class Config(BaseModel):
     # sections default so an older config still loads unchanged.
     engineering_standards: EngineeringStandardsConfig = EngineeringStandardsConfig()
     load_pattern_faq: LoadPatternFaqConfig = LoadPatternFaqConfig()
+    # Optional: Option B output knobs (see FrameworkConfig).
+    framework: FrameworkConfig = FrameworkConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

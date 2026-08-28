@@ -127,10 +127,19 @@ out/<feed_id>/
   tests/          pytest suite FOR THE GENERATED CODE (local SparkSession + delta-spark)
   tools/          make_fixtures.py — synthetic data from the contract's sample_value
   README.md       what was generated, from which contracts, verdict summary
+  framework/      [output.mode framework|both] Option B — the ACFC-framework
+                  addition: ddl_scripts.xlsx (reviewable DDL workbook),
+                  config_rows.xlsx (THE approval artefact; layout from
+                  demo.metadata_sheet, provenance-badged), config_inserts.sql
+                  (sqlserver|lakebase per framework.sql_dialect; plain
+                  INSERTs, framework-assigned IDs as placeholders), ADDITION.md
 ```
 
 `[bracketed]` modules are emitted only when the spec requires them
 (segments for segmented feeds, recycle/reference for recycle feeds).
+`output.mode: framework` renders the full tree into a scratch directory so
+the gate's checks and verdict are identical, but persists only `ddl/` and
+`framework/` — no notebook, no module tree; `both` persists everything.
 
 Semantics generated in (all from source-to-stage, mapped to Databricks per
 its AGENTS.md §2 table):

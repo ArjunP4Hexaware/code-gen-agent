@@ -61,11 +61,13 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
   if (error) return <div className="error-banner">{error}</div>;
   if (!feed) return <div className="empty">Loading…</div>;
 
+  // Framework mode emits no notebook — hide the tab rather than 404 it.
+  const hasNotebook = feed.written_files.some((f) => f.endsWith(".ipynb"));
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "rules", label: "Rules", count: feed.rule_total },
     { id: "candidates", label: "Layer-2 review", count: feed.candidate_count },
-    { id: "notebook", label: "Notebook" },
+    ...(hasNotebook ? [{ id: "notebook" as TabId, label: "Notebook" }] : []),
     {
       id: "code",
       label: "Generated code",

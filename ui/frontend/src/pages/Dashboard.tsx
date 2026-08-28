@@ -228,7 +228,8 @@ export function Dashboard({
           <div className="panel-head">
             <h2>Framework artefacts (Option B)</h2>
             <span className="hint">
-              config rows are the approval artefact; inserts run only after approval
+              config rows are the approval artefact; DDL + inserts are add-ons to
+              ACFC's master notebook, applied only after approval
             </span>
           </div>
           <div className="panel-body">

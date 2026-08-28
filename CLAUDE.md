@@ -224,7 +224,9 @@ metadata_sheet`, the single source of truth for the row layout — a
 stand-in until the client's template arrives, values carry over),
 `config_inserts.sql` (sqlserver|lakebase dialect via `framework:` config;
 plain INSERTs, idempotency belongs to the framework's load path) and
-`ADDITION.md`. Framework mode still renders the FULL pipeline into a
+`ADDITION.md`. **The master notebook is ACFC's own existing notebook
+(clarified 2026-08-27): the DDL scripts and insert SQL are ADD-ONS to it —
+the agent never generates, edits, or ships that notebook.** Framework mode still renders the FULL pipeline into a
 scratch tree so gate checks and verdicts are identical across modes; it
 persists only ddl/ + framework/. **Never-invent-IDs:** `always_blank`
 columns render as `framework.id_placeholder` and are flagged — assigned

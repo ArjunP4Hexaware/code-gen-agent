@@ -65,8 +65,10 @@
   layout) + dialected inserts + ADDITION.md under `out/<slug>/framework/`;
   verdicts identical across modes; Option A guarded byte-for-byte by
   `tests/snapshots/notebook_mode.json`; UI Output selector + results
-  downloads. Open question for Nikshit noted in the session report:
-  common-wrapper vs per-project "master notebook".
+  downloads. **Master-notebook question RESOLVED (Soham, 2026-08-27): the
+  master notebook is ACFC's own existing notebook — the generated DDL +
+  insert SQL are add-ons to it; the agent never produces or edits the
+  notebook itself.** Artefact/UI/talk-track copy updated to say so.
 
 ## 2026-08-27 (evening) — post-freeze additions, all merged to staging
 

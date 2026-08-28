@@ -39,8 +39,10 @@ _ADDITION_TEMPLATE = """\
 {banner}
 
 Option B output: an **addition to the existing ingestion framework** (the
-~90% case), not a standalone pipeline. On approval it is loaded into the
-existing ingestion framework database.
+~90% case), not a standalone pipeline. The DDL scripts and the insert SQL
+are **add-ons to ACFC's master notebook** — the notebook the client
+already has and runs; the agent never generates or edits that notebook,
+it only produces the add-ons.
 
 | File | What it is |
 | --- | --- |
@@ -55,8 +57,9 @@ never invented): {blank_columns}.
 Layout note: the tab names and column headers are a stand-in until the
 client's metadata template arrives — values carry over.
 
-After approval, a workflow wraps the common notebook with the assigned IDs.
-The agent never inserts unapproved rows.
+On approval: the config rows land in the ingestion framework database, and
+the DDL + insert SQL are added on to ACFC's master notebook with the
+framework-assigned IDs. The agent never inserts unapproved rows.
 """
 
 
@@ -348,8 +351,10 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         "## Framework output (Option B)",
         "",
         "Artefacts under `framework/` — an addition to the existing ingestion",
-        "framework; the config rows workbook is the approval artefact and the",
-        "inserts run only after approval through the client's metadata path.",
+        "framework. The config rows workbook is the approval artefact; the DDL",
+        "and insert SQL are add-ons to ACFC's master notebook (the client's own",
+        "notebook — never generated or edited by the agent), applied only after",
+        "approval.",
         "",
         "| Artefact | Detail |",
         "| --- | --- |",

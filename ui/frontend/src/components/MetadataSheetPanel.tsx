@@ -119,10 +119,11 @@ export function MetadataSheetPanel({ refreshKey }: { refreshKey?: string | numbe
         </a>
       </p>
       <p className="hint" style={{ marginTop: 4, fontSize: 11 }}>
-        Display only — the reviewed sheet is the approval artifact; insertion goes
-        through the client's existing metadata path (adapter to be built), then a
-        workflow wraps the common notebook with the assigned IDs. The agent never
-        inserts unapproved rows.
+        Display only — the reviewed sheet is the approval artifact. On approval the
+        rows land in the ingestion framework database, and the generated DDL +
+        insert SQL are add-ons to ACFC's master notebook — the client's own
+        notebook, never generated or edited by the agent. The agent never inserts
+        unapproved rows.
       </p>
     </div>
   );

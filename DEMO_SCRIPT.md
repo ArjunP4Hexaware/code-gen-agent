@@ -139,13 +139,14 @@ for Nikshit). Click **Framework artefacts**:
 
 > "Two shapes of deliverable from the same approved STTM. The notebook is
 > the ~10% case — a fresh standalone pipeline. Framework artefacts are the
-> ~90% case — an *addition* to your existing ingestion framework: DDL
-> scripts, config rows, insert statements. Same generation, same gate,
-> same verdict — only what lands on disk changes. After a run, open
-> `config_rows.xlsx` and `ADDITION.md` from the results page: the config
-> rows are the approval artefact, the inserts run only after approval
-> through your metadata path, and the ID columns are blank because your
-> framework assigns them — **the agent refuses to guess**."
+> ~90% case — an *addition* to what you already run: the DDL scripts and
+> the insert SQL are **add-ons to your master notebook** — your notebook,
+> we never generate or touch it — plus the config rows as the approval
+> artefact. Same generation, same gate, same verdict — only what lands on
+> disk changes. After a run, open `config_rows.xlsx` and `ADDITION.md`
+> from the results page: approve the rows, and the add-ons go onto the
+> master notebook with the IDs your framework assigns — the ID columns
+> are blank in our output because **the agent refuses to guess**."
 
 (Reset to **Notebook** — or leave **Both** — before firing, per what you
 want the results walk to show.)

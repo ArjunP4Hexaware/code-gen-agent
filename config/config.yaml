@@ -171,6 +171,12 @@ demo:
       - inputs/standards
       - inputs/databricks
 
+  # Explicit STTM->FRD pairing (canonical stems: lowercase, upload prefix
+  # and " (n)" copy suffix stripped, no extension). Checked before ticket-
+  # number pairing; the token heuristic only ever SUGGESTS in the UI.
+  pairing_map:
+    "sttm-medicare expansion-mids-social determine": "frd_medicare expansion-mids - socially determined"
+
   # "Source files this run will read" panel. The landing-root template
   # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS
   # Location) as a template — the literal client path never lives in this
@@ -368,6 +374,13 @@ databricks:
   # anything outside soham_workspace.codegen_agent.* is refused). Seeded
   # with synthetic files only — never client documents.
   landing_volume: mftlanding
+  # SELECT-only table-read allowlist (read_table_rows renders the statement
+  # itself; callers never pass SQL). Reads wake the serverless warehouse —
+  # DBU spend from the shared pool. FRD contracts come from the upstream
+  # FRD->STTM agent's table; a missing contract means "run that agent
+  # first", never a workaround here.
+  readable_tables:
+    - soham_workspace.sttm_agent.frd_contracts
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

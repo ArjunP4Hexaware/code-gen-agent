@@ -236,6 +236,26 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
+## FRD pairing + upstream contracts (added 2026-08-28)
+
+The run takes an **(STTM, FRD) pair**. FRD contracts come from the
+upstream FRD→STTM agent's Delta table
+(`soham_workspace.sttm_agent.frd_contracts`, read via the allowlisted
+SELECT-only `read_table_rows`; first read wakes the warehouse = DBU
+spend) — there is deliberately **no docx→contract extractor** here: a
+document with no contract row is a loud "run the FRD→STTM agent first".
+Pairing precedence: explicit `demo.pairing_map` (canonical stems; ships
+MIDS) → shared ticket number (CAQH `1005034`) → the ≥3-token stem
+heuristic **as a UI suggestion only**, never auto-paired. Defaults are
+unchanged (golden STTM + golden FRD, snapshot byte-identical), a
+mismatched pick shows a warning chip, and feed-match failures name the
+FRD used and offer the paired candidate — the human clicks, nothing
+auto-retries. **Client-document rule:** the MIDS/CAQH artefacts are real
+client documents, and a LIVE run sends their content to the model API —
+live runs on client STTM/FRD pairs are permitted only per the program's
+client-document process (Venu's email approval); the demo CV golden
+remains the default rehearsal pair, and mock runs need no approval.
+
 ## Databricks volumes seam (added 2026-08-27)
 
 `src/codegen/databricks.py` — the UC-volumes twin of the SharePoint seam,

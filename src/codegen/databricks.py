@@ -33,6 +33,8 @@ naming the remedy and every other command is unaffected.
 from __future__ import annotations
 
 import os
+import re
+import time
 from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
@@ -69,6 +71,7 @@ class DatabricksVolumesConfig:
     wrapper_notebook_path: str = ""  # no wrapper job exists in the Hexaware
     #                                  workspace; supplied by the client
     landing_volume: str = ""        # the ONE writable volume (see below)
+    readable_tables: tuple = ()     # allowlist for read_table_rows
 
 
 # The B1 surface grew beyond volumes; both names refer to the same config.
@@ -86,6 +89,7 @@ _YAML_KEYS = {
     "databricks_wrapper_notebook_path": "wrapper_notebook_path",
     "databricks_landing_volume": "landing_volume",
 }
+# readable_tables is list-valued and comes from YAML only (no env override).
 
 
 def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
@@ -120,6 +124,8 @@ def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
         "serving_endpoint": knob("databricks_serving_endpoint"),
         "wrapper_notebook_path": knob("databricks_wrapper_notebook_path"),
         "landing_volume": knob("databricks_landing_volume"),
+        "readable_tables": tuple(getattr(settings, "readable_tables", ()) or ())
+        if settings is not None else (),
     }
     required = ("catalog", "schema", "frd_volume", "sttm_volume")
     missing = sorted(k for k in required if not values[k])
@@ -504,3 +510,81 @@ def landing_volume_exists(cfg: DatabricksConfig, client=None) -> bool:
         raise DatabricksTransportError(
             f"volumes.read({full_name!r}) failed: {exc}"
         ) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Allowlisted table read (Statement Execution). SELECT-only BY CONSTRUCTION:
+# the statement is rendered here from validated identifiers — no caller ever
+# passes SQL — and only tables named in `databricks.readable_tables` are
+# accepted. First use wakes the serverless warehouse (auto-stop 10 min):
+# that wake is DBU spend from the shared pool.
+# --------------------------------------------------------------------------- #
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_TABLE_READ_CACHE: dict = {}
+_TABLE_READ_TTL_SECONDS = 60.0
+
+
+def read_table_rows(cfg: DatabricksConfig, fqn: str,
+                    columns: list[str] | None = None, limit: int = 500,
+                    client=None) -> list[dict]:
+    """Rows from ONE allowlisted table as dicts (values as returned strings).
+
+    Refuses any fqn not in ``cfg.readable_tables`` and any identifier that
+    is not a plain word — the SELECT is assembled here, never accepted from
+    a caller. Results are cached for 60 s per (fqn, columns, limit).
+    """
+    allowed = tuple(cfg.readable_tables or ())
+    if fqn not in allowed:
+        raise DatabricksConfigError(
+            f"refusing to read {fqn!r}: not in databricks.readable_tables "
+            f"{list(allowed)} — add it there deliberately or leave it alone."
+        )
+    parts = fqn.split(".")
+    if len(parts) != 3 or not all(_IDENTIFIER_RE.match(p) for p in parts):
+        raise DatabricksConfigError(f"invalid table name: {fqn!r}")
+    for column in columns or ():
+        if not _IDENTIFIER_RE.match(column):
+            raise DatabricksConfigError(f"invalid column name: {column!r}")
+    if not (1 <= int(limit) <= 10_000):
+        raise DatabricksConfigError(f"limit out of range: {limit}")
+    warehouse = cfg.warehouse_id
+    if not warehouse:
+        raise DatabricksConfigError(
+            "databricks.warehouse_id is not configured — required for table reads."
+        )
+
+    key = (fqn, tuple(columns or ()), int(limit))
+    cached = _TABLE_READ_CACHE.get(key)
+    if cached and time.time() - cached[0] < _TABLE_READ_TTL_SECONDS:
+        return cached[1]
+
+    selected = ", ".join(f"`{c}`" for c in columns) if columns else "*"
+    statement = (
+        f"SELECT {selected} FROM `{parts[0]}`.`{parts[1]}`.`{parts[2]}` "
+        f"LIMIT {int(limit)}"
+    )
+    client = client if client is not None else _client(cfg)
+    try:
+        response = client.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse, wait_timeout="50s"
+        )
+        state = str(response.status.state.value if response.status else "")
+        if state != "SUCCEEDED":
+            message = ""
+            if response.status and response.status.error:
+                message = response.status.error.message or ""
+            raise DatabricksTransportError(
+                f"table read finished {state or 'without status'}: {message}"
+            )
+        names = [c.name for c in response.manifest.schema.columns]
+        rows = [
+            dict(zip(names, row, strict=False))
+            for row in ((response.result.data_array or []) if response.result else [])
+        ]
+    except DatabricksTransportError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise DatabricksTransportError(f"table read failed: {exc}") from exc
+    _TABLE_READ_CACHE[key] = (time.time(), rows)
+    return rows

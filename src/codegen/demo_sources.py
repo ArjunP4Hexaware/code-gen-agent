@@ -66,10 +66,70 @@ def _pair_key(name: str) -> frozenset[str]:
     return frozenset(_TICKET_RE.findall(canonical_document_name(name)))
 
 
-def pair_sttm_with_frd(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
-    """{sttm name -> companion frd name} where exactly one FRD shares a
-    ticket number with exactly one STTM. Ambiguity (several candidates on
-    either side) pairs nothing — conservative by design."""
+def document_stem(name: str) -> str:
+    """Canonical stem: canonical name minus the extension."""
+    canonical = canonical_document_name(name)
+    return re.sub(r"\.[^.]+$", "", canonical).strip()
+
+
+def pair_sttm_with_frd(sttm_names: list[str], frd_names: list[str],
+                       explicit_map: dict[str, str] | None = None) -> dict[str, str]:
+    """{sttm name -> companion frd name}. Precedence: the EXPLICIT pairing
+    map (canonical stems, from config — ships the MIDS pair) first, then a
+    shared ticket number where exactly one FRD matches exactly one STTM.
+    Ambiguity pairs nothing — conservative by design. The ≥3-token stem
+    heuristic lives in ``suggest_pairs`` and is a UI SUGGESTION only,
+    never an automatic pairing."""
+    explicit_map = {document_stem(k): document_stem(v)
+                    for k, v in (explicit_map or {}).items()}
+    frd_by_stem = {document_stem(f): f for f in frd_names}
+    explicit_pairs: dict[str, str] = {}
+    for sttm in sttm_names:
+        mapped = explicit_map.get(document_stem(sttm))
+        if mapped and mapped in frd_by_stem:
+            explicit_pairs[sttm] = frd_by_stem[mapped]
+    remaining_sttm = [s for s in sttm_names if s not in explicit_pairs]
+    remaining_frd = [f for f in frd_names
+                     if f not in set(explicit_pairs.values())]
+    return {**explicit_pairs,
+            **_pair_by_ticket(remaining_sttm, remaining_frd)}
+
+
+def _token_prefix(name: str, count: int = 3) -> tuple[str, ...]:
+    tokens = [t for t in re.split(r"[\s_\-]+", document_stem(name)) if t]
+    # Drop the frd/sttm role prefix so the content tokens align.
+    if tokens and tokens[0] in ("frd", "sttm"):
+        tokens = tokens[1:]
+    return tuple(tokens[:count])
+
+
+def suggest_pairs(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
+    """UI-suggestion-only heuristic: the first >=3 tokens match after
+    squashing. Uniqueness-constrained both ways; ambiguity = no suggestion.
+    NEVER used to auto-pair — the person confirms with a click."""
+    frd_by_prefix: dict[tuple, list[str]] = {}
+    for frd in frd_names:
+        prefix = _token_prefix(frd)
+        if len(prefix) >= 3:
+            frd_by_prefix.setdefault(prefix, []).append(frd)
+    suggestions: dict[str, str] = {}
+    claimed: dict[str, str] = {}
+    for sttm in sttm_names:
+        prefix = _token_prefix(sttm)
+        candidates = frd_by_prefix.get(prefix, []) if len(prefix) >= 3 else []
+        if len(candidates) != 1:
+            continue
+        frd = candidates[0]
+        if frd in claimed:
+            suggestions.pop(claimed[frd], None)
+            continue
+        claimed[frd] = sttm
+        suggestions[sttm] = frd
+    return suggestions
+
+
+def _pair_by_ticket(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
+    """Ticket-number pairing (the pre-map behaviour), same conservatism."""
     frd_by_ticket: dict[str, list[str]] = {}
     for frd in frd_names:
         for ticket in _pair_key(frd):

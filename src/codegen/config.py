@@ -149,6 +149,57 @@ _REQUIRED_HEADER_KEYS = {
 _OPTIONAL_HEADER_KEYS = {"value_spec"}
 
 
+class SegmentedExtractorConfig(BaseModel):
+    """Layout knobs for the segmented (CAQH-style) workbook family — one wide
+    mapping sheet: key:value metadata block, band-label row (discovered by
+    scan, not positional), header row beneath it, per-row Segment column,
+    per-segment audit rows with empty source cells. Vocabulary transcribed
+    from the real workbook's structural characterization
+    (docs/SEGMENTED_MODE_DESIGN.md) — all matching is fuzzy (lowercased,
+    whitespace-collapsed) like the flat extractor's."""
+
+    model_config = _MODEL_CONFIG
+
+    # Band-label variants this family uses for the source band.
+    source_band_variants: list[str] = Field(
+        default_factory=lambda: ["Source Layout", "Source File Layout"])
+    # Metadata-block keys (col A) -> logical facts.
+    metadata_keys: dict[str, str] = Field(default_factory=lambda: {
+        "files": "File(s)",
+        "generator": "File Generator",
+        "location": "File Location",
+        "lob": "LOB",
+        "frequency": "File frequency",
+        "domain": "Domain",
+        "sub_domain": "Sub-Domain",
+        "file_type": "File type",
+    })
+    # Source-block header synonyms (logical -> accepted spellings).
+    source_headers: dict[str, list[str]] = Field(default_factory=lambda: {
+        "ordinal": ["#"],
+        "field_name": ["Field Name"],
+        "datatype": ["Data Type"],
+        "length": ["Length"],
+        "fixed_width_length": ["Field Length (fixed width)"],
+        "fixed_width_start": ["Start position (fixed width)"],
+        "fixed_width_end": ["End Position (fixed width)"],
+        "segment": ["Segment (Ex:Header,Trailer,Detail)", "Segment"],
+        "pii": ["PII"],
+        "comments": ["Comments"],
+        "business_rule": ["Business Rule"],
+    })
+    # Stage/Standard block header vocabulary (identical for both bands).
+    table_headers: list[str] = Field(default_factory=lambda: [
+        "Catalog", "Schema", "TableName", "ColumnName", "DataType",
+        "Mandatory Column", "Primary Key", "Field Description",
+        "Table Description", "Transformations/Data Quality",
+    ])
+    # Canonical segment names as the Segment column spells them.
+    segment_names: dict[str, str] = Field(default_factory=lambda: {
+        "header": "Header", "detail": "Detail", "trailer": "Trailer",
+    })
+
+
 class ExtractorConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -163,6 +214,9 @@ class ExtractorConfig(BaseModel):
     file_details_headers: ExtractorFileDetailsHeaders
     recycle_on_match: str
     recycle_on_no_match: str
+    # Segmented (CAQH-style) family knobs — all defaulted, so a config
+    # without the section still loads.
+    segmented: SegmentedExtractorConfig = SegmentedExtractorConfig()
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:

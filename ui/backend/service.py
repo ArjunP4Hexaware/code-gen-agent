@@ -30,7 +30,7 @@ from codegen.faq import faq_for_spec
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
-from codegen.reasoning.engine import RuleCandidate
+from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import write_generation_report
 from codegen.resolve.resolver import ContractMismatchError, resolve_pair
 from codegen.rules.compiler import RuleOutcome, compile_rules
@@ -197,6 +197,10 @@ class GenerationStore:
             stage("Layer-2 reasoning" + ("" if dry_run else " (live)"))
             provider = build_provider(self.config, dry_run)
             candidates = run_reasoning(spec, outcomes, provider)
+            # Segmented-extraction review items join the same review flow;
+            # replayed candidate sets already carry them (they are written
+            # into candidates.json), so only the fresh path adds them.
+            candidates = [*segmented_review_items(spec), *candidates]
         stage("emitting code")
         # Three-input model: mirrors cli._generate_feed — FAQ file answers
         # plus contract prefills; missing file => defaults, flagged by gate.
@@ -303,7 +307,15 @@ class GenerationStore:
             return
         artifact_dir = feed_dir / "candidates"
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        payload = [c.model_dump() for c in candidates]
+        payload = []
+        for candidate in candidates:
+            entry = candidate.model_dump()
+            if entry.get("kind") == "layer2":
+                # Default-kind entries serialize exactly as before the
+                # segmented dialect — flat candidates.json stays byte-stable.
+                entry.pop("kind", None)
+                entry.pop("detail", None)
+            payload.append(entry)
         (artifact_dir / "candidates.json").write_text(
             json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n"
         )

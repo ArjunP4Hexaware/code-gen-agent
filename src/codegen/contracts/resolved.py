@@ -15,7 +15,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from codegen.contracts.frd import LoadStrategy, RecordSegment
-from codegen.contracts.sttm import AuditColumn, RecycleSpec, SttmField
+from codegen.contracts.sttm import (
+    AuditColumn,
+    RecycleSpec,
+    SegmentedExtraction,
+    SttmField,
+)
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -116,6 +121,12 @@ class ResolvedFeedSpec(BaseModel):
     sttm_contract_name: str
     sttm_contract_sha256: str
     sttm_is_synthetic: bool
+
+    # Carried through from a segmented-workbook extraction (v2 dialect):
+    # envelope entries, declared discriminator assumption, held-back Standard
+    # layer. None on flat feeds — templates never read it, so flat output
+    # stays byte-identical.
+    segmented_extraction: SegmentedExtraction | None = None
 
     @property
     def is_segmented(self) -> bool:

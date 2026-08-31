@@ -70,7 +70,15 @@ def compute_verdict(
                 + (f" — {outcome.notes}" if outcome.notes else "")
             )
     for candidate in candidates:
-        if candidate.response is None:
+        if candidate.kind == "extraction_assumption":
+            flags.append(
+                f"extraction assumption pending engineer approval: {candidate.rule_text}"
+            )
+        elif candidate.kind == "escalated_conflict":
+            flags.append(
+                f"escalated conflict held for source-team ruling: {candidate.rule_text}"
+            )
+        elif candidate.response is None:
             flags.append(
                 f"Layer-2 provider failed for rule {candidate.rule_text!r}: "
                 + "; ".join(candidate.failure_notes)

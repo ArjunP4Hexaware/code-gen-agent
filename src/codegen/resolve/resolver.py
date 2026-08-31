@@ -131,7 +131,15 @@ def _resolve_segments(
 ) -> list[SegmentSpec]:
     stage_schema = sttm_feed.stage.schema_name
     frd_schema = frd_feed.stage_target.schema_name
-    if frd_schema is not None and frd_schema != stage_schema:
+    # Segmented-extraction contracts carry the workbook's identifiers
+    # verbatim; Databricks identifiers are case-insensitive, so pure case
+    # drift is not a mismatch on that path.
+    schemas_equal = frd_schema == stage_schema or (
+        sttm_feed.segmented is not None
+        and frd_schema is not None
+        and frd_schema.lower() == stage_schema.lower()
+    )
+    if frd_schema is not None and not schemas_equal:
         errors.append(f"stage schema disagrees: STTM '{stage_schema}', FRD '{frd_schema}'")
 
     if not frd_feed.is_segmented:
@@ -148,6 +156,23 @@ def _resolve_segments(
         return [SegmentSpec(segment="Detail", stage_table=table, fields=sttm_feed.fields)]
 
     if not sttm_feed.is_segmented:
+        if sttm_feed.segmented is not None:
+            # v2 segmented extraction: Detail rows are the payload and the
+            # spec is flat-shaped; Header/Trailer live in the envelope block
+            # (report-only). The FRD's declared H/T stage tables are
+            # accounted against the envelope in _resolve_one.
+            frd_tables_ci = {t.lower() for t in frd_feed.stage_target.tables}
+            if sttm_feed.stage.table.lower() not in frd_tables_ci:
+                errors.append(
+                    f"STTM stage table '{sttm_feed.stage.table}' is not among FRD "
+                    f"stage tables {frd_feed.stage_target.tables}"
+                )
+            table = ResolvedTable(
+                catalog=catalog, schema_name=stage_schema,
+                table=sttm_feed.stage.table, role="stage",
+            )
+            return [SegmentSpec(segment="Detail", stage_table=table,
+                                fields=sttm_feed.fields)]
         errors.append(
             f"FRD declares segments {frd_feed.record_segments} but no STTM field "
             "carries record_segment/stage_table"
@@ -322,6 +347,22 @@ def _resolve_one(
     accounted = {s.stage_table.table for s in segments}
     if resolved_recycle is not None:
         accounted.add(resolved_recycle.recycle_table.table)
+    if sttm_feed.segmented is not None:
+        # v2 segmented extraction: the FRD's Header/Trailer stage tables are
+        # accounted by the envelope entries (report-only, deliberately not
+        # landed), and an FRD-declared recycle table with no structured
+        # workbook recycle spec is accounted by the extraction's own note —
+        # neither is silently resolved, both surface in the report.
+        accounted |= {
+            e.stage_table for e in sttm_feed.segmented.envelope
+            if e.stage_table is not None
+        }
+        derived_recycle = side_table_name(
+            detail_table_name, config.naming.recycle_table_suffix)
+        accounted |= {
+            t for t in frd_feed.stage_target.tables
+            if t.lower() == derived_recycle.lower()
+        }
     unaccounted = [t for t in frd_feed.stage_target.tables if t not in accounted]
     if unaccounted:
         errors.append(
@@ -393,6 +434,7 @@ def _resolve_one(
         sttm_contract_name=sttm.contract_name,
         sttm_contract_sha256=sttm_sha256,
         sttm_is_synthetic=sttm.synthetic,
+        segmented_extraction=sttm_feed.segmented,
     )
 
 

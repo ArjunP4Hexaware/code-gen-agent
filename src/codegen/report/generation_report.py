@@ -92,6 +92,19 @@ def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
         lines += ["None — every rule compiled deterministically.", ""]
         return lines
     for index, candidate in enumerate(candidates, start=1):
+        if candidate.kind in ("extraction_assumption", "escalated_conflict"):
+            label = ("EXTRACTION ASSUMPTION — requires engineer approval"
+                     if candidate.kind == "extraction_assumption"
+                     else "ESCALATED CONFLICT — held for source-team ruling")
+            lines += [
+                f"### Review item {index} ({label})",
+                "",
+                f"- {candidate.rule_text}",
+            ]
+            if candidate.detail:
+                lines.append(f"- {candidate.detail}")
+            lines.append("")
+            continue
         grounded = "grounded" if candidate.grounded else "**NOT GROUNDED**"
         lines += [
             f"### Candidate {index} ({candidate.provider}, {grounded})",
@@ -112,6 +125,64 @@ def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
         if candidate.failure_notes:
             lines.append("- Failure notes:")
             lines += [f"  - {note}" for note in candidate.failure_notes]
+        lines.append("")
+    return lines
+
+
+def _segmented_section(spec: ResolvedFeedSpec) -> list[str]:
+    """Segmented-extraction facts: what the workbook declared, what is
+    ASSUMED (declared, pending confirmation), and what was HELD BACK. Empty
+    for flat feeds so their reports stay byte-identical."""
+    seg = spec.segmented_extraction
+    if seg is None:
+        return []
+    d = seg.discriminators
+    assumed = "ASSUMED (pending source team)" if d.status != "confirmed" else "confirmed"
+    lines = [
+        "## Segmented extraction",
+        "",
+        f"- Segments found: {', '.join(seg.segments_found)} — row counts: "
+        + ", ".join(f"{k}={v}" for k, v in seg.row_counts.items()),
+        f"- Record-type discriminators [{assumed}]: Header={d.header!r}, "
+        f"Detail={d.detail!r}, Trailer={d.trailer!r} — declared in the feed's "
+        "FAQ; the workbook states them nowhere.",
+    ]
+    if seg.natural_key_declared:
+        lines.append(
+            "- Natural key [ASSUMED — FAQ declaration]: "
+            + ", ".join(seg.natural_key_declared)
+            + " (the workbook's Mandatory/Primary Key columns carry no signal)."
+        )
+    for note in seg.notes:
+        lines.append(f"- Note: {note}")
+    lines += [
+        "",
+        "### File envelope (Header/Trailer rows — report-only, never table DDL)",
+        "",
+        "| Segment | Field | Datatype | Declared rule | Description |",
+        "|---|---|---|---|---|",
+    ]
+    for entry in seg.envelope:
+        lines.append(
+            f"| {entry.segment} | {_cell(entry.field_name)} | {_cell(entry.datatype)} "
+            f"| {_cell(entry.rule)} | {_cell(entry.description)} |"
+        )
+    lines.append("")
+    if seg.held_standard:
+        lines += [
+            "### Held back — workbook Standard layer (escalated conflict)",
+            "",
+            "The workbook defines a Standard layer; the FRD contract scopes this "
+            "feed stage-only. The FRD governs target layers, so nothing below "
+            "was emitted — and nothing was deleted. Held for source-team ruling:",
+            "",
+            "| Standard table | Columns mapped | Catalog.Schema |",
+            "|---|---|---|",
+        ]
+        for held in seg.held_standard:
+            qualifier = ".".join(p for p in (held.catalog, held.schema_name) if p)
+            lines.append(
+                f"| {_cell(held.table)} | {held.column_count} | {_cell(qualifier)} |")
         lines.append("")
     return lines
 
@@ -150,6 +221,7 @@ def write_generation_report(
     lines += _inputs_section(inputs_summary)
     lines += _files_section(written_files, out_root)
     lines += _rules_section(outcomes)
+    lines += _segmented_section(spec)
     lines += _candidates_section(candidates)
     lines += _gate_section(gate)
 

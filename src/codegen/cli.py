@@ -36,7 +36,7 @@ from codegen.faq import faq_for_spec
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
-from codegen.reasoning.engine import RuleCandidate
+from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import console_summary, write_generation_report
 from codegen.resolve.resolver import ContractMismatchError, resolve_pair
 from codegen.rules.compiler import compile_rules
@@ -49,7 +49,15 @@ def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) 
     artifact_dir = feed_dir / "candidates"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = artifact_dir / "candidates.json"
-    payload = [candidate.model_dump() for candidate in candidates]
+    payload = []
+    for candidate in candidates:
+        entry = candidate.model_dump()
+        if entry.get("kind") == "layer2":
+            # Default-kind entries serialize exactly as before the segmented
+            # dialect landed — flat candidates.json stays byte-identical.
+            entry.pop("kind", None)
+            entry.pop("detail", None)
+        payload.append(entry)
     artifact_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return artifact_path
 
@@ -69,6 +77,9 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    # Segmented-extraction review items (assumption/conflict cards) ride the
+    # same review artifact and decision flow as Layer-2 candidates.
+    candidates = [*segmented_review_items(spec), *candidates]
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus
     # contract prefills; missing file => all defaults, flagged by the gate.
     faq = faq_for_spec(spec, config)

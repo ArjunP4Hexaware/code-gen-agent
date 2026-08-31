@@ -414,6 +414,22 @@ def build_context(
                 "writer_behavior": WRITER_BEHAVIOR,
                 **summarize(faq),
             },
+            # Declared discriminator assumption (segmented extraction only);
+            # None on flat feeds so their banners stay byte-identical.
+            "segmented": (
+                {
+                    "header": spec.segmented_extraction.discriminators.header,
+                    "detail": spec.segmented_extraction.discriminators.detail,
+                    "trailer": spec.segmented_extraction.discriminators.trailer,
+                    "status_label": (
+                        "confirmed"
+                        if spec.segmented_extraction.discriminators.status == "confirmed"
+                        else "ASSUMED — pending source team"
+                    ),
+                }
+                if spec.segmented_extraction is not None
+                else None
+            ),
         },
         "standards": {
             "status": config.engineering_standards.status,
@@ -456,6 +472,9 @@ def build_context(
         "segments": segments,
         "detail": detail,
         "audit_columns": [(a.column, sql_type(a.datatype)) for a in spec.audit_columns],
+        # True only when the contract declares a FILE_TYPE audit column
+        # (segmented-extraction feeds); flat feeds render byte-identically.
+        "has_file_type_audit": any(a.column == "FILE_TYPE" for a in spec.audit_columns),
         "natural_key": spec.natural_key_columns,
         "phi_columns": spec.phi_columns,
         "errors_table": spec.errors_table.table,

@@ -21,7 +21,9 @@ from codegen.emit.context import TemplateGapError
 from codegen.emit.notebook import build_notebook
 
 # The only audit columns the generated audit module knows how to populate.
-_KNOWN_AUDIT_COLUMNS = {"LOB", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME"}
+_KNOWN_AUDIT_COLUMNS = {
+    "LOB", "FILE_TYPE", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME",
+}
 
 
 def _py_literal(value: Any) -> str:

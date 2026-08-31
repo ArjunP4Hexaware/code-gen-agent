@@ -57,6 +57,73 @@ class LoadRules(BaseModel):
     recycle: RecycleSpec | None
 
 
+# ---- segmented-extraction block (v2 dialect, 2026-08-31) --------------------
+# A segmented (Header/Detail/Trailer) workbook extracts to the SAME flat feed
+# shape (Detail rows are the payload), plus this block: what else the workbook
+# declared, and the explicit, human-declared assumptions the run proceeds
+# under. Nothing here is inferred — the two governance boundaries
+# (discriminator values, FRD-vs-workbook layer conflict) surface for review
+# instead of being guessed (docs/SEGMENTED_MODE_DESIGN.md blockers 1 and 2).
+
+
+class RecordTypeDiscriminators(BaseModel):
+    """The H/D/T record-type values — DECLARED, never inferred: the workbook
+    confirms segment membership per field but states the literal values
+    nowhere. ``assumed_pending_source_team`` gates a review item; ``confirmed``
+    drops the gate but keeps the provenance line."""
+
+    model_config = _MODEL_CONFIG
+
+    header: str
+    detail: str
+    trailer: str
+    status: Literal["assumed_pending_source_team", "confirmed"]
+
+
+class EnvelopeEntry(BaseModel):
+    """One Header/Trailer row — file envelope, not a target column: it appears
+    in the generation report (record counts, file dates, sequence checks) and
+    never in table DDL."""
+
+    model_config = _MODEL_CONFIG
+
+    segment: Literal["Header", "Trailer"]
+    field_name: str
+    datatype: str | None
+    stage_table: str | None
+    description: str | None
+    rule: str | None
+
+
+class HeldStandardTable(BaseModel):
+    """Workbook-declared Standard-layer content held back under the precedence
+    rule (the FRD contract governs target layers): preserved as evidence,
+    never emitted."""
+
+    model_config = _MODEL_CONFIG
+
+    catalog: str | None
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str
+    column_count: int
+    reason: str
+
+
+class SegmentedExtraction(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    segments_found: list[str]
+    row_counts: dict[str, int]
+    envelope: list[EnvelopeEntry]
+    discriminators: RecordTypeDiscriminators
+    # FAQ-declared natural-key source columns, used only when the workbook's
+    # Mandatory/Primary Key columns carry no signal (observed on the real
+    # workbook) — declared by an engineer, never invented.
+    natural_key_declared: list[str] = Field(default_factory=list)
+    held_standard: list[HeldStandardTable] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class AuditColumn(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -101,6 +168,10 @@ class SttmFeed(BaseModel):
     audit_columns: list[AuditColumn] = Field(min_length=1)
     field_count: int
     fields: list[SttmField] = Field(min_length=1)
+    # Present only on feeds extracted from a segmented workbook (v2 dialect);
+    # None on every flat feed, so existing contracts and the byte-compared
+    # extractor output are untouched.
+    segmented: SegmentedExtraction | None = None
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:

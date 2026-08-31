@@ -1,0 +1,36 @@
+# Load-pattern FAQ — CAQH TPL Inbound Files (segmented dialect).
+#
+# The two segmented-dialect declarations below are the governance boundaries
+# from docs/SEGMENTED_MODE_DESIGN.md, made explicit instead of guessed:
+#
+# - record_type_discriminators: the workbook confirms segment MEMBERSHIP per
+#   field but states the literal H/D/T record-type values NOWHERE (only the
+#   Trailer carries an explicit record-type field). These values are an
+#   ASSUMPTION pending the client source dictionary — the run proceeds only
+#   because they are declared here, and every artefact derived from them is
+#   flagged ASSUMED until the source team confirms (flip status to
+#   "confirmed" when they do).
+# - natural_key_columns: the workbook's Mandatory/Primary Key columns carry
+#   no signal at all, so the merge key is an engineer declaration, not
+#   workbook evidence.
+schema_version: 1
+load_frequency:
+  value: weekly
+  source: frd
+  evidence: 'File frequency: "Weekly" (workbook metadata block, agrees with the FRD)'
+has_header:
+  value: "no"
+  source: engineer
+  evidence: "segmented H/D/T file — first record is the Header segment, not column names"
+has_trailer:
+  value: "yes"
+  source: frd
+  evidence: "FRD record_segments declare a Trailer"
+record_type_discriminators:
+  header: "H"
+  detail: "D"
+  trailer: "T"
+  status: assumed_pending_source_team
+natural_key_columns:
+  - "Member ID"
+  - "Subscriber ID"

@@ -246,6 +246,8 @@ export type ProvenanceBadge =
   | "from_sttm"
   | "from_sttm_unmapped"
   | "from_frd"
+  | "from_faq"
+  | "from_standards"
   | "synthetic"
   | "needs_template";
 

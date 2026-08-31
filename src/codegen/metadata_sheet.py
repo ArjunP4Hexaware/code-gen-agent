@@ -40,8 +40,8 @@ from codegen.demo_sources import feed_source_files
 from codegen.resolve.resolver import normalize_feed_name
 
 LAYOUT_NOTE = (
-    "Layout is a stand-in; the client's metadata template defines the real "
-    "tabs and columns. Values carry over."
+    "Layout is the client IIG template (anonymized reference — "
+    "fixtures/reference/SFMC_IIG.xlsx). Values carry over."
 )
 NO_RUN_STATE = "choose an STTM and generate"
 
@@ -52,9 +52,17 @@ BADGE_LABELS = {
     # The load-pattern FAQ is an INPUT (three-input model), not a guess:
     # an engineer-answered value fills cells the FRD cannot.
     "from_faq": "from FAQ",
+    # Engineering standards (three-input model, input #2) — e.g. the EDO
+    # WF_/NB_ naming patterns and the prod-support alert DL.
+    "from_standards": "from standards",
     "synthetic": "SYNTHETIC",
     "needs_template": "NEEDS CLIENT TEMPLATE",
 }
+
+# Badges that count as "derived" in coverage (everything traceable to an
+# input document/answer, as opposed to synthetic stand-ins or blanks).
+DERIVED_BADGES = ("from_sttm", "from_sttm_unmapped", "from_frd", "from_faq",
+                  "from_standards")
 
 _ALWAYS_BLANK_TOOLTIP = (
     "assigned by the ACFC framework / manual by client instruction — "
@@ -226,6 +234,320 @@ def _columns_rows(spec: ResolvedFeedSpec,
     return rows
 
 
+# -- IIG-layout row builders --------------------------------------------------- #
+# The real client layout (demo.metadata_sheet sourced from the anonymized
+# fixtures/reference/SFMC_IIG.xlsx). Existing derivations map onto the real
+# columns; anything the inputs don't state stays blank + needs_template, and
+# framework-assigned IDs stay always_blank — honest coverage by design.
+
+_SYNTHETIC_PATH_TOOLTIP = (
+    "synthetic path shape (from the anonymized reference workbook); the real "
+    "container/path are assigned at deployment"
+)
+_FRAMEWORK_VOCAB_TOOLTIP = (
+    "framework vocabulary from the anonymized reference workbook — confirm "
+    "with the framework team"
+)
+
+
+def _frequency_cell(feed: FrdFeed, faq):
+    if feed.frequency:
+        return _cell(feed.frequency, "from_frd")
+    return (_faq_cell(getattr(faq, "load_frequency", None),
+                      "load-pattern FAQ answer")
+            or _cell("", "needs_template", "not stated in the FRD"))
+
+
+def _standards_name_cell(config: Config, feed: FrdFeed, slug: str, faq,
+                         kind: str):
+    """WF_/NB_ name from the engineering-standards patterns (input #2)."""
+    if faq is None:
+        return None
+    from codegen.emit.context import resolve_job_name, resolve_notebook_name
+
+    builder = resolve_job_name if kind == "job" else resolve_notebook_name
+    name = builder(config.engineering_standards, faq, slug,
+                   source=feed.source_system, domain=feed.domain,
+                   sub_domain=feed.sub_domain, lobs=feed.lobs)
+    if not name:
+        return None
+    return _cell(name, "from_standards",
+                 "EDO naming standard pattern applied to FRD facts")
+
+
+def _landing_cells(feed: FrdFeed, config: Config) -> tuple[dict, dict]:
+    """(SRC_CONTAINER_NAME, SRC_ADLS_PATH) from the FRD landing convention."""
+    landing = feed_source_files(feed, config)["landing_root"]
+    value = str(landing["value"]).replace("\\", "/").strip("/")
+    container, _, rest = value.partition("/")
+    badge = "synthetic" if landing["synthetic"] else "from_frd"
+    tooltip = _LANDING_TOOLTIP if landing["synthetic"] else None
+    return (_cell(container, badge, tooltip),
+            _cell("/" + rest if rest else "/", badge, tooltip))
+
+
+def _stage_names(feed: FrdFeed, spec: ResolvedFeedSpec | None):
+    """(schema, table) of the stage target — resolved spec preferred."""
+    if spec is not None:
+        table = spec.detail_segment.stage_table
+        return table.schema_name, table.table
+    target = feed.stage_target
+    return target.schema_name, ", ".join(target.tables or [])
+
+
+def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
+                    unmapped: set[str]) -> dict[str, dict]:
+    container, src_path = _landing_cells(feed, config)
+    stage_schema, stage_table = _stage_names(feed, spec)
+    cells = {
+        "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
+        "DOMAIN": _cell(feed.domain or "", "from_frd"),
+        "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
+        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "FREQUENCY": _frequency_cell(feed, faq),
+        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "SRC_CONTAINER_NAME": container,
+        "SRC_ADLS_PATH": src_path,
+        "SRC_FILE_NAME": _cell("; ".join(feed.file_name_patterns), "from_frd"),
+        "SRC_FORMAT": _cell(feed.file_format, "from_frd"),
+        "TGT_DATABASE_NAME": _cell(stage_schema, "from_frd"),
+        "TGT_TABLE_NAME": _cell(stage_table, "from_frd"),
+        "TGT_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+        "TGT_LOAD_OPTION": _cell(
+            config.demo.source_files.load_strategy.stage, "synthetic",
+            _LOAD_STRATEGY_TOOLTIP),
+        "HEADER_FLAG": (_faq_cell(getattr(faq, "has_header", None),
+                                  "load-pattern FAQ answer")
+                        or _cell("", "needs_template",
+                                 "no header indicator in the FRD contract")),
+    }
+    if feed.delimiter:
+        cells["SRC_FILE_DELIMITER"] = _cell(feed.delimiter, "from_frd")
+    elif spec is not None:
+        cells["SRC_FILE_DELIMITER"] = _cell(spec.delimiter, "from_sttm")
+    if spec is not None:
+        fields = [f for seg in spec.segments for f in seg.fields]
+        cells["SRC_COLUMNS"] = _cell(
+            ",".join(f"{f.source_column}:{f.stage_column}" for f in fields),
+            "from_sttm")
+        cells["SRC_DATA_TYPE"] = _cell(
+            ",".join(f"{f.source_datatype}:{f.stage_datatype}" for f in fields),
+            "from_sttm")
+        cells["TGT_COLUMN_NAMES"] = _cell(
+            ",".join(f.stage_column for f in fields), "from_sttm")
+        cells["TGT_DATA_TYPE"] = _cell(
+            ",".join(f.stage_datatype for f in fields), "from_sttm")
+        cells["MANDATORY_FIELD_LIST"] = _cell(
+            ",".join(spec.not_null_columns), "from_sttm")
+        cells["TGT_PRIMARY_KEY"] = _cell(
+            ",".join(spec.natural_key_columns), "from_sttm",
+            "the mapping contract's natural key columns")
+        cells["TGT_RJT_TABLE_NAME"] = _cell(
+            spec.errors_table.table, "from_sttm",
+            "stage table + configured errors suffix")
+        cells["RECYCL_ENBL_FLG"] = _cell(
+            "Y" if spec.recycle else "N", "from_frd")
+        if spec.recycle:
+            cells["RECYCL_TBL_NM"] = _cell(
+                spec.recycle.recycle_table.table, "from_frd")
+            cells["RECYCL_RETN_DAYS"] = _cell(
+                spec.recycle.spec.recycle_window_days, "from_sttm")
+        tgt_path = f"/{feed.domain or ''}/{feed.sub_domain or ''}/Processed/{stage_table}"
+        cells["TGT_ADLS_PATH"] = _cell(tgt_path.replace("//", "/"),
+                                       "synthetic", _SYNTHETIC_PATH_TOOLTIP)
+    return cells
+
+
+def _stg_std_row(feed: FrdFeed, config: Config, spec, faq,
+                 unmapped: set[str]) -> list[dict[str, dict]]:
+    if spec is None or spec.standard_table is None:
+        return []
+    stage_schema, stage_table = _stage_names(feed, spec)
+    standard = spec.standard_table
+    fields = [f for seg in spec.segments for f in seg.fields
+              if f.standard_column]
+    cells = {
+        "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
+        "DOMAIN": _cell(feed.domain or "", "from_frd"),
+        "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
+        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "FREQUENCY": _frequency_cell(feed, faq),
+        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "SRC_CATALOG_NAME": _cell(
+            spec.detail_segment.stage_table.catalog or "", "from_frd"),
+        "SRC_SCHEMA_NAME": _cell(stage_schema, "from_frd"),
+        "SRC_TABLE_NAME": _cell(stage_table, "from_frd"),
+        "SRC_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+        "SRC_COLUMNS": _cell(
+            ",".join(f"{f.stage_column}:{f.standard_column}" for f in fields),
+            "from_sttm"),
+        "SRC_DATA_TYPE": _cell(
+            ",".join(f"{f.stage_datatype}:{f.standard_datatype}" for f in fields),
+            "from_sttm"),
+        "TGT_CATALOG_NAME": _cell(standard.catalog or "", "from_frd"),
+        "TGT_SCHEMA_NAME": _cell(standard.schema_name, "from_frd"),
+        "TGT_TABLE_NAME": _cell(standard.table, "from_frd"),
+        "TGT_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+        "TGT_COLUMN_NAMES": _cell(
+            ",".join(f.standard_column for f in fields), "from_sttm"),
+        "TGT_DATA_TYPE": _cell(
+            ",".join(f.standard_datatype or "" for f in fields), "from_sttm"),
+        "TGT_LOAD_OPTION": _cell(
+            spec.standard_load_strategy or
+            config.demo.source_files.load_strategy.standard,
+            "from_frd" if spec.standard_load_strategy else "synthetic",
+            None if spec.standard_load_strategy else _LOAD_STRATEGY_TOOLTIP),
+        "TGT_PRIMARY_KEY": _cell(
+            ",".join(spec.natural_key_columns), "from_sttm",
+            "the mapping contract's natural key columns"),
+    }
+    return [cells]
+
+
+def _pipeline_schedule_rows(feed: FrdFeed, config: Config, spec, faq,
+                            unmapped: set[str]) -> list[dict[str, dict]]:
+    slug = normalize_feed_name(feed.feed_name)
+    name_cell = _standards_name_cell(config, feed, slug, faq, "job")
+    rows = []
+    layers = ["STAGE"]
+    if (spec is not None and spec.standard_table is not None) or (
+            spec is None and feed.standard_target.tables):
+        layers.append("STANDARD")
+    for layer in layers:
+        cells = {
+            "PIPELINE_DESCRIPTION": _cell(
+                f"{feed.feed_name} ingestion ({layer.lower()})", "from_frd"),
+            "PIPELINE_FREQUENCY": _frequency_cell(feed, faq),
+            "APPLICATION_NAME": _cell(feed.source_system, "from_frd"),
+            "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
+            "LAYER_NAME": _cell(layer, "from_frd"),
+            "ACTIVE_FLAG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "ACTIVE_END_DATE": _cell("9999-12-31", "synthetic",
+                                     _FRAMEWORK_VOCAB_TOOLTIP),
+        }
+        if name_cell:
+            cells["PIPELINE_NAME"] = name_cell
+        rows.append(cells)
+    return rows
+
+
+def _dq_rules_rows(feed: FrdFeed, config: Config, spec, faq,
+                   unmapped: set[str]) -> list[dict[str, dict]]:
+    if spec is None:
+        return []
+    rows = []
+    if spec.not_null_columns:
+        joined = ",".join(spec.not_null_columns)
+        rows.append({
+            "SEQUENCE_NO": _cell(1, "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "RULE_TYPE": _cell("Predefined", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "RULE_CLASS": _cell("CheckRule", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "ACTIVE_RULE_FLG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "SOURCE_COLUMN": _cell(joined, "from_sttm",
+                                   "the mapping contract's not-null columns"),
+            "TARGET_COLUMN": _cell(joined, "from_sttm",
+                                   "the mapping contract's not-null columns"),
+        })
+    if spec.standard_table is not None:
+        fields = [f.standard_column for seg in spec.segments
+                  for f in seg.fields if f.standard_column]
+        joined = ",".join(fields)
+        rows.append({
+            "SEQUENCE_NO": _cell(len(rows) + 1, "synthetic",
+                                 _FRAMEWORK_VOCAB_TOOLTIP),
+            "RULE_TYPE": _cell("STDDelta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "RULE_CLASS": _cell("LRTrimRule", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "ACTIVE_RULE_FLG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "SOURCE_COLUMN": _cell(joined, "from_sttm",
+                                   "the mapping contract's standard columns"),
+            "TARGET_COLUMN": _cell(joined, "from_sttm",
+                                   "the mapping contract's standard columns"),
+        })
+    return rows
+
+
+def _notebook_details_rows(feed: FrdFeed, config: Config, spec, faq,
+                           unmapped: set[str]) -> list[dict[str, dict]]:
+    slug = normalize_feed_name(feed.feed_name)
+    job_cell = _standards_name_cell(config, feed, slug, faq, "job")
+    notebook_cell = _standards_name_cell(config, feed, slug, faq, "notebook")
+    strategy = config.demo.source_files.load_strategy
+    rows = []
+    layers = [("STAGE", strategy.stage)]
+    if (spec is not None and spec.standard_table is not None) or (
+            spec is None and feed.standard_target.tables):
+        refresh = (spec.standard_load_strategy if spec else None) or strategy.standard
+        layers.append(("STANDARD", refresh))
+    for index, (layer, refresh) in enumerate(layers, start=1):
+        cells = {
+            "SEQ_NM": _cell(index, "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "PROCESS_NAME": _cell(
+                f"{layer.capitalize()} Load for {feed.feed_name}", "from_frd"),
+            "TGT_REFRESH_TYPE": _cell(refresh, "synthetic",
+                                      _LOAD_STRATEGY_TOOLTIP),
+            "ACTIVE_FLAG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+        }
+        if job_cell:
+            cells["PIPELINE_NAME"] = job_cell
+        if notebook_cell:
+            cells["DATABRICKS_NOTEBOOK_NAME"] = notebook_cell
+        rows.append(cells)
+    return rows
+
+
+def _email_template_rows(feed: FrdFeed, config: Config, spec, faq,
+                         unmapped: set[str]) -> list[dict[str, dict]]:
+    recipients = ";".join(config.job.notification_emails)
+    rows = []
+    for status in ("Success", "Failed"):
+        rows.append({
+            "TEMPLATE_NAME": _cell(feed.feed_name, "from_frd"),
+            "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
+            "STATUS": _cell(status, "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "ACTIVE_FLAG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "SUBJECT": _cell(f"{feed.feed_name} Load {status}", "synthetic",
+                             _FRAMEWORK_VOCAB_TOOLTIP),
+            "EMAIL_TO": _cell(
+                recipients, "from_standards",
+                "EDO coding standard: success AND failure alerts to the "
+                "prod-support DL (synthetic stand-in address)"),
+        })
+    return rows
+
+
+def _static_information_rows(feed: FrdFeed, config: Config, spec, faq,
+                             unmapped: set[str]) -> list[dict[str, dict]]:
+    return [{
+        "FILE_NAME": _cell("; ".join(feed.file_name_patterns), "from_frd"),
+        "DESCRIPTION": _cell(feed.feed_name, "from_frd"),
+        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "FILE_TYPE": _cell(feed.file_format, "from_frd"),
+        "SUPPLIER": _cell(feed.source_system, "from_frd"),
+        "vendor_name": _cell(feed.source_system, "from_frd"),
+        "FREQUENCY": _frequency_cell(feed, faq),
+        "ACTIVE_TERM_STATUS": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+        "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
+        "domain": _cell(feed.domain or "", "from_frd"),
+        "subdomain": _cell(feed.sub_domain or "", "from_frd"),
+    }]
+
+
+def _adls_delta_rows(feed, config, spec, faq, unmapped):
+    return [_adls_delta_row(feed, config, spec, faq, unmapped)]
+
+
+# tab name (verbatim from the client IIG workbook) -> row builder
+_IIG_TAB_BUILDERS = {
+    "DATA_FACTORY_PIPELINE_SCHEDULE": _pipeline_schedule_rows,
+    "ADLS_DELTA_INGESTION_DETAILS": _adls_delta_rows,
+    "STGDELTA_STDDELTA_INGESTION_DET": _stg_std_row,
+    "DATA_QUALITY_RULES": _dq_rules_rows,
+    "DATABRICKS_NOTEBOOK_DETAILS": _notebook_details_rows,
+    "EMAIL_TEMPLATE_CONFIG": _email_template_rows,
+    "ALL_FILES_STATIC_INFORMATION": _static_information_rows,
+}
+
+
 # -- payload ------------------------------------------------------------------- #
 
 
@@ -277,6 +599,16 @@ def metadata_sheet_payload(
                 unmapped = unmapped_by_slug.get(spec.feed_slug, set())
                 for cells, slug in _columns_rows(spec, unmapped):
                     rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
+        elif name in _IIG_TAB_BUILDERS:
+            builder = _IIG_TAB_BUILDERS[name]
+            for feed in contract.feeds:
+                slug = normalize_feed_name(feed.feed_name)
+                spec = spec_by_id.get(slug)
+                unmapped = unmapped_by_slug.get(slug, set())
+                for cells in builder(feed, config, spec,
+                                     faq_by_slug.get(slug), unmapped):
+                    rows.append(_row(tab.headers, always_blank, cells,
+                                     feed_slug=slug))
         entry: dict = {"headers": list(tab.headers), "rows": rows}
         if name == "columns" and not specs:
             entry["state"] = NO_RUN_STATE
@@ -288,8 +620,7 @@ def metadata_sheet_payload(
             for entry in row["badges"].values():
                 total += 1
                 badge = entry["badge"]
-                if badge in ("from_sttm", "from_sttm_unmapped", "from_frd",
-                             "from_faq"):
+                if badge in DERIVED_BADGES:
                     derived += 1
                 elif badge == "synthetic":
                     synthetic += 1
@@ -316,6 +647,7 @@ _BADGE_FILLS = {
     "from_sttm_unmapped": "C6EFCE",  # light green (same family)
     "from_frd": "DDEBF7",            # light blue
     "from_faq": "E4DFEC",            # light purple — engineer-answered input
+    "from_standards": "CCECE6",      # light teal — EDO standards input
     "synthetic": "FFE699",           # amber
     "needs_template": "D9D9D9",      # grey
 }

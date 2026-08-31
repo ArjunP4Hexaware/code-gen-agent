@@ -17,7 +17,6 @@ from openpyxl import load_workbook
 
 from codegen.contracts.frd import FrdContract
 from codegen.metadata_sheet import (
-    NO_RUN_STATE,
     build_workbook,
     metadata_sheet_payload,
     workbook_bytes,
@@ -94,31 +93,36 @@ def _cells(row: dict) -> dict:
     return {h: (row["values"][h], row["badges"][h]["badge"]) for h in row["values"]}
 
 
-# -- file_layout --------------------------------------------------------------- #
+# -- ADLS_DELTA_INGESTION_DETAILS (file → stage) ------------------------------- #
 
 
-def test_file_layout_frd_sourced_and_synthesized(config, tmp_path):
+def test_adls_delta_frd_sourced_and_synthesized(config, tmp_path):
     payload = _payload(config, tmp_path)
-    (row,) = payload["tabs"]["file_layout"]["rows"]
+    (row,) = payload["tabs"]["ADLS_DELTA_INGESTION_DETAILS"]["rows"]
     cells = _cells(row)
-    assert cells["feed_name"] == ("cv_test_feed", "from_frd")
-    assert cells["source_system"] == ("Civic Vantage (CV)", "from_frd")
-    # Null landing_location → Part A's synthesis, flagged.
-    assert cells["landing_path"] == (
-        "mftlanding/inbound/care_management/public/civic_vantage_cv", "synthetic"
+    assert cells["OBJECT_NAME"] == ("cv_test_feed", "from_frd")
+    assert cells["SOURCE"] == ("Civic Vantage (CV)", "from_frd")
+    assert cells["DOMAIN"] == ("Care Management", "from_frd")
+    assert cells["SUBDOMAIN"] == ("Public", "from_frd")
+    # Null landing_location → Part A's synthesis, flagged; split into the
+    # container / path columns of the real layout.
+    assert cells["SRC_CONTAINER_NAME"] == ("mftlanding", "synthetic")
+    assert cells["SRC_ADLS_PATH"] == (
+        "/inbound/care_management/public/civic_vantage_cv", "synthetic"
     )
-    assert cells["file_pattern"] == ("extract_YYYY_MM.csv; extract_CCYY_MM.csv", "from_frd")
-    assert cells["file_format"] == ("csv", "from_frd")
-    assert cells["frequency"] == ("Monthly", "from_frd")
-    # No column-header-row indicator exists in the FRD contract shape.
-    assert cells["has_header"] == ("", "needs_template")
-    # record_segments empty → no trailer, and the contract says so.
-    assert cells["has_trailer"] == ("no", "from_frd")
+    assert cells["SRC_FILE_NAME"] == (
+        "extract_YYYY_MM.csv; extract_CCYY_MM.csv", "from_frd")
+    assert cells["SRC_FORMAT"] == ("csv", "from_frd")
+    assert cells["FREQUENCY"] == ("Monthly", "from_frd")
+    # No header indicator in the FRD contract; no FAQ answer here.
+    assert cells["HEADER_FLAG"] == ("", "needs_template")
     # Null delimiter, no run → cannot be known from documents yet.
-    assert cells["delimiter"] == ("", "needs_template")
+    assert cells["SRC_FILE_DELIMITER"] == ("", "needs_template")
+    # STTM-derived columns are unknowable before a run.
+    assert cells["SRC_COLUMNS"] == ("", "needs_template")
 
 
-def test_file_layout_contract_landing_and_trailer(config, tmp_path):
+def test_adls_delta_contract_landing_and_delimiter(config, tmp_path):
     payload = _payload(
         config, tmp_path,
         feeds=[_frd_feed(
@@ -127,10 +131,10 @@ def test_file_layout_contract_landing_and_trailer(config, tmp_path):
             delimiter="|",
         )],
     )
-    cells = _cells(payload["tabs"]["file_layout"]["rows"][0])
-    assert cells["landing_path"] == ("mftlanding/inbound/a/b/c", "from_frd")
-    assert cells["has_trailer"] == ("yes", "from_frd")
-    assert cells["delimiter"] == ("|", "from_frd")
+    cells = _cells(payload["tabs"]["ADLS_DELTA_INGESTION_DETAILS"]["rows"][0])
+    assert cells["SRC_CONTAINER_NAME"] == ("mftlanding", "from_frd")
+    assert cells["SRC_ADLS_PATH"] == ("/inbound/a/b/c", "from_frd")
+    assert cells["SRC_FILE_DELIMITER"] == ("|", "from_frd")
 
 
 def test_always_blank_headers_are_empty_and_flagged(config, tmp_path):
@@ -144,42 +148,44 @@ def test_always_blank_headers_are_empty_and_flagged(config, tmp_path):
                     assert "ACFC framework" in row["badges"][header]["tooltip"]
 
 
-# -- load_config --------------------------------------------------------------- #
+# -- DATA_FACTORY_PIPELINE_SCHEDULE / stage-only feeds ------------------------- #
 
 
-def test_load_config_two_rows_strategy_synthetic(config, tmp_path):
+def test_pipeline_schedule_one_row_per_layer(config, tmp_path):
     payload = _payload(config, tmp_path)
-    rows = payload["tabs"]["load_config"]["rows"]
-    assert [r["values"]["layer"] for r in rows] == ["stage", "standard"]
+    rows = payload["tabs"]["DATA_FACTORY_PIPELINE_SCHEDULE"]["rows"]
+    assert [r["values"]["LAYER_NAME"] for r in rows] == ["STAGE", "STANDARD"]
     stage, standard = rows
-    assert _cells(stage)["target_schema"] == ("stg_x", "from_frd")
-    assert _cells(standard)["target_table"] == ("cv_test_feed", "from_frd")
-    # Always the config stand-in, always flagged — never the contract value.
-    assert _cells(stage)["load_strategy"] == ("Truncate and Load", "synthetic")
-    assert _cells(standard)["load_strategy"] == ("Upsert", "synthetic")
-    # No run yet: key columns come from the mapping contract.
-    assert _cells(standard)["dedup_keys"] == ("", "needs_template")
+    assert _cells(stage)["APPLICATION_NAME"] == ("Civic Vantage (CV)", "from_frd")
+    assert _cells(stage)["PIPELINE_FREQUENCY"] == ("Monthly", "from_frd")
+    # Framework conventions from the reference workbook stay flagged synthetic.
+    assert _cells(standard)["ACTIVE_FLAG"] == ("Y", "synthetic")
+    assert _cells(standard)["ACTIVE_END_DATE"] == ("9999-12-31", "synthetic")
+    # Framework-assigned IDs stay blank.
+    assert _cells(stage)["PIPELINE_ID"] == ("", "needs_template")
 
 
-def test_load_config_stage_only_feed(config, tmp_path):
+def test_pipeline_schedule_stage_only_feed(config, tmp_path):
     payload = _payload(
         config, tmp_path,
         feeds=[_frd_feed(standard_target={
             "catalog": None, "schema": None, "tables": [], "load_strategy": "Append",
         })],
     )
-    rows = payload["tabs"]["load_config"]["rows"]
-    assert [r["values"]["layer"] for r in rows] == ["stage"]
+    rows = payload["tabs"]["DATA_FACTORY_PIPELINE_SCHEDULE"]["rows"]
+    assert [r["values"]["LAYER_NAME"] for r in rows] == ["STAGE"]
+    # No standard target → no stage→standard ingestion row either.
+    assert payload["tabs"]["STGDELTA_STDDELTA_INGESTION_DET"]["rows"] == []
 
 
-# -- columns + no-run state ---------------------------------------------------- #
+# -- STTM-derived tabs before a run -------------------------------------------- #
 
 
-def test_columns_empty_with_state_before_a_run(config, tmp_path):
+def test_sttm_derived_tabs_empty_before_a_run(config, tmp_path):
     payload = _payload(config, tmp_path)
-    columns = payload["tabs"]["columns"]
-    assert columns["rows"] == []
-    assert columns["state"] == NO_RUN_STATE
+    # DQ rules come from the mapping contract's column lists — no run, no rows.
+    assert payload["tabs"]["DATA_QUALITY_RULES"]["rows"] == []
+    assert payload["tabs"]["STGDELTA_STDDELTA_INGESTION_DET"]["rows"] == []
 
 
 # -- coverage arithmetic ------------------------------------------------------- #
@@ -217,7 +223,7 @@ def demo_specs(config):
 
 
 @needs_demo_pair
-def test_columns_populate_from_mapping_contract(config, demo_specs):
+def test_sttm_cells_populate_from_mapping_contract(config, demo_specs):
     unmapped = {
         spec.feed_slug: {
             o.rule_text for o in compile_rules(spec) if o.classification == "unmapped"
@@ -227,31 +233,32 @@ def test_columns_populate_from_mapping_contract(config, demo_specs):
     payload = metadata_sheet_payload(
         config, REPO, specs=demo_specs, unmapped_by_slug=unmapped, run_label="test_run"
     )
-    columns = payload["tabs"]["columns"]
-    assert "state" not in columns
-    expected_fields = sum(
-        len(seg.fields) for spec in demo_specs for seg in spec.segments
-    )
-    assert len(columns["rows"]) == expected_fields
-    first = columns["rows"][0]
-    assert first["badges"]["column_name"]["badge"] == "from_sttm"
-    assert first["values"]["ordinal"] == 1
-    # Ordinals restart per feed.
-    slugs = {row["feed_slug"] for row in columns["rows"]}
-    assert len(slugs) == len(demo_specs)
-    # dedup_keys fill on standard rows from the mapping contract's keys.
-    standard_rows = [
-        r for r in payload["tabs"]["load_config"]["rows"]
-        if r["values"]["layer"] == "standard"
-    ]
-    assert standard_rows and all(
-        r["badges"]["dedup_keys"]["badge"] == "from_sttm" and r["values"]["dedup_keys"]
-        for r in standard_rows
-    )
-    # CV FRD states no delimiter; with a run it resolves from the STTM.
-    for row in payload["tabs"]["file_layout"]["rows"]:
-        assert row["badges"]["delimiter"]["badge"] == "from_sttm"
-        assert row["values"]["delimiter"]
+    adls = payload["tabs"]["ADLS_DELTA_INGESTION_DETAILS"]["rows"]
+    assert len(adls) == len(demo_specs)
+    for row in adls:
+        # Column lists resolve from the STTM after a run.
+        assert row["badges"]["SRC_COLUMNS"]["badge"] == "from_sttm"
+        assert ":" in row["values"]["SRC_COLUMNS"]
+        assert row["badges"]["MANDATORY_FIELD_LIST"]["badge"] == "from_sttm"
+        assert row["badges"]["TGT_PRIMARY_KEY"]["badge"] == "from_sttm"
+        # CV FRD states no delimiter; with a run it resolves from the STTM.
+        assert row["badges"]["SRC_FILE_DELIMITER"]["badge"] == "from_sttm"
+        assert row["values"]["SRC_FILE_DELIMITER"]
+        # Framework-assigned IDs stay blank even after a run.
+        assert row["values"]["GROUP_ID"] == ""
+        assert row["badges"]["GROUP_ID"]["badge"] == "needs_template"
+    # DQ rules carry the STTM column lists.
+    dq = payload["tabs"]["DATA_QUALITY_RULES"]["rows"]
+    assert dq
+    for row in dq:
+        assert row["badges"]["SOURCE_COLUMN"]["badge"] == "from_sttm"
+        assert row["values"]["SOURCE_COLUMN"] == row["values"]["TARGET_COLUMN"]
+    # Standard-layer ingestion rows exist for feeds with a standard target.
+    std = payload["tabs"]["STGDELTA_STDDELTA_INGESTION_DET"]["rows"]
+    assert std
+    for row in std:
+        assert row["badges"]["TGT_PRIMARY_KEY"]["badge"] == "from_sttm"
+        assert row["values"]["TGT_PRIMARY_KEY"]
 
 
 # -- xlsx ---------------------------------------------------------------------- #
@@ -300,8 +307,10 @@ def client():
 def test_metadata_sheet_endpoint_no_run_state(client):
     payload = client.get("/api/demo/metadata-sheet").json()
     assert {"layout_note", "tabs", "coverage"} <= set(payload)
-    # TestClient skips the startup generate, so no run is loaded.
-    assert payload["tabs"]["columns"]["state"] == NO_RUN_STATE
+    assert "client IIG template" in payload["layout_note"]
+    # TestClient skips the startup generate, so no run is loaded and the
+    # STTM-derived tabs are empty.
+    assert payload["tabs"]["DATA_QUALITY_RULES"]["rows"] == []
 
 
 @needs_demo_frd

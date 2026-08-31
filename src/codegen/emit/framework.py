@@ -30,6 +30,7 @@ from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.faq import LoadPatternFaq, summarize
 from codegen.metadata_sheet import (
     BADGE_LABELS,
+    DERIVED_BADGES,
     build_workbook,
     metadata_sheet_payload,
 )
@@ -55,8 +56,8 @@ it only produces the add-ons.
 Columns awaiting framework-assigned IDs (rendered as `{id_placeholder}`,
 never invented): {blank_columns}.
 
-Layout note: the tab names and column headers are a stand-in until the
-client's metadata template arrives — values carry over.
+Layout note: the tab names and column headers are the client IIG template
+(anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
 
 On approval: the config rows land in the ingestion framework database, and
 the DDL + insert SQL are added on to ACFC's master notebook with the
@@ -85,8 +86,8 @@ def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
         ("Load-pattern FAQ", f"sha256 {faq_sha} — {faq_summary['answered']} answered, "
                              f"{faq_summary['unknown']} unknown"),
         ("Engineering standards", config.engineering_standards.status),
-        ("Layout", "stand-in until the client's metadata template arrives; "
-                   "values carry over"),
+        ("Layout", "client IIG template (anonymized reference — "
+                   "fixtures/reference/SFMC_IIG.xlsx); values carry over"),
     ]
 
 
@@ -111,8 +112,7 @@ def _filter_payload_for_feed(payload: dict, slug: str) -> dict:
             for entry in row["badges"].values():
                 total += 1
                 badge = entry["badge"]
-                if badge in ("from_sttm", "from_sttm_unmapped", "from_frd",
-                             "from_faq"):
+                if badge in DERIVED_BADGES:
                     derived += 1
                 elif badge == "synthetic":
                     synthetic += 1
@@ -259,49 +259,87 @@ def _sql_table(name: str, dialect: str) -> str:
     return ".".join(_sql_identifier(part, dialect) for part in name.split("."))
 
 
-def _config_inserts_sql(payload: dict, spec: ResolvedFeedSpec, config: Config,
-                        banner: list[tuple[str, str]]) -> str:
+def _insert_statement(headers: list[str], row: dict, table: str, dialect: str,
+                      placeholder: str, always_blank: set[str]) -> str:
+    values = []
+    for header in headers:
+        if header in always_blank:
+            values.append(placeholder)
+            continue
+        value = row["values"][header]
+        if value == "" or value is None:
+            values.append("NULL")
+        else:
+            values.append(_sql_value(value, dialect))
+    columns = ", ".join(_sql_identifier(h, dialect) for h in headers)
+    return (f"INSERT INTO {_sql_table(table, dialect)} ({columns}) "
+            f"VALUES ({', '.join(values)});")
+
+
+def _config_inserts_workbook(payload: dict, spec: ResolvedFeedSpec,
+                             config: Config, banner: list[tuple[str, str]]):
+    """config_inserts.xlsx: one sheet per populated tab, value rows on the
+    real IIG layout, the generated INSERT statement as the final column."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    from codegen.metadata_sheet import _pin_workbook_properties
+
     dialect = config.framework.sql_dialect
     placeholder = config.framework.id_placeholder
     always_blank = set(config.demo.metadata_sheet.always_blank)
 
-    lines = [
-        f"-- Framework config inserts — feed {spec.feed_slug} ({dialect} dialect)",
-        "-- Run ONLY after the config rows workbook is approved, through the",
-        "-- client's existing metadata path. Plain INSERTs: idempotency belongs",
-        "-- to the framework's load path, not to these statements.",
-    ]
-    lines += [f"-- {key}: {value}" for key, value in banner]
-    lines.append("")
-
+    workbook = Workbook()
+    _pin_workbook_properties(workbook)
+    workbook.remove(workbook.active)
+    # Excel's hard per-cell limit is 32,767 characters; a wide feed's INSERT
+    # (SRC_COLUMNS/TGT_COLUMN_NAMES lists) can exceed it, so oversize
+    # statements continue in INSERT_STATEMENT_PART<n> columns — lossless,
+    # never silently truncated.
+    cell_limit = 32000
     for tab_name, tab in payload["tabs"].items():
         if not tab["rows"]:
             continue
         table = config.framework.tables.get(tab_name, tab_name)
-        lines.append(f"-- {tab_name}: {len(tab['rows'])} row(s) "
-                     f"-> {table}")
+        sheet = workbook.create_sheet(title=tab_name[:31])
+        rendered = []
+        max_parts = 1
         for row in tab["rows"]:
-            headers = tab["headers"]
-            blanks = [h for h in headers if h in always_blank]
-            if blanks:
-                lines.append(f"-- {', '.join(blanks)}: assigned by ACFC framework")
-            values = []
-            for header in headers:
-                if header in always_blank:
-                    values.append(placeholder)
-                    continue
-                value = row["values"][header]
-                if value == "" or value is None:
-                    values.append("NULL")
-                else:
-                    values.append(_sql_value(value, dialect))
-            columns = ", ".join(_sql_identifier(h, dialect) for h in headers)
-            lines.append(
-                f"INSERT INTO {_sql_table(table, dialect)} ({columns}) "
-                f"VALUES ({', '.join(values)});"
-            )
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+            display = [placeholder if h in always_blank else row["values"][h]
+                       for h in tab["headers"]]
+            statement = _insert_statement(tab["headers"], row, table, dialect,
+                                          placeholder, always_blank)
+            parts = [statement[i:i + cell_limit]
+                     for i in range(0, len(statement), cell_limit)]
+            max_parts = max(max_parts, len(parts))
+            rendered.append((display, parts))
+        headers = [*tab["headers"], "INSERT_STATEMENT",
+                   *(f"INSERT_STATEMENT_PART{n}" for n in range(2, max_parts + 1))]
+        sheet.append(headers)
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+        for display, parts in rendered:
+            padded = parts + [""] * (max_parts - len(parts))
+            sheet.append([*display, *padded])
+        for index in range(1, len(tab["headers"]) + 1):
+            sheet.column_dimensions[get_column_letter(index)].width = 24
+        for index in range(len(tab["headers"]) + 1, len(headers) + 1):
+            sheet.column_dimensions[get_column_letter(index)].width = 100
+
+    provenance = workbook.create_sheet(title="_provenance")
+    provenance.append(["input", "value"])
+    for cell in provenance[1]:
+        cell.font = Font(bold=True)
+    for key, value in banner:
+        provenance.append([key, value])
+    provenance.append(["dialect", dialect])
+    provenance.append(["note", "Run only after the config rows workbook is "
+                               "approved; the client's ADF metadata path "
+                               "inserts these rows. Plain INSERTs — "
+                               "idempotency belongs to the framework's load "
+                               "path."])
+    return workbook
 
 
 # -- the emit ------------------------------------------------------------------ #
@@ -362,9 +400,9 @@ def emit_framework(
     rows_path.write_bytes(stable_workbook_bytes(rows_workbook))
     files.append(rows_path)
 
-    inserts_path = framework_dir / "config_inserts.sql"
-    inserts_path.write_text(_config_inserts_sql(payload, spec, config, banner),
-                            encoding="utf-8", newline="\n")
+    inserts_path = framework_dir / "config_inserts.xlsx"
+    inserts_path.write_bytes(stable_workbook_bytes(
+        _config_inserts_workbook(payload, spec, config, banner)))
     files.append(inserts_path)
 
     always_blank = [
@@ -387,10 +425,11 @@ def emit_framework(
         "badge; the `_provenance` sheet lists them all. |"
     )
     inserts_row = (
-        f"| `config_inserts.sql` | One INSERT per approved row "
-        f"({config.framework.sql_dialect} dialect). **Run only after "
-        "approval**, through the client's existing metadata path (adapter "
-        "to be built). Plain INSERTs — idempotency belongs to the "
+        f"| `config_inserts.xlsx` | One sheet per populated IIG tab; value "
+        f"rows on the client layout plus the generated INSERT statement "
+        f"({config.framework.sql_dialect} dialect) as the final column. "
+        "**Run only after approval**, through the client's existing ADF "
+        "metadata path. Plain INSERTs — idempotency belongs to the "
         "framework's load path. |"
     )
     addition_path = framework_dir / "ADDITION.md"

@@ -215,14 +215,29 @@ demo:
   # `always_blank` are assigned by the ACFC framework / manually by client
   # instruction — the agent leaves them blank and flags them.
   metadata_sheet:
+    # The REAL client IIG layout (anonymized reference arrived 2026-08-31):
+    # 7 tabs + headers sourced verbatim from fixtures/reference/SFMC_IIG.xlsx
+    # (scrubbed by scripts/scrub_reference.py from the raw client export).
+    # Header spellings — including CRETAED_BY — are the client's, kept as-is.
     tabs:
-      file_layout:
-        headers: [pipeline_id, group_id, object_id, feed_name, source_system, landing_path, file_pattern, file_format, delimiter, has_header, has_trailer, frequency]
-      load_config:
-        headers: [pipeline_id, object_id, layer, target_schema, target_table, load_strategy, dedup_keys, cluster_id, service_principal]
-      columns:
-        headers: [object_id, ordinal, column_name, data_type, nullable, source_column, transformation]
-    always_blank: [pipeline_id, group_id, object_id, cluster_id, service_principal]
+      DATA_FACTORY_PIPELINE_SCHEDULE:
+        headers: [PIPELINE_ID, PIPELINE_NAME, PARENT_PIPELINE_ID, PIPELINE_DESCRIPTION, PIPELINE_FREQUENCY, NO_OF_CYCLE_PER_DAY, DAY_OF_SCHEDULE, ACTIVE_FLAG, ACTIVE_START_DATE, ACTIVE_END_DATE, ESTIMATED_START_TIME, APPLICATION_NAME, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, PROCESS_NAME, SUBPROCESS_NAME, LAYER_NAME, COMPLETION_SLA, RUNTIME_SLA, CRITICAL_PROCESSING_PERIOD, UDF1, UDF2, UDF3, UDF4, UDF5, IsFileCopyReqFlag]
+      ADLS_DELTA_INGESTION_DETAILS:
+        headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_FILE_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_FILE_DELIMITER, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, HEADER_FLAG, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, MANDATORY_FIELD_LIST, TGT_CONNECTION_ID, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, RECYCL_ENBL_FLG, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, MAPPING_EXPRESSION, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, FILE_METADATA]
+      STGDELTA_STDDELTA_INGESTION_DET:
+        headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_TABLE_NAME, SRC_CATALOG_NAME, SRC_SCHEMA_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_ADLS_ARCHVL_PATH, TGT_CONNECTION_ID, TGT_CATALOG_NAME, TGT_SCHEMA_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+      DATA_QUALITY_RULES:
+        headers: [GROUP_ID, OBJECT_ID, SEQUENCE_NO, RULE_TYPE, RULE_CLASS, ACTIVE_RULE_FLG, SOURCE_COLUMN, INPUT_PARAM, TARGET_COLUMN, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+      DATABRICKS_NOTEBOOK_DETAILS:
+        headers: [PIPELINE_ID, PIPELINE_NAME, GROUP_ID, SEQ_NM, PROCESS_NAME, TGT_REFRESH_TYPE, ACTIVE_FLAG, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, DATABRICKS_NOTEBOOK_PATH, DATABRICKS_NOTEBOOK_NAME, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, CLUSTER_DETAILS_ID, DQ_NOTEBOOK_PATH, DELETE_DATABRICKS_NOTEBOOK_NAME]
+      EMAIL_TEMPLATE_CONFIG:
+        headers: [TEMPLATE_NAME, PROCESS_NAME, STATUS, ACTIVE_FLAG, SUBJECT, BODY, SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC, CRETAED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT, EMAIL_NOTIFICATION_URL]
+      ALL_FILES_STATIC_INFORMATION:
+        headers: [INVENTORY_ID, OBJECT_ID, FILE_NAME, DESCRIPTION, LOB, GOVT_PROGRAM_NM, FILE_TYPE, SUPPLIER, SUPPLIER_CONTACT_PH, SUPPLIER_EMAIL, GENERATOR, GENERATOR_CONTACT_PH, GENERATOR_EMAIL, FREQUENCY, ACTIVE_TERM_STATUS, INTERNAL_CONTACT_NM, INTERNAL_CONTACT_EMAIL, LAST_SUCCESS_PROCESSED_DATE, NEXT_EXPECTED_RECEIVE_DT, FILE_RECEIVE_PER_FREQUENCY, PROCESS_NAME, FILE_TR_MODE, domain, subdomain, vendor_name, CREATED_DATE, UPDATED_DATE]
+    # Framework-assigned identifiers (pipeline/group/object/inventory IDs,
+    # connection IDs, cluster, workspace URL, secret) — always blank +
+    # id_placeholder in inserts, NEVER invented by the agent.
+    always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, INVENTORY_ID, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, CLUSTER_DETAILS_ID, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID]
 
 engineering_standards:
   # Three-input model, input #2 — REAL as of 2026-08-26: the EDO Data
@@ -401,7 +416,10 @@ job:
   # EDO coding standard: EVERY pipeline must send both success and failure
   # email alerts to the Production Support team DL. The generated
   # email_notifications block is now always emitted with these recipients.
-  notification_emails: ["DLAzureDataLakeProdSupport@amerihealthcaritas.com"]
+  # SYNTHETIC stand-in (2026-08-31): the real prod-support DL is a client
+  # value and never lives in a tracked file or emitted artefact; the client
+  # substitutes their DL at deployment.
+  notification_emails: ["syn.dl.prodsupport@synthetic.example"]
   # Databricks Runtime / cluster shape for generated job JSON.
   # EDO coding standard: DBR >= 15.4 LTS with Photon enabled only.
   spark_version: "15.4.x-scala2.12"

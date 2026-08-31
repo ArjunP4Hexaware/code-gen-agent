@@ -11,6 +11,8 @@ const BADGE_LABELS: Record<ProvenanceBadge, string> = {
   from_sttm: "from STTM",
   from_sttm_unmapped: "from STTM (unmapped)",
   from_frd: "from FRD",
+  from_faq: "from FAQ",
+  from_standards: "from standards",
   synthetic: "SYNTHETIC",
   needs_template: "NEEDS CLIENT TEMPLATE",
 };

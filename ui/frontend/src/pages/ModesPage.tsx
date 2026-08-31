@@ -248,9 +248,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       const r = await api.selectWorkbook(name);
       setWorkbooks(r.workbooks);
       setStatus(await api.demoStatus());
-      // Pairing (companion FRD) depends on the chosen STTM.
+      // Pairing (companion FRD) depends on the chosen STTM. Keep the modal
+      // OPEN: the FRD picker lives right below, so the operator can confirm
+      // or change the companion FRD before closing with Done.
       api.frdChoices().then(setFrdChoices).catch(() => {});
-      setChoosing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -353,16 +354,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <button className="btn" disabled={running} onClick={openChooser}>
                 Choose STTM…
               </button>
-              {status?.sttm_chosen ? (
-                <button
-                  className="btn"
-                  disabled={running}
-                  title="Back to none chosen"
-                  onClick={clearWorkbook}
-                >
-                  Clear
-                </button>
-              ) : null}
+              <button
+                className="btn"
+                disabled={running || !status?.sttm_chosen}
+                title={status?.sttm_chosen ? "Back to none chosen"
+                                           : "Nothing chosen yet"}
+                onClick={clearWorkbook}
+              >
+                Clear
+              </button>
             </p>
             <p style={{ margin: "0 0 10px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span>
@@ -371,12 +371,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   <span className="hint"> (demo golden — default)</span>
                 )}
               </span>
-              {status?.frd_chosen ? (
-                <button className="btn" disabled={running} onClick={resetFrd}
-                        title="Back to the demo golden default">
-                  Reset
-                </button>
-              ) : null}
+              <button className="btn" disabled={running} onClick={openChooser}
+                      title="Pick the FRD for this run (companion FRDs are suggested for the chosen STTM)">
+                Choose FRD…
+              </button>
+              <button className="btn" disabled={running || !status?.frd_chosen}
+                      onClick={resetFrd}
+                      title={status?.frd_chosen ? "Back to the demo golden default"
+                                                : "Already on the demo golden default"}>
+                Reset
+              </button>
               {status?.frd_warning ? (
                 <span className="pill req-missing"
                       title="Pick the companion FRD in the STTM chooser">
@@ -1173,7 +1177,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : null}
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => setChoosing(false)}>
-                Cancel
+                {status?.sttm_chosen ? "Done" : "Cancel"}
               </button>
             </div>
           </div>

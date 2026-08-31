@@ -54,6 +54,13 @@ fixtures/replay/
 # scripts/scrub_check.py is the denylist scanner that enforces it.
 !fixtures/reference/
 !fixtures/reference/*.xlsx
+# Deliberate exception (2026-08-31, segmented dialect): the SYNTHETIC
+# segmented golden workbook built by tests/segmented_fixture.py — zero
+# client values (scrub-scanned in the suite). Everything else under
+# fixtures/workbooks/ stays ignored.
+!fixtures/workbooks/
+fixtures/workbooks/*
+!fixtures/workbooks/synthetic_segmented_golden.xlsx
 
 # Wheel-build detritus
 build/

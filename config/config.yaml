@@ -46,6 +46,10 @@ framework:
   # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout};
   # an unlisted tab inserts into a table named after the tab.
   tables: {}
+  # SYNTHETIC prefix for the stage LOCATION clause in the deployment-team DDL
+  # .txt files — labeled synthetic; real container/account come from the
+  # client platform, never from the agent.
+  synthetic_location_prefix: "abfss://syn-container-stage@synstorage.dfs.synthetic.example"
 
 naming:
   # Side-table names derive from the (detail) stage table + these suffixes.

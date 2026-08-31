@@ -21,6 +21,7 @@ load path.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -125,9 +126,11 @@ def _filter_payload_for_feed(payload: dict, slug: str) -> dict:
     }
 
 
-# -- ddl_scripts.xlsx ---------------------------------------------------------- #
-
-_DDL_HEADERS = ["layer", "schema", "table", "purpose", "statement", "source_file"]
+# -- <slug>_stage/standard_table_creation.txt ---------------------------------- #
+# Deployment-team DDL as two plain .txt files (run in the data lake by the
+# deployment team), conformant to the client's reference goldens
+# (fixtures/reference/SFMC_*_table_creation.txt). The .sql sources under
+# out/<slug>/ddl/ stay untouched — these files are re-styled from them.
 
 
 def _classify_ddl(file_name: str) -> tuple[str, str, str, str]:
@@ -146,33 +149,91 @@ def _classify_ddl(file_name: str) -> tuple[str, str, str, str]:
     return "stage", schema, table, "stage target table"
 
 
-def _ddl_workbook(ddl_sources: list[tuple[str, str]],
-                  banner: list[tuple[str, str]]):
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
+# Section order inside each .txt: main target table first, side-tables after.
+_DDL_PURPOSE_ORDER = {
+    "stage target table": 0,
+    "errors side-table": 1,
+    "processed-files ledger": 2,
+    "recycle store": 3,
+    "standard target table": 0,
+}
 
-    from codegen.metadata_sheet import _pin_workbook_properties
+_CREATE_RE = re.compile(r"CREATE TABLE IF NOT EXISTS\s+(\S+)\s*\(")
+_COLUMN_RE = re.compile(r"^\s*`(?P<name>[^`]+)`\s+(?P<dtype>[^,]+(?:\([^)]*\))?),?\s*$")
 
-    workbook = Workbook()
-    _pin_workbook_properties(workbook)
-    sheet = workbook.active
-    sheet.title = "ddl_scripts"
-    sheet.append(_DDL_HEADERS)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-    for file_name, statement in ddl_sources:
-        layer, schema, table, purpose = _classify_ddl(file_name)
-        sheet.append([layer, schema, table, purpose, statement, file_name])
 
-    provenance = workbook.create_sheet(title="_provenance")
-    provenance.append(["input", "value"])
-    for cell in provenance[1]:
-        cell.font = Font(bold=True)
-    for key, value in banner:
-        provenance.append([key, value])
-    provenance.append(["note", "DDL is engineer-run; the agent never creates "
-                               "target tables (create_tables: false)."])
-    return workbook
+def _parse_ddl_statement(statement: str) -> tuple[str, list[tuple[str, str]]]:
+    """(qualified table name, [(column, dtype)]) from an emitted .sql source."""
+    match = _CREATE_RE.search(statement)
+    if match is None:
+        raise ValueError("DDL source has no CREATE TABLE statement")
+    columns: list[tuple[str, str]] = []
+    for line in statement.splitlines():
+        col = _COLUMN_RE.match(line)
+        if col:
+            columns.append((col.group("name"), col.group("dtype").rstrip().rstrip(",")))
+    return match.group(1), columns
+
+
+def _sql_comment(text: str) -> str:
+    return text.replace("'", "''")
+
+
+def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:
+    """column name -> STTM description, for the per-column COMMENT clauses."""
+    descriptions: dict[str, str] = {}
+    for segment in spec.segments:
+        for f in segment.fields:
+            if f.description:
+                descriptions.setdefault(f.stage_column, f.description)
+                if f.standard_column:
+                    descriptions.setdefault(f.standard_column, f.description)
+    return descriptions
+
+
+def _synthetic_location(spec: ResolvedFeedSpec, config: Config, table: str) -> str:
+    landing = (spec.landing_location or spec.feed_slug).replace("\\", "/").strip("/")
+    prefix = config.framework.synthetic_location_prefix.rstrip("/")
+    return f"{prefix}/{landing}/{table}"
+
+
+def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
+                         spec: ResolvedFeedSpec, config: Config,
+                         banner: list[tuple[str, str]]) -> str:
+    """Render one deployment-team .txt file for a layer's DDL entries."""
+    from codegen.emit.emitter import _environment
+
+    descriptions = _description_map(spec)
+    tables = []
+    for _file_name, statement, purpose in sorted(
+            entries, key=lambda e: (_DDL_PURPOSE_ORDER.get(e[2], 9), e[0])):
+        qualified, columns = _parse_ddl_statement(statement)
+        rendered_columns = [
+            {
+                "name": name,
+                "dtype": dtype,
+                "comment": _sql_comment(
+                    descriptions.get(name, name.replace("_", " ").title())),
+            }
+            for name, dtype in columns
+        ]
+        tables.append({
+            "qualified": qualified,
+            "columns": rendered_columns,
+            "table_comment": _sql_comment(
+                f"{purpose.capitalize()} for feed {spec.feed_name} "
+                f"(source: {spec.source_system})"),
+            "location": (_synthetic_location(spec, config, qualified.rsplit(".", 1)[-1])
+                         if layer == "stage" else None),
+            "tags": ((spec.domain, spec.sub_domain)
+                     if spec.domain and spec.sub_domain else None),
+        })
+    banner_lines = [f"{key}: {value}" for key, value in banner
+                    if key != "Layout"]
+    banner_lines.append("DDL is engineer-run; the agent never creates target "
+                        "tables (create_tables: false).")
+    template = _environment().get_template("framework/table_creation.txt.j2")
+    return template.render(layer=layer, tables=tables, banner_lines=banner_lines)
 
 
 # -- config_inserts.sql -------------------------------------------------------- #
@@ -277,9 +338,20 @@ def emit_framework(
 
     from codegen.metadata_sheet import stable_workbook_bytes
 
-    ddl_path = framework_dir / "ddl_scripts.xlsx"
-    ddl_path.write_bytes(stable_workbook_bytes(_ddl_workbook(ddl_sources, banner)))
-    files.append(ddl_path)
+    # Deployment-team DDL: two plain .txt files (stage / standard), run in the
+    # data lake by the deployment team; conformant to the reference goldens.
+    stage_entries: list[tuple[str, str, str]] = []
+    standard_entries: list[tuple[str, str, str]] = []
+    for file_name, statement in ddl_sources:
+        layer, _schema, _table, purpose = _classify_ddl(file_name)
+        target = stage_entries if layer == "stage" else standard_entries
+        target.append((file_name, statement, purpose))
+    for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
+        txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
+        txt_path.write_text(
+            _table_creation_text(layer, entries, spec, config, banner),
+            encoding="utf-8", newline="\n")
+        files.append(txt_path)
 
     rows_workbook = build_workbook(payload)
     inputs_sheet = rows_workbook.create_sheet(title="_inputs")
@@ -303,10 +375,11 @@ def emit_framework(
     ]
     flagged = sorted(set(always_blank))
     ddl_row = (
-        "| `ddl_scripts.xlsx` | Target table definitions as a reviewable "
-        "workbook (one row per DDL statement; the `.sql` sources sit in "
-        "`../ddl/`). **Engineer-run** — the agent never creates target "
-        "tables. |"
+        f"| `{spec.feed_slug}_stage_table_creation.txt` / "
+        f"`{spec.feed_slug}_standard_table_creation.txt` | Deployment-team "
+        "DDL, conformant to the client's reference format (the `.sql` "
+        "sources sit in `../ddl/`). **Run in the data lake by the "
+        "deployment team** — the agent never creates target tables. |"
     )
     rows_row = (
         "| `config_rows.xlsx` | The config rows for the framework DB — "

@@ -82,6 +82,11 @@ class FrameworkConfig(BaseModel):
     id_placeholder: str = "NULL"
     # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout}.
     tables: dict[str, str] = Field(default_factory=dict)
+    # Prefix for the SYNTHETIC stage LOCATION in the deployment-team DDL .txt
+    # files — clearly labeled, never a real container/storage account (the
+    # real ones are assigned by the client platform).
+    synthetic_location_prefix: str = (
+        "abfss://syn-container-stage@synstorage.dfs.synthetic.example")
 
 
 class NamingConfig(BaseModel):

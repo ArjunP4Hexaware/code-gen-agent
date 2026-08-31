@@ -1,0 +1,58 @@
+{# One deployment-team .txt DDL file (stage OR standard layer), conformant to
+   the client's reference style (fixtures/reference/SFMC_*_table_creation.txt):
+   "--<catalog>.<schema>.<table>" header line, CREATE OR REPLACE TABLE with
+   per-column COMMENTs, table-level COMMENT, stage LOCATION / standard
+   CLUSTER BY AUTO, the layer's TBLPROPERTIES block, trailing SET TAGS.
+   Plain SQL comments only — no markdown, no fences. #}
+{% for line in banner_lines %}
+-- {{ line }}
+{% endfor %}
+{% if not tables %}
+
+-- No {{ layer }}-layer table for this feed (stage-only load).
+{% endif %}
+{% for t in tables %}
+
+--{{ t.qualified }}
+
+CREATE OR REPLACE TABLE {{ t.qualified }} (
+{% for col in t.columns %}
+  {{ col.name }} {{ col.dtype }}{% if col.comment %} COMMENT '{{ col.comment }}'{% endif %}{{ ")" if loop.last else "," }}
+{% endfor %}
+USING delta
+COMMENT '{{ t.table_comment }}'
+{% if t.location %}
+-- SYNTHETIC location — derived from the FRD landing convention; the real
+-- container/storage account are assigned by the client platform, never by the agent.
+LOCATION '{{ t.location }}'
+{% endif %}
+{% if layer == "standard" %}
+CLUSTER BY AUTO
+{% endif %}
+{% if layer == "stage" %}
+TBLPROPERTIES (
+  'delta.autoOptimize.autoCompact' = 'true',
+  'delta.autoOptimize.optimizeWrite' = 'true',
+  'delta.minReaderVersion' = '1',
+  'delta.minWriterVersion' = '2');
+{% else %}
+TBLPROPERTIES (
+  'delta.autoOptimize.autoCompact' = 'true',
+  'delta.autoOptimize.optimizeWrite' = 'true',
+  'delta.checkpoint.writeStatsAsJson' = 'false',
+  'delta.checkpoint.writeStatsAsStruct' = 'true',
+  'delta.checkpointPolicy' = 'v2',
+  'delta.enableDeletionVectors' = 'true',
+  'delta.enableRowTracking' = 'true',
+  'delta.feature.appendOnly' = 'supported',
+  'delta.feature.deletionVectors' = 'supported',
+  'delta.feature.invariants' = 'supported',
+  'delta.feature.rowTracking' = 'supported',
+  'delta.feature.v2Checkpoint' = 'supported',
+  'delta.parquet.compression.codec' = 'zstd');
+{% endif %}
+
+{% if t.tags %}
+ALTER TABLE {{ t.qualified }} SET TAGS ('DOMAIN' = '{{ t.tags[0] }}', 'SUBDOMAIN' = '{{ t.tags[1] }}');
+{% endif %}
+{% endfor %}

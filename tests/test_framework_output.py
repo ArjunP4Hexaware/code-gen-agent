@@ -93,7 +93,9 @@ def test_framework_mode_tree_and_verdicts(config, framework_run, tmp_path):
         assert (feed_dir / "ddl").is_dir()
         names = sorted(p.name for p in (feed_dir / "framework").iterdir())
         assert names == ["ADDITION.md", "config_inserts.sql",
-                         "config_rows.xlsx", "ddl_scripts.xlsx"]
+                         "config_rows.xlsx",
+                         f"{spec.feed_slug}_stage_table_creation.txt",
+                         f"{spec.feed_slug}_standard_table_creation.txt"]
 
 
 @needs_demo_pair
@@ -114,14 +116,81 @@ def test_framework_workbooks_layout_and_provenance(config, framework_run):
         assert "Load-pattern FAQ" in inputs
         assert "stand-in" in inputs["Layout"]
 
-        ddl_workbook = load_workbook(framework_dir / "ddl_scripts.xlsx")
-        assert ddl_workbook.sheetnames == ["ddl_scripts", "_provenance"]
-        ddl_rows = list(ddl_workbook["ddl_scripts"].iter_rows(min_row=2,
-                                                              values_only=True))
-        assert len(ddl_rows) == len(list((tmp / "out" / spec.feed_slug /
-                                          "ddl").glob("*.sql")))
-        assert all(row[4].startswith("--") or "CREATE" in row[4]
-                   for row in ddl_rows)  # statement column holds real SQL
+
+
+_REF = REPO / "fixtures" / "reference"
+
+
+def _txt_paths(tmp: Path, spec) -> tuple[Path, Path]:
+    framework_dir = tmp / "out" / spec.feed_slug / "framework"
+    return (framework_dir / f"{spec.feed_slug}_stage_table_creation.txt",
+            framework_dir / f"{spec.feed_slug}_standard_table_creation.txt")
+
+
+@needs_demo_pair
+def test_ddl_txt_files_exist_and_are_plain_sql(framework_run):
+    tmp, results = framework_run
+    for spec, _gate in results:
+        for path in _txt_paths(tmp, spec):
+            assert path.is_file(), path
+            text = path.read_text(encoding="utf-8")
+            assert text.strip(), path
+            assert text.splitlines()[0].startswith("--"), path
+            assert "```" not in text, path
+            # provenance banner as leading SQL comments
+            assert spec.frd_contract_sha256 in text
+            assert "never creates target tables" in text
+
+
+def _tblproperties_keys(text: str) -> set[str]:
+    import re
+    return set(re.findall(r"'(delta\.[A-Za-z.]+)'\s*=", text))
+
+
+@needs_demo_pair
+def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
+    """Structural conformance to the client's scrubbed reference goldens:
+    clause presence/order, LOCATION on stage only, CLUSTER BY AUTO on
+    standard only, TBLPROPERTIES key sets, trailing SET TAGS — never value
+    equality (different feed, different columns)."""
+    golden_stage = (_REF / "SFMC_stage_table_creation.txt").read_text(encoding="utf-8")
+    golden_standard = (_REF / "SFMC_standard_table_creation.txt").read_text(encoding="utf-8")
+    tmp, results = framework_run
+    for spec, _gate in results:
+        stage_path, standard_path = _txt_paths(tmp, spec)
+        stage = stage_path.read_text(encoding="utf-8")
+        standard = standard_path.read_text(encoding="utf-8")
+
+        for text in (stage, standard):
+            assert "CREATE OR REPLACE TABLE " in text
+            assert " COMMENT '" in text          # per-column COMMENT clauses
+            assert "USING delta" in text
+            assert "SET TAGS ('DOMAIN' = " in text
+            assert "CREATE TABLE IF NOT EXISTS" not in text
+
+        # LOCATION on stage only; CLUSTER BY AUTO on standard only.
+        assert "LOCATION '" in stage and "LOCATION '" not in standard
+        assert "CLUSTER BY AUTO" in standard and "CLUSTER BY AUTO" not in stage
+        # The synthetic location is labeled and never a real ADLS host.
+        assert "SYNTHETIC" in stage
+        assert "dfs.core.windows.net" not in stage
+
+        # TBLPROPERTIES: exactly the goldens' key sets, per layer.
+        assert _tblproperties_keys(stage) == _tblproperties_keys(golden_stage)
+        assert _tblproperties_keys(standard) == _tblproperties_keys(golden_standard)
+
+        # Clause order within the first table section mirrors the goldens.
+        for text, has_location in ((stage, True), (standard, False)):
+            create = text.index("CREATE OR REPLACE TABLE ")
+            using = text.index("USING delta")
+            props = text.index("TBLPROPERTIES (")
+            tags = text.index("SET TAGS (")
+            assert text.index(f"--{text[create:].split()[4]}") < create
+            assert create < using < props < tags
+            if has_location:
+                assert using < text.index("LOCATION '") < props
+            else:
+                assert using < text.index("CLUSTER BY AUTO") < props
 
 
 @needs_demo_pair

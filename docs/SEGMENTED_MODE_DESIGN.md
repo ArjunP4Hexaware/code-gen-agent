@@ -1,20 +1,46 @@
-# Segmented-mode design (CAQH layout family) — backlog item
+# Segmented-mode design (CAQH layout family) — IMPLEMENTED under declared assumptions
 
-Design input for extending `codegen extract-sttm` beyond the flat dialect.
-Derived from a **local-only inspection of the real CAQH STTM workbook**
-(project 1005034) performed 2026-08-07 under the program's data rules —
-**the workbook itself must never enter this repo**; only the structural
-characterization below (sheet/header/table identifiers, no data-row
-values) is recorded. The flat-dialect extractor (docs/EXTRACTOR_RECON.md)
-is unaffected.
+**Status change (2026-08-31):** the segmented dialect is implemented
+(`src/codegen/extract/segmented.py`), governance-honest — the blockers
+below did NOT get guessed; they became explicit, per-feed FAQ
+declarations (`record_type_discriminators`, `natural_key_columns`) that
+surface in the review layer for human approval, the provenance banner,
+and the generation report (ASSUMED flags). With no declaration the v1
+refusal fires unchanged, plus a remedy line naming the FAQ path.
+Detail-segment rows are the payload (flat-shaped spec); Header/Trailer
+rows are file envelope (report-only, never DDL); a workbook Standard
+layer the FRD does not scope is parsed and HELD as an escalated-conflict
+review card (the FRD governs target layers), never emitted, never
+deleted. **The two source-team confirmations below remain OPEN asks** —
+`status: confirmed` in the FAQ drops the review gate once they answer.
 
-## Why v1 rejects this family
+Design input derived from a **local-only inspection of the real CAQH STTM
+workbook** (project 1005034) performed 2026-08-07 under the program's
+data rules — only the structural characterization below (sheet/header/
+table identifiers, no data-row values) is recorded here. The flat-dialect
+extractor (docs/EXTRACTOR_RECON.md) is unaffected and byte-identical.
+
+**Discovered on implementation (2026-08-31):** the real workbook's
+`Mandatory Column` / `Primary Key` / `PII` cells carry NO signal at all
+(all empty), so the "Mandatory + Primary Key driven" nullability rule
+sketched below has nothing to drive it — a third unknown, handled the
+same way: the natural key comes only from the FAQ's
+`natural_key_columns` declaration (engineer decision, surfaced as an
+ASSUMED review item), and the run refuses without it. Also out of scope
+until the discriminators are confirmed: the generated reader does not
+yet FILTER rows by the assumed discriminator values — the assumption is
+surfaced, not silently executed; wiring the filter in is the natural
+next step once `status: confirmed`.
+
+## Why v1 rejected this family
 
 The segmented workbook is not a `MAPPING-*`-prefixed variant of the flat
 layout — it is a different layout family. The parser's content-based
 detection recognizes the family signature (metadata block + band row
-and/or per-row Segment column) and raises `SegmentedWorkbookError`
-pointing here; everything below is what a v2 needs to handle.
+and/or per-row Segment column); v1 raised `SegmentedWorkbookError`
+unconditionally, v2 routes it to the segmented parser gated on the FAQ
+declarations. Everything below is the structural characterization the
+implementation follows.
 
 ## Layout family characterization
 
@@ -83,7 +109,8 @@ advisory crosswalk sheet; **no** FILE_DETAILS or VERSION_HISTORY sheets.
   reused as-is; needs its own rule (likely `Mandatory Column` +
   `Primary Key` driven).
 
-## Blockers (named, non-negotiable before emission)
+## Open source-team asks (verbatim from the original blockers — now
+## declared assumptions pending their answer, no longer hard blockers)
 
 1. **H/D/T discriminator requires the client source dictionary.** The
    workbook confirms segment MEMBERSHIP per field but cannot confirm the

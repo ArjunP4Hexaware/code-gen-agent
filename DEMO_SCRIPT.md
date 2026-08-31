@@ -1,4 +1,47 @@
-# CodeGen Agent — Client Demo Script (2026-08-28, 5 PM)
+# CodeGen Agent — Client Demo Script
+
+## ⚡ 2026-09-01, 3 PM client demo — NEW RUN ORDER (segmented dialect landed)
+
+The segmented (Header/Detail/Trailer) dialect shipped overnight
+(`staging` @ Tasks 1–6 commits, 2026-08-31/09-01): the CAQH workbook that
+FAILED in the internal demo now extracts under **declared assumptions**
+and populates the review layer. Run order:
+
+1. **CV golden first (regression proof, ~1 min).** Mock generate on the
+   default pair — same artefacts, same PASS_WITH_FLAGS, byte-identical to
+   before the segmented work (snapshot-guarded). One line: "everything
+   that worked yesterday still works, to the byte."
+2. **CAQH as the centerpiece (~4 min).** Choose the CAQH STTM (+ its
+   companion FRD from the upstream table). The run now succeeds and the
+   feed's **Layer-2 review tab shows the whole product story on one
+   screen**: two EXTRACTION ASSUMPTION cards (H/D/T discriminators
+   declared `assumed_pending_source_team` in the feed FAQ; natural key
+   declared — the workbook's Mandatory/PK cells are empty) + one
+   ESCALATED CONFLICT card (workbook Standard layer vs FRD stage-only —
+   held, 115 columns preserved, nothing emitted, nothing deleted).
+   Approve the assumptions, acknowledge the conflict, open the report:
+   Segmented-extraction section (8 Header / 101 Detail / 6 Trailer rows,
+   envelope table, ASSUMED flags, held-back table list) and the
+   stage-only DDL .txt. The demo line: *real client documents, agent
+   extracts, states its assumptions, holds the conflict, human approves,
+   artefacts emit.*
+   - If asked "why not just parse the H/D/T values?": show the FAQ file —
+     the workbook states them nowhere; the agent refuses to infer and the
+     declaration is status-tracked until the source team confirms.
+3. **MIDS in reserve** — the zero-candidate complete run, if time allows.
+
+**⚠ App venue caution:** Databricks App runs use the **mock provider**
+(the app SP currently lacks the FMAPI grant) — that is fine for this
+script (mock is the default demo path). **The updated build MUST be
+redeployed to the App and smoke-tested there before 3 PM — a stale App
+build will reproduce yesterday's SegmentedWorkbookError on stage.**
+Redeploy: sync the staged tree + `databricks apps deploy codegen-agent`
+(see §7), then in the App: choose the CAQH STTM and confirm the run
+reaches the review cards.
+
+---
+
+# (Previous script — 2026-08-28, 5 PM)
 
 Personal, machine-specific script for today's client demo. Companion to
 the committed `docs/DEMO_RUNBOOK.md` (the rehearsed client runbook) —

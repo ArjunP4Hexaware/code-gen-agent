@@ -73,9 +73,19 @@ Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract); `feed
 is `normalize_feed_name(FRD feed_name)` — the resolver's join invariant, NOT the
 stage table name — and format/delimiter/standard-target presence come from the FRD side. Recycle validation text stays VERBATIM
 (the resolver also accepts the client "Check with ... FOR ..." phrasing).
-FLAT only — segmented (H/D/T) raises `SegmentedWorkbookError`; a prefix-less
-workbook matching the family signature gets the docs/SEGMENTED_MODE_DESIGN.md
-diagnostic. Header resolution is fuzzy + config-driven (`extractor:` knob);
+**Segmented (H/D/T) dialect IMPLEMENTED 2026-08-31 under declared
+assumptions** (`extract/segmented.py`; docs/SEGMENTED_MODE_DESIGN.md):
+Detail rows are the payload (flat-shaped spec), Header/Trailer rows are
+file envelope (report-only, never DDL), a workbook Standard layer the FRD
+does not scope is HELD as an escalated-conflict review card (the FRD
+governs target layers), and the run proceeds ONLY when the feed's FAQ
+declares `record_type_discriminators` (+ `natural_key_columns` when the
+workbook's Mandatory/PK cells are empty, as the real CAQH workbook's are)
+— absent declarations, the v1 `SegmentedWorkbookError` refusal fires
+unchanged plus a remedy line. Assumptions surface as review items (same
+candidates/decision flow, `RuleCandidate.kind`), provenance-banner lines,
+report ASSUMED flags, and gate flags; `status: confirmed` drops the
+review gate. Header resolution is fuzzy + config-driven (`extractor:` knob);
 trailing `NA` rows → `audit_columns`, never `fields[]`; `Comment` →
 `value_spec`; file-name pairing canonicalizes date placeholders (CCYY→YYYY,
 case-insensitive) and stays fail-loud. The CV/golden pair is byte-tested against
@@ -363,12 +373,16 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
   (no `MAPPING-` prefix, `Source Layout` vs `Source File Layout`, different
   header dialect). Closing that round trip is a real integration task; do
   not assume the pipeline joins up.
-- **The CAQH STTM contract is synthetic** — `extract-sttm` is flat-only, so
-  CAQH (segmented) still cannot be extracted; the MIDS STTM contract
-  predates the extractor (out-of-repo; no committed workbook reproduces it).
-  The record-type discriminator (first field, H/D/T, `config.segments`) is
-  an assumption pending the source dictionary; CAQH's standard target is
-  empty in the FRD (stage-only, load AS-IS) — confirm with the source team.
+- **CAQH extracts for real now (2026-08-31)** — the segmented dialect is
+  implemented, so the historical synthetic CAQH STTM contract is obsolete;
+  the MIDS STTM contract still predates the extractor (out-of-repo; no
+  committed workbook reproduces it). Two source-team asks stay OPEN and
+  ride as declared assumptions in `fixtures/faq/caqh_tpl_inbound_files.
+  faq.yaml` until answered: the H/D/T record-type discriminator values
+  (stated nowhere in the workbook), and the workbook-Standard-layer vs
+  FRD-stage-only contradiction (held back, not emitted). The generated
+  reader does not yet filter rows by the assumed discriminators — surfaced,
+  not silently executed; wire the filter in once status flips to confirmed.
 - `FrdContract._provenance.ambiguities` accepts plain strings (older
   contracts) AND the structured `GatedAmbiguity` objects current
   frd-to-sttm output emits; absent context keys there are not drift.

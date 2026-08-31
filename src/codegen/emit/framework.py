@@ -55,7 +55,7 @@ it only produces the add-ons.
 
 Columns awaiting framework-assigned IDs (rendered as `{id_placeholder}`,
 never invented): {blank_columns}.
-
+{segmented_block}
 Layout note: the tab names and column headers are the client IIG template
 (anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
 
@@ -73,6 +73,10 @@ class FrameworkArtefacts:
     row_counts: dict[str, int]
     coverage: dict[str, int]
     flagged_blank_columns: list[str] = field(default_factory=list)
+    # Segmented-extraction surfacing (empty/None on flat feeds): the ASSUMED
+    # discriminator line and the held-back workbook Standard layer.
+    assumed_notes: list[str] = field(default_factory=list)
+    held_back: list[str] = field(default_factory=list)
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -432,6 +436,30 @@ def emit_framework(
         "metadata path. Plain INSERTs — idempotency belongs to the "
         "framework's load path. |"
     )
+    assumed_notes: list[str] = []
+    held_back: list[str] = []
+    seg = spec.segmented_extraction
+    if seg is not None:
+        d = seg.discriminators
+        status = ("confirmed" if d.status == "confirmed"
+                  else "ASSUMED — pending source team")
+        assumed_notes.append(
+            f"record-type discriminators Header={d.header!r} Detail={d.detail!r} "
+            f"Trailer={d.trailer!r} [{status}] — declared in the feed's FAQ, "
+            "stated nowhere in the workbook")
+        if seg.natural_key_declared:
+            assumed_notes.append(
+                "natural key [ASSUMED — FAQ declaration]: "
+                + ", ".join(seg.natural_key_declared))
+        held_back = [
+            f"{h.table} ({h.column_count} columns) — {h.reason}"
+            for h in seg.held_standard
+        ]
+
+    segmented_lines = [f"- **ASSUMED**: {note}" for note in assumed_notes]
+    segmented_lines += [f"- **HELD BACK**: {held}" for held in held_back]
+    segmented_block = ("\n" + "\n".join(segmented_lines) + "\n"
+                       if segmented_lines else "")
     addition_path = framework_dir / "ADDITION.md"
     addition_path.write_text(
         _ADDITION_TEMPLATE.format(
@@ -442,6 +470,7 @@ def emit_framework(
             inserts_row=inserts_row,
             id_placeholder=config.framework.id_placeholder,
             blank_columns=", ".join(f"`{c}`" for c in flagged) or "none",
+            segmented_block=segmented_block,
         ),
         encoding="utf-8", newline="\n",
     )
@@ -452,6 +481,8 @@ def emit_framework(
         row_counts={name: len(tab["rows"]) for name, tab in payload["tabs"].items()},
         coverage=payload["coverage"],
         flagged_blank_columns=flagged,
+        assumed_notes=assumed_notes,
+        held_back=held_back,
     )
 
 
@@ -485,6 +516,10 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         + (", ".join(f"`{c}`" for c in artefacts.flagged_blank_columns) or "none")
         + " — left blank, never invented |"
     )
+    for note in artefacts.assumed_notes:
+        lines.append(f"| **ASSUMED** | {note} |")
+    for held in artefacts.held_back:
+        lines.append(f"| **HELD BACK** | {held} |")
     return "\n".join(lines) + "\n"
 
 

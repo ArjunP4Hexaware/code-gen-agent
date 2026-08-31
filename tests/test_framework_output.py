@@ -121,6 +121,30 @@ def test_framework_workbooks_layout_and_provenance(config, framework_run):
 _REF = REPO / "fixtures" / "reference"
 
 
+def test_config_layout_matches_scrubbed_iig_workbook(config):
+    """The IIG layout in config/config.yaml was transcribed from the scrubbed
+    reference workbook — pin them together so neither can drift silently.
+    Tab order, tab names, and every header must match the workbook verbatim
+    (including the client's own spellings, e.g. CRETAED_BY)."""
+    workbook = load_workbook(_REF / "SFMC_IIG.xlsx", read_only=True,
+                             data_only=True)
+    try:
+        workbook_layout = {
+            sheet.title: [
+                str(value).strip()
+                for value in next(sheet.iter_rows(max_row=1, values_only=True))
+                if value is not None
+            ]
+            for sheet in workbook.worksheets
+        }
+    finally:
+        workbook.close()
+    config_layout = {name: list(tab.headers)
+                     for name, tab in config.demo.metadata_sheet.tabs.items()}
+    assert list(config_layout) == list(workbook_layout)  # names AND order
+    assert config_layout == workbook_layout
+
+
 def _txt_paths(tmp: Path, spec) -> tuple[Path, Path]:
     framework_dir = tmp / "out" / spec.feed_slug / "framework"
     return (framework_dir / f"{spec.feed_slug}_stage_table_creation.txt",

@@ -176,10 +176,19 @@ demo:
       # and job:; these are the reference originals those values came from.
       - "EDO Data Engineering Naming Standards.docx"
       - "EDO Data Engineering Coding Standards.docx"
+      # Client reference artefacts (arrived 2026-08-31): listed by their
+      # SCRUBBED names in fixtures/reference/ — the raw exports live only in
+      # gitignored inputs/reference_raw/, and the raw playbook filename
+      # carries the real RFC number, which never enters a tracked file.
+      - "SFMC_IIG.xlsx"
+      - "SFMC_Deployment_Playbook.xlsx"
+      - "SFMC_stage_table_creation.txt"
+      - "SFMC_standard_table_creation.txt"
     dirs:
       - inputs/sharepoint
       - inputs/standards
       - inputs/databricks
+      - fixtures/reference
 
   # Explicit STTM->FRD pairing (canonical stems: lowercase, upload prefix
   # and " (n)" copy suffix stripped, no extension). Checked before ticket-

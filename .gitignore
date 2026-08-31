@@ -47,6 +47,13 @@ venv/
 fixtures/contracts/
 fixtures/workbooks/
 fixtures/replay/
+# Deliberate exception (2026-08-31, demo-day direction from Venu): SCRUBBED
+# reference fixtures produced by scripts/scrub_reference.py from the raw
+# client exports in inputs/reference_raw/ (which stay ignored via inputs/).
+# Only the anonymized copies under fixtures/reference/ are ever tracked;
+# scripts/scrub_check.py is the denylist scanner that enforces it.
+!fixtures/reference/
+!fixtures/reference/*.xlsx
 
 # Wheel-build detritus
 build/

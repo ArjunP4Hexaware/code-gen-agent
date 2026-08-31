@@ -185,13 +185,23 @@ for byte — a fresh standalone pipeline, the ~10% case; guarded by
 pair — regenerate deliberately, never casually). **Option B**
 ("framework") is the primary ACFC path per the Aug 25/26 calls: an
 *addition* to the existing metadata-driven ingestion framework (~90% of
-runs) — `out/<slug>/framework/` holds `ddl_scripts.xlsx`,
-`config_rows.xlsx` (THE approval artefact; built by `codegen.
-metadata_sheet`, the single source of truth for the row layout — a
-stand-in until the client's template arrives, values carry over),
-`config_inserts.sql` (sqlserver|lakebase dialect via `framework:` config;
-plain INSERTs, idempotency belongs to the framework's load path) and
-`ADDITION.md`. **The master notebook is ACFC's own existing notebook
+runs) — `out/<slug>/framework/` holds (formats swapped 2026-08-31 per
+Venu's standup direction + the real client reference artefacts, scrubbed
+into `fixtures/reference/` by `scripts/scrub_reference.py`; the raw
+exports live only in gitignored `inputs/reference_raw/`, and
+`scripts/scrub_check.py` is the denylist scanner tests run over every
+emitted artefact): `<slug>_stage_table_creation.txt` +
+`<slug>_standard_table_creation.txt` (deployment-team DDL conformant to
+the reference goldens — CREATE OR REPLACE, per-column COMMENTs, stage
+LOCATION labeled-SYNTHETIC, standard CLUSTER BY AUTO + full TBLPROPERTIES,
+trailing SET TAGS), `config_rows.xlsx` (THE approval artefact; built by
+`codegen.metadata_sheet`, the single source of truth for the row layout —
+now the REAL 7-tab client IIG layout from the scrubbed reference
+workbook) and `config_inserts.xlsx` (one sheet per populated tab, value
+rows + generated INSERT column, sqlserver|lakebase dialect via
+`framework:` config; statements over Excel's cell limit chunk into
+`_PART<n>` columns; plain INSERTs, idempotency belongs to the framework's
+load path) and `ADDITION.md`. **The master notebook is ACFC's own existing notebook
 (clarified 2026-08-27): the DDL scripts and insert SQL are ADD-ONS to it —
 the agent never generates, edits, or ships that notebook.** Framework mode still renders the FULL pipeline into a
 scratch tree so gate checks and verdicts are identical across modes; it

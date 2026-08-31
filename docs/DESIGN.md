@@ -128,11 +128,14 @@ out/<feed_id>/
   tools/          make_fixtures.py — synthetic data from the contract's sample_value
   README.md       what was generated, from which contracts, verdict summary
   framework/      [output.mode framework|both] Option B — the ACFC-framework
-                  addition: ddl_scripts.xlsx (reviewable DDL workbook),
-                  config_rows.xlsx (THE approval artefact; layout from
-                  demo.metadata_sheet, provenance-badged), config_inserts.sql
-                  (sqlserver|lakebase per framework.sql_dialect; plain
-                  INSERTs, framework-assigned IDs as placeholders), ADDITION.md
+                  addition: <slug>_stage/_standard_table_creation.txt
+                  (deployment-team DDL, conformant to the client reference
+                  goldens in fixtures/reference/), config_rows.xlsx (THE
+                  approval artefact; real IIG layout from demo.metadata_sheet,
+                  provenance-badged), config_inserts.xlsx (one sheet per
+                  populated tab + INSERT statement column, sqlserver|lakebase
+                  per framework.sql_dialect; framework-assigned IDs as
+                  placeholders), ADDITION.md
 ```
 
 `[bracketed]` modules are emitted only when the spec requires them

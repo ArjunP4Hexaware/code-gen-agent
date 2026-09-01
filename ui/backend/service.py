@@ -315,6 +315,7 @@ class GenerationStore:
                 # segmented dialect — flat candidates.json stays byte-stable.
                 entry.pop("kind", None)
                 entry.pop("detail", None)
+                entry.pop("citation", None)
             payload.append(entry)
         (artifact_dir / "candidates.json").write_text(
             json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n"

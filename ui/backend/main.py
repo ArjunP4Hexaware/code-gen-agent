@@ -17,8 +17,9 @@ import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -428,7 +429,8 @@ def frd_choices() -> dict:
     contracts_dir = REPO_ROOT / store.config.contracts.dir
     local = sorted(
         {p.name for d in (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                          REPO_ROOT / "inputs" / "sharepoint")
+                          REPO_ROOT / "inputs" / "sharepoint",
+                          REPO_ROOT / "inputs" / "uploads")
          if d.is_dir()
          for p in d.glob("*.contract.json")}
     )
@@ -487,7 +489,8 @@ def select_frd(req: FrdSelectRequest) -> dict:
                 raise HTTPException(400, f"invalid contract name {req.id!r}")
             for directory in (REPO_ROOT / store.config.contracts.dir,
                               REPO_ROOT / "inputs" / "databricks",
-                              REPO_ROOT / "inputs" / "sharepoint"):
+                              REPO_ROOT / "inputs" / "sharepoint",
+                              REPO_ROOT / "inputs" / "uploads"):
                 candidate = directory / req.id
                 if candidate.is_file():
                     runner.select_frd(candidate, req.id)
@@ -498,6 +501,77 @@ def select_frd(req: FrdSelectRequest) -> dict:
         raise HTTPException(409, str(exc)) from exc
     except UpstreamContractError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+_UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # same cap as the SharePoint import
+
+
+@app.post("/api/demo/upload", status_code=201)
+async def upload_demo_document(
+    kind: Annotated[str, Form()], file: Annotated[UploadFile, File()]
+) -> dict:
+    """From-device upload for the choose step: an STTM workbook (.xlsx) or an
+    FRD contract JSON. Lands in the gitignored ``inputs/uploads/`` inbox
+    (scanned exactly like the SharePoint/Databricks ones) and is selected for
+    the next run in the same motion. An FRD upload must PARSE as an FRD
+    contract — a raw .docx has no contract and the answer stays "run the
+    FRD→STTM agent first", never a guess."""
+    from codegen.contracts import FrdContract
+
+    runner = _require_runner()
+    if runner.state == "running":
+        raise HTTPException(409, "cannot change inputs while a live run is in progress")
+
+    name = Path(file.filename or "").name
+    if not name or name.startswith("~$") or ".." in name:
+        raise HTTPException(400, f"invalid file name {file.filename!r}")
+    payload = await file.read()
+    if len(payload) > _UPLOAD_MAX_BYTES:
+        cap_mib = _UPLOAD_MAX_BYTES // (1024 * 1024)
+        raise HTTPException(413, f"{name!r} exceeds the {cap_mib} MiB upload cap")
+    if not payload:
+        raise HTTPException(400, f"{name!r} is empty")
+
+    lower = name.lower()
+    if kind == "sttm":
+        if not lower.endswith(".xlsx"):
+            raise HTTPException(400, f"an STTM upload must be a .xlsx workbook, got {name!r}")
+    elif kind == "frd":
+        if not lower.endswith(".json"):
+            raise HTTPException(
+                400,
+                "an FRD upload must be a .contract.json produced by the "
+                f"FRD→STTM agent, got {name!r}",
+            )
+        try:
+            FrdContract.model_validate_json(payload)
+        except Exception as exc:  # noqa: BLE001 — surface the first validation line
+            raise HTTPException(
+                400,
+                "not a valid FRD contract: " + str(exc).splitlines()[0][:200]
+                + " — run the FRD→STTM agent to produce one",
+            ) from exc
+        if not lower.endswith(".contract.json"):
+            name = name[: -len(".json")] + ".contract.json"
+    else:
+        raise HTTPException(400, f"unknown upload kind {kind!r}")
+
+    dest_dir = REPO_ROOT / "inputs" / "uploads"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    # Write-then-rename, same discipline as the SharePoint import.
+    tmp = dest_dir / (name + ".part")
+    tmp.write_bytes(payload)
+    dest = dest_dir / name
+    tmp.replace(dest)
+
+    try:
+        if kind == "sttm":
+            runner.select_workbook(name)
+        else:
+            runner.select_frd(dest, name)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"stored": name, "kind": kind, "selected": True}
 
 
 @app.delete("/api/demo/frd")

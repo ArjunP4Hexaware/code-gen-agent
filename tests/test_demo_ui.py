@@ -265,3 +265,83 @@ def test_replay_load_unknown_set_raises():
         load_replay_set(store, "no_such_set")
     with pytest.raises(FileNotFoundError):
         load_replay_set(store, "../escape")
+
+
+# -- from-device uploads (POST /api/demo/upload) ------------------------------
+
+
+def test_upload_rejects_bad_inputs(client):
+    # A JSON that does not parse as an FRD contract is refused loudly — a
+    # document with no contract stays "run the FRD→STTM agent first".
+    r = client.post(
+        "/api/demo/upload",
+        data={"kind": "frd"},
+        files={"file": ("bogus.json", b"{}", "application/json")},
+    )
+    assert r.status_code == 400
+    assert "not a valid FRD contract" in r.json()["detail"]
+
+    r = client.post(
+        "/api/demo/upload",
+        data={"kind": "nope"},
+        files={"file": ("x.xlsx", b"x", "application/octet-stream")},
+    )
+    assert r.status_code == 400
+
+    # An STTM upload must be a workbook.
+    r = client.post(
+        "/api/demo/upload",
+        data={"kind": "sttm"},
+        files={"file": ("mapping.csv", b"a,b", "text/csv")},
+    )
+    assert r.status_code == 400
+
+
+def test_upload_sttm_workbook_lands_and_selects(client):
+    import io
+
+    from openpyxl import Workbook
+
+    buf = io.BytesIO()
+    Workbook().save(buf)
+    name = "uploaded_test_sttm.xlsx"
+    uploads = REPO / "inputs" / "uploads"
+    try:
+        r = client.post(
+            "/api/demo/upload",
+            data={"kind": "sttm"},
+            files={"file": (name, buf.getvalue(), "application/octet-stream")},
+        )
+        assert r.status_code == 201
+        assert r.json() == {"stored": name, "kind": "sttm", "selected": True}
+        rows = client.get("/api/demo/workbooks").json()["workbooks"]
+        mine = [w for w in rows if w["name"] == name]
+        assert mine and mine[0]["selected"] and mine[0]["source"] == "inputs/uploads"
+    finally:
+        client.delete("/api/demo/workbook")
+        (uploads / name).unlink(missing_ok=True)
+
+
+def test_upload_frd_contract_lands_and_selects(client):
+    src = REPO / "fixtures" / "contracts" / "FRD_demo_cv_golden.contract.json"
+    if not src.is_file():
+        pytest.skip("demo fixture pair not restored (removed 2026-08-22)")
+    # A plain .json name is normalized to .contract.json so the local scan
+    # (glob *.contract.json) can see it.
+    name = "uploaded_test_frd.json"
+    stored = "uploaded_test_frd.contract.json"
+    uploads = REPO / "inputs" / "uploads"
+    try:
+        r = client.post(
+            "/api/demo/upload",
+            data={"kind": "frd"},
+            files={"file": (name, src.read_bytes(), "application/json")},
+        )
+        assert r.status_code == 201
+        assert r.json() == {"stored": stored, "kind": "frd", "selected": True}
+        choices = client.get("/api/demo/frd-choices").json()
+        assert stored in choices["local"]
+        assert choices["current"] == {"label": stored, "chosen": True}
+    finally:
+        client.delete("/api/demo/frd")
+        (uploads / stored).unlink(missing_ok=True)

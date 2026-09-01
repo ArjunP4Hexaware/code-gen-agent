@@ -299,6 +299,9 @@ def _live_ready() -> tuple[bool, str]:
     """
     if store is None:
         return False, "backend has no config loaded"
+    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
+        return False, ("locked to the mock provider "
+                       "(CODEGEN_FORCE_MOCK_PROVIDER is set)")
     provider = store.config.reasoning.provider
     if provider == "databricks_fmapi":
         from codegen.databricks import DatabricksConfigError, config_for

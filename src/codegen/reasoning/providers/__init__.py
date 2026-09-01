@@ -32,6 +32,12 @@ def build_provider(config: Config, dry_run: bool) -> Provider:
     if dry_run:
         return MockProvider()
 
+    # Hard mock lock (e.g. the Databricks App deployment, set in app.yaml):
+    # no config or UI selection can route to a live provider while it is
+    # set. Checked before any provider resolution on purpose.
+    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
+        return MockProvider()
+
     # databricks_fmapi: the same Claude model over Databricks FMAPI — a
     # transport, not a vendor change. Selected only when explicitly
     # configured AND the workspace config resolves; otherwise the safe

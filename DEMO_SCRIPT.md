@@ -46,13 +46,17 @@ smoke-tested: chooser lists the golden + synthetic workbooks, CAQH
 Fetched ✓ from the volume with its companion FRD, choosers left at the
 clean base state.
 
-**⚠ App venue caution:** Databricks App runs use the **mock provider**
-(the app SP lacks the FMAPI grant) — fine for this script. **The 0.3.1
-build MUST be redeployed to the App and smoke-tested there before 3 PM —
-a stale App build shows the retired assumption/conflict cards.**
-Redeploy: sync the staged tree + `databricks apps deploy codegen-agent`
-(see §7), then in the App: choose the CAQH STTM and confirm the run
-reaches the review cards.
+**⚠ App venue: HARD-LOCKED TO MOCK (0.3.2).** `app.yaml` sets
+`CODEGEN_FORCE_MOCK_PROVIDER=1`: `build_provider` returns the mock before
+any transport resolution and `/api/demo/live-available` reports
+unavailable with that reason — no UI selection or config value can route
+the App to FMAPI. (The SP's grant on the FMAPI system endpoint is
+UNVERIFIABLE by CLI — pay-per-token endpoints expose no per-endpoint
+permission object — which is exactly why the lock exists.) Live runs
+belong on localhost. **The 0.3.2 build MUST be deployed to the App and
+smoke-tested there before 3 PM.** Redeploy: sync the staged tree +
+`databricks apps deploy codegen-agent` (see §7), then in the App: choose
+the CAQH STTM and confirm the run reaches the review cards.
 
 ---
 
@@ -81,12 +85,12 @@ documents card shows **all six client reference documents**. Suite:
   transport, and billing is DBU-metered instead of an Anthropic invoice.
 - **The same UI is live as a Databricks App**:
   https://codegen-agent-7405617821962942.2.azure.databricksapps.com
-  (app `codegen-agent`, deployed today; health-checked — feeds API and
-  live-availability both answer). Its service principal holds CAN_QUERY
-  on the Opus 5 endpoint and read grants on the UC volumes + the
-  upstream `frd_contracts` table, so the Databricks documents panel in
-  the app lists the **real client** STTM/FRD documents. See §7 before
-  choosing it as the venue.
+  (app `codegen-agent`; health-checked — feeds API and live-availability
+  both answer). Its service principal holds read grants on the UC volumes
+  + the upstream `frd_contracts` table, so the Databricks documents panel
+  in the app lists the **real client** STTM/FRD documents. Since 0.3.2
+  the App is HARD-LOCKED to the mock provider (see the current script's
+  App-venue note). See §7 before choosing it as the venue.
 - **Documents card is 6/6 green** — all found in `inputs/standards/`:
   the real FRD 1005310 (SFMC Email Campaign Tracking), the two
   architecture decks, the FRD-and-Dictionary input-requirements deck,

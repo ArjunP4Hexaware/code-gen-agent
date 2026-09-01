@@ -1,40 +1,46 @@
 # CodeGen Agent — Client Demo Script
 
-## ⚡ 2026-09-01, 3 PM client demo — NEW RUN ORDER (segmented dialect landed)
+## ⚡ 2026-09-01, 3 PM client demo — CAQH: "two documents, one pipeline"
 
-The segmented (Header/Detail/Trailer) dialect shipped overnight
-(`staging` @ Tasks 1–6 commits, 2026-08-31/09-01): the CAQH workbook that
-FAILED in the internal demo now extracts under **declared assumptions**
-and populates the review layer. Run order:
+Corrected build (`staging`, 0.3.1): the CAQH pair extracts with **both
+layers derived from the documents, every derivation cited**. Run order:
 
 1. **CV golden first (regression proof, ~1 min).** Mock generate on the
    default pair — same artefacts, same PASS_WITH_FLAGS, byte-identical to
    before the segmented work (snapshot-guarded). One line: "everything
-   that worked yesterday still works, to the byte."
-2. **CAQH as the centerpiece (~4 min).** Choose the CAQH STTM (+ its
-   companion FRD from the upstream table). The run now succeeds and the
-   feed's **Layer-2 review tab shows the whole product story on one
-   screen**: two EXTRACTION ASSUMPTION cards (H/D/T discriminators
-   declared `assumed_pending_source_team` in the feed FAQ; natural key
-   declared — the workbook's Mandatory/PK cells are empty) + one
-   ESCALATED CONFLICT card (workbook Standard layer vs FRD stage-only —
-   held, 115 columns preserved, nothing emitted, nothing deleted).
-   Approve the assumptions, acknowledge the conflict, open the report:
-   Segmented-extraction section (8 Header / 101 Detail / 6 Trailer rows,
-   envelope table, ASSUMED flags, held-back table list) and the
-   stage-only DDL .txt. The demo line: *real client documents, agent
-   extracts, states its assumptions, holds the conflict, human approves,
-   artefacts emit.*
-   - If asked "why not just parse the H/D/T values?": show the FAQ file —
-     the workbook states them nowhere; the agent refuses to infer and the
-     declaration is status-tracked until the source team confirms.
+   that worked before still works, to the byte."
+2. **CAQH as the centerpiece (~4 min) — two documents, one pipeline.**
+   Choose the CAQH STTM (+ its companion FRD). Extraction shows BOTH
+   layers derived with citations:
+   - **4 stage tables** in `pr_dlk.stg_mbr` (HDR 8 / DTL 101 / TRL 6
+     columns + DTL_RECYCLE per the FRD's 15-day member-existence DQ) and
+     **3 standard tables** in `pr_std.mbr` — "Load Strategy STG: Truncate
+     and Load; STD: Append", with the STD schema sourced from the STTM's
+     `PR_STD.MBR` target group (cited provenance note; the FRD's Target
+     Schema block names stage targets only).
+   - STRING-except-audit in both layers — FRD acceptance criterion 3,
+     quoted in the provenance notes.
+   - Record identification DERIVED from the STTM: the trailer's own
+     "Record Type" comment states the `******` marker (quoted verbatim);
+     header = first record; detail = the rest.
+   The **review tab shows the two real Layer-2 candidates** (LOB_ID →
+   'Payer Area'; populate file-name/timestamp/LOB/file-type fields) **+
+   one soft CONFIRM item** (positional identification — confirm with the
+   source team; its card quotes the exact STTM cell). Open the report:
+   Segment-tables table (both layers), Record-identification section with
+   evidence quotes, cited provenance notes; then the artefacts: the two
+   deployment-team DDL .txt files (4 + 3 tables) and IIG rows for both
+   legs (3 ADLS→STG + 3 STG→STD rows, ReferentialCheckRule DQ row vs
+   `facets_member`, Weekly/Monday schedule fields).
+   The demo line: *two client documents in, one pipeline out — every
+   derivation quoting the cell it came from, and the one thing worth a
+   human's eyes raised as a cited confirm card.*
 3. **MIDS in reserve** — the zero-candidate complete run, if time allows.
 
 **⚠ App venue caution:** Databricks App runs use the **mock provider**
-(the app SP currently lacks the FMAPI grant) — that is fine for this
-script (mock is the default demo path). **The updated build MUST be
-redeployed to the App and smoke-tested there before 3 PM — a stale App
-build will reproduce yesterday's SegmentedWorkbookError on stage.**
+(the app SP lacks the FMAPI grant) — fine for this script. **The 0.3.1
+build MUST be redeployed to the App and smoke-tested there before 3 PM —
+a stale App build shows the retired assumption/conflict cards.**
 Redeploy: sync the staged tree + `databricks apps deploy codegen-agent`
 (see §7), then in the App: choose the CAQH STTM and confirm the run
 reaches the review cards.

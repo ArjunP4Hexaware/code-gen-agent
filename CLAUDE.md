@@ -73,19 +73,27 @@ Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract); `feed
 is `normalize_feed_name(FRD feed_name)` — the resolver's join invariant, NOT the
 stage table name — and format/delimiter/standard-target presence come from the FRD side. Recycle validation text stays VERBATIM
 (the resolver also accepts the client "Check with ... FOR ..." phrasing).
-**Segmented (H/D/T) dialect IMPLEMENTED 2026-08-31 under declared
-assumptions** (`extract/segmented.py`; docs/SEGMENTED_MODE_DESIGN.md):
-Detail rows are the payload (flat-shaped spec), Header/Trailer rows are
-file envelope (report-only, never DDL), a workbook Standard layer the FRD
-does not scope is HELD as an escalated-conflict review card (the FRD
-governs target layers), and the run proceeds ONLY when the feed's FAQ
-declares `record_type_discriminators` (+ `natural_key_columns` when the
-workbook's Mandatory/PK cells are empty, as the real CAQH workbook's are)
-— absent declarations, the v1 `SegmentedWorkbookError` refusal fires
-unchanged plus a remedy line. Assumptions surface as review items (same
-candidates/decision flow, `RuleCandidate.kind`), provenance-banner lines,
-report ASSUMED flags, and gate flags; `status: confirmed` drops the
-review gate. Header resolution is fuzzy + config-driven (`extractor:` knob);
+**Segmented (H/D/T) dialect IMPLEMENTED, corrected 2026-09-01 against the
+FRD read verbatim** (`extract/segmented.py`; docs/SEGMENTED_MODE_DESIGN.md):
+segments are TABLES in BOTH layers (FRD acceptance criterion 2 — fields
+carry `record_segment`/`stage_table`/`standard_table`; per-segment
+standard DDL), layer scope comes from **Load Strategy STG/STD, never from
+which schemas the Target Schema block names** (STD catalog/schema/tables
+from the STTM's second target group with a cited provenance note), record
+identification is **DERIVED from the STTM** (trailer static marker quoted
+verbatim as the citation; header positional; FAQ
+`record_type_discriminators` is strictly a confirmed-status override),
+STRING-except-audit in both layers rides an FRD-driven AS-IS switch
+(`spec.load_as_is`), and a keys-None FRD (truncate/append, no MERGE)
+makes empty `natural_key_columns` legitimate. The review layer gets ONE
+soft cited CONFIRM item (`RuleCandidate.kind == "confirm"`), riding the
+existing candidates/decision flow. **Citation rule (2026-09-01 lesson):
+every conflict/assumption/confirm item and provenance note the agent
+raises MUST quote the exact FRD field or STTM cell it rests on — an item
+that cannot cite its evidence is a bug (models enforce non-empty
+citations; tests assert them). And never infer target-layer scope from a
+schema block: "stage-only" was wrongly inferred that way once — read Load
+Strategy.** Header resolution is fuzzy + config-driven (`extractor:` knob);
 trailing `NA` rows → `audit_columns`, never `fields[]`; `Comment` →
 `value_spec`; file-name pairing canonicalizes date placeholders (CCYY→YYYY,
 case-insensitive) and stays fail-loud. The CV/golden pair is byte-tested against
@@ -373,16 +381,16 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
   (no `MAPPING-` prefix, `Source Layout` vs `Source File Layout`, different
   header dialect). Closing that round trip is a real integration task; do
   not assume the pipeline joins up.
-- **CAQH extracts for real now (2026-08-31)** — the segmented dialect is
-  implemented, so the historical synthetic CAQH STTM contract is obsolete;
-  the MIDS STTM contract still predates the extractor (out-of-repo; no
-  committed workbook reproduces it). Two source-team asks stay OPEN and
-  ride as declared assumptions in `fixtures/faq/caqh_tpl_inbound_files.
-  faq.yaml` until answered: the H/D/T record-type discriminator values
-  (stated nowhere in the workbook), and the workbook-Standard-layer vs
-  FRD-stage-only contradiction (held back, not emitted). The generated
-  reader does not yet filter rows by the assumed discriminators — surfaced,
-  not silently executed; wire the filter in once status flips to confirmed.
+- **CAQH extracts for real (corrected 2026-09-01)** — segments as tables
+  in both layers, identification derived from the STTM, recycle from the
+  FRD's DQ requirement; the historical synthetic CAQH STTM contract is
+  obsolete and the 2026-08-31 "two open source-team questions" are
+  RETRACTED (the documents answer both — docs/SEGMENTED_MODE_DESIGN.md
+  quotes them). One soft CONFIRM item remains (positional identification
+  per the STTM's stated trailer marker). The MIDS STTM contract still
+  predates the extractor. The generated reader/segments module still
+  splits via `config.segments`; adapting it to the derived positional/
+  marker identification is Option-A-only future work.
 - `FrdContract._provenance.ambiguities` accepts plain strings (older
   contracts) AND the structured `GatedAmbiguity` objects current
   frd-to-sttm output emits; absent context keys there are not drift.

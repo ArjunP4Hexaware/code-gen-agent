@@ -1,36 +1,54 @@
-# Segmented-mode design (CAQH layout family) — IMPLEMENTED under declared assumptions
+# Segmented-mode design (CAQH layout family) — IMPLEMENTED, document-derived
 
-**Status change (2026-08-31):** the segmented dialect is implemented
-(`src/codegen/extract/segmented.py`), governance-honest — the blockers
-below did NOT get guessed; they became explicit, per-feed FAQ
-declarations (`record_type_discriminators`, `natural_key_columns`) that
-surface in the review layer for human approval, the provenance banner,
-and the generation report (ASSUMED flags). With no declaration the v1
-refusal fires unchanged, plus a remedy line naming the FAQ path.
-Detail-segment rows are the payload (flat-shaped spec); Header/Trailer
-rows are file envelope (report-only, never DDL); a workbook Standard
-layer the FRD does not scope is parsed and HELD as an escalated-conflict
-review card (the FRD governs target layers), never emitted, never
-deleted. **The two source-team confirmations below remain OPEN asks** —
-`status: confirmed` in the FAQ drops the review gate once they answer.
+**Status (2026-09-01, corrected):** the segmented dialect is implemented
+(`src/codegen/extract/segmented.py`) and the 2026-08-31 build's two "open
+source-team questions" are **RETRACTED — the documents answer both**:
+
+1. *Record identification* is stated by the STTM itself: the Trailer's
+   "Record Type" row comment reads **"Static text identifying the record
+   as the trailer record. Contains the value \*\*\*\*\*\*"** — so trailer
+   = record whose first field equals `******`, header = first record,
+   detail = all others. Derived with that cell quoted as the citation;
+   the FAQ `record_type_discriminators` remains strictly a
+   `status: confirmed` OVERRIDE. One soft **CONFIRM** review item
+   ("positional header/detail identification per CAQH spec — confirm
+   with source team") rides the review flow; it is not an assumption gate.
+2. *The "standard-layer contradiction" never existed.* The FRD scopes
+   BOTH layers: Structural Metadata states **"Load Strategy STG:
+   Truncate and Load"** and **"Load Strategy STD: Append"**, and the
+   Technical Metadata Business Rule reads **"Data should be loaded AS IS
+   into STG and STD."** The 2026-08-31 build inferred "stage-only" from
+   the Target Schema block (which names only `pr_dlk`/`stg_mbr`) instead
+   of reading Load Strategy. The STD catalog/schema/tables come from the
+   STTM's second target column group (`PR_STD.MBR`), recorded with a
+   cited provenance note.
+
+Also settled by the documents: acceptance criterion 2 — "Header, Detail,
+Trailer data should be mapped to respective HDR, DTL and TRL tables" —
+segments are TABLES in both layers, not file envelope; acceptance
+criterion 3 — "Data Type of the fields in Stage and standard should be
+STRING except for audit date fields" — an FRD-driven AS-IS switch, not a
+CAQH special case; and Technical Metadata Business/Primary/Unique Key =
+**None** with truncate/append strategies — no MERGE key exists, so empty
+STTM Mandatory/PK columns are FRD-consistent provenance, not an unknown.
+
+**Lessons (also in CLAUDE.md):** assumptions and conflicts must cite the
+exact source cells they rest on — a conflict that cannot quote its
+evidence is a bug; and "stage-only" was inferred from a schema block
+instead of read from Load Strategy — target-layer scope comes from Load
+Strategy STG/STD, never from which schemas the Target Schema block
+happens to name.
+
+Out of scope (stated, not hidden): the generated reader/segments module
+still splits records via `config.segments` — adapting the runtime filter
+to the derived positional/marker identification is Option-A-only future
+work, pending the source team's confirmation of the CONFIRM item.
 
 Design input derived from a **local-only inspection of the real CAQH STTM
 workbook** (project 1005034) performed 2026-08-07 under the program's
 data rules — only the structural characterization below (sheet/header/
 table identifiers, no data-row values) is recorded here. The flat-dialect
 extractor (docs/EXTRACTOR_RECON.md) is unaffected and byte-identical.
-
-**Discovered on implementation (2026-08-31):** the real workbook's
-`Mandatory Column` / `Primary Key` / `PII` cells carry NO signal at all
-(all empty), so the "Mandatory + Primary Key driven" nullability rule
-sketched below has nothing to drive it — a third unknown, handled the
-same way: the natural key comes only from the FAQ's
-`natural_key_columns` declaration (engineer decision, surfaced as an
-ASSUMED review item), and the run refuses without it. Also out of scope
-until the discriminators are confirmed: the generated reader does not
-yet FILTER rows by the assumed discriminator values — the assumption is
-surfaced, not silently executed; wiring the filter in is the natural
-next step once `status: confirmed`.
 
 ## Why v1 rejected this family
 
@@ -109,8 +127,8 @@ advisory crosswalk sheet; **no** FILE_DETAILS or VERSION_HISTORY sheets.
   reused as-is; needs its own rule (likely `Mandatory Column` +
   `Primary Key` driven).
 
-## Open source-team asks (verbatim from the original blockers — now
-## declared assumptions pending their answer, no longer hard blockers)
+## Original blockers (historical — RETRACTED 2026-09-01, see the status
+## block above: the documents answer both; one soft CONFIRM item remains)
 
 1. **H/D/T discriminator requires the client source dictionary.** The
    workbook confirms segment MEMBERSHIP per field but cannot confirm the

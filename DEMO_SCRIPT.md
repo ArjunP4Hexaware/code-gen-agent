@@ -5,9 +5,10 @@
 Corrected build (`staging`, 0.3.1): the CAQH pair extracts with **both
 layers derived from the documents, every derivation cited**. Run order:
 
-1. **CV golden first (regression proof, ~1 min).** Mock generate on the
-   default pair — same artefacts, same PASS_WITH_FLAGS, byte-identical to
-   before the segmented work (snapshot-guarded). One line: "everything
+1. **CV golden first (regression proof, ~1 min).** Load the replay set
+   (`live_e2e_20260807`, ~1s, zero cost) — 3 feeds PASS_WITH_FLAGS,
+   byte-identical artefacts to before the segmented work (snapshot-
+   guarded). One line: "everything
    that worked before still works, to the byte."
 2. **CAQH as the centerpiece (~4 min) — two documents, one pipeline.**
    Choose the CAQH STTM (+ its companion FRD). Extraction shows BOTH
@@ -36,6 +37,14 @@ layers derived from the documents, every derivation cited**. Run order:
    derivation quoting the cell it came from, and the one thing worth a
    human's eyes raised as a cited confirm card.*
 3. **MIDS in reserve** — the zero-candidate complete run, if time allows.
+
+**Rehearsed 2026-09-01 (timings):** replay load ~1 s; CAQH live run
+(local, FMAPI) **30 s** end-to-end — extract → resolve → 2 live calls →
+emit → gate → published; review tab shows 1 CONFIRM + 2 Layer-2, all
+pending; past run reloadable instantly as the fallback. App (0.3.1)
+smoke-tested: chooser lists the golden + synthetic workbooks, CAQH
+Fetched ✓ from the volume with its companion FRD, choosers left at the
+clean base state.
 
 **⚠ App venue caution:** Databricks App runs use the **mock provider**
 (the app SP lacks the FMAPI grant) — fine for this script. **The 0.3.1

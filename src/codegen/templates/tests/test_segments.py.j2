@@ -1,4 +1,49 @@
 {% from "_macros.py.j2" import banner %}
+{% if segment_identification %}
+"""Header/Detail/Trailer splitting by derived identification (marker + position)."""
+{{ banner(provenance, feed) }}
+
+from conftest import DELIMITER, detail_rows, write_source_file
+from pipeline import feed_spec, reader, segments
+
+
+def test_split_segments_positional_and_marker(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(3))
+    raw = reader.read_source(spark, str(path))
+    by_segment, unknown = segments.split_segments(raw)
+    assert set(by_segment) == set(feed_spec.SEGMENTS)
+    assert by_segment["Header"].count() == 1
+    assert by_segment[feed_spec.DETAIL_SEGMENT].count() == 3
+    assert by_segment["Trailer"].count() == 1
+    # Every record classifies under derived identification.
+    assert unknown.count() == 0
+
+
+def test_marker_rows_are_trailers_wherever_they_appear(spark, tmp_path):
+    marker_line = DELIMITER.join([segments.TRAILER_MARKER, "extra", "row"])
+    path = write_source_file(tmp_path, detail_rows(1), extra_lines=[marker_line])
+    raw = reader.read_source(spark, str(path))
+    by_segment, _unknown = segments.split_segments(raw)
+    assert by_segment["Trailer"].count() == 2
+
+
+def test_unmarked_extra_rows_classify_as_detail(spark, tmp_path):
+    extra_line = DELIMITER.join(["Z", "bogus", "row"])
+    path = write_source_file(tmp_path, detail_rows(1), extra_lines=[extra_line])
+    raw = reader.read_source(spark, str(path))
+    by_segment, unknown = segments.split_segments(raw)
+    assert by_segment[feed_spec.DETAIL_SEGMENT].count() == 2
+    assert unknown.count() == 0
+
+
+def test_segment_columns_are_source_names(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(1))
+    raw = reader.read_source(spark, str(path))
+    by_segment, _unknown = segments.split_segments(raw)
+    detail = by_segment[feed_spec.DETAIL_SEGMENT]
+    expected = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"]
+    assert detail.columns == [*expected, "_field_count"]
+{% else %}
 """Header/Detail/Trailer splitting by record-type discriminator."""
 {{ banner(provenance, feed) }}
 
@@ -32,3 +77,4 @@ def test_segment_columns_are_source_names(spark, tmp_path):
     detail = by_segment[feed_spec.DETAIL_SEGMENT]
     expected = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"]
     assert detail.columns == [*expected, "_field_count"]
+{% endif %}

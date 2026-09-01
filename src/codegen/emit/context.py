@@ -290,7 +290,10 @@ def _segment_context(
     segment: SegmentSpec, spec: ResolvedFeedSpec, config: Config
 ) -> dict[str, Any]:
     record_type_value = None
-    if spec.is_segmented:
+    if spec.is_segmented and spec.segmented_extraction is None:
+        # Legacy segmented contracts: split by configured record-type values.
+        # Segmented-extraction feeds derive identification from the STTM and
+        # need no configured discriminators.
         record_type_value = config.segments.record_type_values.get(segment.segment)
         if record_type_value is None:
             raise TemplateGapError(
@@ -314,11 +317,25 @@ def _segment_context(
         "source_columns": [f.source_column for f in segment.fields],
         "stage_columns": [f.stage_column for f in segment.fields],
         "not_null_stage_columns": not_null_stage,
-        "column_samples": [
-            (f.source_column, f.sample_value if f.sample_value is not None else "x")
-            for f in segment.fields
-        ],
+        "column_samples": _column_samples(segment, spec),
     }
+
+
+def _column_samples(segment: SegmentSpec,
+                    spec: ResolvedFeedSpec) -> list[tuple[str, str]]:
+    samples = [
+        (f.source_column, f.sample_value if f.sample_value is not None else "x")
+        for f in segment.fields
+    ]
+    # Derived record identification: the trailer's first field carries the
+    # STTM-stated static marker, so generated test fixtures classify the way
+    # real files do. Other samples are untouched (flat feeds unaffected).
+    if (spec.segmented_extraction is not None
+            and segment.segment == "Trailer" and samples):
+        column, _ = samples[0]
+        samples[0] = (column,
+                      spec.segmented_extraction.identification.trailer_marker)
+    return samples
 
 
 def build_context(
@@ -504,6 +521,17 @@ def build_context(
         "default_catalog": next((s.stage_table.catalog for s in spec.segments), None),
         "stage_schema": spec.segments[0].stage_table.schema_name,
         "is_segmented": spec.is_segmented,
+        # Derived record identification (segmented extraction); None on flat
+        # feeds and on legacy config-discriminator contracts.
+        "segment_identification": (
+            {
+                "method": spec.segmented_extraction.identification.method,
+                "trailer_marker": spec.segmented_extraction.identification.trailer_marker,
+                "citation": spec.segmented_extraction.identification.citation,
+            }
+            if spec.segmented_extraction is not None and spec.is_segmented
+            else None
+        ),
         "record_type_column": config.segments.record_type_column if spec.is_segmented else None,
         "segments": segments,
         "detail": detail,

@@ -54,10 +54,14 @@ tests/              offline, no Spark needed; some SKIP when the fixtures they
                     trusting a number written down here.
 config/config.yaml  every knob — contract pairs (EMPTY since 2026-08-22), extractor layout,
                     naming, masking, gate, job
-fixtures/           GONE since 2026-08-22 — contracts/ (2 real-FRD contracts + MIDS STTM +
-                    SYNTHETIC CAQH STTM + CV/golden FRD + expected extract), workbooks/
-                    (anonymized golden STTM) and replay/ (live E2E set) were deleted and
-                    git rm'd; .gitignore now blocks all three paths
+fixtures/           partially tracked again (see "Fixtures & data rules" for the
+                    2026-08-22 removal + what came back): tracked today are faq/
+                    (per-feed load-pattern FAQs incl. the CAQH one), reference/
+                    (SCRUBBED SFMC client reference artefacts + SCRUB_REPORT) and
+                    workbooks/synthetic_segmented_golden.xlsx — all via deliberate
+                    .gitignore re-includes. contracts/, the CV golden workbook and
+                    replay/ remain untracked on staging (local working-tree-only
+                    restores); on MAIN they are tracked since b0560af
 docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
                     LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script),
                     EDO_STANDARDS_ALIGNMENT.md (clause-by-clause map of the EDO
@@ -146,7 +150,15 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
   `claude-opus-5`). The Claude 4.8/5 API families reject sampling
   parameters (`temperature`/`top_p`/`top_k` return a 400), so no
   temperature knob exists and live Layer-2 output is inherently
-  non-deterministic — do not re-add one.
+  non-deterministic — do not re-add one. CAUTION (2026-09-01): the
+  endpoint serves extended-thinking Claude, whose `message.content` comes
+  back as a LIST of typed blocks (reasoning + text), not a string —
+  `codegen.databricks.chat` normalizes via `_chat_content_text` (text
+  blocks joined, non-text ignored). Do not "simplify" that back to
+  `content or ""`; that exact regression produced the provider-failure
+  candidates in run demo_20260831_212539 (fixed in e91ec11; post-demo
+  TODO in docs/DESIGN.md §8: provider failures should be their own flag
+  class, not candidate cards).
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
 - **Client framework doctrine (Aug 26 framework calls, encoded 2026-08-27):**
@@ -293,17 +305,28 @@ write-shaped (tables, jobs) stays NOT BUILT pending explicit go; the
 check flips if any other write-shaped function appears (an FMAPI query
 is a read).
 
-**Databricks App deployment (2026-08-28):** the demo UI runs as the
-workspace app `codegen-agent`
-(https://codegen-agent-7405617821962942.2.azure.databricksapps.com),
-source synced to `/Workspace/Users/2000198474@hexaware.com/
-codegen-agent-app` via `databricks sync --full` with `--include` for the
-gitignored `ui/frontend/dist`, `fixtures/` (anonymized CV golden only)
-and `inputs/standards/`; `requirements.txt` (`.[ui,databricks]`) is the
-Apps pip install; `app.yaml` carries no secret — Layer 2 rides FMAPI on
-the app's service principal, which holds CAN_QUERY on the serving
-endpoint via the app's `llm-endpoint` resource. Redeploy = re-sync + 
-`databricks apps deploy codegen-agent --source-code-path <that path>`.
+**Databricks App deployment (2026-08-28; mock-locked since 0.3.2,
+currently 0.3.3):** the demo UI runs as the workspace app `codegen-agent`
+(https://codegen-agent-7405617821962942.2.azure.databricksapps.com).
+Deploy from a STAGED TREE (repo files + the gitignored
+`ui/frontend/dist` and fixtures — never `inputs/`): `databricks sync
+--full <staged tree> /Workspace/Users/2000198474@hexaware.com/
+codegen-agent-app` then `databricks apps deploy codegen-agent
+--source-code-path <that path>`. `requirements.txt` (`.[ui,databricks]`)
+is the Apps pip install; the runtime CACHES the installed env keyed on
+it, so bump the pyproject version AND the `codegen-version-marker`
+comment in requirements.txt whenever `src/` changes or the App serves
+stale code. **The App is HARD-LOCKED to the mock provider**: `app.yaml`
+sets `CODEGEN_FORCE_MOCK_PROVIDER=1`, `build_provider` returns
+MockProvider before any transport resolution, and
+`/api/demo/live-available` reports `{"available": true, "provider":
+"mock (locked)"}` — App runs stay usable with zero model calls; live
+FMAPI runs belong on localhost. (The SP's CAN_QUERY on the pay-per-token
+serving endpoint proved UNVERIFIABLE by CLI — no per-endpoint permission
+object — which is why the lock exists; an earlier claim here that the
+grant was verified was wrong.) App container restarts wipe
+`inputs/databricks/` fetches, runner state and the output-mode selection
+(back to `notebook`) — re-fetch and re-select after a restart.
 
 ## Demo panels + reference-document checks (added 2026-08-27, display/check only)
 
@@ -357,12 +380,34 @@ re-enables the full test suite unchanged. The anonymized CV/golden set
 replay set) survives at `044752e^` and may be restored **working-tree-only**
 with `git show "044752e^:<path>" > <path>` — never `git checkout`, which
 would stage and re-track the paths (done locally 2026-08-25; the MIDS/CAQH
-client-derived contracts must NOT be restored).
+client-derived contracts must NOT be restored **on staging**).
+
+**The 2026-08-22 removal was partially reversed — differently per branch.**
+On **staging**, three fixture families are tracked again by deliberate
+`.gitignore` re-includes: `fixtures/faq/` (per-feed load-pattern FAQs),
+`fixtures/reference/` (the SCRUBBED SFMC client reference artefacts +
+`SCRUB_REPORT.md`; raw exports live only in gitignored
+`inputs/reference_raw/`, `scripts/scrub_check.py` is the denylist
+scanner) and `fixtures/workbooks/synthetic_segmented_golden.xlsx`; the
+client documents themselves stay untracked (root-anchored `.gitignore`
+guards block stray `*FRD*`/`*STTM*`/`*CAQH*`/`*MIDS*`/`*SFMC*`/`*RFC*`
+files at the repo root). On **main**, commit `b0560af` (2026-08-28,
+"Track FRD/STTM documents and contracts in the repo") reverses the
+removal outright on a program go-ahead (reported by Soham, 2026-08-28,
+reconfirmed in-session 2026-08-31 — the commit message is the only
+in-repo record): main tracks the MIDS/CAQH client FRD/STTM documents,
+the CV-golden demo fixtures, the sfmc contracts and the
+`live_e2e_20260807` replay set. The branches therefore DISAGREE about
+client documents; reconcile this section (and the staging `.gitignore`
+guards) deliberately at the next staging→main merge, don't let the merge
+decide.
 
 Offline fixtures only — tests and dry-run generation must pass with zero
-credentials and zero network. No real client data, ever; any new fixture
-material must be anonymized first AND tracked by a deliberate decision (the
-`.gitignore` re-include for workbooks was removed for that reason).
+credentials and zero network. No real client data, ever (on staging); any
+new fixture material must be anonymized/scrubbed first AND tracked by a
+deliberate decision — every current re-include (faq/, reference/, the
+synthetic segmented golden) was added that way, one path at a time, never
+a directory blanket.
 Generated output is byte-stable by design — no timestamps or randomness in
 generated files; keep it that way (extract-sttm: inject `--generated-date`).
 
@@ -386,11 +431,20 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
   FRD's DQ requirement; the historical synthetic CAQH STTM contract is
   obsolete and the 2026-08-31 "two open source-team questions" are
   RETRACTED (the documents answer both — docs/SEGMENTED_MODE_DESIGN.md
-  quotes them). One soft CONFIRM item remains (positional identification
-  per the STTM's stated trailer marker). The MIDS STTM contract still
-  predates the extractor. The generated reader/segments module still
-  splits via `config.segments`; adapting it to the derived positional/
-  marker identification is Option-A-only future work.
+  quotes them). TWO soft CONFIRM items remain, both cited: positional
+  identification (STTM trailer marker) and per-segment audit-column
+  scope (HDR/TRL follow the STTM's fewer audit rows, not the FRD's
+  feed-wide wording). The generated segments module renders the DERIVED
+  identification (trailer-marker + positional header) when
+  `segmented_extraction` is present; `config.segments` discriminators
+  are the legacy branch. The CAQH FAQ
+  (`fixtures/faq/caqh_tpl_inbound_files.faq.yaml`) carries seven
+  FRD-cited answers as of 2026-09-01 (load_frequency, has_header/
+  has_trailer, dedup_within_file, existing_record_policy,
+  data_integrity_checks, reject_threshold); is_master_file and
+  target_tables_exist stay honestly unanswered → CAQH verdicts
+  PASS_WITH_FLAGS with 10 flags. The MIDS STTM contract still predates
+  the extractor.
 - `FrdContract._provenance.ambiguities` accepts plain strings (older
   contracts) AND the structured `GatedAmbiguity` objects current
   frd-to-sttm output emits; absent context keys there are not drift.

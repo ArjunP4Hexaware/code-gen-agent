@@ -46,6 +46,36 @@ smoke-tested: chooser lists the golden + synthetic workbooks, CAQH
 Fetched ✓ from the volume with its companion FRD, choosers left at the
 clean base state.
 
+## ✅ 1:30 PM pre-flight checklist (exact clicks; ~6 minutes)
+
+1. **Local server** — terminal: `curl -s localhost:8571/api/demo/live-available`
+   → expect `{"available":true,"provider":"databricks_fmapi"}`. If down:
+   kill :8571 and `./run_demo.sh`.
+2. **App** — open
+   https://codegen-agent-7405617821962942.2.azure.databricksapps.com/modes
+   → the Generate card badge must read **"MOCK — provider locked"**; visit
+   `/api/demo/live-available` → `{"available":true,"provider":"mock (locked)"}`.
+3. **App replay** — Run modes → **Load** on `live_e2e_20260807` → dashboard
+   shows 3 CV feeds PASS WITH FLAGS (~3 s).
+4. **App CAQH ready** — Run modes → **Choose STTM…** → the volumes list
+   must show `STTM_STG_STD_PaymentIntegrity…05034` **Fetched ✓** (if the
+   App restarted overnight, click **Fetch** once, ~5 s, companion FRD comes
+   with it) → **Cancel** (leave *none chosen* until the demo moment).
+5. **Decisions clean** — open feed `caqh_tpl_inbound_files` → Layer-2
+   review → all four items say *pending / soft confirmation*. If a past
+   click left a decision: Dashboard → **Reset decisions**.
+6. **Local fallback armed** — localhost Run modes → **Past live runs**
+   shows `demo_20260831_212539` (the recorded real-FMAPI CAQH run) — one
+   click reloads it if anything misbehaves live.
+7. Refresh both browser tabs right before 3 PM (no stale bundles).
+
+At the demo moment (App): Choose STTM → CAQH row (already Fetched ✓) →
+companion FRD chip → **Done** → **Generate from this STTM…** → the dialog
+says **zero model calls** → Confirm. Run completes in ~8 s; walk the
+Layer-2 review tab (2 CONFIRM cards with quoted citations + 2 candidates),
+then the Report tab's Segmented-extraction section, then Generated code →
+the two `_table_creation.txt` files (4 stage + 3 standard tables).
+
 **⚠ App venue: HARD-LOCKED TO MOCK (0.3.2).** `app.yaml` sets
 `CODEGEN_FORCE_MOCK_PROVIDER=1`: `build_provider` returns the mock before
 any transport resolution and `/api/demo/live-available` reports

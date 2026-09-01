@@ -344,6 +344,35 @@ def get_job(cfg: DatabricksConfig, job_id: int, client=None) -> dict:
     }
 
 
+def _chat_content_text(content) -> str:
+    """Normalize an FMAPI chat message ``content`` to plain text.
+
+    Endpoints serving Claude models with extended thinking return content
+    as a LIST of typed blocks (e.g. a ``reasoning`` block with a summary +
+    signature, then a ``text`` block) instead of a plain string. Text
+    blocks are joined; every non-text block is ignored.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+                continue
+            get = block.get if isinstance(block, dict) else (
+                lambda key, _b=block: getattr(_b, key, None)
+            )
+            if get("type") == "text":
+                parts.append(get("text") or "")
+        return "".join(parts)
+    raise DatabricksTransportError(
+        f"unexpected chat content shape: {type(content).__name__}"
+    )
+
+
 def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = None,
          max_tokens: int = 1024, client=None) -> str:
     """One chat completion via a Foundation Model API serving endpoint.
@@ -365,8 +394,8 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
         response = client.serving_endpoints.query(
             name=name, messages=sdk_messages, max_tokens=max_tokens
         )
-        return response.choices[0].message.content or ""
-    except DatabricksConfigError:
+        return _chat_content_text(response.choices[0].message.content)
+    except (DatabricksConfigError, DatabricksTransportError):
         raise
     except Exception as exc:  # noqa: BLE001
         raise DatabricksTransportError(

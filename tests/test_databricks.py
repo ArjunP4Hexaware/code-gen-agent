@@ -247,6 +247,45 @@ def test_chat_uses_endpoint_and_returns_content():
                         "max_tokens": 50}
 
 
+# Recorded 2026-08-31 from the live serving endpoint (probe call, synthetic
+# prompt/reply, signature truncated): extended-thinking Claude models return
+# content as a LIST of typed blocks, not a string — the shape behind the
+# demo_20260831_212539 run's "'list' object has no attribute 'strip'"
+# provider failures.
+_RECORDED_BLOCK_CONTENT = [
+    {
+        "type": "reasoning",
+        "summary": [{"type": "summary_text", "text": "", "signature": "CAISoQIK"}],
+    },
+    {"type": "text", "text": "pong"},
+]
+
+
+def test_chat_joins_list_of_content_blocks():
+    cfg = db.config_for(_settings(serving_endpoint="databricks-claude-opus-4-8"),
+                        env={})
+
+    def query(name, messages, max_tokens):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=_RECORDED_BLOCK_CONTENT))])
+
+    client = SimpleNamespace(serving_endpoints=SimpleNamespace(query=query))
+    text = db.chat(cfg, [{"role": "user", "content": "hi"}], client=client)
+    assert text == "pong"  # reasoning block ignored, text block kept
+
+
+def test_chat_content_text_handles_every_shape():
+    assert db._chat_content_text(None) == ""
+    assert db._chat_content_text("plain") == "plain"
+    assert db._chat_content_text(_RECORDED_BLOCK_CONTENT) == "pong"
+    # multiple text blocks join; stray plain strings in the list survive
+    assert db._chat_content_text(
+        [{"type": "text", "text": "a"}, "b", {"type": "tool_use"}]
+    ) == "ab"
+    with pytest.raises(db.DatabricksTransportError):
+        db._chat_content_text(42)
+
+
 def test_write_surface_is_exactly_the_sanctioned_set():
     # The governance "never writes back" control introspects for these; the
     # suite enforces the same invariant directly. The sanctioned write

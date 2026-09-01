@@ -9,7 +9,9 @@ import { ModesPage } from "./pages/ModesPage";
 
 const MODE_COPY = {
   mock: "MOCK — deterministic stand-in provider, zero network",
-  live: "LIVE — real Anthropic reasoning produced these candidates",
+  // Candidate cards name their actual provider (a mock-locked deployment
+  // labels its Layer-2 cards "provider: mock").
+  live: "LIVE — generated now; each candidate card names its provider",
   replay: "REPLAY — recorded live run",
 } as const;
 

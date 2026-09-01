@@ -346,18 +346,14 @@ function CandidateCard({
   };
   const r = candidate.response;
   const kind = candidate.kind ?? "layer2";
-  const isAssumption = kind === "extraction_assumption";
-  const isConflict = kind === "escalated_conflict";
-  const isReviewItem = isAssumption || isConflict;
+  const isReviewItem = kind === "confirm";
   return (
     <div className="panel candidate">
       <div className="panel-body">
         {isReviewItem ? (
           <div className="meta-row" style={{ marginBottom: 6 }}>
-            <span className={`pill ${isConflict ? "req-missing" : "req-partial"}`}>
-              {isAssumption
-                ? "EXTRACTION ASSUMPTION — declared, not inferred"
-                : "ESCALATED CONFLICT — held for source-team ruling"}
+            <span className="pill req-partial">
+              CONFIRM — document-derived, cited
             </span>
           </div>
         ) : null}
@@ -370,6 +366,11 @@ function CandidateCard({
               <span className="pill">source: {candidate.provider}</span>
             </div>
             {candidate.detail ? <div className="rationale">{candidate.detail}</div> : null}
+            {candidate.citation ? (
+              <div style={{ marginTop: 10 }}>
+                <div className="citation">“{candidate.citation}”</div>
+              </div>
+            ) : null}
           </>
         ) : (
           <>
@@ -407,7 +408,7 @@ function CandidateCard({
             disabled={busy}
             onClick={() => decide("approved")}
           >
-            {isConflict ? "✓ Acknowledge" : "✓ Approve"}
+            {isReviewItem ? "✓ Confirm" : "✓ Approve"}
           </button>
           <button
             className={`btn reject${candidate.review.decision === "rejected" ? " selected" : ""}`}
@@ -418,11 +419,9 @@ function CandidateCard({
           </button>
           <span className="status">
             {candidate.review.decision === "pending"
-              ? isAssumption
-                ? "Awaiting engineer approval of the declared assumption"
-                : isConflict
-                  ? "Held — awaiting acknowledgement; the source team rules on the conflict"
-                  : "Awaiting engineer decision"
+              ? isReviewItem
+                ? "Soft confirmation — the run proceeds; a source-team answer closes it"
+                : "Awaiting engineer decision"
               : isReviewItem
                 ? `Marked ${candidate.review.decision} — recorded in the decision store`
                 : `Marked ${candidate.review.decision} — merge into generated code remains a manual (v2) step`}

@@ -309,10 +309,12 @@ export interface Candidate {
   grounded: boolean;
   failure_notes: string[];
   review: { decision: Decision; note: string | null };
-  // "layer2" (default) | "extraction_assumption" | "escalated_conflict" —
-  // segmented-extraction review items ride the same artifact and decisions.
+  // "layer2" (default) | "confirm" — segmented-extraction review items ride
+  // the same artifact and decisions.
   kind?: string;
   detail?: string | null;
+  // The verbatim FRD field / STTM cell a confirm item rests on.
+  citation?: string | null;
 }
 
 export interface FeedDetail extends FeedSummary {

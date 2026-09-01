@@ -33,6 +33,10 @@ class TableRef(BaseModel):
 
     schema_name: str = Field(alias="schema")
     table: str
+    # Optional catalog (segmented dialect: the STTM's standard target group
+    # states PR_STD.MBR; the FRD Structural Metadata names stage targets
+    # only). None on flat contracts — serialization is unchanged.
+    catalog: str | None = None
 
 
 class RecycleSpec(BaseModel):
@@ -57,20 +61,20 @@ class LoadRules(BaseModel):
     recycle: RecycleSpec | None
 
 
-# ---- segmented-extraction block (v2 dialect, 2026-08-31) --------------------
-# A segmented (Header/Detail/Trailer) workbook extracts to the SAME flat feed
-# shape (Detail rows are the payload), plus this block: what else the workbook
-# declared, and the explicit, human-declared assumptions the run proceeds
-# under. Nothing here is inferred — the two governance boundaries
-# (discriminator values, FRD-vs-workbook layer conflict) surface for review
-# instead of being guessed (docs/SEGMENTED_MODE_DESIGN.md blockers 1 and 2).
+# ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------
+# A segmented (Header/Detail/Trailer) workbook extracts to the SAME segmented
+# dialect the resolver already consumes (record_segment + stage_table per
+# field; segments are TABLES — FRD 1005034 acceptance criterion 2: "Header,
+# Detail, Trailer data should be mapped to respective HDR, DTL and TRL
+# tables"), plus this block: record identification DERIVED from the STTM (not
+# assumed), and provenance notes that each cite the exact FRD field or STTM
+# cell they rest on. A note without a citation is a bug.
 
 
 class RecordTypeDiscriminators(BaseModel):
-    """The H/D/T record-type values — DECLARED, never inferred: the workbook
-    confirms segment membership per field but states the literal values
-    nowhere. ``assumed_pending_source_team`` gates a review item; ``confirmed``
-    drops the gate but keeps the provenance line."""
+    """FAQ OVERRIDE ONLY (status must be ``confirmed``): record identification
+    is derived from the STTM by default; this exists for a source team that
+    later states literal record-type values."""
 
     model_config = _MODEL_CONFIG
 
@@ -80,33 +84,30 @@ class RecordTypeDiscriminators(BaseModel):
     status: Literal["assumed_pending_source_team", "confirmed"]
 
 
-class EnvelopeEntry(BaseModel):
-    """One Header/Trailer row — file envelope, not a target column: it appears
-    in the generation report (record counts, file dates, sequence checks) and
-    never in table DDL."""
+class RecordIdentification(BaseModel):
+    """How H/D/T records are told apart — DERIVED from the documents:
+    trailer = record whose first field equals the STTM-stated static marker;
+    header = first record of the file; detail = all others. The citation is
+    the verbatim STTM cell the derivation rests on."""
 
     model_config = _MODEL_CONFIG
 
-    segment: Literal["Header", "Trailer"]
-    field_name: str
-    datatype: str | None
-    stage_table: str | None
-    description: str | None
-    rule: str | None
+    method: Literal["derived_from_sttm", "declared_override"]
+    trailer_marker: str
+    header_rule: str
+    detail_rule: str
+    citation: str = Field(min_length=1)
 
 
-class HeldStandardTable(BaseModel):
-    """Workbook-declared Standard-layer content held back under the precedence
-    rule (the FRD contract governs target layers): preserved as evidence,
-    never emitted."""
+class ProvenanceNote(BaseModel):
+    """One extraction-time fact with the exact document evidence it rests on.
+    ``citation`` is verbatim from the FRD contract or the STTM cell — a note
+    that cannot cite its evidence must not be created."""
 
     model_config = _MODEL_CONFIG
 
-    catalog: str | None
-    schema_name: str | None = Field(default=None, alias="schema")
-    table: str
-    column_count: int
-    reason: str
+    note: str = Field(min_length=1)
+    citation: str = Field(min_length=1)
 
 
 class SegmentedExtraction(BaseModel):
@@ -114,14 +115,8 @@ class SegmentedExtraction(BaseModel):
 
     segments_found: list[str]
     row_counts: dict[str, int]
-    envelope: list[EnvelopeEntry]
-    discriminators: RecordTypeDiscriminators
-    # FAQ-declared natural-key source columns, used only when the workbook's
-    # Mandatory/Primary Key columns carry no signal (observed on the real
-    # workbook) — declared by an engineer, never invented.
-    natural_key_declared: list[str] = Field(default_factory=list)
-    held_standard: list[HeldStandardTable] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
+    identification: RecordIdentification
+    provenance_notes: list[ProvenanceNote] = Field(default_factory=list)
 
 
 class AuditColumn(BaseModel):
@@ -151,6 +146,9 @@ class SttmField(BaseModel):
     # Segmented-dialect extension (CAQH) — see docs/DESIGN.md §1.
     record_segment: RecordSegment | None = None
     stage_table: str | None = None
+    # Segmented dialect: per-segment STANDARD table (the STTM's second target
+    # column group). None on flat feeds and on stage-only segmented feeds.
+    standard_table: str | None = None
 
 
 class SttmFeed(BaseModel):

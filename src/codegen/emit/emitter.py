@@ -101,14 +101,15 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
                 {"qualified_prefix": qualified_prefix},
             )
         )
-    if context["standard"]:
-        standard = context["standard"]
+    # One standard DDL per standard table: flat feeds carry exactly one; a
+    # segmented feed maps each segment to its own table in BOTH layers.
+    for standard in context["standard_tables"]:
         standard_prefix = f"{standard['catalog']}." if standard["catalog"] else ""
         renders.append(
             (
                 "ddl/standard_table.sql.j2",
                 ddl_dir / f"{standard['schema']}.{standard['table']}.standard.sql",
-                {"standard_qualified_prefix": standard_prefix},
+                {"standard": standard, "standard_qualified_prefix": standard_prefix},
             )
         )
 

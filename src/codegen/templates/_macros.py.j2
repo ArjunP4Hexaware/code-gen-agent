@@ -22,7 +22,8 @@
 # Write behavior in this version: {{ provenance.inputs.writer_behavior }} (load-mode branching: v2)
 {%- if provenance.segmented %}
 
-# Segmented extraction: discriminators Header={{ provenance.segmented.header }} Detail={{ provenance.segmented.detail }} Trailer={{ provenance.segmented.trailer }} [{{ provenance.segmented.status_label }}]
+# Segmented extraction ({{ provenance.segmented.method }}):
+#   trailer marker {{ provenance.segmented.trailer_marker }}; header = {{ provenance.segmented.header_rule }}; detail = the rest
 {%- endif %}
 {%- endmacro %}
 

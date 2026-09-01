@@ -9,6 +9,7 @@ were never passed to it.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -198,6 +199,14 @@ class SegmentedExtractorConfig(BaseModel):
     segment_names: dict[str, str] = Field(default_factory=lambda: {
         "header": "Header", "detail": "Detail", "trailer": "Trailer",
     })
+    # Member-existence recycle (FRD 1005034 Data Quality Functional
+    # Requirement: "Perform Member Id validation for existence against the
+    # Facets_Member table in the Stage layer. If Member doesn't exist, then
+    # move the record to RECYCLE table."). The field name is matched against
+    # the STTM's source Field Name; the reference table name is transcribed
+    # from that FRD requirement — never invented by the agent.
+    member_field: str = "Member ID"
+    member_reference_table: str = "facets_member"
 
 
 class ExtractorConfig(BaseModel):
@@ -571,7 +580,14 @@ _TOP_LEVEL_KEYS = set(Config.model_fields)
 
 
 def load_config(path: str | Path) -> Config:
-    """Load the YAML config, failing loudly on unknown top-level sections."""
+    """Load the YAML config, failing loudly on unknown top-level sections.
+
+    ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
+    ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
+    exists so a CLIENT prod-support DL (a client value) can drive a local
+    client-document run via the gitignored ``.env`` while the tracked YAML
+    keeps its synthetic stand-in.
+    """
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
@@ -581,4 +597,9 @@ def load_config(path: str | Path) -> Config:
             f"unknown top-level config section(s) {sorted(unknown)}; "
             f"expected only {sorted(_TOP_LEVEL_KEYS)}"
         )
+    emails_env = os.environ.get("CODEGEN_NOTIFICATION_EMAILS", "").strip()
+    if emails_env:
+        emails = [e.strip() for e in re.split(r"[,;]", emails_env) if e.strip()]
+        if emails:
+            raw.setdefault("job", {})["notification_emails"] = emails
     return Config.model_validate(raw)

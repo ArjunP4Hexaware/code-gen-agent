@@ -92,17 +92,16 @@ def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
         lines += ["None — every rule compiled deterministically.", ""]
         return lines
     for index, candidate in enumerate(candidates, start=1):
-        if candidate.kind in ("extraction_assumption", "escalated_conflict"):
-            label = ("EXTRACTION ASSUMPTION — requires engineer approval"
-                     if candidate.kind == "extraction_assumption"
-                     else "ESCALATED CONFLICT — held for source-team ruling")
+        if candidate.kind == "confirm":
             lines += [
-                f"### Review item {index} ({label})",
+                f"### Review item {index} (CONFIRM — document-derived, cited)",
                 "",
                 f"- {candidate.rule_text}",
             ]
             if candidate.detail:
                 lines.append(f"- {candidate.detail}")
+            if candidate.citation:
+                lines.append(f"- Evidence: > {candidate.citation}")
             lines.append("")
             continue
         grounded = "grounded" if candidate.grounded else "**NOT GROUNDED**"
@@ -130,59 +129,47 @@ def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
 
 
 def _segmented_section(spec: ResolvedFeedSpec) -> list[str]:
-    """Segmented-extraction facts: what the workbook declared, what is
-    ASSUMED (declared, pending confirmation), and what was HELD BACK. Empty
-    for flat feeds so their reports stay byte-identical."""
+    """Segmented-extraction facts: segments as tables in both layers, the
+    document-derived record identification (with its STTM citation), and the
+    cited provenance notes. Empty for flat feeds so their reports stay
+    byte-identical."""
     seg = spec.segmented_extraction
     if seg is None:
         return []
-    d = seg.discriminators
-    assumed = "ASSUMED (pending source team)" if d.status != "confirmed" else "confirmed"
+    ident = seg.identification
     lines = [
         "## Segmented extraction",
         "",
         f"- Segments found: {', '.join(seg.segments_found)} — row counts: "
         + ", ".join(f"{k}={v}" for k, v in seg.row_counts.items()),
-        f"- Record-type discriminators [{assumed}]: Header={d.header!r}, "
-        f"Detail={d.detail!r}, Trailer={d.trailer!r} — declared in the feed's "
-        "FAQ; the workbook states them nowhere.",
+        "",
+        "### Segment tables (both layers)",
+        "",
+        "| Segment | Stage table | Standard table | Columns |",
+        "|---|---|---|---|",
     ]
-    if seg.natural_key_declared:
+    for segment in spec.segments:
+        standard = (segment.standard_table.qualified_name
+                    if segment.standard_table is not None else "—")
         lines.append(
-            "- Natural key [ASSUMED — FAQ declaration]: "
-            + ", ".join(seg.natural_key_declared)
-            + " (the workbook's Mandatory/Primary Key columns carry no signal)."
+            f"| {segment.segment} | {segment.stage_table.qualified_name} "
+            f"| {standard} | {len(segment.fields)} |"
         )
-    for note in seg.notes:
-        lines.append(f"- Note: {note}")
     lines += [
         "",
-        "### File envelope (Header/Trailer rows — report-only, never table DDL)",
+        f"### Record identification ({ident.method})",
         "",
-        "| Segment | Field | Datatype | Declared rule | Description |",
-        "|---|---|---|---|---|",
+        f"- Trailer: record whose first field equals {ident.trailer_marker!r}",
+        f"- Header: {ident.header_rule}",
+        f"- Detail: {ident.detail_rule}",
+        f"- Evidence: > {ident.citation}",
+        "",
     ]
-    for entry in seg.envelope:
-        lines.append(
-            f"| {entry.segment} | {_cell(entry.field_name)} | {_cell(entry.datatype)} "
-            f"| {_cell(entry.rule)} | {_cell(entry.description)} |"
-        )
-    lines.append("")
-    if seg.held_standard:
-        lines += [
-            "### Held back — workbook Standard layer (escalated conflict)",
-            "",
-            "The workbook defines a Standard layer; the FRD contract scopes this "
-            "feed stage-only. The FRD governs target layers, so nothing below "
-            "was emitted — and nothing was deleted. Held for source-team ruling:",
-            "",
-            "| Standard table | Columns mapped | Catalog.Schema |",
-            "|---|---|---|",
-        ]
-        for held in seg.held_standard:
-            qualifier = ".".join(p for p in (held.catalog, held.schema_name) if p)
-            lines.append(
-                f"| {_cell(held.table)} | {held.column_count} | {_cell(qualifier)} |")
+    if seg.provenance_notes:
+        lines += ["### Provenance notes (each cites its document evidence)", ""]
+        for entry in seg.provenance_notes:
+            lines.append(f"- {entry.note}")
+            lines.append(f"  - Evidence: > {entry.citation}")
         lines.append("")
     return lines
 

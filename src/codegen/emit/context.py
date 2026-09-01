@@ -345,11 +345,17 @@ def build_context(
         detail_fields_by_stage[stage_column] for stage_column in spec.natural_key_columns
     ]
 
+    def _standard_type(datatype: str) -> str:
+        # FRD-driven AS-IS switch: business columns are STRING in BOTH layers
+        # (audit columns keep their own types; they are appended separately).
+        return "STRING" if spec.load_as_is else sql_type(datatype)
+
     standard = None
+    standard_tables: list[dict] = []
     if spec.standard_table is not None:
         detail_fields = spec.detail_segment.fields
         standard_columns = [
-            (f.standard_column, sql_type(f.standard_datatype))
+            (f.standard_column, _standard_type(f.standard_datatype))
             for f in detail_fields
             if f.standard_column is not None and f.standard_datatype is not None
         ]
@@ -360,6 +366,27 @@ def build_context(
             "columns": standard_columns,
             "load_strategy": spec.standard_load_strategy,
         }
+        # Per-segment standard tables (segmented dialect: H/D/T map to their
+        # own tables in BOTH layers). Flat feeds carry no per-segment
+        # standard_table, so this stays the single entry and emission is
+        # byte-identical.
+        per_segment = [s for s in spec.segments if s.standard_table is not None]
+        if per_segment:
+            for seg_spec in per_segment:
+                standard_tables.append({
+                    "catalog": seg_spec.standard_table.catalog,
+                    "schema": seg_spec.standard_table.schema_name,
+                    "table": seg_spec.standard_table.table,
+                    "columns": [
+                        (f.standard_column, _standard_type(f.standard_datatype))
+                        for f in seg_spec.fields
+                        if f.standard_column is not None
+                        and f.standard_datatype is not None
+                    ],
+                    "load_strategy": spec.standard_load_strategy,
+                })
+        else:
+            standard_tables = [standard]
 
     recycle = None
     if spec.recycle is not None:
@@ -414,18 +441,13 @@ def build_context(
                 "writer_behavior": WRITER_BEHAVIOR,
                 **summarize(faq),
             },
-            # Declared discriminator assumption (segmented extraction only);
-            # None on flat feeds so their banners stay byte-identical.
+            # Document-derived record identification (segmented extraction
+            # only); None on flat feeds so their banners stay byte-identical.
             "segmented": (
                 {
-                    "header": spec.segmented_extraction.discriminators.header,
-                    "detail": spec.segmented_extraction.discriminators.detail,
-                    "trailer": spec.segmented_extraction.discriminators.trailer,
-                    "status_label": (
-                        "confirmed"
-                        if spec.segmented_extraction.discriminators.status == "confirmed"
-                        else "ASSUMED — pending source team"
-                    ),
+                    "trailer_marker": spec.segmented_extraction.identification.trailer_marker,
+                    "header_rule": spec.segmented_extraction.identification.header_rule,
+                    "method": spec.segmented_extraction.identification.method,
                 }
                 if spec.segmented_extraction is not None
                 else None
@@ -481,10 +503,21 @@ def build_context(
         "processed_files_table": spec.processed_files_table.table,
         "recycle": recycle,
         "standard": standard,
+        "standard_tables": standard_tables,
         "stage_load_strategy": spec.stage_load_strategy,
         "trailer_count_stage_column": trailer_count_stage_column,
         "trailer_count_source_column": trailer_count_source_column,
         "detail_natural_key_source_columns": detail_natural_key_source_columns,
+        # Key column the generated tests probe with: the first natural-key
+        # source when keys exist (flat feeds — byte-identical), else the
+        # recycle key (a no-keys feed can still exercise the reference path),
+        # else None (the null-key tests are omitted).
+        "test_key_source_column": (
+            detail_natural_key_source_columns[0]
+            if detail_natural_key_source_columns
+            else (spec.recycle.spec.applies_to if spec.recycle is not None else None)
+        ),
+        "has_null_key_test": bool(detail_natural_key_source_columns),
         "masking": {
             "visible_chars": config.masking.visible_chars,
             "mask_char": config.masking.mask_char,

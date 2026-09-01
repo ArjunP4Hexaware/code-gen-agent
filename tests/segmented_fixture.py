@@ -97,9 +97,9 @@ def build_workbook(*, mandatory_detail_field: bool = False) -> Workbook:
         _audit_row("EXT_SYN_HDR", "REC_CREATION_TIME", "timestamp"),
         _audit_row("EXT_SYN_HDR", "REC_UPDATED_TIME", "timestamp"),
         # Detail segment (payload)
-        _data_row(1, "Widget ID", "varchar", "Detail", "No",
-                  "Synthetic widget identifier", "Load as is",
-                  "EXT_SYN_DTL", "SYN_WIDGET_ID",
+        _data_row(1, "Member ID", "varchar", "Detail", "No",
+                  "Synthetic member identifier", "Load as is",
+                  "EXT_SYN_DTL", "SYN_MEMBER_ID",
                   mandatory="Yes" if mandatory_detail_field else None),
         _data_row(2, "Widget Owner", "varchar", "Detail", "Yes",
                   "Synthetic owner name", "Load as is",
@@ -113,14 +113,17 @@ def build_workbook(*, mandatory_detail_field: bool = False) -> Workbook:
         _audit_row("EXT_SYN_DTL", "SRC_FILE_NAME", "String "),
         _audit_row("EXT_SYN_DTL", "REC_CREATION_TIME", "timestamp"),
         _audit_row("EXT_SYN_DTL", "REC_UPDATED_TIME", "timestamp"),
-        # Trailer segment (file envelope)
-        _data_row(1, "Record Count", "Numeric", "Trailer", None,
+        # Trailer segment — row 1 states the static record-type marker the
+        # way the real workbook does (identification derives from this cell).
+        _data_row(1, "Record Type", "varchar", "Trailer", None,
+                  "Static text identifying the record as the trailer record.\n"
+                  "Contains the value ******",
+                  "Load as is",
+                  "EXT_SYN_TRL", "SYN_REC_TYPE"),
+        _data_row(2, "Record Count", "Numeric", "Trailer", None,
                   "Number of Detail records in the file",
                   "Must equal the Detail row count",
                   "EXT_SYN_TRL", "SYN_REC_CNT"),
-        _data_row(2, "File Sequence", "Numeric", "Trailer", None,
-                  "Sequence number within the set", "Load as is",
-                  "EXT_SYN_TRL", "SYN_FILE_SEQ"),
         # Trailer audit rows
         _audit_row("EXT_SYN_TRL", "SRC_FILE_NAME", "String "),
         _audit_row("EXT_SYN_TRL", "REC_CREATION_TIME", "timestamp"),
@@ -132,8 +135,10 @@ def build_workbook(*, mandatory_detail_field: bool = False) -> Workbook:
 
 
 def frd_contract_dict() -> dict:
-    """The paired synthetic FRD contract: segmented, stage-only (the layer
-    conflict against the workbook's populated Standard layer is the point)."""
+    """The paired synthetic FRD contract: segmented, both layers scoped by
+    Load Strategy (STG truncate / STD append) with the Target Schema block
+    naming stage targets only — the STD schema comes from the STTM, like the
+    real CAQH pair. No keys anywhere (no MERGE)."""
     return {
         "contract_name": "synthetic segmented FRD",
         "generated_from_frd": "synthetic.docx",
@@ -167,8 +172,16 @@ def frd_contract_dict() -> dict:
                 "catalog": None, "schema": None, "tables": [],
                 "load_strategy": "Append",
             },
-            "validation_rules": [],
-            "recycle_rule": None,
+            "validation_rules": [
+                "Process shall fail when file layout is not as per source dictionary.",
+                "Files are pipe delimited and contain incremental changes.",
+                "Member ID validation should be performed against Facets for existence.",
+                "Process should load the files AS-IS after Member ID validation "
+                "and should not perform any data transformation while loading.",
+                "Synthetic free-text rule the compiler cannot classify.",
+            ],
+            "recycle_rule": "Invalid records will be moved to Recycle table, "
+                            "retained for 15 days.",
             "history_backfill": None,
             "archive_retention": None,
             "phi_pii_notes": None,
@@ -180,17 +193,18 @@ def frd_contract_dict() -> dict:
     }
 
 
-FAQ_ASSUMED = """\
+# FAQ override declarations for the override tests: identification is
+# document-derived by default; an override requires status "confirmed".
+FAQ_OVERRIDE_CONFIRMED = """\
 record_type_discriminators:
   header: "H"
   detail: "D"
   trailer: "T"
-  status: assumed_pending_source_team
-natural_key_columns:
-  - "Widget ID"
+  status: confirmed
 """
 
-FAQ_CONFIRMED = FAQ_ASSUMED.replace("assumed_pending_source_team", "confirmed")
+FAQ_OVERRIDE_ASSUMED = FAQ_OVERRIDE_CONFIRMED.replace(
+    "confirmed", "assumed_pending_source_team")
 
 
 if __name__ == "__main__":

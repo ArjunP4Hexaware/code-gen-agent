@@ -1,26 +1,29 @@
 """Segmented (Header/Detail/Trailer) STTM workbook extraction — v2 dialect.
 
-The layout family the flat extractor refuses (one wide mapping sheet:
-key:value metadata block, band-label row discovered by scan, header row
-beneath it, per-row Segment column, per-segment audit rows with empty source
-cells — docs/SEGMENTED_MODE_DESIGN.md) parses here into the SAME flat feed
-shape the rest of the pipeline consumes: Detail rows are the payload and
-become the column mappings; Header/Trailer rows are file envelope and become
-``EnvelopeEntry`` records (report-only, never table DDL); everything else the
-workbook declared rides in the feed's ``segmented`` block.
+Corrected 2026-09-01 against the CAQH FRD (1005034) + STTM read verbatim:
 
-Governance boundaries — DECLARED, never inferred:
-
-1. The H/D/T discriminator values are stated nowhere in the workbook. The
-   run proceeds only when the feed's FAQ declares
-   ``record_type_discriminators``; absent, the v1 refusal fires unchanged
-   plus a remedy line. ``assumed_*`` status gates a review item.
-2. The FRD contract governs target layers. A workbook Standard layer the FRD
-   does not scope is parsed and HELD (``held_standard`` — table + column
-   count), never emitted and never deleted.
-3. (Discovered on the real workbook:) the Mandatory/Primary Key columns may
-   carry no signal at all. The natural key then comes only from the FAQ's
-   ``natural_key_columns`` declaration; absent, loud refusal.
+- **Segments are TABLES, both layers.** FRD acceptance criterion 2: "Header,
+  Detail, Trailer data should be mapped to respective HDR, DTL and TRL
+  tables." Every data row becomes a field carrying ``record_segment`` +
+  ``stage_table`` (+ ``standard_table`` when the standard layer is scoped) —
+  the segmented dialect the resolver already consumes.
+- **Both layers are scoped by Load Strategy, never inferred from the Target
+  Schema block.** FRD Structural Metadata: "Load Strategy STG: Truncate and
+  Load; Load Strategy STD: Append". When the FRD's standard table list is
+  empty (its Target Schema block names stage targets only), the STD catalog/
+  schema/tables come from the STTM's second target column group, with a
+  cited provenance note.
+- **Record identification is DERIVED from the STTM, not assumed.** Trailer =
+  record whose first field equals the stated static marker (the STTM Trailer
+  "Record Type" comment: "Contains the value ******"); header = first
+  record; detail = all others. The FAQ ``record_type_discriminators`` is
+  strictly an OVERRIDE (status ``confirmed`` only).
+- **No natural-key requirement.** FRD Technical Metadata: Business/Primary/
+  Unique Key all None; STG truncate + STD append → no MERGE exists. Empty
+  STTM Mandatory/PK columns are consistent with the FRD — recorded as a
+  cited provenance note, not an unknown.
+- Every provenance note and review item MUST cite the exact FRD field or
+  STTM cell it rests on — a note that cannot cite its evidence is a bug.
 """
 
 from __future__ import annotations
@@ -35,9 +38,10 @@ from codegen.config import Config, SegmentedExtractorConfig
 from codegen.contracts.frd import FrdContract, FrdFeed
 from codegen.contracts.sttm import (
     AuditColumn,
-    EnvelopeEntry,
-    HeldStandardTable,
     LoadRules,
+    ProvenanceNote,
+    RecordIdentification,
+    RecycleSpec,
     SegmentedExtraction,
     SourceFile,
     SttmContract,
@@ -52,6 +56,18 @@ from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 _YES_VALUES = {"yes", "y", "true"}
 _DELIMITER_RE = re.compile(r"delimited\s*(\S)")
+# The STTM trailer "Record Type" comment states the static marker, e.g.
+# "Static text identifying the record as the trailer record.\nContains the
+# value ******" — the derivation quotes this cell verbatim as its citation.
+_TRAILER_MARKER_RE = re.compile(r"contains the value\s+(\S+)", re.IGNORECASE)
+# FRD-driven AS-IS switch evidence (e.g. rule: "Process should load the files
+# AS-IS ... and should not perform any data transformation"). The character
+# class covers space, ASCII hyphen, and the non-breaking hyphen the real FRD
+# uses.
+_AS_IS_RE = re.compile(r"\bAS[\s\-‑]?IS\b", re.IGNORECASE)
+_MEMBER_VALIDATION_RE = re.compile(
+    r"validation.+against\s+facets|member\s*id.+facets", re.IGNORECASE)
+_WINDOW_DAYS_RE = re.compile(r"(\d+)\s*days?", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -192,7 +208,7 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
 
 def _segment_rows(rows, header_row: int, blocks: _Blocks,
                   seg_config: SegmentedExtractorConfig, sheet: str) -> list[_SegRow]:
-    canonical = {k: v for k, v in seg_config.segment_names.items()}
+    canonical = dict(seg_config.segment_names)
     out: list[_SegRow] = []
     for row_number, row in enumerate(rows[header_row + 1:], start=header_row + 2):
         if all(_text(cell) is None for cell in row):
@@ -225,6 +241,39 @@ def _is_yes(value: str | None) -> bool:
     return _norm(value) in _YES_VALUES
 
 
+def _derive_identification(seg_rows: list[_SegRow], blocks: _Blocks,
+                           sheet: str) -> RecordIdentification:
+    """Trailer marker from the STTM's own statement; header/detail positional.
+    The citation is the verbatim STTM comment cell the derivation rests on."""
+    trailer_rows = [r for r in seg_rows if r.segment == "Trailer"]
+    if not trailer_rows:
+        raise WorkbookParseError(f"{sheet}: no Trailer-segment rows found")
+    first = trailer_rows[0]
+    comment = _cell(first.values, blocks.source.get("comments")) or ""
+    match = _TRAILER_MARKER_RE.search(comment)
+    if match is None:
+        raise WorkbookParseError(
+            f"{sheet} row {first.row_number}: the Trailer record-type comment does "
+            f"not state a static marker value (comment: {comment!r}); record "
+            "identification cannot be derived — declare a confirmed "
+            "record_type_discriminators override in the feed's FAQ instead"
+        )
+    return RecordIdentification(
+        method="derived_from_sttm",
+        trailer_marker=match.group(1),
+        header_rule="first record of the file",
+        detail_rule=(
+            f"every record that is neither the first record nor a record whose "
+            f"first field equals {match.group(1)!r}"
+        ),
+        citation=(
+            f"STTM {sheet!r} row {first.row_number}, "
+            f"{_cell(first.values, blocks.source.get('field_name'))!r} Comments: "
+            f"{comment!r}"
+        ),
+    )
+
+
 def extract_segmented_contract(
     workbook_path: Path,
     frd: FrdContract,
@@ -234,12 +283,7 @@ def extract_segmented_contract(
     contract_name: str | None = None,
     generated_date: str | None = None,
 ) -> SttmContract:
-    """Parse a segmented workbook + its FRD feed into the STTM contract.
-
-    ``refusal_evidence`` is the family-detection message the flat path
-    raised — re-used verbatim when the declaration gate refuses, so the
-    evidence list stays identical to v1's refusal plus the remedy line.
-    """
+    """Parse a segmented workbook + its FRD feed into the STTM contract."""
     from codegen.extract.extractor import ExtractionError  # local: avoid cycle
 
     seg_config = config.extractor.segmented
@@ -278,22 +322,35 @@ def extract_segmented_contract(
     feed_id = config.feed_aliases.get(frd_feed.feed_name) or normalize_feed_name(
         frd_feed.feed_name)
 
-    # ---- governance boundary 1: discriminators must be DECLARED ----------
-    faq = load_faq(normalize_feed_name(feed_id), config)
-    discriminators = faq.record_type_discriminators
-    if discriminators is None:
-        raise SegmentedWorkbookError(
-            refusal_evidence
-            + f"\nREMEDY: declare record_type_discriminators (with status "
-            f"assumed_pending_source_team or confirmed) in the feed's FAQ file "
-            f"(fixtures/faq/{normalize_feed_name(feed_id)}.faq.yaml) to proceed "
-            "under an explicitly surfaced assumption — the workbook states the "
-            "H/D/T values nowhere, so the agent will not infer them."
-        )
+    provenance_notes: list[ProvenanceNote] = []
 
-    # ---- group rows: Detail payload, H/T envelope, per-segment audit ------
-    detail_rows: list[_SegRow] = []
-    envelope: list[EnvelopeEntry] = []
+    # ---- record identification: derived from the STTM; FAQ = override only -
+    faq = load_faq(normalize_feed_name(feed_id), config)
+    override = faq.record_type_discriminators
+    if override is not None and override.status != "confirmed":
+        raise ExtractionError(
+            f"feed {frd_feed.feed_name!r}: record_type_discriminators in the FAQ "
+            "is an OVERRIDE and requires status 'confirmed' — record "
+            "identification is derived from the STTM by default "
+            f"(declared status: {override.status!r})"
+        )
+    if override is not None:
+        identification = RecordIdentification(
+            method="declared_override",
+            trailer_marker=override.trailer,
+            header_rule=f"records whose first field equals {override.header!r}",
+            detail_rule=f"records whose first field equals {override.detail!r}",
+            citation=(
+                "FAQ record_type_discriminators override (status: confirmed): "
+                f"header={override.header!r} detail={override.detail!r} "
+                f"trailer={override.trailer!r}"
+            ),
+        )
+    else:
+        identification = _derive_identification(seg_rows, blocks, ws.title)
+
+    # ---- group rows by segment; per-segment audit rows ---------------------
+    fields_by_segment: dict[str, list[_SegRow]] = {}
     audit_by_segment: dict[str, list[tuple[str, str]]] = {}
     row_counts: dict[str, int] = {}
     segments_found: list[str] = []
@@ -305,19 +362,8 @@ def extract_segmented_contract(
             if seg_row.segment not in segments_found:
                 segments_found.append(seg_row.segment)
             row_counts[seg_row.segment] = row_counts.get(seg_row.segment, 0) + 1
-            if seg_row.segment == "Detail":
-                detail_rows.append(seg_row)
-            else:
-                envelope.append(EnvelopeEntry(
-                    segment=seg_row.segment,  # type: ignore[arg-type]
-                    field_name=_cell(row, blocks.source["field_name"]) or "",
-                    datatype=_cell(row, blocks.source.get("datatype")),
-                    stage_table=_cell(row, blocks.stage.get("tablename")),
-                    description=_cell(row, blocks.source.get("comments")),
-                    rule=_cell(row, blocks.source.get("business_rule")),
-                ))
+            fields_by_segment.setdefault(seg_row.segment, []).append(seg_row)
             continue
-        # audit row: empty source cell + empty Segment, inside a segment block
         column = _cell(row, blocks.stage.get("columnname"))
         datatype_raw = _cell(row, blocks.stage.get("datatype")) or ""
         if column is None or current_segment is None:
@@ -333,131 +379,112 @@ def extract_segmented_contract(
             )
         audit_by_segment.setdefault(current_segment, []).append((column, datatype))
 
-    if not detail_rows:
+    if "Detail" not in fields_by_segment:
         raise WorkbookParseError(f"{ws.title}: no Detail-segment rows found")
 
-    # ---- Detail payload -> flat-shaped fields ----------------------------
-    stage_tables = {
-        _cell(r.values, blocks.stage["tablename"]) for r in detail_rows
-    } - {None}
-    if len(stage_tables) != 1:
-        raise WorkbookParseError(
-            f"{ws.title}: Detail rows name {len(stage_tables)} stage tables "
-            f"{sorted(t for t in stage_tables if t)}; expected exactly one"
-        )
-    stage_table = next(iter(stage_tables))
-    stage_schema = _cell(detail_rows[0].values, blocks.stage["schema"])
-    if stage_schema is None:
-        raise WorkbookParseError(f"{ws.title}: Detail rows carry no stage Schema")
-
-    # ---- governance boundary 2: the FRD governs target layers -------------
-    frd_has_standard = bool(frd_feed.standard_target.tables)
-    held_standard: list[HeldStandardTable] = []
-    if blocks.standard is not None and not frd_has_standard:
-        counts: dict[tuple[str | None, str | None, str], int] = {}
-        for seg_row in seg_rows:
-            if seg_row.segment is None:
-                continue
-            table = _cell(seg_row.values, blocks.standard["tablename"])
-            if table is None:
-                continue
-            key = (
-                _cell(seg_row.values, blocks.standard.get("catalog")),
-                _cell(seg_row.values, blocks.standard["schema"]),
-                table,
-            )
-            counts[key] = counts.get(key, 0) + 1
-        held_standard = [
-            HeldStandardTable(
-                catalog=catalog, schema=schema, table=table, column_count=count,
-                reason=(
-                    f"workbook defines a Standard layer; FRD contract "
-                    f"'{frd.contract_name}' scopes this feed stage-only — held "
-                    "for source-team ruling, not emitted"
-                ),
-            )
-            for (catalog, schema, table), count in sorted(
-                counts.items(), key=lambda kv: kv[0][2])
-        ]
-
-    emit_standard = blocks.standard is not None and frd_has_standard
-
-    fields: list[SttmField] = []
-    mandatory_sources: list[str] = []
-    for seg_row in detail_rows:
-        row = seg_row.values
-        field_name = _cell(row, blocks.source["field_name"])
-        assert field_name is not None  # _segment_rows guarantees it
-        mandatory = _is_yes(_cell(row, blocks.stage.get("mandatory column")))
-        primary_key = _is_yes(_cell(row, blocks.stage.get("primary key")))
-        if mandatory or primary_key:
-            mandatory_sources.append(field_name)
-        value_parts = [
-            part for part in (
-                _cell(row, blocks.stage.get("transformations/data quality")),
-                _cell(row, blocks.source.get("business_rule")),
-            ) if part
-        ]
-        fields.append(SttmField(
-            source_column=field_name,
-            description=_cell(row, blocks.source.get("comments")),
-            sample_value=None,
-            source_datatype=_cell(row, blocks.source.get("datatype")) or "unstated",
-            nullable=not (mandatory or primary_key),
-            phi=_is_yes(_cell(row, blocks.source.get("pii"))),
-            mandatory=mandatory,
-            stage_column=_require(ws.title, seg_row.row_number,
-                                  _cell(row, blocks.stage["columnname"]),
-                                  "stage ColumnName"),
-            stage_datatype=_require(ws.title, seg_row.row_number,
-                                    _cell(row, blocks.stage["datatype"]),
-                                    "stage DataType"),
-            standard_column=(_cell(row, blocks.standard["columnname"])
-                             if emit_standard else None),
-            standard_datatype=(_cell(row, blocks.standard["datatype"])
-                               if emit_standard else None),
-            value_spec="; ".join(value_parts) if value_parts else None,
+    # ---- both layers, scoped by Load Strategy — never by the schema block --
+    sttm_has_standard = blocks.standard is not None and any(
+        _cell(r.values, blocks.standard["tablename"]) is not None
+        for rows_ in fields_by_segment.values() for r in rows_
+    )
+    frd_has_standard_tables = bool(frd_feed.standard_target.tables)
+    emit_standard = sttm_has_standard
+    if sttm_has_standard and not frd_has_standard_tables:
+        standard_group = ".".join(p for p in (
+            _first_standard(fields_by_segment, blocks, "catalog"),
+            _first_standard(fields_by_segment, blocks, "schema"),
+        ) if p)
+        provenance_notes.append(ProvenanceNote(
+            note=(
+                "STD target schema sourced from STTM; FRD Structural Metadata "
+                "names stage targets only. The standard layer is scoped by its "
+                "Load Strategy, never inferred absent from the Target Schema "
+                "block."
+            ),
+            citation=(
+                f"FRD Load Strategy STD: {frd_feed.standard_target.load_strategy!r}; "
+                f"STTM standard target group: {standard_group}"
+            ),
         ))
 
-    # ---- natural key: workbook signal, else FAQ declaration ---------------
-    notes: list[str] = []
-    if mandatory_sources:
-        not_null = mandatory_sources
-        natural_key_declared: list[str] = []
-    elif faq.natural_key_columns:
-        source_names = {f.source_column for f in fields}
-        unknown = [c for c in faq.natural_key_columns if c not in source_names]
-        if unknown:
-            raise ExtractionError(
-                f"feed {frd_feed.feed_name!r}: FAQ natural_key_columns "
-                f"{unknown} are not Detail-segment source fields"
-            )
-        not_null = list(faq.natural_key_columns)
-        natural_key_declared = list(faq.natural_key_columns)
-        notes.append(
-            "natural key: the workbook's Mandatory/Primary Key columns carry no "
-            "signal; using the FAQ-declared natural_key_columns "
-            f"{natural_key_declared} (engineer declaration, not workbook evidence)"
-        )
-    else:
-        raise ExtractionError(
-            f"feed {frd_feed.feed_name!r}: the workbook's Mandatory/Primary Key "
-            "columns carry no signal and the FAQ declares no natural_key_columns "
-            "— declare the natural-key source columns in "
-            f"fixtures/faq/{normalize_feed_name(feed_id)}.faq.yaml; the agent "
-            "will not invent a merge key"
-        )
+    # ---- fields: every segment's rows, both layers -------------------------
+    fields: list[SttmField] = []
+    mandatory_sources: list[str] = []
+    phi_sources: list[str] = []
+    for segment in segments_found:
+        for seg_row in fields_by_segment[segment]:
+            row = seg_row.values
+            field_name = _cell(row, blocks.source["field_name"])
+            assert field_name is not None  # _segment_rows guarantees it
+            mandatory = _is_yes(_cell(row, blocks.stage.get("mandatory column")))
+            primary_key = _is_yes(_cell(row, blocks.stage.get("primary key")))
+            phi = _is_yes(_cell(row, blocks.source.get("pii")))
+            if mandatory or primary_key:
+                mandatory_sources.append(field_name)
+            if phi:
+                phi_sources.append(field_name)
+            value_parts = [
+                part for part in (
+                    _cell(row, blocks.stage.get("transformations/data quality")),
+                    _cell(row, blocks.source.get("business_rule")),
+                ) if part
+            ]
+            fields.append(SttmField(
+                source_column=field_name,
+                description=_cell(row, blocks.source.get("comments")),
+                sample_value=None,
+                source_datatype=_cell(row, blocks.source.get("datatype")) or "unstated",
+                nullable=not (mandatory or primary_key),
+                phi=phi,
+                mandatory=mandatory,
+                stage_column=_require(ws.title, seg_row.row_number,
+                                      _cell(row, blocks.stage["columnname"]),
+                                      "stage ColumnName"),
+                stage_datatype=_require(ws.title, seg_row.row_number,
+                                        _cell(row, blocks.stage["datatype"]),
+                                        "stage DataType"),
+                standard_column=(_cell(row, blocks.standard["columnname"])
+                                 if emit_standard else None),
+                standard_datatype=(_cell(row, blocks.standard["datatype"])
+                                   if emit_standard else None),
+                value_spec="; ".join(value_parts) if value_parts else None,
+                record_segment=segment,  # type: ignore[arg-type]
+                stage_table=_require(ws.title, seg_row.row_number,
+                                     _cell(row, blocks.stage["tablename"]),
+                                     "stage TableName"),
+                standard_table=(_cell(row, blocks.standard["tablename"])
+                                if emit_standard else None),
+            ))
 
-    if frd_feed.recycle_rule:
-        # The workbook layout has no Recycle Flag column; the FRD's recycle
-        # rule text exists but nothing structured backs it. Surface, don't
-        # fabricate a RecycleSpec.
-        notes.append(
-            f"recycle: FRD states {frd_feed.recycle_rule!r} but this workbook "
-            "layout carries no recycle validation column — no recycle module is "
-            "generated; the FRD-declared recycle stage table is held with the "
-            "envelope (source-team input needed)"
-        )
+    # ---- no natural-key requirement (FRD: no keys, no MERGE) ---------------
+    provenance_notes.append(ProvenanceNote(
+        note=(
+            "No MERGE key required or derived: the FRD's Technical Metadata "
+            "states Business Key / Primary Key / Unique Key(s) = None and the "
+            "load strategies are truncate (STG) / append (STD). The STTM's "
+            "empty Mandatory/Primary Key columns are consistent with the FRD."
+        ),
+        citation=(
+            f"FRD Load Strategy STG: {frd_feed.stage_target.load_strategy!r}; "
+            f"Load Strategy STD: {frd_feed.standard_target.load_strategy!r}"
+        ),
+    ))
+
+    # ---- FRD-driven AS-IS switch (STRING everywhere except audit) ----------
+    as_is_rules = [r for r in frd_feed.validation_rules if _AS_IS_RE.search(r)]
+    if as_is_rules:
+        provenance_notes.append(ProvenanceNote(
+            note=(
+                "AS-IS load: business columns are STRING in BOTH layers, audit "
+                "date/timestamp fields excepted (FRD-driven switch, not a feed "
+                "special case)."
+            ),
+            citation=f"FRD validation rule: {as_is_rules[0]!r}",
+        ))
+
+    # ---- recycle from the FRD's stated DQ requirement ----------------------
+    recycle = _build_recycle(frd_feed, fields_by_segment, blocks, seg_config,
+                             provenance_notes)
 
     detail_audit = audit_by_segment.get("Detail", [])
     if not detail_audit:
@@ -469,12 +496,26 @@ def extract_segmented_contract(
     segmented = SegmentedExtraction(
         segments_found=segments_found,
         row_counts=row_counts,
-        envelope=envelope,
-        discriminators=discriminators,
-        natural_key_declared=natural_key_declared,
-        held_standard=held_standard,
-        notes=notes,
+        identification=identification,
+        provenance_notes=provenance_notes,
     )
+
+    detail_rows = fields_by_segment["Detail"]
+    stage_schema = _require(ws.title, detail_rows[0].row_number,
+                            _cell(detail_rows[0].values, blocks.stage["schema"]),
+                            "stage Schema")
+    stage_catalog = _cell(detail_rows[0].values, blocks.stage.get("catalog"))
+    detail_stage_table = _require(ws.title, detail_rows[0].row_number,
+                                  _cell(detail_rows[0].values, blocks.stage["tablename"]),
+                                  "stage TableName")
+
+    standard_ref = None
+    if emit_standard:
+        standard_ref = TableRef(
+            schema=_first_standard(fields_by_segment, blocks, "schema") or "",
+            table=(_cell(detail_rows[0].values, blocks.standard["tablename"]) or ""),
+            catalog=_first_standard(fields_by_segment, blocks, "catalog"),
+        )
 
     file_pattern = _match_file_pattern(facts["files"], frd_feed, workbook_path.name)
     delimiter = frd_feed.delimiter or _metadata_delimiter(facts) or \
@@ -496,19 +537,14 @@ def extract_segmented_contract(
             delimiter=delimiter,
             frequency=facts.get("frequency"),
         ),
-        stage=TableRef(schema=stage_schema, table=stage_table),
-        standard=(
-            TableRef(
-                schema=_cell(detail_rows[0].values, blocks.standard["schema"]) or "",
-                table=_cell(detail_rows[0].values, blocks.standard["tablename"]) or "",
-            )
-            if emit_standard else None
-        ),
+        stage=TableRef(schema=stage_schema, table=detail_stage_table,
+                       catalog=stage_catalog),
+        standard=standard_ref,
         load_rules=LoadRules(
-            not_null_columns=not_null,
-            mandatory_columns=mandatory_sources or list(natural_key_declared),
-            phi_columns=[f.source_column for f in fields if f.phi],
-            recycle=None,
+            not_null_columns=list(mandatory_sources),
+            mandatory_columns=list(mandatory_sources),
+            phi_columns=phi_sources,
+            recycle=recycle,
         ),
         audit_columns=[AuditColumn(column=c, datatype=d) for c, d in detail_audit],
         field_count=len(fields),
@@ -526,12 +562,94 @@ def extract_segmented_contract(
             "Extracted deterministically by `codegen extract-sttm` (segmented "
             f"dialect) from the workbook named above, paired with FRD contract "
             f"'{frd.contract_name}'.",
-            "Detail-segment rows are the payload; Header/Trailer rows are file "
-            "envelope (see the feed's segmented.envelope — report-only, never DDL).",
-            "Record-type discriminators are DECLARED in the feed's FAQ "
-            f"(status: {discriminators.status}) — the workbook states them nowhere.",
+            "Segments map to their own tables in both layers (FRD acceptance "
+            "criterion: Header/Detail/Trailer data mapped to respective HDR, "
+            "DTL and TRL tables).",
+            "Record identification is derived from the STTM (trailer static "
+            "marker + positional header) — see the feed's "
+            "segmented.identification citation.",
         ],
         feeds=[feed],
+    )
+
+
+def _first_standard(fields_by_segment, blocks: _Blocks, which: str) -> str | None:
+    if blocks.standard is None or which not in blocks.standard:
+        return None
+    for rows_ in fields_by_segment.values():
+        for seg_row in rows_:
+            value = _cell(seg_row.values, blocks.standard[which])
+            if value is not None:
+                return value
+    return None
+
+
+def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
+                   seg_config: SegmentedExtractorConfig,
+                   provenance_notes: list[ProvenanceNote]) -> RecycleSpec | None:
+    """The FRD's stated member-existence DQ requirement, via the existing
+    recycle pattern. Built ONLY when the FRD states both the recycle rule and
+    the member-validation rule; the reference table name is a config knob
+    transcribed from the FRD's DQ Functional Requirement (never invented)."""
+    if not frd_feed.recycle_rule:
+        return None
+    member_rules = [r for r in frd_feed.validation_rules
+                    if _MEMBER_VALIDATION_RE.search(r)]
+    if not member_rules:
+        provenance_notes.append(ProvenanceNote(
+            note="FRD states a recycle rule but no member-validation rule; no "
+                 "recycle module is generated.",
+            citation=f"FRD recycle_rule: {frd_feed.recycle_rule!r}",
+        ))
+        return None
+    member_field = next(
+        (r for rows_ in fields_by_segment.values() for r in rows_
+         if _norm(_cell(r.values, blocks.source["field_name"]))
+         == _norm(seg_config.member_field)),
+        None,
+    )
+    if member_field is None:
+        provenance_notes.append(ProvenanceNote(
+            note=(
+                f"FRD states member validation but no field named "
+                f"{seg_config.member_field!r} exists in the STTM; no recycle "
+                "module is generated."
+            ),
+            citation=f"FRD validation rule: {member_rules[0]!r}",
+        ))
+        return None
+    window = _WINDOW_DAYS_RE.search(frd_feed.recycle_rule)
+    window_days = int(window.group(1)) if window else None
+    stage_column = _cell(member_field.values, blocks.stage["columnname"])
+    stage_catalog = _cell(member_field.values, blocks.stage.get("catalog"))
+    stage_schema = _cell(member_field.values, blocks.stage["schema"])
+    reference = ".".join(p for p in (
+        stage_catalog, stage_schema, seg_config.member_reference_table) if p)
+    days = window_days or 15
+    provenance_notes.append(ProvenanceNote(
+        note=(
+            f"Recycle: {seg_config.member_field!r} existence checked against "
+            f"{reference} in the stage layer; invalid records recycle for "
+            f"{days} days."
+        ),
+        citation=(
+            f"FRD validation rule: {member_rules[0]!r}; FRD recycle_rule: "
+            f"{frd_feed.recycle_rule!r}"
+        ),
+    ))
+    return RecycleSpec(
+        applies_to=_cell(member_field.values, blocks.source["field_name"]) or "",
+        enabled=True,
+        validation=(
+            f"Check with {stage_column} from {reference}, per FRD rule "
+            f"{member_rules[0]!r}"
+        ),
+        on_match="Process record into stage table",
+        on_no_match=(
+            f"Load record to Recycle Table with recycle flag enabled for "
+            f"{days} days; retry on subsequent runs"
+        ),
+        recycle_window_days=days,
     )
 
 
@@ -583,3 +701,6 @@ def _metadata_delimiter(facts: dict[str, str]) -> str | None:
     if match and match.group(1) not in (")",):
         return match.group(1)
     return None
+
+
+__all__ = ["SegmentedWorkbookError", "extract_segmented_contract"]

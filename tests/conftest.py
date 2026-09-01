@@ -12,6 +12,7 @@ at the configured paths and the full suite runs again unchanged.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,23 @@ from codegen.config import load_config
 from codegen.resolve.resolver import resolve_pair
 
 REPO = Path(__file__).resolve().parents[1]
+
+# Importing ui.backend.main (test_demo_ui and friends) runs load_dotenv as an
+# import side effect, which can put the OPERATOR'S machine-local env overrides
+# (e.g. CODEGEN_NOTIFICATION_EMAILS — a client value) into this process. The
+# suite must run against the tracked config's synthetic values only, so the
+# override is stripped before every test.
+_MACHINE_LOCAL_ENV = ("CODEGEN_NOTIFICATION_EMAILS",)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _strip_machine_local_env():
+    # Session-scoped + autouse: runs after collection (when ui.backend.main's
+    # import-time load_dotenv may have fired) and before any other session
+    # fixture builds a Config.
+    for name in _MACHINE_LOCAL_ENV:
+        os.environ.pop(name, None)
+    yield
 
 FIXTURES_REMOVED = (
     "contract/workbook fixtures are not in the repo (removed 2026-08-22 -- no "

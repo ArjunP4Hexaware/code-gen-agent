@@ -23,7 +23,7 @@ def _audited(spark, rows, src_file, run_ts=RUN_TS):
 
 def _rows_with_key(key_value, n=1):
     rows = detail_rows(n, key_prefix=key_value)
-    key_source = {{ detail_natural_key_source_columns[0] | tojson }}
+    key_source = {{ test_key_source_column | tojson }}
     for row in rows:
         row[key_source] = key_value
     return rows

@@ -296,9 +296,14 @@ def _stage_names(feed: FrdFeed, spec: ResolvedFeedSpec | None):
 
 
 def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
-                    unmapped: set[str]) -> dict[str, dict]:
+                    unmapped: set[str], segment=None) -> dict[str, dict]:
     container, src_path = _landing_cells(feed, config)
-    stage_schema, stage_table = _stage_names(feed, spec)
+    if segment is not None:
+        stage_schema = segment.stage_table.schema_name
+        stage_table = segment.stage_table.table
+    else:
+        stage_schema, stage_table = _stage_names(feed, spec)
+    is_detail = segment is None or segment.segment == "Detail"
     cells = {
         "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
@@ -326,7 +331,8 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
     elif spec is not None:
         cells["SRC_FILE_DELIMITER"] = _cell(spec.delimiter, "from_sttm")
     if spec is not None:
-        fields = [f for seg in spec.segments for f in seg.fields]
+        fields = (list(segment.fields) if segment is not None
+                  else [f for seg in spec.segments for f in seg.fields])
         cells["SRC_COLUMNS"] = _cell(
             ",".join(f"{f.source_column}:{f.stage_column}" for f in fields),
             "from_sttm")
@@ -339,19 +345,27 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
             ",".join(f.stage_datatype for f in fields), "from_sttm")
         cells["MANDATORY_FIELD_LIST"] = _cell(
             ",".join(spec.not_null_columns), "from_sttm")
-        cells["TGT_PRIMARY_KEY"] = _cell(
-            ",".join(spec.natural_key_columns), "from_sttm",
-            "the mapping contract's natural key columns")
-        cells["TGT_RJT_TABLE_NAME"] = _cell(
-            spec.errors_table.table, "from_sttm",
-            "stage table + configured errors suffix")
-        cells["RECYCL_ENBL_FLG"] = _cell(
-            "Y" if spec.recycle else "N", "from_frd")
-        if spec.recycle:
-            cells["RECYCL_TBL_NM"] = _cell(
-                spec.recycle.recycle_table.table, "from_frd")
-            cells["RECYCL_RETN_DAYS"] = _cell(
-                spec.recycle.spec.recycle_window_days, "from_sttm")
+        if spec.natural_key_columns:
+            cells["TGT_PRIMARY_KEY"] = _cell(
+                ",".join(spec.natural_key_columns), "from_sttm",
+                "the mapping contract's natural key columns")
+        if is_detail:
+            cells["TGT_RJT_TABLE_NAME"] = _cell(
+                spec.errors_table.table, "from_sttm",
+                "stage table + configured errors suffix")
+            cells["RECYCL_ENBL_FLG"] = _cell(
+                "Y" if spec.recycle else "N", "from_frd")
+            if spec.recycle:
+                cells["RECYCL_TBL_NM"] = _cell(
+                    spec.recycle.recycle_table.table, "from_frd")
+                cells["RECYCL_RETN_DAYS"] = _cell(
+                    spec.recycle.spec.recycle_window_days, "from_sttm")
+            mapped_rules = [r for r in spec.validation_rules
+                            if "mapped to" in r.lower()]
+            if mapped_rules:
+                cells["MAPPING_EXPRESSION"] = _cell(
+                    "; ".join(mapped_rules), "from_frd",
+                    "FRD business rule(s), verbatim")
         tgt_path = f"/{feed.domain or ''}/{feed.sub_domain or ''}/Processed/{stage_table}"
         cells["TGT_ADLS_PATH"] = _cell(tgt_path.replace("//", "/"),
                                        "synthetic", _SYNTHETIC_PATH_TOOLTIP)
@@ -362,10 +376,28 @@ def _stg_std_row(feed: FrdFeed, config: Config, spec, faq,
                  unmapped: set[str]) -> list[dict[str, dict]]:
     if spec is None or spec.standard_table is None:
         return []
-    stage_schema, stage_table = _stage_names(feed, spec)
-    standard = spec.standard_table
-    fields = [f for seg in spec.segments for f in seg.fields
-              if f.standard_column]
+    # One STG→STD row per segment table when segments carry their own
+    # standard tables (H/D/T are TABLES in both layers); flat feeds keep the
+    # single feed-level row unchanged.
+    legs = [
+        (seg.stage_table, seg.standard_table, list(seg.fields))
+        for seg in spec.segments if seg.standard_table is not None
+    ] or [(
+        spec.detail_segment.stage_table,
+        spec.standard_table,
+        [f for seg in spec.segments for f in seg.fields if f.standard_column],
+    )]
+    return [
+        _stg_std_leg_row(feed, config, spec, faq, stage, standard, fields)
+        for stage, standard, fields in legs
+    ]
+
+
+def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
+                     stage, standard, fields) -> dict[str, dict]:
+    stage_schema = stage.schema_name
+    stage_table = stage.table
+    fields = [f for f in fields if f.standard_column]
     cells = {
         "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
@@ -373,8 +405,7 @@ def _stg_std_row(feed: FrdFeed, config: Config, spec, faq,
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency_cell(feed, faq),
         "LOB": _cell(", ".join(feed.lobs), "from_frd"),
-        "SRC_CATALOG_NAME": _cell(
-            spec.detail_segment.stage_table.catalog or "", "from_frd"),
+        "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd"),
         "SRC_SCHEMA_NAME": _cell(stage_schema, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage_table, "from_frd"),
         "SRC_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
@@ -397,11 +428,31 @@ def _stg_std_row(feed: FrdFeed, config: Config, spec, faq,
             config.demo.source_files.load_strategy.standard,
             "from_frd" if spec.standard_load_strategy else "synthetic",
             None if spec.standard_load_strategy else _LOAD_STRATEGY_TOOLTIP),
-        "TGT_PRIMARY_KEY": _cell(
-            ",".join(spec.natural_key_columns), "from_sttm",
-            "the mapping contract's natural key columns"),
     }
-    return [cells]
+    if spec.natural_key_columns:
+        cells["TGT_PRIMARY_KEY"] = _cell(
+            ",".join(spec.natural_key_columns), "from_sttm",
+            "the mapping contract's natural key columns")
+    return cells
+
+
+_FREQUENCY_WORD_RE = __import__("re").compile(
+    r"^\s*(daily|weekly|monthly|yearly|annual(?:ly)?|ad[-_ ]?hoc)",
+    __import__("re").IGNORECASE)
+_DAY_RE = __import__("re").compile(
+    r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)",
+    __import__("re").IGNORECASE)
+
+
+def _frequency_parts(frequency: str | None) -> tuple[str | None, str | None]:
+    """(leading frequency word, stated day) from FRD text like
+    "Weekly Monday 8 PM" — parsed, never guessed; None when unstated."""
+    if not frequency:
+        return None, None
+    word = _FREQUENCY_WORD_RE.match(frequency)
+    day = _DAY_RE.search(frequency)
+    return (word.group(1).upper() if word else None,
+            day.group(1).capitalize() if day else None)
 
 
 def _pipeline_schedule_rows(feed: FrdFeed, config: Config, spec, faq,
@@ -414,13 +465,20 @@ def _pipeline_schedule_rows(feed: FrdFeed, config: Config, spec, faq,
             spec is None and feed.standard_target.tables):
         layers.append("STANDARD")
     for layer in layers:
+        frequency_word, day_of_schedule = _frequency_parts(feed.frequency)
         cells = {
             "PIPELINE_DESCRIPTION": _cell(
                 f"{feed.feed_name} ingestion ({layer.lower()})", "from_frd"),
-            "PIPELINE_FREQUENCY": _frequency_cell(feed, faq),
+            "PIPELINE_FREQUENCY": (
+                _cell(frequency_word, "from_frd",
+                      f"FRD frequency: {feed.frequency!r}")
+                if frequency_word else _frequency_cell(feed, faq)),
             "APPLICATION_NAME": _cell(feed.source_system, "from_frd"),
             "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
             "LAYER_NAME": _cell(layer, "from_frd"),
+            **({"DAY_OF_SCHEDULE": _cell(day_of_schedule, "from_frd",
+                                         f"FRD frequency: {feed.frequency!r}")}
+               if day_of_schedule else {}),
             "ACTIVE_FLAG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
             "ACTIVE_END_DATE": _cell("9999-12-31", "synthetic",
                                      _FRAMEWORK_VOCAB_TOOLTIP),
@@ -436,10 +494,29 @@ def _dq_rules_rows(feed: FrdFeed, config: Config, spec, faq,
     if spec is None:
         return []
     rows = []
+    if spec.recycle is not None:
+        key_stage = {f.source_column: f.stage_column
+                     for seg in spec.segments for f in seg.fields}.get(
+            spec.recycle.spec.applies_to, spec.recycle.spec.applies_to)
+        rows.append({
+            "SEQUENCE_NO": _cell(1, "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "RULE_TYPE": _cell("Custom", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "RULE_CLASS": _cell("ReferentialCheckRule", "synthetic",
+                                _FRAMEWORK_VOCAB_TOOLTIP),
+            "ACTIVE_RULE_FLG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "SOURCE_COLUMN": _cell(key_stage, "from_frd",
+                                   "FRD DQ: existence check driving the "
+                                   "recycle table"),
+            "INPUT_PARAM": _cell(spec.recycle.reference_table, "from_frd",
+                                 "reference table from the FRD DQ "
+                                 "Functional Requirement"),
+            "TARGET_COLUMN": _cell(spec.recycle.reference_id_column, "from_frd"),
+        })
     if spec.not_null_columns:
         joined = ",".join(spec.not_null_columns)
         rows.append({
-            "SEQUENCE_NO": _cell(1, "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
+            "SEQUENCE_NO": _cell(len(rows) + 1, "synthetic",
+                                 _FRAMEWORK_VOCAB_TOOLTIP),
             "RULE_TYPE": _cell("Predefined", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
             "RULE_CLASS": _cell("CheckRule", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
             "ACTIVE_RULE_FLG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
@@ -533,6 +610,10 @@ def _static_information_rows(feed: FrdFeed, config: Config, spec, faq,
 
 
 def _adls_delta_rows(feed, config, spec, faq, unmapped):
+    if spec is not None and spec.is_segmented:
+        # One file→stage row per segment table (H/D/T are TABLES).
+        return [_adls_delta_row(feed, config, spec, faq, unmapped, segment=seg)
+                for seg in spec.segments]
     return [_adls_delta_row(feed, config, spec, faq, unmapped)]
 
 
@@ -546,6 +627,53 @@ _IIG_TAB_BUILDERS = {
     "EMAIL_TEMPLATE_CONFIG": _email_template_rows,
     "ALL_FILES_STATIC_INFORMATION": _static_information_rows,
 }
+
+
+def _feed_from_spec(spec: ResolvedFeedSpec) -> FrdFeed:
+    """Feed-level facts reconstructed from a resolved spec, for runs whose FRD
+    is not the demo contract — every value is the run's own reconciled fact."""
+    from codegen.contracts.frd import TargetSpec
+
+    stage_tables = [s.stage_table.table for s in spec.segments]
+    if spec.recycle is not None:
+        stage_tables.append(spec.recycle.recycle_table.table)
+    standard_tables = sorted({
+        s.standard_table.table for s in spec.segments if s.standard_table
+    } | ({spec.standard_table.table} if spec.standard_table else set()))
+    return FrdFeed(
+        feed_name=spec.feed_name,
+        source_system=spec.source_system,
+        file_name_patterns=spec.file_name_patterns,
+        file_format=spec.file_format,
+        delimiter=spec.delimiter,
+        record_segments=(
+            [s.segment for s in spec.segments] if spec.is_segmented else []),
+        frequency=spec.frequency,
+        load_windows_sla=spec.load_windows_sla,
+        lobs=spec.lobs,
+        domain=spec.domain,
+        sub_domain=spec.sub_domain,
+        landing_location=spec.landing_location,
+        stage_target=TargetSpec(
+            catalog=spec.segments[0].stage_table.catalog,
+            schema=spec.segments[0].stage_table.schema_name,
+            tables=stage_tables,
+            load_strategy=spec.stage_load_strategy,
+        ),
+        standard_target=TargetSpec(
+            catalog=(spec.standard_table.catalog if spec.standard_table else None),
+            schema=(spec.standard_table.schema_name if spec.standard_table else None),
+            tables=standard_tables,
+            load_strategy=spec.standard_load_strategy or "Append",
+        ),
+        validation_rules=spec.validation_rules,
+        recycle_rule=(spec.recycle.frd_rule_text if spec.recycle else None),
+        history_backfill=None,
+        archive_retention=None,
+        phi_pii_notes=None,
+        sttm_reference=None,
+        requirement_ids=[],
+    )
 
 
 # -- payload ------------------------------------------------------------------- #
@@ -575,11 +703,21 @@ def metadata_sheet_payload(
     unmapped_by_slug = unmapped_by_slug or {}
     faq_by_slug = faq_by_slug or {}
 
+    # Feeds to render rows for: the contract's feeds (the pre-run preview),
+    # plus any resolved spec the contract does NOT cover (a run on a pair
+    # outside the demo contract, e.g. CAQH) — its feed-level facts come from
+    # the run's own ResolvedFeedSpec, so the rows reflect the actual run.
+    feed_rows: list[FrdFeed] = list(contract.feeds)
+    covered = {normalize_feed_name(f.feed_name) for f in contract.feeds}
+    for spec in specs or []:
+        if spec.feed_id not in covered:
+            feed_rows.append(_feed_from_spec(spec))
+
     tabs: dict[str, dict] = {}
     for name, tab in sheet.tabs.items():
         rows: list[dict] = []
         if name == "file_layout":
-            for feed in contract.feeds:
+            for feed in feed_rows:
                 slug = normalize_feed_name(feed.feed_name)
                 spec = spec_by_id.get(slug)
                 rows.append(_row(tab.headers, always_blank,
@@ -587,7 +725,7 @@ def metadata_sheet_payload(
                                                   faq=faq_by_slug.get(slug)),
                                  feed_slug=slug))
         elif name == "load_config":
-            for feed in contract.feeds:
+            for feed in feed_rows:
                 slug = normalize_feed_name(feed.feed_name)
                 spec = spec_by_id.get(slug)
                 for cells in _load_config_rows(feed, config, spec,
@@ -601,7 +739,7 @@ def metadata_sheet_payload(
                     rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
         elif name in _IIG_TAB_BUILDERS:
             builder = _IIG_TAB_BUILDERS[name]
-            for feed in contract.feeds:
+            for feed in feed_rows:
                 slug = normalize_feed_name(feed.feed_name)
                 spec = spec_by_id.get(slug)
                 unmapped = unmapped_by_slug.get(slug, set())

@@ -180,7 +180,9 @@ def _parse_ddl_statement(statement: str) -> tuple[str, list[tuple[str, str]]]:
 
 
 def _sql_comment(text: str) -> str:
-    return text.replace("'", "''")
+    # Single-line comment literals (the reference goldens' style): collapse
+    # any embedded newlines/whitespace runs, escape quotes.
+    return re.sub(r"\s+", " ", text).strip().replace("'", "''")
 
 
 def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:
@@ -440,23 +442,17 @@ def emit_framework(
     held_back: list[str] = []
     seg = spec.segmented_extraction
     if seg is not None:
-        d = seg.discriminators
-        status = ("confirmed" if d.status == "confirmed"
-                  else "ASSUMED — pending source team")
+        ident = seg.identification
         assumed_notes.append(
-            f"record-type discriminators Header={d.header!r} Detail={d.detail!r} "
-            f"Trailer={d.trailer!r} [{status}] — declared in the feed's FAQ, "
-            "stated nowhere in the workbook")
-        if seg.natural_key_declared:
-            assumed_notes.append(
-                "natural key [ASSUMED — FAQ declaration]: "
-                + ", ".join(seg.natural_key_declared))
-        held_back = [
-            f"{h.table} ({h.column_count} columns) — {h.reason}"
-            for h in seg.held_standard
+            f"record identification ({ident.method}): trailer marker "
+            f"{ident.trailer_marker!r}, header = {ident.header_rule} — "
+            f"evidence: {ident.citation}")
+        assumed_notes += [
+            f"{entry.note} — evidence: {entry.citation}"
+            for entry in seg.provenance_notes
         ]
 
-    segmented_lines = [f"- **ASSUMED**: {note}" for note in assumed_notes]
+    segmented_lines = [f"- **PROVENANCE**: {note}" for note in assumed_notes]
     segmented_lines += [f"- **HELD BACK**: {held}" for held in held_back]
     segmented_block = ("\n" + "\n".join(segmented_lines) + "\n"
                        if segmented_lines else "")
@@ -517,7 +513,7 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         + " — left blank, never invented |"
     )
     for note in artefacts.assumed_notes:
-        lines.append(f"| **ASSUMED** | {note} |")
+        lines.append(f"| **PROVENANCE** | {note} |")
     for held in artefacts.held_back:
         lines.append(f"| **HELD BACK** | {held} |")
     return "\n".join(lines) + "\n"

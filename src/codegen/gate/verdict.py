@@ -70,13 +70,9 @@ def compute_verdict(
                 + (f" — {outcome.notes}" if outcome.notes else "")
             )
     for candidate in candidates:
-        if candidate.kind == "extraction_assumption":
+        if candidate.kind == "confirm":
             flags.append(
-                f"extraction assumption pending engineer approval: {candidate.rule_text}"
-            )
-        elif candidate.kind == "escalated_conflict":
-            flags.append(
-                f"escalated conflict held for source-team ruling: {candidate.rule_text}"
+                f"confirm item pending (document-derived, cited): {candidate.rule_text}"
             )
         elif candidate.response is None:
             flags.append(

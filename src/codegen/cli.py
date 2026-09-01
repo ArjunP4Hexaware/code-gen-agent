@@ -57,6 +57,7 @@ def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) 
             # dialect landed — flat candidates.json stays byte-identical.
             entry.pop("kind", None)
             entry.pop("detail", None)
+            entry.pop("citation", None)
         payload.append(entry)
     artifact_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return artifact_path

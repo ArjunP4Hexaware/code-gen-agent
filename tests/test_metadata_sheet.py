@@ -247,10 +247,15 @@ def test_sttm_cells_populate_from_mapping_contract(config, demo_specs):
         # Framework-assigned IDs stay blank even after a run.
         assert row["values"]["GROUP_ID"] == ""
         assert row["badges"]["GROUP_ID"]["badge"] == "needs_template"
-    # DQ rules carry the STTM column lists.
+    # DQ rules carry the STTM column lists; recycle feeds additionally get a
+    # ReferentialCheckRule row sourced from the FRD's DQ requirement.
     dq = payload["tabs"]["DATA_QUALITY_RULES"]["rows"]
     assert dq
     for row in dq:
+        if row["values"].get("RULE_CLASS") == "ReferentialCheckRule":
+            assert row["badges"]["SOURCE_COLUMN"]["badge"] == "from_frd"
+            assert row["values"]["INPUT_PARAM"]  # the reference table
+            continue
         assert row["badges"]["SOURCE_COLUMN"]["badge"] == "from_sttm"
         assert row["values"]["SOURCE_COLUMN"] == row["values"]["TARGET_COLUMN"]
     # Standard-layer ingestion rows exist for feeds with a standard target.

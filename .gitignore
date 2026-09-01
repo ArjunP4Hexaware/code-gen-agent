@@ -70,3 +70,20 @@ ui/frontend/*.tsbuildinfo
 
 # databricks sync state (local CLI bookkeeping)
 .databricks/
+
+# Belt-and-braces (2026-09-01): no ROOT-LEVEL client document can be added
+# under any extension — the two raw DDL .txt goldens once sat here untracked
+# AND unignored, one `git add .` from leaking real ADLS paths. Case variants
+# spelled out because gitignore matching is case-sensitive on this runner.
+/*FRD*
+/*frd*
+/*STTM*
+/*sttm*
+/*SFMC*
+/*sfmc*
+/*RFC*
+/*rfc*
+/*CAQH*
+/*caqh*
+/*MIDS*
+/*mids*

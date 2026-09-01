@@ -240,12 +240,24 @@ def test_generation_emits_per_segment_tables_both_layers(generated):
                  ).read_text(encoding="utf-8")
     standard_txt = (framework / f"{spec.feed_slug}_standard_table_creation.txt"
                     ).read_text(encoding="utf-8")
-    for table in ("EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL",
-                  "EXT_SYN_DTL_RECYCLE"):
-        assert f"CREATE OR REPLACE TABLE SYN_DLK.STG_SYN.{table}" in stage_txt
+    # The deployment .txt carries EXACTLY the FRD's Target Table Name list —
+    # the errors/processed-files side-tables are CodeGen conventions and are
+    # omitted (they stay in ddl/), with a cited banner line saying so.
+    import re
+
+    stage_tables = set(re.findall(
+        r"CREATE OR REPLACE TABLE SYN_DLK\.STG_SYN\.(\w+)", stage_txt))
+    assert stage_tables == {"EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL",
+                            "EXT_SYN_DTL_RECYCLE"}
+    assert "side-tables omitted from deployment DDL" in stage_txt
+    assert "not in FRD Target Table Name" in stage_txt
     for table in ("EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL"):
         assert f"CREATE OR REPLACE TABLE SYN_STD.SYN.{table}" in standard_txt
-    assert "EXT_SYN_DTL_RECYCLE" not in standard_txt
+    assert "CREATE OR REPLACE TABLE SYN_STD.SYN.EXT_SYN_DTL_RECYCLE" not in standard_txt
+    # ...but the side-table DDL sources remain untouched in ddl/.
+    ddl_dir = tmp / "out" / spec.feed_slug / "ddl"
+    assert (ddl_dir / "STG_SYN.EXT_SYN_DTL_ERRORS.sql").is_file()
+    assert (ddl_dir / "STG_SYN.EXT_SYN_DTL_PROCESSED_FILES.sql").is_file()
     # STRING everywhere except audit date/timestamp fields — in BOTH layers
     # (FRD acceptance criterion 3), asserted on the segment/recycle target
     # tables (the agent's errors/processed-files bookkeeping tables carry

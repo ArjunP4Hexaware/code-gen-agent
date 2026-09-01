@@ -165,7 +165,8 @@ def frd_contract_dict() -> dict:
             "landing_location": "landing/inbound/synthetic/segmented",
             "stage_target": {
                 "catalog": "SYN_DLK", "schema": "STG_SYN",
-                "tables": ["EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL"],
+                "tables": ["EXT_SYN_HDR", "EXT_SYN_DTL", "EXT_SYN_TRL",
+                           "EXT_SYN_DTL_RECYCLE"],
                 "load_strategy": "Truncate and Load",
             },
             "standard_target": {

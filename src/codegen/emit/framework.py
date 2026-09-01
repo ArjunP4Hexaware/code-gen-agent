@@ -205,7 +205,8 @@ def _synthetic_location(spec: ResolvedFeedSpec, config: Config, table: str) -> s
 
 def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                          spec: ResolvedFeedSpec, config: Config,
-                         banner: list[tuple[str, str]]) -> str:
+                         banner: list[tuple[str, str]],
+                         extra_banner_lines: list[str] | None = None) -> str:
     """Render one deployment-team .txt file for a layer's DDL entries."""
     from codegen.emit.emitter import _environment
 
@@ -238,6 +239,7 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                     if key != "Layout"]
     banner_lines.append("DDL is engineer-run; the agent never creates target "
                         "tables (create_tables: false).")
+    banner_lines.extend(extra_banner_lines or [])
     template = _environment().get_template("framework/table_creation.txt.j2")
     return template.render(layer=layer, tables=tables, banner_lines=banner_lines)
 
@@ -386,14 +388,34 @@ def emit_framework(
     # data lake by the deployment team; conformant to the reference goldens.
     stage_entries: list[tuple[str, str, str]] = []
     standard_entries: list[tuple[str, str, str]] = []
+    omitted_side_tables: list[str] = []
+    side_table_purposes = ("errors side-table", "processed-files ledger")
     for file_name, statement in ddl_sources:
-        layer, _schema, _table, purpose = _classify_ddl(file_name)
+        layer, _schema, table, purpose = _classify_ddl(file_name)
+        if (not config.framework.deployment_ddl_include_side_tables
+                and purpose in side_table_purposes):
+            # The deployment .txt carries exactly the FRD's Target Table
+            # Name list; the side-tables are CodeGen conventions and stay in
+            # out/<slug>/ddl/ (and in notebook mode) untouched.
+            omitted_side_tables.append(table)
+            continue
         target = stage_entries if layer == "stage" else standard_entries
         target.append((file_name, statement, purpose))
+    frd_tables = [s.stage_table.table for s in spec.segments]
+    if spec.recycle is not None:
+        frd_tables.append(spec.recycle.recycle_table.table)
+    extra_banner_lines: list[str] = []
+    if omitted_side_tables:
+        extra_banner_lines.append(
+            f"side-tables omitted from deployment DDL — not in FRD Target "
+            f"Table Name (FRD lists: {', '.join(frd_tables)}); omitted: "
+            f"{', '.join(sorted(omitted_side_tables))} (CodeGen conventions, "
+            "kept in ddl/)")
     for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
         txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
         txt_path.write_text(
-            _table_creation_text(layer, entries, spec, config, banner),
+            _table_creation_text(layer, entries, spec, config, banner,
+                                 extra_banner_lines=extra_banner_lines),
             encoding="utf-8", newline="\n")
         files.append(txt_path)
 

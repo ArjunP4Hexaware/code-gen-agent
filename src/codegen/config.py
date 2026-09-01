@@ -88,6 +88,12 @@ class FrameworkConfig(BaseModel):
     # real ones are assigned by the client platform).
     synthetic_location_prefix: str = (
         "abfss://syn-container-stage@synstorage.dfs.synthetic.example")
+    # The deployment-team .txt files carry exactly the FRD's Target Table
+    # Name list by default: the errors/processed-files side-tables are
+    # CodeGen conventions absent from the FRD, the STTM, and the client
+    # reference goldens. They remain in out/<slug>/ddl/ and in notebook mode
+    # regardless.
+    deployment_ddl_include_side_tables: bool = False
 
 
 class NamingConfig(BaseModel):

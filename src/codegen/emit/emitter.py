@@ -21,7 +21,9 @@ from codegen.emit.context import TemplateGapError
 from codegen.emit.notebook import build_notebook
 
 # The only audit columns the generated audit module knows how to populate.
-_KNOWN_AUDIT_COLUMNS = {"LOB", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME"}
+_KNOWN_AUDIT_COLUMNS = {
+    "LOB", "FILE_TYPE", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME",
+}
 
 
 def _py_literal(value: Any) -> str:
@@ -74,7 +76,10 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
             (
                 "ddl/stage_table.sql.j2",
                 ddl_dir / f"{context['stage_schema']}.{seg['stage_table']}.sql",
-                {"seg": seg, "qualified_prefix": qualified_prefix},
+                # Per-segment audit columns override the feed-wide set (equal
+                # on flat feeds, so their rendering is byte-identical).
+                {"seg": seg, "qualified_prefix": qualified_prefix,
+                 "audit_columns": seg["audit_columns"]},
             )
         )
     renders.append(
@@ -99,14 +104,17 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
                 {"qualified_prefix": qualified_prefix},
             )
         )
-    if context["standard"]:
-        standard = context["standard"]
+    # One standard DDL per standard table: flat feeds carry exactly one; a
+    # segmented feed maps each segment to its own table in BOTH layers.
+    for standard in context["standard_tables"]:
         standard_prefix = f"{standard['catalog']}." if standard["catalog"] else ""
         renders.append(
             (
                 "ddl/standard_table.sql.j2",
                 ddl_dir / f"{standard['schema']}.{standard['table']}.standard.sql",
-                {"standard_qualified_prefix": standard_prefix},
+                {"standard": standard, "standard_qualified_prefix": standard_prefix,
+                 "audit_columns": standard.get("audit_columns",
+                                               context["audit_columns"])},
             )
         )
 

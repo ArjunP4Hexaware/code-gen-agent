@@ -33,13 +33,57 @@ venv/
 .ruff_cache/
 *.egg-info/
 
-# FRD/STTM documents and derived contracts are TRACKED as of 2026-08-28
-# (program go-ahead reported by Soham, reversing the 2026-08-22 removal).
-# Client reference decks stay out.
+# Office documents and FRD/STTM artifacts — blanket guard against client docs
+# entering the repo. 2026-08-22: fixtures/contracts/ (incl. two contracts
+# derived from REAL client FRDs), fixtures/workbooks/ and fixtures/replay/
+# were deleted and git rm'd on the "no client documents in the repository"
+# rule; the `!fixtures/workbooks/*.xlsx` re-include that used to live here
+# was removed with them on purpose — do not add it back. Any future fixture
+# material must be anonymized first AND tracked by a deliberate decision.
+*.docx
+*.xlsx
 *.pptx
+*.contract.json
+fixtures/contracts/
+fixtures/workbooks/
+fixtures/replay/
+# Deliberate exception (2026-08-31, demo-day direction from Venu): SCRUBBED
+# reference fixtures produced by scripts/scrub_reference.py from the raw
+# client exports in inputs/reference_raw/ (which stay ignored via inputs/).
+# Only the anonymized copies under fixtures/reference/ are ever tracked;
+# scripts/scrub_check.py is the denylist scanner that enforces it.
+!fixtures/reference/
+!fixtures/reference/*.xlsx
+# Deliberate exception (2026-08-31, segmented dialect): the SYNTHETIC
+# segmented golden workbook built by tests/segmented_fixture.py — zero
+# client values (scrub-scanned in the suite). Everything else under
+# fixtures/workbooks/ stays ignored.
+!fixtures/workbooks/
+fixtures/workbooks/*
+!fixtures/workbooks/synthetic_segmented_golden.xlsx
 
 # Wheel-build detritus
 build/
 dist/
 *.whl
 ui/frontend/*.tsbuildinfo
+
+# databricks sync state (local CLI bookkeeping)
+.databricks/
+
+# Belt-and-braces (2026-09-01): no ROOT-LEVEL client document can be added
+# under any extension — the two raw DDL .txt goldens once sat here untracked
+# AND unignored, one `git add .` from leaking real ADLS paths. Case variants
+# spelled out because gitignore matching is case-sensitive on this runner.
+/*FRD*
+/*frd*
+/*STTM*
+/*sttm*
+/*SFMC*
+/*sfmc*
+/*RFC*
+/*rfc*
+/*CAQH*
+/*caqh*
+/*MIDS*
+/*mids*

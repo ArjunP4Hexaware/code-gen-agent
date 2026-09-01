@@ -1,11 +1,5 @@
 # CodeGen / Data Engineer Agent — working notes
 
-> **Read first, every session:** read
-> `../amerihealth-project-master-context-document.md` in its entirety before
-> working in this repo. It is the program-wide master context document
-> (scope, timeline, all three agents, open gaps, and known-stale claims in
-> this file). This file remains authoritative for this repo specifically.
-
 ## Purpose & pipeline position
 
 Generates production-shaped Databricks ingestion pipelines (PySpark + Delta
@@ -25,8 +19,7 @@ inside ACFC's own environment with Claude Code, using this as the
 blueprint. Nothing here deploys to ACFC directly — anything that cannot be
 re-derived from the contracts, config, and docs does not survive the
 hand-off. **Current program priority is FRD→STTM's live Databricks App
-(due 2026-08-24), not this repo** — see the workspace-level `CLAUDE.md` one
-directory up.
+(due 2026-08-24), not this repo.**
 
 Two-layer trust rule (never violate): **Layer 1** is deterministic Jinja2 —
 everything derivable from the contracts, byte-stable, every file stamped
@@ -53,18 +46,22 @@ src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
                     classifier), reasoning/ (Layer 2: providers, verbatim
                     grounding), emit/ (Jinja2 + notebook assembler), gate/
                     (preflight, tests, verdict), report/, templates/, cli.py, config.py
-tests/              137 tests, offline, no Spark needed; 31 of them SKIP since
-                    2026-08-22 because the fixtures they drive on were removed
-                    (see "Fixtures & data rules"); the demo-UI and SharePoint-
-                    route tests also skip when the [ui] extra (or httpx) isn't
-                    installed. Run pytest for the live count rather than
+tests/              offline, no Spark needed; some SKIP when the fixtures they
+                    drive on are absent (see "Fixtures & data rules"); the
+                    demo-UI and SharePoint-route tests also skip when the [ui]
+                    extra (or httpx) isn't installed. Run pytest for the live
+                    count rather than
                     trusting a number written down here.
 config/config.yaml  every knob — contract pairs (EMPTY since 2026-08-22), extractor layout,
                     naming, masking, gate, job
-fixtures/           GONE since 2026-08-22 — contracts/ (2 real-FRD contracts + MIDS STTM +
-                    SYNTHETIC CAQH STTM + CV/golden FRD + expected extract), workbooks/
-                    (anonymized golden STTM) and replay/ (live E2E set) were deleted and
-                    git rm'd; .gitignore now blocks all three paths
+fixtures/           partially tracked again (see "Fixtures & data rules" for the
+                    2026-08-22 removal + what came back): tracked today are faq/
+                    (per-feed load-pattern FAQs incl. the CAQH one), reference/
+                    (SCRUBBED SFMC client reference artefacts + SCRUB_REPORT) and
+                    workbooks/synthetic_segmented_golden.xlsx — all via deliberate
+                    .gitignore re-includes. contracts/, the CV golden workbook and
+                    replay/ remain untracked on staging (local working-tree-only
+                    restores); on MAIN they are tracked since b0560af
 docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_DESIGN.md,
                     LIVE_PATH_RECON.md, LIVE_RUN_RECORD.md, DEMO_RUNBOOK.md (client demo script),
                     EDO_STANDARDS_ALIGNMENT.md (clause-by-clause map of the EDO
@@ -80,9 +77,27 @@ Deterministic, no LLM, pairing-aware: inputs are (workbook, FRD contract); `feed
 is `normalize_feed_name(FRD feed_name)` — the resolver's join invariant, NOT the
 stage table name — and format/delimiter/standard-target presence come from the FRD side. Recycle validation text stays VERBATIM
 (the resolver also accepts the client "Check with ... FOR ..." phrasing).
-FLAT only — segmented (H/D/T) raises `SegmentedWorkbookError`; a prefix-less
-workbook matching the family signature gets the docs/SEGMENTED_MODE_DESIGN.md
-diagnostic. Header resolution is fuzzy + config-driven (`extractor:` knob);
+**Segmented (H/D/T) dialect IMPLEMENTED, corrected 2026-09-01 against the
+FRD read verbatim** (`extract/segmented.py`; docs/SEGMENTED_MODE_DESIGN.md):
+segments are TABLES in BOTH layers (FRD acceptance criterion 2 — fields
+carry `record_segment`/`stage_table`/`standard_table`; per-segment
+standard DDL), layer scope comes from **Load Strategy STG/STD, never from
+which schemas the Target Schema block names** (STD catalog/schema/tables
+from the STTM's second target group with a cited provenance note), record
+identification is **DERIVED from the STTM** (trailer static marker quoted
+verbatim as the citation; header positional; FAQ
+`record_type_discriminators` is strictly a confirmed-status override),
+STRING-except-audit in both layers rides an FRD-driven AS-IS switch
+(`spec.load_as_is`), and a keys-None FRD (truncate/append, no MERGE)
+makes empty `natural_key_columns` legitimate. The review layer gets ONE
+soft cited CONFIRM item (`RuleCandidate.kind == "confirm"`), riding the
+existing candidates/decision flow. **Citation rule (2026-09-01 lesson):
+every conflict/assumption/confirm item and provenance note the agent
+raises MUST quote the exact FRD field or STTM cell it rests on — an item
+that cannot cite its evidence is a bug (models enforce non-empty
+citations; tests assert them). And never infer target-layer scope from a
+schema block: "stage-only" was wrongly inferred that way once — read Load
+Strategy.** Header resolution is fuzzy + config-driven (`extractor:` knob);
 trailing `NA` rows → `audit_columns`, never `fields[]`; `Comment` →
 `value_spec`; file-name pairing canonicalizes date placeholders (CCYY→YYYY,
 case-insensitive) and stays fail-loud. The CV/golden pair is byte-tested against
@@ -94,15 +109,17 @@ its committed expected output and can NEVER match the MIDS fixture
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
 # Live Layer-2 runs additionally need the Anthropic SDK: -e ".[dev,live]"
-.venv/bin/python -m pytest -q          # 80 passed, no Spark, no network
+.venv/bin/python -m pytest -q          # no Spark, no network
 
 # Generate everything from the fixture contracts (mock Layer 2, no network)
 .venv/bin/python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests
 ```
 
-Expected with current fixtures: **all 4 feeds PASS_WITH_FLAGS** (every feed
-has flagged/notification/unmapped rules — correct behavior, not a failure).
-Output lands in `out/<feed_slug>/` (module tree, DDL, tests,
+`contracts.pairs` is empty (see "Fixtures & data rules"), so `generate-all`
+refuses loudly; generate via explicit paths (`codegen generate
+--frd-contract X --sttm-contract Y`) or the demo UI's golden pair. A feed
+with flagged/notification/unmapped rules verdicts PASS_WITH_FLAGS — correct
+behavior, not a failure. Output lands in `out/<feed_slug>/` (module tree, DDL, tests,
 job JSON, one assembled runnable `.ipynb`) with a markdown report per feed
 in `reports/` — both gitignored. Running the *generated* Spark tests (drop
 `--skip-tests`) needs a JVM: `JAVA_HOME` → Java 17, `PYSPARK_PYTHON` → the
@@ -117,18 +134,31 @@ must be ruff-clean against the same rules (`out/<feed>/ruff.toml` emitted).
 - No secrets in the repo, ever. Credentials only via environment / `.env`
   (gitignored; `.env.example` documents the names).
 - Program policy: **Anthropic is the sole model vendor** across the
-  AmeriHealth agents program. The LLM provider is **mock by default**:
-  `build_provider` selects the deterministic mock unless
-  `ANTHROPIC_API_KEY` is set and dry-run is off — zero network otherwise.
-  The live path (`reasoning/providers/anthropic_provider.py`) is
-  implemented and unit-tested (stubbed SDK) but has not yet been validated
-  with a real billed call — first live E2E is upcoming. Live LLM use is
-  confined to Layer 2 (reasoning/review); code generation itself is
-  deterministic Jinja2 by design. Model name lives in config
-  (`reasoning.model`). claude-opus-4-8 rejects sampling parameters
-  (`temperature`/`top_p`/`top_k` return a 400), so no temperature knob
-  exists and live Layer-2 output is inherently non-deterministic — do not
-  re-add one.
+  AmeriHealth agents program. Mock always wins on dry-run; live selection
+  is transport-dependent (2026-08-28): the tracked config's
+  `reasoning.provider` is **`databricks_fmapi`** (Claude via the workspace
+  serving endpoint `databricks.serving_endpoint` — a transport, not a
+  vendor change; resolves from YAML + workspace auth, no Anthropic key),
+  with `anthropic` (key-gated on `ANTHROPIC_API_KEY`) still available.
+  CAUTION: because FMAPI resolves without any env secret, tests that touch
+  live paths must pin the provider — `tests/test_demo_ui.py`'s `client`
+  fixture does this; a 2026-08-28 pytest run fired real FMAPI calls before
+  that guard existed. First live FMAPI E2E: 2026-08-28 (CV golden pair,
+  candidates verified). Live LLM use is confined to Layer 2
+  (reasoning/review); code generation itself is deterministic Jinja2 by
+  design. Model name lives in config (`reasoning.model`, currently
+  `claude-opus-5`). The Claude 4.8/5 API families reject sampling
+  parameters (`temperature`/`top_p`/`top_k` return a 400), so no
+  temperature knob exists and live Layer-2 output is inherently
+  non-deterministic — do not re-add one. CAUTION (2026-09-01): the
+  endpoint serves extended-thinking Claude, whose `message.content` comes
+  back as a LIST of typed blocks (reasoning + text), not a string —
+  `codegen.databricks.chat` normalizes via `_chat_content_text` (text
+  blocks joined, non-text ignored). Do not "simplify" that back to
+  `content or ""`; that exact regression produced the provider-failure
+  candidates in run demo_20260831_212539 (fixed in e91ec11; post-demo
+  TODO in docs/DESIGN.md §8: provider failures should be their own flag
+  class, not candidate cards).
 - Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing is
   `None`, never a default. PHI masked to last-4 at every egress.
 - **Client framework doctrine (Aug 26 framework calls, encoded 2026-08-27):**
@@ -167,47 +197,14 @@ Keeping the network at the edge is what lets Layer 1 stay deterministic,
 offline and credential-free. **Do not "simplify" this by calling Graph from
 inside `extract-sttm` or the resolver.**
 
-- **Standard library only** (`urllib.request`). Graph is plain REST; no SDK,
-  no new runtime dependency. (`httpx` was added to the `dev` extra — it is
-  test-only: `fastapi.testclient` is httpx-backed and the [ui] extra did not
-  pull it, so the demo-UI tests could not actually run.)
-- **App-only client credentials.** Secret from `SHAREPOINT_CLIENT_SECRET`
-  (env or the gitignored `.env`), same resolution as `ANTHROPIC_API_KEY`.
-  Excluded from `SharePointConfig.__repr__` so it cannot reach a traceback.
-  Required Graph APPLICATION permission with admin consent: `Sites.Selected`
-  on the target site, preferred over tenant-wide `Files.ReadWrite.All`.
-- **Config split follows this repo's doctrine, not the source repo's.**
-  frd-to-sttm reads every knob from notebook widgets/env. Here the non-secret
-  knobs (host, site_path, library, input/output folder) live in
-  `config/config.yaml` under `sharepoint:`, and identity + secret are
-  env-only so a tenant is never committed. `param_from_config` layers them:
-  env var > YAML > default. The section is OPTIONAL — a config without it
-  still loads and every other command is unaffected.
-- **Fail-loud, both directions.** Missing config raises naming both remedies.
-  A short download raises rather than leaving a truncated .xlsx for openpyxl
-  to report as a layout problem. A missing library lists what the site has.
-  Fetching nothing and publishing nothing are both errors, not no-ops.
-- **Publish is separate from generate on purpose.** Generation re-runs every
-  time a rule or contract changes, and a re-generate is not a re-publish —
-  the human gate sits between them. Running `sharepoint-publish` IS that
-  gate, which is why the CLI takes no `--confirm` (mirroring the source
-  repo's standalone publish notebook); the HTTP endpoint, which a stray POST
-  could reach, DOES require `{"confirm": true}`.
-- **Write scope is one folder.** `sharepoint.output_folder` is the only path
-  this repo ever writes to. Keep the app registration's write grant scoped
-  to it.
-- **Publish names are qualified.** `<feed_slug>.md` / `<feed_slug>.ipynb`
-  publish under their own name; anything else (`bronze.py`, `ddl.sql`) is
-  prefixed `<feed_slug>__`, because those names repeat across feeds and a
-  flat library folder has no other way to stop the second feed overwriting
-  the first.
-- **UI routes** (`ui/backend/sharepoint_routes.py`): a picked document is
-  downloaded into `inputs/sharepoint/` — the same place `sharepoint-fetch
-  --dest` writes — so it starts through the existing generate path. There is
-  deliberately no second "generate from SharePoint" execution path. Status
-  codes say whose problem it is: 503 not configured, 502 Graph refused, 400
-  bad request, 404 no such feed/artifact, 413 over a cap. The panel renders
-  nothing when unconfigured.
+Mechanics (stdlib-only transport, app-only credentials via
+`SHAREPOINT_CLIENT_SECRET`, config split, fail-loud rules, the
+publish-is-the-human-gate design, one-folder write scope, qualified publish
+names, UI route status codes):
+`.claude/skills/code-gen-agent/references/sharepoint-seam.md` — read it
+before touching `sharepoint.py`, the publish flow, or the UI routes. No
+secrets in the repo; the `sharepoint:` config section is optional and
+non-secret.
 
 ## Output modes (Option A / Option B, added 2026-08-27)
 
@@ -218,13 +215,23 @@ for byte — a fresh standalone pipeline, the ~10% case; guarded by
 pair — regenerate deliberately, never casually). **Option B**
 ("framework") is the primary ACFC path per the Aug 25/26 calls: an
 *addition* to the existing metadata-driven ingestion framework (~90% of
-runs) — `out/<slug>/framework/` holds `ddl_scripts.xlsx`,
-`config_rows.xlsx` (THE approval artefact; built by `codegen.
-metadata_sheet`, the single source of truth for the row layout — a
-stand-in until the client's template arrives, values carry over),
-`config_inserts.sql` (sqlserver|lakebase dialect via `framework:` config;
-plain INSERTs, idempotency belongs to the framework's load path) and
-`ADDITION.md`. **The master notebook is ACFC's own existing notebook
+runs) — `out/<slug>/framework/` holds (formats swapped 2026-08-31 per
+Venu's standup direction + the real client reference artefacts, scrubbed
+into `fixtures/reference/` by `scripts/scrub_reference.py`; the raw
+exports live only in gitignored `inputs/reference_raw/`, and
+`scripts/scrub_check.py` is the denylist scanner tests run over every
+emitted artefact): `<slug>_stage_table_creation.txt` +
+`<slug>_standard_table_creation.txt` (deployment-team DDL conformant to
+the reference goldens — CREATE OR REPLACE, per-column COMMENTs, stage
+LOCATION labeled-SYNTHETIC, standard CLUSTER BY AUTO + full TBLPROPERTIES,
+trailing SET TAGS), `config_rows.xlsx` (THE approval artefact; built by
+`codegen.metadata_sheet`, the single source of truth for the row layout —
+now the REAL 7-tab client IIG layout from the scrubbed reference
+workbook) and `config_inserts.xlsx` (one sheet per populated tab, value
+rows + generated INSERT column, sqlserver|lakebase dialect via
+`framework:` config; statements over Excel's cell limit chunk into
+`_PART<n>` columns; plain INSERTs, idempotency belongs to the framework's
+load path) and `ADDITION.md`. **The master notebook is ACFC's own existing notebook
 (clarified 2026-08-27): the DDL scripts and insert SQL are ADD-ONS to it —
 the agent never generates, edits, or ships that notebook.** Framework mode still renders the FULL pipeline into a
 scratch tree so gate checks and verdicts are identical across modes; it
@@ -275,14 +282,51 @@ The client's raw documents live in `soham_workspace.codegen_agent.frd_raw`
 instruction — Databricks volumes are allowed to hold client documents;
 this REPO still is not). Non-secret knobs in `config/config.yaml`
 `databricks:` (profile/catalog/schema/volumes; env `DATABRICKS_*` >
-YAML); auth resolves from the named profile (CLI OAuth keyring) —
-`databricks-sdk` via the optional `[databricks]` extra, keyless import.
-CAUTION: never leave a placeholder `DATABRICKS_HOST` uncommented in
-`.env` — the SDK prefers env over profile and will try to reach it.
-Everything write-shaped (tables, jobs, EXPLAIN, FMAPI provider, UC
-grounding gate checks — "B1") stays NOT BUILT pending explicit go; the
-governance check "never writes back" introspects this module and flips if
-a write-shaped function ever appears.
+YAML); auth resolves from the named profile (CLI OAuth keyring) — except
+when `DATABRICKS_HOST` is set in the env (a Databricks Apps runtime),
+where `_client()` lets the SDK's unified auth resolve the injected
+credentials instead of a profile. `databricks-sdk` via the optional
+`[databricks]` extra, keyless import. CAUTION: never leave a placeholder
+`DATABRICKS_HOST` uncommented in `.env` — the SDK prefers env over
+profile and will try to reach it. The FMAPI provider (`chat()` here +
+`reasoning/providers/databricks_provider.py`) got its explicit go and is
+LIVE as of 2026-08-28. **Artifact publish got its explicit go
+2026-08-28 too**: `publish_artifacts` (+ generalized `ensure_volume`) is
+the human-gated outbound half — the UC twin of `sharepoint-publish` —
+targeting `databricks.output_volume` (default `generated`), per-feed
+directories, confirm-gated over HTTP (`POST /api/databricks/publish`),
+no `--confirm` on the CLI (`codegen databricks-publish`) because running
+it IS the gate. The UI's publish panel (Dashboard) lets the user pick
+any catalog.schema.volume, but every write resolves through
+`_guarded_full_name` — `WRITABLE_PREFIX` refusal is enforced in code,
+and the governance "never writes back" check sanctions exactly
+{ensure_volume, upload_file, publish_artifacts}. Everything else
+write-shaped (tables, jobs) stays NOT BUILT pending explicit go; the
+check flips if any other write-shaped function appears (an FMAPI query
+is a read).
+
+**Databricks App deployment (2026-08-28; mock-locked since 0.3.2,
+currently 0.3.3):** the demo UI runs as the workspace app `codegen-agent`
+(https://codegen-agent-7405617821962942.2.azure.databricksapps.com).
+Deploy from a STAGED TREE (repo files + the gitignored
+`ui/frontend/dist` and fixtures — never `inputs/`): `databricks sync
+--full <staged tree> /Workspace/Users/2000198474@hexaware.com/
+codegen-agent-app` then `databricks apps deploy codegen-agent
+--source-code-path <that path>`. `requirements.txt` (`.[ui,databricks]`)
+is the Apps pip install; the runtime CACHES the installed env keyed on
+it, so bump the pyproject version AND the `codegen-version-marker`
+comment in requirements.txt whenever `src/` changes or the App serves
+stale code. **The App is HARD-LOCKED to the mock provider**: `app.yaml`
+sets `CODEGEN_FORCE_MOCK_PROVIDER=1`, `build_provider` returns
+MockProvider before any transport resolution, and
+`/api/demo/live-available` reports `{"available": true, "provider":
+"mock (locked)"}` — App runs stay usable with zero model calls; live
+FMAPI runs belong on localhost. (The SP's CAN_QUERY on the pay-per-token
+serving endpoint proved UNVERIFIABLE by CLI — no per-endpoint permission
+object — which is why the lock exists; an earlier claim here that the
+grant was verified was wrong.) App container restarts wipe
+`inputs/databricks/` fetches, runner state and the output-mode selection
+(back to `notebook`) — re-fetch and re-select after a restart.
 
 ## Demo panels + reference-document checks (added 2026-08-27, display/check only)
 
@@ -302,30 +346,11 @@ untouched and byte-stable (verified against tags `pre-demo-2026-08-27` /
 
 ### Deliberately NOT ported
 
-- **No `jobs_runner.py` equivalent — reason REVISED 2026-08-27 (B1).** The
-  original reason (kept for history): frd-to-sttm's module triggers its
-  bundle-deployed job because its demo runs are Spark notebook tasks; this
-  repo had no bundle, no job to trigger, and generation runs in-process, so
-  a Jobs-API path would have invented a job that does not exist. The revised
-  reason: the client now runs **metadata-driven Databricks Workflows around
-  a common wrapper notebook** and ADF is out of scope — so the emitted
-  `workflow.json` has a real target, and the missing piece is the CLIENT'S
-  wrapper job, not a runner of ours. The seam therefore gained read-only
-  `get_job` (inspect the wrapper's parameters when it exists;
-  `databricks.wrapper_notebook_path` stays empty until the client supplies
-  it) and still ships NO execute/create_job/run_now — running jobs belongs
-  to the client's framework, never to the agent (a suite test and the
-  governance "never writes back" check both enforce the absence).
-- **No `_sharepoint.py` shim.** That exists so `%run ./_sharepoint` and a
-  local `from _sharepoint import ...` both resolve; this repo has no
-  notebooks and no `%run`.
-- **No duplicate-input short-circuit.** frd-to-sttm's locate flow presents an
-  existing `<doc_id>.sttm.xlsx` instead of regenerating, keyed on a 1:1
-  FRD→STTM naming convention. Here one workbook yields N feeds whose slugs
-  are only known AFTER resolution, so there is no pre-run name to key on.
-  `POST /api/sharepoint/locate` returns `already_published` as INFORMATION
-  for the operator instead; it never decides on their behalf. Closing this
-  properly needs a content hash, same as the upstream repo's open item.
+Three frd-to-sttm features are deliberately absent (`jobs_runner.py`, the
+`_sharepoint.py` shim, the duplicate-input short-circuit) — rationale in
+`.claude/skills/code-gen-agent/references/deep-dive.md` § "Deliberately
+NOT ported"; read it before porting anything from that repo. Running jobs
+belongs to the client's framework, never to the agent.
 
 ## Branching model
 
@@ -350,17 +375,43 @@ file names but the files are absent, so Live/Replay fail with file-not-found
 until anonymized copies are restored; every fixture-driven test skips with an
 explicit reason rather than failing (`tests/conftest.py` `require_fixture_files`
 / `_pair_paths`). Restoring anonymized fixtures at the configured paths
-re-enables the full 80-test suite unchanged. The anonymized CV/golden set
+re-enables the full test suite unchanged. The anonymized CV/golden set
 (demo FRD + STTM contracts, golden workbook, and the `live_e2e_20260807`
 replay set) survives at `044752e^` and may be restored **working-tree-only**
 with `git show "044752e^:<path>" > <path>` — never `git checkout`, which
 would stage and re-track the paths (done locally 2026-08-25; the MIDS/CAQH
-client-derived contracts must NOT be restored).
+client-derived contracts must NOT be restored **on staging**).
+
+**The 2026-08-22 removal was partially reversed — differently per branch.**
+On **staging**, three fixture families are tracked again by deliberate
+`.gitignore` re-includes: `fixtures/faq/` (per-feed load-pattern FAQs),
+`fixtures/reference/` (the SCRUBBED SFMC client reference artefacts +
+`SCRUB_REPORT.md`; raw exports live only in gitignored
+`inputs/reference_raw/`, `scripts/scrub_check.py` is the denylist
+scanner) and `fixtures/workbooks/synthetic_segmented_golden.xlsx`; the
+client documents themselves stay untracked (root-anchored `.gitignore`
+guards block stray `*FRD*`/`*STTM*`/`*CAQH*`/`*MIDS*`/`*SFMC*`/`*RFC*`
+files at the repo root). On **main**, commit `b0560af` (2026-08-28,
+"Track FRD/STTM documents and contracts in the repo") reverses the
+removal outright on a program go-ahead (reported by Soham, 2026-08-28,
+reconfirmed in-session 2026-08-31 — the commit message is the only
+in-repo record): main tracks the MIDS/CAQH client FRD/STTM documents,
+the CV-golden demo fixtures, the sfmc contracts and the
+`live_e2e_20260807` replay set. The branches therefore DISAGREE about
+client documents. **Reconciled at the 2026-09-01 staging→main merge
+(Soham):** main KEEPS its b0560af-tracked client documents and fixtures
+(the program go-ahead stands) while taking staging's `.gitignore`
+(gitignore patterns never untrack already-tracked files, so the tracked
+documents survive under staging's guards — they only block NEW strays);
+staging itself continues to hold no client documents. Apply the same
+resolution at future merges unless the program policy changes.
 
 Offline fixtures only — tests and dry-run generation must pass with zero
-credentials and zero network. No real client data, ever; any new fixture
-material must be anonymized first AND tracked by a deliberate decision (the
-`.gitignore` re-include for workbooks was removed for that reason).
+credentials and zero network. No real client data, ever (on staging); any
+new fixture material must be anonymized/scrubbed first AND tracked by a
+deliberate decision — every current re-include (faq/, reference/, the
+synthetic segmented golden) was added that way, one path at a time, never
+a directory blanket.
 Generated output is byte-stable by design — no timestamps or randomness in
 generated files; keep it that way (extract-sttm: inject `--generated-date`).
 
@@ -379,12 +430,25 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
   (no `MAPPING-` prefix, `Source Layout` vs `Source File Layout`, different
   header dialect). Closing that round trip is a real integration task; do
   not assume the pipeline joins up.
-- **The CAQH STTM contract is synthetic** — `extract-sttm` is flat-only, so
-  CAQH (segmented) still cannot be extracted; the MIDS STTM contract
-  predates the extractor (out-of-repo; no committed workbook reproduces it).
-  The record-type discriminator (first field, H/D/T, `config.segments`) is
-  an assumption pending the source dictionary; CAQH's standard target is
-  empty in the FRD (stage-only, load AS-IS) — confirm with the source team.
+- **CAQH extracts for real (corrected 2026-09-01)** — segments as tables
+  in both layers, identification derived from the STTM, recycle from the
+  FRD's DQ requirement; the historical synthetic CAQH STTM contract is
+  obsolete and the 2026-08-31 "two open source-team questions" are
+  RETRACTED (the documents answer both — docs/SEGMENTED_MODE_DESIGN.md
+  quotes them). TWO soft CONFIRM items remain, both cited: positional
+  identification (STTM trailer marker) and per-segment audit-column
+  scope (HDR/TRL follow the STTM's fewer audit rows, not the FRD's
+  feed-wide wording). The generated segments module renders the DERIVED
+  identification (trailer-marker + positional header) when
+  `segmented_extraction` is present; `config.segments` discriminators
+  are the legacy branch. The CAQH FAQ
+  (`fixtures/faq/caqh_tpl_inbound_files.faq.yaml`) carries seven
+  FRD-cited answers as of 2026-09-01 (load_frequency, has_header/
+  has_trailer, dedup_within_file, existing_record_policy,
+  data_integrity_checks, reject_threshold); is_master_file and
+  target_tables_exist stay honestly unanswered → CAQH verdicts
+  PASS_WITH_FLAGS with 10 flags. The MIDS STTM contract still predates
+  the extractor.
 - `FrdContract._provenance.ambiguities` accepts plain strings (older
   contracts) AND the structured `GatedAmbiguity` objects current
   frd-to-sttm output emits; absent context keys there are not drift.

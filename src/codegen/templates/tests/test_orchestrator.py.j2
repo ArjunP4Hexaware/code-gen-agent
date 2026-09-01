@@ -22,7 +22,7 @@ def test_happy_path_loads_and_passes_dq(spark, tables, reference_stand_in, tmp_p
     from conftest import add_reference_ids
 
     rows = detail_rows(3, key_prefix="E2E")
-    add_reference_ids(spark, [r[{{ detail_natural_key_source_columns[0] | tojson }}] for r in rows])
+    add_reference_ids(spark, [r[{{ test_key_source_column | tojson }}] for r in rows])
     path = write_source_file(
         tmp_path, rows, file_name={{ e2e_file_names[0] | tojson }}
     )
@@ -54,13 +54,14 @@ def test_happy_path_loads_and_passes_dq(spark, tables, tmp_path):
 {% endif %}
 
 
+{% if has_null_key_test %}
 def test_null_key_rows_are_rejected_not_loaded(spark, tables{% if recycle %}, reference_stand_in{% endif %}, tmp_path):
     rows = detail_rows(2, key_prefix="E2EREJ")
-    rows[0][{{ detail_natural_key_source_columns[0] | tojson }}] = ""
+    rows[0][{{ test_key_source_column | tojson }}] = ""
 {% if recycle %}
     from conftest import add_reference_ids
 
-    add_reference_ids(spark, [rows[1][{{ detail_natural_key_source_columns[0] | tojson }}]])
+    add_reference_ids(spark, [rows[1][{{ test_key_source_column | tojson }}]])
 {% endif %}
     path = write_source_file(
         tmp_path, rows, file_name={{ e2e_file_names[2] | tojson }}
@@ -68,6 +69,7 @@ def test_null_key_rows_are_rejected_not_loaded(spark, tables{% if recycle %}, re
     result = _ingest(spark, path{% if recycle %}, reference_table=reference_stand_in{% endif %})
     assert result.rows_rejected == 1
     assert result.rows_loaded == 1
+{% endif %}
 
 
 {% if is_segmented %}
@@ -105,7 +107,7 @@ def test_reingest_is_idempotent(spark, tables{% if recycle %}, reference_stand_i
 {% if recycle %}
     from conftest import add_reference_ids
 
-    add_reference_ids(spark, [r[{{ detail_natural_key_source_columns[0] | tojson }}] for r in rows])
+    add_reference_ids(spark, [r[{{ test_key_source_column | tojson }}] for r in rows])
 {% endif %}
     path = write_source_file(
         tmp_path, rows, file_name={{ e2e_file_names[4] | tojson }}

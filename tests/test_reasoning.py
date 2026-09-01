@@ -113,7 +113,25 @@ def test_provider_failure_is_recorded_not_raised(specs_by_id):
 
 
 def test_build_provider_defaults_to_mock(config, monkeypatch):
+    # The anthropic transport is key-gated; the tracked config now selects
+    # databricks_fmapi, so pin the provider to test the keyless default.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert build_provider(config, dry_run=False).name == "mock"
+    reasoning = config.reasoning.model_copy(update={"provider": "anthropic"})
+    anthropic_config = config.model_copy(update={"reasoning": reasoning})
+    assert build_provider(anthropic_config, dry_run=False).name == "mock"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    assert build_provider(anthropic_config, dry_run=True).name == "mock"
+    # Dry-run forces mock across every transport, the tracked one included.
     assert build_provider(config, dry_run=True).name == "mock"
+
+
+def test_force_mock_env_locks_every_transport(config, monkeypatch):
+    # The App deployment's hard lock (app.yaml sets it): no provider config
+    # can route live while CODEGEN_FORCE_MOCK_PROVIDER is set — checked
+    # before any transport resolution, dry-run or not.
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    assert build_provider(config, dry_run=False).name == "mock"
+    reasoning = config.reasoning.model_copy(update={"provider": "anthropic"})
+    anthropic_config = config.model_copy(update={"reasoning": reasoning})
+    assert build_provider(anthropic_config, dry_run=False).name == "mock"

@@ -1,0 +1,40 @@
+--pr_std.mbr.sfmc_member_outreach_email_tracking 
+
+CREATE OR REPLACE TABLE pr_std.mbr.sfmc_member_outreach_email_tracking (
+  MEMBER_ID STRING COMMENT 'FACETS Subscriber ID',
+  MEMBER_SUFFIX STRING COMMENT 'FACETS field denoting the specific household member 2 of 3 required fields for Datalake MDM',
+  LOB_ID STRING COMMENT 'LOB Id',
+  MEMBER_FIRST_NAME STRING COMMENT 'Member First Name',
+  MEMBER_LAST_NAME STRING COMMENT 'Member Last Name',
+  MEMBER_DOB DATE COMMENT 'Member Date of Birth',
+  SUBSCRIBER_EMAIL STRING COMMENT 'Subscriber Email ID is populated for the members when available',
+  EMAIL_DTM TIMESTAMP COMMENT 'Field populated by Sales Force process. System Date and Time when the email was Sent',
+  EMAIL_DELIVERY_FLAG STRING COMMENT 'Field populated by Sales Force process. Email Delivery status - Successful/Unsuccessful',
+  EMAIL_RESPONSE_MESSAGE STRING COMMENT 'Email Response message',
+  CAMPAIGN_NAME STRING COMMENT 'English Lang name of Campaign Journey',
+  INTERACTION_NAME STRING COMMENT 'SF Internal reference for Main Campaign Journey',
+  INTERACTION_DATE TIMESTAMP COMMENT 'Date Interaction Occurred',
+  INTERACTION_TYPE STRING COMMENT 'Specific Interaction within a given campaign if multiple interactions are possible',
+  PREFERENCES STRING COMMENT 'SFMC Current DNC/Unsubscribe status and/or Preferences',
+  SRC_FILE_NAME STRING COMMENT 'Source File Name',
+  REC_CREATION_TIME TIMESTAMP COMMENT 'Record Created Date',
+  REC_UPDATED_TIME TIMESTAMP COMMENT 'Record Updated Date')
+USING delta
+COMMENT 'Contains the email campaign tracking details from the Salesforce Marketing Cloud'
+CLUSTER BY AUTO
+TBLPROPERTIES (
+  'delta.autoOptimize.autoCompact' = 'true',
+  'delta.autoOptimize.optimizeWrite' = 'true',
+  'delta.checkpoint.writeStatsAsJson' = 'false',
+  'delta.checkpoint.writeStatsAsStruct' = 'true',
+  'delta.checkpointPolicy' = 'v2',
+  'delta.enableDeletionVectors' = 'true',
+  'delta.enableRowTracking' = 'true',
+  'delta.feature.appendOnly' = 'supported',
+  'delta.feature.deletionVectors' = 'supported',
+  'delta.feature.invariants' = 'supported',
+  'delta.feature.rowTracking' = 'supported',
+  'delta.feature.v2Checkpoint' = 'supported',
+  'delta.parquet.compression.codec' = 'zstd');
+
+ALTER TABLE pr_std.mbr.sfmc_member_outreach_email_tracking SET TAGS ('DOMAIN' = 'Member', 'SUBDOMAIN' = 'Outreach');

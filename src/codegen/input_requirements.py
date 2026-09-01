@@ -226,9 +226,9 @@ def input_requirements_payload(config: Config, base_dir: Path, env=None) -> dict
     # The real FRD document, when present, gets the same evaluation — the
     # deck's own "filled counts the real FRDs on hand" exercise, live.
     document_check = None
-    frd_docx = next(
-        (p for p in documents["present"] if p["name"].lower().endswith(".docx")), None
-    )
+    from codegen.demo_sources import find_frd_docx
+
+    frd_docx = find_frd_docx(documents["present"])
     if frd_docx is not None:
         document_check = document_requirements_check(
             Path(deck["path"]), Path(frd_docx["path"])

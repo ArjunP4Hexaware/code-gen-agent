@@ -6,6 +6,52 @@ guardrails), `docs/LIVE_RUN_RECORD.md` (where the cost numbers come from),
 and `fixtures/replay/live_e2e_20260807/README.md` (the tracked contingency
 set). Rehearsed end-to-end in the browser on 2026-08-07.
 
+## 0. Fresh-machine bootstrap (clone → demo-ready)
+
+A bare clone does NOT run the demo: the demo fixtures are deliberately
+untracked (CLAUDE.md "Fixtures & data rules") and secrets never ship.
+On a new machine, in Git Bash (byte-safe redirection; PowerShell `>`
+would corrupt the .xlsx):
+
+```bash
+git clone https://github.com/ArjunP4Hexaware/code-gen-agent.git && cd code-gen-agent
+python -m venv .venv && .venv/Scripts/pip install -e ".[dev,live,ui]"   # POSIX: .venv/bin/pip
+
+# Restore the ANONYMIZED demo fixtures from history, working-tree-only.
+# ONLY these four paths — the MIDS/CAQH client-derived contracts at the
+# same commit must NOT be restored. Never `git checkout` (it would stage
+# and re-track them); `git show` writes untracked files that .gitignore
+# keeps out of commits.
+mkdir -p fixtures/contracts fixtures/workbooks
+for p in fixtures/contracts/FRD_demo_cv_golden.contract.json \
+         fixtures/contracts/sttm_mapping_contracts_cv_golden.json \
+         fixtures/workbooks/demo_sttm_cv_golden.xlsx; do
+  git show "044752e^:$p" > "$p"
+done
+git ls-tree -r --name-only "044752e^" -- fixtures/replay/live_e2e_20260807 |
+  while read -r p; do mkdir -p "$(dirname "$p")"; git show "044752e^:$p" > "$p"; done
+
+.venv/Scripts/python.exe -m pytest -q      # sanity: the restored fixtures re-enable the full suite
+```
+
+What can never come from GitHub — move each by its own channel:
+
+- **`.env`** (`ANTHROPIC_API_KEY=...`) — copy manually / from the key
+  vault. Only needed for LIVE runs; Mock and Replay need no key.
+- **Client documents** (the MIDS/CAQH docx/xlsx) — fetch from the
+  Databricks volumes with `codegen databricks-fetch` (needs a
+  `databricks auth login` profile), or the SharePoint picker. Never via
+  the repo. The convention-check / source-files panels simply don't
+  render without them; the CV-golden demo path doesn't need them.
+- **Past live runs** (`out/demo_<ts>/`) — local to the machine that ran
+  them. To show a specific recorded live run's "View results" on another
+  machine, copy that `out/demo_<ts>/` directory over (each is
+  self-contained: own FRD copy + `run_meta.json`). Otherwise use the
+  tracked Replay set — that's what it's for.
+
+Node.js must be installed; `./run_demo.sh` (section 1) runs
+`npm install`/build for `ui/frontend` on first use.
+
 ## 1. Pre-demo checklist
 
 ```bash

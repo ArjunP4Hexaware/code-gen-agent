@@ -78,6 +78,7 @@ def sample_row(**overrides) -> dict[str, str]:
     return row
 
 
+{% if detail_natural_key_source_columns or test_key_source_column %}
 def detail_rows(n: int, key_prefix: str = "K") -> list[dict[str, str]]:
     """n valid rows with unique natural keys."""
     rows = []
@@ -86,9 +87,18 @@ def detail_rows(n: int, key_prefix: str = "K") -> list[dict[str, str]]:
 {% for column in detail_natural_key_source_columns %}
             {{ column | tojson }}: f"{key_prefix}{i:04d}",
 {% endfor %}
+{% if not detail_natural_key_source_columns %}
+            {{ test_key_source_column | tojson }}: f"{key_prefix}{i:04d}",
+{% endif %}
         }
         rows.append(sample_row(**overrides))
     return rows
+{% else %}
+def detail_rows(n: int, key_prefix: str = "K") -> list[dict[str, str]]:
+    """n valid rows (the contract declares no key columns)."""
+    del key_prefix  # no key columns exist to prefix
+    return [sample_row() for _ in range(n)]
+{% endif %}
 
 
 {% if is_segmented %}

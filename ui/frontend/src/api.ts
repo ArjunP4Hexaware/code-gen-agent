@@ -182,6 +182,22 @@ export interface DatabricksDocument {
   paired?: boolean;
 }
 
+export interface DatabricksPublishTarget {
+  available: boolean;
+  reason: string;
+  catalog?: string;
+  schema?: string;
+  volume?: string;
+  writable_prefix: string;
+}
+
+export interface DatabricksPublishResult {
+  published: boolean;
+  volume: string;
+  volume_created: boolean;
+  artifacts: { name: string; path: string; size_bytes: number }[];
+}
+
 export interface DatabricksDocumentsResponse {
   catalog: string;
   schema: string;
@@ -230,6 +246,8 @@ export type ProvenanceBadge =
   | "from_sttm"
   | "from_sttm_unmapped"
   | "from_frd"
+  | "from_faq"
+  | "from_standards"
   | "synthetic"
   | "needs_template";
 
@@ -291,6 +309,12 @@ export interface Candidate {
   grounded: boolean;
   failure_notes: string[];
   review: { decision: Decision; note: string | null };
+  // "layer2" (default) | "confirm" — segmented-extraction review items ride
+  // the same artifact and decisions.
+  kind?: string;
+  detail?: string | null;
+  // The verbatim FRD field / STTM cell a confirm item rests on.
+  citation?: string | null;
 }
 
 export interface FeedDetail extends FeedSummary {
@@ -359,7 +383,10 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ set }),
     }),
-  liveAvailable: () => request<{ available: boolean }>("/api/demo/live-available"),
+  liveAvailable: () =>
+    request<{ available: boolean; provider: string | null }>(
+      "/api/demo/live-available",
+    ),
   demoWorkbooks: () => request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbooks"),
   selectWorkbook: (name: string) =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", {
@@ -393,6 +420,19 @@ export const api = {
     request<GovernanceChecksResponse>("/api/demo/governance-checks"),
   databricksDocuments: () =>
     request<DatabricksDocumentsResponse>("/api/databricks/documents"),
+  databricksPublishTarget: () =>
+    request<DatabricksPublishTarget>("/api/databricks/publish-target"),
+  databricksPublish: (body: {
+    feed_slug: string;
+    catalog: string;
+    schema_name: string;
+    volume: string;
+  }) =>
+    request<DatabricksPublishResult>("/api/databricks/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, confirm: true }),
+    }),
   databricksFetch: (volume: string, name: string) =>
     request<{ fetched: string; dest: string }>("/api/databricks/fetch", {
       method: "POST",

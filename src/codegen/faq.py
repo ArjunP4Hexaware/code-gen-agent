@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from codegen.config import Config
 from codegen.contracts.resolved import ResolvedFeedSpec
+from codegen.contracts.sttm import RecordTypeDiscriminators
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -104,6 +105,18 @@ class LoadPatternFaq(BaseModel):
     # honest source until the client's metadata template arrives.
     has_header: FaqAnswer = FaqAnswer(value="unknown")
     has_trailer: FaqAnswer = FaqAnswer(value="unknown")
+    # Segmented-dialect declarations (NOT questions — banner/flag counts
+    # untouched). The H/D/T record-type discriminator values are stated
+    # nowhere in a segmented workbook: absent here, a segmented extraction
+    # refuses exactly as v1 did; declared with status assumed_* it proceeds
+    # under an explicitly surfaced, review-gated assumption
+    # (docs/SEGMENTED_MODE_DESIGN.md blocker 1).
+    record_type_discriminators: RecordTypeDiscriminators | None = None
+    # Engineer-declared natural-key SOURCE columns, used only when a
+    # segmented workbook's Mandatory/Primary Key columns carry no signal
+    # (observed on the real workbook — a third unknown, same treatment:
+    # declared, never invented; absent -> loud refusal).
+    natural_key_columns: list[str] = Field(default_factory=list)
 
 
 # The question fields (order fixed — it is the banner/flag order). dedup_keys

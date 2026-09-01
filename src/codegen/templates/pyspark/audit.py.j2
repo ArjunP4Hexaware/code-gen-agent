@@ -21,6 +21,13 @@ LOB_COLUMN = "LOB"
 SRC_FILE_NAME_COLUMN = "SRC_FILE_NAME"
 REC_CREATION_TIME_COLUMN = "REC_CREATION_TIME"
 REC_UPDATED_TIME_COLUMN = "REC_UPDATED_TIME"
+{% if has_file_type_audit %}
+# This feed's contract declares a FILE_TYPE audit column — populated with the
+# feed's source system, per the FRD rule that File type be captured in the
+# target tables (pipeline-populated, never sourced from the file).
+FILE_TYPE_COLUMN = "FILE_TYPE"
+FILE_TYPE_VALUE = {{ feed.source_system | py }}
+{% endif %}
 
 
 class UnknownLobError(ValueError):
@@ -41,6 +48,9 @@ def add_audit_columns(
     return (
         df.withColumn(LOB_COLUMN, F.lit(lob))
         .withColumn(SRC_FILE_NAME_COLUMN, F.lit(src_file_name))
+{% if has_file_type_audit %}
+        .withColumn(FILE_TYPE_COLUMN, F.lit(FILE_TYPE_VALUE))
+{% endif %}
         .withColumn(REC_CREATION_TIME_COLUMN, timestamp)
         .withColumn(REC_UPDATED_TIME_COLUMN, timestamp)
     )

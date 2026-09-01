@@ -21,7 +21,14 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
 
 class RuleCandidate(BaseModel):
-    """One reviewed-artifact entry: the provider's proposal plus its audit trail."""
+    """One reviewed-artifact entry: the provider's proposal plus its audit trail.
+
+    ``kind`` distinguishes Layer-2 proposals ("layer2") from the segmented
+    extraction's deterministic "confirm" items (soft confirmations of a
+    document-derived fact). Both ride the SAME review artifact, decision
+    store, and pending counts (wired in, not forked). A non-layer2 item MUST
+    carry a non-empty ``citation`` quoting the exact FRD field or STTM cell
+    it rests on — an item that cannot cite its evidence is a bug."""
 
     model_config = _MODEL_CONFIG
 
@@ -33,6 +40,89 @@ class RuleCandidate(BaseModel):
     # True only when every citation passed the verbatim grounding check.
     grounded: bool
     failure_notes: list[str]
+    kind: str = "layer2"
+    # Human-readable body for non-layer2 items.
+    detail: str | None = None
+    # The document evidence a non-layer2 item rests on (verbatim quote).
+    citation: str | None = None
+
+
+def segmented_review_items(spec: ResolvedFeedSpec) -> list[RuleCandidate]:
+    """Deterministic review items for a segmented-extraction run: soft
+    CONFIRM items for document-derived choices. Empty for flat feeds. Every
+    item cites the exact FRD field / STTM cells it rests on."""
+    seg = spec.segmented_extraction
+    if seg is None:
+        return []
+    ident = seg.identification
+    items = [RuleCandidate(
+        feed_id=spec.feed_id,
+        rule_text=(
+            "CONFIRM — positional header/detail identification per CAQH-style "
+            f"spec: trailer marker {ident.trailer_marker!r}; header = "
+            f"{ident.header_rule}; detail = {ident.detail_rule}. Confirm with "
+            "the source team."
+        ),
+        provider="segmented-extraction",
+        response=None,
+        grounded=True,
+        failure_notes=[],
+        kind="confirm",
+        detail=(
+            "Record identification is DERIVED from the documents "
+            f"({ident.method}), not assumed: the STTM states the trailer's "
+            "static record-type value, and header/detail follow positionally. "
+            "This is a soft confirmation, not an assumption gate — the run "
+            "proceeds; a source-team confirmation closes it."
+        ),
+        citation=ident.citation,
+    )]
+
+    # Audit-column scope: the STTM is the column-level authority, and it
+    # lists FEWER audit rows for some segments than the feed-wide set. The
+    # FRD's wording ("target tables", plural) could be read as feed-wide —
+    # followed the STTM; surface the choice for the source team.
+    feed_wide = [a.column for a in spec.audit_columns]
+    divergent = {
+        segment: [a.column for a in columns]
+        for segment, columns in sorted(seg.segment_audit.items())
+        if [a.column for a in columns] != feed_wide
+    }
+    if divergent:
+        audit_rule = next(
+            (r for r in spec.validation_rules
+             if "populate" in r.lower() and "file type" in r.lower()), None)
+        sttm_side = "; ".join(
+            f"STTM {segment} audit rows: {', '.join(columns)}"
+            for segment, columns in divergent.items())
+        items.append(RuleCandidate(
+            feed_id=spec.feed_id,
+            rule_text=(
+                "CONFIRM — audit columns per segment follow the STTM: "
+                + "; ".join(f"{segment} gets {len(columns)}"
+                            for segment, columns in divergent.items())
+                + f" vs the feed-wide set ({len(feed_wide)}) on Detail. "
+                "FRD wording could imply feed-wide audit columns on HDR/TRL; "
+                "the STTM lists fewer — followed STTM, confirm with source "
+                "team."
+            ),
+            provider="segmented-extraction",
+            response=None,
+            grounded=True,
+            failure_notes=[],
+            kind="confirm",
+            detail=(
+                "The STTM is the column-level authority (FRD: 'Metadata of "
+                "the tables is provided in the STTM'); each segment table "
+                "gets exactly its STTM-listed audit rows."
+            ),
+            citation=(
+                (f"FRD rule: {audit_rule!r} ('target tables' plural); "
+                 if audit_rule else "")
+                + sttm_side
+            ),
+        ))
+    return items
 
 
 def run_reasoning(

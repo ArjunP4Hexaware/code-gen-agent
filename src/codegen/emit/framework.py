@@ -21,6 +21,7 @@ load path.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.faq import LoadPatternFaq, summarize
 from codegen.metadata_sheet import (
     BADGE_LABELS,
+    DERIVED_BADGES,
     build_workbook,
     metadata_sheet_payload,
 )
@@ -53,9 +55,9 @@ it only produces the add-ons.
 
 Columns awaiting framework-assigned IDs (rendered as `{id_placeholder}`,
 never invented): {blank_columns}.
-
-Layout note: the tab names and column headers are a stand-in until the
-client's metadata template arrives — values carry over.
+{segmented_block}
+Layout note: the tab names and column headers are the client IIG template
+(anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
 
 On approval: the config rows land in the ingestion framework database, and
 the DDL + insert SQL are added on to ACFC's master notebook with the
@@ -71,6 +73,10 @@ class FrameworkArtefacts:
     row_counts: dict[str, int]
     coverage: dict[str, int]
     flagged_blank_columns: list[str] = field(default_factory=list)
+    # Segmented-extraction surfacing (empty/None on flat feeds): the ASSUMED
+    # discriminator line and the held-back workbook Standard layer.
+    assumed_notes: list[str] = field(default_factory=list)
+    held_back: list[str] = field(default_factory=list)
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -84,8 +90,8 @@ def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
         ("Load-pattern FAQ", f"sha256 {faq_sha} — {faq_summary['answered']} answered, "
                              f"{faq_summary['unknown']} unknown"),
         ("Engineering standards", config.engineering_standards.status),
-        ("Layout", "stand-in until the client's metadata template arrives; "
-                   "values carry over"),
+        ("Layout", "client IIG template (anonymized reference — "
+                   "fixtures/reference/SFMC_IIG.xlsx); values carry over"),
     ]
 
 
@@ -110,8 +116,7 @@ def _filter_payload_for_feed(payload: dict, slug: str) -> dict:
             for entry in row["badges"].values():
                 total += 1
                 badge = entry["badge"]
-                if badge in ("from_sttm", "from_sttm_unmapped", "from_frd",
-                             "from_faq"):
+                if badge in DERIVED_BADGES:
                     derived += 1
                 elif badge == "synthetic":
                     synthetic += 1
@@ -125,9 +130,11 @@ def _filter_payload_for_feed(payload: dict, slug: str) -> dict:
     }
 
 
-# -- ddl_scripts.xlsx ---------------------------------------------------------- #
-
-_DDL_HEADERS = ["layer", "schema", "table", "purpose", "statement", "source_file"]
+# -- <slug>_stage/standard_table_creation.txt ---------------------------------- #
+# Deployment-team DDL as two plain .txt files (run in the data lake by the
+# deployment team), conformant to the client's reference goldens
+# (fixtures/reference/SFMC_*_table_creation.txt). The .sql sources under
+# out/<slug>/ddl/ stay untouched — these files are re-styled from them.
 
 
 def _classify_ddl(file_name: str) -> tuple[str, str, str, str]:
@@ -146,33 +153,95 @@ def _classify_ddl(file_name: str) -> tuple[str, str, str, str]:
     return "stage", schema, table, "stage target table"
 
 
-def _ddl_workbook(ddl_sources: list[tuple[str, str]],
-                  banner: list[tuple[str, str]]):
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
+# Section order inside each .txt: main target table first, side-tables after.
+_DDL_PURPOSE_ORDER = {
+    "stage target table": 0,
+    "errors side-table": 1,
+    "processed-files ledger": 2,
+    "recycle store": 3,
+    "standard target table": 0,
+}
 
-    from codegen.metadata_sheet import _pin_workbook_properties
+_CREATE_RE = re.compile(r"CREATE TABLE IF NOT EXISTS\s+(\S+)\s*\(")
+_COLUMN_RE = re.compile(r"^\s*`(?P<name>[^`]+)`\s+(?P<dtype>[^,]+(?:\([^)]*\))?),?\s*$")
 
-    workbook = Workbook()
-    _pin_workbook_properties(workbook)
-    sheet = workbook.active
-    sheet.title = "ddl_scripts"
-    sheet.append(_DDL_HEADERS)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-    for file_name, statement in ddl_sources:
-        layer, schema, table, purpose = _classify_ddl(file_name)
-        sheet.append([layer, schema, table, purpose, statement, file_name])
 
-    provenance = workbook.create_sheet(title="_provenance")
-    provenance.append(["input", "value"])
-    for cell in provenance[1]:
-        cell.font = Font(bold=True)
-    for key, value in banner:
-        provenance.append([key, value])
-    provenance.append(["note", "DDL is engineer-run; the agent never creates "
-                               "target tables (create_tables: false)."])
-    return workbook
+def _parse_ddl_statement(statement: str) -> tuple[str, list[tuple[str, str]]]:
+    """(qualified table name, [(column, dtype)]) from an emitted .sql source."""
+    match = _CREATE_RE.search(statement)
+    if match is None:
+        raise ValueError("DDL source has no CREATE TABLE statement")
+    columns: list[tuple[str, str]] = []
+    for line in statement.splitlines():
+        col = _COLUMN_RE.match(line)
+        if col:
+            columns.append((col.group("name"), col.group("dtype").rstrip().rstrip(",")))
+    return match.group(1), columns
+
+
+def _sql_comment(text: str) -> str:
+    # Single-line comment literals (the reference goldens' style): collapse
+    # any embedded newlines/whitespace runs, escape quotes.
+    return re.sub(r"\s+", " ", text).strip().replace("'", "''")
+
+
+def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:
+    """column name -> STTM description, for the per-column COMMENT clauses."""
+    descriptions: dict[str, str] = {}
+    for segment in spec.segments:
+        for f in segment.fields:
+            if f.description:
+                descriptions.setdefault(f.stage_column, f.description)
+                if f.standard_column:
+                    descriptions.setdefault(f.standard_column, f.description)
+    return descriptions
+
+
+def _synthetic_location(spec: ResolvedFeedSpec, config: Config, table: str) -> str:
+    landing = (spec.landing_location or spec.feed_slug).replace("\\", "/").strip("/")
+    prefix = config.framework.synthetic_location_prefix.rstrip("/")
+    return f"{prefix}/{landing}/{table}"
+
+
+def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
+                         spec: ResolvedFeedSpec, config: Config,
+                         banner: list[tuple[str, str]],
+                         extra_banner_lines: list[str] | None = None) -> str:
+    """Render one deployment-team .txt file for a layer's DDL entries."""
+    from codegen.emit.emitter import _environment
+
+    descriptions = _description_map(spec)
+    tables = []
+    for _file_name, statement, purpose in sorted(
+            entries, key=lambda e: (_DDL_PURPOSE_ORDER.get(e[2], 9), e[0])):
+        qualified, columns = _parse_ddl_statement(statement)
+        rendered_columns = [
+            {
+                "name": name,
+                "dtype": dtype,
+                "comment": _sql_comment(
+                    descriptions.get(name, name.replace("_", " ").title())),
+            }
+            for name, dtype in columns
+        ]
+        tables.append({
+            "qualified": qualified,
+            "columns": rendered_columns,
+            "table_comment": _sql_comment(
+                f"{purpose.capitalize()} for feed {spec.feed_name} "
+                f"(source: {spec.source_system})"),
+            "location": (_synthetic_location(spec, config, qualified.rsplit(".", 1)[-1])
+                         if layer == "stage" else None),
+            "tags": ((spec.domain, spec.sub_domain)
+                     if spec.domain and spec.sub_domain else None),
+        })
+    banner_lines = [f"{key}: {value}" for key, value in banner
+                    if key != "Layout"]
+    banner_lines.append("DDL is engineer-run; the agent never creates target "
+                        "tables (create_tables: false).")
+    banner_lines.extend(extra_banner_lines or [])
+    template = _environment().get_template("framework/table_creation.txt.j2")
+    return template.render(layer=layer, tables=tables, banner_lines=banner_lines)
 
 
 # -- config_inserts.sql -------------------------------------------------------- #
@@ -198,49 +267,87 @@ def _sql_table(name: str, dialect: str) -> str:
     return ".".join(_sql_identifier(part, dialect) for part in name.split("."))
 
 
-def _config_inserts_sql(payload: dict, spec: ResolvedFeedSpec, config: Config,
-                        banner: list[tuple[str, str]]) -> str:
+def _insert_statement(headers: list[str], row: dict, table: str, dialect: str,
+                      placeholder: str, always_blank: set[str]) -> str:
+    values = []
+    for header in headers:
+        if header in always_blank:
+            values.append(placeholder)
+            continue
+        value = row["values"][header]
+        if value == "" or value is None:
+            values.append("NULL")
+        else:
+            values.append(_sql_value(value, dialect))
+    columns = ", ".join(_sql_identifier(h, dialect) for h in headers)
+    return (f"INSERT INTO {_sql_table(table, dialect)} ({columns}) "
+            f"VALUES ({', '.join(values)});")
+
+
+def _config_inserts_workbook(payload: dict, spec: ResolvedFeedSpec,
+                             config: Config, banner: list[tuple[str, str]]):
+    """config_inserts.xlsx: one sheet per populated tab, value rows on the
+    real IIG layout, the generated INSERT statement as the final column."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    from codegen.metadata_sheet import _pin_workbook_properties
+
     dialect = config.framework.sql_dialect
     placeholder = config.framework.id_placeholder
     always_blank = set(config.demo.metadata_sheet.always_blank)
 
-    lines = [
-        f"-- Framework config inserts — feed {spec.feed_slug} ({dialect} dialect)",
-        "-- Run ONLY after the config rows workbook is approved, through the",
-        "-- client's existing metadata path. Plain INSERTs: idempotency belongs",
-        "-- to the framework's load path, not to these statements.",
-    ]
-    lines += [f"-- {key}: {value}" for key, value in banner]
-    lines.append("")
-
+    workbook = Workbook()
+    _pin_workbook_properties(workbook)
+    workbook.remove(workbook.active)
+    # Excel's hard per-cell limit is 32,767 characters; a wide feed's INSERT
+    # (SRC_COLUMNS/TGT_COLUMN_NAMES lists) can exceed it, so oversize
+    # statements continue in INSERT_STATEMENT_PART<n> columns — lossless,
+    # never silently truncated.
+    cell_limit = 32000
     for tab_name, tab in payload["tabs"].items():
         if not tab["rows"]:
             continue
         table = config.framework.tables.get(tab_name, tab_name)
-        lines.append(f"-- {tab_name}: {len(tab['rows'])} row(s) "
-                     f"-> {table}")
+        sheet = workbook.create_sheet(title=tab_name[:31])
+        rendered = []
+        max_parts = 1
         for row in tab["rows"]:
-            headers = tab["headers"]
-            blanks = [h for h in headers if h in always_blank]
-            if blanks:
-                lines.append(f"-- {', '.join(blanks)}: assigned by ACFC framework")
-            values = []
-            for header in headers:
-                if header in always_blank:
-                    values.append(placeholder)
-                    continue
-                value = row["values"][header]
-                if value == "" or value is None:
-                    values.append("NULL")
-                else:
-                    values.append(_sql_value(value, dialect))
-            columns = ", ".join(_sql_identifier(h, dialect) for h in headers)
-            lines.append(
-                f"INSERT INTO {_sql_table(table, dialect)} ({columns}) "
-                f"VALUES ({', '.join(values)});"
-            )
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+            display = [placeholder if h in always_blank else row["values"][h]
+                       for h in tab["headers"]]
+            statement = _insert_statement(tab["headers"], row, table, dialect,
+                                          placeholder, always_blank)
+            parts = [statement[i:i + cell_limit]
+                     for i in range(0, len(statement), cell_limit)]
+            max_parts = max(max_parts, len(parts))
+            rendered.append((display, parts))
+        headers = [*tab["headers"], "INSERT_STATEMENT",
+                   *(f"INSERT_STATEMENT_PART{n}" for n in range(2, max_parts + 1))]
+        sheet.append(headers)
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+        for display, parts in rendered:
+            padded = parts + [""] * (max_parts - len(parts))
+            sheet.append([*display, *padded])
+        for index in range(1, len(tab["headers"]) + 1):
+            sheet.column_dimensions[get_column_letter(index)].width = 24
+        for index in range(len(tab["headers"]) + 1, len(headers) + 1):
+            sheet.column_dimensions[get_column_letter(index)].width = 100
+
+    provenance = workbook.create_sheet(title="_provenance")
+    provenance.append(["input", "value"])
+    for cell in provenance[1]:
+        cell.font = Font(bold=True)
+    for key, value in banner:
+        provenance.append([key, value])
+    provenance.append(["dialect", dialect])
+    provenance.append(["note", "Run only after the config rows workbook is "
+                               "approved; the client's ADF metadata path "
+                               "inserts these rows. Plain INSERTs — "
+                               "idempotency belongs to the framework's load "
+                               "path."])
+    return workbook
 
 
 # -- the emit ------------------------------------------------------------------ #
@@ -277,9 +384,40 @@ def emit_framework(
 
     from codegen.metadata_sheet import stable_workbook_bytes
 
-    ddl_path = framework_dir / "ddl_scripts.xlsx"
-    ddl_path.write_bytes(stable_workbook_bytes(_ddl_workbook(ddl_sources, banner)))
-    files.append(ddl_path)
+    # Deployment-team DDL: two plain .txt files (stage / standard), run in the
+    # data lake by the deployment team; conformant to the reference goldens.
+    stage_entries: list[tuple[str, str, str]] = []
+    standard_entries: list[tuple[str, str, str]] = []
+    omitted_side_tables: list[str] = []
+    side_table_purposes = ("errors side-table", "processed-files ledger")
+    for file_name, statement in ddl_sources:
+        layer, _schema, table, purpose = _classify_ddl(file_name)
+        if (not config.framework.deployment_ddl_include_side_tables
+                and purpose in side_table_purposes):
+            # The deployment .txt carries exactly the FRD's Target Table
+            # Name list; the side-tables are CodeGen conventions and stay in
+            # out/<slug>/ddl/ (and in notebook mode) untouched.
+            omitted_side_tables.append(table)
+            continue
+        target = stage_entries if layer == "stage" else standard_entries
+        target.append((file_name, statement, purpose))
+    frd_tables = [s.stage_table.table for s in spec.segments]
+    if spec.recycle is not None:
+        frd_tables.append(spec.recycle.recycle_table.table)
+    extra_banner_lines: list[str] = []
+    if omitted_side_tables:
+        extra_banner_lines.append(
+            f"side-tables omitted from deployment DDL — not in FRD Target "
+            f"Table Name (FRD lists: {', '.join(frd_tables)}); omitted: "
+            f"{', '.join(sorted(omitted_side_tables))} (CodeGen conventions, "
+            "kept in ddl/)")
+    for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
+        txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
+        txt_path.write_text(
+            _table_creation_text(layer, entries, spec, config, banner,
+                                 extra_banner_lines=extra_banner_lines),
+            encoding="utf-8", newline="\n")
+        files.append(txt_path)
 
     rows_workbook = build_workbook(payload)
     inputs_sheet = rows_workbook.create_sheet(title="_inputs")
@@ -290,9 +428,9 @@ def emit_framework(
     rows_path.write_bytes(stable_workbook_bytes(rows_workbook))
     files.append(rows_path)
 
-    inserts_path = framework_dir / "config_inserts.sql"
-    inserts_path.write_text(_config_inserts_sql(payload, spec, config, banner),
-                            encoding="utf-8", newline="\n")
+    inserts_path = framework_dir / "config_inserts.xlsx"
+    inserts_path.write_bytes(stable_workbook_bytes(
+        _config_inserts_workbook(payload, spec, config, banner)))
     files.append(inserts_path)
 
     always_blank = [
@@ -303,10 +441,11 @@ def emit_framework(
     ]
     flagged = sorted(set(always_blank))
     ddl_row = (
-        "| `ddl_scripts.xlsx` | Target table definitions as a reviewable "
-        "workbook (one row per DDL statement; the `.sql` sources sit in "
-        "`../ddl/`). **Engineer-run** — the agent never creates target "
-        "tables. |"
+        f"| `{spec.feed_slug}_stage_table_creation.txt` / "
+        f"`{spec.feed_slug}_standard_table_creation.txt` | Deployment-team "
+        "DDL, conformant to the client's reference format (the `.sql` "
+        "sources sit in `../ddl/`). **Run in the data lake by the "
+        "deployment team** — the agent never creates target tables. |"
     )
     rows_row = (
         "| `config_rows.xlsx` | The config rows for the framework DB — "
@@ -314,12 +453,31 @@ def emit_framework(
         "badge; the `_provenance` sheet lists them all. |"
     )
     inserts_row = (
-        f"| `config_inserts.sql` | One INSERT per approved row "
-        f"({config.framework.sql_dialect} dialect). **Run only after "
-        "approval**, through the client's existing metadata path (adapter "
-        "to be built). Plain INSERTs — idempotency belongs to the "
+        f"| `config_inserts.xlsx` | One sheet per populated IIG tab; value "
+        f"rows on the client layout plus the generated INSERT statement "
+        f"({config.framework.sql_dialect} dialect) as the final column. "
+        "**Run only after approval**, through the client's existing ADF "
+        "metadata path. Plain INSERTs — idempotency belongs to the "
         "framework's load path. |"
     )
+    assumed_notes: list[str] = []
+    held_back: list[str] = []
+    seg = spec.segmented_extraction
+    if seg is not None:
+        ident = seg.identification
+        assumed_notes.append(
+            f"record identification ({ident.method}): trailer marker "
+            f"{ident.trailer_marker!r}, header = {ident.header_rule} — "
+            f"evidence: {ident.citation}")
+        assumed_notes += [
+            f"{entry.note} — evidence: {entry.citation}"
+            for entry in seg.provenance_notes
+        ]
+
+    segmented_lines = [f"- **PROVENANCE**: {note}" for note in assumed_notes]
+    segmented_lines += [f"- **HELD BACK**: {held}" for held in held_back]
+    segmented_block = ("\n" + "\n".join(segmented_lines) + "\n"
+                       if segmented_lines else "")
     addition_path = framework_dir / "ADDITION.md"
     addition_path.write_text(
         _ADDITION_TEMPLATE.format(
@@ -330,6 +488,7 @@ def emit_framework(
             inserts_row=inserts_row,
             id_placeholder=config.framework.id_placeholder,
             blank_columns=", ".join(f"`{c}`" for c in flagged) or "none",
+            segmented_block=segmented_block,
         ),
         encoding="utf-8", newline="\n",
     )
@@ -340,6 +499,8 @@ def emit_framework(
         row_counts={name: len(tab["rows"]) for name, tab in payload["tabs"].items()},
         coverage=payload["coverage"],
         flagged_blank_columns=flagged,
+        assumed_notes=assumed_notes,
+        held_back=held_back,
     )
 
 
@@ -373,6 +534,10 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         + (", ".join(f"`{c}`" for c in artefacts.flagged_blank_columns) or "none")
         + " — left blank, never invented |"
     )
+    for note in artefacts.assumed_notes:
+        lines.append(f"| **PROVENANCE** | {note} |")
+    for held in artefacts.held_back:
+        lines.append(f"| **HELD BACK** | {held} |")
     return "\n".join(lines) + "\n"
 
 

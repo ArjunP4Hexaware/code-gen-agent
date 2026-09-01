@@ -128,11 +128,14 @@ out/<feed_id>/
   tools/          make_fixtures.py — synthetic data from the contract's sample_value
   README.md       what was generated, from which contracts, verdict summary
   framework/      [output.mode framework|both] Option B — the ACFC-framework
-                  addition: ddl_scripts.xlsx (reviewable DDL workbook),
-                  config_rows.xlsx (THE approval artefact; layout from
-                  demo.metadata_sheet, provenance-badged), config_inserts.sql
-                  (sqlserver|lakebase per framework.sql_dialect; plain
-                  INSERTs, framework-assigned IDs as placeholders), ADDITION.md
+                  addition: <slug>_stage/_standard_table_creation.txt
+                  (deployment-team DDL, conformant to the client reference
+                  goldens in fixtures/reference/), config_rows.xlsx (THE
+                  approval artefact; real IIG layout from demo.metadata_sheet,
+                  provenance-badged), config_inserts.xlsx (one sheet per
+                  populated tab + INSERT statement column, sqlserver|lakebase
+                  per framework.sql_dialect; framework-assigned IDs as
+                  placeholders), ADDITION.md
 ```
 
 `[bracketed]` modules are emitted only when the spec requires them
@@ -326,6 +329,14 @@ All under `src/codegen/templates/`. One template = one responsibility.
 
 ## 8. Open questions
 
+- **Post-demo TODO (2026-09-01): provider failures need their own flag
+  class.** Today a Layer-2 provider failure degrades into a candidate
+  card carrying the error text (`error` set, no `response`) and grades
+  PASS_WITH_FLAGS like any pending candidate — which is how the
+  2026-08-31 FMAPI list-content-blocks failure hid in plain sight on a
+  recorded run. A provider failure should surface as a distinct gate
+  flag (e.g. `layer2_provider_failed:<rule>`), rendered differently
+  from a real candidate, so a degraded run is unmistakable at a glance.
 - **The client's existing pipeline stack is unknown.** Output targets plain
   PySpark + Databricks Workflows, structured module-for-module so a DLT
   port is mechanical per the portability table in

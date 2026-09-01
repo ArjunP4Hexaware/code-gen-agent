@@ -49,6 +49,10 @@ _CLIENT_REFERENCE_RE = re.compile(
 
 _WINDOW_DAYS_RE = re.compile(r"(\d+)\s*days?", re.IGNORECASE)
 
+# FRD-driven AS-IS switch evidence (the character class covers space, ASCII
+# hyphen, and the non-breaking hyphen real FRD text uses).
+_AS_IS_RE = re.compile(r"\bAS[\s\-‑]?IS\b", re.IGNORECASE)
+
 
 class ContractMismatchError(ValueError):
     """The FRD and STTM contracts disagree; generation must not proceed."""
@@ -131,7 +135,15 @@ def _resolve_segments(
 ) -> list[SegmentSpec]:
     stage_schema = sttm_feed.stage.schema_name
     frd_schema = frd_feed.stage_target.schema_name
-    if frd_schema is not None and frd_schema != stage_schema:
+    # Segmented-extraction contracts carry the workbook's identifiers
+    # verbatim; Databricks identifiers are case-insensitive, so pure case
+    # drift is not a mismatch on that path.
+    schemas_equal = frd_schema == stage_schema or (
+        sttm_feed.segmented is not None
+        and frd_schema is not None
+        and frd_schema.lower() == stage_schema.lower()
+    )
+    if frd_schema is not None and not schemas_equal:
         errors.append(f"stage schema disagrees: STTM '{stage_schema}', FRD '{frd_schema}'")
 
     if not frd_feed.is_segmented:
@@ -173,6 +185,29 @@ def _resolve_segments(
                 f"segment '{segment_name}' stage table '{seg_table}' is not among FRD "
                 f"stage tables {frd_feed.stage_target.tables}"
             )
+        # Per-segment STANDARD table (segmented dialect: H/D/T map to their
+        # own tables in BOTH layers). Catalog/schema come from the STTM's
+        # standard target group when the FRD's Target Schema block names
+        # stage targets only.
+        standard_table = None
+        seg_standard_tables = {f.standard_table for f in seg_fields} - {None}
+        if len(seg_standard_tables) > 1:
+            errors.append(
+                f"segment '{segment_name}' maps to multiple standard tables: "
+                f"{sorted(t for t in seg_standard_tables if t)}"
+            )
+        elif seg_standard_tables and sttm_feed.standard is not None:
+            standard_table = ResolvedTable(
+                catalog=(sttm_feed.standard.catalog
+                         or frd_feed.standard_target.catalog),
+                schema_name=sttm_feed.standard.schema_name,
+                table=next(iter(seg_standard_tables)),
+                role="standard",
+            )
+        segment_audit = (
+            sttm_feed.segmented.segment_audit.get(segment_name)
+            if sttm_feed.segmented is not None else None
+        )
         segments.append(
             SegmentSpec(
                 segment=segment_name,
@@ -180,6 +215,8 @@ def _resolve_segments(
                     catalog=catalog, schema_name=stage_schema, table=seg_table, role="stage"
                 ),
                 fields=seg_fields,
+                standard_table=standard_table,
+                audit_columns=segment_audit,
             )
         )
         seen_segments.append(segment_name)
@@ -333,17 +370,24 @@ def _resolve_one(
     standard_strategy = None
     if sttm_feed.standard is not None:
         if not frd_feed.standard_target.tables:
-            errors.append(
-                f"STTM names standard table '{sttm_feed.standard.table}' but the FRD "
-                "standard target is empty"
-            )
+            if sttm_feed.segmented is None:
+                errors.append(
+                    f"STTM names standard table '{sttm_feed.standard.table}' but the FRD "
+                    "standard target is empty"
+                )
+            # Segmented extraction: the standard layer is scoped by the FRD's
+            # Load Strategy STD; its catalog/schema/tables come from the
+            # STTM's standard target group (the FRD's Target Schema block
+            # names stage targets only) — recorded as a cited provenance note
+            # on the extraction, never inferred silently.
         elif sttm_feed.standard.table not in frd_feed.standard_target.tables:
             errors.append(
                 f"STTM standard table '{sttm_feed.standard.table}' is not among FRD "
                 f"standard tables {frd_feed.standard_target.tables}"
             )
         standard_table = ResolvedTable(
-            catalog=frd_feed.standard_target.catalog,
+            catalog=(frd_feed.standard_target.catalog
+                     or sttm_feed.standard.catalog),
             schema_name=sttm_feed.standard.schema_name,
             table=sttm_feed.standard.table,
             role="standard",
@@ -393,6 +437,10 @@ def _resolve_one(
         sttm_contract_name=sttm.contract_name,
         sttm_contract_sha256=sttm_sha256,
         sttm_is_synthetic=sttm.synthetic,
+        segmented_extraction=sttm_feed.segmented,
+        # FRD-driven AS-IS switch: business columns STRING in BOTH layers when
+        # the FRD's rules state an AS-IS load (acceptance criterion 3 shape).
+        load_as_is=any(_AS_IS_RE.search(r) for r in frd_feed.validation_rules),
     )
 
 

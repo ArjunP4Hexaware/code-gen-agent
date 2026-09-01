@@ -33,6 +33,10 @@ class TableRef(BaseModel):
 
     schema_name: str = Field(alias="schema")
     table: str
+    # Optional catalog (segmented dialect: the STTM's standard target group
+    # states PR_STD.MBR; the FRD Structural Metadata names stage targets
+    # only). None on flat contracts — serialization is unchanged.
+    catalog: str | None = None
 
 
 class RecycleSpec(BaseModel):
@@ -64,6 +68,68 @@ class AuditColumn(BaseModel):
     datatype: Literal["String", "Timestamp"]
 
 
+# ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------
+# A segmented (Header/Detail/Trailer) workbook extracts to the SAME segmented
+# dialect the resolver already consumes (record_segment + stage_table per
+# field; segments are TABLES — FRD 1005034 acceptance criterion 2: "Header,
+# Detail, Trailer data should be mapped to respective HDR, DTL and TRL
+# tables"), plus this block: record identification DERIVED from the STTM (not
+# assumed), and provenance notes that each cite the exact FRD field or STTM
+# cell they rest on. A note without a citation is a bug.
+
+
+class RecordTypeDiscriminators(BaseModel):
+    """FAQ OVERRIDE ONLY (status must be ``confirmed``): record identification
+    is derived from the STTM by default; this exists for a source team that
+    later states literal record-type values."""
+
+    model_config = _MODEL_CONFIG
+
+    header: str
+    detail: str
+    trailer: str
+    status: Literal["assumed_pending_source_team", "confirmed"]
+
+
+class RecordIdentification(BaseModel):
+    """How H/D/T records are told apart — DERIVED from the documents:
+    trailer = record whose first field equals the STTM-stated static marker;
+    header = first record of the file; detail = all others. The citation is
+    the verbatim STTM cell the derivation rests on."""
+
+    model_config = _MODEL_CONFIG
+
+    method: Literal["derived_from_sttm", "declared_override"]
+    trailer_marker: str
+    header_rule: str
+    detail_rule: str
+    citation: str = Field(min_length=1)
+
+
+class ProvenanceNote(BaseModel):
+    """One extraction-time fact with the exact document evidence it rests on.
+    ``citation`` is verbatim from the FRD contract or the STTM cell — a note
+    that cannot cite its evidence must not be created."""
+
+    model_config = _MODEL_CONFIG
+
+    note: str = Field(min_length=1)
+    citation: str = Field(min_length=1)
+
+
+class SegmentedExtraction(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    segments_found: list[str]
+    row_counts: dict[str, int]
+    identification: RecordIdentification
+    provenance_notes: list[ProvenanceNote] = Field(default_factory=list)
+    # Per-segment audit columns EXACTLY as the STTM lists them ("Metadata of
+    # the tables is provided in the STTM") — HDR/TRL typically carry three,
+    # Detail the full set. Empty dict on older contracts (feed-wide applies).
+    segment_audit: dict[str, list[AuditColumn]] = Field(default_factory=dict)
+
+
 class SttmField(BaseModel):
     """One source→stage→standard column mapping row."""
 
@@ -84,6 +150,9 @@ class SttmField(BaseModel):
     # Segmented-dialect extension (CAQH) — see docs/DESIGN.md §1.
     record_segment: RecordSegment | None = None
     stage_table: str | None = None
+    # Segmented dialect: per-segment STANDARD table (the STTM's second target
+    # column group). None on flat feeds and on stage-only segmented feeds.
+    standard_table: str | None = None
 
 
 class SttmFeed(BaseModel):
@@ -101,6 +170,10 @@ class SttmFeed(BaseModel):
     audit_columns: list[AuditColumn] = Field(min_length=1)
     field_count: int
     fields: list[SttmField] = Field(min_length=1)
+    # Present only on feeds extracted from a segmented workbook (v2 dialect);
+    # None on every flat feed, so existing contracts and the byte-compared
+    # extractor output are untouched.
+    segmented: SegmentedExtraction | None = None
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:

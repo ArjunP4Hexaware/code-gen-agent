@@ -345,35 +345,62 @@ function CandidateCard({
     }
   };
   const r = candidate.response;
+  const kind = candidate.kind ?? "layer2";
+  const isReviewItem = kind === "confirm";
   return (
     <div className="panel candidate">
       <div className="panel-body">
-        <div className="rule">Rule: “{candidate.rule_text}”</div>
-        <div className="meta-row">
-          <span className="pill">provider: {candidate.provider}</span>
-          <span className={`pill ${candidate.grounded ? "grounded" : "ungrounded"}`}>
-            {candidate.grounded ? "✓ grounded" : "✗ NOT grounded"}
-          </span>
-          {r ? <ClassBadge classification={r.classification} /> : null}
+        {isReviewItem ? (
+          <div className="meta-row" style={{ marginBottom: 6 }}>
+            <span className="pill req-partial">
+              CONFIRM — document-derived, cited
+            </span>
+          </div>
+        ) : null}
+        <div className="rule">
+          {isReviewItem ? candidate.rule_text : `Rule: “${candidate.rule_text}”`}
         </div>
-        {r ? (
+        {isReviewItem ? (
           <>
-            <div className="rationale">{r.rationale}</div>
-            {r.code_candidate ? (
-              <CodeView path="candidate.py" content={r.code_candidate} />
-            ) : null}
-            <div style={{ marginTop: 10 }}>
-              {r.citations.map((c) => (
-                <div className="citation" key={c}>
-                  “{c}”
-                </div>
-              ))}
+            <div className="meta-row">
+              <span className="pill">source: {candidate.provider}</span>
             </div>
+            {candidate.detail ? <div className="rationale">{candidate.detail}</div> : null}
+            {candidate.citation ? (
+              <div style={{ marginTop: 10 }}>
+                <div className="citation">“{candidate.citation}”</div>
+              </div>
+            ) : null}
           </>
         ) : (
-          <div className="error-banner">
-            Provider failed: {candidate.failure_notes.join("; ")}
-          </div>
+          <>
+            <div className="meta-row">
+              <span className="pill">provider: {candidate.provider}</span>
+              <span className={`pill ${candidate.grounded ? "grounded" : "ungrounded"}`}>
+                {candidate.grounded ? "✓ grounded" : "✗ NOT grounded"}
+              </span>
+              {r ? <ClassBadge classification={r.classification} /> : null}
+            </div>
+            {r ? (
+              <>
+                <div className="rationale">{r.rationale}</div>
+                {r.code_candidate ? (
+                  <CodeView path="candidate.py" content={r.code_candidate} />
+                ) : null}
+                <div style={{ marginTop: 10 }}>
+                  {r.citations.map((c) => (
+                    <div className="citation" key={c}>
+                      “{c}”
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="error-banner">
+                Provider failed: {candidate.failure_notes.join("; ")}
+              </div>
+            )}
+          </>
         )}
         <div className="decision-row">
           <button
@@ -381,7 +408,7 @@ function CandidateCard({
             disabled={busy}
             onClick={() => decide("approved")}
           >
-            ✓ Approve
+            {isReviewItem ? "✓ Confirm" : "✓ Approve"}
           </button>
           <button
             className={`btn reject${candidate.review.decision === "rejected" ? " selected" : ""}`}
@@ -392,8 +419,12 @@ function CandidateCard({
           </button>
           <span className="status">
             {candidate.review.decision === "pending"
-              ? "Awaiting engineer decision"
-              : `Marked ${candidate.review.decision} — merge into generated code remains a manual (v2) step`}
+              ? isReviewItem
+                ? "Soft confirmation — the run proceeds; a source-team answer closes it"
+                : "Awaiting engineer decision"
+              : isReviewItem
+                ? `Marked ${candidate.review.decision} — recorded in the decision store`
+                : `Marked ${candidate.review.decision} — merge into generated code remains a manual (v2) step`}
           </span>
         </div>
       </div>

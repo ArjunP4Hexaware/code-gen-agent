@@ -43,6 +43,7 @@ from codegen.contracts.sttm import (
 )
 from codegen.extract.workbook import (
     FileDetailsRow,
+    SegmentedWorkbookError,
     SheetIR,
     WorkbookIR,
     WorkbookParseError,
@@ -69,7 +70,23 @@ def extract_contract(
     generated_date: str | None = None,
 ) -> SttmContract:
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
-    ir = parse_workbook(workbook_path, config.extractor)
+    try:
+        ir = parse_workbook(workbook_path, config.extractor)
+    except SegmentedWorkbookError as detected:
+        # v2 (2026-08-31): the segmented family routes to its own parser.
+        # The declaration gate inside it re-raises with this exact evidence
+        # plus the remedy line when no record_type_discriminators FAQ entry
+        # exists — same refusal as v1, now with the declare-to-proceed path.
+        from codegen.extract.segmented import extract_segmented_contract
+
+        return extract_segmented_contract(
+            workbook_path,
+            frd,
+            config,
+            refusal_evidence=str(detected),
+            contract_name=contract_name,
+            generated_date=generated_date,
+        )
 
     feeds = [
         _build_feed(sheet, _match_frd_feed(sheet, frd), ir, config) for sheet in ir.sheets

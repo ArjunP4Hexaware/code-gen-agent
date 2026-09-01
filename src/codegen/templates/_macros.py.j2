@@ -20,6 +20,11 @@
 {% endif %}
 # Declared load mode: {{ provenance.inputs.load_mode }} (source: {{ provenance.inputs.load_mode_source }})
 # Write behavior in this version: {{ provenance.inputs.writer_behavior }} (load-mode branching: v2)
+{%- if provenance.segmented %}
+
+# Segmented extraction ({{ provenance.segmented.method }}):
+#   trailer marker {{ provenance.segmented.trailer_marker }}; header = {{ provenance.segmented.header_rule }}; detail = the rest
+{%- endif %}
 {%- endmacro %}
 
 {% macro pylist(items, indent_spaces=4) -%}

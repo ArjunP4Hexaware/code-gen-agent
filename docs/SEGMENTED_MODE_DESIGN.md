@@ -1,20 +1,64 @@
-# Segmented-mode design (CAQH layout family) — backlog item
+# Segmented-mode design (CAQH layout family) — IMPLEMENTED, document-derived
 
-Design input for extending `codegen extract-sttm` beyond the flat dialect.
-Derived from a **local-only inspection of the real CAQH STTM workbook**
-(project 1005034) performed 2026-08-07 under the program's data rules —
-**the workbook itself must never enter this repo**; only the structural
-characterization below (sheet/header/table identifiers, no data-row
-values) is recorded. The flat-dialect extractor (docs/EXTRACTOR_RECON.md)
-is unaffected.
+**Status (2026-09-01, corrected):** the segmented dialect is implemented
+(`src/codegen/extract/segmented.py`) and the 2026-08-31 build's two "open
+source-team questions" are **RETRACTED — the documents answer both**:
 
-## Why v1 rejects this family
+1. *Record identification* is stated by the STTM itself: the Trailer's
+   "Record Type" row comment reads **"Static text identifying the record
+   as the trailer record. Contains the value \*\*\*\*\*\*"** — so trailer
+   = record whose first field equals `******`, header = first record,
+   detail = all others. Derived with that cell quoted as the citation;
+   the FAQ `record_type_discriminators` remains strictly a
+   `status: confirmed` OVERRIDE. One soft **CONFIRM** review item
+   ("positional header/detail identification per CAQH spec — confirm
+   with source team") rides the review flow; it is not an assumption gate.
+2. *The "standard-layer contradiction" never existed.* The FRD scopes
+   BOTH layers: Structural Metadata states **"Load Strategy STG:
+   Truncate and Load"** and **"Load Strategy STD: Append"**, and the
+   Technical Metadata Business Rule reads **"Data should be loaded AS IS
+   into STG and STD."** The 2026-08-31 build inferred "stage-only" from
+   the Target Schema block (which names only `pr_dlk`/`stg_mbr`) instead
+   of reading Load Strategy. The STD catalog/schema/tables come from the
+   STTM's second target column group (`PR_STD.MBR`), recorded with a
+   cited provenance note.
+
+Also settled by the documents: acceptance criterion 2 — "Header, Detail,
+Trailer data should be mapped to respective HDR, DTL and TRL tables" —
+segments are TABLES in both layers, not file envelope; acceptance
+criterion 3 — "Data Type of the fields in Stage and standard should be
+STRING except for audit date fields" — an FRD-driven AS-IS switch, not a
+CAQH special case; and Technical Metadata Business/Primary/Unique Key =
+**None** with truncate/append strategies — no MERGE key exists, so empty
+STTM Mandatory/PK columns are FRD-consistent provenance, not an unknown.
+
+**Lessons (also in CLAUDE.md):** assumptions and conflicts must cite the
+exact source cells they rest on — a conflict that cannot quote its
+evidence is a bug; and "stage-only" was inferred from a schema block
+instead of read from Load Strategy — target-layer scope comes from Load
+Strategy STG/STD, never from which schemas the Target Schema block
+happens to name.
+
+Out of scope (stated, not hidden): the generated reader/segments module
+still splits records via `config.segments` — adapting the runtime filter
+to the derived positional/marker identification is Option-A-only future
+work, pending the source team's confirmation of the CONFIRM item.
+
+Design input derived from a **local-only inspection of the real CAQH STTM
+workbook** (project 1005034) performed 2026-08-07 under the program's
+data rules — only the structural characterization below (sheet/header/
+table identifiers, no data-row values) is recorded here. The flat-dialect
+extractor (docs/EXTRACTOR_RECON.md) is unaffected and byte-identical.
+
+## Why v1 rejected this family
 
 The segmented workbook is not a `MAPPING-*`-prefixed variant of the flat
 layout — it is a different layout family. The parser's content-based
 detection recognizes the family signature (metadata block + band row
-and/or per-row Segment column) and raises `SegmentedWorkbookError`
-pointing here; everything below is what a v2 needs to handle.
+and/or per-row Segment column); v1 raised `SegmentedWorkbookError`
+unconditionally, v2 routes it to the segmented parser gated on the FAQ
+declarations. Everything below is the structural characterization the
+implementation follows.
 
 ## Layout family characterization
 
@@ -83,7 +127,8 @@ advisory crosswalk sheet; **no** FILE_DETAILS or VERSION_HISTORY sheets.
   reused as-is; needs its own rule (likely `Mandatory Column` +
   `Primary Key` driven).
 
-## Blockers (named, non-negotiable before emission)
+## Original blockers (historical — RETRACTED 2026-09-01, see the status
+## block above: the documents answer both; one soft CONFIRM item remains)
 
 1. **H/D/T discriminator requires the client source dictionary.** The
    workbook confirms segment MEMBERSHIP per field but cannot confirm the

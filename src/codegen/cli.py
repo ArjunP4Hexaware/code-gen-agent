@@ -8,6 +8,8 @@ Commands:
   sharepoint-fetch    library -> local input dir (workbooks + contracts)
   sharepoint-publish  one feed's generated artifacts -> library output folder
   databricks-fetch    UC volumes -> local input dir (FRDs + STTM workbooks)
+  databricks-publish  one feed's generated artifacts -> UC output volume
+                      (human-gated; WRITABLE_PREFIX enforced in code)
   demo-source-files   the demo UI's source-files display JSON (pure read)
 
 The two sharepoint-* commands are the transport seam at the edges; the
@@ -34,7 +36,7 @@ from codegen.faq import faq_for_spec
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
-from codegen.reasoning.engine import RuleCandidate
+from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import console_summary, write_generation_report
 from codegen.resolve.resolver import ContractMismatchError, resolve_pair
 from codegen.rules.compiler import compile_rules
@@ -47,7 +49,16 @@ def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) 
     artifact_dir = feed_dir / "candidates"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = artifact_dir / "candidates.json"
-    payload = [candidate.model_dump() for candidate in candidates]
+    payload = []
+    for candidate in candidates:
+        entry = candidate.model_dump()
+        if entry.get("kind") == "layer2":
+            # Default-kind entries serialize exactly as before the segmented
+            # dialect landed — flat candidates.json stays byte-identical.
+            entry.pop("kind", None)
+            entry.pop("detail", None)
+            entry.pop("citation", None)
+        payload.append(entry)
     artifact_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return artifact_path
 
@@ -67,6 +78,9 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    # Segmented-extraction review items (assumption/conflict cards) ride the
+    # same review artifact and decision flow as Layer-2 candidates.
+    candidates = [*segmented_review_items(spec), *candidates]
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus
     # contract prefills; missing file => all defaults, flagged by the gate.
     faq = faq_for_spec(spec, config)
@@ -379,6 +393,60 @@ def _sharepoint_publish(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+def _databricks_publish(args: argparse.Namespace, config: Config) -> int:
+    """Publish one feed's generated artifacts to a Unity Catalog volume.
+
+    The UC twin of `sharepoint-publish` — same doctrine: running this command
+    IS the human gate (no `--confirm`; the UI endpoint requires one), and
+    publishing nothing is an error, never a silent no-op. The target may be
+    overridden per call, but `codegen.databricks` refuses anything outside
+    WRITABLE_PREFIX in code.
+    """
+    from codegen.databricks import (
+        DatabricksConfigError,
+        DatabricksTransportError,
+        config_for,
+        ensure_volume,
+        publish_artifacts,
+    )
+
+    try:
+        artifacts = _publishable(args, config)
+    except ValueError as exc:
+        print(f"{'FAIL':<15} databricks-publish — {exc}")
+        return 1
+    missing = [p for p in artifacts if not p.is_file()]
+    if missing:
+        print(
+            f"{'FAIL':<15} databricks-publish — nothing to publish for {args.feed!r}: "
+            + ", ".join(str(p) for p in missing)
+            + ". Run `codegen generate` (or generate-all) first."
+        )
+        return 1
+
+    try:
+        cfg = config_for(config.databricks)
+        target = ensure_volume(cfg, volume=args.volume or cfg.output_volume,
+                               knob="output_volume", catalog=args.catalog,
+                               schema=args.schema)
+        print(f"volume:    {target['full_name']}"
+              + ("  (created)" if target["created"] else ""))
+        published = publish_artifacts(
+            cfg, args.feed, artifacts, catalog=args.catalog,
+            schema=args.schema, volume=args.volume, force=args.force,
+        )
+        for item in published:
+            print(f"{'PUBLISHED':<15} {item['name']} — "
+                  f"{item['size_bytes']:,} bytes -> {item['path']}")
+    except (DatabricksConfigError, DatabricksTransportError) as exc:
+        print(f"{'FAIL':<15} databricks-publish — {exc}")
+        return 1
+
+    print(f"\n{len(artifacts)} artifact(s) published to /Volumes/"
+          f"{target['full_name'].replace('.', '/')}/{args.feed}/.")
+    return 0
+
+
 # Filename date-token table for the landing seeder. Tokens resolve only at
 # word boundaries (so OH / MIDS stay literal); HHMM/HH use a fixed synthetic
 # delivery time of 06:00. Anything date-ish left after resolution is flagged
@@ -673,6 +741,27 @@ def main(argv: list[str] | None = None) -> int:
         "report + assembled notebook)",
     )
 
+    db_publish = subparsers.add_parser(
+        "databricks-publish",
+        help="publish one feed's generated artifacts to a Unity Catalog "
+        "volume (human-gated write; targets outside WRITABLE_PREFIX refused)",
+    )
+    db_publish.add_argument("--config", default="config/config.yaml")
+    db_publish.add_argument("--feed", required=True, help="feed_slug to publish")
+    db_publish.add_argument(
+        "--path",
+        help="one file relative to out/<feed_slug>/ (default: the feed's "
+        "report + assembled notebook)",
+    )
+    db_publish.add_argument("--catalog", default="",
+                            help="override databricks.catalog for the target")
+    db_publish.add_argument("--schema", default="",
+                            help="override databricks.schema for the target")
+    db_publish.add_argument("--volume", default="",
+                            help="override databricks.output_volume")
+    db_publish.add_argument("--force", action="store_true",
+                            help="overwrite files already in the volume")
+
     args = parser.parse_args(argv)
     load_dotenv()
     config = load_config(args.config)
@@ -771,6 +860,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sharepoint-publish":
         return _sharepoint_publish(args, config)
+
+    if args.command == "databricks-publish":
+        return _databricks_publish(args, config)
 
     if args.command == "generate":
         try:

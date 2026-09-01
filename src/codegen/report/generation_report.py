@@ -92,6 +92,18 @@ def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
         lines += ["None — every rule compiled deterministically.", ""]
         return lines
     for index, candidate in enumerate(candidates, start=1):
+        if candidate.kind == "confirm":
+            lines += [
+                f"### Review item {index} (CONFIRM — document-derived, cited)",
+                "",
+                f"- {candidate.rule_text}",
+            ]
+            if candidate.detail:
+                lines.append(f"- {candidate.detail}")
+            if candidate.citation:
+                lines.append(f"- Evidence: > {candidate.citation}")
+            lines.append("")
+            continue
         grounded = "grounded" if candidate.grounded else "**NOT GROUNDED**"
         lines += [
             f"### Candidate {index} ({candidate.provider}, {grounded})",
@@ -112,6 +124,52 @@ def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
         if candidate.failure_notes:
             lines.append("- Failure notes:")
             lines += [f"  - {note}" for note in candidate.failure_notes]
+        lines.append("")
+    return lines
+
+
+def _segmented_section(spec: ResolvedFeedSpec) -> list[str]:
+    """Segmented-extraction facts: segments as tables in both layers, the
+    document-derived record identification (with its STTM citation), and the
+    cited provenance notes. Empty for flat feeds so their reports stay
+    byte-identical."""
+    seg = spec.segmented_extraction
+    if seg is None:
+        return []
+    ident = seg.identification
+    lines = [
+        "## Segmented extraction",
+        "",
+        f"- Segments found: {', '.join(seg.segments_found)} — row counts: "
+        + ", ".join(f"{k}={v}" for k, v in seg.row_counts.items()),
+        "",
+        "### Segment tables (both layers)",
+        "",
+        "| Segment | Stage table | Standard table | Columns |",
+        "|---|---|---|---|",
+    ]
+    for segment in spec.segments:
+        standard = (segment.standard_table.qualified_name
+                    if segment.standard_table is not None else "—")
+        lines.append(
+            f"| {segment.segment} | {segment.stage_table.qualified_name} "
+            f"| {standard} | {len(segment.fields)} |"
+        )
+    lines += [
+        "",
+        f"### Record identification ({ident.method})",
+        "",
+        f"- Trailer: record whose first field equals {ident.trailer_marker!r}",
+        f"- Header: {ident.header_rule}",
+        f"- Detail: {ident.detail_rule}",
+        f"- Evidence: > {ident.citation}",
+        "",
+    ]
+    if seg.provenance_notes:
+        lines += ["### Provenance notes (each cites its document evidence)", ""]
+        for entry in seg.provenance_notes:
+            lines.append(f"- {entry.note}")
+            lines.append(f"  - Evidence: > {entry.citation}")
         lines.append("")
     return lines
 
@@ -150,6 +208,7 @@ def write_generation_report(
     lines += _inputs_section(inputs_summary)
     lines += _files_section(written_files, out_root)
     lines += _rules_section(outcomes)
+    lines += _segmented_section(spec)
     lines += _candidates_section(candidates)
     lines += _gate_section(gate)
 

@@ -247,21 +247,61 @@ def test_chat_uses_endpoint_and_returns_content():
                         "max_tokens": 50}
 
 
-def test_write_surface_is_exactly_the_sanctioned_landing_seeder():
+# Recorded 2026-08-31 from the live serving endpoint (probe call, synthetic
+# prompt/reply, signature truncated): extended-thinking Claude models return
+# content as a LIST of typed blocks, not a string — the shape behind the
+# demo_20260831_212539 run's "'list' object has no attribute 'strip'"
+# provider failures.
+_RECORDED_BLOCK_CONTENT = [
+    {
+        "type": "reasoning",
+        "summary": [{"type": "summary_text", "text": "", "signature": "CAISoQIK"}],
+    },
+    {"type": "text", "text": "pong"},
+]
+
+
+def test_chat_joins_list_of_content_blocks():
+    cfg = db.config_for(_settings(serving_endpoint="databricks-claude-opus-4-8"),
+                        env={})
+
+    def query(name, messages, max_tokens):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=_RECORDED_BLOCK_CONTENT))])
+
+    client = SimpleNamespace(serving_endpoints=SimpleNamespace(query=query))
+    text = db.chat(cfg, [{"role": "user", "content": "hi"}], client=client)
+    assert text == "pong"  # reasoning block ignored, text block kept
+
+
+def test_chat_content_text_handles_every_shape():
+    assert db._chat_content_text(None) == ""
+    assert db._chat_content_text("plain") == "plain"
+    assert db._chat_content_text(_RECORDED_BLOCK_CONTENT) == "pong"
+    # multiple text blocks join; stray plain strings in the list survive
+    assert db._chat_content_text(
+        [{"type": "text", "text": "a"}, "b", {"type": "tool_use"}]
+    ) == "ab"
+    with pytest.raises(db.DatabricksTransportError):
+        db._chat_content_text(42)
+
+
+def test_write_surface_is_exactly_the_sanctioned_set():
     # The governance "never writes back" control introspects for these; the
-    # suite enforces the same invariant directly. Since the live shell block,
-    # the ONE sanctioned write surface is {ensure_volume, upload_file},
-    # guarded by WRITABLE_PREFIX; execute/create_job/run_now/deletes remain
-    # forbidden absolutely.
+    # suite enforces the same invariant directly. The sanctioned write
+    # surfaces are the landing seeder ({ensure_volume, upload_file},
+    # 2026-08-27) and the human-gated publish ({publish_artifacts},
+    # 2026-08-28), all guarded by WRITABLE_PREFIX;
+    # execute/create_job/run_now/deletes remain forbidden absolutely.
     forbidden = ("execute", "create_job", "run_now", "delete", "remove")
     exported = [n for n in dir(db) if not n.startswith("_")]
     offenders = [n for n in exported
                  if any(w == n.lower() or n.lower().startswith(w) for w in forbidden)]
     assert offenders == []
     write_shaped = {n for n in exported
-                    if any(w in n.lower() for w in ("upload", "write", "put"))
+                    if any(w in n.lower() for w in ("upload", "write", "put", "publish"))
                     and n != "WRITABLE_PREFIX"}
-    assert write_shaped == {"upload_file"}
+    assert write_shaped == {"upload_file", "publish_artifacts"}
     assert db.WRITABLE_PREFIX == "soham_workspace.codegen_agent."
 
 
@@ -359,3 +399,152 @@ def test_documents_route_dedupe_states_and_pairing(client, monkeypatch, tmp_path
     assert frd["FRD_A_1005034.docx"]["paired"] is True
     assert frd["FRD_unrelated.docx"]["paired"] is False
     assert frd["FRD_A_1005034.docx"]["state"] == "fetchable"
+
+
+# -- publish (the human-gated outbound half, added 2026-08-28) ---------------- #
+
+
+class _StubPublishClient:
+    """volumes.read/create + files.upload, recording every call."""
+
+    def __init__(self, volume_exists=True, existing=()):
+        self.uploads = []
+        self.created = []
+        self._exists = volume_exists
+
+        outer = self
+
+        class _Volumes:
+            def read(self, full_name):
+                if not outer._exists:
+                    raise RuntimeError(f"{full_name} does not exist")
+                return SimpleNamespace(full_name=full_name)
+
+            def create(self, **kwargs):
+                outer.created.append(kwargs)
+                outer._exists = True
+
+        class _Files:
+            def upload(self, path, data, overwrite=False):
+                outer.uploads.append((path, data.read(), overwrite))
+
+        self.volumes = _Volumes()
+        self.files = _Files()
+
+
+def _publish_cfg():
+    return db.config_for(
+        _settings(landing_volume="mftlanding", output_volume="generated"),
+        env={},
+    )
+
+
+def test_publish_artifacts_targets_per_feed_directory(tmp_path):
+    cfg = _publish_cfg()
+    report = tmp_path / "cv_feed.md"
+    report.write_bytes(b"# report")
+    notebook = tmp_path / "cv_feed.ipynb"
+    notebook.write_bytes(b"{}")
+    client = _StubPublishClient()
+    published = db.publish_artifacts(cfg, "cv_feed", [report, notebook],
+                                     client=client)
+    assert [p[0] for p in client.uploads] == [
+        "/Volumes/soham_workspace/codegen_agent/generated/cv_feed/cv_feed.md",
+        "/Volumes/soham_workspace/codegen_agent/generated/cv_feed/cv_feed.ipynb",
+    ]
+    assert published[0]["size_bytes"] == 8
+    assert all(p[2] is False for p in client.uploads)  # no silent overwrite
+
+
+def test_publish_refuses_targets_outside_writable_prefix(tmp_path):
+    cfg = _publish_cfg()
+    artifact = tmp_path / "a.md"
+    artifact.write_bytes(b"x")
+    with pytest.raises(db.DatabricksConfigError, match="only writable location"):
+        db.publish_artifacts(cfg, "feed", [artifact], catalog="client_prod",
+                             client=_StubPublishClient())
+    with pytest.raises(db.DatabricksConfigError, match="only writable location"):
+        db.publish_artifacts(cfg, "feed", [artifact], schema="other_schema",
+                             client=_StubPublishClient())
+
+
+def test_publish_refuses_bad_slug_and_missing_volume(tmp_path):
+    cfg = _publish_cfg()
+    artifact = tmp_path / "a.md"
+    artifact.write_bytes(b"x")
+    with pytest.raises(db.DatabricksTransportError, match="invalid feed slug"):
+        db.publish_artifacts(cfg, "../escape", [artifact],
+                             client=_StubPublishClient())
+    bare = db.config_for(_settings(), env={})
+    with pytest.raises(db.DatabricksConfigError, match="output_volume"):
+        db.publish_artifacts(bare, "feed", [artifact],
+                             client=_StubPublishClient())
+
+
+def test_ensure_volume_generalizes_to_output_volume():
+    cfg = _publish_cfg()
+    client = _StubPublishClient(volume_exists=False)
+    result = db.ensure_volume(cfg, client=client, volume="generated",
+                              knob="output_volume")
+    assert result == {"full_name": "soham_workspace.codegen_agent.generated",
+                      "created": True}
+    assert client.created[0]["name"] == "generated"
+
+
+def test_publish_target_route_reports_defaults(client, monkeypatch):
+    payload = client.get("/api/databricks/publish-target").json()
+    assert payload["available"] is True
+    assert payload["writable_prefix"] == "soham_workspace.codegen_agent."
+    assert payload["volume"] == "generated"
+
+
+def test_publish_route_requires_confirm(client):
+    response = client.post("/api/databricks/publish",
+                           json={"feed_slug": "x", "confirm": False})
+    assert response.status_code == 400
+    assert "confirm" in response.json()["detail"]
+
+
+def test_publish_route_with_stubbed_transport(client, monkeypatch, tmp_path):
+    store = ui_main._require_store()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "cv_feed").mkdir()
+    (tmp_path / "reports" / "cv_feed.md").write_bytes(b"# r")
+    (tmp_path / "cv_feed" / "cv_feed.ipynb").write_bytes(b"{}")
+    monkeypatch.setattr(store, "out_root", tmp_path)
+    monkeypatch.setattr(store, "reports_root", tmp_path / "reports")
+    monkeypatch.setattr(store, "runs", {"cv_feed": object()})
+
+    import codegen.databricks as db_module
+
+    calls = {}
+    monkeypatch.setattr(
+        db_module, "ensure_volume",
+        lambda cfg, **kw: {"full_name": "soham_workspace.codegen_agent.generated",
+                           "created": False},
+    )
+
+    def fake_publish(cfg, slug, files, **kw):
+        calls["slug"] = slug
+        calls["names"] = [p.name for p in files]
+        return [{"name": p.name, "path": f"/Volumes/x/{p.name}",
+                 "size_bytes": 1} for p in files]
+
+    monkeypatch.setattr(db_module, "publish_artifacts", fake_publish)
+    response = client.post(
+        "/api/databricks/publish",
+        json={"feed_slug": "cv_feed", "confirm": True},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["published"] is True
+    assert calls["slug"] == "cv_feed"
+    assert calls["names"] == ["cv_feed.md", "cv_feed.ipynb"]
+
+
+def test_publish_route_unknown_feed_is_404(client, monkeypatch):
+    store = ui_main._require_store()
+    monkeypatch.setattr(store, "runs", {})
+    response = client.post("/api/databricks/publish",
+                           json={"feed_slug": "ghost", "confirm": True})
+    assert response.status_code == 404

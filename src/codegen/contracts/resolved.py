@@ -15,7 +15,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from codegen.contracts.frd import LoadStrategy, RecordSegment
-from codegen.contracts.sttm import AuditColumn, RecycleSpec, SttmField
+from codegen.contracts.sttm import (
+    AuditColumn,
+    RecycleSpec,
+    SegmentedExtraction,
+    SttmField,
+)
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -49,6 +54,15 @@ class SegmentSpec(BaseModel):
     segment: RecordSegment
     stage_table: ResolvedTable
     fields: list[SttmField] = Field(min_length=1)
+    # Per-segment STANDARD table (segmented dialect: FRD 1005034 acceptance
+    # criterion 2 maps Header/Detail/Trailer to their own tables in BOTH
+    # layers). None on flat feeds (the feed-level standard_table applies) and
+    # on stage-only feeds.
+    standard_table: ResolvedTable | None = None
+    # Per-segment audit columns exactly as the STTM lists them ("Metadata of
+    # the tables is provided in the STTM"); None -> the feed-wide set applies
+    # (flat feeds, older contracts).
+    audit_columns: list[AuditColumn] | None = None
 
 
 class ResolvedRecycle(BaseModel):
@@ -98,8 +112,10 @@ class ResolvedFeedSpec(BaseModel):
     errors_table: ResolvedTable
     processed_files_table: ResolvedTable
 
-    # Load semantics
-    natural_key_columns: list[str] = Field(min_length=1)
+    # Load semantics. natural_key_columns MAY be empty: a feed whose FRD
+    # states Primary/Unique/Business Key = None with STG Truncate-and-Load +
+    # STD Append has no MERGE key by design (CAQH 1005034 Technical Metadata).
+    natural_key_columns: list[str]
     not_null_columns: list[str]
     phi_columns: list[str]
     audit_columns: list[AuditColumn] = Field(min_length=1)
@@ -116,6 +132,16 @@ class ResolvedFeedSpec(BaseModel):
     sttm_contract_name: str
     sttm_contract_sha256: str
     sttm_is_synthetic: bool
+
+    # Carried through from a segmented-workbook extraction (v2 dialect):
+    # derived record identification + cited provenance notes. None on flat
+    # feeds — templates only read it when present, so flat output stays
+    # byte-identical.
+    segmented_extraction: SegmentedExtraction | None = None
+    # FRD-driven AS-IS switch (e.g. 1005034 acceptance criterion 3: "Data
+    # Type of the fields in Stage and standard should be STRING except for
+    # audit date fields"): business columns render STRING in BOTH layers.
+    load_as_is: bool = False
 
     @property
     def is_segmented(self) -> bool:

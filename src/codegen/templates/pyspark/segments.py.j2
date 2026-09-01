@@ -1,4 +1,70 @@
 {% from "_macros.py.j2" import banner %}
+{% if segment_identification %}
+"""Split raw delimited lines into per-segment DataFrames (Header/Detail/Trailer).
+
+Record identification is DERIVED from the STTM ({{ segment_identification.method }}):
+the trailer is the record whose first field equals the STTM-stated static
+marker; the header is the first record of the file; every other record is
+detail. The verbatim STTM citation is in the generation report's
+Record-identification section and the CONFIRM review item.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec, reader
+
+RECORD_TYPE_FIELD_INDEX = 0
+# The STTM-stated static trailer marker (quoted verbatim in the module
+# docstring's evidence line).
+TRAILER_MARKER = {{ segment_identification.trailer_marker | py }}
+ROW_INDEX_COLUMN = "_row_index"
+
+
+def split_segments(raw: DataFrame) -> tuple[dict[str, DataFrame], DataFrame]:
+    """Raw field-array rows -> ({segment: DataFrame with source columns}, unknown rows).
+
+    Trailer = first field equals ``TRAILER_MARKER``; Header = the file's
+    first record; Detail = the remainder. Every record classifies, so the
+    unknown frame is empty by construction (kept for API parity with the
+    config-discriminator variant).
+    """
+    fields = F.col(reader.RAW_FIELDS_COLUMN)
+    first_field = fields.getItem(RECORD_TYPE_FIELD_INDEX)
+    # Single-file reads: coalesce to one partition so the monotonically
+    # increasing id follows file order deterministically.
+    indexed = raw.coalesce(1).withColumn(
+        ROW_INDEX_COLUMN, F.monotonically_increasing_id()
+    )
+    first_index = indexed.agg(F.min(ROW_INDEX_COLUMN)).collect()[0][0]
+
+    is_trailer = first_field == TRAILER_MARKER
+    is_header = (F.col(ROW_INDEX_COLUMN) == F.lit(first_index)) & ~is_trailer
+    predicates = {
+        "Header": is_header,
+        "Detail": ~is_header & ~is_trailer,
+        "Trailer": is_trailer,
+    }
+
+    by_segment: dict[str, DataFrame] = {}
+    for segment in feed_spec.SEGMENTS:
+        source_columns = feed_spec.SEGMENTS[segment]["source_columns"]
+        selected = [
+            fields.getItem(position).alias(column)
+            for position, column in enumerate(source_columns)
+        ]
+        by_segment[segment] = indexed.where(predicates[segment]).select(
+            *selected, F.size(fields).alias("_field_count")
+        )
+
+    unknown = indexed.where(F.lit(False)).select(
+        reader.RAW_FIELDS_COLUMN, F.size(fields).alias("_field_count")
+    )
+    return by_segment, unknown
+{% else %}
 """Split raw delimited lines into per-segment DataFrames (Header/Detail/Trailer).
 
 The first field of every line is the record-type discriminator
@@ -45,3 +111,4 @@ def split_segments(raw: DataFrame) -> tuple[dict[str, DataFrame], DataFrame]:
 
     unknown = raw.where(~discriminator.isin(list(known_values.values())))
     return by_segment, unknown
+{% endif %}

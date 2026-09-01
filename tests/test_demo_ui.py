@@ -54,9 +54,22 @@ def _adopt_empty(store: GenerationStore, *, mode: str, label: str | None) -> Non
 @pytest.fixture()
 def client(monkeypatch):
     # No key in the test process: live must read as unavailable by default
-    # and nothing can ever fire a billed call from the suite.
+    # and nothing can ever fire a billed call from the suite. The tracked
+    # config selects databricks_fmapi, which resolves from YAML alone — so
+    # the fixture pins the key-gated anthropic provider (and deletes the
+    # key) rather than trusting config/config.yaml to stay un-runnable.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     from ui.backend import main
+
+    if main.store is not None:
+        reasoning = main.store.config.reasoning.model_copy(
+            update={"provider": "anthropic"}
+        )
+        monkeypatch.setattr(
+            main.store,
+            "config",
+            main.store.config.model_copy(update={"reasoning": reasoning}),
+        )
 
     # Plain TestClient (no context manager): skips lifespan generation — these
     # tests exercise the demo endpoints, not the startup mock run.
@@ -116,11 +129,29 @@ def test_run_live_without_key_is_rejected(client):
 
 
 def test_live_available_is_boolean_only(client, monkeypatch):
-    assert client.get("/api/demo/live-available").json() == {"available": False}
+    assert client.get("/api/demo/live-available").json() == {
+        "available": False, "provider": "anthropic",
+    }
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-never-echoed")
     payload = client.get("/api/demo/live-available").json()
-    assert payload == {"available": True}
-    assert "test-key-never-echoed" not in payload.get("available", True).__repr__()
+    assert payload == {"available": True, "provider": "anthropic"}
+    assert "test-key-never-echoed" not in repr(payload)
+
+
+def test_live_available_fmapi_needs_no_key(client, monkeypatch):
+    # FMAPI availability is pure config resolution — no key, no network.
+    from ui.backend import main
+
+    reasoning = main.store.config.reasoning.model_copy(
+        update={"provider": "databricks_fmapi"}
+    )
+    monkeypatch.setattr(
+        main.store,
+        "config",
+        main.store.config.model_copy(update={"reasoning": reasoning}),
+    )
+    payload = client.get("/api/demo/live-available").json()
+    assert payload == {"available": True, "provider": "databricks_fmapi"}
 
 
 @needs_replay_set

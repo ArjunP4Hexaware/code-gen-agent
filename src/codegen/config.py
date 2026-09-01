@@ -9,6 +9,7 @@ were never passed to it.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -82,6 +83,17 @@ class FrameworkConfig(BaseModel):
     id_placeholder: str = "NULL"
     # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout}.
     tables: dict[str, str] = Field(default_factory=dict)
+    # Prefix for the SYNTHETIC stage LOCATION in the deployment-team DDL .txt
+    # files — clearly labeled, never a real container/storage account (the
+    # real ones are assigned by the client platform).
+    synthetic_location_prefix: str = (
+        "abfss://syn-container-stage@synstorage.dfs.synthetic.example")
+    # The deployment-team .txt files carry exactly the FRD's Target Table
+    # Name list by default: the errors/processed-files side-tables are
+    # CodeGen conventions absent from the FRD, the STTM, and the client
+    # reference goldens. They remain in out/<slug>/ddl/ and in notebook mode
+    # regardless.
+    deployment_ddl_include_side_tables: bool = False
 
 
 class NamingConfig(BaseModel):
@@ -144,6 +156,65 @@ _REQUIRED_HEADER_KEYS = {
 _OPTIONAL_HEADER_KEYS = {"value_spec"}
 
 
+class SegmentedExtractorConfig(BaseModel):
+    """Layout knobs for the segmented (CAQH-style) workbook family — one wide
+    mapping sheet: key:value metadata block, band-label row (discovered by
+    scan, not positional), header row beneath it, per-row Segment column,
+    per-segment audit rows with empty source cells. Vocabulary transcribed
+    from the real workbook's structural characterization
+    (docs/SEGMENTED_MODE_DESIGN.md) — all matching is fuzzy (lowercased,
+    whitespace-collapsed) like the flat extractor's."""
+
+    model_config = _MODEL_CONFIG
+
+    # Band-label variants this family uses for the source band.
+    source_band_variants: list[str] = Field(
+        default_factory=lambda: ["Source Layout", "Source File Layout"])
+    # Metadata-block keys (col A) -> logical facts.
+    metadata_keys: dict[str, str] = Field(default_factory=lambda: {
+        "files": "File(s)",
+        "generator": "File Generator",
+        "location": "File Location",
+        "lob": "LOB",
+        "frequency": "File frequency",
+        "domain": "Domain",
+        "sub_domain": "Sub-Domain",
+        "file_type": "File type",
+    })
+    # Source-block header synonyms (logical -> accepted spellings).
+    source_headers: dict[str, list[str]] = Field(default_factory=lambda: {
+        "ordinal": ["#"],
+        "field_name": ["Field Name"],
+        "datatype": ["Data Type"],
+        "length": ["Length"],
+        "fixed_width_length": ["Field Length (fixed width)"],
+        "fixed_width_start": ["Start position (fixed width)"],
+        "fixed_width_end": ["End Position (fixed width)"],
+        "segment": ["Segment (Ex:Header,Trailer,Detail)", "Segment"],
+        "pii": ["PII"],
+        "comments": ["Comments"],
+        "business_rule": ["Business Rule"],
+    })
+    # Stage/Standard block header vocabulary (identical for both bands).
+    table_headers: list[str] = Field(default_factory=lambda: [
+        "Catalog", "Schema", "TableName", "ColumnName", "DataType",
+        "Mandatory Column", "Primary Key", "Field Description",
+        "Table Description", "Transformations/Data Quality",
+    ])
+    # Canonical segment names as the Segment column spells them.
+    segment_names: dict[str, str] = Field(default_factory=lambda: {
+        "header": "Header", "detail": "Detail", "trailer": "Trailer",
+    })
+    # Member-existence recycle (FRD 1005034 Data Quality Functional
+    # Requirement: "Perform Member Id validation for existence against the
+    # Facets_Member table in the Stage layer. If Member doesn't exist, then
+    # move the record to RECYCLE table."). The field name is matched against
+    # the STTM's source Field Name; the reference table name is transcribed
+    # from that FRD requirement — never invented by the agent.
+    member_field: str = "Member ID"
+    member_reference_table: str = "facets_member"
+
+
 class ExtractorConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -158,6 +229,9 @@ class ExtractorConfig(BaseModel):
     file_details_headers: ExtractorFileDetailsHeaders
     recycle_on_match: str
     recycle_on_no_match: str
+    # Segmented (CAQH-style) family knobs — all defaulted, so a config
+    # without the section still loads.
+    segmented: SegmentedExtractorConfig = SegmentedExtractorConfig()
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:
@@ -367,9 +441,12 @@ class DatabricksSettings(BaseModel):
     warehouse_id: str = ""           # EXPLAIN-only; waking it bills DBUs
     serving_endpoint: str = ""       # FMAPI chat endpoint (Claude transport)
     wrapper_notebook_path: str = ""  # client-supplied; none exists here yet
-    # The ONE writable volume (codegen.databricks.WRITABLE_PREFIX guards it
-    # by construction); seeded with synthetic files by databricks-seed-landing.
+    # The writable volumes (codegen.databricks.WRITABLE_PREFIX guards both
+    # by construction): landing_volume is seeded with synthetic files by
+    # databricks-seed-landing; output_volume receives reviewed artifacts via
+    # the human-gated `databricks-publish` (2026-08-28 explicit go).
     landing_volume: str = ""
+    output_volume: str = ""
     # Allowlist for read_table_rows (SELECT-only, statement rendered in
     # code). Reading any table NOT listed here is refused. First read wakes
     # the serverless warehouse = DBU spend.
@@ -509,7 +586,14 @@ _TOP_LEVEL_KEYS = set(Config.model_fields)
 
 
 def load_config(path: str | Path) -> Config:
-    """Load the YAML config, failing loudly on unknown top-level sections."""
+    """Load the YAML config, failing loudly on unknown top-level sections.
+
+    ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
+    ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
+    exists so a CLIENT prod-support DL (a client value) can drive a local
+    client-document run via the gitignored ``.env`` while the tracked YAML
+    keeps its synthetic stand-in.
+    """
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
@@ -519,4 +603,9 @@ def load_config(path: str | Path) -> Config:
             f"unknown top-level config section(s) {sorted(unknown)}; "
             f"expected only {sorted(_TOP_LEVEL_KEYS)}"
         )
+    emails_env = os.environ.get("CODEGEN_NOTIFICATION_EMAILS", "").strip()
+    if emails_env:
+        emails = [e.strip() for e in re.split(r"[,;]", emails_env) if e.strip()]
+        if emails:
+            raw.setdefault("job", {})["notification_emails"] = emails
     return Config.model_validate(raw)

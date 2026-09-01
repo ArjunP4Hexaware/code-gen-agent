@@ -134,13 +134,14 @@ def _check_audit_trail(facts: RunFacts) -> tuple[str, str]:
 
 def _check_read_only_seams(facts: RunFacts) -> tuple[str, str]:
     # Structural, not run-dependent: document sources must stay read-only.
-    # The ONE sanctioned write surface (2026-08-27) is the landing-volume
-    # seeder — exactly {ensure_volume, upload_file}, guarded by
-    # WRITABLE_PREFIX in code. Anything write-shaped beyond that flips this
-    # control; so does losing the prefix guard.
+    # The sanctioned write surfaces are the landing-volume seeder
+    # ({ensure_volume, upload_file}, 2026-08-27) and the human-gated
+    # artifact publish ({publish_artifacts}, explicit go 2026-08-28) — all
+    # guarded by WRITABLE_PREFIX in code. Anything write-shaped beyond
+    # those flips this control; so does losing the prefix guard.
     import codegen.databricks as databricks_module
 
-    sanctioned = {"ensure_volume", "upload_file"}
+    sanctioned = {"ensure_volume", "upload_file", "publish_artifacts"}
     writers = {
         name for name in dir(databricks_module)
         if any(w in name.lower() for w in
@@ -155,8 +156,9 @@ def _check_read_only_seams(facts: RunFacts) -> tuple[str, str]:
     ):
         return "attention", "the landing write guard (WRITABLE_PREFIX) is missing"
     return "verified", (
-        "document sources are read-only; the only write surface is the "
-        "landing seeder, constrained by construction to "
+        "document sources are read-only; the only write surfaces are the "
+        "landing seeder and the human-gated artifact publish, both "
+        "constrained by construction to "
         f"{databricks_module.WRITABLE_PREFIX}* — no deletes exist anywhere"
     )
 

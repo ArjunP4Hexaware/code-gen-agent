@@ -3,7 +3,11 @@
 {{ banner(provenance, feed) }}
 
 {% set phi_key_test = phi_columns and natural_key | length > 1 and natural_key[0] in phi_columns %}
+{% if has_null_key_test or phi_key_test %}
 from conftest import RUN_TS, detail_rows, sample_row
+{% else %}
+from conftest import RUN_TS, detail_rows
+{% endif %}
 {% if phi_key_test %}
 from pipeline import audit, feed_spec, mapping, masking, rejects
 {% else %}
@@ -19,6 +23,7 @@ def _audited_frame(spark, rows):
     )
 
 
+{% if has_null_key_test %}
 def _null_key_row():
     row = sample_row()
     key_source = {{ detail_natural_key_source_columns[0] | tojson }}
@@ -47,6 +52,15 @@ def test_write_rejects_appends_to_errors_table(spark, tables, tmp_path):
     )
     assert len(errors) == 1
     assert errors[0]["ERROR_TYPE"] == rejects.ERROR_TYPE_NOT_NULL
+{% else %}
+def test_split_rejects_passes_everything_without_not_null_keys(spark):
+    # The contract declares no not-null key columns (no MERGE key by design),
+    # so nothing can reject on NOT_NULL — split_rejects passes rows through.
+    df = _audited_frame(spark, detail_rows(3))
+    good, rejected = rejects.split_rejects(df)
+    assert good.count() == 3
+    assert rejected.count() == 0
+{% endif %}
 
 
 {% if phi_key_test %}
@@ -73,7 +87,7 @@ def test_rejected_phi_key_is_masked(spark, tables):
     for record in errors:
         assert "SENSITIVE123456" not in record["KEY_VALUE_MASKED"]
         assert record["KEY_VALUE_MASKED"] == masking.mask_value("SENSITIVE123456")
-{% else %}
+{% elif has_null_key_test %}
 def test_rejected_key_value_recorded(spark, tables):
     df = _audited_frame(spark, [_null_key_row()])
     _good, rejected = rejects.split_rejects(df)

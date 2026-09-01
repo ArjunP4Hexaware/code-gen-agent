@@ -70,7 +70,11 @@ def compute_verdict(
                 + (f" — {outcome.notes}" if outcome.notes else "")
             )
     for candidate in candidates:
-        if candidate.response is None:
+        if candidate.kind == "confirm":
+            flags.append(
+                f"confirm item pending (document-derived, cited): {candidate.rule_text}"
+            )
+        elif candidate.response is None:
             flags.append(
                 f"Layer-2 provider failed for rule {candidate.rule_text!r}: "
                 + "; ".join(candidate.failure_notes)

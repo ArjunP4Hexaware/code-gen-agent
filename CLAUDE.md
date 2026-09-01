@@ -398,9 +398,13 @@ reconfirmed in-session 2026-08-31 — the commit message is the only
 in-repo record): main tracks the MIDS/CAQH client FRD/STTM documents,
 the CV-golden demo fixtures, the sfmc contracts and the
 `live_e2e_20260807` replay set. The branches therefore DISAGREE about
-client documents; reconcile this section (and the staging `.gitignore`
-guards) deliberately at the next staging→main merge, don't let the merge
-decide.
+client documents. **Reconciled at the 2026-09-01 staging→main merge
+(Soham):** main KEEPS its b0560af-tracked client documents and fixtures
+(the program go-ahead stands) while taking staging's `.gitignore`
+(gitignore patterns never untrack already-tracked files, so the tracked
+documents survive under staging's guards — they only block NEW strays);
+staging itself continues to hold no client documents. Apply the same
+resolution at future merges unless the program policy changes.
 
 Offline fixtures only — tests and dry-run generation must pass with zero
 credentials and zero network. No real client data, ever (on staging); any

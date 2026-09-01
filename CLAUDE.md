@@ -316,15 +316,15 @@ codegen-agent-app` then `databricks apps deploy codegen-agent
 is the Apps pip install; the runtime CACHES the installed env keyed on
 it, so bump the pyproject version AND the `codegen-version-marker`
 comment in requirements.txt whenever `src/` changes or the App serves
-stale code. **The App is HARD-LOCKED to the mock provider**: `app.yaml`
-sets `CODEGEN_FORCE_MOCK_PROVIDER=1`, `build_provider` returns
-MockProvider before any transport resolution, and
-`/api/demo/live-available` reports `{"available": true, "provider":
-"mock (locked)"}` — App runs stay usable with zero model calls; live
-FMAPI runs belong on localhost. (The SP's CAN_QUERY on the pay-per-token
-serving endpoint proved UNVERIFIABLE by CLI — no per-endpoint permission
-object — which is why the lock exists; an earlier claim here that the
-grant was verified was wrong.) App container restarts wipe
+stale code. **The mock lock was REMOVED 2026-09-01 (Soham's direction,
+0.3.4)**: the App runs live Layer 2 via FMAPI
+(`databricks-claude-opus-5`). The original reason for the lock — the
+SP's CAN_QUERY being unverifiable by CLI — is superseded by the app's
+declared serving-endpoint RESOURCE (`llm-endpoint`, CAN_QUERY), which
+grants the permission declaratively. The UI's own gates remain (explicit
+STTM choice, cost confirmation, mock on dry-run); re-lock by setting
+`CODEGEN_FORCE_MOCK_PROVIDER=1` in app.yaml and redeploying. App
+container restarts wipe
 `inputs/databricks/` fetches, runner state and the output-mode selection
 (back to `notebook`) — re-fetch and re-select after a restart.
 

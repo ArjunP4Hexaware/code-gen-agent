@@ -61,6 +61,13 @@ class LoadRules(BaseModel):
     recycle: RecycleSpec | None
 
 
+class AuditColumn(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    column: str
+    datatype: Literal["String", "Timestamp"]
+
+
 # ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------
 # A segmented (Header/Detail/Trailer) workbook extracts to the SAME segmented
 # dialect the resolver already consumes (record_segment + stage_table per
@@ -117,13 +124,10 @@ class SegmentedExtraction(BaseModel):
     row_counts: dict[str, int]
     identification: RecordIdentification
     provenance_notes: list[ProvenanceNote] = Field(default_factory=list)
-
-
-class AuditColumn(BaseModel):
-    model_config = _MODEL_CONFIG
-
-    column: str
-    datatype: Literal["String", "Timestamp"]
+    # Per-segment audit columns EXACTLY as the STTM lists them ("Metadata of
+    # the tables is provided in the STTM") — HDR/TRL typically carry three,
+    # Detail the full set. Empty dict on older contracts (feed-wide applies).
+    segment_audit: dict[str, list[AuditColumn]] = Field(default_factory=dict)
 
 
 class SttmField(BaseModel):

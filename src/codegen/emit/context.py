@@ -304,6 +304,13 @@ def _segment_context(
         "is_detail": segment.segment == "Detail",
         "stage_table": segment.stage_table.table,
         "record_type_value": record_type_value,
+        # Per-segment audit columns exactly as the STTM lists them; None ->
+        # the feed-wide set (flat feeds render byte-identically).
+        "audit_columns": (
+            [(a.column, sql_type(a.datatype)) for a in segment.audit_columns]
+            if segment.audit_columns is not None
+            else [(a.column, sql_type(a.datatype)) for a in spec.audit_columns]
+        ),
         "source_columns": [f.source_column for f in segment.fields],
         "stage_columns": [f.stage_column for f in segment.fields],
         "not_null_stage_columns": not_null_stage,
@@ -384,6 +391,13 @@ def build_context(
                         and f.standard_datatype is not None
                     ],
                     "load_strategy": spec.standard_load_strategy,
+                    "audit_columns": (
+                        [(a.column, sql_type(a.datatype))
+                         for a in seg_spec.audit_columns]
+                        if seg_spec.audit_columns is not None
+                        else [(a.column, sql_type(a.datatype))
+                              for a in spec.audit_columns]
+                    ),
                 })
         else:
             standard_tables = [standard]

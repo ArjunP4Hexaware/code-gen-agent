@@ -48,14 +48,14 @@ class RuleCandidate(BaseModel):
 
 
 def segmented_review_items(spec: ResolvedFeedSpec) -> list[RuleCandidate]:
-    """Deterministic review items for a segmented-extraction run: one soft
-    CONFIRM item for the document-derived record identification. Empty for
-    flat feeds. Every item cites the exact STTM cell it rests on."""
+    """Deterministic review items for a segmented-extraction run: soft
+    CONFIRM items for document-derived choices. Empty for flat feeds. Every
+    item cites the exact FRD field / STTM cells it rests on."""
     seg = spec.segmented_extraction
     if seg is None:
         return []
     ident = seg.identification
-    return [RuleCandidate(
+    items = [RuleCandidate(
         feed_id=spec.feed_id,
         rule_text=(
             "CONFIRM — positional header/detail identification per CAQH-style "
@@ -77,6 +77,52 @@ def segmented_review_items(spec: ResolvedFeedSpec) -> list[RuleCandidate]:
         ),
         citation=ident.citation,
     )]
+
+    # Audit-column scope: the STTM is the column-level authority, and it
+    # lists FEWER audit rows for some segments than the feed-wide set. The
+    # FRD's wording ("target tables", plural) could be read as feed-wide —
+    # followed the STTM; surface the choice for the source team.
+    feed_wide = [a.column for a in spec.audit_columns]
+    divergent = {
+        segment: [a.column for a in columns]
+        for segment, columns in sorted(seg.segment_audit.items())
+        if [a.column for a in columns] != feed_wide
+    }
+    if divergent:
+        audit_rule = next(
+            (r for r in spec.validation_rules
+             if "populate" in r.lower() and "file type" in r.lower()), None)
+        sttm_side = "; ".join(
+            f"STTM {segment} audit rows: {', '.join(columns)}"
+            for segment, columns in divergent.items())
+        items.append(RuleCandidate(
+            feed_id=spec.feed_id,
+            rule_text=(
+                "CONFIRM — audit columns per segment follow the STTM: "
+                + "; ".join(f"{segment} gets {len(columns)}"
+                            for segment, columns in divergent.items())
+                + f" vs the feed-wide set ({len(feed_wide)}) on Detail. "
+                "FRD wording could imply feed-wide audit columns on HDR/TRL; "
+                "the STTM lists fewer — followed STTM, confirm with source "
+                "team."
+            ),
+            provider="segmented-extraction",
+            response=None,
+            grounded=True,
+            failure_notes=[],
+            kind="confirm",
+            detail=(
+                "The STTM is the column-level authority (FRD: 'Metadata of "
+                "the tables is provided in the STTM'); each segment table "
+                "gets exactly its STTM-listed audit rows."
+            ),
+            citation=(
+                (f"FRD rule: {audit_rule!r} ('target tables' plural); "
+                 if audit_rule else "")
+                + sttm_side
+            ),
+        ))
+    return items
 
 
 def run_reasoning(

@@ -59,6 +59,10 @@ class SegmentSpec(BaseModel):
     # layers). None on flat feeds (the feed-level standard_table applies) and
     # on stage-only feeds.
     standard_table: ResolvedTable | None = None
+    # Per-segment audit columns exactly as the STTM lists them ("Metadata of
+    # the tables is provided in the STTM"); None -> the feed-wide set applies
+    # (flat feeds, older contracts).
+    audit_columns: list[AuditColumn] | None = None
 
 
 class ResolvedRecycle(BaseModel):

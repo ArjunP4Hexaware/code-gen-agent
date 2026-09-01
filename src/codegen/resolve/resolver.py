@@ -204,6 +204,10 @@ def _resolve_segments(
                 table=next(iter(seg_standard_tables)),
                 role="standard",
             )
+        segment_audit = (
+            sttm_feed.segmented.segment_audit.get(segment_name)
+            if sttm_feed.segmented is not None else None
+        )
         segments.append(
             SegmentSpec(
                 segment=segment_name,
@@ -212,6 +216,7 @@ def _resolve_segments(
                 ),
                 fields=seg_fields,
                 standard_table=standard_table,
+                audit_columns=segment_audit,
             )
         )
         seen_segments.append(segment_name)

@@ -192,15 +192,23 @@ def test_resolves_three_segments_with_standard_tables(pair):
     assert spec.recycle.recycle_table.table == "EXT_SYN_DTL_RECYCLE"
 
 
-def test_review_layer_is_one_cited_confirm_item(pair):
+def test_review_layer_is_two_cited_confirm_items(pair):
     spec = _resolve(pair)
     items = segmented_review_items(spec)
-    assert [i.kind for i in items] == ["confirm"]
-    (item,) = items
-    assert "positional header/detail identification" in item.rule_text
-    assert "'******'" in item.rule_text
-    # citation guard: the item quotes the exact STTM cell it rests on.
-    assert item.citation and "Contains the value ******" in item.citation
+    assert [i.kind for i in items] == ["confirm", "confirm"]
+    identification, audit_scope = items
+    assert "positional header/detail identification" in identification.rule_text
+    assert "'******'" in identification.rule_text
+    assert "Contains the value ******" in identification.citation
+    # Audit-scope confirm: STTM followed over the FRD's plural wording,
+    # citing both sides.
+    assert "audit columns per segment follow the STTM" in audit_scope.rule_text
+    assert "followed STTM, confirm with source team" in audit_scope.rule_text
+    assert "STTM Header audit rows" in audit_scope.citation
+    assert "SRC_FILE_NAME" in audit_scope.citation
+    # citation guard: every non-layer2 item quotes its evidence.
+    for item in items:
+        assert item.citation and item.citation.strip()
     # No assumption gates and no conflict cards exist any more.
     assert not any("ASSUMPTION" in i.rule_text for i in items)
     assert not any("CONFLICT" in i.rule_text for i in items)
@@ -258,6 +266,28 @@ def test_generation_emits_per_segment_tables_both_layers(generated):
     ddl_dir = tmp / "out" / spec.feed_slug / "ddl"
     assert (ddl_dir / "STG_SYN.EXT_SYN_DTL_ERRORS.sql").is_file()
     assert (ddl_dir / "STG_SYN.EXT_SYN_DTL_PROCESSED_FILES.sql").is_file()
+
+    # Audit columns follow the STTM per segment: HDR/TRL get exactly their
+    # three STTM-listed audit rows; the feed-wide set (incl. LOB/FILE_TYPE)
+    # applies to DTL where the STTM lists it. No column absent from the STTM
+    # appears in any segment-table DDL.
+    def _columns(name):
+        text = (ddl_dir / name).read_text(encoding="utf-8")
+        return re.findall(r"^\s*`([^`]+)`", text, re.MULTILINE)
+
+    hdr = _columns("STG_SYN.EXT_SYN_HDR.sql")
+    trl = _columns("STG_SYN.EXT_SYN_TRL.sql")
+    dtl = _columns("STG_SYN.EXT_SYN_DTL.sql")
+    assert len(hdr) == 2 + 3 and len(trl) == 2 + 3  # business + STTM audit
+    assert len(dtl) == 3 + 5
+    for columns in (hdr, trl):
+        assert "LOB" not in columns and "FILE_TYPE" not in columns
+        assert {"SRC_FILE_NAME", "REC_CREATION_TIME",
+                "REC_UPDATED_TIME"} <= set(columns)
+    assert {"LOB", "FILE_TYPE"} <= set(dtl)
+    # Same rule in the standard layer.
+    hdr_std = _columns("SYN.EXT_SYN_HDR.standard.sql")
+    assert len(hdr_std) == 2 + 3 and "LOB" not in hdr_std
     # STRING everywhere except audit date/timestamp fields — in BOTH layers
     # (FRD acceptance criterion 3), asserted on the segment/recycle target
     # tables (the agent's errors/processed-files bookkeeping tables carry
@@ -293,11 +323,11 @@ def test_generation_review_and_report(generated):
         (tmp / "out" / spec.feed_slug / "candidates" / "candidates.json"
          ).read_text(encoding="utf-8"))
     kinds = [c.get("kind", "layer2") for c in candidates]
-    assert kinds.count("confirm") == 1
+    assert kinds.count("confirm") == 2  # identification + audit scope
     assert "extraction_assumption" not in kinds
     assert "escalated_conflict" not in kinds
-    confirm = next(c for c in candidates if c.get("kind") == "confirm")
-    assert confirm["citation"]
+    for confirm in (c for c in candidates if c.get("kind") == "confirm"):
+        assert confirm["citation"]
 
     report = (tmp / "reports" / f"{spec.feed_slug}.md").read_text(encoding="utf-8")
     assert "## Segmented extraction" in report

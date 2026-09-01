@@ -498,6 +498,11 @@ def extract_segmented_contract(
         row_counts=row_counts,
         identification=identification,
         provenance_notes=provenance_notes,
+        # Per-segment audit columns exactly as the STTM lists them.
+        segment_audit={
+            segment: [AuditColumn(column=c, datatype=d) for c, d in columns]
+            for segment, columns in audit_by_segment.items()
+        },
     )
 
     detail_rows = fields_by_segment["Detail"]

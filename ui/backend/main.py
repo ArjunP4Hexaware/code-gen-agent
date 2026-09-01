@@ -300,8 +300,10 @@ def _live_ready() -> tuple[bool, str]:
     if store is None:
         return False, "backend has no config loaded"
     if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
-        return False, ("locked to the mock provider "
-                       "(CODEGEN_FORCE_MOCK_PROVIDER is set)")
+        # Hard mock lock (the App deployment): the run button stays usable —
+        # build_provider returns the mock, so a "live" run makes ZERO model
+        # calls. The provider surface reports the lock explicitly.
+        return True, ""
     provider = store.config.reasoning.provider
     if provider == "databricks_fmapi":
         from codegen.databricks import DatabricksConfigError, config_for
@@ -321,7 +323,10 @@ def _live_ready() -> tuple[bool, str]:
 @app.get("/api/demo/live-available")
 def live_available() -> dict:
     available, _reason = _live_ready()
-    provider = store.config.reasoning.provider if store is not None else None
+    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
+        provider = "mock (locked)"
+    else:
+        provider = store.config.reasoning.provider if store is not None else None
     return {"available": available, "provider": provider}
 
 

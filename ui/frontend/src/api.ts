@@ -381,7 +381,10 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ set }),
     }),
-  liveAvailable: () => request<{ available: boolean }>("/api/demo/live-available"),
+  liveAvailable: () =>
+    request<{ available: boolean; provider: string | null }>(
+      "/api/demo/live-available",
+    ),
   demoWorkbooks: () => request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbooks"),
   selectWorkbook: (name: string) =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", {

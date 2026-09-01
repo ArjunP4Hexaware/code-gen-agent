@@ -26,8 +26,9 @@ layers derived from the documents, every derivation cited**. Run order:
      header = first record; detail = the rest.
    The **review tab shows the two real Layer-2 candidates** (LOB_ID →
    'Payer Area'; populate file-name/timestamp/LOB/file-type fields) **+
-   one soft CONFIRM item** (positional identification — confirm with the
-   source team; its card quotes the exact STTM cell). Open the report:
+   two soft CONFIRM items** (positional identification, quoting the exact
+   STTM cell; per-segment audit-column scope, quoting the FRD rule + the
+   STTM audit rows). Open the report:
    Segment-tables table (both layers), Record-identification section with
    evidence quotes, cited provenance notes; then the artefacts: the two
    deployment-team DDL .txt files (4 + 3 tables) and IIG rows for both
@@ -40,7 +41,7 @@ layers derived from the documents, every derivation cited**. Run order:
 
 **Rehearsed 2026-09-01 (timings):** replay load ~1 s; CAQH live run
 (local, FMAPI) **30 s** end-to-end — extract → resolve → 2 live calls →
-emit → gate → published; review tab shows 1 CONFIRM + 2 Layer-2, all
+emit → gate → published; review tab shows 2 CONFIRM + 2 Layer-2, all
 pending; past run reloadable instantly as the fallback. App (0.3.1)
 smoke-tested: chooser lists the golden + synthetic workbooks, CAQH
 Fetched ✓ from the volume with its companion FRD, choosers left at the
@@ -55,19 +56,31 @@ clean base state.
    https://codegen-agent-7405617821962942.2.azure.databricksapps.com/modes
    → the Generate card badge must read **"MOCK — provider locked"**; visit
    `/api/demo/live-available` → `{"available":true,"provider":"mock (locked)"}`.
-3. **App replay** — Run modes → **Load** on `live_e2e_20260807` → dashboard
-   shows 3 CV feeds PASS WITH FLAGS (~3 s).
+3. **Decisions clean** — open feed `caqh_tpl_inbound_files` → Layer-2
+   review → all four items say *pending / soft confirmation*. If a past
+   click left a decision: Dashboard → **Reset decisions**. (Do this
+   BEFORE loading the replay — the replay swaps the dashboard to the CV
+   feeds and the CAQH feed page is then only reachable via Past live
+   runs.)
 4. **App CAQH ready** — Run modes → **Choose STTM…** → the volumes list
    must show `STTM_STG_STD_PaymentIntegrity…05034` **Fetched ✓** (if the
    App restarted overnight, click **Fetch** once, ~5 s, companion FRD comes
    with it) → **Cancel** (leave *none chosen* until the demo moment).
-5. **Decisions clean** — open feed `caqh_tpl_inbound_files` → Layer-2
-   review → all four items say *pending / soft confirmation*. If a past
-   click left a decision: Dashboard → **Reset decisions**.
-6. **Local fallback armed** — localhost Run modes → **Past live runs**
-   shows `demo_20260831_212539` (the recorded real-FMAPI CAQH run) — one
-   click reloads it if anything misbehaves live.
-7. Refresh both browser tabs right before 3 PM (no stale bundles).
+5. **Output mode** — on the Generate card, re-select **OUTPUT = Both**
+   (a container restart resets it to Notebook, and the demo walks the
+   two `_table_creation.txt` files).
+6. **App replay** — Run modes → **Load** on `live_e2e_20260807` → dashboard
+   shows 3 CV feeds PASS WITH FLAGS (~3 s).
+7. **Local fallback armed** — localhost Run modes → **Past live runs**
+   shows `demo_20260901_000256` (the recorded real-FMAPI CAQH run:
+   **10 flags**, 2 cited CONFIRM cards + 2 Layer-2 candidates with real
+   model rationales, output mode *both*, IIG rows Overwrite/Append) —
+   one click reloads it if anything misbehaves live. Do NOT load the
+   two superseded runs: `demo_20260831_212539` (13 flags; its Layer-2
+   cards are FMAPI provider failures from the list-content-blocks bug
+   fixed in 0.3.3) or `demo_20260831_235753` (14 flags; predates the
+   FAQ answers and the TGT_REFRESH_TYPE mapping).
+8. Refresh both browser tabs right before 3 PM (no stale bundles).
 
 At the demo moment (App): Choose STTM → CAQH row (already Fetched ✓) →
 companion FRD chip → **Done** → **Generate from this STTM…** → the dialog
@@ -76,14 +89,14 @@ Layer-2 review tab (2 CONFIRM cards with quoted citations + 2 candidates),
 then the Report tab's Segmented-extraction section, then Generated code →
 the two `_table_creation.txt` files (4 stage + 3 standard tables).
 
-**⚠ App venue: HARD-LOCKED TO MOCK (0.3.2).** `app.yaml` sets
+**⚠ App venue: HARD-LOCKED TO MOCK (0.3.3).** `app.yaml` sets
 `CODEGEN_FORCE_MOCK_PROVIDER=1`: `build_provider` returns the mock before
 any transport resolution and `/api/demo/live-available` reports
 unavailable with that reason — no UI selection or config value can route
 the App to FMAPI. (The SP's grant on the FMAPI system endpoint is
 UNVERIFIABLE by CLI — pay-per-token endpoints expose no per-endpoint
 permission object — which is exactly why the lock exists.) Live runs
-belong on localhost. **The 0.3.2 build MUST be deployed to the App and
+belong on localhost. **The 0.3.3 build MUST be deployed to the App and
 smoke-tested there before 3 PM.** Redeploy: sync the staged tree +
 `databricks apps deploy codegen-agent` (see §7), then in the App: choose
 the CAQH STTM and confirm the run reaches the review cards.

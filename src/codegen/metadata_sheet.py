@@ -543,6 +543,33 @@ def _dq_rules_rows(feed: FrdFeed, config: Config, spec, faq,
     return rows
 
 
+# FRD Load Strategy phrase → the framework's TGT_REFRESH_TYPE vocabulary,
+# per the reference IIG's DATABRICKS_NOTEBOOK_DETAILS rows (stage leg
+# 'Overwrite', standard leg 'Append'). Truncate-and-load IS the overwrite
+# refresh; the other LoadStrategy literals already speak the framework's
+# vocabulary and pass through unchanged.
+_REFRESH_TYPE_BY_STRATEGY = {
+    "Truncate and Load": "Overwrite",
+}
+
+
+def _refresh_type_cell(frd_strategy, layer_label: str, fallback: str) -> dict:
+    """TGT_REFRESH_TYPE for one notebook-details leg.
+
+    Derived from the FRD's Load Strategy when the resolved spec carries it
+    (badged from_frd with the citation); config stand-in otherwise.
+    """
+    if frd_strategy:
+        refresh = _REFRESH_TYPE_BY_STRATEGY.get(frd_strategy, frd_strategy)
+        return _cell(
+            refresh, "from_frd",
+            f"FRD Structural Metadata → Load Strategy ({layer_label}): "
+            f"'{frd_strategy}' → framework refresh type '{refresh}' "
+            "(reference IIG vocabulary)")
+    refresh = _REFRESH_TYPE_BY_STRATEGY.get(fallback, fallback)
+    return _cell(refresh, "synthetic", _LOAD_STRATEGY_TOOLTIP)
+
+
 def _notebook_details_rows(feed: FrdFeed, config: Config, spec, faq,
                            unmapped: set[str]) -> list[dict[str, dict]]:
     slug = normalize_feed_name(feed.feed_name)
@@ -550,18 +577,21 @@ def _notebook_details_rows(feed: FrdFeed, config: Config, spec, faq,
     notebook_cell = _standards_name_cell(config, feed, slug, faq, "notebook")
     strategy = config.demo.source_files.load_strategy
     rows = []
-    layers = [("STAGE", strategy.stage)]
+    layers = [("STAGE", "STG",
+               spec.stage_load_strategy if spec else None, strategy.stage)]
     if (spec is not None and spec.standard_table is not None) or (
             spec is None and feed.standard_target.tables):
-        refresh = (spec.standard_load_strategy if spec else None) or strategy.standard
-        layers.append(("STANDARD", refresh))
-    for index, (layer, refresh) in enumerate(layers, start=1):
+        layers.append(("STANDARD", "STD",
+                       spec.standard_load_strategy if spec else None,
+                       strategy.standard))
+    for index, (layer, layer_label, frd_strategy, fallback) in enumerate(
+            layers, start=1):
         cells = {
             "SEQ_NM": _cell(index, "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
             "PROCESS_NAME": _cell(
                 f"{layer.capitalize()} Load for {feed.feed_name}", "from_frd"),
-            "TGT_REFRESH_TYPE": _cell(refresh, "synthetic",
-                                      _LOAD_STRATEGY_TOOLTIP),
+            "TGT_REFRESH_TYPE": _refresh_type_cell(frd_strategy, layer_label,
+                                                   fallback),
             "ACTIVE_FLAG": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
         }
         if job_cell:

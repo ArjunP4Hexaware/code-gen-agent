@@ -14,6 +14,38 @@ load_frequency:
   value: weekly
   source: frd
   evidence: 'FRD frequency: "Weekly Monday 8 PM"'
+# 2026-09-01: four answers filled from the FRD, each with its citation.
+# is_master_file and target_tables_exist stay unanswered — the FRD states
+# neither, so the gate keeps flagging them honestly.
+dedup_within_file:
+  value: none
+  source: frd
+  evidence: >-
+    FRD Technical Metadata: Business/Primary/Unique Key = "None" — no
+    uniqueness key exists to dedup on, and no dedup requirement appears in
+    the validation rules ("Files are pipe delimited and contain incremental
+    changes.")
+existing_record_policy:
+  value: delete_and_insert
+  source: frd
+  evidence: >-
+    FRD Structural Metadata → Load Strategy STG: "Truncate and Load" (stage
+    records are replaced each run); Load Strategy STD: "Append"
+data_integrity_checks:
+  value: custom
+  source: frd
+  evidence: >-
+    FRD: "Member ID validation should be performed against Facets for
+    existence." and "Invalid records will be moved to Recycle table,
+    retained for 15 days." — Member ID checked against the Facets member
+    reference; invalid records recycle for 15 days
+reject_threshold:
+  value: none
+  source: frd
+  evidence: >-
+    FRD: "Process shall fail when file layout is not as per source
+    dictionary." — a layout mismatch fails the whole file; no partial
+    reject threshold is stated
 has_header:
   value: "yes"
   source: frd

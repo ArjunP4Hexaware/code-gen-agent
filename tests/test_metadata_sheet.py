@@ -266,6 +266,41 @@ def test_sttm_cells_populate_from_mapping_contract(config, demo_specs):
         assert row["values"]["TGT_PRIMARY_KEY"]
 
 
+def test_notebook_details_refresh_type_no_run_is_synthetic(config, tmp_path):
+    # Without a resolved spec the legs carry the config stand-ins, mapped to
+    # the framework vocabulary and badged synthetic.
+    payload = _payload(config, tmp_path)
+    rows = payload["tabs"]["DATABRICKS_NOTEBOOK_DETAILS"]["rows"]
+    by_leg = {r["values"]["PROCESS_NAME"].split(" ")[0]: r for r in rows}
+    assert by_leg["Stage"]["values"]["TGT_REFRESH_TYPE"] == "Overwrite"
+    assert by_leg["Stage"]["badges"]["TGT_REFRESH_TYPE"]["badge"] == "synthetic"
+
+
+def test_notebook_details_refresh_type_from_frd_load_strategy(config, demo_specs):
+    # With a run, TGT_REFRESH_TYPE derives from the FRD's Load Strategy —
+    # 'Truncate and Load' (STG) is the framework's 'Overwrite' refresh,
+    # 'Append' (STD) passes through — badged from_frd with the citation.
+    payload = metadata_sheet_payload(
+        config, REPO, specs=demo_specs, unmapped_by_slug={}, run_label="test_run"
+    )
+    rows = payload["tabs"]["DATABRICKS_NOTEBOOK_DETAILS"]["rows"]
+    stage = [r for r in rows if r["values"]["PROCESS_NAME"].startswith("Stage")]
+    standard = [r for r in rows
+                if r["values"]["PROCESS_NAME"].startswith("Standard")]
+    assert stage and standard
+    for row in stage:
+        cell = row["badges"]["TGT_REFRESH_TYPE"]
+        assert row["values"]["TGT_REFRESH_TYPE"] == "Overwrite"
+        assert cell["badge"] == "from_frd"
+        assert "Truncate and Load" in cell["tooltip"]
+        assert "Load Strategy (STG)" in cell["tooltip"]
+    for row in standard:
+        cell = row["badges"]["TGT_REFRESH_TYPE"]
+        assert row["values"]["TGT_REFRESH_TYPE"] == "Append"
+        assert cell["badge"] == "from_frd"
+        assert "Load Strategy (STD)" in cell["tooltip"]
+
+
 # -- xlsx ---------------------------------------------------------------------- #
 
 

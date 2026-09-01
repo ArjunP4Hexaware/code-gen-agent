@@ -1,0 +1,5 @@
+# Byte-stability applies to git itself: fixture files feed sha256 provenance
+# banners (the generator hashes contract file BYTES), so an autocrlf checkout
+# that rewrites line endings changes every generated file's banner and breaks
+# the notebook_mode snapshot. Never convert fixture bytes.
+fixtures/** -text

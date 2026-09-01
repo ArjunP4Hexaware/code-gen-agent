@@ -104,6 +104,9 @@ class DemoRunner:
             # Where `codegen databricks-fetch` and the UI's volume fetch land
             # documents — same treatment as the SharePoint inbox.
             ("inputs/databricks", REPO_ROOT / "inputs" / "databricks"),
+            # Where the UI's from-device upload (POST /api/demo/upload) lands
+            # documents — same treatment as the other two inboxes.
+            ("inputs/uploads", REPO_ROOT / "inputs" / "uploads"),
         )
 
     def effective_workbook(self) -> Path:

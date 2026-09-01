@@ -34,6 +34,9 @@ live = [
 ui = [
     "fastapi>=0.111",
     "uvicorn>=0.30",
+    # FastAPI's multipart form handling — the from-device upload route
+    # (POST /api/demo/upload) refuses to register without it.
+    "python-multipart",
 ]
 # Databricks volumes transport only (codegen.databricks) — the edge seam
 # that fetches FRD/STTM documents from Unity Catalog volumes. Optional by

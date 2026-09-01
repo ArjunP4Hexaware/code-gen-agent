@@ -23,12 +23,11 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
-env:
-  # HARD MOCK LOCK for the App deployment (2026-09-01): no UI selection or
-  # config value can route Layer 2 to a live provider on the App —
-  # build_provider returns the mock and /api/demo/live-available reports
-  # unavailable with this reason. Live runs belong on the operator's
-  # machine. The SP's serving-endpoint grants are irrelevant while this is
-  # set.
-  - name: "CODEGEN_FORCE_MOCK_PROVIDER"
-    value: "1"
+# MOCK LOCK REMOVED (2026-09-01, Soham's direction): the App now runs live
+# Layer 2 via Databricks FMAPI (reasoning.provider: databricks_fmapi →
+# databricks.serving_endpoint: databricks-claude-opus-5). The original reason
+# for the lock — the SP's CAN_QUERY being unverifiable by CLI — is superseded
+# by the app's declared serving-endpoint RESOURCE (llm-endpoint, CAN_QUERY),
+# which grants the permission declaratively. The UI's own gates stay: an
+# explicit STTM choice, the cost-confirmation dialog, and mock-on-dry-run.
+# To re-lock, set CODEGEN_FORCE_MOCK_PROVIDER=1 here and redeploy.

@@ -1,6 +1,6 @@
 ---
 name: code-gen-agent
-description: Read this when (a) designing an agent — for any client, domain, or artifact type — that must generate code, transformations, or configuration from an already-approved structured specification (an approved mapping document, schema contract, API spec, control matrix, config manifest, etc.) rather than from free-form natural-language prompting, where correctness has to be provable, output must be byte-stable, and a shared verdict vocabulary needs to survive across a multi-agent pipeline; OR (b) working in or asking about the `code-gen-agent` repository itself — the CodeGen / Data Engineer Agent that emits Databricks PySpark + Delta ingestion pipelines from approved FRD + STTM contracts for the AmeriHealth Caritas program (questions about the two-layer trust architecture, `generate-all`, `extract-sttm`, PASS/PASS_WITH_FLAGS/FAIL verdicts, the Run modes demo UI, or the live/replay fixtures under `fixtures/replay/`). Covers the reusable pattern (Part B) as well as the concrete implementation (Part A).
+description: Read this when (a) designing an agent — for any client, domain, or artifact type — that must generate code, transformations, or configuration from an already-approved structured specification (an approved mapping document, schema contract, API spec, control matrix, config manifest, etc.) rather than from free-form natural-language prompting, where correctness has to be provable, output must be byte-stable, and a shared verdict vocabulary needs to survive across a multi-agent pipeline; OR (b) working in or asking about the `code-gen-agent` repository itself — the CodeGen / Data Engineer Agent that emits Databricks PySpark + Delta ingestion pipelines from approved FRD + STTM contracts for the AmeriHealth Caritas program (questions about the two-layer trust architecture, `generate-all`, `extract-sttm`, PASS/PASS_WITH_FLAGS/FAIL verdicts, the Run modes demo UI, the live/replay fixtures under `fixtures/replay/`, the Databricks App `codegen-agent` and its live FMAPI Layer 2, or how the unified agent console proxies this backend). Covers the reusable pattern (Part B) as well as the concrete implementation (Part A).
 ---
 
 # code-gen-agent — implementation + reusable pattern
@@ -25,10 +25,14 @@ it into an unrelated project.
 ### Databricks Unit (DBU) budget — read before generating anything
 
 Arjun and Soham share a **450-DBU/month** pool (recurring, not one-time)
-across both engineers and all five agents in this program. Genie Code's
+across both engineers and the agents in this program. Genie Code's
 own build/iterate loop and the resulting pipeline's runtime compute both
 draw against it, so both need to be efficient — not just the finished
-architecture.
+architecture. (The table below is the original five-agent split; the
+program was cut to three agents on 2026-08-21 — BRD→FRD and SQL
+Optimization left — so their rows are historical, and the two Databricks
+Apps now running, `codegen-agent` and `unified-agent-console`, bill by
+the hour while up: stop them when not demoing.)
 
 | Agent | Monthly DBU guardrail | Real Databricks footprint |
 |---|---|---|
@@ -103,12 +107,15 @@ not the runtime footprint above. Attack it directly:
 - Drop `--skip-tests` only for a deliberate, occasional validation pass,
   on the **smallest single-node** compute the workspace offers, with a
   short (10–15 min) auto-termination — never a standing cluster.
-- Layer 2 (the LLM path) is **mock-by-default** already — no
-  `ANTHROPIC_API_KEY` ⇒ no network, no spend. Keep that the default
-  through the whole build phase. The "first live E2E on Databricks Apps"
-  open item should be a single, deliberate, budgeted run near the end of
-  Wave 1 — capture it as a replay fixture immediately so it never needs
-  re-spending.
+- Layer 2 (the LLM path) is **mock on every dry run** and the tracked
+  config's live transport is `reasoning.provider: databricks_fmapi`
+  (Claude served by the workspace endpoint `databricks-claude-opus-5`),
+  which resolves from workspace auth **without any env secret** — so a
+  test or a demo that touches a live path must pin the provider (or set
+  `CODEGEN_FORCE_MOCK_PROVIDER=1`), otherwise it spends. The first live
+  E2E on the Databricks App happened 2026-09-04 (`demo_20260904_150435`,
+  CV golden pair) — capture any further live run as a replay fixture
+  immediately so it never needs re-spending.
 - The demo UI already always runs `--dry-run --skip-tests` by design —
   don't change that to make a demo "feel more real"; it's already the
   cheap path.
@@ -117,7 +124,7 @@ not the runtime footprint above. Attack it directly:
 
 ### 1. Product Context
 
-The agent is the **third link in a five-agent AI-in-Engineering program**: BRD → FRD → FRD → STTM → **CodeGen** → Code Review (SQL Optimization is standalone). Its inputs and output are content contracts with the neighboring agents:
+The agent is the **second link in the three-agent AI-in-Engineering program** (scope cut 2026-08-21 from five): FRD → STTM → **CodeGen** → Code Review. Its inputs and output are content contracts with the neighboring agents:
 
 - **Upstream** — consumes **two** approved, machine-readable artifacts per feed, both produced by the FRD → STTM agent (or, for the STTM half, extracted deterministically from a client workbook by this repo's own `extract-sttm` tool):
   - the **FRD feed contract** (`*.contract.json`) — feed-level facts: file-name patterns, format/delimiter, `record_segments` for segmented dialects, stage/standard targets and load strategies, free-text `validation_rules`, `recycle_rule`, PHI notes, SLAs;
@@ -306,13 +313,13 @@ Every citation the model returns must be an **exact verbatim substring** of the 
 
 #### 3.4 Mock-by-default gating
 
-`MockProvider` is the default for every test and every `--dry-run` invocation — deterministic, offline, zero cost. `AnthropicProvider` (or its Databricks-native successor) activates **only** when a live credential is present and dry-run is off. No key ⇒ no network call, no spend. A rebuild must preserve this gate exactly: the absence of a credential must never silently degrade a live-intended run to mock, and the presence of a credential during a dry run must never silently promote a mock-intended run to live.
+`MockProvider` is the default for every test and every `--dry-run` invocation — deterministic, offline, zero cost. A live provider activates **only** when dry-run is off and the configured transport resolves: `anthropic` needs `ANTHROPIC_API_KEY`; `databricks_fmapi` (the tracked config since 2026-08-28 — the same Claude model served by the workspace endpoint, a transport, not a vendor change) needs resolvable workspace auth and **no env secret at all**, which is why live-touching tests pin the provider and why `CODEGEN_FORCE_MOCK_PROVIDER=1` exists as a hard lock (it was set on the App for 0.3.2–0.3.3 and removed 2026-09-01). A rebuild must preserve this gate exactly: unresolvable credentials must never silently degrade a live-intended run to mock (it is recorded as a provider failure), and resolvable credentials during a dry run must never silently promote a mock-intended run to live. `GET /api/demo/live-available` reports `{available, provider, reason}` — the `reason` is the provider-specific remedy, never a hardwired "no ANTHROPIC_API_KEY".
 
 #### 3.5 No sampling parameters (a real, billed lesson)
 
-The model family behind this agent's `reasoning.model` config value (`claude-opus-4-8` at time of writing; Opus 4.7+ generally) **rejects `temperature`/`top_p`/`top_k` with an HTTP 400** — discovered on the very first live attempt, when every one of three calls was rejected before processing (the 400s were not billed, but the run produced zero live signal that day). **Do not add a sampling-parameter knob to the request or to config.** Live output is therefore inherently non-deterministic run-to-run; `candidates.json` is a snapshot for engineer review, never a byte-stable expectation, and no test may assert its exact content against a live provider.
+The model family behind this agent's `reasoning.model` config value (`claude-opus-5` since 2026-08-28; `claude-opus-4-8` before) **rejects `temperature`/`top_p`/`top_k` with an HTTP 400** — discovered on the very first live attempt, when every one of three calls was rejected before processing (the 400s were not billed, but the run produced zero live signal that day). **Do not add a sampling-parameter knob to the request or to config.** Live output is therefore inherently non-deterministic run-to-run; `candidates.json` is a snapshot for engineer review, never a byte-stable expectation, and no test may assert its exact content against a live provider.
 
-**Open question, not yet verified:** whether this restriction transfers to whatever Databricks Model Serving endpoint fronts this agent's Layer 2 call. See §8.8 — re-probe independently rather than assuming either way.
+**Extended-thinking content (2026-09-01 lesson, FMAPI path):** the serving endpoint returns `message.content` as a **list of typed blocks** (reasoning + text), not a string. `codegen.databricks.chat` normalises it (text blocks joined, non-text ignored); "simplifying" that back to `content or ""` produced provider-failure candidates in a real run. Keep the normalisation.
 
 #### 3.6 Output artifact is a review artifact, never generated code
 
@@ -518,10 +525,21 @@ Everything in this section is a rework item for the port to Databricks Model Ser
 ### Demo UI + replay fixtures
 
 `ui/` is a FastAPI (8571) + Vite/React (5173) dashboard for the client demo.
-Two run modes:
+Three run modes:
 
-- **Live** — real Anthropic call, ~3 billed calls, ≈ $0.10, ~20s;
-  confirmation dialog required; output isolated to `out/demo_<timestamp>/`
+- **Mock** — what start-up generation and "Generate all feeds" run; zero
+  network. With `contracts.pairs` empty (the tracked config) generate-all
+  answers **409 "config.contracts.pairs is empty — nothing to generate"**
+  — expected, not a fault.
+- **Live** — the full pipeline for real: choose an STTM workbook (from
+  fixtures, `inputs/sharepoint`, `inputs/databricks` after a volume fetch,
+  or a from-device upload via `POST /api/demo/upload`), pair an FRD
+  contract (upstream table rows, local contracts, or an uploaded
+  contract JSON; a real pairing is auto-suggested, a look-alike never
+  auto-picked), pick the output mode, confirm the cost (~3 calls, ≈ $0.10,
+  ~20 s), run. Layer 2 goes through `databricks_fmapi` on the App and by
+  default locally; output isolated to `out/demo_<timestamp>/` with
+  `run_meta.json` + the FRD copied in, so a past run reloads self-contained.
 - **Replay** — loads a recorded run from `fixtures/replay/<run_id>/`
   byte-for-byte; zero API calls; no key or network needed
 
@@ -535,15 +553,20 @@ fixtures/replay/<run_id>/
   <feed_slug>/report.md                 # generation report with verdict
 ```
 
-**Fixtures are no longer tracked (2026-08-22):** `fixtures/` was deleted
-and gitignored on the "no client documents in the repository" rule, so a
-fresh clone has NO replay set and Replay (and Live) fail loudly with
-file-not-found. The anonymized CV/golden demo set — `live_e2e_20260807/`
-(three CV feeds, all PASS_WITH_FLAGS), the demo contract pair, and the
-golden workbook — survives in git history at `044752e^` and may be
-restored to the working tree as untracked files (restored 2026-08-25 on
-this machine). Restore with `git show`, never `git checkout` (checkout
-would stage the paths and re-track them):
+**Fixtures differ per branch (reconciled 2026-09-01):** on **staging**
+`fixtures/contracts/`, the CV golden workbook and `fixtures/replay/` are
+untracked (the 2026-08-22 "no client documents in the repository" rule;
+only `fixtures/faq/`, the scrubbed `fixtures/reference/` and the
+synthetic segmented golden are tracked), so a fresh staging clone has NO
+replay set and Replay (and Live) fail loudly with file-not-found. On
+**main** commit `b0560af` (2026-08-28, program go-ahead) tracks the
+client documents, the CV-golden fixtures and `live_e2e_20260807` — main
+keeps them at every merge; staging still holds none. On staging the
+anonymized CV/golden demo set — `live_e2e_20260807/` (three CV feeds,
+all PASS_WITH_FLAGS), the demo contract pair, and the golden workbook —
+is restored from git history at `044752e^` as untracked files. Restore
+with `git show`, never `git checkout` (checkout would stage the paths
+and re-track them):
 
 ```bash
 git show "044752e^:fixtures/contracts/FRD_demo_cv_golden.contract.json" \
@@ -552,8 +575,53 @@ git show "044752e^:fixtures/contracts/FRD_demo_cv_golden.contract.json" \
   # every file under fixtures/replay/live_e2e_20260807/
 ```
 
-Do NOT restore the other historical fixtures (MIDS/CAQH contracts) — those
-are client-derived and must stay out of the working tree.
+Do NOT restore the other historical fixtures (MIDS/CAQH contracts) on
+staging — those are client-derived and must stay out of that branch's
+working tree.
+
+### Databricks App deployment (`codegen-agent`, 0.3.5 as of 2026-09-04)
+
+The demo UI runs as the workspace app **`codegen-agent`** in Soham's
+workspace (`adb-7405617821962942.2`, CLI profile `DEFAULT`):
+https://codegen-agent-7405617821962942.2.azure.databricksapps.com
+
+- **Manifest** `app.yaml`: `command: ["python", "-m", "ui.backend.main"]`;
+  the app declares the serving endpoint **resource** `llm-endpoint`
+  (`databricks-claude-opus-5`, CAN_QUERY), which grants Layer 2 its
+  permission declaratively. `requirements.txt` (`.[ui,databricks]`) is the
+  Apps pip install; the runtime **caches the installed env keyed on that
+  file**, so bump the pyproject version AND the `codegen-version-marker`
+  comment whenever `src/` changes, or the App serves stale code.
+- **Deploy from a staged tree** (repo files + the gitignored
+  `ui/frontend/dist` and fixtures — never `inputs/`), with the repo's
+  `.gitignore` **deleted from the staged tree** (`databricks sync` honours
+  it and would silently skip `dist`, the contracts, the golden workbook
+  and the replay set): `databricks sync <staged> /Workspace/Users/
+  <you>/codegen-agent-app` (**without** `--full` — the remote also carries
+  `inputs/standards/`, which no longer exists locally) then
+  `databricks apps deploy codegen-agent --source-code-path <that path>`.
+  Check the remote `dist/index.html` names the fresh bundle hash.
+- **State is ephemeral**: every deploy restarts the container, wiping
+  `inputs/databricks/`, `inputs/uploads/`, runner state, the output-mode
+  selection (back to `notebook`) and past live runs under `out/`.
+- **Mock lock removed 2026-09-01 (0.3.4)**; the App runs live Layer 2 via
+  FMAPI. UI gates remain: explicit STTM choice, cost confirmation, mock on
+  dry-run. Re-lock with `CODEGEN_FORCE_MOCK_PROVIDER=1` in `app.yaml`.
+- **0.3.5 lessons (2026-09-04):** `WorkspaceClient` construction raises
+  when auth cannot resolve — wrapped in `DatabricksTransportError` so
+  routes answer 502 with the SDK's message, never a bare 500; the UI hides
+  the volumes section only on **503 (unconfigured)** and shows a 502 with
+  Retry; `/api/demo/live-available` carries `reason`; from-device upload
+  buttons live in the STTM chooser.
+- **Unified agent console** (repo `unified-agent-console`, app
+  `unified-agent-console` in the same workspace) reverse-proxies this
+  backend under `/api/codegen/*` using its own service principal, which
+  holds **CAN_USE** on this app (SP `3a9fb6f7-…`, granted 2026-09-01).
+  Every route here is therefore a contract with two front ends; the
+  console mirrors `ui/backend/main.py`'s types in `frontend/src/api/
+  codegen.ts` and surfaces every `detail` verbatim — keep status codes
+  meaningful (409 one-at-a-time / nothing-to-generate, 503 unconfigured,
+  502 refused).
 
 ### Key docs — local repo / Claude Code development only
 
@@ -589,25 +657,31 @@ only):
 
 ### Known open items (do not present as done)
 
-1. **First live E2E on an actual Databricks Apps deployment is still
-   pending.** The Anthropic provider path is unit-tested with a stubbed
-   SDK but has not been validated against a real workspace. The UI polls
-   short intervals rather than streaming to minimize the untested-proxy
-   surface — this is about the local demo UI's own deployment (`app.yaml`,
-   local repo only), not the agent rebuild itself.
-2. **Segmented (Header/Detail/Trailer) STTM workbooks are out of extractor
-   scope** — see §2.6 and §5.3 above for the full detail and the two
-   named blockers.
+1. **Provider failures render as candidate cards** — a live provider
+   error (e.g. the extended-thinking content regression of 2026-08-31)
+   becomes a "provider failed" candidate rather than its own flag class;
+   the post-demo TODO in `docs/DESIGN.md` §8 is to give it one.
+2. **Segmented (Header/Detail/Trailer) STTM workbooks:** the extractor's
+   segmented dialect is IMPLEMENTED (corrected 2026-09-01 against the FRD
+   read verbatim — segments as tables in both layers, identification
+   derived from the STTM, two cited soft CONFIRM items remain); §2.6 and
+   §5.3 above describe the earlier hard-error posture and the blockers
+   that were since answered by the documents. The MIDS STTM contract
+   still predates the extractor.
 3. **Layer-2 approval-to-merge is v2** — see §3.6 and §4 above; decisions
    do not gate, merging stays a manual engineer step.
 4. **No live-credential `.env` is committed** (there never was one; an
    earlier claim was stale).
+5. **`extract-sttm` has never been run on FRD→STTM's own output** — the
+   upstream agent (rebuilt 2026-08-27) emits no contract JSON and its
+   workbook carries no `Comment`/`Recycle Flag` columns; closing that
+   round trip is an open integration task.
 
 ### How to run
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e ".[dev]"                 # add ",live,ui" for demo UI + Anthropic SDK
+.venv/bin/pip install -e ".[dev]"                 # add ",ui,databricks" for the demo UI + FMAPI/volumes; ",live" for the Anthropic SDK
 .venv/bin/python -m pytest -q   # offline; fixture-driven tests skip unless the
                                 # anonymized CV/golden fixtures are restored (see
                                 # "Demo UI + replay fixtures" above); run pytest
@@ -701,7 +775,7 @@ Skip any of them and the pattern breaks.
 - **Jinja2** *(incidental — swap freely)* — the templating engine. Any deterministic template system
   works; the essential property is *no logic beyond what the spec pins
   down*.
-- **Anthropic Claude / `claude-opus-4-8`** *(incidental — swap freely)* — the model. Any tool-capable
+- **Anthropic Claude / `claude-opus-5` via Databricks FMAPI** *(incidental — swap freely)* — the model and its transport. Any tool-capable
   LLM works for Layer 2, provided you can enforce grounding externally.
   (Program policy pinned this vendor; the pattern does not.)
 - **Pydantic v2 frozen models** *(incidental — swap freely)* — the schema enforcer. Any strict schema

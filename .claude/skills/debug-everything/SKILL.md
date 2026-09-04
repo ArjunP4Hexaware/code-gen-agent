@@ -13,8 +13,13 @@ it, run step 5 while it works, then fold its findings into the report.
 
 **Hard rules for every step:** no external network — localhost traffic
 for step 5 is fine, but no credentials, no live Layer-2 runs, nothing
-that wakes a Databricks warehouse or calls the Anthropic/Graph APIs. Everything here must work with zero secrets.
-Never set `ANTHROPIC_API_KEY`; the mock provider is the point.
+that wakes a Databricks warehouse or calls the Anthropic/Graph/FMAPI
+APIs. Everything here must work with zero secrets. Never set
+`ANTHROPIC_API_KEY`; the mock provider is the point. **Since 2026-08-28
+the tracked config's provider is `databricks_fmapi`, which resolves from
+workspace auth with no env secret** — so for step 5 launch the backend
+with `CODEGEN_FORCE_MOCK_PROVIDER=1` set, which locks Layer 2 to the mock
+and makes `/api/demo/live-available` report `mock (locked)`.
 
 Use the repo venv interpreter for every Python command:
 `.venv/Scripts/python.exe` on Windows, `.venv/bin/python` on POSIX
@@ -85,6 +90,8 @@ whole job.
    `pip install -e ".[ui]"` and move on. Also note whether
    `ui/frontend/dist/` exists (single-port mode needs a build).
 2. **Launch** (background Bash/PowerShell, `run_in_background`):
+   - Always with `CODEGEN_FORCE_MOCK_PROVIDER=1` in the environment (see
+     the hard rules above).
    - If `ui/frontend/dist/` exists:
      `<venv-python> -m uvicorn ui.backend.main:app --port 8571` and use
      `http://localhost:8571`.

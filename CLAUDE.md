@@ -305,8 +305,8 @@ write-shaped (tables, jobs) stays NOT BUILT pending explicit go; the
 check flips if any other write-shaped function appears (an FMAPI query
 is a read).
 
-**Databricks App deployment (2026-08-28; mock-locked since 0.3.2,
-currently 0.3.3):** the demo UI runs as the workspace app `codegen-agent`
+**Databricks App deployment (2026-08-28; mock-locked 0.3.2–0.3.3, live
+FMAPI since 0.3.4, currently 0.3.5):** the demo UI runs as the workspace app `codegen-agent`
 (https://codegen-agent-7405617821962942.2.azure.databricksapps.com).
 Deploy from a STAGED TREE (repo files + the gitignored
 `ui/frontend/dist` and fixtures — never `inputs/`): `databricks sync
@@ -325,8 +325,35 @@ grants the permission declaratively. The UI's own gates remain (explicit
 STTM choice, cost confirmation, mock on dry-run); re-lock by setting
 `CODEGEN_FORCE_MOCK_PROVIDER=1` in app.yaml and redeploying. App
 container restarts wipe
-`inputs/databricks/` fetches, runner state and the output-mode selection
-(back to `notebook`) — re-fetch and re-select after a restart.
+`inputs/databricks/` + `inputs/uploads/` fetches, runner state and the
+output-mode selection (back to `notebook`) — re-fetch and re-select after
+a restart. **First live run from inside the App: 2026-09-04**
+(`demo_20260904_150435`, CV golden pair, 3 feeds PASS_WITH_FLAGS, 3/3
+grounded via `databricks_fmapi`); volume fetch, upstream CAQH pairing,
+decision writes and past-run reload verified the same day. **0.3.5 App
+debugging lessons (2026-09-04):** (1) `WorkspaceClient` CONSTRUCTION
+raises when auth cannot resolve (expired CLI refresh token locally; an
+SP whose credentials don't resolve on the App) — `codegen.databricks
+._client` now wraps it in `DatabricksTransportError`, so the routes
+answer 502 with the SDK's message instead of a bare 500; (2) the UI no
+longer hides a 502 on the volumes listing as "unconfigured" (only 503
+hides the section) — the chooser shows the message + Retry; (3)
+`/api/demo/live-available` carries the provider-specific `reason` and
+the UI shows it (the old hardwired "no ANTHROPIC_API_KEY" text was wrong
+on the FMAPI App); (4) the from-device upload endpoint (0.3.4's
+`POST /api/demo/upload`) finally has UI buttons in the STTM chooser.
+The deployed tree ALSO carries `inputs/standards/` (the six reference
+documents the documents card lists as present: the SFMC FRD, the three
+decks, the two EDO standards) — that directory no longer exists in the
+local checkout, so redeploy with `databricks sync` WITHOUT `--full`
+(never deletes remote files); `--full` would wipe it. **`databricks
+sync` honours a `.gitignore` in the source dir** — a staged tree that
+still carries the repo's `.gitignore` silently skips `ui/frontend/dist`,
+`fixtures/contracts`, the golden workbook and the replay set (the
+2026-09-04 first deploy shipped the OLD bundle that way): delete
+`.gitignore` from the staged tree before syncing, then check the remote
+`dist/index.html` names the freshly built hash. Every deploy restarts
+the container, so past live runs under `out/` vanish with it.
 
 ## Demo panels + reference-document checks (added 2026-08-27, display/check only)
 

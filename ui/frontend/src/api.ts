@@ -344,13 +344,32 @@ export interface FeedDetail extends FeedSummary {
   written_files: string[];
 }
 
+// A failed call carries its HTTP status: callers tell "not configured" (503,
+// render nothing) from "the workspace refused" (502, say so) — the two used
+// to collapse into one silent absence on the Databricks App.
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.detail ?? `${res.status} ${res.statusText}`);
+    throw new ApiError(body?.detail ?? `${res.status} ${res.statusText}`, res.status);
   }
   return res.json();
+}
+
+export interface LiveAvailability {
+  available: boolean;
+  provider: string | null;
+  // Provider-specific remedy when unavailable ("" when available).
+  reason?: string;
 }
 
 export const api = {
@@ -383,10 +402,18 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ set }),
     }),
-  liveAvailable: () =>
-    request<{ available: boolean; provider: string | null }>(
-      "/api/demo/live-available",
-    ),
+  liveAvailable: () => request<LiveAvailability>("/api/demo/live-available"),
+  // From-device upload for the choose step: an STTM workbook (.xlsx) or an
+  // FRD contract JSON lands in inputs/uploads and is selected in one motion.
+  uploadDemoDocument: (kind: "sttm" | "frd", file: File) => {
+    const form = new FormData();
+    form.append("kind", kind);
+    form.append("file", file, file.name);
+    return request<{ stored: string; kind: string; selected: boolean }>(
+      "/api/demo/upload",
+      { method: "POST", body: form },
+    );
+  },
   demoWorkbooks: () => request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbooks"),
   selectWorkbook: (name: string) =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", {

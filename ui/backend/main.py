@@ -323,12 +323,15 @@ def _live_ready() -> tuple[bool, str]:
 
 @app.get("/api/demo/live-available")
 def live_available() -> dict:
-    available, _reason = _live_ready()
+    # `reason` is the provider-specific remedy (never a secret, never env
+    # contents): the UI used to hardwire "no ANTHROPIC_API_KEY", which is
+    # simply wrong on the FMAPI-backed Databricks App deployment.
+    available, reason = _live_ready()
     if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
         provider = "mock (locked)"
     else:
         provider = store.config.reasoning.provider if store is not None else None
-    return {"available": available, "provider": provider}
+    return {"available": available, "provider": provider, "reason": reason}
 
 
 class LiveRunRequest(BaseModel):

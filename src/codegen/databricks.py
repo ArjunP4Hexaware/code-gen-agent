@@ -157,9 +157,22 @@ def _client(cfg: DatabricksVolumesConfig):
     # DATABRICKS_HOST plus client credentials; the SDK's unified auth
     # resolves those on its own, and passing profile= would fail where no
     # ~/.databrickscfg exists. The named profile is the local-machine path.
-    if os.environ.get("DATABRICKS_HOST"):
-        return WorkspaceClient()
-    return WorkspaceClient(profile=cfg.profile)
+    #
+    # Construction itself can fail — an expired CLI refresh token, a missing
+    # profile, an App service principal whose credentials don't resolve.
+    # That is a transport failure like any other and must surface as one
+    # (the routes map it to 502 with the SDK's message), never escape as a
+    # bare 500 that the UI then hides as "unconfigured".
+    try:
+        if os.environ.get("DATABRICKS_HOST"):
+            return WorkspaceClient()
+        return WorkspaceClient(profile=cfg.profile)
+    except Exception as exc:  # noqa: BLE001 — surfaced verbatim, never swallowed
+        where = "the injected app credentials" if os.environ.get("DATABRICKS_HOST") \
+            else f"profile {cfg.profile!r}"
+        raise DatabricksTransportError(
+            f"workspace auth via {where} failed: {exc}"
+        ) from exc
 
 
 def volume_path(cfg: DatabricksVolumesConfig, volume: str, name: str = "") -> str:

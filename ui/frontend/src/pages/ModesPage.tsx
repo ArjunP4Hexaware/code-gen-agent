@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   api,
+  ApiError,
   type DatabricksDocumentsResponse,
   type DemoStatus,
   type FrdChoicesResponse,
@@ -75,6 +76,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [liveRuns, setLiveRuns] = useState<PastLiveRun[] | null>(null);
   const [liveAvailable, setLiveAvailable] = useState<boolean | null>(null);
   const [liveProvider, setLiveProvider] = useState<string | null>(null);
+  // Why live is unavailable, from the backend — provider-specific, never a
+  // hardwired "no ANTHROPIC_API_KEY" (wrong on the FMAPI-backed App).
+  const [liveReason, setLiveReason] = useState<string | null>(null);
   const [status, setStatus] = useState<DemoStatus | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -84,8 +88,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
   // null = unconfigured/unreachable → the Databricks section renders nothing.
   const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
+  // The workspace REFUSED the volumes listing (502) — shown in the chooser
+  // rather than hidden, so a permissions gap on the App reads as one.
+  const [dbDocsError, setDbDocsError] = useState<string | null>(null);
   const [frdChoices, setFrdChoices] = useState<FrdChoicesResponse | null>(null);
   const [fetching, setFetching] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<"sttm" | "frd" | null>(null);
+  const sttmUploadRef = useRef<HTMLInputElement | null>(null);
+  const frdUploadRef = useRef<HTMLInputElement | null>(null);
   const [requirements, setRequirements] = useState<InputRequirementsResponse | null>(null);
   const [governance, setGovernance] = useState<GovernanceChecksResponse | null>(null);
   const [loadingSet, setLoadingSet] = useState<string | null>(null);
@@ -101,7 +111,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.liveAvailable().then((r) => {
       setLiveAvailable(r.available);
       setLiveProvider(r.provider ?? null);
-    }).catch(() => setLiveAvailable(false));
+      setLiveReason(r.reason ?? null);
+    }).catch((e) => {
+      setLiveAvailable(false);
+      setLiveReason(e instanceof Error ? e.message : String(e));
+    });
     api.demoStatus().then(setStatus).catch(() => setStatus(null));
     // The documents card and the source-files panel render on load — both
     // are live reads on the backend, nothing is cached to disk.
@@ -185,14 +199,55 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
 
   // Open the STTM picker with a fresh scan each time, so a workbook just
   // fetched from SharePoint or Databricks shows up without a reload.
+  // 503 (unconfigured) → section absent, same as SharePoint. Anything else
+  // (502: the workspace refused — typically the App's service principal
+  // lacking READ VOLUME) is a real problem and is SAID, not hidden.
+  const loadDbDocs = useCallback(() => {
+    api
+      .databricksDocuments()
+      .then((docs) => {
+        setDbDocs(docs);
+        setDbDocsError(null);
+      })
+      .catch((e) => {
+        setDbDocs(null);
+        setDbDocsError(
+          e instanceof ApiError && e.status === 503
+            ? null
+            : e instanceof Error ? e.message : String(e),
+        );
+      });
+  }, []);
+
   const openChooser = useCallback(() => {
     setChoosing(true);
     setWorkbooks(null);
     api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => setWorkbooks([]));
-    // 503 (unconfigured) or failure → section absent, same as SharePoint.
-    api.databricksDocuments().then(setDbDocs).catch(() => setDbDocs(null));
+    loadDbDocs();
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
-  }, []);
+  }, [loadDbDocs]);
+
+  // From-device upload: the file lands in inputs/uploads and is selected in
+  // the same motion (the backend validates an FRD upload as a contract).
+  const uploadDocument = useCallback(
+    async (kind: "sttm" | "frd", file: File | undefined) => {
+      if (!file) return;
+      setError(null);
+      setUploading(kind);
+      try {
+        await api.uploadDemoDocument(kind, file);
+        const [wb, s] = await Promise.all([api.demoWorkbooks(), api.demoStatus()]);
+        setWorkbooks(wb.workbooks);
+        setStatus(s);
+        api.frdChoices().then(setFrdChoices).catch(() => {});
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setUploading(null);
+      }
+    },
+    [],
+  );
 
   const chooseFrd = useCallback(async (kind: "upstream" | "local", id: string) => {
     setError(null);
@@ -231,19 +286,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
           );
           if (companion) await api.databricksFetch(companion.volume, companion.name);
         }
-        const [wb, docs] = await Promise.all([
-          api.demoWorkbooks(),
-          api.databricksDocuments().catch(() => null),
-        ]);
+        const wb = await api.demoWorkbooks();
         setWorkbooks(wb.workbooks);
-        if (docs) setDbDocs(docs);
+        loadDbDocs();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setFetching(null);
       }
     },
-    [dbDocs],
+    [dbDocs, loadDbDocs],
   );
 
   const chooseWorkbook = useCallback(async (name: string) => {
@@ -758,7 +810,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             </div>
             {liveAvailable === false ? (
               <div className="empty">
-                Live is unavailable: no ANTHROPIC_API_KEY in the backend environment.
+                Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
+                {liveProvider ? (
+                  <span className="hint"> (provider: {liveProvider})</span>
+                ) : null}
               </div>
             ) : (
               <button
@@ -992,8 +1047,53 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             <h2>Choose an STTM workbook</h2>
             <p className="hint">
               Scanned live from the local fixtures directory and the{" "}
-              <code>inputs/sharepoint</code> landing folder — where{" "}
-              <code>sharepoint-fetch</code> and the SharePoint picker deliver documents.
+              <code>inputs/sharepoint</code>, <code>inputs/databricks</code> and{" "}
+              <code>inputs/uploads</code> landing folders — where the SharePoint picker,
+              the volume fetch below and a from-device upload deliver documents.
+            </p>
+            <p style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                ref={sttmUploadRef}
+                type="file"
+                accept=".xlsx"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  uploadDocument("sttm", file);
+                }}
+              />
+              <input
+                ref={frdUploadRef}
+                type="file"
+                accept=".json"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  uploadDocument("frd", file);
+                }}
+              />
+              <button
+                className="btn"
+                disabled={uploading !== null || running}
+                onClick={() => sttmUploadRef.current?.click()}
+                title="Upload an STTM workbook (.xlsx) from this device; it is selected for the next run"
+              >
+                {uploading === "sttm" ? "Uploading…" : "Upload STTM (.xlsx)…"}
+              </button>
+              <button
+                className="btn"
+                disabled={uploading !== null || running}
+                onClick={() => frdUploadRef.current?.click()}
+                title="Upload an FRD contract JSON produced by the FRD→STTM agent; a raw .docx has no contract"
+              >
+                {uploading === "frd" ? "Uploading…" : "Upload FRD contract (.json)…"}
+              </button>
+              <span className="hint" style={{ fontSize: 11 }}>
+                Uploads land in <code>inputs/uploads</code> on the server (wiped on an App
+                restart).
+              </span>
             </p>
             {workbooks === null ? (
               <div className="empty">Scanning…</div>
@@ -1016,6 +1116,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))
             )}
+            {dbDocsError ? (
+              <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 12 }}>
+                <strong>Databricks volumes unavailable.</strong>{" "}
+                <span className="hint">{dbDocsError}</span>{" "}
+                <button className="btn" style={{ marginLeft: 8 }} onClick={loadDbDocs}>
+                  Retry
+                </button>
+              </div>
+            ) : null}
             {dbDocs && dbDocs.documents.sttm.length > 0 ? (
               <>
                 <p className="hint" style={{ margin: "14px 0 4px" }}>
@@ -1206,7 +1315,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </p>
             ) : (
               <p>
-                This makes real, billed Anthropic API calls:
+                {liveProvider === "databricks_fmapi"
+                  ? "This makes real, billed Claude calls through the Databricks serving endpoint:"
+                  : "This makes real, billed Anthropic API calls:"}
                 <br />
                 <strong>~{est?.calls ?? 3} calls · ≈ ${(est?.cost_usd ?? 0.1).toFixed(2)} · ~
                 {est?.seconds ?? 20}s</strong>

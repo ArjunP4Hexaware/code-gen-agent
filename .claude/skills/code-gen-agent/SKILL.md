@@ -621,7 +621,14 @@ https://codegen-agent-7405617821962942.2.azure.databricksapps.com
   console mirrors `ui/backend/main.py`'s types in `frontend/src/api/
   codegen.ts` and surfaces every `detail` verbatim — keep status codes
   meaningful (409 one-at-a-time / nothing-to-generate, 503 unconfigured,
-  502 refused).
+  502 refused). Since 2026-09-04 the console also relies on
+  `GET /api/databricks/documents` + `POST /api/databricks/fetch` (its
+  Step-1 "Fetch and choose" for the volume STTMs — the only real choice on
+  the App, where fetched copies vanish on restart) and on
+  `GET /api/demo/input-documents` (its "Reference documents and inputs"
+  panel: the expected/present scan of `demo.input_documents`, with roles
+  stated console-side by file-name pattern). Renaming an expected document
+  or changing those response shapes changes the console.
 
 ### Key docs — local repo / Claude Code development only
 

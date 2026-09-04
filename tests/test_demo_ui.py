@@ -131,10 +131,11 @@ def test_run_live_without_key_is_rejected(client):
 def test_live_available_is_boolean_only(client, monkeypatch):
     assert client.get("/api/demo/live-available").json() == {
         "available": False, "provider": "anthropic",
+        "reason": "no ANTHROPIC_API_KEY in the backend env",
     }
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-never-echoed")
     payload = client.get("/api/demo/live-available").json()
-    assert payload == {"available": True, "provider": "anthropic"}
+    assert payload == {"available": True, "provider": "anthropic", "reason": ""}
     assert "test-key-never-echoed" not in repr(payload)
 
 
@@ -151,7 +152,7 @@ def test_live_available_fmapi_needs_no_key(client, monkeypatch):
         main.store.config.model_copy(update={"reasoning": reasoning}),
     )
     payload = client.get("/api/demo/live-available").json()
-    assert payload == {"available": True, "provider": "databricks_fmapi"}
+    assert payload == {"available": True, "provider": "databricks_fmapi", "reason": ""}
 
 
 @needs_replay_set

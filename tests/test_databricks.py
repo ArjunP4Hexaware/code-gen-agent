@@ -87,6 +87,39 @@ def test_list_documents_filters_and_sorts():
     assert [f["name"] for f in listing["sttm"]] == ["map.xlsx"]
 
 
+def test_client_construction_failure_is_a_transport_error(monkeypatch):
+    # The SDK's WorkspaceClient constructor raises when auth cannot resolve
+    # (expired CLI refresh token, unresolvable App credentials). That must
+    # surface as the seam's own error — before this, it escaped list/fetch/
+    # chat as a bare exception and the UI hid the resulting 500.
+    import sys
+    import types
+
+    class _Boom:
+        def __init__(self, *args, **kwargs):
+            raise ValueError("default auth: cannot get access token")
+
+    sdk = types.ModuleType("databricks.sdk")
+    sdk.WorkspaceClient = _Boom
+    root = types.ModuleType("databricks")
+    root.sdk = sdk
+    monkeypatch.setitem(sys.modules, "databricks", root)
+    monkeypatch.setitem(sys.modules, "databricks.sdk", sdk)
+    monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+
+    cfg = db.config_for(_settings(), env={})
+    with pytest.raises(db.DatabricksTransportError) as excinfo:
+        db.list_documents(cfg)
+    message = str(excinfo.value)
+    assert "profile 'DEFAULT'" in message and "cannot get access token" in message
+
+    # Same shape under the Apps runtime (env-injected credentials).
+    monkeypatch.setenv("DATABRICKS_HOST", "https://example.invalid")
+    with pytest.raises(db.DatabricksTransportError) as excinfo:
+        db.chat(cfg, [{"role": "user", "content": "x"}], endpoint="ep")
+    assert "injected app credentials" in str(excinfo.value)
+
+
 def test_list_documents_surfaces_failures():
     cfg = db.config_for(_settings(), env={})
     client = SimpleNamespace(files=_StubFiles(raises=RuntimeError("no grant")))
@@ -329,6 +362,20 @@ def test_documents_route_unconfigured_is_503(client, monkeypatch):
     response = client.get("/api/databricks/documents")
     assert response.status_code == 503
     assert "not configured" in response.json()["detail"]
+
+
+def test_documents_route_workspace_refusal_is_502_with_message(client, monkeypatch):
+    # A refused/unauthenticated workspace is NOT "unconfigured": the UI shows
+    # the message (and a Retry) instead of hiding the section.
+    def refuse(_cfg):
+        raise db.DatabricksTransportError(
+            "workspace auth via profile 'DEFAULT' failed: refresh token is invalid"
+        )
+
+    monkeypatch.setattr(databricks_routes, "list_documents", refuse)
+    response = client.get("/api/databricks/documents")
+    assert response.status_code == 502
+    assert "refresh token is invalid" in response.json()["detail"]
 
 
 def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, tmp_path):

@@ -89,17 +89,18 @@ Layer-2 review tab (2 CONFIRM cards with quoted citations + 2 candidates),
 then the Report tab's Segmented-extraction section, then Generated code →
 the two `_table_creation.txt` files (4 stage + 3 standard tables).
 
-**⚠ App venue: HARD-LOCKED TO MOCK (0.3.3).** `app.yaml` sets
-`CODEGEN_FORCE_MOCK_PROVIDER=1`: `build_provider` returns the mock before
-any transport resolution and `/api/demo/live-available` reports
-unavailable with that reason — no UI selection or config value can route
-the App to FMAPI. (The SP's grant on the FMAPI system endpoint is
-UNVERIFIABLE by CLI — pay-per-token endpoints expose no per-endpoint
-permission object — which is exactly why the lock exists.) Live runs
-belong on localhost. **The 0.3.3 build MUST be deployed to the App and
-smoke-tested there before 3 PM.** Redeploy: sync the staged tree +
-`databricks apps deploy codegen-agent` (see §7), then in the App: choose
-the CAQH STTM and confirm the run reaches the review cards.
+**App venue: LIVE via FMAPI since 0.3.4 (mock lock removed 2026-09-01).**
+The App's declared serving-endpoint resource (`llm-endpoint`, CAN_QUERY)
+grants the SP its FMAPI permission declaratively, so
+`/api/demo/live-available` reports `databricks_fmapi` available. **First
+live run fired from inside the App: 2026-09-04 (`demo_20260904_150435`,
+CV golden pair) — all stages green, 3 feeds PASS_WITH_FLAGS, 3/3
+candidates grounded, provider `databricks_fmapi`.** The App's volume
+fetch, upstream-FRD pairing (CAQH), decision writes and past-run reload
+were exercised the same day. Live runs on the CLIENT pairs (CAQH/MIDS)
+still need the program's client-document approval; the golden pair is the
+rehearsal default. Redeploy: sync the staged tree + `databricks apps
+deploy codegen-agent` (see §7 and CLAUDE.md).
 
 ---
 
@@ -402,11 +403,13 @@ Default to **localhost:8571** — it's the rehearsed venue. The App URL
 a strong closer instead: "and this exact UI is already running *as a
 Databricks App* in the workspace" — open it, show the same Run-modes
 page and the documents panel listing the real client documents from the
-volumes. Caveats before promoting it to the main venue: no live run has
-been fired from inside the App yet, viewers need workspace SSO, and the
-App's snapshot is from the 15:00 redeploy (it has all six reference
-documents; anything changed locally after that isn't in it — redeploy =
-`databricks sync` + `databricks apps deploy`, see CLAUDE.md).
+volumes. Caveats before promoting it to the main venue: viewers need
+workspace SSO, a container restart wipes fetched documents and the STTM/
+FRD/output-mode selection (re-fetch, re-select), and the App runs whatever
+snapshot was last deployed (anything changed locally after that isn't in
+it — redeploy = `databricks sync` + `databricks apps deploy`, see
+CLAUDE.md). A live run HAS been fired from inside the App (2026-09-04,
+golden pair, see the venue note above).
 
 ## 8. SharePoint / Databricks seams — shell blurb
 

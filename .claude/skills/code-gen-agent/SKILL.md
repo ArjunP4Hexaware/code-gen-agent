@@ -283,11 +283,16 @@ Layer 1 output + Layer 2 candidates
 
 **Behavior worth preserving — the hard scope boundary.**
 
-- **Flat dialect only.** The extractor recognizes one layout family: a `FILE_DETAILS` + `VERSION_HISTORY` + per-feed `MAPPING-<TABLE>` sheet structure, with a band-label row (`Source File Layout` / `Stage Layer` / `Standard Layer`), fuzzy header-synonym matching (three header dialects already observed in one golden workbook), and trailing `NA` rows recognized as audit columns.
-- **A segmented (Header/Detail/Trailer) workbook is a hard error (`SegmentedWorkbookError`), by design, not a bug.** The parser detects the family by content (a key:value metadata block, a `Source Layout` band variant, and/or a per-row `Segment` column), not by filename, and refuses rather than guessing. This is why the CAQH feed ships with a clearly-labeled **synthetic** STTM contract (`"synthetic": true` in the payload) instead of an extracted real one.
-- **Segmented-dialect v2 is a scoped, not-yet-built backlog item** (`docs/SEGMENTED_MODE_DESIGN.md` — local repo only, not part of the Databricks import), with two named blockers that must be resolved by a human before it can be built, not inferred from the workbook alone:
-  1. The Header/Detail/Trailer record-type discriminator (assumed to be the row's first column, values `H`/`D`/`T`) is **unverified** — the real CAQH workbook confirms segment *membership* per field but never states the literal discriminator values anywhere in the sheet.
-  2. The real CAQH workbook's Standard Layer is **fully populated** (per-segment target tables, "Load as is" transformations), while the committed FRD contract's standard target is empty and the synthetic STTM says stage-only. This is a genuine contradiction between two supposedly-authoritative sources and has been escalated for a human decision — a rebuild must not silently pick one.
+- **Two layout families, both recognized by content, never by filename.** The **flat dialect** is a `FILE_DETAILS` + `VERSION_HISTORY` + per-feed `MAPPING-<TABLE>` sheet structure, with a band-label row (`Source File Layout` / `Stage Layer` / `Standard Layer`), fuzzy header-synonym matching (three header dialects already observed in one golden workbook), and trailing `NA` rows recognized as audit columns. The **segmented dialect** (CAQH-style Header/Detail/Trailer; `extract/segmented.py`, implemented 2026-08-31 and corrected 2026-09-01 against the FRD read verbatim) is one wide mapping sheet with a key:value metadata block (which, unlike the flat family, states the delimiter), a `Source Layout` band variant, and a per-row `Segment` column. The flat parser detects that family signature, raises `SegmentedWorkbookError`, and the extractor routes the workbook to the segmented parser — it never falls through to a flat parse.
+- **Segmented rules the rebuild must preserve (each one was a lesson):**
+  1. **Segments are TABLES in both layers, not file envelope** (FRD acceptance criterion 2: "Header, Detail, Trailer data should be mapped to respective HDR, DTL and TRL tables"). Every field carries `record_segment` + `stage_table` (+ `standard_table` when the standard layer is scoped); the resolver produces per-segment stage and standard DDL.
+  2. **Layer scope comes from Load Strategy STG/STD, never from which schemas the Target Schema block names.** "Stage-only" was once wrongly inferred from a schema block that named only stage targets; the FRD's Load Strategy scopes both layers. When the FRD's standard table list is empty, STD catalog/schema/tables come from the STTM's second target column group, recorded with a cited provenance note.
+  3. **Record identification is DERIVED from the STTM, not assumed.** Trailer = record whose first field equals the static marker the STTM's Trailer "Record Type" comment states verbatim (quoted as the citation); header = first record; detail = all others. The per-feed FAQ's `record_type_discriminators` is strictly a `status: confirmed` OVERRIDE. A workbook with no derivable marker refuses loudly with the override remedy named.
+  4. **STRING-except-audit in both layers rides an FRD-driven AS-IS switch** (`spec.load_as_is`), not a CAQH special case; a keys-None FRD (truncate/append, no MERGE) makes empty `natural_key_columns` legitimate, cited provenance rather than an unknown.
+  5. **Every provenance note, conflict, assumption and confirm item MUST quote the exact FRD field or STTM cell it rests on** — models enforce non-empty citations and tests assert them. An item that cannot cite its evidence is a bug.
+  6. The review layer receives ONE soft cited CONFIRM item (`RuleCandidate.kind == "confirm"` — positional header/detail identification per the CAQH spec, confirm with the source team) riding the existing candidates/decision flow; it is not an assumption gate.
+- **Stated, not hidden, residual gap:** the generated runtime reader/segments module still splits records via `config.segments`; adapting that filter to the derived positional/marker identification is Option-A-only future work pending the CONFIRM item.
+- The tracked test fixture for this dialect is the **synthetic** `fixtures/workbooks/synthetic_segmented_golden.xlsx` (passes the scrub denylist); the real CAQH workbook is never in the repo.
 
 **On Genie Code / LDP.** A separate, on-demand utility step (CLI-equivalent notebook or job), not part of the main generation pipeline's trigger path. It has no model call and no compute-shape implications beyond ordinary Python execution.
 
@@ -355,9 +360,9 @@ Only `unmapped` rules should ever be sent to Layer 2. If a rebuild finds itself 
 
 No timestamps, no clock reads, no non-deterministic ordering anywhere in the emit path. Provenance banners carry a content hash of the *inputs*, never a generation timestamp. `extract-sttm` accepts an injected `--generated-date` for the same reason — the rebuild must offer an equivalent injection point rather than defaulting to "now."
 
-#### 5.3 Segmented dialects are a hard boundary, not a best-effort parse
+#### 5.3 Segmented dialects are a separate parser with cited derivations, never a best-effort flat parse
 
-`extract-sttm` refusing a segmented workbook outright (rather than guessing at a layout it wasn't built for) is the correct behavior, proven out by two live blockers discovered on real inspection of the actual CAQH workbook (§2.6): an unverifiable record-type discriminator, and a genuine contradiction between the workbook's populated Standard Layer and the committed contracts' stage-only assumption. **A rebuild must not resolve either blocker by inference** — both require a human decision from the source team, and the existing repo has already escalated them rather than guessing. Preserve the hard-error behavior until both are resolved.
+`extract-sttm` recognizes the segmented (Header/Detail/Trailer) family by content and routes it to its own parser (§2.6); the flat parser never guesses at a layout it wasn't built for. The two "blockers" the 2026-08 builds escalated turned out to be answered by the documents themselves once read verbatim — the record identification marker is stated in an STTM cell, and the "standard-layer contradiction" came from inferring scope from a schema block instead of reading Load Strategy. The durable lesson for a rebuild: **derive from the documents and cite the cell; never infer from a proxy, and never resolve an ambiguity silently.** Anything the documents genuinely do not settle becomes a cited CONFIRM review item, not an assumption baked into generated code.
 
 #### 5.4 No sampling parameters, ever, on this model family
 
@@ -427,7 +432,8 @@ Layer 2 (§3) is the only step needing model access. On the target platform this
 | `naming.*` (`errors_table_suffix`, `recycle_table_suffix`, `processed_files_table_suffix`) | Side-table naming derived from the stage table name |
 | `defaults.recycle_window_days` | Fallback only — used when a feed has a recycle rule but no window stated anywhere |
 | `masking.policy`, `masking.visible_chars`, `masking.mask_char` | PHI masking policy at every egress |
-| `segments.record_type_column`, `segments.record_type_values`, `segments.trailer_count_column` | Segmented-feed discriminator assumption — flagged unverified, see §2.6 and §5.3 |
+| `segments.record_type_column`, `segments.record_type_values`, `segments.trailer_count_column` | Runtime record-splitting knobs for the generated segments module — the stated residual gap in §2.6 (extraction derives identification from the STTM; the runtime filter does not yet) |
+| `extractor.segmented.*` | Segmented-family layout knobs (metadata-block keys, `Source Layout` band vocabulary, `Segment` column synonyms) — all defaulted, fuzzy-matched |
 | `extractor.*` | `extract-sttm`'s sheet names, band labels, header synonyms, audit-row markers — all fuzzy-matching knobs |
 | `reasoning.model`, `reasoning.max_tokens`, `reasoning.max_attempts` | Layer 2 model identity and retry policy — **no temperature/top_p/top_k knob, ever** (§3.5, §5.4) |
 | `demo.*` | Cost-confirmation copy for a live demo run (estimated calls/cost/seconds) — kept in a separate file from the primary `extra="forbid"` config for the same reason the other four agents split demo config out |
@@ -481,7 +487,8 @@ The current test suite (run `pytest -q` for the live count — all offline, no S
 #### 7.6 `extract-sttm`
 
 - The committed golden CV/demo pair reproduces its expected output byte-for-byte (given an injected `--generated-date`).
-- A segmented workbook (matching the family signature — key:value metadata block, `Source Layout` band variant, or a per-row `Segment` column) raises `SegmentedWorkbookError` and never silently falls through to the flat parser.
+- A segmented workbook (matching the family signature — key:value metadata block, `Source Layout` band variant, or a per-row `Segment` column) raises `SegmentedWorkbookError` inside the flat parser and routes to the segmented parser; it never silently falls through to a flat parse.
+- The synthetic segmented golden extracts three segments as tables in both layers, derives trailer identification with the STTM cell quoted as its citation, treats a keys-None FRD as cited provenance (not an unknown), refuses with the FAQ-override remedy when no marker is derivable, accepts the FAQ override only at `status: confirmed`, and every provenance note carries a citation; generation then emits per-segment tables in both layers.
 - Fuzzy header-synonym resolution across at least the header dialects already observed in real client workbooks.
 - Feed-pairing via `normalize_feed_name` against the paired FRD contract, with a named error on an unpaired feed.
 
@@ -668,13 +675,12 @@ only):
    error (e.g. the extended-thinking content regression of 2026-08-31)
    becomes a "provider failed" candidate rather than its own flag class;
    the post-demo TODO in `docs/DESIGN.md` §8 is to give it one.
-2. **Segmented (Header/Detail/Trailer) STTM workbooks:** the extractor's
-   segmented dialect is IMPLEMENTED (corrected 2026-09-01 against the FRD
-   read verbatim — segments as tables in both layers, identification
-   derived from the STTM, two cited soft CONFIRM items remain); §2.6 and
-   §5.3 above describe the earlier hard-error posture and the blockers
-   that were since answered by the documents. The MIDS STTM contract
-   still predates the extractor.
+2. **Segmented runtime split still config-driven** — extraction derives
+   record identification from the STTM (§2.6), but the generated
+   reader/segments module still splits by `config.segments`; adapting it
+   is Option-A-only future work pending the source team's answer to the
+   CONFIRM item. Separately, the MIDS STTM contract still predates the
+   extractor (no committed workbook reproduces it).
 3. **Layer-2 approval-to-merge is v2** — see §3.6 and §4 above; decisions
    do not gate, merging stays a manual engineer step.
 4. **No live-credential `.env` is committed** (there never was one; an

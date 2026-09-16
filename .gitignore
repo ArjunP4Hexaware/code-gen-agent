@@ -87,3 +87,6 @@ ui/frontend/*.tsbuildinfo
 /*caqh*
 /*MIDS*
 /*mids*
+
+# Port-kit audit copies (evidence, inventory, scratch tooling) — local only, never shipped
+port_kit_audit/

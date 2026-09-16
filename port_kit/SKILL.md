@@ -15,6 +15,7 @@ files, all in this folder:
 | `SPEC.md` | every rule, as decision tables and filled examples; the only source of domain truth |
 | `ACCEPTANCE/INPUTS.md` | the synthetic input pairs every case uses |
 | `ACCEPTANCE/S1.md` … `S6.md` | one slice each: goal, cases, exact expected outputs with checksums |
+| `UI_SPEC.md`, `BACKEND_SPEC.md`, `ACCEPTANCE/S7_ui.md`, `DEMO_SCRIPT.md`, `KICKOFF_UI.md` | slice S7: the full UI as a Databricks App — screens, API contract, backend, checks, demo path; `KICKOFF_UI.md` starts it |
 | `MANIFEST.md` | file list, line counts, sha256 of the kit |
 
 Real client documents (the ten FRD/STTM pairs, the client DDL goldens, the client IIG

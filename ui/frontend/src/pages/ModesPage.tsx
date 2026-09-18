@@ -407,6 +407,40 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   };
   const frdPickKey = (c: { table?: number; row?: number; col?: number }) =>
     `${c.table}/${c.row}/${c.col}`;
+  // Model advice on the pending questions: an explicit, confirmed model call
+  // over the question texts + candidate labels; then the person can adopt
+  // the model's picks as the pre-selection in one click.
+  const [advising, setAdvising] = useState<"confirm" | "busy" | null>(null);
+  const askAdvice = async () => {
+    setAdvising("busy");
+    setError(null);
+    try {
+      setStatus(await api.layoutAdvice());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdvising(null);
+    }
+  };
+  const useModelPicks = () => {
+    const advice = status?.layout_advice?.advice ?? {};
+    const picks: Record<string, number> = { ...layoutPicks };
+    const frd: Record<string, Record<string, unknown>> = { ...frdPicks };
+    for (const q of status?.layout_questions ?? []) {
+      const a = advice[q.key];
+      if (!a || a.index === null || a.index === undefined) continue;
+      const c = q.candidates[a.index];
+      if (!c) continue;
+      if (q.document === "frd") {
+        if (c.table !== undefined && c.row !== undefined)
+          frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
+      } else if (c.col !== undefined) {
+        picks[q.key] = c.col;
+      }
+    }
+    setLayoutPicks(picks);
+    setFrdPicks(frd);
+  };
   const est = status?.estimates;
 
   return (
@@ -842,6 +876,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                   ? "The most likely match is pre-selected — confirm or pick another."
                                   : "No candidate matches the usual labels — pick the one that states it, or proceed without."}
                               </div>
+                              {status.layout_advice?.advice[q.key] ? (
+                                <div className="flag-hitl" style={{ padding: "4px 8px", marginTop: 4, fontSize: 12 }}>
+                                  <strong>Model advice</strong>{" "}
+                                  <span className="hint">({status.layout_advice.provider})</span>:{" "}
+                                  {status.layout_advice.advice[q.key].rationale}
+                                  {status.layout_advice.advice[q.key].index === null
+                                    ? " — no candidate picked."
+                                    : ""}
+                                </div>
+                              ) : null}
                               {q.header.length ? (
                                 <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                                   {q.header.map((h) => (
@@ -877,6 +921,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                       {q.suggested === q.candidates.indexOf(c) ? (
                                         <span className="hint"> (suggested)</span>
                                       ) : null}
+                                      {status.layout_advice?.advice[q.key]?.index === q.candidates.indexOf(c) ? (
+                                        <span className="hint"> (model's pick)</span>
+                                      ) : null}
                                     </label>
                                   ) : (
                                     <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
@@ -894,6 +941,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                       {c.header ?? c.label}
                                       {q.suggested === q.candidates.indexOf(c) ? (
                                         <span className="hint"> (suggested)</span>
+                                      ) : null}
+                                      {status.layout_advice?.advice[q.key]?.index === q.candidates.indexOf(c) ? (
+                                        <span className="hint"> (model's pick)</span>
                                       ) : null}
                                     </label>
                                   ),
@@ -916,7 +966,49 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(() => {})}>
                         Cancel run
                       </button>
+                      <span style={{ flex: 1 }} />
+                      <button
+                        className="btn"
+                        disabled={advising !== null}
+                        title="One model call over the question texts and candidate labels — no document rows"
+                        onClick={() => setAdvising("confirm")}
+                      >
+                        {advising === "busy" ? "Asking the model…" : "Ask the model for advice…"}
+                      </button>
+                      <button
+                        className="btn"
+                        disabled={!status.layout_advice}
+                        title="Pre-select the candidates the model advised (you still confirm with Continue)"
+                        onClick={useModelPicks}
+                      >
+                        Use the model's picks
+                      </button>
                     </div>
+                    {advising === "confirm" ? (
+                      <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
+                        This makes one model call
+                        {transport?.kind === "databricks_fmapi" ? (
+                          <>
+                            {" "}through the Databricks Foundation Model endpoint{" "}
+                            <code>{transport.endpoint}</code> ({transport.model}), billed
+                          </>
+                        ) : transport?.kind === "anthropic" ? (
+                          " to the Anthropic API, billed"
+                        ) : (
+                          " to the mock provider (offline heuristics, no cost)"
+                        )}
+                        . It sees only the question texts, header strips and candidate labels — no
+                        document rows. Its advice is a pre-selection; you still confirm with Continue.
+                        <div className="decision-row" style={{ marginTop: 8 }}>
+                          <button className="btn primary" onClick={askAdvice}>
+                            Confirm — ask
+                          </button>
+                          <button className="btn" onClick={() => setAdvising(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <ul className="stage-list">

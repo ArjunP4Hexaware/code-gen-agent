@@ -403,6 +403,32 @@ def layout_answers(req: LayoutAnswersRequest) -> dict:
     return runner.status()
 
 
+class LayoutAdviceRequest(BaseModel):
+    confirm: bool = False  # a model call (billed on a live transport)
+
+
+@app.post("/api/demo/layout-advice")
+def layout_advice(req: LayoutAdviceRequest) -> dict:
+    """Ask the Layer-2 transport for advice on the pending layout questions:
+    one call over the question texts, header strips and candidate labels
+    (never a data row). Confirm-gated like run-live; the mock lock or an
+    unavailable transport answers offline and the response names it."""
+    from codegen.layout.model import LayoutProviderError
+
+    if not req.confirm:
+        raise HTTPException(400, "layout advice requires explicit confirm: true (a model call)")
+    runner = _require_runner()
+    try:
+        runner.advise_layout(dry_run=False)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LayoutProviderError as exc:
+        raise HTTPException(502, f"layout advice failed: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 — transport errors surface, never a bare 500
+        raise HTTPException(502, f"layout advice failed: {type(exc).__name__}: {exc}") from exc
+    return demo_status()
+
+
 @app.get("/api/demo/status")
 def demo_status() -> dict:
     demo = _require_store().config.demo

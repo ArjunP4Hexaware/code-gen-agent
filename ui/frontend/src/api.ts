@@ -112,6 +112,10 @@ export interface DemoStatus {
   // the layout report (sources per role, rejections, cross-checks).
   layout_questions?: LayoutQuestion[];
   layout_report?: Record<string, unknown> | null;
+  layout_advice?: {
+    provider: string;
+    advice: Record<string, { index: number | null; rationale: string }>;
+  } | null;
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
@@ -558,6 +562,12 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+    }),
+  layoutAdvice: () =>
+    request<DemoStatus>("/api/demo/layout-advice", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
     }),
   liveRuns: () => request<{ runs: PastLiveRun[] }>("/api/demo/live-runs"),
   loadLiveRun: (run: string) =>

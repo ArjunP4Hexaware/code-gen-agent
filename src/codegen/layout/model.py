@@ -38,6 +38,8 @@ class LayoutModelProvider(Protocol):
 
     def complete_layout(self, request: dict) -> dict: ...
 
+    def advise_layout(self, request: dict) -> dict: ...
+
 
 _SYSTEM_PROMPT = (
     "You are a spreadsheet LAYOUT recogniser for source-to-target mapping workbooks "
@@ -82,6 +84,71 @@ def build_frd_request(fingerprint: str, labels: list[str], partial: dict,
     }
 
 
+_ADVICE_SYSTEM_PROMPT = """You advise a data engineer who must place fields the layout \
+recognizer could not resolve. For EACH question you are given its title, what the field means \
+(hint), why it is unresolved, the header strip of the sheet (STTM / VDD) and the CANDIDATE \
+labels or headers still available in the document. You see no data rows.
+
+Respond with ONLY a JSON object: {"advice": [{"key": <question key>, "candidate_index": \
+<0-based index into that question's candidates, or null when NO candidate states the field>, \
+"rationale": <one or two plain sentences an engineer can act on>}]}. Pick a candidate only when \
+its label or header clearly states the field; otherwise return null and say the document does \
+not state it (the engineer will proceed without, gate-flagged). Never invent a value."""
+
+# Keys a question exposes to the advice call — labels / headers only.
+_ADVICE_QUESTION_KEYS = ("key", "document", "title", "hint", "reason", "header", "candidates")
+
+
+def build_advice_request(questions: list[dict]) -> dict:
+    """The ONLY material the model sees for advice: the question texts, the
+    header strips and the candidate labels — never a data row."""
+    return {"kind": "layout_advice",
+            "questions": [{k: q.get(k) for k in _ADVICE_QUESTION_KEYS} for q in questions]}
+
+
+def validate_advice(response: dict, questions: list[dict]) -> dict[str, dict]:
+    """Keep only advice for known questions with an in-range (or null)
+    candidate index; rationale is display text, truncated."""
+    by_key = {q["key"]: q for q in questions}
+    out: dict[str, dict] = {}
+    for item in (response or {}).get("advice") or []:
+        if not isinstance(item, dict) or item.get("key") not in by_key:
+            continue
+        index = item.get("candidate_index")
+        n = len(by_key[item["key"]].get("candidates") or [])
+        if index is not None and not (isinstance(index, int) and 0 <= index < n):
+            index = None
+        rationale = str(item.get("rationale") or "").strip()[:400]
+        out[item["key"]] = {"index": index, "rationale": rationale}
+    return out
+
+
+def _heuristic_advice(request: dict) -> dict:
+    """Offline advice (mock provider): the hints module's synonym / header
+    match, phrased; no match -> null with an honest sentence."""
+    from codegen.layout.hints import role_help
+
+    advice = []
+    for q in request.get("questions", []):
+        candidates = q.get("candidates") or []
+        if q.get("document") == "frd":
+            labels = [c.get("label") or "" for c in candidates]
+            title = (q.get("title") or "").lower()
+            words = {w for w in title.replace("/", " ").split() if len(w) > 3}
+            index = next((i for i, lab in enumerate(labels)
+                          if words and words & set(lab.lower().split())), None)
+        else:
+            _t, _h, index = role_help(q.get("key", "").split("/")[-1], None, candidates)
+        if index is None:
+            rationale = ("mock provider (offline): none of the remaining labels states this "
+                         "field — proceed without it; the gate flags it.")
+        else:
+            label = candidates[index].get("label") or candidates[index].get("header")
+            rationale = f"mock provider (offline): {label!r} matches the field's usual wording."
+        advice.append({"key": q.get("key"), "candidate_index": index, "rationale": rationale})
+    return {"advice": advice}
+
+
 # ------------------------------------------------------------------ mock
 
 
@@ -118,6 +185,10 @@ class MockLayoutProvider:
         raise LayoutProviderError(
             f"mock layout provider has no profile for fingerprint {fingerprint} in "
             f"{[str(d) for d in self.dirs]}")
+
+    def advise_layout(self, request: dict) -> dict:
+        self.requests.append(request)
+        return _heuristic_advice(request)
 
 
 # ------------------------------------------------------------------ live
@@ -158,6 +229,26 @@ class FmapiLayoutProvider:
         raise LayoutProviderError(
             f"no JSON profile after {self._max_attempts} attempt(s); last error: {errors[-1]}")
 
+    def advise_layout(self, request: dict) -> dict:
+        from codegen.databricks import chat
+        from codegen.reasoning.providers.anthropic_provider import _extract_json
+
+        self.requests.append(request)
+        user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
+        errors: list[str] = []
+        for _ in range(self._max_attempts):
+            text = chat(self._cfg, messages=[{"role": "system", "content": _ADVICE_SYSTEM_PROMPT},
+                                             {"role": "user", "content": user_prompt}],
+                        endpoint=self._endpoint, max_tokens=self._max_tokens)
+            try:
+                return json.loads(_extract_json(text))
+            except ValueError as exc:
+                errors.append(str(exc))
+                user_prompt += (f"\n\nYour previous response was not a JSON object: {exc}. "
+                                "Respond again with ONLY the JSON object.")
+        raise LayoutProviderError(
+            f"no JSON advice after {self._max_attempts} attempt(s); last error: {errors[-1]}")
+
 
 class AnthropicLayoutProvider:
     name = "anthropic"
@@ -192,6 +283,30 @@ class AnthropicLayoutProvider:
         raise LayoutProviderError(
             f"no JSON profile after {self._max_attempts} attempt(s); last error: {errors[-1]}")
 
+    def advise_layout(self, request: dict) -> dict:
+        import anthropic
+
+        from codegen.reasoning.providers.anthropic_provider import _extract_json
+
+        self.requests.append(request)
+        client = anthropic.Anthropic()
+        user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
+        errors: list[str] = []
+        for _ in range(self._max_attempts):
+            message = client.messages.create(
+                model=self._model, max_tokens=self._max_tokens, system=_ADVICE_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}])
+            text = "".join(block.text for block in message.content
+                           if getattr(block, "type", "") == "text")
+            try:
+                return json.loads(_extract_json(text))
+            except ValueError as exc:
+                errors.append(str(exc))
+                user_prompt += (f"\n\nYour previous response was not a JSON object: {exc}. "
+                                "Respond again with ONLY the JSON object.")
+        raise LayoutProviderError(
+            f"no JSON advice after {self._max_attempts} attempt(s); last error: {errors[-1]}")
+
 
 def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None = None
                           ) -> LayoutModelProvider:
@@ -221,7 +336,9 @@ __all__ = [
     "LayoutModelProvider",
     "LayoutProviderError",
     "MockLayoutProvider",
+    "build_advice_request",
     "build_frd_request",
     "build_layout_provider",
     "build_sttm_request",
+    "validate_advice",
 ]

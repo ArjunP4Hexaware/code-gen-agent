@@ -72,6 +72,10 @@ class DemoRunner:
         # (grouped by document in the UI) and ``_layout_answers`` the reply.
         self.layout_questions: list[dict] = []
         self.layout_report: dict | None = None
+        # Model advice for the pending questions (POST /api/demo/layout-advice):
+        # {"provider": name, "advice": {key: {index, rationale}}}; reset when the
+        # question set changes. Display + a pre-selection — never a value.
+        self.layout_advice: dict | None = None
         self._layout_event = threading.Event()
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
@@ -373,10 +377,30 @@ class DemoRunner:
             "last_run_label": self.last_run_label,
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
+            "layout_advice": self.layout_advice,
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
             "output_parts": self.effective_output_parts(),
         }
+
+    def advise_layout(self, *, dry_run: bool = False) -> dict:
+        """One model call over the pending questions' texts and candidate
+        labels (never a data row); the validated advice is stored on the
+        runner and shown in the dialog. The mock provider (dry-run / mock
+        lock / no transport) answers with offline heuristics and says so."""
+        from codegen.layout.model import (
+            build_advice_request,
+            build_layout_provider,
+            validate_advice,
+        )
+
+        if self.state != "needs_layout" or not self.layout_questions:
+            raise LiveRunInProgress("no live run is waiting for layout answers")
+        provider = build_layout_provider(self._store.config, dry_run=dry_run, base_dir=REPO_ROOT)
+        response = provider.advise_layout(build_advice_request(self.layout_questions))
+        self.layout_advice = {"provider": provider.name,
+                              "advice": validate_advice(response, self.layout_questions)}
+        return self.layout_advice
 
     def answer_layout(self, answers: dict | None, *, proceed: bool = False,
                       cancel: bool = False) -> None:
@@ -406,6 +430,7 @@ class DemoRunner:
             if not result.questions:
                 return result
             self.layout_questions = [q.as_dict() for q in result.questions]
+            self.layout_advice = None
             self._layout_answers = None
             self._layout_event.clear()
             self.state = "needs_layout"

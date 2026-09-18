@@ -445,7 +445,21 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </span>
               <span>
                 FRD: <code>{status?.frd_name ?? "…"}</code>
-                {status?.frd_chosen ? null : <span className="hint"> (config default)</span>}{" "}
+                {status?.frd_chosen ? null : <span className="hint"> (config default)</span>}
+                {status?.frd_auto_paired ? (
+                  <span
+                    className="hint"
+                    title="Chosen automatically for this STTM; pick another in the chooser to override"
+                  >
+                    {" "}(auto-paired by{" "}
+                    {status.frd_auto_paired.rule === "pairing_map"
+                      ? "the config pairing map"
+                      : status.frd_auto_paired.rule === "ticket"
+                        ? "a shared ticket number"
+                        : "a matching document name"}
+                    )
+                  </span>
+                ) : null}{" "}
                 <button className="btn" disabled={running || !status?.frd_chosen}
                         onClick={resetFrd} title="Back to the config default">
                   Clear
@@ -453,7 +467,21 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </span>
               <span>
                 VDD:{" "}
-                {status?.vdd_name ? <code>{status.vdd_name}</code> : <em className="hint">none</em>}{" "}
+                {status?.vdd_name ? <code>{status.vdd_name}</code> : <em className="hint">none</em>}
+                {status?.vdd_auto_paired ? (
+                  <span
+                    className="hint"
+                    title="Chosen automatically for this STTM; pick another in the chooser to override"
+                  >
+                    {" "}(auto-paired by{" "}
+                    {status.vdd_auto_paired.rule === "pairing_map"
+                      ? "the config pairing map"
+                      : status.vdd_auto_paired.rule === "ticket"
+                        ? "a shared ticket number"
+                        : "a matching document name"}
+                    )
+                  </span>
+                ) : null}{" "}
                 <button className="btn" disabled={running || !status?.vdd_name}
                         onClick={() => chooseVdd(null)} title="No vendor data dictionary">
                   Clear

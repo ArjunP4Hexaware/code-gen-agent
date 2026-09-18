@@ -416,6 +416,12 @@ demo:
   # number pairing; the token heuristic only ever SUGGESTS in the UI.
   pairing_map:
     "sttm-medicare expansion-mids-social determine": "frd_medicare expansion-mids - socially determined"
+  # Same idea for the Vendor Data Dictionary (chosen automatically with the
+  # STTM when present): canonical STTM stem -> VDD stem. Ships the pair-1
+  # fixture names; a shared ticket number or a matching document name pairs
+  # without an entry here.
+  vdd_pairing_map:
+    "pair_1_family_a": "pair_1_v1_segments"
 
   # "Source files this run will read" panel. The landing-root template
   # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS

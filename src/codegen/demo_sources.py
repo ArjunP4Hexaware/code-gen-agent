@@ -111,11 +111,15 @@ def pair_sttm_with_frd(sttm_names: list[str], frd_names: list[str],
             **_pair_by_ticket(remaining_sttm, remaining_frd)}
 
 
+_ROLE_TOKENS = {"frd", "sttm", "vdd"}
+
+
 def _token_prefix(name: str, count: int = 3) -> tuple[str, ...]:
-    tokens = [t for t in re.split(r"[\s_\-]+", document_stem(name)) if t]
-    # Drop the frd/sttm role prefix so the content tokens align.
-    if tokens and tokens[0] in ("frd", "sttm"):
-        tokens = tokens[1:]
+    # Split on separators AND dots (a ".contract" suffix is not content), and
+    # drop the frd/sttm role tokens wherever they sit so the content aligns:
+    # "demo_sttm_cv_golden" and "FRD_demo_cv_golden.contract" both -> demo cv golden.
+    tokens = [t for t in re.split(r"[\s_\-.]+", document_stem(name)) if t]
+    tokens = [t for t in tokens if t not in _ROLE_TOKENS]
     return tuple(tokens[:count])
 
 
@@ -142,6 +146,34 @@ def suggest_pairs(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]
         claimed[frd] = sttm
         suggestions[sttm] = frd
     return suggestions
+
+
+def auto_pair_document(sttm_name: str, candidate_names: list[str],
+                       explicit_map: dict[str, str] | None = None) -> tuple[str, str] | None:
+    """The companion document (FRD or VDD) to select automatically when
+    ``sttm_name`` is chosen, with the rule that decided it: ``pairing_map``
+    (config, canonical stems) -> ``ticket`` (a shared 6+-digit number) ->
+    ``name_stem`` (the first three content tokens match once the frd / sttm
+    / vdd role tokens are dropped; unique both ways). Ambiguity or no match
+    -> None: the person picks. (2026-09-18: pairing became automatic at
+    selection time; the chooser still lets the person override it.)"""
+    candidates = [c for c in candidate_names if c != sttm_name]
+    explicit = {document_stem(k): document_stem(v) for k, v in (explicit_map or {}).items()}
+    by_stem_name = {document_stem(c): c for c in candidates}
+    mapped = explicit.get(document_stem(sttm_name))
+    if mapped and mapped in by_stem_name:
+        return by_stem_name[mapped], "pairing_map"
+    by_ticket = _pair_by_ticket([sttm_name], candidates)
+    if sttm_name in by_ticket:
+        return by_ticket[sttm_name], "ticket"
+    by_stem = suggest_pairs([sttm_name], candidates)
+    if sttm_name in by_stem:
+        return by_stem[sttm_name], "name_stem"
+    return None
+
+
+auto_pair_frd = auto_pair_document
+auto_pair_vdd = auto_pair_document
 
 
 def _pair_by_ticket(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:

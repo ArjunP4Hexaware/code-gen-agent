@@ -407,12 +407,19 @@ a `.docx` alongside a `.contract.json`, and the runner extracts a docx
 selection into the run's own `frd.contract.json`. The earlier "no
 docx→contract extractor here" rule is retired.
 Pairing precedence: explicit `demo.pairing_map` (canonical stems; ships
-MIDS) → shared ticket number (CAQH `1005034`) → the ≥3-token stem
-heuristic **as a UI suggestion only**, never auto-paired. Defaults are
+MIDS) → shared ticket number (CAQH `1005034`) → the ≥3-token content-stem
+match (role tokens `frd`/`sttm` and a `.contract` suffix ignored; unique
+both ways). **Since 2026-09-18 pairing is automatic at selection time**:
+choosing an STTM selects its associated FRD among the LOCAL candidates
+(contracts dir + the three inboxes; no network) and the status carries
+`frd_auto_paired {frd, rule}`; the same happens for the Vendor Data
+Dictionary among the listed workbooks (`demo.vdd_pairing_map` → ticket →
+name stem; `vdd_auto_paired`); the chooser still lets the person override,
+a manual pick is never marked automatic, and clearing the STTM clears an
+automatic pair. No match or ambiguity pairs nothing. Defaults are
 unchanged (golden STTM + golden FRD, snapshot byte-identical), a
 mismatched pick shows a warning chip, and feed-match failures name the
-FRD used and offer the paired candidate — the human clicks, nothing
-auto-retries. **Client-document rule:** the MIDS/CAQH artefacts are real
+FRD used and offer the paired candidate — nothing auto-retries. **Client-document rule:** the MIDS/CAQH artefacts are real
 client documents, and a LIVE run sends their content to the model API —
 live runs on client STTM/FRD pairs are permitted only per the program's
 client-document process (Venu's email approval); the demo CV golden

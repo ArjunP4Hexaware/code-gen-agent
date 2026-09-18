@@ -58,8 +58,13 @@ class DemoRunner:
         # upstream contract); in-memory only.
         self.selected_frd: Path | None = None
         self.selected_frd_label: str | None = None
+        # {"frd": name, "rule": pairing_map|ticket|name_stem} when the FRD was
+        # selected automatically for the chosen STTM; None for a manual pick.
+        self.frd_auto_paired: dict | None = None
         # M3: optional Vendor Data Dictionary (third input); None = no VDD.
         self.selected_vdd: Path | None = None
+        # {"vdd": name, "rule": …} when choosing the STTM selected it; None manual.
+        self.vdd_auto_paired: dict | None = None
         # M4/M5 generation options (None = the config default each): the
         # conventions profile, the IIG template version and the playbook
         # template. In-memory only, like the output mode.
@@ -84,12 +89,14 @@ class DemoRunner:
                 )
         self.selected_frd = path
         self.selected_frd_label = label
+        self.frd_auto_paired = None
 
     def select_vdd(self, path: Path | None) -> None:
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the VDD while a live run is in progress")
         self.selected_vdd = path
+        self.vdd_auto_paired = None
 
     def clear_frd(self) -> None:
         with self._lock:
@@ -99,6 +106,75 @@ class DemoRunner:
                 )
         self.selected_frd = None
         self.selected_frd_label = None
+        self.frd_auto_paired = None
+
+    def local_frd_candidates(self) -> dict[str, Path]:
+        """FRDs a run can use without a network call: contract JSONs and
+        FRD-named .docx in the contracts dir and the three inboxes (any .docx
+        in the uploads inbox — only a kind=frd upload puts one there)."""
+        from codegen.demo_sources import canonical_document_name
+
+        contracts_dir = REPO_ROOT / self._store.config.contracts.dir
+        uploads = REPO_ROOT / "inputs" / "uploads"
+        dirs = (contracts_dir, REPO_ROOT / "inputs" / "databricks",
+                REPO_ROOT / "inputs" / "sharepoint", uploads)
+        found: dict[str, Path] = {}
+        for directory in dirs:
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*.contract.json")):
+                found.setdefault(path.name, path)
+            for path in sorted(directory.glob("*.docx")):
+                if path.name.startswith("~$"):
+                    continue
+                if directory == uploads or canonical_document_name(path.name).startswith("frd"):
+                    found.setdefault(path.name, path)
+        return found
+
+    def auto_pair_frd(self, sttm_name: str) -> dict | None:
+        """Select the FRD associated with the chosen STTM when one is present
+        (config pairing map -> shared ticket -> unique name stem). A manual
+        FRD choice is replaced only when a pair is found; a stale automatic
+        pair from a previous STTM is cleared."""
+        from codegen.demo_sources import auto_pair_frd
+
+        candidates = self.local_frd_candidates()
+        match = auto_pair_frd(sttm_name, list(candidates),
+                              explicit_map=self._store.config.demo.pairing_map)
+        if match is None:
+            if self.frd_auto_paired is not None:
+                self.selected_frd = None
+                self.selected_frd_label = None
+                self.frd_auto_paired = None
+            return None
+        frd_name, rule = match
+        self.selected_frd = candidates[frd_name]
+        self.selected_frd_label = frd_name
+        self.frd_auto_paired = {"frd": frd_name, "rule": rule}
+        return self.frd_auto_paired
+
+    def auto_pair_vdd(self, sttm_name: str) -> dict | None:
+        """Select the Vendor Data Dictionary associated with the chosen STTM
+        when one is present among the listed workbooks (config vdd_pairing_map
+        -> shared ticket -> unique name stem); same override rules as the FRD."""
+        from codegen.demo_sources import auto_pair_vdd
+
+        candidates = {c["name"]: c for c in self.workbook_choices() if c["name"] != sttm_name}
+        match = auto_pair_vdd(sttm_name, list(candidates),
+                              explicit_map=self._store.config.demo.vdd_pairing_map)
+        if match is None:
+            if self.vdd_auto_paired is not None:
+                self.selected_vdd = None
+                self.vdd_auto_paired = None
+            return None
+        vdd_name, rule = match
+        for _source, directory in self._workbook_dirs():
+            candidate = directory / vdd_name
+            if candidate.is_file():
+                self.selected_vdd = candidate
+                self.vdd_auto_paired = {"vdd": vdd_name, "rule": rule}
+                return self.vdd_auto_paired
+        return None
 
     def select_output_mode(self, mode: str | None) -> None:
         with self._lock:
@@ -203,6 +279,8 @@ class DemoRunner:
             for path in directory.glob("*.xlsx"):
                 if path.name == name and not path.name.startswith("~$"):
                     self.selected_workbook = path
+                    self.auto_pair_frd(name)
+                    self.auto_pair_vdd(name)
                     return path
         raise FileNotFoundError(
             f"no STTM workbook named {name!r} in "
@@ -215,6 +293,13 @@ class DemoRunner:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
         self.selected_workbook = None
+        if self.frd_auto_paired is not None:
+            self.selected_frd = None
+            self.selected_frd_label = None
+            self.frd_auto_paired = None
+        if self.vdd_auto_paired is not None:
+            self.selected_vdd = None
+            self.vdd_auto_paired = None
 
     def status(self) -> dict:
         return {
@@ -224,6 +309,8 @@ class DemoRunner:
             "last_run_label": self.last_run_label,
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
+            "frd_auto_paired": self.frd_auto_paired,
+            "vdd_auto_paired": self.vdd_auto_paired,
         }
 
     def answer_layout(self, answers: dict | None, *, proceed: bool = False,

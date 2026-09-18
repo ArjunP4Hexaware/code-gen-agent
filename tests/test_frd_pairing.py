@@ -9,7 +9,12 @@ from types import SimpleNamespace
 import pytest
 
 import codegen.databricks as db
-from codegen.demo_sources import document_stem, pair_sttm_with_frd, suggest_pairs
+from codegen.demo_sources import (
+    auto_pair_frd,
+    document_stem,
+    pair_sttm_with_frd,
+    suggest_pairs,
+)
 
 MIDS_STTM = "STTM-Medicare Expansion-MIDS-Social Determine (1).xlsx"
 MIDS_FRD = "FRD_Medicare Expansion-MIDS - Socially Determined"
@@ -34,6 +39,35 @@ def test_heuristic_is_suggestion_only():
     assert pair_sttm_with_frd([MIDS_STTM], [MIDS_FRD]) == {}
     # Ambiguity suggests nothing.
     assert suggest_pairs([MIDS_STTM], [MIDS_FRD, MIDS_FRD + " v2"]) == {}
+
+
+def test_auto_pair_rules_map_then_ticket_then_stem():
+    """Selection-time pairing (2026-09-18): map, then ticket, then the unique
+    name-stem match; ambiguity or no match pairs nothing."""
+    assert auto_pair_frd(MIDS_STTM, [MIDS_FRD, CAQH_FRD], explicit_map=MIDS_MAP) == (
+        MIDS_FRD, "pairing_map")
+    assert auto_pair_frd(CAQH_STTM, [MIDS_FRD, CAQH_FRD]) == (CAQH_FRD, "ticket")
+    assert auto_pair_frd(MIDS_STTM, [MIDS_FRD]) == (MIDS_FRD, "name_stem")
+    # Role tokens and a ".contract" suffix are not content: the CV pair matches.
+    assert auto_pair_frd("demo_sttm_cv_golden.xlsx", ["FRD_demo_cv_golden.contract.json"]) == (
+        "FRD_demo_cv_golden.contract.json", "name_stem")
+    assert auto_pair_frd(MIDS_STTM, [MIDS_FRD, MIDS_FRD + " v2"]) is None
+    assert auto_pair_frd("unrelated.xlsx", [MIDS_FRD, CAQH_FRD]) is None
+
+
+def test_auto_pair_vdd_same_rules_never_the_sttm_itself():
+    from codegen.demo_sources import auto_pair_vdd
+
+    workbooks = [CAQH_STTM, "VDD_PaymentIntegrity_CAQH_1005034.xlsx", "other.xlsx"]
+    assert auto_pair_vdd(CAQH_STTM, workbooks) == (
+        "VDD_PaymentIntegrity_CAQH_1005034.xlsx", "ticket")
+    assert auto_pair_vdd("demo_sttm_cv_golden.xlsx",
+                         ["demo_sttm_cv_golden.xlsx", "VDD_demo_cv_golden.xlsx"]) == (
+        "VDD_demo_cv_golden.xlsx", "name_stem")
+    assert auto_pair_vdd("pair_1_family_a.xlsx", ["pair_1_v1_segments.xlsx"],
+                         explicit_map={"pair_1_family_a": "pair_1_v1_segments"}) == (
+        "pair_1_v1_segments.xlsx", "pairing_map")
+    assert auto_pair_vdd("pair_1_family_a.xlsx", ["pair_1_v1_segments.xlsx"]) is None
 
 
 def test_document_stem_strips_role_noise():

@@ -538,3 +538,73 @@ def test_layout_answers_accept_frd_cell_claims(client):
         "answers": {"frd": {"feeds[0].frequency": {
             "table": 0, "row": 3, "col": 1, "label": "Daily", "source": "user"}}}})
     assert r.status_code == 409
+
+
+def test_choosing_an_sttm_auto_pairs_its_frd(client):
+    """Choosing the CV golden STTM selects its FRD contract automatically
+    (unique name-stem match); clearing the STTM drops the automatic pair; a
+    manual FRD pick is never marked automatic."""
+    if not (REPO / "fixtures" / "workbooks" / "demo_sttm_cv_golden.xlsx").is_file():
+        pytest.skip("CV golden workbook not restored")
+    try:
+        r = client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
+        assert r.status_code == 200
+        status = client.get("/api/demo/status").json()
+        assert status["frd_chosen"] is True
+        assert status["frd_name"] == "FRD_demo_cv_golden.contract.json"
+        assert status["frd_auto_paired"] == {"frd": "FRD_demo_cv_golden.contract.json",
+                                             "rule": "name_stem"}
+        assert status["frd_warning"] is False
+        choices = client.get("/api/demo/frd-choices").json()
+        assert choices["current"] == {"label": "FRD_demo_cv_golden.contract.json",
+                                      "chosen": True}
+        # A manual pick of the same file is a manual pick.
+        r = client.post("/api/demo/frd", json={"kind": "local",
+                                               "id": "FRD_demo_cv_golden.contract.json"})
+        assert r.status_code == 200
+        assert client.get("/api/demo/status").json()["frd_auto_paired"] is None
+        # Re-choosing the STTM pairs again; clearing the STTM clears the pair.
+        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
+        assert client.get("/api/demo/status").json()["frd_auto_paired"] is not None
+        client.delete("/api/demo/workbook")
+        status = client.get("/api/demo/status").json()
+        assert status["frd_chosen"] is False and status["frd_auto_paired"] is None
+    finally:
+        client.delete("/api/demo/workbook")
+        client.delete("/api/demo/frd")
+
+
+def test_choosing_an_sttm_auto_pairs_its_vdd(client):
+    """A workbook whose name matches the STTM's (role tokens dropped) is
+    selected as the VDD with the STTM; clearing the STTM clears it; a manual
+    VDD choice is never marked automatic."""
+    import io
+
+    from openpyxl import Workbook
+
+    if not (REPO / "fixtures" / "workbooks" / "demo_sttm_cv_golden.xlsx").is_file():
+        pytest.skip("CV golden workbook not restored")
+    uploads = REPO / "inputs" / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    vdd = uploads / "VDD_demo_cv_golden.xlsx"
+    buf = io.BytesIO()
+    Workbook().save(buf)
+    vdd.write_bytes(buf.getvalue())
+    try:
+        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
+        status = client.get("/api/demo/status").json()
+        assert status["vdd_name"] == "VDD_demo_cv_golden.xlsx"
+        assert status["vdd_auto_paired"] == {"vdd": "VDD_demo_cv_golden.xlsx",
+                                             "rule": "name_stem"}
+        client.post("/api/demo/vdd", json={"name": "VDD_demo_cv_golden.xlsx"})
+        assert client.get("/api/demo/status").json()["vdd_auto_paired"] is None
+        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
+        client.delete("/api/demo/workbook")
+        status = client.get("/api/demo/status").json()
+        assert status["vdd_name"] is None and status["vdd_auto_paired"] is None
+    finally:
+        client.delete("/api/demo/workbook")
+        client.delete("/api/demo/frd")
+        client.delete("/api/demo/vdd")
+        vdd.unlink(missing_ok=True)
+

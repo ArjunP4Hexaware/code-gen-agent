@@ -500,6 +500,9 @@ class DemoConfig(BaseModel):
     # Contract pair for replay + the FRD side of a live extract-sttm run.
     frd: str
     sttm: str
+    # Selection-time VDD pairing (2026-09-18): canonical STTM stem -> VDD
+    # stem, tried before the shared-ticket and name-stem rules. Optional.
+    vdd_pairing_map: dict[str, str] = Field(default_factory=dict)
     # Workbook the live demo extracts from (repo-relative path).
     workbook: str
     # Cost-confirmation copy shown before a live run fires.

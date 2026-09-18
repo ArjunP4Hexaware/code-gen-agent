@@ -440,6 +440,10 @@ def demo_status() -> dict:
         "frd_name": (_require_runner().selected_frd_label
                      or _require_store().config.demo.frd),
         "frd_chosen": _require_runner().selected_frd is not None,
+        # Set when choosing the STTM selected its associated FRD automatically
+        # ({frd, rule: pairing_map | ticket | name_stem}); None for a manual pick.
+        "frd_auto_paired": _require_runner().frd_auto_paired,
+        "vdd_auto_paired": _require_runner().vdd_auto_paired,
         "frd_warning": (
             _require_runner().selected_workbook is not None
             and _require_runner().selected_workbook.name
@@ -489,19 +493,8 @@ def frd_choices() -> dict:
                           and paired.get(sttm_name) != row["doc_id"]),
         })
 
-    contracts_dir = REPO_ROOT / store.config.contracts.dir
-    local_dirs = (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                  REPO_ROOT / "inputs" / "sharepoint", REPO_ROOT / "inputs" / "uploads")
-    uploads_dir = REPO_ROOT / "inputs" / "uploads"
-    local = sorted(
-        {p.name for d in local_dirs if d.is_dir() for p in d.glob("*.contract.json")}
-        # FRD-named .docx from every inbox; ANY .docx from the uploads inbox
-        # (only the kind=frd upload puts a .docx there).
-        | {p.name for d in local_dirs if d.is_dir() for p in d.glob("*.docx")
-           if not p.name.startswith("~$")
-           and (d == uploads_dir or canonical_document_name(p.name).startswith("frd"))}
-    )
-    del document_stem
+    local = sorted(runner.local_frd_candidates())
+    del canonical_document_name, document_stem
     orphans: list[str] = []
 
     return {

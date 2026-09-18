@@ -118,6 +118,8 @@ export interface DemoStatus {
   playbook_template?: string;
   frd_name?: string;
   frd_chosen?: boolean;
+  frd_auto_paired?: { frd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
+  vdd_auto_paired?: { vdd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
   frd_warning?: boolean;
   error_hint?: {
     sttm: string;

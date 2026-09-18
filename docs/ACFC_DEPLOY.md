@@ -74,7 +74,11 @@ for pairs 1, 2 and 9; every pair has an STTM.
 ### Through the UI (the intended path)
 
 1. Generate page → **Choose documents…**. In the modal: pick the STTM `.xlsx`
-   (fixture, fetched from a volume, or uploaded from the device); pick the FRD
+   (fixture, fetched from a volume, or uploaded from the device). Its
+   associated FRD — and VDD, when one is among the listed workbooks — is
+   selected automatically when present locally (config pairing map → shared
+   ticket number → matching document name; the card says "auto-paired by …");
+   otherwise, or to override, pick the FRD
    (an upstream contract row, a local `.contract.json`, or the FRD **`.docx`**
    itself, extracted deterministically when the run starts); optionally pick
    the **VDD** `.xlsx` in its own section (cross-checked against the STTM,

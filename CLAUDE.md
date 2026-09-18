@@ -249,8 +249,13 @@ The run takes an **(STTM, FRD) pair**. FRD contracts come from the
 upstream FRD→STTM agent's Delta table
 (`soham_workspace.sttm_agent.frd_contracts`, read via the allowlisted
 SELECT-only `read_table_rows`; first read wakes the warehouse = DBU
-spend) — there is deliberately **no docx→contract extractor** here: a
-document with no contract row is a loud "run the FRD→STTM agent first".
+spend) **or, since 2026-09-18 (standalone doctrine), from the FRD .docx
+itself**: `codegen extract-frd` / `codegen.extract.frd_docx` reads the
+F1/F2 document families deterministically (stdlib docx, label synonyms in
+`extractor.frd`, per-field provenance), the UI chooser and upload accept
+a `.docx` alongside a `.contract.json`, and the runner extracts a docx
+selection into the run's own `frd.contract.json`. The earlier "no
+docx→contract extractor here" rule is retired.
 Pairing precedence: explicit `demo.pairing_map` (canonical stems; ships
 MIDS) → shared ticket number (CAQH `1005034`) → the ≥3-token stem
 heuristic **as a UI suggestion only**, never auto-paired. Defaults are

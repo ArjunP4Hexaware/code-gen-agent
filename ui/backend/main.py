@@ -395,10 +395,12 @@ def demo_status() -> dict:
 @app.get("/api/demo/frd-choices")
 def frd_choices() -> dict:
     """FRD options for the chooser: upstream contracts (FRD→STTM agent's
-    table, with audit stamps and pairing vs the current STTM), local
-    contract JSONs, and documents with NO contract (not selectable — "run
-    the FRD→STTM agent first"). Upstream unreachable → that section absent
-    with a reason, everything else still renders."""
+    table, with audit stamps and pairing vs the current STTM) and local
+    FRDs — contract JSONs AND FRD .docx documents (standalone doctrine,
+    2026-09-18: a .docx is extracted by ``codegen.extract.frd_docx`` when
+    the run starts). ``no_contract`` is kept for API compatibility and is
+    always empty now. Upstream unreachable → that section absent with a
+    reason, everything else still renders."""
     from codegen.demo_sources import (
         canonical_document_name,
         document_stem,
@@ -430,24 +432,19 @@ def frd_choices() -> dict:
         })
 
     contracts_dir = REPO_ROOT / store.config.contracts.dir
+    local_dirs = (contracts_dir, REPO_ROOT / "inputs" / "databricks",
+                  REPO_ROOT / "inputs" / "sharepoint", REPO_ROOT / "inputs" / "uploads")
+    uploads_dir = REPO_ROOT / "inputs" / "uploads"
     local = sorted(
-        {p.name for d in (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                          REPO_ROOT / "inputs" / "sharepoint",
-                          REPO_ROOT / "inputs" / "uploads")
-         if d.is_dir()
-         for p in d.glob("*.contract.json")}
+        {p.name for d in local_dirs if d.is_dir() for p in d.glob("*.contract.json")}
+        # FRD-named .docx from every inbox; ANY .docx from the uploads inbox
+        # (only the kind=frd upload puts a .docx there).
+        | {p.name for d in local_dirs if d.is_dir() for p in d.glob("*.docx")
+           if not p.name.startswith("~$")
+           and (d == uploads_dir or canonical_document_name(p.name).startswith("frd"))}
     )
-
-    upstream_stems = {document_stem(d) for d in doc_ids}
-    orphans = sorted({
-        p.name
-        for d in (REPO_ROOT / "inputs" / "databricks",
-                  REPO_ROOT / "inputs" / "sharepoint")
-        if d.is_dir()
-        for p in d.glob("*.docx")
-        if canonical_document_name(p.name).startswith("frd")
-        and document_stem(p.name) not in upstream_stems
-    })
+    del document_stem
+    orphans: list[str] = []
 
     return {
         "sttm": sttm_name,
@@ -488,6 +485,8 @@ def select_frd(req: FrdSelectRequest) -> dict:
             return {"selected": req.id, "kind": "upstream",
                     "audited_at": meta["audited_at"], "feeds": feeds}
         if req.kind == "local":
+            # A local FRD is a .contract.json or an FRD .docx (extracted by
+            # the runner when the run starts — standalone doctrine).
             if "/" in req.id or "\\" in req.id or ".." in req.id:
                 raise HTTPException(400, f"invalid contract name {req.id!r}")
             for directory in (REPO_ROOT / store.config.contracts.dir,
@@ -513,13 +512,17 @@ _UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # same cap as the SharePoint import
 async def upload_demo_document(
     kind: Annotated[str, Form()], file: Annotated[UploadFile, File()]
 ) -> dict:
-    """From-device upload for the choose step: an STTM workbook (.xlsx) or an
-    FRD contract JSON. Lands in the gitignored ``inputs/uploads/`` inbox
-    (scanned exactly like the SharePoint/Databricks ones) and is selected for
-    the next run in the same motion. An FRD upload must PARSE as an FRD
-    contract — a raw .docx has no contract and the answer stays "run the
-    FRD→STTM agent first", never a guess."""
+    """From-device upload for the choose step: an STTM workbook (.xlsx), an
+    FRD contract JSON, or an FRD .docx. Lands in the gitignored
+    ``inputs/uploads/`` inbox (scanned exactly like the SharePoint/Databricks
+    ones) and is selected for the next run in the same motion. A JSON upload
+    must PARSE as an FRD contract; a .docx must be an F1/F2 FRD the
+    extractor recognises (``codegen.extract.frd_docx``) — either refusal is
+    loud, never a guess."""
+    import tempfile
+
     from codegen.contracts import FrdContract
+    from codegen.extract.frd_docx import FrdDocxError, discover_frd, read_docx
 
     runner = _require_runner()
     if runner.state == "running":
@@ -540,22 +543,33 @@ async def upload_demo_document(
         if not lower.endswith(".xlsx"):
             raise HTTPException(400, f"an STTM upload must be a .xlsx workbook, got {name!r}")
     elif kind == "frd":
-        if not lower.endswith(".json"):
+        if lower.endswith(".docx"):
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as handle:
+                handle.write(payload)
+                probe = Path(handle.name)
+            try:
+                discover_frd(read_docx(probe), _require_store().config.extractor.frd)
+            except FrdDocxError as exc:
+                raise HTTPException(400, f"not an F1/F2 FRD document: {exc}") from exc
+            finally:
+                probe.unlink(missing_ok=True)
+        elif not lower.endswith(".json"):
             raise HTTPException(
                 400,
-                "an FRD upload must be a .contract.json produced by the "
-                f"FRD→STTM agent, got {name!r}",
+                "an FRD upload must be a .contract.json (FRD→STTM agent) or an FRD "
+                f".docx, got {name!r}",
             )
-        try:
-            FrdContract.model_validate_json(payload)
-        except Exception as exc:  # noqa: BLE001 — surface the first validation line
-            raise HTTPException(
-                400,
-                "not a valid FRD contract: " + str(exc).splitlines()[0][:200]
-                + " — run the FRD→STTM agent to produce one",
-            ) from exc
-        if not lower.endswith(".contract.json"):
-            name = name[: -len(".json")] + ".contract.json"
+        else:
+            try:
+                FrdContract.model_validate_json(payload)
+            except Exception as exc:  # noqa: BLE001 — surface the first validation line
+                raise HTTPException(
+                    400,
+                    "not a valid FRD contract: " + str(exc).splitlines()[0][:200]
+                    + " — upload the FRD .docx instead, or run the FRD→STTM agent",
+                ) from exc
+            if not lower.endswith(".contract.json"):
+                name = name[: -len(".json")] + ".contract.json"
     else:
         raise HTTPException(400, f"unknown upload kind {kind!r}")
 

@@ -587,14 +587,17 @@ bottom:
    folders — where the SharePoint picker, the volume fetch below and a
    from-device upload deliver documents."
 2. **Upload row:** two secondary buttons "Upload STTM (.xlsx)…" and
-   "Upload FRD contract (.json)…" (each backed by a hidden `<input
-   type=file>` with `accept=".xlsx"` / `.json`; label flips to
+   "Upload FRD (.json / .docx)…" (each backed by a hidden `<input
+   type=file>` with `accept=".xlsx"` / `.json,.docx`; label flips to
    "Uploading…"), plus the 11px note "Uploads land in `inputs/uploads` on
    the server (wiped on an App restart)." Tooltips: "Upload an STTM
    workbook (.xlsx) from this device; it is selected for the next run" /
-   "Upload an FRD contract JSON produced by the FRD→STTM agent; a raw
-   .docx has no contract". `POST /api/demo/upload` (multipart `kind`,
-   `file`), which validates and selects in one motion.
+   "Upload an FRD: a contract JSON produced by the FRD→STTM agent, or the
+   FRD .docx itself (extracted when the run starts)". `POST
+   /api/demo/upload` (multipart `kind`, `file`), which validates (JSON
+   must parse as an FRD contract; .docx must be an F1/F2 FRD the
+   extractor recognises) and selects in one motion. Standalone doctrine
+   (2026-09-18): a .docx FRD is a first-class input.
 3. **Local workbooks:** one full-width row-button per workbook: mono
    name (middle-truncated to 46 chars so the trailing ticket suffix stays
    visible; full name in title) + right chip "<source> · selected".
@@ -625,9 +628,11 @@ bottom:
      <status> · <n> feed(s) · audited <ts>"; right chip "companion FRD"
      (green) when explicitly paired, or amber "looks like a pair —
      confirm" when only heuristically suggested; nothing otherwise.
-   - local contract rows (buttons): name + chip "local contract".
-   - no-contract rows (NOT buttons): name + meta "no contract — run the
-     FRD→STTM agent for this document first".
+   - local FRD rows (buttons): name + chip "local contract" for a
+     `.contract.json`, or "FRD document — extracted at run start" for an
+     FRD `.docx` (standalone doctrine, 2026-09-18).
+   - no-contract rows: retired — `no_contract[]` is always empty now that
+     a .docx is selectable; the frontend block remains for API compatibility.
 8. Footer button reads **"Done"** once an STTM is chosen, **"Cancel"**
    before.
 
@@ -826,9 +831,9 @@ feed-match failure has a known companion FRD.
 |---|---|---|
 | `GET /api/demo/workbooks` | `{workbooks: [{name, source, selected}]}` — fixtures dir + `inputs/sharepoint` + `inputs/databricks` + `inputs/uploads` | — |
 | `POST /api/demo/workbook` `{name}` / `DELETE` | Select / clear the STTM | 404 unknown; 409 running |
-| `GET /api/demo/frd-choices` | `{sttm, current{label,chosen}, upstream[{doc_id,status,n_feeds,audited_at,paired,suggested}], upstream_error, local[], no_contract[]}` | — (upstream failure is reported inline, not as an error) |
+| `GET /api/demo/frd-choices` | `{sttm, current{label,chosen}, upstream[{doc_id,status,n_feeds,audited_at,paired,suggested}], upstream_error, local[] (contract JSONs AND FRD .docx), no_contract[] (always empty since 2026-09-18)}` | — (upstream failure is reported inline, not as an error) |
 | `POST /api/demo/frd` `{kind: upstream|local, id}` / `DELETE` | Select (materialising an upstream contract) / reset to the demo golden | 400 bad kind/name; 404 no local; 409 running; 502 upstream refused |
-| `POST /api/demo/upload` multipart `kind=sttm|frd`, `file` | Store in `inputs/uploads/` and select. FRD must parse as an FRD contract; name is normalised to `.contract.json` | 201 ok; 400 wrong type / invalid contract / empty; 409 running; 413 over 25 MiB |
+| `POST /api/demo/upload` multipart `kind=sttm|frd`, `file` | Store in `inputs/uploads/` and select. FRD: a JSON must parse as an FRD contract (name normalised to `.contract.json`) or a `.docx` must be an F1/F2 FRD the extractor recognises | 201 ok; 400 wrong type / invalid contract / unrecognised docx / empty; 409 running; 413 over 25 MiB |
 
 Pairing precedence (backend): explicit `demo.pairing_map` → shared
 ticket number → ≥3-token stem heuristic **as a suggestion only**.
@@ -964,8 +969,8 @@ string `#006300`; number/boolean `#1c5cab`; function/class/decorator
 - Live unavailable: `Live is unavailable: <reason> (provider: <p>)`.
 - Run states: `Running — stages appear as they start:` · `Last live run
   completed.` · `Last live run FAILED — nothing was published.`
-- Chooser: `no contract — run the FRD→STTM agent for this document
-  first` · `looks like a pair — confirm` · `companion FRD` ·
+- Chooser: `FRD document — extracted at run start` · `looks like a
+  pair — confirm` · `companion FRD` ·
   `includes companion FRD — fetched together` · `differs from local copy`.
 - Tooltips: landing `The real FRD states this under Structural Metadata →
   ADLS Location; this build carries an anonymized stand-in.`; load
@@ -1116,8 +1121,8 @@ Place them per the program's client-document process.
 Uploaded to the document volumes (`<catalog>.<schema>.frd_raw` /
 `.sttm_raw`) and fetched into `inputs/databricks/` through the chooser.
 FRD contracts come from the upstream FRD→STTM agent's Delta table
-(`<catalog>.sttm_agent.frd_contracts`); a document with no contract row
-is not selectable. Live runs on these pairs need the program's
+(`<catalog>.sttm_agent.frd_contracts`) or from the FRD .docx itself
+(standalone doctrine, 2026-09-18: selectable, extracted at run start). Live runs on these pairs need the program's
 client-document approval (Venu's email).
 
 | Document | Pairing |

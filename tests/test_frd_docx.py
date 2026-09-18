@@ -115,6 +115,7 @@ def test_f1_pair1_every_sourced_field_has_provenance_with_label_seen(pair1):
         "feeds[0].stage_target.load_strategy": ("structural", "Load Strategy STG"),
         "feeds[0].standard_target.load_strategy": ("structural", "Load Strategy STD (View)"),
         "feeds[0].landing_location": ("structural", "ADLS Location"),
+        "feeds[0].landing_location (confirming)": ("structural", "Inbound File Folder Path"),
         "feeds[0].archive_retention": ("structural", "Archive Schedule"),
         "feeds[0].sttm_reference": ("structural", "Source Data Dictionary"),
         "feeds[0].phi_pii_notes": ("technical", "PII Fields"),
@@ -135,6 +136,8 @@ def test_f1_pair1_every_sourced_field_has_provenance_with_label_seen(pair1):
     tables = read_docx(FRD / "f1_pair_1.docx").tables
     for path, item in evidence.items():
         assert tables[item.table][item.row][item.col] == item.label, path
+    # ADLS Location is primary; the inbound folder is a confirming source, not a conflict.
+    assert feed.landing_location == "/Pharmacy/Accumulators/"
     assert contract.layout is not None
     assert contract.layout.family == "F1" and contract.layout.fingerprint == profile.fingerprint
 
@@ -196,7 +199,12 @@ def test_f1_pair2_variant_labels_blanks_and_two_feeds(pair2):
         assert feed.standard_target.schema_name == "vendor_b"
         # Blank by the document (SHAPES_FOR_PORT §4, pair 2): ADLS Location,
         # Archive Schedule, Functional Requirement, Traced/Related Requirements.
-        assert feed.landing_location is None and feed.archive_retention is None
+        # ADLS Location blank → the inbound-folder variant label (a
+        # confirming source on the same slot) supplies the landing location.
+        assert feed.landing_location == "inbound/vendor_b"
+        assert (contract.field_provenance[f"feeds[{index}].landing_location"].label
+                == "Inbound/outbound File Folder Path")
+        assert feed.archive_retention is None
         assert feed.requirement_ids == [] and feed.recycle_rule is None
         assert feed.validation_rules == [
             "Load as is",
@@ -210,8 +218,9 @@ def test_f1_pair2_variant_labels_blanks_and_two_feeds(pair2):
     blank = [a for a in contract.provenance.ambiguities if "value blank" in a]
     assert any("'Object Name' present, value blank" in a for a in blank)
     assert any("'Functional Requirement' present, value blank" in a for a in blank)
-    # The variant label with no contract slot is logged, never mapped.
-    assert any("Inbound/outbound File Folder Path" in n for n in profile.notes)
+    # Labels with no contract slot (owners, stewards, SLA …) are logged, never mapped.
+    assert any("'Business Owner'" in n for n in profile.notes)
+    assert any("'Service Level Agreement'" in n for n in profile.notes)
 
 
 # ------------------------------------------------------------ F2 pair 8

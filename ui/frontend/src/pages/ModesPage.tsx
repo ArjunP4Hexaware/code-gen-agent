@@ -1066,7 +1066,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <input
                 ref={frdUploadRef}
                 type="file"
-                accept=".json"
+                accept=".json,.docx"
                 hidden
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -1086,9 +1086,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 className="btn"
                 disabled={uploading !== null || running}
                 onClick={() => frdUploadRef.current?.click()}
-                title="Upload an FRD contract JSON produced by the FRD→STTM agent; a raw .docx has no contract"
+                title="Upload an FRD: a contract JSON produced by the FRD→STTM agent, or the FRD .docx itself (extracted when the run starts)"
               >
-                {uploading === "frd" ? "Uploading…" : "Upload FRD contract (.json)…"}
+                {uploading === "frd" ? "Uploading…" : "Upload FRD (.json / .docx)…"}
               </button>
               <span className="hint" style={{ fontSize: 11 }}>
                 Uploads land in <code>inputs/uploads</code> on the server (wiped on an App
@@ -1277,7 +1277,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     <code className="chooser-name" title={name}>
                       {middleTruncate(name)}
                     </code>
-                    <span className="chooser-chip">local contract</span>
+                    <span className="chooser-chip">
+                      {name.toLowerCase().endsWith(".docx")
+                        ? "FRD document — extracted at run start"
+                        : "local contract"}
+                    </span>
                   </button>
                 ))}
                 {frdChoices.no_contract.map((name) => (

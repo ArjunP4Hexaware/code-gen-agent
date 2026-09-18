@@ -256,6 +256,11 @@ def _paths_for(key: str, feed_index: int, section: str | None,
         return [f"{prefix}.stage_target.load_strategy"]
     if key == "load_strategy_std":
         return [f"{prefix}.standard_target.load_strategy"]
+    if key == "inbound_folder":
+        # The inbound folder path denotes the landing location too: a
+        # CONFIRMING source on the same slot (ADLS Location stays primary),
+        # and the value when ADLS Location is blank.
+        return [f"{prefix}.landing_location#confirming"]
     if key in _RULE_LABELS:
         # Only sections whose rule rows are business/functional rules feed
         # validation_rules; a section's Functional Requirement row does when
@@ -439,6 +444,20 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                f"(table {source.table} row {source.row})")
         return value
 
+    def _landing(prefix: str) -> str:
+        path = f"{prefix}.landing_location"
+        primary = get(path)
+        confirming_key = f"{path}#confirming"
+        if confirming_key not in profile.fields:
+            return primary
+        confirming = get(confirming_key)
+        if primary:
+            evidence[f"{path} (confirming)"] = evidence.pop(confirming_key)
+            return primary
+        if confirming:
+            evidence[path] = evidence.pop(confirming_key)
+        return confirming
+
     def get_with_fallback(path: str) -> str:
         value = get(path)
         if not value and f"{path}#fallback" in profile.fields:
@@ -482,7 +501,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             lobs=_split(get(f"{prefix}.lobs"), frd_config.list_separators),
             domain=domain_parts[0] if domain_parts else None,
             sub_domain=domain_parts[1] if len(domain_parts) > 1 else None,
-            landing_location=get(f"{prefix}.landing_location") or None,
+            landing_location=_landing(prefix) or None,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),
             standard_target=TargetSpec(catalog=std_catalog, schema=std_schema,
@@ -531,7 +550,8 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                        advisory_checked=len(profile.unresolved),
                                        advisory_flagged=[u.field for u in profile.unresolved]),
         ),
-        field_provenance={k: v for k, v in evidence.items() if "#" not in k},
+        field_provenance={k: v for k, v in evidence.items()
+                          if "#" not in k or k.endswith("(confirming)")},
         layout=FrdLayoutSummary(family=profile.family, source=profile.source,
                                 fingerprint=profile.fingerprint,
                                 unresolved=[f"{u.field}: {u.reason}" for u in profile.unresolved]),

@@ -323,6 +323,41 @@ def test_upload_sttm_workbook_lands_and_selects(client):
         (uploads / name).unlink(missing_ok=True)
 
 
+def test_upload_frd_docx_lands_and_selects(client):
+    """Standalone doctrine (2026-09-18): an FRD .docx is a first-class
+    upload — validated as an F1/F2 document, stored, listed among the local
+    FRDs and selected; a non-FRD .docx is refused loudly."""
+    docx = REPO / "fixtures" / "acfc_shapes" / "frd" / "f1_pair_1.docx"
+    name = "uploaded_test_FRD_pair1.docx"
+    uploads = REPO / "inputs" / "uploads"
+    try:
+        r = client.post(
+            "/api/demo/upload",
+            data={"kind": "frd"},
+            files={"file": (name, docx.read_bytes(),
+                            "application/vnd.openxmlformats-officedocument."
+                            "wordprocessingml.document")},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json() == {"stored": name, "kind": "frd", "selected": True}
+        choices = client.get("/api/demo/frd-choices").json()
+        assert name in choices["local"]
+        assert choices["current"] == {"label": name, "chosen": True}
+        assert choices["no_contract"] == []
+        # Selecting a local docx by name works the same way as a contract.
+        assert client.post("/api/demo/frd", json={"kind": "local", "id": name}).status_code == 200
+        bogus = client.post(
+            "/api/demo/upload",
+            data={"kind": "frd"},
+            files={"file": ("notes.docx", b"not a docx", "application/octet-stream")},
+        )
+        assert bogus.status_code == 400
+        assert "not an F1/F2 FRD document" in bogus.json()["detail"]
+    finally:
+        client.delete("/api/demo/frd")
+        (uploads / name).unlink(missing_ok=True)
+
+
 def test_upload_frd_contract_lands_and_selects(client):
     src = REPO / "fixtures" / "contracts" / "FRD_demo_cv_golden.contract.json"
     if not src.is_file():

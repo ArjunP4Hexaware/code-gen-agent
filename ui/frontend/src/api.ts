@@ -52,6 +52,18 @@ export interface FrameworkSummary {
 
 export type OutputMode = "notebook" | "framework" | "both" | "rfc";
 
+export interface GenerationOptionGroup {
+  options: string[];
+  default: string;
+  selected: string | null;
+}
+
+export interface GenerationOptions {
+  conventions_profile: GenerationOptionGroup;
+  iig_template: GenerationOptionGroup;
+  playbook_template: GenerationOptionGroup;
+}
+
 export type RunMode = "mock" | "live" | "replay";
 
 export interface FeedsResponse {
@@ -101,6 +113,9 @@ export interface DemoStatus {
   sttm_workbook?: string;
   sttm_chosen?: boolean;
   output_mode?: OutputMode;
+  conventions_profile?: string;
+  iig_template?: string;
+  playbook_template?: string;
   frd_name?: string;
   frd_chosen?: boolean;
   frd_warning?: boolean;
@@ -453,6 +468,24 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode }),
     }),
+  generationOptions: () => request<GenerationOptions>("/api/demo/generation-options"),
+  setGenerationOptions: (body: {
+    conventions_profile: string | null;
+    iig_template: string | null;
+    playbook_template: string | null;
+  }) =>
+    request<GenerationOptions>("/api/demo/generation-options", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  selectVdd: (name: string) =>
+    request<{ selected: string }>("/api/demo/vdd", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+  clearVdd: () => request<{ selected: null }>("/api/demo/vdd", { method: "DELETE" }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
   sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),

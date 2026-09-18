@@ -60,6 +60,12 @@ class DemoRunner:
         self.selected_frd_label: str | None = None
         # M3: optional Vendor Data Dictionary (third input); None = no VDD.
         self.selected_vdd: Path | None = None
+        # M4/M5 generation options (None = the config default each): the
+        # conventions profile, the IIG template version and the playbook
+        # template. In-memory only, like the output mode.
+        self.conventions_profile: str | None = None
+        self.iig_template: str | None = None
+        self.playbook_template: str | None = None
         # Structured hint for the failed-run card: when a feed-match
         # failure has a known companion FRD, the UI renders a one-click
         # "choose the pair" button from this. Never an auto-retry.
@@ -103,6 +109,43 @@ class DemoRunner:
         if mode is not None and mode not in ("notebook", "framework", "both", "rfc"):
             raise ValueError(f"unknown output mode {mode!r}")
         self.output_mode = mode
+
+    def select_generation_options(self, *, conventions_profile: str | None = None,
+                                  iig_template: str | None = None,
+                                  playbook_template: str | None = None) -> None:
+        """Validate against the config and record the choice (None = default)."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change generation options while a live run is in progress")
+        config = self._store.config
+        config.conventions.get(conventions_profile)      # raises ValueError when unknown
+        config.metadata.resolve(iig_template)
+        config.playbook.resolve(playbook_template)
+        self.conventions_profile = conventions_profile
+        self.iig_template = iig_template
+        self.playbook_template = playbook_template
+
+    def generation_options(self) -> dict:
+        """What the selectors offer + what is selected (None = config default)."""
+        config = self._store.config
+        return {
+            "conventions_profile": {
+                "options": sorted(config.conventions.profiles),
+                "default": config.conventions.profile,
+                "selected": self.conventions_profile,
+            },
+            "iig_template": {
+                "options": ["iig_v1", *sorted(config.metadata.templates)],
+                "default": config.metadata.template,
+                "selected": self.iig_template,
+            },
+            "playbook_template": {
+                "options": sorted(config.playbook.templates),
+                "default": config.playbook.template,
+                "selected": self.playbook_template,
+            },
+        }
 
     # -- STTM workbook choice ------------------------------------------------
 
@@ -325,6 +368,9 @@ class DemoRunner:
                 "frd_label": frd_label,
                 "sttm_workbook": workbook_path.name,
                 "output_mode": self.output_mode or config.output.mode,
+                "conventions_profile": self.conventions_profile or config.conventions.profile,
+                "iig_template": self.iig_template or config.metadata.template,
+                "playbook_template": self.playbook_template or config.playbook.template,
             }, indent=2) + "\n",
             encoding="utf-8", newline="\n",
         )
@@ -373,6 +419,9 @@ class DemoRunner:
                     on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
                     output_mode=self.output_mode,
                     extra_flags=layout_flags,
+                    conventions_profile=self.conventions_profile,
+                    iig_template=self.iig_template,
+                    playbook_template=self.playbook_template,
                 )
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))

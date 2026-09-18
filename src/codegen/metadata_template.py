@@ -5,7 +5,8 @@ other than the default ``iig_v1`` (which stays ``demo.metadata_sheet`` +
 Every cell is either transcribed from an input (STTM / FRD / FAQ, badged
 accordingly) or a framework-vocabulary constant / template row the config
 carries WITH its citation (badged ``synthetic``); everything else is left
-blank and flagged (``iig_blank:<TAB>.<HEADER>``) — never guessed.
+blank and flagged (one ``iig_blank:<TAB>: <HEADER>, …`` flag per sheet) —
+never guessed.
 """
 
 from __future__ import annotations
@@ -459,15 +460,34 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
 
 
 def blank_flags(payload: dict) -> list[str]:
-    """``iig_blank:<TAB>.<HEADER>`` for every header left blank (needs
-    template) in at least one row — the pinned blank-and-flag list."""
-    flags: set[str] = set()
+    """One ``iig_blank:<TAB>: <HEADER>, <HEADER>, …`` flag per sheet listing
+    (in header order) every column left blank (needs template) in at least
+    one row — the pinned blank-and-flag list, grouped so the gate output
+    stays legible (M6)."""
+    flags: list[str] = []
     for tab_name, tab in payload["tabs"].items():
-        for row in tab["rows"]:
-            for header, entry in row["badges"].items():
-                if entry["badge"] == "needs_template" and row["values"][header] in ("", None):
-                    flags.add(f"iig_blank:{tab_name}.{header}")
-    return sorted(flags)
+        blank: list[str] = []
+        for header in tab["headers"]:
+            for row in tab["rows"]:
+                entry = row["badges"].get(header)
+                if (entry is not None and entry["badge"] == "needs_template"
+                        and row["values"][header] in ("", None)):
+                    blank.append(header)
+                    break
+        if blank:
+            flags.append(f"iig_blank:{tab_name}: {', '.join(blank)}")
+    return flags
 
 
-__all__ = ["template_tab_rows", "blank_flags"]
+def blank_columns(flags: list[str]) -> dict[str, list[str]]:
+    """Inverse of :func:`blank_flags` — sheet -> blank headers."""
+    out: dict[str, list[str]] = {}
+    for flag in flags:
+        if not flag.startswith("iig_blank:"):
+            continue
+        tab, _sep, columns = flag[len("iig_blank:"):].partition(": ")
+        out[tab] = [c for c in columns.split(", ") if c]
+    return out
+
+
+__all__ = ["template_tab_rows", "blank_flags", "blank_columns"]

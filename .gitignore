@@ -22,7 +22,8 @@ spark-warehouse/
 # Demo UI — local state and build artifacts
 ui/backend/state/
 ui/frontend/node_modules/
-ui/frontend/dist/
+# ui/frontend/dist IS tracked (M6): the Databricks App serves the committed
+# bundle; rebuild + commit it whenever ui/frontend/src changes.
 
 # Python
 __pycache__/
@@ -62,9 +63,10 @@ fixtures/replay/
 fixtures/workbooks/*
 !fixtures/workbooks/synthetic_segmented_golden.xlsx
 
-# Wheel-build detritus
+# Wheel-build detritus (the frontend bundle is re-included below)
 build/
 dist/
+!ui/frontend/dist/
 *.whl
 ui/frontend/*.tsbuildinfo
 

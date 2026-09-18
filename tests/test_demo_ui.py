@@ -451,3 +451,70 @@ def test_upload_frd_contract_lands_and_selects(client):
     finally:
         client.delete("/api/demo/frd")
         (uploads / stored).unlink(missing_ok=True)
+
+
+def test_generation_options_endpoint_offers_config_and_validates(client):
+    """M6: the conventions profile / IIG template / playbook template
+    selectors read their options from config; null = the config default;
+    an unknown value is a 400 and changes nothing."""
+    r = client.get("/api/demo/generation-options")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["conventions_profile"]["options"] == ["acfc_prx", "edo_sfmc"]
+    assert body["conventions_profile"]["default"] == "edo_sfmc"
+    assert body["iig_template"]["options"] == ["iig_v1", "iig_v2"]
+    assert body["playbook_template"]["options"] == ["main_single", "sfmc_7sheet"]
+    assert all(body[k]["selected"] is None for k in body)
+    status = client.get("/api/demo/status").json()
+    assert (status["conventions_profile"], status["iig_template"],
+            status["playbook_template"]) == ("edo_sfmc", "iig_v1", "sfmc_7sheet")
+
+    r = client.post("/api/demo/generation-options", json={
+        "conventions_profile": "acfc_prx", "iig_template": "iig_v2",
+        "playbook_template": "main_single"})
+    assert r.status_code == 200
+    assert r.json()["conventions_profile"]["selected"] == "acfc_prx"
+    status = client.get("/api/demo/status").json()
+    assert (status["conventions_profile"], status["iig_template"],
+            status["playbook_template"]) == ("acfc_prx", "iig_v2", "main_single")
+
+    r = client.post("/api/demo/generation-options", json={"iig_template": "iig_v9"})
+    assert r.status_code == 400
+    assert client.get("/api/demo/generation-options").json()["iig_template"]["selected"] == "iig_v2"
+    # Back to defaults.
+    r = client.post("/api/demo/generation-options", json={})
+    assert r.status_code == 200
+    assert all(v["selected"] is None for v in r.json().values())
+
+
+def test_vdd_endpoints_select_and_clear(client):
+    """M3/M6: the VDD chooser — any listed .xlsx becomes the third input;
+    DELETE clears it; a path escape is refused."""
+    r = client.post("/api/demo/vdd", json={"name": "../x.xlsx"})
+    assert r.status_code == 400
+    r = client.post("/api/demo/vdd", json={"name": "no_such_workbook.xlsx"})
+    assert r.status_code == 404
+    workbooks = client.get("/api/demo/workbooks").json()["workbooks"]
+    if not workbooks:
+        pytest.skip("no workbooks in the input directories")
+    name = workbooks[0]["name"]
+    r = client.post("/api/demo/vdd", json={"name": name})
+    assert r.status_code == 200 and r.json() == {"selected": name}
+    assert client.get("/api/demo/status").json()["vdd_name"] == name
+    r = client.delete("/api/demo/vdd")
+    assert r.status_code == 200
+    assert client.get("/api/demo/status").json()["vdd_name"] is None
+
+
+def test_layout_answers_accept_frd_cell_claims(client):
+    """M6: an FRD question is answered with a candidate cell claim (the
+    shape the merge step re-validates); a non-mapping claim is a 400."""
+    r = client.post("/api/demo/layout-answers", json={
+        "answers": {"frd": {"feeds[0].frequency": "Daily"}}})
+    assert r.status_code == 400
+    # A well-formed claim passes the shape check; with no run waiting the
+    # runner refuses (409), which is the expected guard here.
+    r = client.post("/api/demo/layout-answers", json={
+        "answers": {"frd": {"feeds[0].frequency": {
+            "table": 0, "row": 3, "col": 1, "label": "Daily", "source": "user"}}}})
+    assert r.status_code == 409

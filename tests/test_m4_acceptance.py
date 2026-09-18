@@ -28,6 +28,7 @@ from openpyxl import load_workbook
 from acfc_shapes.pair1 import alias_golden_iig
 from codegen import cli
 from codegen.gate.drag_fill import drag_fill_flags
+from codegen.metadata_template import blank_columns
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -58,6 +59,13 @@ def pair1_run(pair1_config, pair1_spec, tmp_path_factory):
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
     return gate, tmp / "out" / pair1_spec.feed_slug / "framework"
+
+
+def config_iig_v2_headers() -> dict[str, list[str]]:
+    from codegen.config import load_config
+
+    template = load_config(REPO / "config" / "config.yaml").metadata.templates["iig_v2"]
+    return {name: list(tab.headers) for name, tab in template.tabs.items()}
 
 
 def _golden_iig():
@@ -266,10 +274,16 @@ def test_pair1_iig_pinned_cells_match_the_golden(pair1_run):
 @needs_golden
 def test_pair1_iig_everything_else_is_blank_and_flagged(pair1_run):
     gate, framework_dir = pair1_run
-    flags = sorted(f for f in gate.flags if f.startswith("iig_blank:"))
-    expected = sorted(f"iig_blank:{tab}.{header}"
-                      for tab, headers in EXPECTED_BLANK.items() for header in headers)
-    assert flags == expected
+    # One flag per sheet (M6 grouping), columns in header order; the pinned
+    # list is compared as sets per sheet.
+    flags = [f for f in gate.flags if f.startswith("iig_blank:")]
+    assert len(flags) == len(EXPECTED_BLANK)
+    grouped = blank_columns(flags)
+    assert {tab: sorted(cols) for tab, cols in grouped.items()} == {
+        tab: sorted(cols) for tab, cols in EXPECTED_BLANK.items()}
+    for tab, cols in grouped.items():
+        headers = config_iig_v2_headers()[tab]
+        assert cols == [h for h in headers if h in cols], tab  # header order
     # Every flagged column really is blank in the workbook, in every row.
     ours = load_workbook(framework_dir / "config_rows.xlsx")
     for tab, headers in EXPECTED_BLANK.items():
@@ -300,8 +314,9 @@ def test_shipped_config_carries_no_client_pipeline_names(config, pair1_spec, tmp
     ours = load_workbook(tmp_path / "out" / pair1_spec.feed_slug / "framework" / "config_rows.xlsx")
     assert len(_sheet_rows(ours["DATA_FACTORY_PIPELINE_SCHEDULE"])[1]) == 1
     assert len(_sheet_rows(ours["DATABRICKS_NOTEBOOK_DETAILS"])[1]) == 1
-    assert "iig_blank:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_NAME" in gate.flags
-    assert "iig_blank:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME" in gate.flags
+    blank = blank_columns(gate.flags)
+    assert "PIPELINE_NAME" in blank["DATA_FACTORY_PIPELINE_SCHEDULE"]
+    assert "DATABRICKS_NOTEBOOK_NAME" in blank["DATABRICKS_NOTEBOOK_DETAILS"]
     for sheet in ours.worksheets:
         for row in sheet.iter_rows(values_only=True):
             assert not any(isinstance(v, str) and "VND_P" in v.upper() and "PL_" in v
@@ -360,5 +375,5 @@ def test_combined_ddl_without_feed_abbreviation_falls_back_to_the_slug_and_flags
     assert "ACCUMULATORS_DDL.txt" in names
     assert any(f.startswith("ddl_file_name_from_slug:") for f in artefacts.flags)
     # No FAQ -> no process name / discriminators: those cells join the blank list.
-    assert "iig_blank:ADLS_FIXED_WIDTH_HANDLER.PROCESS_NAME" in artefacts.flags
-    assert "iig_blank:ADLS_FIXED_WIDTH_HANDLER.SEGMENT_FILTER" in artefacts.flags
+    blank = blank_columns(artefacts.flags)["ADLS_FIXED_WIDTH_HANDLER"]
+    assert "PROCESS_NAME" in blank and "SEGMENT_FILTER" in blank

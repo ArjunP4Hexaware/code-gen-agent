@@ -435,6 +435,13 @@ def demo_status() -> dict:
         "output_mode": (
             _require_runner().output_mode or _require_store().config.output.mode
         ),
+        # M4/M5 generation options a run would use (override or config default).
+        "conventions_profile": (_require_runner().conventions_profile
+                                or _require_store().config.conventions.profile),
+        "iig_template": (_require_runner().iig_template
+                         or _require_store().config.metadata.template),
+        "playbook_template": (_require_runner().playbook_template
+                              or _require_store().config.playbook.template),
         # The FRD side of the pair. frd_warning: the STTM is an explicit
         # non-golden pick while the FRD is still the pinned demo golden —
         # a feed-match failure is likely; the human decides, no auto-fix.
@@ -672,6 +679,33 @@ def select_output_mode(req: OutputModeRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return demo_status()
+
+
+class GenerationOptionsRequest(BaseModel):
+    # null = the config default for that knob
+    conventions_profile: str | None = None
+    iig_template: str | None = None
+    playbook_template: str | None = None
+
+
+@app.get("/api/demo/generation-options")
+def generation_options() -> dict:
+    """M6: the conventions profile / IIG template / playbook template
+    selectors — options from config, selection (None = default)."""
+    return _require_runner().generation_options()
+
+
+@app.post("/api/demo/generation-options")
+def select_generation_options(req: GenerationOptionsRequest) -> dict:
+    try:
+        _require_runner().select_generation_options(
+            conventions_profile=req.conventions_profile, iig_template=req.iig_template,
+            playbook_template=req.playbook_template)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _require_runner().generation_options()
 
 
 @app.get("/api/feeds/{slug}/download")

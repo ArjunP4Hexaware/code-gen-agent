@@ -6,6 +6,7 @@ import {
   type DatabricksDocumentsResponse,
   type DemoStatus,
   type FrdChoicesResponse,
+  type GenerationOptions,
   type GovernanceChecksResponse,
   type GovernanceStatus,
   type InputDocumentScan,
@@ -227,6 +228,42 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
   }, [loadDbDocs]);
 
+  // M6: conventions profile / IIG template / playbook template selectors,
+  // populated from config; null = the config default.
+  const [genOptions, setGenOptions] = useState<GenerationOptions | null>(null);
+  useEffect(() => {
+    api.generationOptions().then(setGenOptions).catch(() => setGenOptions(null));
+  }, []);
+  const chooseGenerationOption = async (
+    knob: keyof GenerationOptions,
+    value: string,
+  ) => {
+    if (!genOptions) return;
+    const body = {
+      conventions_profile: genOptions.conventions_profile.selected,
+      iig_template: genOptions.iig_template.selected,
+      playbook_template: genOptions.playbook_template.selected,
+      [knob]: value === "" ? null : value,
+    };
+    try {
+      setGenOptions(await api.setGenerationOptions(body));
+      setStatus(await api.demoStatus());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  // M3/M6: the optional Vendor Data Dictionary — any listed workbook can be
+  // the pair's third input.
+  const chooseVdd = async (name: string | null) => {
+    try {
+      if (name === null) await api.clearVdd();
+      else await api.selectVdd(name);
+      setStatus(await api.demoStatus());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   // From-device upload: the file lands in inputs/uploads and is selected in
   // the same motion (the backend validates an FRD upload as a contract).
   const uploadDocument = useCallback(
@@ -332,8 +369,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   }, []);
 
   const running = status?.state === "running" || status?.state === "needs_layout";
-  // M2.5 layout dialog: one choice per unresolved role, keyed "<sheet>/<layer>/<role>".
+  // M2.5 layout dialog: one choice per unresolved role, keyed "<sheet>/<layer>/<role>"
+  // (STTM / VDD: a column number); FRD questions (M6) pick a candidate table
+  // cell — the claim {table,row,col,label,section} the merge step re-validates.
   const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
+  const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
   const submitLayout = async (proceed: boolean) => {
     const sttm: Record<string, number> = {};
     for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
@@ -343,13 +383,18 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       for (const [key, col] of Object.entries(sttm)) {
         ((status?.layout_questions ?? []).find((q) => q.key === key)?.document === "vdd" ? vdd : sttmOnly)[key] = col;
       }
-      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd: {}, vdd }, proceed });
+      const frd: Record<string, unknown> = {};
+      for (const [field, claim] of Object.entries(frdPicks)) frd[field] = { ...claim, source: "user" };
+      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd, vdd }, proceed });
       setStatus(s);
       setLayoutPicks({});
+      setFrdPicks({});
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+  const frdPickKey = (c: { table?: number; row?: number; col?: number }) =>
+    `${c.table}/${c.row}/${c.col}`;
   const est = status?.estimates;
 
   return (
@@ -656,7 +701,39 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               Framework artefacts = DDL scripts + config rows + insert statements for
               the existing ingestion framework — the ~90% case, adding a feed to what
               already runs. Notebook = a fresh standalone pipeline — the ~10% case.
+              RFC package = the framework artefacts assembled into the RFC deployment
+              folder (DDL, IIG, playbook, manifest).
             </p>
+            {genOptions ? (
+              <p style={{ margin: "6px 0 4px", display: "flex", gap: 14, flexWrap: "wrap" }}>
+                {(
+                  [
+                    ["conventions_profile", "Conventions profile"],
+                    ["iig_template", "IIG template"],
+                    ["playbook_template", "Playbook template"],
+                  ] as const
+                ).map(([knob, label]) => {
+                  const group = genOptions[knob];
+                  return (
+                    <label key={knob} className="hint" style={{ fontSize: 12 }}>
+                      {label}{" "}
+                      <select
+                        disabled={running}
+                        value={group.selected ?? ""}
+                        onChange={(e) => chooseGenerationOption(knob, e.target.value)}
+                      >
+                        <option value="">{`default (${group.default})`}</option>
+                        {group.options.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </p>
+            ) : null}
 
             <div className="panel-subhead">Input documents</div>
             {(() => {
@@ -902,22 +979,46 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                 </div>
                               ) : null}
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
-                                {q.candidates.map((c) => (
-                                  <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
-                                    <input
-                                      type="radio"
-                                      name={q.key}
-                                      disabled={doc === "frd" || c.col === undefined}
-                                      checked={c.col !== undefined && layoutPicks[q.key] === c.col}
-                                      onChange={() =>
-                                        c.col !== undefined &&
-                                        setLayoutPicks({ ...layoutPicks, [q.key]: c.col })
-                                      }
-                                    />{" "}
-                                    {c.col !== undefined ? `col ${c.col}: ` : ""}
-                                    {c.header ?? c.label}
-                                  </label>
-                                ))}
+                                {q.candidates.map((c) =>
+                                  doc === "frd" ? (
+                                    <label key={`${q.key}-${frdPickKey(c)}`} style={{ fontSize: 12 }}>
+                                      <input
+                                        type="radio"
+                                        name={q.key}
+                                        disabled={c.table === undefined || c.row === undefined}
+                                        checked={
+                                          frdPicks[q.key] !== undefined &&
+                                          frdPickKey(frdPicks[q.key] as { table?: number; row?: number; col?: number }) === frdPickKey(c)
+                                        }
+                                        onChange={() =>
+                                          c.table !== undefined &&
+                                          c.row !== undefined &&
+                                          setFrdPicks({
+                                            ...frdPicks,
+                                            [q.key]: { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" },
+                                          })
+                                        }
+                                      />{" "}
+                                      {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}
+                                      {c.label ?? c.header}
+                                    </label>
+                                  ) : (
+                                    <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
+                                      <input
+                                        type="radio"
+                                        name={q.key}
+                                        disabled={c.col === undefined}
+                                        checked={c.col !== undefined && layoutPicks[q.key] === c.col}
+                                        onChange={() =>
+                                          c.col !== undefined &&
+                                          setLayoutPicks({ ...layoutPicks, [q.key]: c.col })
+                                        }
+                                      />{" "}
+                                      {c.col !== undefined ? `col ${c.col}: ` : ""}
+                                      {c.header ?? c.label}
+                                    </label>
+                                  ),
+                                )}
                               </div>
                             </div>
                           ))}
@@ -926,7 +1027,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     })}
                     <div className="decision-row" style={{ marginTop: 10 }}>
                       <button className="btn" onClick={() => submitLayout(false)}
-                              disabled={!Object.keys(layoutPicks).length}>
+                              disabled={!Object.keys(layoutPicks).length && !Object.keys(frdPicks).length}>
                         Continue
                       </button>
                       <button className="btn" onClick={() => submitLayout(true)}
@@ -1201,6 +1302,27 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))
             )}
+            <p className="hint" style={{ margin: "14px 0 4px" }}>
+              <strong>Vendor data dictionary (optional third input)</strong> — currently{" "}
+              {status?.vdd_name ? <code>{status.vdd_name}</code> : "none"}. Cross-checked
+              against the STTM (positions, types, segments); never a source of values.
+            </p>
+            <p style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {(workbooks ?? []).map((w) => (
+                <button
+                  key={`vdd-${w.name}`}
+                  className={`btn${status?.vdd_name === w.name ? " active" : ""}`}
+                  disabled={running}
+                  title={`Use ${w.name} as the Vendor Data Dictionary`}
+                  onClick={() => chooseVdd(w.name)}
+                >
+                  VDD: {middleTruncate(w.name, 32)}
+                </button>
+              ))}
+              <button className="btn" disabled={running || !status?.vdd_name} onClick={() => chooseVdd(null)}>
+                No VDD
+              </button>
+            </p>
             {dbDocsError ? (
               <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 12 }}>
                 <strong>Databricks volumes unavailable.</strong>{" "}

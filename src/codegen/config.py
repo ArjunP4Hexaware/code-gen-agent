@@ -264,6 +264,31 @@ class DiscoveryConfig(BaseModel):
         return self
 
 
+class FrdExtractorConfig(BaseModel):
+    """FRD .docx extractor vocabulary (M2, codegen.extract.frd_docx): section
+    titles, label synonyms (ONLY the variants SHAPES_FOR_PORT §2 lists), the
+    Solution Requirement table shape, and the separators used to split a
+    cell into list values. Empty defaults = nothing resolves, loudly."""
+
+    model_config = _MODEL_CONFIG
+
+    section_titles: dict[str, list[str]] = Field(default_factory=dict)
+    labels: dict[str, list[str]] = Field(default_factory=dict)
+    # Rows 1-3 of every F1 section table (and the F2 SR rows) by label.
+    fixed_rows: dict[str, list[str]] = Field(default_factory=dict)
+    solution_requirement_prefix: str = "Solution Requirement"
+    # 0-based row index whose first cell names the metadata section (F2).
+    solution_requirement_section_row: int = Field(default=4, ge=1)
+    inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
+    list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
+    domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])
+    target_schema_markers: dict[str, list[str]] = Field(default_factory=dict)
+    target_schema_separators: list[str] = Field(default_factory=lambda: ["/", ";"])
+    acd_headers: list[str] = Field(default_factory=lambda: ["ACD Type", "Name", "Description"])
+    # Cell texts that mean "blank" (a stated placeholder, never a value).
+    blank_values: list[str] = Field(default_factory=list)
+
+
 class ExtractorConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -284,6 +309,8 @@ class ExtractorConfig(BaseModel):
     # Content-driven discovery vocabulary (M1); empty tables = nothing
     # resolves beyond the two legacy strategies, loudly.
     discovery: DiscoveryConfig = DiscoveryConfig()
+    # FRD .docx extractor vocabulary (M2); empty = nothing resolves, loudly.
+    frd: FrdExtractorConfig = FrdExtractorConfig()
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:

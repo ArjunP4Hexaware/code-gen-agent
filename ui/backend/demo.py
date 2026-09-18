@@ -242,7 +242,16 @@ class DemoRunner:
         import shutil
 
         run_frd = run_root / "frd.contract.json"
-        shutil.copyfile(frd_path, run_frd)
+        if frd_path.suffix.lower() == ".docx":
+            # M2: a .docx FRD is extracted into the run's own contract file
+            # (deterministic, stdlib) — the rest of the path is unchanged.
+            from codegen.extract.frd_docx import contract_to_json, extract_frd_contract
+
+            self._stage("extracting FRD", f"{frd_path.name} → FRD feed contract (docx)")
+            frd_contract, _profile = extract_frd_contract(frd_path, config)
+            run_frd.write_text(contract_to_json(frd_contract), encoding="utf-8", newline="\n")
+        else:
+            shutil.copyfile(frd_path, run_frd)
         (run_root / "run_meta.json").write_text(
             json_module.dumps({
                 "frd_label": frd_label,

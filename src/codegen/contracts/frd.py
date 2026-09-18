@@ -49,7 +49,10 @@ class TargetSpec(BaseModel):
     # "schema" shadows BaseModel.schema; keep the wire name via alias.
     schema_name: str | None = Field(alias="schema")
     tables: list[str]
-    load_strategy: LoadStrategy
+    # None only on docx-extracted contracts (M2) whose document states no
+    # strategy — unsourced fields are null; the resolver refuses to generate
+    # without one.
+    load_strategy: LoadStrategy | None
 
 
 class GroundingSummary(BaseModel):
@@ -104,6 +107,32 @@ class Provenance(BaseModel):
     grounding: GroundingSummary
 
 
+class FieldEvidence(BaseModel):
+    """M2: where a docx-extracted field was read — Word table index, row and
+    label cell, the label text as seen, the metadata section, the inline
+    label when the value sat inside a free-text cell, and who resolved the
+    layout. Keyed by contract path (``feeds[0].frequency``)."""
+
+    model_config = _MODEL_CONFIG
+
+    table: int
+    row: int
+    col: int
+    label: str
+    section: str | None = None
+    inline_label: str | None = None
+    source: Literal["synonyms", "model", "user", "cache"]
+
+
+class FrdLayoutSummary(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    family: str
+    source: Literal["synonyms", "model", "user", "cache"]
+    fingerprint: str
+    unresolved: list[str] = Field(default_factory=list)
+
+
 class FrdFeed(BaseModel):
     """One feed's worth of feed-level facts from the FRD contract."""
 
@@ -111,8 +140,12 @@ class FrdFeed(BaseModel):
 
     feed_name: str
     source_system: str
-    file_name_patterns: list[str] = Field(min_length=1)
-    file_format: str
+    # May be EMPTY only on docx-extracted contracts (M2): the F1/F2 label
+    # families carry no file-pattern label, so the pattern comes from the
+    # STTM at resolve time (M4). Upstream contracts always list >= 1.
+    file_name_patterns: list[str]
+    # None only on docx-extracted contracts whose document states no format.
+    file_format: str | None
     delimiter: str | None
     record_segments: list[RecordSegment]
     frequency: str | None
@@ -154,3 +187,7 @@ class FrdContract(BaseModel):
     system_interfaces: list[str]
     open_items: list[str]
     provenance: Provenance | None = Field(default=None, alias="_provenance")
+    # M2: per-field evidence + the layout the values were read through.
+    # Both default so upstream contract JSON still loads unchanged.
+    field_provenance: dict[str, FieldEvidence] = Field(default_factory=dict)
+    layout: FrdLayoutSummary | None = None

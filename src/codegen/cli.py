@@ -5,6 +5,8 @@ Commands:
   generate-all  every pair listed in config.contracts.pairs
   extract-sttm  extract an STTM mapping contract from a client workbook
                 paired with its FRD feed contract (deterministic, no LLM)
+  extract-frd   extract an FRD feed contract from a client FRD .docx
+                (families F1/F2, deterministic, stdlib docx reading)
   sharepoint-fetch    library -> local input dir (workbooks + contracts)
   sharepoint-publish  one feed's generated artifacts -> library output folder
   databricks-fetch    UC volumes -> local input dir (FRDs + STTM workbooks)
@@ -269,6 +271,37 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
+    return 0
+
+
+def _extract_frd(args: argparse.Namespace, config: Config) -> int:
+    from codegen.extract.frd_docx import FrdDocxError, contract_to_json, extract_frd_contract
+
+    try:
+        docx_path = Path(args.docx)
+        if not docx_path.is_file():
+            raise FileNotFoundError(f"FRD document not found: {docx_path}")
+        contract, profile = extract_frd_contract(
+            docx_path, config, contract_name=args.contract_name,
+            generated_date=args.generated_date,
+        )
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")
+        if args.profile:
+            profile_path = Path(args.profile)
+            profile_path.parent.mkdir(parents=True, exist_ok=True)
+            profile_path.write_text(profile.model_dump_json(indent=2) + "\n",
+                                    encoding="utf-8", newline="\n")
+    except (FrdDocxError, FileNotFoundError, ValueError) as exc:
+        print(f"{'FAIL':<15} extract-frd — {exc}")
+        return 1
+    feeds = ", ".join(f.feed_name for f in contract.feeds)
+    print(f"{'EXTRACTED':<15} {args.out} — family {profile.family}, layout source "
+          f"{profile.source}, {len(contract.feeds)} feed(s): {feeds}; "
+          f"{len(profile.unresolved)} unresolved field(s); status {contract.status}")
+    for item in profile.unresolved:
+        print(f"{'UNRESOLVED':<15} {item.field} — {item.reason}")
     return 0
 
 
@@ -681,6 +714,22 @@ def main(argv: list[str] | None = None) -> int:
         "(inject for byte-reproducible output)",
     )
 
+    extract_frd = subparsers.add_parser(
+        "extract-frd",
+        help="extract an FRD feed contract from a client FRD .docx (families F1/F2)",
+    )
+    extract_frd.add_argument("--config", default="config/config.yaml")
+    extract_frd.add_argument("--docx", required=True, help="client FRD document (.docx)")
+    extract_frd.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    extract_frd.add_argument("--profile", help="also write the resolved FRD layout profile "
+                                               "JSON to this path")
+    extract_frd.add_argument("--contract-name", help="override the derived contract_name")
+    extract_frd.add_argument(
+        "--generated-date",
+        help="YYYY-MM-DD stamped as generated_date; defaults to today "
+        "(inject for byte-reproducible output)",
+    )
+
     fetch = subparsers.add_parser(
         "sharepoint-fetch",
         help="download STTM workbooks / FRD contracts from the SharePoint library",
@@ -768,6 +817,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "extract-sttm":
         return _extract_sttm(args, config)
+    if args.command == "extract-frd":
+        return _extract_frd(args, config)
 
     if args.command == "demo-source-files":
         # Same JSON as GET /api/demo/source-files — display data only.

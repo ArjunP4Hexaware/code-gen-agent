@@ -222,6 +222,71 @@ extractor:
     yes_values: ["yes", "y", "true", "x", "required", "mandatory", "m", "not null", "1"]
     no_values: ["no", "n", "false", "optional", "situational", "s", "null", "0", "nullable"]
 
+  # ---- FRD .docx extractor (M2, 2026-09-18) ----------------------------
+  # codegen.extract.frd_docx: section titles and label synonyms, populated
+  # ONLY with the variants docs/acfc/SHAPES_FOR_PORT.md §2 lists (trailing
+  # colons, the embedded newline, DL/Lakehouse wording, "Load Strategy STD
+  # (View)"). Matching is case-insensitive, whitespace/newline-collapsed and
+  # ignores a trailing colon. Labels the document families use for fields
+  # the contract has no slot for (owners, stewards, SLA …) are logged, not
+  # mapped; fields no listed label covers stay unresolved (M2.5's job).
+  frd:
+    section_titles:
+      descriptive: ["Descriptive Metadata"]
+      structural: ["Structural Metadata"]
+      administrative: ["Administrative Metadata"]
+      technical: ["Technical Metadata"]
+      data_quality: ["Data Quality", "Data Quality Considerations/Options"]
+      vendor: ["Vendor Metadata"]
+      recycle: ["Reject /Recycle Process"]
+      email: ["Email"]
+    fixed_rows:
+      name: ["Name"]
+      description: ["Description"]
+      functional_requirement: ["Functional Requirement", "Functional Requirement:"]
+      business_requirement: ["Business Requirement", "Business \nRequirement"]
+    labels:
+      # Descriptive
+      data_source: ["Data Source"]
+      object_name: ["Object Name"]
+      frequency: ["Frequency"]
+      lobs: ["LOBs"]
+      solution_acceptance_criteria: ["Solution Acceptance Criteria"]
+      traced_requirements: ["Traced/Related Requirements", "Traced Requirements"]
+      # Structural
+      object_format: ["Object/data Format"]
+      target_schema: ["Target Catalog and Schema", "Target Schema"]
+      target_table_name: ["Target Table Name"]
+      domain_subdomain: ["Domain and Subdomain"]
+      load_strategy_stg: ["Load Strategy STG"]
+      load_strategy_std: ["Load Strategy STD", "Load Strategy STD (View)"]
+      archive_schedule: ["Archive Schedule"]
+      source_data_dictionary: ["Source Data Dictionary"]
+      adls_location: ["ADLS Location"]
+      inbound_folder: ["Inbound File Folder Path", "Inbound/outbound File Folder Path"]
+      # Technical
+      business_rules: ["Business Rules"]
+      filter_criteria: ["Filter Criteria"]
+      pii_fields: ["PII Fields"]
+      transformation_logic: ["Transformation Logic"]
+      # Data Quality (positional rule rows; the recycle row also feeds recycle_rule)
+      recycle_process: ["Record Recycle Process (HARD - In pipeline)"]
+      # Vendor
+      vendor_name: ["Vendor Name"]
+      vendor_abbreviation: ["Vendor Abbreviation"]
+    solution_requirement_prefix: "Solution Requirement"
+    solution_requirement_section_row: 4
+    inline_pair_separators: [";"]
+    list_separators: [",", ";", "\n"]
+    domain_separators: ["/", ","]
+    target_schema_markers:
+      stage: ["STG", "Stage", "Staging"]
+      standard: ["STD", "Standard"]
+    target_schema_separators: ["/", ";"]
+    acd_headers: ["ACD Type", "Name", "Description"]
+    # Placeholders the documents write for "nothing stated" — read as blank.
+    blank_values: ["None", "N/A", "NA", "-", "TBD"]
+
 reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;

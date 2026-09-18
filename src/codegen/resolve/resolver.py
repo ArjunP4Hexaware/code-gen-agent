@@ -89,7 +89,7 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
                 f"FRD says {frd_feed.delimiter!r}"
             )
         return explicit[0]
-    implied = _FORMAT_DELIMITERS.get(frd_feed.file_format.lower())
+    implied = _FORMAT_DELIMITERS.get((frd_feed.file_format or "").lower())
     if implied is None:
         errors.append(
             f"format '{frd_feed.file_format}' has no implied delimiter and neither "
@@ -296,6 +296,16 @@ def _resolve_one(
 
     delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors)
     segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors)
+    # docx-extracted FRD contracts (M2) leave unsourced values null; each
+    # is a loud stop here, never a default (M4 takes the file pattern from
+    # the STTM when the FRD names none).
+    if not frd_feed.file_name_patterns:
+        errors.append("FRD names no file pattern (docx-extracted contract with no file "
+                      "pattern label)")
+    if frd_feed.file_format is None:
+        errors.append("FRD states no file format (Object/data Format blank or absent)")
+    if frd_feed.stage_target.load_strategy is None:
+        errors.append("FRD states no stage load strategy (Load Strategy STG blank or absent)")
 
     if not frd_feed.lobs:
         errors.append("FRD feed declares no LOBs; the LOB audit column needs at least one")

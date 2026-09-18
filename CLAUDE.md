@@ -271,6 +271,30 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## M7 (2026-09-18, v0.4.2-acfc): metadata-DB DML, the many-files FRD shape, the derivation gate
 
+**M7.1 is PARKED (2026-09-18), resume after the demo.** The brief: make the
+correctness gates GLOBAL (SQL-literal, path-literal and derived-name cap
+checks as FAILs for every profile; sibling-type consistency a global FLAG),
+slugify the iig_v1 synthetic TGT_ADLS_PATH domain segments (config
+`metadata.synthetic_path_slug`), add a global `conventions.default_catalog`
+(provenance `config_default`), docs (ACFC_DEPLOY config row + open
+questions; METADATA_DB_SEMANTICS §11 yes/no questions for the framework
+team), then re-baseline CV / SFMC deliberately — STOP for Soham's review of
+the per-file diff before committing the new baseline. The code + docs are
+done and sit in `git stash` `stash@{0}` "m7.1-wip global gates +
+rebaseline" (nine files; `strict_derivations` removed from the profile
+model + config.yaml). The per-file diff was produced and matched the
+expected set exactly: TGT_ADLS_PATH cells (+ their INSERT column) in
+config_rows / config_inserts for the 4 feeds, and in the reports the two
+new passing checks (sql_literals, derivations) + CV's sibling_type flags
+— nothing else. Scratch artefacts (session scratchpad): `regen_old/`
+(outputs from a worktree at 9b64d38, registered as `wt_old` — remove with
+`git worktree remove`), `regen_new/`, `regen_outputs.py`,
+`diff_outputs.py`, `baseline.py` (`--check` reports NEW artefacts
+separately). Still to do on resume: `git stash pop`, suite / ruff / tsc /
+scrub, regenerate `baseline_manifest.json`, commit + push, update this
+section. **main is at 4c35c61 (v0.4.1-acfc)** — fourteen staging commits
+behind, none of M7; merge staging→main only on Soham's say-so.
+
 Six commits (415e17b … 2e08af7 + the tag commit). Every M7 behaviour that
 would change the byte-compared CV / SFMC / pair-1 output rides the
 **conventions profile**: `acfc_prx` carries `strict_derivations`,

@@ -53,6 +53,7 @@ from codegen.extract.workbook import (
     workbook_ir,
 )
 from codegen.layout.discover import NoLayoutError, discover
+from codegen.layout.profile import LayoutProfile
 
 # normalize_feed_name is THE feed_id join invariant (resolver.py defines it);
 # _FORMAT_DELIMITERS is the resolver's own format->delimiter implication —
@@ -71,16 +72,33 @@ def extract_contract(
     *,
     contract_name: str | None = None,
     generated_date: str | None = None,
+    layout: LayoutProfile | None = None,
+    require_complete: bool = False,
 ) -> SttmContract:
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
     # M1: one discovery pass -> a layout profile; every strategy's reader
     # then copies cell values through it. Strategy order keeps the two
     # legacy paths first, so their output is byte-identical to before.
-    try:
-        found = discover(workbook_path, config.extractor)
-    except NoLayoutError as exc:
-        raise WorkbookParseError(str(exc)) from exc
+    # M2.5: a resolved profile (cache / model / user) may be supplied
+    # instead — the reader then never discovers, it only copies through it.
+    if layout is not None:
+        from openpyxl import load_workbook
+
+        from codegen.layout.resolve import discovery_for
+
+        found = discovery_for(layout, load_workbook(workbook_path, data_only=True))
+    else:
+        try:
+            found = discover(workbook_path, config.extractor)
+        except NoLayoutError as exc:
+            raise WorkbookParseError(str(exc)) from exc
     profile = found.profile
+    if require_complete and profile.unresolved:
+        raise ExtractionError(
+            f"{workbook_path.name}: layout has {len(profile.unresolved)} unresolved role(s) "
+            "and --require-complete is set: "
+            + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in profile.unresolved)
+        )
     if profile.strategy == "segmented_family":
         from codegen.extract.segmented import extract_segmented_contract
 
@@ -269,7 +287,8 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             value_spec=row.value_spec,
             provenance=FieldProvenance(
                 sheet=sheet.sheet_name, row=row.row_number, col=row.source_col,
-                source=ir.profile.source if ir.profile is not None else "synonyms"),
+                source=(ir.profile.role_source(sheet.sheet_name, "source", "field_name")
+                        if ir.profile is not None else "synonyms")),
         )
         for row in sheet.rows
     ]
@@ -326,6 +345,8 @@ def extract_to_file(
     *,
     contract_name: str | None = None,
     generated_date: str | None = None,
+    layout: LayoutProfile | None = None,
+    require_complete: bool = False,
 ) -> SttmContract:
     contract = extract_contract(
         workbook_path,
@@ -333,6 +354,8 @@ def extract_to_file(
         config,
         contract_name=contract_name,
         generated_date=generated_date,
+        layout=layout,
+        require_complete=require_complete,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")

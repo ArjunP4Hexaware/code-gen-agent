@@ -472,8 +472,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             stage_table=(_first(row, "stage.table") or stage_table) if segmented else None,
             standard_table=(_first(row, "standard.table") if segmented and has_standard
                             else None),
-            provenance=FieldProvenance(sheet=row.sheet, row=row.row, col=row.col,
-                                       source=ir.profile.source),
+            provenance=FieldProvenance(
+                sheet=row.sheet, row=row.row, col=row.col,
+                source=ir.profile.role_source(row.sheet, "source", "field_name")),
         ))
 
     audit: list[AuditColumn] = []

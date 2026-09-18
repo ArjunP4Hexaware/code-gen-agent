@@ -114,6 +114,76 @@ def test_live_failure_surfaces_and_releases_guard():
     runner.start_live()  # guard released after failure
 
 
+def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
+    """M2.5 §6: unresolved roles pause the run in ``needs_layout`` with the
+    question list on the status; answers resume it; ``cancel`` fails it."""
+    from codegen.layout import resolve as resolve_module
+    from codegen.layout.profile import LayoutProfile
+    from codegen.layout.resolve import DocumentResolution, LayoutQuestion, PairResolution
+
+    calls: list[dict] = []
+
+    def fake_resolve_pair(sttm, frd, config, **kwargs):
+        calls.append(kwargs.get("answers") or {})
+        profile = LayoutProfile(fingerprint="f", sheets=[], source="synonyms",
+                                strategy="content")
+        doc = DocumentResolution("sttm", profile)
+        if not (kwargs.get("answers") or {}).get("sttm"):
+            doc.questions = [LayoutQuestion("sttm", "S", "stage", "column", "why",
+                                            ["A: x"], [{"col": 1, "header": "x"}])]
+        return PairResolution(sttm=doc, frd=None, frd_contract=None)
+
+    monkeypatch.setattr(resolve_module, "resolve_pair", fake_resolve_pair)
+    store = GenerationStore("config/config.yaml")
+    runner = DemoRunner(store)
+    seen: dict = {}
+
+    def work():
+        result = runner._resolve_layout(REPO / "x.xlsx", REPO / "y.docx", store.config)
+        seen["questions"] = result.questions
+
+    runner._work = work
+    runner.start_live()
+    for _ in range(100):
+        if runner.state == "needs_layout":
+            break
+        time.sleep(0.02)
+    assert runner.state == "needs_layout"
+    status = runner.status()
+    assert status["layout_questions"][0]["key"] == "S/stage/column"
+    assert status["layout_questions"][0]["candidates"] == [{"col": 1, "header": "x"}]
+    runner.answer_layout({"sttm": {"S/stage/column": 1}})
+    for _ in range(100):
+        if runner.state == "done":
+            break
+        time.sleep(0.02)
+    assert runner.state == "done" and seen["questions"] == []
+    assert calls[-1] == {"sttm": {"S/stage/column": 1}, "frd": {}}
+    # Not waiting -> answering is refused.
+    with pytest.raises(LiveRunInProgress):
+        runner.answer_layout({})
+    # A cancel fails the run loudly.
+    runner._work = work
+    runner.start_live()
+    for _ in range(100):
+        if runner.state == "needs_layout":
+            break
+        time.sleep(0.02)
+    runner.answer_layout({}, cancel=True)
+    for _ in range(100):
+        if runner.state == "failed":
+            break
+        time.sleep(0.02)
+    assert runner.state == "failed" and "cancelled" in (runner.error or "")
+
+
+def test_layout_answers_endpoint_guards(client):
+    r = client.post("/api/demo/layout-answers", json={"answers": {"sttm": {"bad key": 1}}})
+    assert r.status_code == 400
+    r = client.post("/api/demo/layout-answers", json={"answers": {"sttm": {"S/stage/column": 1}}})
+    assert r.status_code == 409          # no run is waiting
+
+
 def test_run_live_requires_explicit_confirm(client):
     response = client.post("/api/demo/run-live", json={})
     assert response.status_code == 400

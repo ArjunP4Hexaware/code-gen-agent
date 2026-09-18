@@ -469,7 +469,8 @@ def extract_segmented_contract(
                                 if emit_standard else None),
                 provenance=FieldProvenance(
                     sheet=ws.title, row=seg_row.row_number,
-                    col=blocks.source["field_name"] + 1, source=profile.source),
+                    col=blocks.source["field_name"] + 1,
+                    source=profile.role_source(ws.title, "source", "field_name")),
             ))
 
     # ---- no natural-key requirement (FRD: no keys, no MERGE) ---------------

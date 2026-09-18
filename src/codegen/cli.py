@@ -72,6 +72,7 @@ def _generate_feed(
     dry_run: bool,
     skip_tests: bool,
     output_mode: str | None = None,
+    extra_flags: list[str] | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -144,6 +145,7 @@ def _generate_feed(
         tests_skipped,
         faq=faq,
         standards=config.engineering_standards,
+        extra_flags=extra_flags,
     )
     write_generation_report(
         spec,
@@ -258,6 +260,12 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         workbook_path = Path(args.workbook)
         if not workbook_path.is_file():
             raise FileNotFoundError(f"workbook not found: {workbook_path}")
+        layout = None
+        if getattr(args, "layout", None):
+            from codegen.layout.profile import LayoutProfile
+
+            layout = LayoutProfile.model_validate_json(
+                Path(args.layout).read_text(encoding="utf-8"))
         contract = extract_to_file(
             workbook_path,
             _contract_path(args.frd_contract, config),
@@ -265,12 +273,65 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             config,
             contract_name=args.contract_name,
             generated_date=args.generated_date,
+            layout=layout,
+            require_complete=bool(getattr(args, "require_complete", False)),
         )
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
         print(f"{'FAIL':<15} extract-sttm — {exc}")
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
+    return 0
+
+
+def _layout(args: argparse.Namespace, config: Config) -> int:
+    """Resolve and print the layout of a workbook (and optionally its FRD
+    document): source per role, confidences, unresolved roles, the
+    provider call count and — for a pair — the cross-document checks."""
+    from codegen.layout.model import build_layout_provider
+    from codegen.layout.resolve import resolve_pair
+
+    workbook = Path(args.workbook)
+    if not workbook.is_file():
+        print(f"{'FAIL':<15} layout — workbook not found: {workbook}")
+        return 1
+    frd = Path(args.frd) if args.frd else None
+    provider = build_layout_provider(config, dry_run=args.dry_run)
+    result = resolve_pair(
+        workbook, frd, config, vdd_path=Path(args.vdd) if args.vdd else None,
+        provider=provider, runtime_cache_dir=Path(config.layout.runtime_cache_dir),
+        use_cache=not args.no_cache,
+    )
+    report = result.report()
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        for document in ("sttm", "frd"):
+            doc = report[document]
+            if doc is None:
+                continue
+            print(f"{document.upper():<15} source={doc['source']} cache_hit={doc['cache_hit']} "
+                  f"provider_calls={doc['provider_calls']} roles_by_source="
+                  f"{doc['roles_by_source']}")
+            for item in doc["rejections"]:
+                print(f"{'REJECTED':<15} {item}")
+            for item in doc["unresolved"]:
+                print(f"{'UNRESOLVED':<15} {item}")
+        profile = result.sttm.profile
+        for key in sorted(profile.confidence):
+            print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "
+                  f"source={profile.role_sources.get(key, profile.source)}")
+        for check in report["cross_checks"]:
+            print(f"{'CROSSCHECK':<15} {check}")
+        print(f"{'PROVIDER':<15} {provider.name}, {report['provider_calls']} call(s)")
+    if args.profile_out:
+        Path(args.profile_out).write_text(
+            result.sttm.profile.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+    if args.require_complete and result.questions:
+        for question in result.questions:
+            print(f"{'QUESTION':<15} {question.document} {question.key} — {question.reason}; "
+                  f"candidates {question.candidates}")
+        return 1
     return 0
 
 
@@ -713,6 +774,27 @@ def main(argv: list[str] | None = None) -> int:
         help="YYYY-MM-DD stamped as generated_date; defaults to today "
         "(inject for byte-reproducible output)",
     )
+    extract.add_argument("--layout", help="read through this resolved LayoutProfile JSON "
+                                          "instead of discovering the layout")
+    extract.add_argument("--require-complete", action="store_true",
+                         help="refuse when the layout has unresolved roles")
+
+    layout = subparsers.add_parser(
+        "layout",
+        help="resolve a workbook's (and optionally its FRD's) layout: cache -> synonyms "
+             "-> model -> validate -> user",
+    )
+    layout.add_argument("--config", default="config/config.yaml")
+    layout.add_argument("--workbook", required=True, help="STTM workbook (.xlsx)")
+    layout.add_argument("--frd", help="FRD document (.docx) or contract JSON of the pair")
+    layout.add_argument("--vdd", help="vendor data dictionary (.xlsx) for the cross-checks")
+    layout.add_argument("--dry-run", action="store_true",
+                        help="mock provider (answers from fixtures/layout_profiles)")
+    layout.add_argument("--no-cache", action="store_true", help="ignore cached profiles")
+    layout.add_argument("--json", action="store_true", help="print the report as JSON")
+    layout.add_argument("--profile-out", help="write the resolved STTM profile JSON here")
+    layout.add_argument("--require-complete", action="store_true",
+                        help="print the open questions and exit non-zero when roles remain")
 
     extract_frd = subparsers.add_parser(
         "extract-frd",
@@ -819,6 +901,8 @@ def main(argv: list[str] | None = None) -> int:
         return _extract_sttm(args, config)
     if args.command == "extract-frd":
         return _extract_frd(args, config)
+    if args.command == "layout":
+        return _layout(args, config)
 
     if args.command == "demo-source-files":
         # Same JSON as GET /api/demo/source-files — display data only.

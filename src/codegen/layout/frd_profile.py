@@ -71,6 +71,8 @@ class FrdLayoutProfile(BaseModel):
     source: ProfileSource
     fields: dict[str, FrdFieldSource] = Field(default_factory=dict)
     confidence: dict[str, float] = Field(default_factory=dict)
+    # Per-field source (same keys as ``fields``); absent = the profile source.
+    field_sources: dict[str, ProfileSource] = Field(default_factory=dict)
     unresolved: list[FrdUnresolved] = Field(default_factory=list)
     sections: list[FrdSectionRef] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

@@ -353,6 +353,31 @@ def run_live(req: LiveRunRequest) -> dict:
     return _require_runner().status()
 
 
+class LayoutAnswersRequest(BaseModel):
+    answers: dict = {}
+    proceed: bool = False
+    cancel: bool = False
+
+
+@app.post("/api/demo/layout-answers")
+def layout_answers(req: LayoutAnswersRequest) -> dict:
+    """The human's role placements for a run paused in ``needs_layout``
+    (M2.5 §6): ``answers`` = ``{"sttm": {"<sheet>/<layer>/<role>": col},
+    "frd": {"<field>": {table,row,col,…}}}``; ``proceed`` continues with the
+    remaining roles read as empty (gate-flagged); ``cancel`` stops the run."""
+    from codegen.layout.resolve import parse_answers
+
+    runner = _require_runner()
+    try:
+        parse_answers(req.answers)
+        runner.answer_layout(req.answers, proceed=req.proceed, cancel=req.cancel)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return runner.status()
+
+
 @app.get("/api/demo/status")
 def demo_status() -> dict:
     demo = _require_store().config.demo

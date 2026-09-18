@@ -178,6 +178,7 @@ class GenerationStore:
         candidates_override: list[RuleCandidate] | None = None,
         on_stage: Callable[[str], None] | None = None,
         output_mode: str | None = None,
+        extra_flags: list[str] | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
         # out_root/reports_dir isolate demo runs; candidates_override replays
@@ -268,6 +269,7 @@ class GenerationStore:
             tests_skipped,
             faq=faq,
             standards=self.config.engineering_standards,
+            extra_flags=extra_flags,
         )
         write_generation_report(
             spec,

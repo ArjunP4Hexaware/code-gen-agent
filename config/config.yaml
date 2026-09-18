@@ -221,6 +221,13 @@ extractor:
       lob_crosswalk: [["lob"]]
     yes_values: ["yes", "y", "true", "x", "required", "mandatory", "m", "not null", "1"]
     no_values: ["no", "n", "false", "optional", "situational", "s", "null", "0", "nullable"]
+    # Validator plausibility thresholds (M2.5 §4): share of data cells under
+    # a model- or user-claimed header that must look the part.
+    validate:
+      integer_like: 0.8
+      type_like: 0.8
+      yes_no_like: 0.8
+      field_name_non_empty: 0.9
 
   # ---- FRD .docx extractor (M2, 2026-09-18) ----------------------------
   # codegen.extract.frd_docx: section titles and label synonyms, populated
@@ -587,6 +594,23 @@ databricks:
   # first", never a workaround here.
   readable_tables:
     - soham_workspace.sttm_agent.frd_contracts
+
+layout:
+  # Layout recognition (M2.5, 2026-09-18): a model decides WHERE things are,
+  # code copies the values. Resolution order cache -> synonyms -> model ->
+  # validate -> user; a fully-resolved-by-synonyms document makes no model
+  # call. Caches hold completed LayoutProfile / FrdLayoutProfile JSON keyed
+  # by the fingerprint field inside each file.
+  cache_dirs: ["fixtures/layout_profiles"]
+  runtime_cache_dir: "ui/backend/state/layout_profiles"
+  mock_dir: "fixtures/layout_profiles/mock"
+  # auto: live when Layer 2 is live (same transport, databricks_fmapi /
+  # anthropic; mock on dry-run and on the mock lock) | mock: never a model.
+  provider: auto
+  max_tokens: 8192
+  max_attempts: 2
+  model_confidence: 0.8
+  crosscheck_bonus: 0.1
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

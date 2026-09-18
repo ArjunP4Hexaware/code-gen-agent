@@ -1,0 +1,273 @@
+{
+  "fingerprint": "e40e3a57a23c67bd6de88ee412d05dff14e9b28a684c136b7ee3e982cf8823c7",
+  "sheets": [
+    {
+      "name": "Version History",
+      "kind": "version",
+      "header_row": 4,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Version",
+        "Date",
+        "Author",
+        "Description"
+      ],
+      "notes": []
+    },
+    {
+      "name": "File Details",
+      "kind": "file_details",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Vendor",
+        "FileName",
+        "Actual File Name",
+        "File Description",
+        "Location",
+        "Frequency",
+        "File Extension"
+      ],
+      "notes": []
+    },
+    {
+      "name": "Table_Details",
+      "kind": "table_details",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "S.No",
+        "SchemaName",
+        "Table_Name",
+        "Table_Description"
+      ],
+      "notes": []
+    },
+    {
+      "name": "FEED_5_MAPPING",
+      "kind": "mapping",
+      "header_row": 11,
+      "band_row": 10,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 11,
+          "roles": {
+            "ordinal": 1,
+            "field_name": 3,
+            "source_type": 4,
+            "length": 5,
+            "field_length": 6,
+            "start": 7,
+            "end": 8,
+            "segment": 9,
+            "pii": 10,
+            "comments": 11
+          },
+          "label": "Source Layout"
+        },
+        {
+          "layer": "stage",
+          "col_start": 12,
+          "col_end": 22,
+          "roles": {
+            "catalog": 12,
+            "schema": 13,
+            "table": 14,
+            "column": 15,
+            "target_type": 16,
+            "mandatory_column": 17,
+            "primary_key": 18,
+            "constraints": 19,
+            "field_description": 20,
+            "table_description": 21,
+            "transformation": 22
+          },
+          "label": "Stage Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 23,
+          "col_end": 33,
+          "roles": {
+            "catalog": 23,
+            "schema": 24,
+            "table": 25,
+            "column": 26,
+            "target_type": 27,
+            "mandatory_column": 28,
+            "primary_key": 29,
+            "constraints": 30,
+            "field_description": 31,
+            "table_description": 32,
+            "transformation": 33
+          },
+          "label": "Standard Layer"
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 1,
+          "col": 1,
+          "label": "File(s)",
+          "key": "file_names",
+          "value_col": 2
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "label": "File Generator",
+          "key": "file_generator",
+          "value_col": null
+        },
+        {
+          "row": 3,
+          "col": 1,
+          "label": "File Location",
+          "key": "file_location",
+          "value_col": 2
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "label": "LOB",
+          "key": "lob",
+          "value_col": 2
+        },
+        {
+          "row": 5,
+          "col": 1,
+          "label": "File frequency",
+          "key": "frequency",
+          "value_col": 2
+        },
+        {
+          "row": 6,
+          "col": 1,
+          "label": "Domain",
+          "key": "domain",
+          "value_col": 2
+        },
+        {
+          "row": 7,
+          "col": 1,
+          "label": "Sub-Domain",
+          "key": "sub_domain",
+          "value_col": 2
+        },
+        {
+          "row": 8,
+          "col": 1,
+          "label": "NOTE",
+          "key": "notes",
+          "value_col": 2
+        },
+        {
+          "row": 9,
+          "col": 1,
+          "label": "File type",
+          "key": "file_format",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "column",
+      "segment_column": 9,
+      "headers": [],
+      "notes": [
+        "band row 10, header row 11"
+      ]
+    },
+    {
+      "name": "Sheet2",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Sheet3",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Sheet1",
+      "kind": "dq_rules",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "FieldName",
+        "DQ Rules",
+        "DataType"
+      ],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "FEED_5_MAPPING/source/ordinal": 1.0,
+    "FEED_5_MAPPING/source/field_name": 1.0,
+    "FEED_5_MAPPING/source/source_type": 1.0,
+    "FEED_5_MAPPING/source/length": 1.0,
+    "FEED_5_MAPPING/source/field_length": 1.0,
+    "FEED_5_MAPPING/source/start": 1.0,
+    "FEED_5_MAPPING/source/end": 1.0,
+    "FEED_5_MAPPING/source/segment": 1.0,
+    "FEED_5_MAPPING/source/pii": 1.0,
+    "FEED_5_MAPPING/source/comments": 1.0,
+    "FEED_5_MAPPING/stage/catalog": 1.0,
+    "FEED_5_MAPPING/stage/schema": 1.0,
+    "FEED_5_MAPPING/stage/table": 1.0,
+    "FEED_5_MAPPING/stage/column": 1.0,
+    "FEED_5_MAPPING/stage/target_type": 1.0,
+    "FEED_5_MAPPING/stage/mandatory_column": 1.0,
+    "FEED_5_MAPPING/stage/primary_key": 1.0,
+    "FEED_5_MAPPING/stage/constraints": 1.0,
+    "FEED_5_MAPPING/stage/field_description": 1.0,
+    "FEED_5_MAPPING/stage/table_description": 1.0,
+    "FEED_5_MAPPING/stage/transformation": 1.0,
+    "FEED_5_MAPPING/standard/catalog": 1.0,
+    "FEED_5_MAPPING/standard/schema": 1.0,
+    "FEED_5_MAPPING/standard/table": 1.0,
+    "FEED_5_MAPPING/standard/column": 1.0,
+    "FEED_5_MAPPING/standard/target_type": 1.0,
+    "FEED_5_MAPPING/standard/mandatory_column": 1.0,
+    "FEED_5_MAPPING/standard/primary_key": 1.0,
+    "FEED_5_MAPPING/standard/constraints": 1.0,
+    "FEED_5_MAPPING/standard/field_description": 1.0,
+    "FEED_5_MAPPING/standard/table_description": 1.0,
+    "FEED_5_MAPPING/standard/transformation": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

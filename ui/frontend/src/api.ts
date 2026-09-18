@@ -74,11 +74,26 @@ export interface DemoStage {
   at: number;
 }
 
+export interface LayoutQuestion {
+  document: "sttm" | "frd";
+  key: string;
+  sheet: string | null;
+  layer: string | null;
+  role: string;
+  reason: string;
+  header: string[];
+  candidates: { col?: number; header?: string; table?: number; row?: number; label?: string }[];
+}
+
 export interface DemoStatus {
-  state: "idle" | "running" | "done" | "failed";
+  state: "idle" | "running" | "needs_layout" | "done" | "failed";
   stages: DemoStage[];
   error: string | null;
   last_run_label: string | null;
+  // M2.5: the questions a paused run (state "needs_layout") waits on, and
+  // the layout report (sources per role, rejections, cross-checks).
+  layout_questions?: LayoutQuestion[];
+  layout_report?: Record<string, unknown> | null;
   mode: RunMode;
   label: string | null;
   estimates: { calls: number; cost_usd: number; seconds: number };
@@ -473,6 +488,12 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
   demoStatus: () => request<DemoStatus>("/api/demo/status"),
+  layoutAnswers: (body: { answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean }) =>
+    request<DemoStatus>("/api/demo/layout-answers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   liveRuns: () => request<{ runs: PastLiveRun[] }>("/api/demo/live-runs"),
   loadLiveRun: (run: string) =>
     request<FeedsResponse>("/api/demo/load-live-run", {

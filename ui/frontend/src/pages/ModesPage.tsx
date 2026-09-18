@@ -331,7 +331,20 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   }, []);
 
-  const running = status?.state === "running";
+  const running = status?.state === "running" || status?.state === "needs_layout";
+  // M2.5 layout dialog: one choice per unresolved role, keyed "<sheet>/<layer>/<role>".
+  const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
+  const submitLayout = async (proceed: boolean) => {
+    const sttm: Record<string, number> = {};
+    for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
+    try {
+      const s = await api.layoutAnswers({ answers: { sttm, frd: {} }, proceed });
+      setStatus(s);
+      setLayoutPicks({});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const est = status?.estimates;
 
   return (
@@ -830,6 +843,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <div style={{ marginTop: 14 }}>
                 <div className="hint">
                   {status.state === "running" && "Running — stages appear as they start:"}
+                  {status.state === "needs_layout" &&
+                    "Paused — the layout needs a human decision before any value is read:"}
                   {status.state === "done" && "Last live run completed."}
                   {status.state === "failed" && "Last live run FAILED — nothing was published."}
                 </div>
@@ -854,11 +869,72 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     ) : null}
                   </div>
                 ) : null}
+                {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
+                  <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
+                    {(["sttm", "frd"] as const).map((doc) => {
+                      const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
+                      if (!qs.length) return null;
+                      return (
+                        <div key={doc} style={{ marginBottom: 10 }}>
+                          <strong>{doc === "sttm" ? "STTM workbook" : "FRD document"}</strong>
+                          {qs.map((q) => (
+                            <div key={q.key} style={{ marginTop: 8 }}>
+                              <div>
+                                <code>{q.key}</code>{" "}
+                                <span className="hint">— {q.reason}</span>
+                              </div>
+                              {q.header.length ? (
+                                <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                                  {q.header.map((h) => (
+                                    <code key={h} style={{ padding: "1px 4px", border: "1px solid var(--line, #ccc)" }}>
+                                      {h}
+                                    </code>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+                                {q.candidates.map((c) => (
+                                  <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
+                                    <input
+                                      type="radio"
+                                      name={q.key}
+                                      disabled={doc !== "sttm" || c.col === undefined}
+                                      checked={c.col !== undefined && layoutPicks[q.key] === c.col}
+                                      onChange={() =>
+                                        c.col !== undefined &&
+                                        setLayoutPicks({ ...layoutPicks, [q.key]: c.col })
+                                      }
+                                    />{" "}
+                                    {c.col !== undefined ? `col ${c.col}: ` : ""}
+                                    {c.header ?? c.label}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    <div className="decision-row" style={{ marginTop: 10 }}>
+                      <button className="btn" onClick={() => submitLayout(false)}
+                              disabled={!Object.keys(layoutPicks).length}>
+                        Continue
+                      </button>
+                      <button className="btn" onClick={() => submitLayout(true)}
+                              title="Continue with the remaining roles read as empty (gate-flagged)">
+                        Proceed with unresolved
+                      </button>
+                      <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(() => {})}>
+                        Cancel run
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <ul className="stage-list">
                   {status.stages.map((s, i) => (
                     <li key={`${s.stage}-${s.at}`}>
                       <span className="stage-mark">
-                        {i < status.stages.length - 1 || status.state !== "running" ? "✓" : "⋯"}
+                        {i < status.stages.length - 1 || !running ? "✓" : "⋯"}
                       </span>
                       <span>
                         <strong>{s.stage}</strong>

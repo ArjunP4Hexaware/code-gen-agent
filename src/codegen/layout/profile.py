@@ -210,6 +210,10 @@ class LayoutProfile(BaseModel):
     sheets: list[SheetProfile]
     confidence: dict[str, float] = Field(default_factory=dict)
     source: ProfileSource
+    # Per-role source (same keys as ``confidence``): who placed each role —
+    # synonyms, the model, a person, or the cache. A role absent here took
+    # the profile-level ``source``.
+    role_sources: dict[str, ProfileSource] = Field(default_factory=dict)
     # Which discovery strategy produced the profile: "mapping_prefix" (the
     # legacy MAPPING- path), "segmented_family" (CAQH-shaped), "content"
     # (content-driven discovery); later "model"/"user"/"cache" sources.
@@ -229,6 +233,9 @@ class LayoutProfile(BaseModel):
 
     def unresolved_for(self, sheet: str) -> list[UnresolvedRole]:
         return [u for u in self.unresolved if u.sheet == sheet]
+
+    def role_source(self, sheet: str, layer: str, role: Role | str) -> ProfileSource:
+        return self.role_sources.get(confidence_key(sheet, layer, role), self.source)
 
 
 def confidence_key(sheet: str, layer: str, role: Role | str) -> str:

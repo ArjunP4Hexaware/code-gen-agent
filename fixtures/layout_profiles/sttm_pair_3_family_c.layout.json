@@ -1,0 +1,185 @@
+{
+  "fingerprint": "9238bb1035081a14051c9536bd6678435866ae83a76a5ba077c817a6be9a6a9b",
+  "sheets": [
+    {
+      "name": "Version Control",
+      "kind": "version",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Version",
+        "Date",
+        "Description",
+        "Updated By"
+      ],
+      "notes": []
+    },
+    {
+      "name": "Layout",
+      "kind": "layout",
+      "header_row": 4,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Field #",
+        "Field Name",
+        "Req'd?",
+        "Type",
+        "Length",
+        "Start",
+        "End",
+        "Comments",
+        "LOB_A",
+        "LOB_B",
+        "LOB_C",
+        "LOB_D",
+        "LOB_E"
+      ],
+      "notes": []
+    },
+    {
+      "name": "STTM",
+      "kind": "mapping",
+      "header_row": 5,
+      "band_row": 4,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 12,
+          "roles": {
+            "field_name": 2,
+            "source_type": 3,
+            "length": 4,
+            "start": 5,
+            "end": 6,
+            "comments": 7,
+            "ordinal": 1
+          },
+          "label": "Source - [SRC_SYS_A] File"
+        },
+        {
+          "layer": "rules",
+          "col_start": 13,
+          "col_end": 19,
+          "roles": {
+            "data_definition": 13,
+            "pii": 14,
+            "primary_key": 15,
+            "critical": 16,
+            "required": 17,
+            "dq_rules": 18,
+            "load_rule": 19
+          },
+          "label": "Destination"
+        },
+        {
+          "layer": "stage",
+          "col_start": 20,
+          "col_end": 25,
+          "roles": {
+            "workspace": 20,
+            "catalog": 21,
+            "schema": 22,
+            "table": 23,
+            "column": 24,
+            "target_type": 25
+          },
+          "label": "Target Table - Staging Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 26,
+          "col_end": 31,
+          "roles": {
+            "workspace": 26,
+            "catalog": 27,
+            "schema": 28,
+            "table": 29,
+            "column": 30,
+            "target_type": 31
+          },
+          "label": "Target Table - Standard Layer"
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 1,
+          "col": 1,
+          "label": "File Name",
+          "key": "file_names",
+          "value_col": 2
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "label": "Version",
+          "key": "version",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 4, header row 5"
+      ]
+    },
+    {
+      "name": "FileNames",
+      "kind": "file_details",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "LOB",
+        "Carrier",
+        "Inbound File Name"
+      ],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "STTM/source/field_name": 1.0,
+    "STTM/source/source_type": 1.0,
+    "STTM/source/length": 1.0,
+    "STTM/source/start": 1.0,
+    "STTM/source/end": 1.0,
+    "STTM/source/comments": 1.0,
+    "STTM/rules/data_definition": 1.0,
+    "STTM/rules/pii": 1.0,
+    "STTM/rules/primary_key": 1.0,
+    "STTM/rules/critical": 1.0,
+    "STTM/rules/required": 1.0,
+    "STTM/rules/dq_rules": 1.0,
+    "STTM/rules/load_rule": 1.0,
+    "STTM/stage/workspace": 1.0,
+    "STTM/stage/catalog": 1.0,
+    "STTM/stage/schema": 1.0,
+    "STTM/stage/table": 1.0,
+    "STTM/stage/column": 1.0,
+    "STTM/stage/target_type": 1.0,
+    "STTM/standard/workspace": 1.0,
+    "STTM/standard/catalog": 1.0,
+    "STTM/standard/schema": 1.0,
+    "STTM/standard/table": 1.0,
+    "STTM/standard/column": 1.0,
+    "STTM/standard/target_type": 1.0,
+    "STTM/source/ordinal": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

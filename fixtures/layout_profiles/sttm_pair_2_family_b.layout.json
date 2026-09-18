@@ -1,0 +1,249 @@
+{
+  "fingerprint": "79e92c2bffaf4eb4b10f26d7161225ea330f3a8fb75ee6b5e67cfef6c9e38802",
+  "sheets": [
+    {
+      "name": "FILE_DETAILS",
+      "kind": "file_details",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Vendor",
+        "FileName",
+        "File Description",
+        "Location",
+        "Frequency"
+      ],
+      "notes": []
+    },
+    {
+      "name": "VERSION_HISTORY",
+      "kind": "version",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "MAPPING-",
+      "kind": "mapping",
+      "header_row": 2,
+      "band_row": 1,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "field_name": 1,
+            "null_check": 2,
+            "description": 3,
+            "sample_value": 4,
+            "source_type": 5,
+            "pii": 6,
+            "mandatory": 7,
+            "comments": 8
+          },
+          "label": "source file layout"
+        },
+        {
+          "layer": "stage",
+          "col_start": 9,
+          "col_end": 12,
+          "roles": {
+            "schema": 9,
+            "table": 10,
+            "column": 11,
+            "target_type": 12
+          },
+          "label": "stage layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 13,
+          "col_end": 16,
+          "roles": {
+            "schema": 13,
+            "table": 14,
+            "column": 15,
+            "target_type": 16
+          },
+          "label": "standard layer"
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "MAPPING-1",
+      "kind": "mapping",
+      "header_row": 2,
+      "band_row": 1,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "field_name": 1,
+            "null_check": 2,
+            "description": 3,
+            "sample_value": 4,
+            "source_type": 5,
+            "pii": 6,
+            "mandatory": 7,
+            "comments": 8
+          },
+          "label": "source file layout"
+        },
+        {
+          "layer": "stage",
+          "col_start": 9,
+          "col_end": 12,
+          "roles": {
+            "schema": 9,
+            "table": 10,
+            "column": 11,
+            "target_type": 12
+          },
+          "label": "stage layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 13,
+          "col_end": 16,
+          "roles": {
+            "schema": 13,
+            "table": 14,
+            "column": 15,
+            "target_type": 16
+          },
+          "label": "standard layer"
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "MAPPING-2",
+      "kind": "mapping",
+      "header_row": 2,
+      "band_row": 1,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "field_name": 1,
+            "null_check": 2,
+            "description": 3,
+            "sample_value": 4,
+            "source_type": 5,
+            "pii": 6,
+            "mandatory": 7,
+            "comments": 8
+          },
+          "label": "source file layout"
+        },
+        {
+          "layer": "stage",
+          "col_start": 9,
+          "col_end": 12,
+          "roles": {
+            "schema": 9,
+            "table": 10,
+            "column": 11,
+            "target_type": 12
+          },
+          "label": "stage layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 13,
+          "col_end": 16,
+          "roles": {
+            "schema": 13,
+            "table": 14,
+            "column": 15,
+            "target_type": 16
+          },
+          "label": "standard layer"
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "MAPPING-/source/field_name": 1.0,
+    "MAPPING-/source/null_check": 1.0,
+    "MAPPING-/source/description": 1.0,
+    "MAPPING-/source/sample_value": 1.0,
+    "MAPPING-/source/source_type": 1.0,
+    "MAPPING-/source/pii": 1.0,
+    "MAPPING-/source/mandatory": 1.0,
+    "MAPPING-/source/comments": 1.0,
+    "MAPPING-/stage/schema": 1.0,
+    "MAPPING-/stage/table": 1.0,
+    "MAPPING-/stage/column": 1.0,
+    "MAPPING-/stage/target_type": 1.0,
+    "MAPPING-/standard/schema": 1.0,
+    "MAPPING-/standard/table": 1.0,
+    "MAPPING-/standard/column": 1.0,
+    "MAPPING-/standard/target_type": 1.0,
+    "MAPPING-1/source/field_name": 1.0,
+    "MAPPING-1/source/null_check": 1.0,
+    "MAPPING-1/source/description": 1.0,
+    "MAPPING-1/source/sample_value": 1.0,
+    "MAPPING-1/source/source_type": 1.0,
+    "MAPPING-1/source/pii": 1.0,
+    "MAPPING-1/source/mandatory": 1.0,
+    "MAPPING-1/source/comments": 1.0,
+    "MAPPING-1/stage/schema": 1.0,
+    "MAPPING-1/stage/table": 1.0,
+    "MAPPING-1/stage/column": 1.0,
+    "MAPPING-1/stage/target_type": 1.0,
+    "MAPPING-1/standard/schema": 1.0,
+    "MAPPING-1/standard/table": 1.0,
+    "MAPPING-1/standard/column": 1.0,
+    "MAPPING-1/standard/target_type": 1.0,
+    "MAPPING-2/source/field_name": 1.0,
+    "MAPPING-2/source/null_check": 1.0,
+    "MAPPING-2/source/description": 1.0,
+    "MAPPING-2/source/sample_value": 1.0,
+    "MAPPING-2/source/source_type": 1.0,
+    "MAPPING-2/source/pii": 1.0,
+    "MAPPING-2/source/mandatory": 1.0,
+    "MAPPING-2/source/comments": 1.0,
+    "MAPPING-2/stage/schema": 1.0,
+    "MAPPING-2/stage/table": 1.0,
+    "MAPPING-2/stage/column": 1.0,
+    "MAPPING-2/stage/target_type": 1.0,
+    "MAPPING-2/standard/schema": 1.0,
+    "MAPPING-2/standard/table": 1.0,
+    "MAPPING-2/standard/column": 1.0,
+    "MAPPING-2/standard/target_type": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "mapping_prefix",
+  "unresolved": [],
+  "notes": []
+}

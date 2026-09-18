@@ -47,8 +47,12 @@ def compute_verdict(
     *,
     faq: LoadPatternFaq | None = None,
     standards: EngineeringStandardsConfig | None = None,
+    extra_flags: list[str] | None = None,
 ) -> GateResult:
-    flags: list[str] = []
+    # Layout-recognition flags (M2.5): unresolved roles read as empty,
+    # validator rejections, cross-document disagreements — never a FAIL,
+    # always a human's call.
+    flags: list[str] = list(extra_flags or [])
     # Three-input model honesty flags (never FAIL — same rule as Layer 2):
     # unanswered FAQ questions, a declared-but-not-enforced load mode, and a
     # stubbed standards document all need a human, not a red light.

@@ -243,6 +243,18 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
+## Layout recognition (added 2026-09-18, M2.5)
+
+A model decides WHERE things are, code copies the values: every extractor
+reads through a layout profile (`src/codegen/layout/`), resolved cache →
+synonyms → model → validate → user; the model sees only the fingerprint
+material (header regions / table labels, never a data row), only the
+unresolved remainder is merged out of its answer, every merged claim is
+validated against the document, and no model string can reach a contract,
+DDL or IIG cell. Full description, resolution order, validator checks,
+caches (`fixtures/layout_profiles/`, runtime under `ui/backend/state/`)
+and surfaces: `docs/LAYOUT_RECOGNITION.md`.
+
 ## FRD pairing + upstream contracts (added 2026-08-28)
 
 The run takes an **(STTM, FRD) pair**. FRD contracts come from the

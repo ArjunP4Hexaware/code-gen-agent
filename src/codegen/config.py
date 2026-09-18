@@ -215,6 +215,24 @@ class SegmentedExtractorConfig(BaseModel):
     member_reference_table: str = "facets_member"
 
 
+class ValidateConfig(BaseModel):
+    """Plausibility thresholds of the layout-profile validator (M2.5 §4):
+    the share of data cells under a claimed header that must look the part
+    before a model- or user-placed role is accepted."""
+
+    model_config = _MODEL_CONFIG
+
+    integer_like: float = Field(default=0.8, ge=0, le=1)
+    type_like: float = Field(default=0.8, ge=0, le=1)
+    yes_no_like: float = Field(default=0.8, ge=0, le=1)
+    field_name_non_empty: float = Field(default=0.9, ge=0, le=1)
+    # Type tokens the generator already accepts (emit.context._SQL_TYPES,
+    # DECIMAL(p,s)) plus the COBOL-style pictures the source bands use.
+    type_token_regex: str = (
+        r"(?:[a-z]+(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?"
+        r"|s?9\(\d+\)(?:v9+|v\d+)?|x\(\d+\)|an|n|x|9)")
+
+
 class DiscoveryConfig(BaseModel):
     """Content-driven layout discovery vocabulary (M1) — the synonym tables
     behind ``codegen.layout.discover``. EVERYTHING here is data: band-label
@@ -243,6 +261,8 @@ class DiscoveryConfig(BaseModel):
     auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)
     yes_values: list[str] = Field(default_factory=list)
     no_values: list[str] = Field(default_factory=list)
+    # Validator thresholds (M2.5 §4).
+    validate: ValidateConfig = ValidateConfig()
 
     @model_validator(mode="after")
     def _check_vocabulary(self) -> DiscoveryConfig:
@@ -632,6 +652,31 @@ class JobConfig(BaseModel):
     runtime_engine: str = ""
 
 
+class LayoutConfig(BaseModel):
+    """Layout recognition (M2.5): profile caches, the mock answer directory,
+    the provider posture and the confidence a model-placed role starts with.
+    Paths are repo-relative. A config without the section still loads."""
+
+    model_config = _MODEL_CONFIG
+
+    # Repo cache(s) of completed profiles, searched in order, keyed by the
+    # ``fingerprint`` field inside each JSON file.
+    cache_dirs: list[str] = Field(default_factory=lambda: ["fixtures/layout_profiles"])
+    # Runtime cache (gitignored under ui/backend/state/) for profiles a
+    # model + validation or a person completed.
+    runtime_cache_dir: str = "ui/backend/state/layout_profiles"
+    # Mock provider answers (adversarial + hand-written), then cache_dirs.
+    mock_dir: str = "fixtures/layout_profiles/mock"
+    # auto (live when Layer 2 is live) | mock (never call a model).
+    provider: Literal["auto", "mock"] = "auto"
+    max_tokens: int = Field(default=8192, gt=0)
+    max_attempts: int = Field(default=2, gt=0)
+    # Confidence a model-placed role starts with (validated, not trusted).
+    model_confidence: float = Field(default=0.8, ge=0, le=1)
+    # Confidence bump a cross-document agreement adds (capped at 1.0).
+    crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -659,6 +704,8 @@ class Config(BaseModel):
     load_pattern_faq: LoadPatternFaqConfig = LoadPatternFaqConfig()
     # Optional: Option B output knobs (see FrameworkConfig).
     framework: FrameworkConfig = FrameworkConfig()
+    # Optional: layout recognition caches / provider posture (M2.5).
+    layout: LayoutConfig = LayoutConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

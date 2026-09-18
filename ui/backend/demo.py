@@ -33,7 +33,14 @@ class DemoRunner:
         self._store = store
         self._work = work or self._execute  # injectable for tests
         self._lock = threading.Lock()
-        self.state: str = "idle"  # idle | running | done | failed
+        self.state: str = "idle"  # idle | running | needs_layout | done | failed
+        # M2.5 layout resolution: while a run waits for the human to place
+        # unresolved roles, ``layout_questions`` holds the question list
+        # (grouped by document in the UI) and ``_layout_answers`` the reply.
+        self.layout_questions: list[dict] = []
+        self.layout_report: dict | None = None
+        self._layout_event = threading.Event()
+        self._layout_answers: dict | None = None
         self.stages: list[dict] = []
         self.error: str | None = None
         # Label of the most recent COMPLETED run, so the UI can restore its
@@ -164,7 +171,57 @@ class DemoRunner:
             "stages": list(self.stages),
             "error": self.error,
             "last_run_label": self.last_run_label,
+            "layout_questions": list(self.layout_questions),
+            "layout_report": self.layout_report,
         }
+
+    def answer_layout(self, answers: dict | None, *, proceed: bool = False,
+                      cancel: bool = False) -> None:
+        """Deliver the human's role placements to the waiting run (or tell
+        it to proceed with empties / to stop)."""
+        if self.state != "needs_layout":
+            raise LiveRunInProgress("no live run is waiting for layout answers")
+        self._layout_answers = {"answers": answers or {}, "proceed": proceed, "cancel": cancel}
+        self._layout_event.set()
+
+    def _resolve_layout(self, workbook_path: Path, frd_path: Path, config):
+        """cache -> synonyms -> model -> validate -> user, pausing the run in
+        ``needs_layout`` until every question is answered or the human
+        chooses to proceed with the unresolved roles read as empty."""
+        from codegen.layout.model import build_layout_provider
+        from codegen.layout.resolve import parse_answers, resolve_pair
+
+        provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
+        runtime_cache = REPO_ROOT / config.layout.runtime_cache_dir
+        answers: dict = {"sttm": {}, "frd": {}}
+        while True:
+            result = resolve_pair(workbook_path, frd_path, config, provider=provider,
+                                  answers=answers, runtime_cache_dir=runtime_cache,
+                                  base_dir=REPO_ROOT)
+            self.layout_report = result.report()
+            if not result.questions:
+                return result
+            self.layout_questions = [q.as_dict() for q in result.questions]
+            self._layout_answers = None
+            self._layout_event.clear()
+            self.state = "needs_layout"
+            self._stage("needs layout", f"{len(result.questions)} unresolved role(s) — "
+                                        "waiting for the human")
+            self._layout_event.wait()
+            self.state = "running"
+            reply = self._layout_answers or {}
+            self.layout_questions = []
+            if reply.get("cancel"):
+                raise RuntimeError("layout resolution cancelled by the user")
+            merged = parse_answers(reply.get("answers") or {})
+            answers = {"sttm": {**answers["sttm"], **merged["sttm"]},
+                       "frd": {**answers["frd"], **merged["frd"]}}
+            if reply.get("proceed"):
+                result = resolve_pair(workbook_path, frd_path, config, provider=provider,
+                                      answers=answers, runtime_cache_dir=runtime_cache,
+                                      base_dir=REPO_ROOT)
+                self.layout_report = result.report()
+                return result
 
     def start_live(self) -> None:
         with self._lock:
@@ -242,7 +299,8 @@ class DemoRunner:
         import shutil
 
         run_frd = run_root / "frd.contract.json"
-        if frd_path.suffix.lower() == ".docx":
+        frd_is_docx = frd_path.suffix.lower() == ".docx"
+        if frd_is_docx:
             # M2: a .docx FRD is extracted into the run's own contract file
             # (deterministic, stdlib) — the rest of the path is unchanged.
             from codegen.extract.frd_docx import contract_to_json, extract_frd_contract
@@ -262,10 +320,16 @@ class DemoRunner:
         )
         frd_path = run_frd
 
+        self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
+        resolution = self._resolve_layout(
+            workbook_path, self.effective_frd() if frd_is_docx else frd_path, config)
+        layout_flags = list(resolution.flags)
+
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
         try:
-            extract_to_file(workbook_path, frd_path, contract_path, config)
+            extract_to_file(workbook_path, frd_path, contract_path, config,
+                            layout=resolution.sttm.profile)
         except Exception as exc:
             self._attach_pairing_hint(exc, workbook_path, frd_label)
             raise
@@ -286,6 +350,7 @@ class DemoRunner:
                     reports_dir=reports_root,
                     on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
                     output_mode=self.output_mode,
+                    extra_flags=layout_flags,
                 )
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))

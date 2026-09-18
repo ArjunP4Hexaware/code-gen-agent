@@ -77,6 +77,51 @@ class FrameworkArtefacts:
     # discriminator line and the held-back workbook Standard layer.
     assumed_notes: list[str] = field(default_factory=list)
     held_back: list[str] = field(default_factory=list)
+    # M4: gate flags this emit raised (blank-and-flag IIG columns, a DDL
+    # file name derived from the slug) — joined to the verdict by the caller.
+    flags: list[str] = field(default_factory=list)
+
+
+def _sanitize_abbrev(slug: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", slug).strip("_").upper()
+
+
+def _combined_ddl_text(spec: ResolvedFeedSpec, profile) -> str:
+    """The combined-layout deployment DDL (M4, ``acfc_prx``): stage columns
+    as the STTM stage band types them (distinct across segments, STTM
+    order), audit columns in the profile's casing, standard = the stage
+    list when the profile says so. Whitespace comes from the profile."""
+    from codegen.emit.emitter import _environment
+
+    seen: set[str] = set()
+    stage_columns: list[tuple[str, str]] = []
+    standard_columns: list[tuple[str, str]] = []
+    for segment in spec.segments:
+        for f in segment.fields:
+            if f.stage_column in seen:
+                continue
+            seen.add(f.stage_column)
+            stage_columns.append((f.stage_column, f.stage_datatype if profile.typed_stage
+                                  else "STRING"))
+            if f.standard_column is not None:
+                standard_columns.append((f.standard_column, f.standard_datatype or ""))
+    audit = [(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
+             for a in spec.audit_columns]
+    stage_table = spec.detail_segment.stage_table
+
+    def _qualified(table) -> str:
+        return ".".join(p for p in (table.catalog, table.schema_name, table.table) if p)
+
+    standard = None
+    if spec.standard_table is not None:
+        columns = stage_columns if profile.standard_from_stage else standard_columns
+        standard = {"qualified": _qualified(spec.standard_table), "columns": columns + audit}
+    template = _environment().get_template("framework/combined_ddl.txt.j2")
+    return template.render(
+        ddl=profile,
+        stage={"qualified": _qualified(stage_table), "columns": stage_columns + audit},
+        standard=standard,
+    )
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -362,11 +407,19 @@ def emit_framework(
     base_dir: Path | None = None,
     frd_path: Path | None = None,
     unmapped_rule_texts: set[str] | None = None,
+    conventions_profile: str | None = None,
+    iig_template: str | None = None,
 ) -> FrameworkArtefacts:
-    """Render one feed's Option B artefacts into ``out/<slug>/framework/``."""
+    """Render one feed's Option B artefacts into ``out/<slug>/framework/``.
+
+    ``conventions_profile`` / ``iig_template`` (M4) select the DDL layout
+    and the IIG workbook version; the defaults reproduce today's output."""
     framework_dir = out_root / spec.feed_slug / "framework"
     framework_dir.mkdir(parents=True, exist_ok=True)
     root = base_dir if base_dir is not None else Path(".")
+    profile = config.conventions.get(conventions_profile)
+    template_name, template_cfg = config.metadata.resolve(iig_template)
+    flags: list[str] = []
 
     payload = metadata_sheet_payload(
         config, root,
@@ -375,8 +428,13 @@ def emit_framework(
         run_label=spec.feed_slug,
         faq_by_slug={spec.feed_slug: faq},
         frd_path=frd_path,
+        template=template_name,
     )
     payload = _filter_payload_for_feed(payload, spec.feed_slug)
+    if template_cfg is not None:
+        from codegen.metadata_template import blank_flags
+
+        flags.extend(blank_flags(payload))
     banner = _provenance_banner_rows(spec, faq, config,
                                      _faq_sha(spec, config, base_dir))
 
@@ -411,13 +469,28 @@ def emit_framework(
             f"Table Name (FRD lists: {', '.join(frd_tables)}); omitted: "
             f"{', '.join(sorted(omitted_side_tables))} (CodeGen conventions, "
             "kept in ddl/)")
-    for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
-        txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
-        txt_path.write_text(
-            _table_creation_text(layer, entries, spec, config, banner,
-                                 extra_banner_lines=extra_banner_lines),
-            encoding="utf-8", newline="\n")
+    if profile.ddl_layout == "combined":
+        abbrev_answer = getattr(faq, "feed_abbreviation", None)
+        if abbrev_answer is not None and abbrev_answer.source != "unknown":
+            abbrev = str(abbrev_answer.value)
+        else:
+            abbrev = _sanitize_abbrev(spec.feed_slug)
+            flags.append(f"ddl_file_name_from_slug: no feed_abbreviation in the load-pattern "
+                         f"FAQ; the combined DDL is named {abbrev!r} from the feed slug")
+        ddl_names = [profile.ddl_file_name_pattern.format(feed_abbrev=abbrev)]
+        txt_path = framework_dir / ddl_names[0]
+        txt_path.write_text(_combined_ddl_text(spec, profile), encoding="utf-8", newline="")
         files.append(txt_path)
+    else:
+        ddl_names = []
+        for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
+            txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
+            txt_path.write_text(
+                _table_creation_text(layer, entries, spec, config, banner,
+                                     extra_banner_lines=extra_banner_lines),
+                encoding="utf-8", newline="\n")
+            files.append(txt_path)
+            ddl_names.append(txt_path.name)
 
     rows_workbook = build_workbook(payload)
     inputs_sheet = rows_workbook.create_sheet(title="_inputs")
@@ -433,16 +506,17 @@ def emit_framework(
         _config_inserts_workbook(payload, spec, config, banner)))
     files.append(inserts_path)
 
+    blank_list = (template_cfg.always_blank if template_cfg is not None
+                  else config.demo.metadata_sheet.always_blank)
     always_blank = [
         header
         for tab in payload["tabs"].values()
         for header in tab["headers"]
-        if header in set(config.demo.metadata_sheet.always_blank)
+        if header in set(blank_list)
     ]
     flagged = sorted(set(always_blank))
     ddl_row = (
-        f"| `{spec.feed_slug}_stage_table_creation.txt` / "
-        f"`{spec.feed_slug}_standard_table_creation.txt` | Deployment-team "
+        f"| {' / '.join(f'`{name}`' for name in ddl_names)} | Deployment-team "
         "DDL, conformant to the client's reference format (the `.sql` "
         "sources sit in `../ddl/`). **Run in the data lake by the "
         "deployment team** — the agent never creates target tables. |"
@@ -501,6 +575,7 @@ def emit_framework(
         flagged_blank_columns=flagged,
         assumed_notes=assumed_notes,
         held_back=held_back,
+        flags=flags,
     )
 
 

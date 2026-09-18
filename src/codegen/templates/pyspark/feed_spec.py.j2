@@ -32,6 +32,26 @@ STAGE_SCHEMA = {{ stage_schema | tojson }}
 
 IS_SEGMENTED = {{ "True" if is_segmented else "False" }}
 RECORD_TYPE_COLUMN: str | None = {{ record_type_column | py }}
+{% if fixed_width %}
+# Fixed-width source: (source column, 1-based start, length) per segment,
+# transcribed from the STTM source band (the VDD positions are cross-checked
+# by the gate, never sourced here).
+FIXED_WIDTH = True
+SEGMENT_POSITIONS: dict[str, list[tuple[str, int, int]]] = {
+{% for seg in segments %}
+    {{ seg.name | tojson }}: [
+{% for column, start, length in seg.positions %}
+        ({{ column | tojson }}, {{ start }}, {{ length }}),
+{% endfor %}
+    ],
+{% endfor %}
+}
+RECORD_LENGTHS: dict[str, int] = {
+{% for seg in segments %}
+    {{ seg.name | tojson }}: {{ seg.record_length }},
+{% endfor %}
+}
+{% endif %}
 
 # segment name -> shape of its stage table. Source columns land 1:1 as
 # all-String stage columns; audit columns are appended, pipeline-populated.
@@ -46,6 +66,15 @@ SEGMENTS: dict[str, dict] = {
 {% endfor %}
 }
 DETAIL_SEGMENT = "Detail"
+{% if shared_stage_table %}
+# Segments land in ONE stage table (the segment identifier keys the row):
+# the table carries the union of the segments' stage columns.
+TABLE_COLUMNS: dict[str, list[str]] = {
+{% for table in stage_tables %}
+    {{ table.stage_table | tojson }}: {{ pylist(table.stage_columns, 12) }},
+{% endfor %}
+}
+{% endif %}
 
 AUDIT_COLUMNS: list[tuple[str, str]] = [
 {% for name, dtype in audit_columns %}
@@ -139,10 +168,18 @@ def _create_table_sql(name: str, columns: list[tuple[str, str]]) -> str:
     return f"CREATE TABLE IF NOT EXISTS {name} ({column_sql}) USING DELTA"
 
 
+{% if shared_stage_table %}
+def stage_table_columns(segment: str) -> list[tuple[str, str]]:
+    """Stage tables: the shared table's union of columns as STRING + audit."""
+    table = SEGMENTS[segment]["stage_table"]
+    data_columns = [(col, "STRING") for col in TABLE_COLUMNS[table]]
+    return data_columns + AUDIT_COLUMNS
+{% else %}
 def stage_table_columns(segment: str) -> list[tuple[str, str]]:
     """Stage tables: all source columns as STRING + typed audit columns."""
     data_columns = [(col, "STRING") for col in SEGMENTS[segment]["stage_columns"]]
     return data_columns + AUDIT_COLUMNS
+{% endif %}
 
 
 def ensure_tables(spark: SparkSession, catalog: str | None = DEFAULT_CATALOG) -> None:

@@ -105,6 +105,12 @@ class LoadPatternFaq(BaseModel):
     # honest source until the client's metadata template arrives.
     has_header: FaqAnswer = FaqAnswer(value="unknown")
     has_trailer: FaqAnswer = FaqAnswer(value="unknown")
+    # M4 companions (NOT questions): the client framework's process name
+    # (IIG PROCESS_NAME / APPLICATION_NAME) and the feed abbreviation a
+    # combined DDL file is named after — client-assigned names an engineer
+    # transcribes with their citation; unanswered = blank-and-flag.
+    process_name: FaqAnswer = FaqAnswer(value="unknown")
+    feed_abbreviation: FaqAnswer = FaqAnswer(value="unknown")
     # Segmented-dialect declarations (NOT questions — banner/flag counts
     # untouched). The H/D/T record-type discriminator values are stated
     # nowhere in a segmented workbook: absent here, a segmented extraction

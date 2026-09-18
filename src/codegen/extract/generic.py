@@ -324,6 +324,17 @@ def _sheet_file_patterns(sheet: SheetData, ir: GenericIR) -> list[str]:
     return patterns
 
 
+def _rule_columns(fields, segmented: bool, predicate) -> list[str]:
+    """Source columns satisfying ``predicate``. Flat sheets: every field (as
+    before). Segmented sheets (M4): the DETAIL segment's fields only, deduped
+    — header/trailer fields are not row keys of the detail table (the
+    segmented extractor does the same)."""
+    if not segmented:
+        return [f.source_column for f in fields if predicate(f)]
+    detail = [f for f in fields if f.record_segment == "Detail"] or fields
+    return list(dict.fromkeys(f.source_column for f in detail if predicate(f)))
+
+
 def _file_details_row(feed: FrdFeed, ir: GenericIR) -> dict[str, str] | None:
     canonical = {_canonical_file_name(p) for p in feed.file_name_patterns}
     for aux in ir.auxiliary:
@@ -472,6 +483,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             source_start=_first(row, "source.start"),
             source_end=_first(row, "source.end"),
             record_segment=row.segment if segmented else None,  # type: ignore[arg-type]
+            record_segment_label=row.segment_raw if segmented else None,
             stage_table=(_first(row, "stage.table") or stage_table) if segmented else None,
             standard_table=(_first(row, "standard.table") if segmented and has_standard
                             else None),
@@ -501,12 +513,22 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     patterns = _sheet_file_patterns(sheet, ir)
     frd_canonical = {_canonical_file_name(p): p for p in feed.file_name_patterns}
     name_pattern = next((p for p in patterns if _canonical_file_name(p) in frd_canonical), None)
+    if name_pattern is None and not feed.file_name_patterns and patterns:
+        # M4: a docx-extracted FRD may name no file pattern; the workbook's
+        # meta rows / FILE_DETAILS then supply it (the resolver flags the
+        # provenance: file_pattern_from_sttm).
+        name_pattern = patterns[0]
+        notes.append(f"feed {feed.feed_name!r}: the FRD names no file pattern; taken from the "
+                     f"workbook ({name_pattern!r})")
     if name_pattern is None:
+        if not feed.file_name_patterns:
+            raise GenericExtractionError(
+                f"feed {feed.feed_name!r}: neither the FRD nor the workbook names a file pattern")
         name_pattern = feed.file_name_patterns[0]
         notes.append(f"feed {feed.feed_name!r}: file pattern taken from the FRD "
                      f"({name_pattern!r}); the workbook names none that matches")
     delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
-        _FORMAT_DELIMITERS.get(feed.file_format.lower())
+        _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
     frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
     source_system = (details or {}).get("vendor") or sheet.meta.get("file_generator") \
         or feed.source_system
@@ -522,9 +544,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             standard=(TableRef(schema=standard_schema or "", table=standard_table or "",
                                catalog=standard_catalog) if has_standard else None),
             load_rules=LoadRules(
-                not_null_columns=[f.source_column for f in fields if not f.nullable],
-                mandatory_columns=[f.source_column for f in fields if f.mandatory],
-                phi_columns=[f.source_column for f in fields if f.phi],
+                not_null_columns=_rule_columns(fields, segmented, lambda f: not f.nullable),
+                mandatory_columns=_rule_columns(fields, segmented, lambda f: f.mandatory),
+                phi_columns=_rule_columns(fields, segmented, lambda f: f.phi),
                 recycle=_recycle(sheet, config, disc),
             ),
             audit_columns=audit,

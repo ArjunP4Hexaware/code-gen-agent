@@ -137,12 +137,23 @@ def _frd_window_days(frd_feed: FrdFeed) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _sttm_segment_names(sttm_feed: SttmFeed) -> list[str]:
+    """Header / Detail / Trailer as the STTM's fields declare them, in order."""
+    return [s for s in ("Header", "Detail", "Trailer")
+            if any(f.record_segment == s for f in sttm_feed.fields)]
+
+
 def _resolve_segments(
     frd_feed: FrdFeed,
     sttm_feed: SttmFeed,
     catalog: str | None,
     errors: list[str],
+    segment_names: list[str] | None = None,
 ) -> list[SegmentSpec]:
+    # M4: a docx-extracted FRD names no segments (the F1/F2 label families
+    # have no slot for them); the STTM's Segment column is then the source,
+    # recorded as a provenance flag by the caller.
+    segment_names = segment_names if segment_names is not None else list(frd_feed.record_segments)
     stage_schema = sttm_feed.stage.schema_name
     frd_schema = frd_feed.stage_target.schema_name
     # Segmented-extraction contracts carry the workbook's identifiers
@@ -156,7 +167,7 @@ def _resolve_segments(
     if frd_schema is not None and not schemas_equal:
         errors.append(f"stage schema disagrees: STTM '{stage_schema}', FRD '{frd_schema}'")
 
-    if not frd_feed.is_segmented:
+    if not frd_feed.is_segmented and not (sttm_feed.is_segmented and segment_names):
         if sttm_feed.is_segmented:
             errors.append("STTM fields carry record_segment but the FRD declares no segments")
         if sttm_feed.stage.table not in frd_feed.stage_target.tables:
@@ -178,7 +189,7 @@ def _resolve_segments(
 
     segments: list[SegmentSpec] = []
     seen_segments: list[str] = []
-    for segment_name in frd_feed.record_segments:
+    for segment_name in segment_names:
         seg_fields = [f for f in sttm_feed.fields if f.record_segment == segment_name]
         if not seg_fields:
             errors.append(f"FRD segment '{segment_name}' has no fields in the STTM contract")
@@ -232,7 +243,7 @@ def _resolve_segments(
         seen_segments.append(segment_name)
 
     sttm_segments = {f.record_segment for f in sttm_feed.fields if f.record_segment}
-    extra = sttm_segments - set(frd_feed.record_segments)
+    extra = sttm_segments - set(segment_names)
     if extra:
         errors.append(f"STTM fields name segments the FRD does not declare: {sorted(extra)}")
 
@@ -305,13 +316,33 @@ def _resolve_one(
     catalog = frd_feed.stage_target.catalog
 
     delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config)
-    segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors)
+    provenance_flags: list[str] = []
+    segment_names: list[str] | None = None
+    if not frd_feed.is_segmented and sttm_feed.is_segmented:
+        segment_names = _sttm_segment_names(sttm_feed)
+        provenance_flags.append(
+            f"segments_from_sttm: the FRD names no record segments; the STTM's Segment "
+            f"column declares {segment_names} (sheet {sttm_feed.mapping_sheet!r})")
+    segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors, segment_names)
     # docx-extracted FRD contracts (M2) leave unsourced values null; each
-    # is a loud stop here, never a default (M4 takes the file pattern from
-    # the STTM when the FRD names none).
-    if not frd_feed.file_name_patterns:
-        errors.append("FRD names no file pattern (docx-extracted contract with no file "
-                      "pattern label)")
+    # is a loud stop here, never a default — except the file pattern, which
+    # the STTM's meta rows / FILE_DETAILS supply when the FRD names none
+    # (M4), flagged as such.
+    file_name_patterns = list(frd_feed.file_name_patterns)
+    if not file_name_patterns:
+        sttm_patterns = [p.strip() for p in re.split(r"[;\n,]+", sttm_feed.source_file.name_pattern)
+                         if p.strip()]
+        meta_names = sttm_feed.meta_rows.get("file_names")
+        if meta_names:
+            sttm_patterns = [p.strip() for p in re.split(r"[;\n,]+", meta_names) if p.strip()]
+        if sttm_patterns:
+            file_name_patterns = sttm_patterns
+            provenance_flags.append(
+                f"file_pattern_from_sttm: the FRD names no file pattern; the STTM states "
+                f"{sttm_patterns} (meta row 'File Names' / FILE_DETAILS)")
+        else:
+            errors.append("FRD names no file pattern (docx-extracted contract with no file "
+                          "pattern label) and the STTM states none either")
     if frd_feed.file_format is None:
         errors.append("FRD states no file format (Object/data Format blank or absent)")
     if frd_feed.stage_target.load_strategy is None:
@@ -434,7 +465,7 @@ def _resolve_one(
         lobs=frd_feed.lobs,
         domain=frd_feed.domain,
         sub_domain=frd_feed.sub_domain,
-        file_name_patterns=frd_feed.file_name_patterns,
+        file_name_patterns=file_name_patterns,
         file_format=frd_feed.file_format,
         delimiter=delimiter,
         landing_location=frd_feed.landing_location,
@@ -462,6 +493,7 @@ def _resolve_one(
         # the FRD's rules state an AS-IS load (acceptance criterion 3 shape).
         load_as_is=any(_AS_IS_RE.search(r) for r in frd_feed.validation_rules),
         source_table=sttm_feed.source_table,
+        provenance_flags=provenance_flags,
     )
 
 

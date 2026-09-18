@@ -1,0 +1,39 @@
+# Load-pattern FAQ — Accumulators (the pair-1 ACFC shape fixture).
+#
+# Every answer cites the document cell or the client artefact it rests on.
+# The record-type discriminators are the STTM's own words (the Segment
+# Identifier description); the framework process name and the DDL file
+# abbreviation are client framework names transcribed from the pair-1
+# RFC package (aliased per fixtures/acfc_shapes/ALIASES.md).
+schema_version: 1
+load_frequency:
+  value: daily
+  source: frd
+  evidence: 'FRD Descriptive Metadata → Frequency: "Daily"'
+load_mode:
+  value: append
+  source: frd
+  evidence: 'FRD Structural Metadata → Load Strategy STG: "Append"'
+has_header:
+  value: "no"
+  source: engineer
+  evidence: "fixed-width file; the first record is the Header SEGMENT (00), not a column-header row"
+has_trailer:
+  value: "yes"
+  source: engineer
+  evidence: 'STTM FEED_1_MAPPING Segment column: TRLR rows (SEGMENT_IDENTIFIER, LINE_COUNT, FILLER_3)'
+record_type_discriminators:
+  header: "00"
+  detail: "10"
+  trailer: "99"
+  status: confirmed
+  # STTM FEED_1_MAPPING row 16, SEGMENT_IDENTIFIER Description:
+  # "Record segment marker: 00 header, 10 detail, 99 trailer"
+process_name:
+  value: VND_P_ACCUMULATOR
+  source: engineer
+  evidence: "client framework process name from the pair-1 RFC package (IIG PROCESS_NAME / APPLICATION_NAME), aliased"
+feed_abbreviation:
+  value: ACCUM
+  source: engineer
+  evidence: "client DDL file name in the pair-1 RFC package: ACCUM_DDL.txt"

@@ -195,6 +195,9 @@ class SttmField(BaseModel):
     standard_table: str | None = None
     # M1: the cell this field came from + the layout source that read it.
     provenance: FieldProvenance | None = None
+    # M4: the segment spelling as the workbook writes it (HDDR / DET / TRLR
+    # …) — the framework's fixed-width handler rows carry it verbatim.
+    record_segment_label: str | None = None
     # M3: the source band's length / start / end cells, verbatim, when the
     # layout carries those roles — compared against the VDD by the gate.
     source_length: str | None = None

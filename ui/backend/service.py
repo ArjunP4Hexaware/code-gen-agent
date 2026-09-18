@@ -179,12 +179,16 @@ class GenerationStore:
         on_stage: Callable[[str], None] | None = None,
         output_mode: str | None = None,
         extra_flags: list[str] | None = None,
+        conventions_profile: str | None = None,
+        iig_template: str | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
+        from codegen.gate.drag_fill import drag_fill_flags
         from codegen.gate.vdd_check import vdd_cross_check
 
         vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
-        extra_flags = [*(extra_flags or []), *vdd_flags]
+        extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
+                       *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
         stage = on_stage or (lambda _detail: None)
@@ -241,7 +245,8 @@ class GenerationStore:
             )
             framework_artefacts = _run_emit_framework(
                 spec, faq, ddl_sources, self.config, out_root, outcomes,
-                base_dir=REPO_ROOT,
+                base_dir=REPO_ROOT, conventions_profile=conventions_profile,
+                iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
         else:
@@ -251,9 +256,12 @@ class GenerationStore:
                 ddl_sources = _read_ddl_sources(feed_dir)
                 framework_artefacts = _run_emit_framework(
                     spec, faq, ddl_sources, self.config, out_root, outcomes,
-                    base_dir=REPO_ROOT,
+                    base_dir=REPO_ROOT, conventions_profile=conventions_profile,
+                    iig_template=iig_template,
                 )
                 written = [*written, *framework_artefacts.files]
+        if framework_artefacts is not None:
+            extra_flags = [*extra_flags, *framework_artefacts.flags]
         self._write_candidates_artifact(candidates, feed_dir)
 
         stage("gate")

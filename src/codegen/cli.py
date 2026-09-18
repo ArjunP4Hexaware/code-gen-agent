@@ -73,6 +73,8 @@ def _generate_feed(
     skip_tests: bool,
     output_mode: str | None = None,
     extra_flags: list[str] | None = None,
+    conventions_profile: str | None = None,
+    iig_template: str | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -83,10 +85,14 @@ def _generate_feed(
     candidates = run_reasoning(spec, outcomes, provider)
     # M3: STTM-vs-VDD cross-check — one flag per mismatch citing both cells;
     # a fixed-width FRD with no VDD positions is a failed gate check.
+    # M4: resolver provenance flags (facts taken from the STTM because the
+    # FRD named none) and the drag-fill detector ride the same list.
+    from codegen.gate.drag_fill import drag_fill_flags
     from codegen.gate.vdd_check import vdd_cross_check
 
     vdd_flags, vdd_check = vdd_cross_check(spec, config)
-    extra_flags = [*(extra_flags or []), *vdd_flags]
+    extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
+                   *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
     # same review artifact and decision flow as Layer-2 candidates.
     candidates = [*segmented_review_items(spec), *candidates]
@@ -123,7 +129,8 @@ def _generate_feed(
             context, spec, config, feed_dir, skip_tests
         )
         framework_artefacts = _run_emit_framework(
-            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None
+            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
+            conventions_profile=conventions_profile, iig_template=iig_template,
         )
         written = [*written, *framework_artefacts.files]
     else:
@@ -132,9 +139,12 @@ def _generate_feed(
         if effective_mode == "both":
             ddl_sources = _read_ddl_sources(feed_dir)
             framework_artefacts = _run_emit_framework(
-                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None
+                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
+                conventions_profile=conventions_profile, iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
+    if framework_artefacts is not None:
+        extra_flags = [*extra_flags, *framework_artefacts.flags]
     _write_candidates_artifact(candidates, feed_dir)
 
     if checks is None:
@@ -207,7 +217,7 @@ def _emit_framework_only(context, spec, config, feed_dir, skip_tests):
 
 
 def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
-                        base_dir):
+                        base_dir, conventions_profile=None, iig_template=None):
     from codegen.emit.framework import emit_framework
 
     contracts_dir = Path(config.contracts.dir)
@@ -221,6 +231,8 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
         unmapped_rule_texts={
             o.rule_text for o in outcomes if o.classification == "unmapped"
         },
+        conventions_profile=conventions_profile,
+        iig_template=iig_template,
     )
 
 
@@ -233,6 +245,8 @@ def _run_pairs(
     skip_tests: bool,
     output_mode: str | None = None,
     vdd_path: Path | None = None,
+    conventions_profile: str | None = None,
+    iig_template: str | None = None,
 ) -> int:
     failed = False
     matched_feed = False
@@ -249,7 +263,9 @@ def _run_pairs(
             matched_feed = True
             try:
                 gate = _generate_feed(spec, config, dry_run=dry_run,
-                                      skip_tests=skip_tests, output_mode=output_mode)
+                                      skip_tests=skip_tests, output_mode=output_mode,
+                                      conventions_profile=conventions_profile,
+                                      iig_template=iig_template)
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -809,6 +825,12 @@ def main(argv: list[str] | None = None) -> int:
                           help="STTM mapping contract JSON (the pair's STTM side)")
     generate.add_argument("--vdd-contract", "--vdd", dest="vdd_contract",
                           help="VDD contract JSON (codegen extract-vdd) — the pair's third input")
+    generate.add_argument("--profile", dest="conventions_profile", default=None,
+                          help="conventions profile (config conventions.profiles; default "
+                               "conventions.profile — edo_sfmc = today's output)")
+    generate.add_argument("--iig-template", dest="iig_template", default=None,
+                          help="IIG workbook template version (iig_v1 = demo.metadata_sheet, "
+                               "or a key of config metadata.templates)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 

@@ -39,6 +39,9 @@ def merge_detail(
         feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["stage_table"], catalog
     )
     target = DeltaTable.forName(spark, table)
+{% if shared_stage_table %}
+    df = _align(df, feed_spec.stage_table_columns(feed_spec.DETAIL_SEGMENT))
+{% endif %}
     merge_keys = ["SRC_FILE_NAME", *feed_spec.NATURAL_KEY_COLUMNS]
     condition = " AND ".join(f"t.`{key}` <=> s.`{key}`" for key in merge_keys)
     update_set = {
@@ -70,8 +73,22 @@ def replace_segment(
     target = DeltaTable.forName(spark, table)
     target.delete(F.col(audit.SRC_FILE_NAME_COLUMN) == F.lit(src_file_name))
     if count:
+{% if shared_stage_table %}
+        df = _align(df, feed_spec.stage_table_columns(segment))
+{% endif %}
         df.write.format("delta").mode("append").saveAsTable(table)
     return count
+
+
+{% endif %}
+{% if shared_stage_table %}
+def _align(df: DataFrame, columns: list[tuple[str, str]]) -> DataFrame:
+    """Segments share one stage table: add the columns this segment lacks
+    as nulls and order the frame like the table."""
+    for column, _dtype in columns:
+        if column not in df.columns:
+            df = df.withColumn(column, F.lit(None).cast("string"))
+    return df.select(*[column for column, _dtype in columns])
 
 
 {% endif %}

@@ -1,0 +1,31 @@
+{#- Combined deployment DDL for a "combined" conventions profile (acfc_prx):
+    one file, '--stage table' / '--standard table' banners, CREATE OR REPLACE,
+    bare column lines (name type), no LOCATION / CLUSTER BY / TAGS / comments,
+    `USING delta` per profile casing. Whitespace is data here: every blank
+    line, the optional leading newline, the per-block prefix before the USING
+    clause and the absence of a trailing newline reproduce the client golden
+    byte for byte (docs/acfc/rfc_capture goldens/pair_1/ACCUM_DDL.txt). -#}
+{{ "\n" if ddl.leading_newline else "" }}{{ ddl.stage_banner }}
+
+{{ ddl.create_statement }} {{ stage.qualified }}
+(
+{% for name, dtype in stage.columns %}
+{{ name }} {{ dtype }}{{ "," if not loop.last }}
+{% endfor %}
+)
+{{ ddl.block_using_prefix.get("stage", "") }}
+{{ ddl.using_clause }}
+{% if standard %}
+
+{{ ddl.standard_banner }}
+
+{{ ddl.create_statement }} {{ standard.qualified }}
+(
+{% for name, dtype in standard.columns %}
+{{ name }} {{ dtype }}{{ "," if not loop.last }}
+{% endfor %}
+)
+{{ ddl.block_using_prefix.get("standard", "") }}
+{{ ddl.using_clause }}{{ "\n" if ddl.trailing_newline else "" }}
+{%- else %}{{ "\n" if ddl.trailing_newline else "" }}
+{%- endif %}

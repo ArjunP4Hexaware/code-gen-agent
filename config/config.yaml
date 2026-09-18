@@ -674,3 +674,128 @@ job:
   # EDO coding standard: never leave the platform default (7-day) timeout —
   # set execution hours + 1. The SFMC FRD's file SLA is 6 hours => 7.
   timeout_hours: 7
+
+conventions:
+  # M4 (2026-09-18): client conventions profiles for the deployment-team DDL.
+  # edo_sfmc is TODAY'S output exactly (two .txt files conformant to the SFMC
+  # reference goldens). acfc_prx is the pair-1 RFC package shape
+  # (docs/acfc/rfc_capture/.../goldens/pair_1/ACCUM_DDL.txt): one combined
+  # file, '--stage table' / '--standard table' banners, CREATE OR REPLACE,
+  # stage columns TYPED as the STTM stage band states them, audit columns in
+  # upper-case types, standard = the stage column list, no LOCATION /
+  # CLUSTER BY / TBLPROPERTIES / TAGS / COMMENTs. Whitespace knobs are data:
+  # the golden opens with a blank line, has a lone-space line before the
+  # standard block's USING clause, and ends WITHOUT a trailing newline.
+  # CLI: codegen generate --profile <name>.
+  profile: edo_sfmc
+  profiles:
+    edo_sfmc:
+      ddl_layout: two_files
+    acfc_prx:
+      ddl_layout: combined
+      # {feed_abbrev} = the load-pattern FAQ's feed_abbreviation (a
+      # client-assigned name); absent -> sanitized feed slug + a gate flag.
+      ddl_file_name_pattern: "{feed_abbrev}_DDL.txt"
+      typed_stage: true
+      standard_from_stage: true
+      create_statement: "CREATE OR REPLACE TABLE"
+      using_clause: "USING delta"
+      stage_banner: "--stage table"
+      standard_banner: "--standard table"
+      leading_newline: true
+      trailing_newline: false
+      block_using_prefix: {stage: "", standard: " "}
+      audit_type_casing: {String: STRING, Timestamp: TIMESTAMP}
+
+metadata:
+  # M4: IIG workbook template versions. iig_v1 = demo.metadata_sheet (the
+  # SFMC 7-tab reference layout, today's output byte for byte). iig_v2 is the
+  # pair-1 RFC package's 8-sheet layout: sheet names, order and headers
+  # transcribed from the aliased golden RFC_ACCUMULATORS_IIG.xlsx in ITS
+  # order (including the golden's DATABRICKS_NOTEBOOK_DETAILS header order
+  # ... CLUSTER_DETAILS_ID, DELETE_DATABRICKS_NOTEBOOK_NAME, DQ_NOTEBOOK_PATH).
+  # Every cell is transcribed from an input (STTM/FRD/FAQ) or is one of the
+  # constants / template rows below — framework vocabulary the golden shows
+  # constant across rows, badged synthetic with this citation — or is left
+  # blank and flagged (iig_blank:<TAB>.<HEADER>). CLI: --iig-template.
+  template: iig_v1
+  templates:
+    iig_v2:
+      citation: "pair-1 RFC package (aliased golden RFC_ACCUMULATORS_IIG.xlsx, docs/acfc/rfc_capture)"
+      tabs:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          headers: [PIPELINE_ID, PIPELINE_NAME, PARENT_PIPELINE_ID, PIPELINE_DESCRIPTION, PIPELINE_FREQUENCY, NO_OF_CYCLE_PER_DAY, DAY_OF_SCHEDULE, ACTIVE_FLAG, ACTIVE_START_DATE, ACTIVE_END_DATE, ESTIMATED_START_TIME, APPLICATION_NAME, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+        FILE_ADLS_INGESTION_DETAILS:
+          headers: [GROUP_ID, OBJECT_ID, DOMAIN, SUBDOMAIN, PIPELINE_ID, SRC_CONNECTION_ID, SRC_ROOT_DIR, TGT_CONTAINER_NAME, TGT_ADLS_PATH, SOURCE_TYPE, SRC_EXTRACT_START_TIME, COPY_START_TIME_OFFSET_IN_MINUTES, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, TGT_STORAGE_ACCOUNT_NAME]
+        ADLS_DELTA_INGESTION_DETAILS:
+          headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_FILE_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_FILE_DELIMITER, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, HEADER_FLAG, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, MANDATORY_FIELD_LIST, TGT_CONNECTION_ID, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, RECYCL_ENBL_FLG, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, MAPPING_EXPRESSION, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+        STGDELTA_STDDELTA_INGESTION_DET:
+          headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_TABLE_NAME, SRC_CATALOG_NAME, SRC_SCHEMA_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_ADLS_ARCHVL_PATH, TGT_CONNECTION_ID, TGT_CATALOG_NAME, TGT_SCHEMA_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+        ADLS_FIXED_WIDTH_HANDLER:
+          headers: [PROCESS_NAME, VERSION, SEGMNT_TYP, ACTIVE_FLAG, SEGMENT, SEGMENT_FILTER, COL, LEN, start_ind, TGT_TABLE, PIPELINE_ID, FILE_TYPE, EXTENSION, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, TGT_AUDIT_CLMS, SRC_ADLS_ARCHVL_PATH, IS_MANDATORY, COLUMN_VALIDATIONS, FILE_REJECTION, RJCT_RSN_COLUMN_NM]
+        DATABRICKS_NOTEBOOK_DETAILS:
+          headers: [PIPELINE_ID, PIPELINE_NAME, GROUP_ID, SEQ_NM, PROCESS_NAME, TGT_REFRESH_TYPE, ACTIVE_FLAG, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, DATABRICKS_NOTEBOOK_PATH, DATABRICKS_NOTEBOOK_NAME, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, CLUSTER_DETAILS_ID, DELETE_DATABRICKS_NOTEBOOK_NAME, DQ_NOTEBOOK_PATH]
+        DATA_QUALITY_RULES:
+          headers: [GROUP_ID, OBJECT_ID, SEQUENCE_NO, RULE_TYPE, RULE_CLASS, ACTIVE_RULE_FLG, SOURCE_COLUMN, INPUT_PARAM, TARGET_COLUMN, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+        EMAIL_TEMPLATE_CONFIG:
+          headers: [TEMPLATE_ID, TEMPLATE_NAME, PROCESS_NAME, STATUS, ACTIVE_FLAG, SUBJECT, BODY, BODY_QUERY, SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+      # Framework-assigned identifiers, connections, containers, the storage
+      # account, workspace/cluster/secret handles, template IDs and the
+      # audit stamps: always blank, never invented.
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+      # Derivation knobs (each names the golden cell shape it reproduces).
+      src_columns_style: positional        # SRC_COLUMNS 'col1:SEGMENT_IDENTIFIER,...'
+      data_type_style: base                # SRC_DATA_TYPE 'String:Decimal', 'Decimal:Decimal'
+      rows_per_file_pattern: true          # one ADLS_DELTA / DQ object per file pattern
+      object_name_from_pattern: true       # 'I_ACCUM_*_TO_CLIENT_*.csv' -> I_ACCUM_TO_CLIENT
+      reject_table_suffix: "_reject"       # TGT_RJT_TABLE_NAME = <stage table>_reject
+      segment_filter_pattern: "value like '{value}%'"   # from the FAQ's confirmed discriminators
+      dq_rules: [date_format, data_type_cast]
+      dq_rule_classes: {date_format: DateFormatRule, data_type_cast: DataTypeCastRule}
+      # STTM Load Rule 'Convert yyyyMMdd to yyyy-MM-dd' -> INPUT_PARAM 'yyyyMMdd--yyyy-MM-dd'
+      date_format_rule_regex: '^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$'
+      date_format_param_joiner: "--"
+      cast_type_order: [Decimal, Date]     # DataTypeCastRule lists decimals, then dates
+      # The golden IIG spells the audit types 'String' / 'TIMESTAMP' (its DDL
+      # says STRING) — transcribed as the IIG states them.
+      audit_type_casing: {String: String, Timestamp: TIMESTAMP}
+      # Synthetic path shapes per sheet ({landing} = the FRD ADLS Location);
+      # the golden spells the archive path two ways, transcribed as such.
+      path_patterns:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_ARCHVL_PATH: "{landing}Archive/"
+          TGT_ADLS_PATH: "{landing}Processed/{stage_table}"
+          TGT_RJT_ADLS_PATH: "{landing}Processed/{reject_table}"
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: "{landing}Processed/"
+          SRC_ADLS_ARCHVL_PATH: "/Archive{landing}"
+          TGT_ADLS_PATH: "{landing}Processed/{stage_table}"
+          TGT_RJT_ADLS_PATH: "{landing}Processed/{reject_table}"
+        ADLS_FIXED_WIDTH_HANDLER:
+          SRC_ADLS_ARCHVL_PATH: "/Archive{landing}"
+      # Framework vocabulary constant across every golden row (synthetic).
+      constants:
+        DATA_FACTORY_PIPELINE_SCHEDULE: {NO_OF_CYCLE_PER_DAY: "1", DAY_OF_SCHEDULE: "0", ACTIVE_FLAG: "Y", ACTIVE_END_DATE: "9999-12-31"}
+        FILE_ADLS_INGESTION_DETAILS: {SOURCE_TYPE: "File", COPY_START_TIME_OFFSET_IN_MINUTES: "0"}
+        ADLS_DELTA_INGESTION_DETAILS: {ACTIVE_FLAG: "Y", TGT_FORMAT: "delta", SRC_COMPRESSION: "N", MULTILINE_FLAG: "N", SCHEMA_DRIFT_FLAG: "N", TGT_PARTITION_COLUMN: "NA", TGT_PARTITION_VALUE: "NA", RECYCL_TBL_NM: "NA", RECYCL_ADLS_PATH: "NA"}
+        STGDELTA_STDDELTA_INGESTION_DET: {ACTIVE_FLAG: "Y", SRC_FORMAT: "delta", TGT_FORMAT: "delta", TGT_PARTITION_COLUMN: "NA", TGT_PARTITION_VALUE: "NA"}
+        ADLS_FIXED_WIDTH_HANDLER: {ACTIVE_FLAG: "Y", IS_MANDATORY: "N", COLUMN_VALIDATIONS: "NA"}
+        DATABRICKS_NOTEBOOK_DETAILS: {SEQ_NM: "1", ACTIVE_FLAG: "Y"}
+        DATA_QUALITY_RULES: {RULE_TYPE: "Custom", ACTIVE_RULE_FLG: "Y"}
+        EMAIL_TEMPLATE_CONFIG: {ACTIVE_FLAG: "Y"}
+      # Template rows: the framework's pipeline/notebook inventory as the
+      # golden lists it (synthetic; the client's framework team owns these
+      # names). '_layer' steers which FRD load strategy feeds TGT_REFRESH_TYPE.
+      template_rows:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          - {PIPELINE_NAME: PARENT_PIPELINE, PIPELINE_DESCRIPTION: PARENT_PIPELINE}
+          - {PIPELINE_NAME: FILE_ONPREM_ADLS, PIPELINE_DESCRIPTION: "On Prem to Raw"}
+          - {PIPELINE_NAME: FILE_RAW_TO_STAGE, PIPELINE_DESCRIPTION: "Raw to Stage"}
+          - {PIPELINE_NAME: STAGE_TO_STD, PIPELINE_DESCRIPTION: "Stage to Std"}
+        DATABRICKS_NOTEBOOK_DETAILS:
+          - {PIPELINE_NAME: PL_VND_P_INGESTION_REPORT, DATABRICKS_NOTEBOOK_NAME: Daily_Ingested_Status_Report_V2, _layer: stage}
+          - {PIPELINE_NAME: PL_CHLD_FILE_RAW_STAGE_VND_P_HANDLER, DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V1, _layer: stage}
+          - {PIPELINE_NAME: PL_CHLD_FILE_STG_STD_VND_P_HANDLER, DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard}
+        EMAIL_TEMPLATE_CONFIG:
+          - {STATUS: Success}
+          - {STATUS: Failed}

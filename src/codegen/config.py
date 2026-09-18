@@ -698,6 +698,119 @@ class LayoutConfig(BaseModel):
     crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
 
 
+class ConventionsProfileConfig(BaseModel):
+    """One client conventions profile (M4): how the deployment DDL is laid
+    out. ``edo_sfmc`` (two files, the SFMC reference goldens) is today's
+    output exactly; ``acfc_prx`` is the pair-1 combined-file shape. Every
+    whitespace knob is data because the client golden is compared byte for
+    byte."""
+
+    model_config = _MODEL_CONFIG
+
+    # two_files: <slug>_stage/_standard_table_creation.txt (today) |
+    # combined: ONE file with '--stage table' / '--standard table' banners.
+    ddl_layout: Literal["two_files", "combined"] = "two_files"
+    # combined-layout file name; {feed_abbrev} = the FAQ's feed_abbreviation
+    # (client-assigned), else the sanitized slug + a flag.
+    ddl_file_name_pattern: str = "{feed_abbrev}_DDL.txt"
+    # Stage columns typed as the STTM stage band states them (not STRING).
+    typed_stage: bool = False
+    # Standard table column list = the stage list (client convention).
+    standard_from_stage: bool = False
+    create_statement: str = "CREATE OR REPLACE TABLE"
+    using_clause: str = "USING delta"
+    stage_banner: str = "--stage table"
+    standard_banner: str = "--standard table"
+    leading_newline: bool = False
+    trailing_newline: bool = True
+    # Text between the closing ')' line and the USING clause, per block.
+    block_using_prefix: dict[str, str] = Field(default_factory=dict)
+    # Audit-column type spelling in the DDL (contract enum -> as written).
+    audit_type_casing: dict[str, str] = Field(default_factory=dict)
+
+
+class ConventionsConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    profile: str = "edo_sfmc"
+    profiles: dict[str, ConventionsProfileConfig] = Field(
+        default_factory=lambda: {"edo_sfmc": ConventionsProfileConfig()})
+
+    @model_validator(mode="after")
+    def _profile_exists(self) -> ConventionsConfig:
+        if self.profile not in self.profiles:
+            raise ValueError(f"conventions.profile {self.profile!r} is not one of "
+                             f"{sorted(self.profiles)}")
+        return self
+
+    def get(self, name: str | None) -> ConventionsProfileConfig:
+        key = name or self.profile
+        if key not in self.profiles:
+            raise ValueError(f"unknown conventions profile {key!r}; expected one of "
+                             f"{sorted(self.profiles)}")
+        return self.profiles[key]
+
+
+class MetadataTemplateConfig(BaseModel):
+    """An IIG workbook template version (M4) other than the default
+    ``iig_v1`` (= ``demo.metadata_sheet``): sheets + headers transcribed
+    from the client's golden, the framework-assigned always-blank columns,
+    and the derivation knobs the row builders read. ``constants`` /
+    ``template_rows`` are framework vocabulary the config carries WITH its
+    citation — never a guess."""
+
+    model_config = _MODEL_CONFIG
+
+    tabs: dict[str, DemoMetadataTabConfig]
+    always_blank: list[str] = Field(default_factory=list)
+    citation: str = ""
+    # SRC_COLUMNS: name_pair 'src:stage' | positional 'col<i>:<stage>'.
+    src_columns_style: Literal["name_pair", "positional"] = "name_pair"
+    # SRC_DATA_TYPE pairs: full types | base types ('Decimal' for Decimal(17,2)).
+    data_type_style: Literal["full", "base"] = "full"
+    rows_per_file_pattern: bool = False
+    object_name_from_pattern: bool = False
+    reject_table_suffix: str | None = None
+    segment_filter_pattern: str | None = None
+    dq_rules: list[Literal["date_format", "data_type_cast"]] = Field(default_factory=list)
+    dq_rule_classes: dict[str, str] = Field(default_factory=dict)
+    date_format_rule_regex: str = r"^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$"
+    date_format_param_joiner: str = "--"
+    cast_type_order: list[str] = Field(default_factory=list)
+    audit_type_casing: dict[str, str] = Field(default_factory=dict)
+    # tab -> header -> path shape with {landing} {stage_table} {reject_table}
+    # (the golden spells the archive path differently per sheet).
+    path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    constants: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # tab -> rows of header -> value; keys starting with '_' steer the
+    # builder (e.g. _layer: standard) and never render.
+    template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+
+
+class MetadataConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    # iig_v1 = demo.metadata_sheet (today's layout, byte for byte).
+    template: str = "iig_v1"
+    templates: dict[str, MetadataTemplateConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _template_exists(self) -> MetadataConfig:
+        if self.template != "iig_v1" and self.template not in self.templates:
+            raise ValueError(f"metadata.template {self.template!r} is neither iig_v1 nor one of "
+                             f"{sorted(self.templates)}")
+        return self
+
+    def resolve(self, name: str | None) -> tuple[str, MetadataTemplateConfig | None]:
+        key = name or self.template
+        if key == "iig_v1":
+            return key, None
+        if key not in self.templates:
+            raise ValueError(f"unknown IIG template {key!r}; expected iig_v1 or one of "
+                             f"{sorted(self.templates)}")
+        return key, self.templates[key]
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -727,6 +840,9 @@ class Config(BaseModel):
     framework: FrameworkConfig = FrameworkConfig()
     # Optional: layout recognition caches / provider posture (M2.5).
     layout: LayoutConfig = LayoutConfig()
+    # Optional (M4): client conventions profiles + IIG template versions.
+    conventions: ConventionsConfig = ConventionsConfig()
+    metadata: MetadataConfig = MetadataConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

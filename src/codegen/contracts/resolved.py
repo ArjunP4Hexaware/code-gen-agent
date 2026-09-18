@@ -151,6 +151,9 @@ class ResolvedFeedSpec(BaseModel):
     # M3: the STTM's source table (database-table sources), for VDD sheet
     # selection in one-sheet-per-table dictionaries.
     source_table: str | None = None
+    # M4: facts the resolver took from the STTM because the FRD named none
+    # (file pattern, record segments) — surfaced as gate flags, never silent.
+    provenance_flags: list[str] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

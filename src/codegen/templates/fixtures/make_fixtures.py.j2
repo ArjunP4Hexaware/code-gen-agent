@@ -57,14 +57,44 @@ def _rows(n: int, key_prefix: str) -> list[dict[str, str]]:
 
 
 {% if is_segmented %}
+{% if fixed_width %}
+POSITIONS: dict[str, list[tuple[str, int, int]]] = {
+{% for seg in segments %}
+    {{ seg.name | tojson }}: [
+{% for column, start, length in seg.positions %}
+        ({{ column | tojson }}, {{ start }}, {{ length }}),
+{% endfor %}
+    ],
+{% endfor %}
+}
+
+
+def _line(segment: str, values: dict[str, str]) -> str:
+    return "".join(
+        str(values.get(column, "")).ljust(length)[:length]
+        for column, _start, length in POSITIONS[segment]
+    )
+
+
+{% endif %}
 def _write(name: str, rows: list[dict[str, str]], trailer_count: int | None = None) -> None:
     trailer = dict(TRAILER_ROW)
-    trailer[TRAILER_COUNT_COLUMN] = str(trailer_count if trailer_count is not None else len(rows))
+    trailer[TRAILER_COUNT_COLUMN or ""] = str(
+        trailer_count if trailer_count is not None else len(rows)
+    )
+{% if fixed_width %}
+    lines = [
+        _line("Header", HEADER_ROW),
+        *[_line("Detail", row) for row in rows],
+        _line("Trailer", trailer),
+    ]
+{% else %}
     lines = [
         DELIMITER.join(HEADER_ROW.values()),
         *[DELIMITER.join(row.values()) for row in rows],
         DELIMITER.join(trailer.values()),
     ]
+{% endif %}
     path = OUT_DIR / name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {path}")

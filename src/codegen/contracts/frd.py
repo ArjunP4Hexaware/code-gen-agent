@@ -107,6 +107,40 @@ class Provenance(BaseModel):
     grounding: GroundingSummary
 
 
+class StructuredRow(BaseModel):
+    """One row of a nested table (``key`` = first column) or one per-file
+    block (``key`` = the heading line); ``values`` = header/label -> text."""
+
+    model_config = _MODEL_CONFIG
+
+    key: str
+    values: dict[str, str] = Field(default_factory=dict)
+
+
+class StructuredValue(BaseModel):
+    """M7: a docx cell the reader refused to take as a scalar value — a
+    nested table, per-file blocks, a pointer to another document, a
+    label-prefixed description, or text that still spans lines. The feed
+    field stays UNSTATED; this records what the cell held (text truncated,
+    logged, never written to an output) so the layout stage can resolve a
+    nested table / block per derived feed and the gate can flag the rest."""
+
+    model_config = _MODEL_CONFIG
+
+    kind: Literal["nested_table", "per_file_blocks", "pointer", "label_prefixed", "multiline"]
+    table: int
+    row: int
+    col: int
+    label: str
+    text: str = ""
+    # pointer: the document / place the sentence names.
+    target: str | None = None
+    # label_prefixed: the label seen in front of '='.
+    prefix_label: str | None = None
+    headers: list[str] = Field(default_factory=list)
+    rows: list[StructuredRow] = Field(default_factory=list)
+
+
 class FieldEvidence(BaseModel):
     """M2: where a docx-extracted field was read — Word table index, row and
     label cell, the label text as seen, the metadata section, the inline
@@ -191,3 +225,6 @@ class FrdContract(BaseModel):
     # Both default so upstream contract JSON still loads unchanged.
     field_provenance: dict[str, FieldEvidence] = Field(default_factory=dict)
     layout: FrdLayoutSummary | None = None
+    # M7: cells refused as scalar values (see StructuredValue), keyed by the
+    # contract path they were read for. Default so older JSON loads unchanged.
+    structured: dict[str, StructuredValue] = Field(default_factory=dict)

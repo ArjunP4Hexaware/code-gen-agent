@@ -92,6 +92,14 @@ class FrdDocxError(ValueError):
 class DocxContent:
     tables: list[list[list[str]]]       # table -> row -> cell texts
     paragraphs: list[tuple[int, str]]   # (index of the next table, text) for body paragraphs
+    # M7: tables nested INSIDE a cell, keyed (table, row, col) -> rows of cell
+    # texts. The flat ``tables`` text of such a cell is the nested cells
+    # joined by newlines (unchanged, so fingerprints stay stable).
+    nested: dict[tuple[int, int, int], list[list[str]]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.nested is None:
+            object.__setattr__(self, "nested", {})
 
 
 def _cell_text(tc) -> str:
@@ -120,11 +128,19 @@ def read_docx(path: Path) -> DocxContent:
         raise FrdDocxError(f"{path.name}: document has no body")
     tables: list[list[list[str]]] = []
     paragraphs: list[tuple[int, str]] = []
+    nested: dict[tuple[int, int, int], list[list[str]]] = {}
     for child in body:
         if child.tag == f"{_W}tbl":
             rows = []
-            for tr in child.findall(f"{_W}tr"):
-                rows.append([_cell_text(tc) for tc in tr.findall(f"{_W}tc")])
+            for row_index, tr in enumerate(child.findall(f"{_W}tr")):
+                cells = tr.findall(f"{_W}tc")
+                rows.append([_cell_text(tc) for tc in cells])
+                for col_index, tc in enumerate(cells):
+                    inner = tc.findall(f"{_W}tbl")
+                    if inner:
+                        nested[(len(tables), row_index, col_index)] = [
+                            [_cell_text(itc) for itc in itr.findall(f"{_W}tc")]
+                            for tbl in inner for itr in tbl.findall(f"{_W}tr")]
             tables.append(rows)
         elif child.tag == f"{_W}p":
             text = "".join(t.text or "" for t in child.iter(f"{_W}t")).strip()
@@ -132,7 +148,7 @@ def read_docx(path: Path) -> DocxContent:
                 paragraphs.append((len(tables), text))
     if not tables:
         raise FrdDocxError(f"{path.name}: document carries no tables")
-    return DocxContent(tables=tables, paragraphs=paragraphs)
+    return DocxContent(tables=tables, paragraphs=paragraphs, nested=nested)
 
 
 # ---------------------------------------------------------------- discovery
@@ -269,6 +285,10 @@ def _paths_for(key: str, feed_index: int, section: str | None,
         return [f"{prefix}.stage_target.schema", f"{prefix}.standard_target.schema"]
     if key == "domain_subdomain":
         return [f"{prefix}.domain", f"{prefix}.sub_domain"]
+    if key == "domain":
+        return [f"{prefix}.domain"]
+    if key == "sub_domain":
+        return [f"{prefix}.sub_domain"]
     if key == "load_strategy_stg":
         return [f"{prefix}.stage_target.load_strategy"]
     if key == "load_strategy_std":
@@ -403,6 +423,123 @@ def _value(content: DocxContent, source: FrdFieldSource, config: FrdExtractorCon
     return text
 
 
+# ---------------------------------------------------- M7: refused cell shapes
+
+_HEADING_LINE_RE = re.compile(r"^\s*([^=:\n]{2,80}?):\s*$")
+_LABEL_VALUE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 /_()-]{0,40}?)\s*[=:]\s*(.+?)\s*$")
+_PREFIXED_RE = re.compile(r"^\s*([^=\n]{1,40}?)\s*=\s*(.+)$", re.S)
+_FILE_LIKE_RE = re.compile(r"(\.[a-z0-9]{2,4}$|[*?]|yyyy|ccyy|mmdd)", re.IGNORECASE)
+
+
+def _truncate(text: str, limit: int) -> str:
+    text = text.replace("\r", "")
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _pointer_target(text: str, phrases: list[str]) -> str | None:
+    """The clause a pointer sentence names ("the File Details tab of the
+    mapping document"), or None when no phrase matches."""
+    lowered = text.lower()
+    for phrase in phrases:
+        at = lowered.find(phrase.lower())
+        if at < 0:
+            continue
+        clause = re.sub(r"\s+", " ", text[at + len(phrase):]).strip(" .:;,")
+        clause = re.split(r"\battached\b|\.\s", clause, maxsplit=1)[0].strip(" .:;,")
+        return clause or phrase
+    return None
+
+
+def _nested_rows(rows: list[list[str]], header_words: list[str]) -> tuple[list[str], list]:
+    """(headers, StructuredRow list) — the first row is a header when one of
+    its cells is a header word and none is file-like."""
+    from codegen.contracts.frd import StructuredRow
+
+    words = {normalize_label(w) for w in header_words}
+    headers: list[str] = []
+    body = rows
+    if rows and any(normalize_label(c) in words for c in rows[0]) and not any(
+            _FILE_LIKE_RE.search(c) for c in rows[0]):
+        headers = [c.strip() for c in rows[0]]
+        body = rows[1:]
+    names: list[str] = []
+    for i in range(max((len(r) for r in rows), default=0)):
+        name = headers[i] if i < len(headers) and headers[i] else f"col{i + 1}"
+        while name in names:                      # duplicate headers ("FileName" twice)
+            name = f"{name}_{names.count(name) + 1}"
+        names.append(name)
+    out = []
+    for row in body:
+        cells = [c.strip() for c in row]
+        if not any(cells):
+            continue
+        keyed = {names[i]: c for i, c in enumerate(cells)}
+        # The row's key is its file name when a cell looks like one (the
+        # Object Name table keys on the vendor otherwise), else column 1.
+        key = next((c for c in cells if _FILE_LIKE_RE.search(c)), cells[0])
+        out.append(StructuredRow(key=key, values=keyed))
+    return headers, out
+
+
+def _per_file_blocks(text: str, labels: dict[str, str]) -> list:
+    """Blocks introduced by a heading line ("<File> file Ingestion from
+    <Src>:") holding "Label = value" / "Label: value" lines; labels are read
+    with the synonym table (unknown labels keep their own spelling)."""
+    from codegen.contracts.frd import StructuredRow
+
+    blocks: list = []
+    current: StructuredRow | None = None
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        heading = _HEADING_LINE_RE.match(line)
+        if heading:
+            current = StructuredRow(key=heading.group(1).strip(), values={})
+            blocks.append(current)
+            continue
+        pair = _LABEL_VALUE_RE.match(line)
+        if pair and current is not None:
+            key = labels.get(normalize_label(pair.group(1))) or pair.group(1).strip()
+            current = current.model_copy(update={"values": {**current.values,
+                                                            key: pair.group(2).strip()}})
+            blocks[-1] = current
+    return [b for b in blocks if b.values]
+
+
+def classify_cell(content: DocxContent, source: FrdFieldSource, field: str, value: str,
+                  config: FrdExtractorConfig, labels: dict[str, str],
+                  own_keys: set[str]):
+    """The StructuredValue a single-line field's cell amounts to, or None
+    when the cell is an ordinary scalar. Order: nested table → pointer →
+    label-prefixed → per-file blocks → remaining line break."""
+    from codegen.contracts.frd import StructuredValue
+
+    if field not in config.single_line_fields:
+        return None
+    base = {"table": source.table, "row": source.row, "col": source.value_col or source.col,
+            "label": source.label,
+            "text": _truncate(value, config.structured_text_max_chars)}
+    nested = content.nested.get((source.table, source.row, source.value_col or source.col))
+    if nested:
+        headers, rows = _nested_rows(nested, config.nested_table_header_words)
+        return StructuredValue(kind="nested_table", headers=headers, rows=rows, **base)
+    if not value:
+        return None
+    target = _pointer_target(value, config.pointer_phrases)
+    if target is not None:
+        return StructuredValue(kind="pointer", target=target, **base)
+    prefixed = _PREFIXED_RE.match(value)
+    if prefixed and labels.get(normalize_label(prefixed.group(1))) not in own_keys:
+        return StructuredValue(kind="label_prefixed", prefix_label=prefixed.group(1).strip(),
+                               **base)
+    blocks = _per_file_blocks(value, labels)
+    if blocks:
+        return StructuredValue(kind="per_file_blocks", rows=blocks, **base)
+    if "\n" in value:
+        return StructuredValue(kind="multiline", **base)
+    return None
+
+
 def _split(text: str, separators: list[str]) -> list[str]:
     if not text:
         return []
@@ -447,6 +584,8 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     frd_config = config.extractor.frd
     evidence: dict[str, FieldEvidence] = {}
     ambiguities: list[str] = []
+    structured: dict = {}
+    labels = _lookup(frd_config.labels)
 
     def get(path: str) -> str:
         source = profile.fields.get(path)
@@ -456,6 +595,22 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         evidence[path] = FieldEvidence(
             table=source.table, row=source.row, col=source.col, label=source.label,
             section=source.section, inline_label=source.inline_label, source=profile.source)
+        clean = path.split("#", 1)[0]
+        field = clean.split(".", 1)[1] if "." in clean else clean
+        own = {k for k, v in {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.items() if v == field}
+        if field == "domain":
+            own |= {"domain_subdomain", "domain"}
+        refused = classify_cell(content, source, field, value, frd_config, labels, own)
+        if refused is not None:
+            structured[clean] = refused
+            detail = {"pointer": f" → {refused.target}",
+                      "label_prefixed": f" (label {refused.prefix_label!r} is not the field)",
+                      "nested_table": f" ({len(refused.rows)} nested row(s))",
+                      "per_file_blocks": f" ({len(refused.rows)} block(s))",
+                      "multiline": ""}[refused.kind]
+            ambiguities.append(f"frd_{refused.kind}:{clean}{detail} — table {source.table} "
+                               f"row {source.row}; unstated, resolved from the other documents")
+            return ""
         if not value:
             ambiguities.append(f"{path}: label {source.label!r} present, value blank "
                                f"(table {source.table} row {source.row})")
@@ -471,12 +626,22 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         if primary:
             evidence[f"{path} (confirming)"] = evidence.pop(confirming_key)
             return primary
+        if confirming and not re.search(r"[\\/]", confirming):
+            # "Inbound" alone is a direction word, not a folder path.
+            ambiguities.append(f"{path}: the folder-path label holds {confirming!r}, which "
+                               "names no path; ignored")
+            return ""
         if confirming:
             evidence[path] = evidence.pop(confirming_key)
         return confirming
 
     def get_with_fallback(path: str) -> str:
         value = get(path)
+        if not value and path in structured and path.endswith(".feed_name"):
+            # A nested Object Name table names SEVERAL files: the section's
+            # own "Name" row is a section title, not this feed's name — the
+            # layout stage names the derived feeds after the STTM stage band.
+            return ""
         if not value and f"{path}#fallback" in profile.fields:
             value = get(f"{path}#fallback")
             if value:
@@ -572,6 +737,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         layout=FrdLayoutSummary(family=profile.family, source=profile.source,
                                 fingerprint=profile.fingerprint,
                                 unresolved=[f"{u.field}: {u.reason}" for u in profile.unresolved]),
+        structured=structured,
     )
 
 
@@ -625,6 +791,7 @@ def contract_to_json(contract: FrdContract) -> str:
 __all__ = [
     "DocxContent",
     "FrdDocxError",
+    "classify_cell",
     "contract_to_json",
     "discover_frd",
     "extract_frd_contract",

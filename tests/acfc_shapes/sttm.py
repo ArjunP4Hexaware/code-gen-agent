@@ -203,6 +203,61 @@ def build_pair2():
     return wb
 
 
+def build_pair11():
+    """Pair 11 (Family B, the one-block / many-files FRD's STTM): FILE_DETAILS
+    with three files and their frequencies (the FRD's Frequency cell points
+    here), three MAPPING- sheets whose stage tables the FRD never names (it
+    lists the FILE names), two schemas across the three sheets, and a
+    standard band that mixes a type inside one suffix group (the sibling-type
+    check's target: one _pct column typed String among Decimal siblings)."""
+    from . import frd as frd_fixtures
+
+    wb = new_workbook()
+    ws = wb.create_sheet("FILE_DETAILS")
+    write_rows(ws, [["Vendor", "FileName", "File Description", "Location", "Frequency"]])
+    files = [("VENDOR_C", frd_fixtures.PAIR11_FILES[0], None, None, "Yearly Twice"),
+             ("VENDOR_C", frd_fixtures.PAIR11_FILES[1], None, None, "Yearly Twice"),
+             ("VENDOR_C", frd_fixtures.PAIR11_FILES[2], None, None, "Monthly")]
+    write_rows(ws, [list(f) for f in files], start_row=2)
+    ws = wb.create_sheet("VERSION_HISTORY")
+    write_rows(ws, [["Version", "Date", "Author", "Change Description"],
+                    ["1.0", "2026-03-01", "SYN Author D", "Initial"]])
+    header = (["Database column Name", "NULL CHECK", "Description", "Sample Value", "DataType",
+               "PHI Field", "Mandatory Field", "Comment"] + _STAGE_STD_4 + _STAGE_STD_4)
+    specs = {
+        "MAPPING-VC_ENROLLMENT": ("stg_dom_a", "dom_a", "vc_enrollment",
+                                  [("MEMBER_ID", "String"), ("ZIP_CODE", "String"),
+                                   ("POVERTY_PCT", "Decimal"), ("UNEMPLOYMENT_PCT", "Decimal"),
+                                   ("UNINSURED_PCT", "String"), ("TOTAL_POP", "Decimal"),
+                                   ("ELDERLY_POP", "Decimal"), ("REPORT_DT", "Date")]),
+        "MAPPING-VC_DISENROLLMENT": ("stg_dom_a", "dom_a", "vc_disenrollment",
+                                     [("MEMBER_ID", "String"), ("ZIP_CODE", "String"),
+                                      ("RISK_SCORE", "Decimal"), ("RISK_CD", "String"),
+                                      ("REPORT_DT", "Date")]),
+        "MAPPING-VC_INDIVIDUAL_RISK": ("stg_dom_b", "dom_b", "vc_individual_risk",
+                                       [("MEMBER_ID", "String"), ("RISK_SCORE", "Decimal"),
+                                        ("RISK_CD", "String"), ("REPORT_DT", "Date")]),
+    }
+    for sheet_name, (stage_schema, std_schema, table, fields) in specs.items():
+        ws = wb.create_sheet(sheet_name)
+        write_rows(ws, [["Source File Layout", None, None, None, None, None, None, None,
+                         "Stage Layer", None, None, None, "Standard Layer"]])
+        write_rows(ws, [header], start_row=2)
+        rows = []
+        for i, (f, dtype) in enumerate(fields):
+            rows.append([f, "Not NULL" if i == 0 else "NULL", f"{f.title()} value", f"S{i:03d}",
+                         "String", "Yes" if f == "MEMBER_ID" else "No",
+                         "Yes" if i == 0 else "No", "Load as is",
+                         stage_schema, table, f, "String",
+                         std_schema, table, f, dtype])
+        for name, dtype in (("SRC_FILE_NAME", "string"), ("REC_CREATION_TIME", "timestamp"),
+                            ("REC_UPDATED_TIME", "timestamp")):
+            rows.append(["NA", "NULL", "NA", "NA", "NA", "No", "No", None,
+                         stage_schema, table, name, dtype, std_schema, table, name, dtype])
+        write_rows(ws, rows, start_row=3)
+    return wb
+
+
 # --------------------------------------------------------------- Family C ---
 
 
@@ -621,6 +676,7 @@ BUILDERS = {
     "sttm/pair_1_family_a.xlsx": build_pair1,
     "sttm/pair_8_family_a.xlsx": build_pair8,
     "sttm/pair_2_family_b.xlsx": build_pair2,
+    "sttm/pair_11_family_b.xlsx": build_pair11,
     "sttm/pair_3_family_c.xlsx": build_pair3,
     "sttm/pair_4_family_d.xlsx": build_pair4,
     "sttm/pair_6_family_d.xlsx": build_pair6,

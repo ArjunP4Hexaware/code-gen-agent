@@ -267,6 +267,9 @@ extractor:
       target_schema: ["Target Catalog and Schema", "Target Schema"]
       target_table_name: ["Target Table Name"]
       domain_subdomain: ["Domain and Subdomain"]
+      # Per-file block lines inside a Domain and Subdomain cell (M7).
+      domain: ["Domain"]
+      sub_domain: ["Subdomain", "Sub Domain", "Sub-domain"]
       load_strategy_stg: ["Load Strategy STG"]
       load_strategy_std: ["Load Strategy STD", "Load Strategy STD (View)"]
       archive_schedule: ["Archive Schedule"]
@@ -295,6 +298,24 @@ extractor:
     acd_headers: ["ACD Type", "Name", "Description"]
     # Placeholders the documents write for "nothing stated" — read as blank.
     blank_values: ["None", "N/A", "NA", "-", "TBD"]
+    # M7 (2026-09-18): a cell that POINTS at another document is unstated
+    # (flag frd_pointer:<field> -> <target named>) and resolved through the
+    # fallback chain (STTM File Details / meta rows, VDD FILES). Case-insensitive.
+    pointer_phrases: ["refer to", "see the", "attached in the appendix", "per the mapping document",
+                      "mentioned in the mapping document", "provided in the mapping document",
+                      "included in the mapping document"]
+    # Fields read as ONE line: a nested table, per-file blocks ("<File> file
+    # Ingestion from <Src>:" headings with "Domain = ..." lines), a
+    # label-prefixed description ("Vendor Files = ...") or a remaining line
+    # break leave the field unstated (StructuredValue in the contract); the
+    # layout stage resolves nested tables / blocks per derived feed.
+    single_line_fields: [feed_name, source_system, frequency, file_format, landing_location, domain,
+                         stage_target.schema, stage_target.load_strategy,
+                         standard_target.load_strategy]
+    # First-row words that mark a nested table's header row.
+    nested_table_header_words: ["file_name", "file name", "filename", "path", "mftlanding path",
+                                "vendor", "inb/oub", "location", "description"]
+    structured_text_max_chars: 200
 
   # ---- Vendor Data Dictionary reader (M3, 2026-09-18) --------------------
   # codegen.layout.discover.discover_vdd + codegen.extract.vdd: the FILES

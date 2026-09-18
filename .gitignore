@@ -114,6 +114,9 @@ port_kit_audit/
 !fixtures/acfc_shapes/frd/f1_pair_1.docx
 !fixtures/acfc_shapes/frd/f1_pair_2_variant.docx
 !fixtures/acfc_shapes/frd/f2_pair_8.docx
+!fixtures/acfc_shapes/frd/f1_pair_11_multi_file.docx
+!fixtures/acfc_shapes/frd/f1_pair_11_multi_file_catalog.docx
+!fixtures/acfc_shapes/sttm/pair_11_family_b.xlsx
 !fixtures/acfc_shapes/vdd/pair_1_v1_segments.xlsx
 !fixtures/acfc_shapes/vdd/pair_2_v2_per_file.xlsx
 !fixtures/acfc_shapes/vdd/pair_9_v3_per_table.xlsx

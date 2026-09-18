@@ -667,7 +667,8 @@ def _dominant(values: list[str | None]) -> str | None:
 
 def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     """What the STTM says about the feed, each with a citation."""
-    facts: dict = {"texts": [], "schemas": {}, "meta": {}, "files": [], "sheet_tables": []}
+    facts: dict = {"texts": [], "schemas": {}, "meta": {}, "files": [], "sheet_tables": [],
+                   "file_rows": []}
     for ws in workbook.worksheets:
         region = sheet_region(ws)
         facts["texts"] += [(f"{ws.title}!{coord}", value) for coord, value in region.cells]
@@ -676,10 +677,11 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
         ws = workbook[sp.name]
         rows = list(ws.iter_rows(min_row=(sp.header_row or 1) + 1, values_only=True))
         entry = {"sheet": sp.name, "stage_table": None, "standard_table": None,
-                 "stage_schema": None}
+                 "stage_schema": None, "standard_schema": None}
         for layer, role, key in (("stage", Role.TABLE, "stage_table"),
                                  ("standard", Role.TABLE, "standard_table"),
-                                 ("stage", Role.SCHEMA, "stage_schema")):
+                                 ("stage", Role.SCHEMA, "stage_schema"),
+                                 ("standard", Role.SCHEMA, "standard_schema")):
             band = sp.band(layer)  # type: ignore[arg-type]
             col = band.column(role) if band else None
             if col is not None:
@@ -732,6 +734,17 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
             if name_col is not None and name_col < len(row) and text(row[name_col]):
                 facts["files"].append((text(row[name_col]),
                                        f"{sp.name}!{get_column_letter(name_col + 1)}{row_index}"))
+                # M7: the row's own frequency (the FRD's Frequency cell may
+                # point at this tab) — resolved PER derived feed.
+                frequency = (text(row[freq_col]) if freq_col is not None
+                             and freq_col < len(row) else "")
+                facts["file_rows"].append({
+                    "name": text(row[name_col]),
+                    "cell": f"{sp.name}!{get_column_letter(name_col + 1)}{row_index}",
+                    "frequency": frequency or None,
+                    "frequency_cell": (f"{sp.name}!{get_column_letter(freq_col + 1)}{row_index}"
+                                       if freq_col is not None else None),
+                })
     return facts
 
 
@@ -964,6 +977,10 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         facts = _sttm_facts(sttm_doc.profile, workbook, config)
         frd_contract, split_flags, split_questions = split_frd_feeds_by_sttm(
             frd_contract, facts, answers.get("gaps") or {}, config)
+        # M7: refused cells (nested tables / per-file blocks) resolve per
+        # derived feed by file name; the rest stay unstated + flagged.
+        frd_contract, structured_flags = resolve_structured_fields(frd_contract, config)
+        split_flags = [*split_flags, *structured_flags]
         gap = fill_frd_gaps(
             frd_contract, frd_doc, facts,
             _vdd_facts(vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
@@ -1016,7 +1033,7 @@ class GapFillResult:
     handled: set[str] = field(default_factory=set)   # FRD question keys not to ask
 
 
-_GAP_FIELDS = ("file_format", "delimiter", "stage_target.load_strategy",
+_GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strategy",
                "standard_target.load_strategy")
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
 
@@ -1104,7 +1121,8 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
         if key and key not in seen:
             seen.add(key)
             candidates.append((name, cell))
-    garbled_name = "\n" in feed.feed_name or len(feed.feed_name) > 80
+    garbled_name = ("\n" in feed.feed_name or len(feed.feed_name) > 80
+                    or "feeds[0].feed_name" in contract.structured)
     rename = len(sheet_tables) > 1 or garbled_name
     if len(sheet_tables) > 1:
         flags = [f"frd_feeds_split_from_sttm: FRD feed {feed.feed_name[:60]!r} names "
@@ -1172,6 +1190,12 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                                       "(a leftover, not a name match)") if suggest else ""))
         standard_tables = [entry["standard_table"]] if entry["standard_table"] else list(
             feed.standard_target.tables if not file_like else [])
+        standard_update: dict = {"tables": standard_tables}
+        sheet_std_schema = entry.get("standard_schema")
+        if sheet_std_schema and feed.standard_target.schema_name is None and standard_tables:
+            standard_update["schema_name"] = sheet_std_schema
+            flags.append(f"frd_unstated:feeds[{index}].standard_target.schema source_used:STTM "
+                         f"standard band {entry['sheet']!r}: {sheet_std_schema!r}")
         stage_update: dict = {"tables": [table]}
         sheet_schema = entry.get("stage_schema")
         frd_schema = feed.stage_target.schema_name
@@ -1186,9 +1210,136 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             "feed_name": table if rename else feed.feed_name,
             "file_name_patterns": patterns or list(feed.file_name_patterns),
             "stage_target": feed.stage_target.model_copy(update=stage_update),
-            "standard_target": feed.standard_target.model_copy(update={"tables": standard_tables}),
+            "standard_target": feed.standard_target.model_copy(update=standard_update),
         }))
     return contract.model_copy(update={"feeds": feeds}), flags, questions
+
+
+# ------------------------------------------------ M7: refused cells, per feed
+
+
+def _feed_tokens(feed) -> set[str]:
+    tokens: set[str] = set()
+    for pattern in feed.file_name_patterns:
+        tokens |= _name_tokens(pattern)
+    for table in feed.stage_target.tables:
+        tokens |= _name_tokens(table)
+    return tokens
+
+
+def _match_rows_to_feeds(keys: list[str], feeds: list) -> dict[int, int]:
+    """feed index -> row index when a row's key names exactly one feed and
+    that feed matches exactly one row (exact file-name match first, then
+    the mutual-unique token rule of the file pairing)."""
+    canonical = {i: {normalize(p).replace("ccyy", "yyyy") for p in f.file_name_patterns}
+                 for i, f in enumerate(feeds)}
+    out: dict[int, int] = {}
+    for r, key in enumerate(keys):
+        exact = [i for i, names in canonical.items()
+                 if normalize(key).replace("ccyy", "yyyy") in names]
+        if len(exact) == 1:
+            out[exact[0]] = r
+    all_tokens = {i: _feed_tokens(f) for i, f in enumerate(feeds)}
+    if len(feeds) > 1:
+        common = set.intersection(*all_tokens.values())
+        all_tokens = {i: t - common for i, t in all_tokens.items()}
+    row_tokens = {r: _name_tokens(k) for r, k in enumerate(keys)}
+
+    def score(i: int, r: int) -> int:
+        # overlapping token pairs (prefix-tolerant, as the file pairing counts them)
+        return sum(1 for a in all_tokens[i] for b in row_tokens[r]
+                   if a == b or a.startswith(b) or b.startswith(a))
+
+    # Mutual BEST match with a strict margin, by elimination: a pair is
+    # taken when the row scores higher for this feed than for any other
+    # remaining feed AND this feed scores higher for the row than for any
+    # other remaining row; matched pairs drop out and the pass repeats
+    # ("Community Demographics" / "Community Risk" share a token — the
+    # first pairs on its second token, the second pairs once the first is
+    # gone). Ties decide nothing.
+    progress = True
+    while progress:
+        progress = False
+        remaining_feeds = [i for i in range(len(feeds)) if i not in out]
+        remaining_rows = [r for r in range(len(keys)) if r not in out.values()]
+        for i in remaining_feeds:
+            scores = {r: score(i, r) for r in remaining_rows}
+            best = max(scores.values(), default=0)
+            if best == 0 or list(scores.values()).count(best) != 1:
+                continue
+            r = next(r for r, v in scores.items() if v == best)
+            if all(best > score(j, r) for j in remaining_feeds if j != i):
+                out[i] = r
+                progress = True
+                break
+    return out
+
+
+def _path_column(headers: list[str], values: dict[str, str], key: str) -> str | None:
+    """The nested row's path cell: the header naming a path / location, else
+    the first non-key cell that carries a path separator."""
+    for header, value in values.items():
+        if any(w in normalize(header) for w in ("path", "location")) and value:
+            return value
+    for value in values.values():
+        if value != key and re.search(r"[\\/]", value):
+            return value
+    return None
+
+
+def resolve_structured_fields(contract: FrdContract, config: Config
+                              ) -> tuple[FrdContract, list[str]]:
+    """Give every (derived) feed its own row of a nested table / its own
+    per-file block, matched by file name; everything else refused stays
+    unstated and is flagged. Provenance on every value; nothing is guessed."""
+    if not contract.structured:
+        return contract, []
+    flags: list[str] = []
+    feeds = list(contract.feeds)
+    for path, item in contract.structured.items():
+        field = path.split(".", 1)[1] if "." in path else path
+        where = f"FRD table {item.table} row {item.row} ({item.label!r})"
+        if item.kind in ("nested_table", "per_file_blocks") and item.rows:
+            matched = _match_rows_to_feeds([r.key for r in item.rows], feeds)
+            for index, feed in enumerate(feeds):
+                key = f"feeds[{index}].{field}"
+                row_index = matched.get(index)
+                if row_index is None:
+                    flags.append(f"frd_{item.kind}:{key} — no row of the {item.label!r} cell "
+                                 f"names this feed's file uniquely ({where}); unstated")
+                    continue
+                row = item.rows[row_index]
+                if field == "landing_location":
+                    value = _path_column(item.headers, row.values, row.key)
+                    if value is None:
+                        flags.append(f"frd_{item.kind}:{key} — row {row.key!r} carries no path "
+                                     f"({where}); unstated")
+                        continue
+                    feeds[index] = _feed_set(feed, "landing_location", value)
+                    flags.append(f"frd_nested:{key} source_used:{where} row {row.key!r}: "
+                                 f"{value!r}")
+                elif field == "domain":
+                    applied = []
+                    for name in ("domain", "sub_domain"):
+                        if row.values.get(name):
+                            feeds[index] = _feed_set(feeds[index], name, row.values[name])
+                            applied.append(f"{name}={row.values[name]!r}")
+                    if applied:
+                        flags.append(f"frd_nested:feeds[{index}].domain source_used:{where} block "
+                                     f"{row.key!r}: {', '.join(applied)}")
+                else:
+                    flags.append(f"frd_{item.kind}:{key} — the {item.label!r} cell is a table "
+                                 f"({where}); the feed is named after the STTM stage band")
+        else:
+            detail = {"pointer": f" → {item.target}",
+                      "label_prefixed": f" (label {item.prefix_label!r} is not the field; the "
+                                        "vendor label is used instead)",
+                      "multiline": " (line breaks)",
+                      "nested_table": "", "per_file_blocks": ""}[item.kind]
+            for index in range(len(feeds)):
+                flags.append(f"frd_{item.kind}:feeds[{index}].{field}{detail} — {where}; "
+                             "unstated, resolved from the other documents")
+    return contract.model_copy(update={"feeds": feeds}), flags
 
 
 class _FeedGapFiller:
@@ -1203,6 +1354,7 @@ class _FeedGapFiller:
         self.patched = self.feed
         self.prefix = f"feeds[{index}]."
         self.meta = facts.get("meta", {})
+        self.file_rows = facts.get("file_rows", [])
         self.vdd = vdd
         self.gaps = gaps
         self.config = config
@@ -1298,6 +1450,28 @@ class _FeedGapFiller:
                          [{"value": s.value, "source": s.source, "cell": s.cell} for s in others],
                          "the FRD is silent and the other documents disagree")
             # no statement anywhere: the ordinary FRD question stays.
+
+        # b'. frequency: the STTM File Details row for THIS feed's file (the
+        # FRD's cell may point there), then the meta row, then the VDD cadence.
+        if not self.handled("frequency") and _feed_get(feed, "frequency") is None:
+            wanted = {normalize(p).replace("ccyy", "yyyy") for p in feed.file_name_patterns}
+            own_rows = [r for r in self.file_rows if r["frequency"]
+                        and normalize(r["name"]).replace("ccyy", "yyyy") in wanted]
+            others: list[Statement] = []
+            if own_rows:
+                others = distinct([Statement(r["frequency"], "STTM", r["frequency_cell"])
+                                   for r in own_rows])
+            elif "frequency" in meta:
+                value, cell = meta["frequency"]
+                others = [Statement(value, "STTM", cell)]
+            others += [Statement(v, "VDD", cell) for v, cell in self.vdd.get("frequency", [])]
+            others = distinct(others)
+            if len(others) == 1:
+                self.record_fill("frequency", others[0])
+            elif len(others) > 1:
+                self.ask("frequency", "choice",
+                         [{"value": s.value, "source": s.source, "cell": s.cell} for s in others],
+                         "the FRD states no frequency and the other documents disagree")
 
         # c. load strategies: STTM per layer, else FAQ (stage) / blank (standard).
         text_, sttm_cell = meta.get("load_strategy", (None, "STTM meta row 'Load Strategy'"))

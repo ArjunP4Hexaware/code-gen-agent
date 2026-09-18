@@ -188,6 +188,13 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
         if len(others) == 1:
             feed = feed.model_copy(update={"delimiter": others[0].value})
             flags.append(fill_flag("delimiter", others[0]))
+    if feed.frequency is None:
+        sttm_frequency = sttm_feed.source_file.frequency or meta.get("frequency")
+        if sttm_frequency:
+            statement = Statement(sttm_frequency, "STTM",
+                                  f"{sheet} File Details / meta row 'frequency'")
+            feed = feed.model_copy(update={"frequency": statement.value})
+            flags.append(fill_flag("frequency", statement))
     parsed = parse_load_strategy_text(meta.get("load_strategy"),
                                       config.extractor.frd.target_schema_markers)
     cell = f"{sheet} meta row 'load_strategy'"

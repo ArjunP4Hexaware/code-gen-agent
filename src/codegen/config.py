@@ -310,6 +310,18 @@ class FrdExtractorConfig(BaseModel):
     acd_headers: list[str] = Field(default_factory=lambda: ["ACD Type", "Name", "Description"])
     # Cell texts that mean "blank" (a stated placeholder, never a value).
     blank_values: list[str] = Field(default_factory=list)
+    # M7: a value containing one of these phrases points at another document
+    # ("refer to the File Details tab of the mapping document"): UNSTATED +
+    # flag frd_pointer, resolved through the fallback chain. Never a value.
+    pointer_phrases: list[str] = Field(default_factory=list)
+    # M7: fields whose value must be one line — a nested table, per-file
+    # blocks, a label-prefixed description or remaining line breaks make
+    # them unstated (StructuredValue) instead of a value.
+    single_line_fields: list[str] = Field(default_factory=list)
+    # M7: words that mark the first row of a nested table as a header row.
+    nested_table_header_words: list[str] = Field(default_factory=list)
+    # M7: how much of a refused cell's text the contract keeps (logged only).
+    structured_text_max_chars: int = Field(default=200, gt=0)
 
 
 class VddExtractorConfig(BaseModel):

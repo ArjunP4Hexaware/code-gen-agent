@@ -310,8 +310,118 @@ def build_f2_pair8() -> bytes:
     return docx_bytes(parts)
 
 
+# ---- F1, one block / many files (the pair-11 shape) --------------------------
+
+PAIR11_FILES = ["enrollment_package_YYYY_MM.csv", "disenrollment_package_YYYY_MM.csv",
+                "vc_ind_risk_data_package_REGION_A_YYYYMMDD_HHMM.psv"]
+PAIR11_OBJECTS = ["Enrollment", "Disenrollment", "Individual Risk"]
+PAIR11_PATHS = ["mftlanding\\inbound\\dom_a\\public\\vendor_c",
+                "mftlanding\\inbound\\dom_a\\public\\vendor_c",
+                "mftlanding\\inbound\\dom_b\\dom_a\\vendor_c"]
+PAIR11_DOMAINS = [("Domain Alpha", "Public"), ("Domain Alpha", "Public"),
+                  ("Domain Beta", "Domain Alpha")]
+PAIR11_POINTER = ("Please refer to the File Details tab of the mapping document attached in \n"
+                  "the appendix section.")
+PAIR11_DATA_SOURCE = "Vendor Files = Enrollment, Disenrollment & \nIndividual Risk Reports"
+PAIR11_VENDOR = "VENDOR_C \u2013 VC 00000"
+
+
+def build_f1_pair11_multi_file(catalog: str | None = None) -> bytes:
+    """F1 variant reproducing the one-block / many-files cell shapes: the
+    'Object Name' cell is a 5-column nested table (one row per file), 'ADLS
+    Location' a 2-column nested table (object | path), 'Domain and Subdomain'
+    holds per-file blocks introduced by "<File> file Ingestion from <Src>:"
+    heading lines with "Domain = …" / "Subdomain = …" lines, 'Data Source' is
+    a label-prefixed description ("Vendor Files = …") whose label is not the
+    field, 'Frequency' is the pointer sentence, 'Target Table Name' lists the
+    FILE names, and the section titles carry requirement-ID suffixes. Three
+    feeds derive from the one document. ``catalog=None`` reproduces the
+    multi-line schema cell that names no catalog; a catalog renders the
+    clean "STG: cat.schema; STD: cat.schema" line instead."""
+    functional = "Ingest the vendor's three files into the Lakehouse."
+    object_rows = [["Vendor", "INB/OUB", "FileName", "FileName", "Vendor"]]
+    object_rows += [["VC", "INB", f, f"{o} File", "REGION_A"]
+                    for f, o in zip(PAIR11_FILES, PAIR11_OBJECTS, strict=True)]
+    location_rows = [["File_Name", "mftlanding path"]]
+    location_rows += [[o, p] for o, p in zip(PAIR11_OBJECTS, PAIR11_PATHS, strict=True)]
+    domain_blocks = "\n\n".join(
+        f"{o} file Ingestion from VC:\nDomain = {d}\nSubdomain = {s}"
+        for o, (d, s) in zip(PAIR11_OBJECTS, PAIR11_DOMAINS, strict=True))
+    if catalog is None:
+        schema = ("stg_dom_a/dom_a \u2013 Enrollment & Disenrollment File\n"
+                  "stg_dom_b/dom_b \u2013 Individual Risk File")
+    else:
+        schema = f"STG: {catalog}.stg_dom_a; STD: {catalog}.dom_a"
+    descriptive = table([
+        ["Descriptive Metadata: MDD000011", "", ""],
+        ["Descriptive Metadata: MDD000011", "Name", "Descriptive Metadata"],
+        ["Descriptive Metadata: MDD000011", "Description",
+         "The FRD is developed to ingest the region's monthly Enrollment,\n"
+         "Disenrollment & Individual Risk reports from the VC vendor."],
+        ["Descriptive Metadata: MDD000011", "Functional Requirement", functional],
+        ["Descriptive Metadata", "Data Source", PAIR11_DATA_SOURCE],
+        ["", "Object Name", object_rows],
+        ["", "Description", ""],
+        ["", "Frequency", PAIR11_POINTER],
+        ["", "LOBs", "LOB_A"],
+        ["", "Tags/Keywords", ""],
+        ["", "Government Program", "Y"],
+        ["", "Inbound Ingestion", "Yes"],
+        ["", "SFG template (Y/N)", "Yes"],
+        ["", "SR# for SFG Template", "<TBD>"],
+        ["", "Data Catalog Entry", "<TBD>"],
+    ])
+    structural = table([
+        ["Structural Metadata: MDST000011", "", ""],
+        ["Structural Metadata: MDST000011", "Name", "Structural Metadata"],
+        ["Structural Metadata: MDST000011", "Description",
+         "The vendor shall provide the data in files brought to the raw layer of ADLS."],
+        ["Structural Metadata: MDST000011", "Functional Requirement", functional],
+        ["Structural Metadata", "Object/data Format", "File Data Ingestion"],
+        ["", "Target Schema", schema],
+        ["", "Target Table Name", "\n".join(PAIR11_FILES)],
+        ["", "Domain and Subdomain", domain_blocks],
+        ["", "Load Strategy STG", "Truncate and Load"],
+        ["", "Load Strategy STD", "Append"],
+        ["", "Load Strategy Consumption (EDH, BSL)", ""],
+        ["", "Archive Schedule", ""],
+        ["", "Source Data Dictionary",
+         "File and field descriptions are mentioned in the mapping document."],
+        ["", "ADLS Location", location_rows],
+        ["", "Inbound/outbound File Folder Path", "Inbound"],
+    ])
+    technical = table([
+        ["Technical Metadata: MDT000011", "", ""],
+        ["Technical Metadata: MDT000011", "Name", "Technical Metadata"],
+        ["Technical Metadata: MDT000011", "Description", ""],
+        ["Technical Metadata: MDT000011", "Functional Requirement", functional],
+        ["Technical Metadata", "Business Rules", "Data Quality Rules Provided in the Mapping document."],
+        ["", "Filter Criteria", ""],
+        ["", "PII Fields", "Included in the Mapping Document"],
+        ["", "Transformation Logic", "NA"],
+        ["", "Primary Key", "NA"],
+    ])
+    vendor = table([
+        ["Vendor Metadata: MDV000011", "", ""],
+        ["Vendor Metadata: MDV000011", "Name", "Vendor Metadata"],
+        ["Vendor Metadata: MDV000011", "Description", ""],
+        ["Vendor Metadata: MDV000011", "Functional Requirement", functional],
+        ["Vendor Metadata", "Vendor Name", PAIR11_VENDOR],
+        ["", "Vendor Abbreviation", "VC \u2013 Vendor C"],
+        ["", "Service Grouping", ""],
+    ])
+    leading, trailing = _common_tables("PROJECT_GAMMA", "VC files")
+    return docx_bytes(leading + [descriptive, structural, technical, vendor] + trailing)
+
+
+def build_f1_pair11_multi_file_catalog() -> bytes:
+    return build_f1_pair11_multi_file(catalog="cat_syn")
+
+
 BUILDERS = {
     "frd/f1_pair_1.docx": build_f1_pair1,
     "frd/f1_pair_2_variant.docx": build_f1_pair2,
     "frd/f2_pair_8.docx": build_f2_pair8,
+    "frd/f1_pair_11_multi_file.docx": build_f1_pair11_multi_file,
+    "frd/f1_pair_11_multi_file_catalog.docx": build_f1_pair11_multi_file_catalog,
 }

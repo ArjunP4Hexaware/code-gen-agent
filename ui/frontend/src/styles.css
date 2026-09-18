@@ -121,7 +121,7 @@ code, pre { font-family: var(--mono); }
   flex: 1;
   min-width: 0;
   padding: 28px 36px 64px;
-  max-width: 1240px;
+  max-width: 1720px;
 }
 
 /* ---------- header row ---------- */
@@ -813,8 +813,7 @@ table.data tr:last-child td { border-bottom: none; }
 .mode-banner.live { background: rgba(217, 72, 63, 0.1); color: #a2231b; border: 1px solid rgba(217, 72, 63, 0.3); }
 .mode-banner.replay { background: rgba(42, 120, 214, 0.09); color: var(--accent-deep); border: 1px solid rgba(42, 120, 214, 0.28); }
 
-.mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-@media (max-width: 980px) { .mode-cards { grid-template-columns: 1fr; } }
+.mode-cards { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
 
 .replay-row {
   display: flex;

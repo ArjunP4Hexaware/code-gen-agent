@@ -114,8 +114,7 @@ as a requirement, not a style preference.
 │                  │                                                          │
 │ OVERVIEW         │                                                          │
 │  Dashboard       │                                                          │
-│  Run modes  live·replay                                                     │
-│  Demo mode  guided tour                                                     │
+│  Generate   STTM·FRD·VDD                                                    │
 │                  │                                                          │
 │ FEEDS            │                                                          │
 │  cv_individual_risk        ●                                                │
@@ -135,9 +134,8 @@ as a requirement, not a style preference.
   exists. Title attribute carries the mode copy (see Part 4).
 - **Nav:** section headers are 11px uppercase letter-spaced muted text
   ("Overview", "Feeds"). Nav items are 13px rows with 8px radius, hover
-  = 6% white, active = 12% white + weight 600. "Run modes" and "Demo
-  mode" carry a right-aligned 10.5px hint ("live · replay", "guided
-  tour"). Feed items show the slug (ellipsised) and a right-aligned
+  = 6% white, active = 12% white + weight 600. "Generate" carries a right-aligned
+  10.5px hint ("STTM · FRD · VDD"). Feed items show the slug (ellipsised) and a right-aligned
   8px verdict dot.
 - **Footer:** the two-line doctrine sentence above, 11.5px muted.
 - **Main column behaviours:**
@@ -148,10 +146,9 @@ as a requirement, not a style preference.
   - **Generate-all confirm modal** (opened only when the current mode is
     not mock): title "Replace the current LIVE|REPLAY results?", body
     "This replaces the current live|replayed results (<label>) with a
-    fresh **mock** run. You can reload them afterwards from the Run modes
-    page.", buttons "Continue — run mock" (primary) / "Cancel".
-- **Routes:** `/` Dashboard · `/modes` Run modes · `/demo` Demo mode ·
-  `/feeds/:slug` Feed detail (accepts `?tab=` one of `overview | rules |
+    fresh **mock** run.", buttons "Continue — run mock" (primary) / "Cancel".
+- **Routes:** `/` Dashboard · `/modes` Generate ·
+  `/feeds/:slug` Feed detail (`/demo` removed 2026-09-18) (accepts `?tab=` one of `overview | rules |
   candidates | notebook | code | report`). Client-side routing with an
   `index.html` fallback so deep links survive a refresh on the App.
 - **Data flow:** the shell owns `FeedsResponse` (`/api/feeds`) and passes
@@ -376,31 +373,30 @@ Prism for `py sql json toml md`; anything else renders plain.
 rendered with `marked` inside `.report-md` (13.5px, max-width 860px,
 tables bordered, code inline chips). "Loading report…" while pending.
 
-### 2.4 Run modes (`/modes`)
+### 2.4 Generate (`/modes`) — was "Run modes" until the 2026-09-18 ACFC trim
 
-The operational heart of the UI. Two cards side by side (single column
-under 980px). Page head: `h1` "Run modes", subtitle "Pick how the
-results you're about to walk through get produced. Both modes end on the
-same dashboard — and the same human review queue." A red error banner
-above the cards shows the last failed action's message.
+ONE full-width card. Page head: `h1` "Generate a pipeline", subtitle
+"Choose the documents, pick the output, generate. Every run ends on the
+dashboard with its human review queue." A red error banner above the card
+shows the last failed action's message.
 
-On mount the page fires, in parallel: `replaySets`, `liveAvailable`,
-`demoStatus`, `inputDocuments`, `sourceFiles`, `inputRequirements`,
-`governanceChecks`, `liveRuns`. Everything is a live read; nothing is
-cached to disk.
+On mount the page fires, in parallel: `liveAvailable` (with the detected
+Layer-2 `transport`), `demoStatus`, `generationOptions`, `sourceFiles`,
+`inputRequirements`, `governanceChecks`. Everything is a live read.
+
+Card order, top to bottom: the transport line ("Model transport: Databricks
+Foundation Model serving endpoint `<endpoint>` (<model>). Detected by
+DATABRICKS_APP_PORT (Databricks App runtime)." — or the Anthropic / mock
+variants); one hint sentence; **Choose documents…** (primary) with the
+STTM / FRD / VDD status + a Clear each; the source-files table; **Output**
+mode buttons + the conventions-profile / IIG-template / playbook-template
+selects; the Generate button and run progress (layout dialog included);
+the two request-time check tables when `configured` is true. The
+subsections below that describe removed elements are kept as history.
 
 #### 2.4.1 Card A — "Replay a recorded run" (badge `REPLAY`)
 
-Hint: "Loads a tracked, real live run instantly — zero API calls, zero
-cost, no key needed. The deterministic pipeline re-runs locally; the
-recorded AI candidates are injected exactly as the model returned them."
-Rows (`replay-row`, hairline between): name in mono weight 650; hint
-"recorded <date> · <n> feeds · call log" (date from the trailing 8-digit
-stamp of the set name); a primary "Load" button ("Loading…" while busy;
-disabled while any load or a live run is in progress). Load →
-`POST /api/replay/load {set}` → refresh feeds → navigate to `/`. States:
-"Discovering replay sets…" / "No replay sets tracked under
-fixtures/replay/."
+> **Removed 2026-09-18 (ACFC trim).** The Replay card is gone; tracked replay sets are not loadable from the UI. No longer in the frontend; the backend routes it used remain for API compatibility only.
 
 #### 2.4.2 Card B — "Generate a Pipeline" (badge `LIVE`, or `MOCK — provider locked` when the backend reports provider `mock (locked)`)
 
@@ -555,28 +551,9 @@ this machine yet."
 
 #### 2.4.3 Modal — documents ("Attach…" / "Provide…")
 
-Two variants share one dialog:
+> **Removed 2026-09-18 (ACFC trim).** The reference-documents card, the "Demo FRD" gap block and this modal are gone. No longer in the frontend; the backend routes it used remain for API compatibility only.
 
-- **reference_documents:** title "Attach the reference documents"; hint
-  "Filenames as they appear in the client SharePoint library, matched
-  live against the configured input directories on every open. Drop a
-  file there — or fetch it from the SharePoint library — and it will
-  appear here."; then one row per expected name with ✓/☐ and
-  "present"/"missing"; footer "Display only in this build — wiring these
-  into generation is the next step." Empty config → "No reference
-  documents configured (demo.input_documents in config/config.yaml)."
-- **frd:** title "Provide the real FRD contract"; hints "Currently in
-  use: `<stand-in>` — an anonymized demo stand-in without the real file
-  paths." and "Scanned live from `inputs/sharepoint` — the landing folder
-  `sharepoint-fetch` and the SharePoint picker deliver documents to.";
-  matches render as amber rows "`<name>` found — wiring into the
-  generator is pending; runs do not consume it yet."; none → "Not
-  present. Fetch the real FRD contract (.contract.json) from the
-  SharePoint library into inputs/sharepoint/ and it will appear here.
-  Until then, runs use the demo stand-in."
-- Single "Close" button. The scan re-runs on every open.
-
-#### 2.4.4 Modal — "Choose an STTM workbook" (the chooser)
+#### 2.4.4 Modal — "Choose documents" (the chooser; STTM / FRD / VDD sections)
 
 Opened by both "Choose STTM…" and "Choose FRD…". On open it re-fetches
 `demoWorkbooks`, `databricksDocuments` and `frdChoices`. Sections, top to
@@ -657,23 +634,7 @@ live" (primary) / "Cancel". Confirm → `POST /api/demo/run-live
 
 ### 2.5 Demo mode (`/demo`) — the six-step guided tour
 
-Centred column (max-width 880px). Head: kicker "GUIDED DEMO" (11px,
-accent, letter-spaced), `h1` = current step title, right side "`k` / 6"
-counter + "Exit demo" link-button. A card (min-height 380px, 14.5px
-text) holds the step. Footer nav: "← Back" (disabled on step 1), six
-dot buttons (active = filled accent; each has the step title as
-tooltip/aria-label), "Next →" or on the last step "Finish → dashboard".
-**← / → arrow keys move between steps.** The running example is the
-first feed with Layer-2 candidates, else the first feed.
-
-| # | Title | Content |
-|---|---|---|
-| 1 | What this is | Lead "Approved spec documents go in. A tested Databricks ingestion pipeline — packaged as **one runnable notebook per feed** — comes out." Four flow boxes: Contracts → Deterministic compiler → Safety gate → Pipeline + notebook (accented). Paragraph on the AI sandbox. Fact box "Right now: `n` feeds generated, `d/t` contract rules compiled deterministically. Everything you'll see next is live output, not a mock-up." |
-| 2 | Contracts go in | Lead on approved machine-readable contracts + fingerprints. "Running example: `<slug>` (<source>, segmented H/D/T file)". KV: FRD — what the feed is (name + sha), STTM — how columns map (name + synthetic tag + sha). If synthetic: fact "Honesty on display: the real CAQH mapping workbook hasn't landed yet, so this feed uses a clearly-labeled synthetic stand-in — and the UI says so everywhere." |
-| 3 | Layer 1 — deterministic | Lead on pattern matching, byte-identical output. Row of class chips (dot + label + count). A quote block: the first `mappable` rule → "became `<feature>`, grounded on the contract text *“<grounding>”*". Fact "Rules the compiler can't safely map aren't guessed at — they're **flagged for a human** or handed to Layer 2. Next slide." |
-| 4 | The safety gate | Lead "Before anything ships, a gate runs lint, security scans, structural checks and the generated test suite. The verdict is **computed in code** — the AI never grades its own homework." Gate check rows; "Verdict for `<slug>`: <chip>". Fact explaining PASS_WITH_FLAGS as the honest middle state. |
-| 5 | What comes out | Lead on the single runnable notebook (cells self-register as `pipeline.<module>`). A row of buttons `<slug>.ipynb` per feed (selected = primary); the example feed's notebook opens automatically in a 46vh scroll box. Fact linking to the feed's Notebook tab. |
-| 6 | Layer 2 — the human decision | Lead "The demo ends where every run ends: with a **human decision**…". Two bullets (verbatim quoting; approve/reject records only). One quote block per candidate with class badge, grounded pill, provider pill, rationale, and Approve/Reject buttons (same toggle semantics as §2.3; status "Pending engineer approval" / "Marked approved"). Empty: "This feed had no ambiguous rules — the queue is empty." Fact "`p` of `c` candidate(s) still pending for `<slug>` — the full queue lives on the Layer-2 review tab" (link with `?tab=candidates`). |
+> **Removed 2026-09-18 (ACFC trim).** Demo mode (the guided tour) is gone; `/demo` no longer routes. No longer in the frontend; the backend routes it used remain for API compatibility only.
 
 ### 2.6 Shared component — "Publish to Unity Catalog volume" panel
 
@@ -804,7 +765,7 @@ run never bleed into another. Startup generation runs mock dry-run; if
 it fails the app still starts with empty state and reports through
 `/api/feeds`.
 
-### 3.2 Replay and past runs
+### 3.2 Replay and past runs — DEPRECATED (no UI consumer since 2026-09-18; `POST /api/demo/load-live-run` alone still backs the View-results button)
 
 | Route | Purpose | Codes |
 |---|---|---|

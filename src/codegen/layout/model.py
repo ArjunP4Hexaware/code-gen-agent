@@ -21,7 +21,6 @@ parameters, ever.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Protocol
 
@@ -198,21 +197,22 @@ def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None =
                           ) -> LayoutModelProvider:
     """Mock wins on dry-run, on the mock lock, on ``layout.provider: mock``
     and whenever live credentials do not resolve — same posture as Layer 2."""
+    from codegen.reasoning.transport import resolve_transport
+
     root = base_dir if base_dir is not None else Path(".")
     mock_dirs = [root / config.layout.mock_dir] + [root / d for d in config.layout.cache_dirs]
-    if dry_run or config.layout.provider == "mock" or os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
+    if dry_run or config.layout.provider == "mock":
         return MockLayoutProvider(mock_dirs)
-    if config.reasoning.provider == "databricks_fmapi":
-        from codegen.databricks import DatabricksConfigError, config_for
-
-        try:
-            config_for(config.databricks)
-        except DatabricksConfigError:
+    # Same transport decision as Layer 2 (codegen.reasoning.transport):
+    # mock lock, Databricks runtime -> Foundation Model endpoint, else config.
+    transport = resolve_transport(config)
+    if transport.kind == "databricks_fmapi":
+        if not transport.config_resolves:
             return MockLayoutProvider(mock_dirs)
-        return FmapiLayoutProvider(config)
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return MockLayoutProvider(mock_dirs)
-    return AnthropicLayoutProvider(config)
+        return FmapiLayoutProvider(config)  # empty endpoint -> its named error
+    if transport.kind == "anthropic":
+        return AnthropicLayoutProvider(config)
+    return MockLayoutProvider(mock_dirs)
 
 
 __all__ = [

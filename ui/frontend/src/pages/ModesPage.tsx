@@ -9,12 +9,12 @@ import {
   type GenerationOptions,
   type GovernanceChecksResponse,
   type GovernanceStatus,
+  type Layer2Transport,
   type InputRequirementsResponse,
   type RequirementStatus,
   type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
-import { MetadataSheetPanel } from "../components/MetadataSheetPanel";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
@@ -75,6 +75,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   // Why live is unavailable, from the backend — provider-specific, never a
   // hardwired "no ANTHROPIC_API_KEY" (wrong on the FMAPI-backed App).
   const [liveReason, setLiveReason] = useState<string | null>(null);
+  // The detected Layer-2 transport (codegen.reasoning.transport): inside a
+  // Databricks runtime this is the Foundation Model endpoint whatever the
+  // yaml says; the card and the confirm dialog word themselves from it.
+  const [transport, setTransport] = useState<Layer2Transport | null>(null);
   const [status, setStatus] = useState<DemoStatus | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -101,6 +105,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setLiveAvailable(r.available);
       setLiveProvider(r.provider ?? null);
       setLiveReason(r.reason ?? null);
+      setTransport(r.transport ?? null);
     }).catch((e) => {
       setLiveAvailable(false);
       setLiveReason(e instanceof Error ? e.message : String(e));
@@ -379,58 +384,84 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             <h2>Generate a Pipeline</h2>
             {liveProvider === "mock (locked)" ? (
               <span className="mode-badge">MOCK — provider locked</span>
+            ) : transport?.kind === "databricks_fmapi" ? (
+              <span className="mode-badge mode-live" title={transport.label}>
+                LIVE · Databricks FM endpoint
+              </span>
+            ) : transport?.kind === "anthropic" ? (
+              <span className="mode-badge mode-live" title={transport.label}>
+                LIVE · Anthropic API
+              </span>
             ) : (
               <span className="mode-badge mode-live">LIVE</span>
             )}
           </div>
           <div className="panel-body">
+            {transport ? (
+              <p className="hint" style={{ marginTop: 0 }}>
+                <strong>Model transport:</strong>{" "}
+                {transport.kind === "mock_locked"
+                  ? "mock provider (locked) — a run makes zero model calls."
+                  : transport.kind === "databricks_fmapi"
+                    ? <>
+                        Databricks Foundation Model serving endpoint{" "}
+                        <code>{transport.endpoint ?? "unconfigured"}</code> ({transport.model}).
+                      </>
+                    : transport.kind === "anthropic"
+                      ? <>Anthropic API ({transport.model}).</>
+                      : <>none resolvable — runs use the mock provider.</>}{" "}
+                <span className="hint">
+                  Detected by {transport.detected_by}
+                  {transport.runtime === "databricks_app"
+                    ? " (Databricks App runtime)"
+                    : transport.runtime === "databricks"
+                      ? " (Databricks workspace)"
+                      : ""}
+                  {transport.overridden
+                    ? ` — config says ${transport.configured}; the endpoint is used inside Databricks.`
+                    : "."}
+                </span>
+              </p>
+            ) : null}
             <p className="hint" style={{ marginTop: 0 }}>
-              <strong>Step 1 — choose the documents.</strong> The pipeline's inputs are the
-              client STTM mapping workbook, its FRD (a contract or the .docx itself) and,
-              optionally, the vendor data dictionary. Choose the workbook this run will consume:
+              Choose the STTM workbook, its FRD (a contract or the .docx itself) and,
+              optionally, the vendor data dictionary; pick the output; generate.
             </p>
-            <p style={{ margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 10 }}>
+            <p style={{ margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <button className="btn primary" disabled={running} onClick={openChooser}>
+                Choose documents…
+              </button>
               <span>
-                STTM workbook:{" "}
+                STTM:{" "}
                 {status?.sttm_chosen ? (
                   <code>{status.sttm_workbook}</code>
                 ) : (
                   <em className="hint">none chosen</em>
-                )}
+                )}{" "}
+                <button className="btn" disabled={running || !status?.sttm_chosen}
+                        onClick={clearWorkbook} title="Back to none chosen">
+                  Clear
+                </button>
               </span>
-              <button className="btn" disabled={running} onClick={openChooser}>
-                Choose STTM…
-              </button>
-              <button
-                className="btn"
-                disabled={running || !status?.sttm_chosen}
-                title={status?.sttm_chosen ? "Back to none chosen"
-                                           : "Nothing chosen yet"}
-                onClick={clearWorkbook}
-              >
-                Clear
-              </button>
-            </p>
-            <p style={{ margin: "0 0 10px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span>
-                FRD contract: <code>{status?.frd_name ?? "…"}</code>
-                {status?.frd_chosen ? null : (
-                  <span className="hint"> (config default)</span>
-                )}
+                FRD: <code>{status?.frd_name ?? "…"}</code>
+                {status?.frd_chosen ? null : <span className="hint"> (config default)</span>}{" "}
+                <button className="btn" disabled={running || !status?.frd_chosen}
+                        onClick={resetFrd} title="Back to the config default">
+                  Clear
+                </button>
               </span>
-              <button className="btn" disabled={running} onClick={openChooser}
-                      title="Pick the FRD for this run (companion FRDs are suggested for the chosen STTM)">
-                Choose FRD…
-              </button>
-              <button className="btn" disabled={running || !status?.frd_chosen}
-                      onClick={resetFrd}
-                      title={status?.frd_chosen ? "Back to the config default"
-                                                : "Already on the config default"}>
-                Reset
-              </button>
+              <span>
+                VDD:{" "}
+                {status?.vdd_name ? <code>{status.vdd_name}</code> : <em className="hint">none</em>}{" "}
+                <button className="btn" disabled={running || !status?.vdd_name}
+                        onClick={() => chooseVdd(null)} title="No vendor data dictionary">
+                  Clear
+                </button>
+              </span>
               {status?.frd_warning ? (
                 <span className="pill req-missing"
-                      title="Pick the companion FRD in the STTM chooser">
+                      title="Pick the companion FRD in the chooser">
                   This STTM does not appear to belong to the selected FRD — expect a
                   feed-match failure.
                 </span>
@@ -584,19 +615,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     ))}
                   </div>
                 </details>
-                <MetadataSheetPanel
-                  refreshKey={`${status?.state}-${status?.last_run_label}`}
-                />
               </>
             ) : null}
 
-            <p className="hint" style={{ marginTop: 12 }}>
-              <strong>Step 2 — generate.</strong> Extract the chosen STTM into a mapping
-              contract → deterministic generate → live AI reasoning on the unmapped rules →
-              safety gate. Makes billed API calls.
-            </p>
-
-            <div className="panel-subhead">Output</div>
+            <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
             <p style={{ margin: "6px 0 4px", display: "flex", gap: 8 }}>
               {(["notebook", "framework", "both", "rfc"] as const).map((mode) => (
                 <button
@@ -620,13 +642,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                         : "Both"}
                 </button>
               ))}
-            </p>
-            <p className="hint" style={{ marginTop: 0 }}>
-              Framework artefacts = DDL scripts + config rows + insert statements for
-              the existing ingestion framework — the ~90% case, adding a feed to what
-              already runs. Notebook = a fresh standalone pipeline — the ~10% case.
-              RFC package = the framework artefacts assembled into the RFC deployment
-              folder (DDL, IIG, playbook, manifest).
             </p>
             {genOptions ? (
               <p style={{ margin: "6px 0 4px", display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -838,7 +853,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : null}
 
 
-            {requirements?.check ? (
+            {requirements?.configured !== false && requirements?.check ? (
               <>
                 <div className="panel-subhead">Input requirements check</div>
                 <p className="hint" style={{ marginTop: 0 }}>
@@ -895,7 +910,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </>
             ) : null}
 
-            {governance && governance.checks.length > 0 ? (
+            {governance && governance.configured !== false && governance.checks.length > 0 ? (
               <>
                 <div className="panel-subhead">Reference-architecture checks</div>
                 <p className="hint" style={{ marginTop: 0 }}>
@@ -934,7 +949,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       {choosing ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
-            <h2>Choose an STTM workbook</h2>
+            <h2>Choose documents</h2>
             <p className="hint">
               Scanned live from the local fixtures directory and the{" "}
               <code>inputs/sharepoint</code>, <code>inputs/databricks</code> and{" "}
@@ -1230,9 +1245,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </p>
             ) : (
               <p>
-                {liveProvider === "databricks_fmapi"
-                  ? "This makes real, billed Claude calls through the Databricks serving endpoint:"
-                  : "This makes real, billed Anthropic API calls:"}
+                {transport?.kind === "databricks_fmapi" ? (
+                  <>
+                    This makes real, billed Claude calls through the Databricks Foundation
+                    Model endpoint <code>{transport.endpoint}</code> ({transport.model}):
+                  </>
+                ) : (
+                  "This makes real, billed Anthropic API calls:"
+                )}
                 <br />
                 <strong>~{est?.calls ?? 3} calls · ≈ ${(est?.cost_usd ?? 0.1).toFixed(2)} · ~
                 {est?.seconds ?? 20}s</strong>

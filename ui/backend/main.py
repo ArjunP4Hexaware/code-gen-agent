@@ -300,38 +300,30 @@ def _live_ready() -> tuple[bool, str]:
     """
     if store is None:
         return False, "backend has no config loaded"
-    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
-        # Hard mock lock (the App deployment): the run button stays usable —
-        # build_provider returns the mock, so a "live" run makes ZERO model
-        # calls. The provider surface reports the lock explicitly.
-        return True, ""
-    provider = store.config.reasoning.provider
-    if provider == "databricks_fmapi":
-        from codegen.databricks import DatabricksConfigError, config_for
+    from codegen.reasoning.transport import resolve_transport
 
-        try:
-            cfg = config_for(store.config.databricks)
-        except DatabricksConfigError:
-            return False, "Databricks workspace config does not resolve"
-        if not cfg.serving_endpoint:
-            return False, "databricks.serving_endpoint is not configured"
-        return True, ""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return False, "no ANTHROPIC_API_KEY in the backend env"
-    return True, ""
+    transport = resolve_transport(store.config)
+    return transport.available, transport.reason
 
 
 @app.get("/api/demo/live-available")
 def live_available() -> dict:
-    # `reason` is the provider-specific remedy (never a secret, never env
-    # contents): the UI used to hardwire "no ANTHROPIC_API_KEY", which is
-    # simply wrong on the FMAPI-backed Databricks App deployment.
-    available, reason = _live_ready()
-    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
-        provider = "mock (locked)"
-    else:
-        provider = store.config.reasoning.provider if store is not None else None
-    return {"available": available, "provider": provider, "reason": reason}
+    """Which Layer-2 transport a live run would use, and whether it can.
+
+    ``provider`` is the EFFECTIVE transport (``databricks_fmapi`` inside a
+    Databricks runtime whatever the yaml says, ``anthropic`` locally with a
+    key, ``mock (locked)`` under the lock); ``transport`` carries the
+    detection detail the UI renders (runtime, marker, endpoint, model,
+    label, override). ``reason`` is the remedy — never a secret, never env
+    contents."""
+    if store is None:
+        return {"available": False, "provider": None,
+                "reason": "backend has no config loaded", "transport": None}
+    from codegen.reasoning.transport import resolve_transport
+
+    transport = resolve_transport(store.config)
+    return {"available": transport.available, "provider": transport.provider_name,
+            "reason": transport.reason, "transport": transport.as_dict()}
 
 
 class LiveRunRequest(BaseModel):
@@ -855,7 +847,20 @@ def governance_checks() -> dict:
         ),
         candidate_providers=tuple(c.provider for c in candidates),
     )
-    return governance_checks_payload(store.config, REPO_ROOT, facts)
+    return {"configured": _reference_documents_present(store.config),
+            **governance_checks_payload(store.config, REPO_ROOT, facts)}
+
+
+def _reference_documents_present(config) -> bool:
+    """The request-time checks are grounded in demo.input_documents; when
+    none of those files resolve (an ACFC deployment), the panels hide and
+    the endpoints say so with ``configured: false``."""
+    from codegen.demo_sources import scan_reference_documents
+
+    try:
+        return bool(scan_reference_documents(config, REPO_ROOT)["present"])
+    except Exception:  # noqa: BLE001 — a scan failure reads as unconfigured
+        return False
 
 
 @app.get("/api/demo/input-requirements")
@@ -863,7 +868,9 @@ def input_requirements() -> dict:
     """The FRD contract evaluated against the client requirements deck,
     read LIVE from the input dirs (codegen.input_requirements). The one
     reference document consumed in processing; absent deck → absent check."""
-    return input_requirements_payload(_require_store().config, REPO_ROOT)
+    config = _require_store().config
+    return {"configured": _reference_documents_present(config),
+            **input_requirements_payload(config, REPO_ROOT)}
 
 
 @app.get("/api/demo/metadata-sheet")

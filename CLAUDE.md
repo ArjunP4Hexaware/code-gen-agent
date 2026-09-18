@@ -510,9 +510,27 @@ still carries the repo's `.gitignore` silently skips `ui/frontend/dist`,
 `dist/index.html` names the freshly built hash. Every deploy restarts
 the container, so past live runs under `out/` vanish with it.
 
-## Demo panels + reference-document checks (added 2026-08-27, display/check only)
+## Demo panels + reference-document checks (added 2026-08-27, display/check only; UI trimmed 2026-09-18)
 
-The Run-modes card grew config-driven panels — documents card
+**UI state after the ACFC trim (2026-09-18):** the frontend has ONE page
+for runs — "Generate" (`/modes`): a single "Choose documents…" modal
+(STTM / FRD / VDD sections, a Clear per input), the output mode + the
+conventions / IIG / playbook selectors, the Generate button and run
+progress, then the two request-time check tables — which render ONLY when
+`demo.input_documents` resolves to existing files (their endpoints carry
+`configured: false` otherwise). Removed from the UI: the reference-
+documents card + attach modal, the "Demo FRD" gap block, the Replay card,
+the Past-live-runs list, the Demo-mode page, the metadata-sheet preview on
+the Generate page (the Dashboard keeps it). **Deprecated, no UI consumer:**
+`/api/replay/*`, `/api/demo/live-runs`, `/api/demo/input-documents`
+(`/api/demo/load-live-run` survives for the post-run View-results button);
+they stay for API compatibility and their tests, nothing new may depend on
+them. The Layer-2 transport a run uses is decided once in
+`codegen.reasoning.transport` (mock lock → Databricks runtime forces the
+Foundation Model endpoint → configured provider → mock degrade) and the
+card badge / confirm dialog word themselves from `/api/demo/live-available`.
+
+The Run-modes card (now "Generate") grew config-driven panels — documents card
 (`demo.input_documents`, env `CODEGEN_INPUT_DOCS_DIR` override),
 source-files table + convention check (real FRD docx read live),
 synthetic `databricks fs ls` block (`demo.databricks_paths` placeholders,

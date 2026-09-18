@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.4.0-acfc)
+# Deploying CodeGen inside ACFC (v0.4.1-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace from a Git
 folder clone of `staging`, run the ten documented pairs, and check the
@@ -30,7 +30,7 @@ typo fails at start-up. Edit these:
 | `databricks` | `landing_volume` / `output_volume` | the writable landing volume and the artefact publish target **(confirm)** | `codegen databricks-publish` / the UI publish panel write only here |
 | `databricks` | `serving_endpoint` | the workspace serving endpoint that fronts a Claude model **(confirm the name)** | Layer 2 (reasoning) and the layout recognizer both call it through FMAPI; `reasoning.model` names the same model |
 | `databricks` | `warehouse_id` / `wrapper_notebook_path` | ACFC's values, or leave empty | `EXPLAIN` is the only SQL the seam sends; empty = feature off |
-| `demo` | `databricks_paths` | `{catalog: d1_dlk, schema: codegen, volume: <landing volume>}` | the synthetic `databricks fs ls` block on the Run-modes card |
+| `demo` | `databricks_paths` | `{catalog: d1_dlk, schema: codegen, volume: <landing volume>}` | the synthetic `databricks fs ls` block on the Generate card |
 | `conventions` | `profile` | `acfc_prx` | one combined `<ABBREV>_DDL.txt`, typed stage columns, the pair-1 shape |
 | `metadata` | `template` | `iig_v2` | the eight-sheet IIG layout of the PRX packages |
 | `playbook` | `template` | `main_single` | the single-sheet `Main` playbook of the PRX packages |
@@ -73,16 +73,18 @@ for pairs 1, 2 and 9; every pair has an STTM.
 
 ### Through the UI (the intended path)
 
-1. Run-modes card → **Choose an STTM**. Pick the STTM `.xlsx` (fixture, fetched
-   from a volume, or uploaded from the device).
-2. Pick the FRD: an upstream contract row, a local `.contract.json`, or the
-   FRD **`.docx`** itself (extracted deterministically when the run starts).
-3. Optionally pick the **VDD** `.xlsx` (the "VDD:" buttons under the workbook
-   list). It is cross-checked against the STTM, never a source of values.
-4. Output: pick `RFC package` (or the mode you want) and confirm the three
+1. Generate page → **Choose documents…**. In the modal: pick the STTM `.xlsx`
+   (fixture, fetched from a volume, or uploaded from the device); pick the FRD
+   (an upstream contract row, a local `.contract.json`, or the FRD **`.docx`**
+   itself, extracted deterministically when the run starts); optionally pick
+   the **VDD** `.xlsx` in its own section (cross-checked against the STTM,
+   never a source of values). Each input has a Clear button on the card.
+2. Output: pick `RFC package` (or the mode you want) and confirm the three
    selectors show `acfc_prx` / `iig_v2` / `main_single` (or the config
-   defaults you set).
-5. **Generate from this STTM…** → confirm the cost dialog.
+   defaults you set). The card's badge and the "Model transport" line name
+   the Layer-2 transport the run will use — inside a Databricks runtime that
+   is always the Foundation Model serving endpoint.
+3. **Generate from this STTM…** → confirm the cost dialog.
 
 ### Through the CLI (batch, or CI)
 
@@ -148,7 +150,7 @@ CLI profile.
 The recognizer reads a workbook through a layout profile: cache → synonyms →
 model → validator → human. On a workbook whose fingerprint (its header
 region only, never a data row) is not cached and whose roles the synonyms
-cannot all place, the run **pauses** in state `needs_layout`. The Run-modes
+cannot all place, the run **pauses** in state `needs_layout`. The Generate
 card shows one question per unresolved role, grouped by document (STTM /
 FRD / VDD), each a radio over the candidate columns (STTM/VDD) or candidate
 table cells (FRD), with the header row printed for orientation. Choose,

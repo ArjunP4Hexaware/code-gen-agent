@@ -7,7 +7,6 @@ process makes zero network calls.
 
 from __future__ import annotations
 
-import os
 from typing import Protocol
 
 from codegen.config import Config
@@ -32,31 +31,24 @@ def build_provider(config: Config, dry_run: bool) -> Provider:
     if dry_run:
         return MockProvider()
 
-    # Hard mock lock (e.g. the Databricks App deployment, set in app.yaml):
-    # no config or UI selection can route to a live provider while it is
-    # set. Checked before any provider resolution on purpose.
-    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
-        return MockProvider()
+    # ONE decision for the transport (codegen.reasoning.transport): the mock
+    # lock, the Databricks runtime (Foundation Model endpoint required —
+    # overrides a yaml that still says anthropic), the configured provider,
+    # and the safe degrade to mock when the chosen transport cannot resolve.
+    from codegen.reasoning.transport import resolve_transport
 
-    # databricks_fmapi: the same Claude model over Databricks FMAPI — a
-    # transport, not a vendor change. Selected only when explicitly
-    # configured AND the workspace config resolves; otherwise the safe
-    # degradation is the same as a missing Anthropic key: mock.
-    if config.reasoning.provider == "databricks_fmapi":
-        from codegen.databricks import DatabricksConfigError, config_for
-
-        try:
-            config_for(config.databricks)
-        except DatabricksConfigError:
+    transport = resolve_transport(config)
+    if transport.kind == "databricks_fmapi":
+        if not transport.config_resolves:
             return MockProvider()
         from codegen.reasoning.providers.databricks_provider import (
             DatabricksFmapiProvider,
         )
 
+        # An empty serving_endpoint raises the provider's named error here.
         return DatabricksFmapiProvider(config)
+    if transport.kind == "anthropic":
+        from codegen.reasoning.providers.anthropic_provider import AnthropicProvider
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return MockProvider()
-    from codegen.reasoning.providers.anthropic_provider import AnthropicProvider
-
-    return AnthropicProvider(config)
+        return AnthropicProvider(config)
+    return MockProvider()

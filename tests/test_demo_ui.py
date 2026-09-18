@@ -199,13 +199,15 @@ def test_run_live_without_key_is_rejected(client):
 
 
 def test_live_available_is_boolean_only(client, monkeypatch):
-    assert client.get("/api/demo/live-available").json() == {
-        "available": False, "provider": "anthropic",
-        "reason": "no ANTHROPIC_API_KEY in the backend env",
-    }
+    payload = client.get("/api/demo/live-available").json()
+    assert (payload["available"], payload["provider"], payload["reason"]) == (
+        False, "mock", "no ANTHROPIC_API_KEY in the backend env")
+    assert payload["transport"]["runtime"] == "local"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-never-echoed")
     payload = client.get("/api/demo/live-available").json()
-    assert payload == {"available": True, "provider": "anthropic", "reason": ""}
+    assert (payload["available"], payload["provider"], payload["reason"]) == (
+        True, "anthropic", "")
+    assert payload["transport"]["label"].startswith("Anthropic API (")
     assert "test-key-never-echoed" not in repr(payload)
 
 
@@ -222,7 +224,25 @@ def test_live_available_fmapi_needs_no_key(client, monkeypatch):
         main.store.config.model_copy(update={"reasoning": reasoning}),
     )
     payload = client.get("/api/demo/live-available").json()
-    assert payload == {"available": True, "provider": "databricks_fmapi", "reason": ""}
+    assert (payload["available"], payload["provider"], payload["reason"]) == (
+        True, "databricks_fmapi", "")
+    assert payload["transport"]["endpoint"] == main.store.config.databricks.serving_endpoint
+    assert payload["transport"]["runtime"] == "local"
+
+
+def test_databricks_runtime_forces_the_foundation_model_endpoint(client, monkeypatch):
+    """Inside a Databricks runtime (Apps injects DATABRICKS_APP_PORT) the
+    transport is the Foundation Model endpoint even when the yaml says
+    anthropic — and the override is reported, never silent."""
+    monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
+    payload = client.get("/api/demo/live-available").json()
+    transport = payload["transport"]
+    assert payload["provider"] == "databricks_fmapi" and payload["available"] is True
+    assert transport["runtime"] == "databricks_app"
+    assert transport["detected_by"] == "DATABRICKS_APP_PORT"
+    assert transport["configured"] == "anthropic" and transport["overridden"] is True
+    assert "inside Databricks the Foundation Model endpoint is used" in transport["reason"]
+    assert transport["label"].startswith("Databricks Foundation Model endpoint ")
 
 
 @needs_replay_set

@@ -28,7 +28,11 @@ REPO = Path(__file__).resolve().parents[1]
 # (e.g. CODEGEN_NOTIFICATION_EMAILS — a client value) into this process. The
 # suite must run against the tracked config's synthetic values only, so the
 # override is stripped before every test.
-_MACHINE_LOCAL_ENV = ("CODEGEN_NOTIFICATION_EMAILS",)
+# Databricks runtime markers flip the Layer-2 transport to the Foundation
+# Model endpoint (codegen.reasoning.transport); a developer shell that carries
+# DATABRICKS_HOST must not change what the suite asserts.
+_MACHINE_LOCAL_ENV = ("CODEGEN_NOTIFICATION_EMAILS", "DATABRICKS_HOST", "DATABRICKS_APP_PORT",
+                      "DATABRICKS_APP_NAME", "DATABRICKS_RUNTIME_VERSION")
 
 
 @pytest.fixture(autouse=True, scope="session")

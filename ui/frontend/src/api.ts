@@ -245,6 +245,7 @@ export interface InputRequirementRow {
 }
 
 export interface InputRequirementsResponse {
+  configured?: boolean;
   check: {
     source: string;
     rows: InputRequirementRow[];
@@ -268,6 +269,7 @@ export interface GovernanceCheck {
 }
 
 export interface GovernanceChecksResponse {
+  configured?: boolean;
   checks: GovernanceCheck[];
   summary: Record<GovernanceStatus, number>;
   absent_decks: string[];
@@ -396,11 +398,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface Layer2Transport {
+  kind: "mock_locked" | "databricks_fmapi" | "anthropic" | "mock";
+  configured: string;
+  runtime: "databricks_app" | "databricks" | "local";
+  detected_by: string;
+  endpoint: string | null;
+  model: string;
+  available: boolean;
+  reason: string;
+  label: string;
+  overridden: boolean;
+  provider_name: string;
+}
+
 export interface LiveAvailability {
   available: boolean;
   provider: string | null;
-  // Provider-specific remedy when unavailable ("" when available).
   reason?: string;
+  transport?: Layer2Transport | null;
 }
 
 export const api = {

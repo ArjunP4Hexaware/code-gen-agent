@@ -130,9 +130,8 @@ class GenerationStore:
             # live/replay run's feeds pointing at roots that hold no files.
             if not self.config.contracts.pairs:
                 raise NothingToGenerateError(
-                    "config.contracts.pairs is empty — nothing to generate. "
-                    "Restore anonymized contract pairs in config/config.yaml, "
-                    "or load a replay set / past live run instead."
+                    "No contract pairs are configured (contracts.pairs) — use the Generate "
+                    "page to run from an STTM workbook and its FRD."
                 )
             # A plain generate returns the UI to mock state and default roots.
             self.mode = "mock"

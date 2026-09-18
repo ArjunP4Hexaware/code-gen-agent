@@ -666,6 +666,31 @@ class LoadPatternFaqConfig(BaseModel):
     per_feed_dir: str = "fixtures/faq"
 
 
+class DerivationsConfig(BaseModel):
+    """M7 derivation gate knobs (codegen.gate.derivations). The framework's
+    own length limits are not documented: the defaults are CONSERVATIVE and
+    say so; replace them with the framework team's figures when known."""
+
+    model_config = _MODEL_CONFIG
+
+    name_pattern: str = r"^[A-Za-z0-9_]+$"
+    # IIG columns that must be identifiers (charset + cap).
+    name_columns: list[str] = Field(default_factory=lambda: [
+        "PIPELINE_NAME", "DATABRICKS_NOTEBOOK_NAME", "TGT_TABLE_NAME", "SRC_TABLE_NAME",
+        "TGT_DATABASE_NAME", "TGT_SCHEMA_NAME", "SRC_SCHEMA_NAME", "TGT_CATALOG_NAME",
+        "SRC_CATALOG_NAME", "TGT_RJT_TABLE_NAME", "RECYCL_TBL_NM"])
+    # "default" + per-column caps (conservative; framework limits unknown).
+    name_max_length: dict[str, int] = Field(default_factory=lambda: {"default": 128})
+    path_column_suffixes: list[str] = Field(default_factory=lambda: ["_PATH", "_DIR", "_ROOT_DIR"])
+    path_max_length: int = Field(default=1024, gt=0)
+    # A WF_/NB_ name component longer than this after sanitizing is prose,
+    # not a token: the component stays blank (and the name is flagged blank).
+    max_name_token_length: int = Field(default=32, gt=0)
+    sibling_suffixes: list[str] = Field(default_factory=lambda: [
+        "_pct", "_pop", "_amt", "_dt", "_cd", "_id", "_nm", "_flg", "_cnt", "_ind", "_qty"])
+    sibling_min_group: int = Field(default=3, ge=2)
+
+
 class GateConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -674,6 +699,9 @@ class GateConfig(BaseModel):
     structural_checks: bool
     debug_patterns: list[str]
     pytest_tail_lines: int = Field(gt=0)
+    # M7: derived names / paths / SQL literals + sibling types (defaults so an
+    # older config still loads).
+    derivations: DerivationsConfig = DerivationsConfig()
 
 
 class JobConfig(BaseModel):
@@ -745,6 +773,21 @@ class ConventionsProfileConfig(BaseModel):
     block_using_prefix: dict[str, str] = Field(default_factory=dict)
     # Audit-column type spelling in the DDL (contract enum -> as written).
     audit_type_casing: dict[str, str] = Field(default_factory=dict)
+    # M7: every CREATE must name catalog.schema.table. The catalog resolves
+    # FRD label -> STTM band -> default_catalog[layer] (each with provenance);
+    # none -> that layer's DDL is NOT written and the gate FAILs
+    # catalog_unstated:<layer>. False keeps the reference two-file output,
+    # whose goldens carry no catalog (a two-part name there is today's
+    # behaviour, unchanged).
+    require_qualified_names: bool = False
+    default_catalog: dict[str, str] = Field(default_factory=dict)
+    # M7: run the derivation gate (IIG cells, SQL literals) as gate CHECKS and
+    # the sibling-type check as flags. Off for the reference profile: the CV
+    # and SFMC baselines are byte-compared, and both carry findings the gate
+    # would surface (CV: mixed sibling types; iig_v1 synthetic path with
+    # spaces) — recorded in METADATA_DB_SEMANTICS.md §10 / CLAUDE.md, flip
+    # deliberately.
+    strict_derivations: bool = False
 
 
 class ConventionsConfig(BaseModel):

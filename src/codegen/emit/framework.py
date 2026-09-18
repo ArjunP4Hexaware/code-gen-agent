@@ -28,6 +28,8 @@ from pathlib import Path
 from codegen.config import Config
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.faq import LoadPatternFaq, summarize
+from codegen.gate.derivations import check_iig_derivations, check_sql_literals, join_path
+from codegen.gate.preflight import GateCheck
 from codegen.metadata_sheet import (
     BADGE_LABELS,
     DERIVED_BADGES,
@@ -80,18 +82,50 @@ class FrameworkArtefacts:
     # M4: gate flags this emit raised (blank-and-flag IIG columns, a DDL
     # file name derived from the slug) — joined to the verdict by the caller.
     flags: list[str] = field(default_factory=list)
+    # M7: gate CHECKS this emit ran (derived names / paths, SQL literals,
+    # three-part qualification) — a failed one FAILs the feed.
+    checks: list[GateCheck] = field(default_factory=list)
+    # M7: the framework payload (IIG rows) the DML emitter renders from.
+    payload: dict | None = None
 
 
 def _sanitize_abbrev(slug: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", slug).strip("_").upper()
 
 
-def _combined_ddl_text(spec: ResolvedFeedSpec, profile) -> str:
+def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
+             flags: list[str]) -> str | None:
+    """catalog.schema.table for a CREATE, or None when the profile requires
+    three parts and no source states the catalog / schema. Chain: the
+    resolved table's catalog (FRD label, else the STTM band — the resolver
+    carries whichever stated one) -> profile.default_catalog[layer]; each
+    fallback is a provenance flag; nothing is invented."""
+    catalog, schema, name = table.catalog, table.schema_name, table.table
+    if not catalog and profile.default_catalog.get(layer):
+        catalog = profile.default_catalog[layer]
+        flags.append(f"catalog_from_config:{layer} — {schema}.{name}: no FRD / STTM catalog; "
+                     f"conventions profile default_catalog[{layer}] = {catalog!r}")
+    if profile.require_qualified_names and not (catalog and schema):
+        missing = "catalog" if not catalog else "schema"
+        flags.append(f"{missing}_unstated:{layer} — {schema or '?'}.{name}: sources checked: "
+                     "FRD Target Catalog and Schema label, STTM target band catalog column, "
+                     f"conventions profile default_catalog[{layer}] — none states one; the "
+                     f"{layer} DDL is not written (a two-part name is never written)")
+        return None
+    return ".".join(p for p in (catalog, schema, name) if p)
+
+
+def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None
+                       ) -> str | None:
     """The combined-layout deployment DDL (M4, ``acfc_prx``): stage columns
     as the STTM stage band types them (distinct across segments, STTM
     order), audit columns in the profile's casing, standard = the stage
-    list when the profile says so. Whitespace comes from the profile."""
+    list when the profile says so. Whitespace comes from the profile.
+    M7: every CREATE is three-part or omitted (``_qualify``); None when no
+    layer qualifies."""
     from codegen.emit.emitter import _environment
+
+    flags = flags if flags is not None else []
 
     seen: set[str] = set()
     stage_columns: list[tuple[str, str]] = []
@@ -108,20 +142,19 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile) -> str:
     audit = [(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
              for a in spec.audit_columns]
     stage_table = spec.detail_segment.stage_table
-
-    def _qualified(table) -> str:
-        return ".".join(p for p in (table.catalog, table.schema_name, table.table) if p)
-
+    stage_qualified = _qualify(stage_table, "stage", profile, spec, flags)
+    stage = ({"qualified": stage_qualified, "columns": stage_columns + audit}
+             if stage_qualified else None)
     standard = None
     if spec.standard_table is not None:
         columns = stage_columns if profile.standard_from_stage else standard_columns
-        standard = {"qualified": _qualified(spec.standard_table), "columns": columns + audit}
+        standard_qualified = _qualify(spec.standard_table, "standard", profile, spec, flags)
+        if standard_qualified:
+            standard = {"qualified": standard_qualified, "columns": columns + audit}
+    if stage is None and standard is None:
+        return None
     template = _environment().get_template("framework/combined_ddl.txt.j2")
-    return template.render(
-        ddl=profile,
-        stage={"qualified": _qualified(stage_table), "columns": stage_columns + audit},
-        standard=standard,
-    )
+    return template.render(ddl=profile, stage=stage, standard=standard)
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -243,23 +276,51 @@ def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:
 
 
 def _synthetic_location(spec: ResolvedFeedSpec, config: Config, table: str) -> str:
-    landing = (spec.landing_location or spec.feed_slug).replace("\\", "/").strip("/")
-    prefix = config.framework.synthetic_location_prefix.rstrip("/")
-    return f"{prefix}/{landing}/{table}"
+    # M7: assembled from normalized segments (gate.derivations.join_path) —
+    # never a raw string concatenation; a bad segment is the gate's to FAIL.
+    return join_path(config.framework.synthetic_location_prefix,
+                     spec.landing_location or spec.feed_slug, table)
+
+
+def _source_fragment(spec: ResolvedFeedSpec) -> str:
+    """" (source: <vendor>)" for the table COMMENT — the vendor / source-
+    system value only (Data Source / Vendor Metadata labels); omitted when
+    unstated, multi-line or a label-prefixed description (M7 §2 h)."""
+    source = (spec.source_system or "").strip()
+    if not source or source.lower() == "unstated" or "\n" in source or "=" in source:
+        return ""
+    return f" (source: {source})"
 
 
 def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                          spec: ResolvedFeedSpec, config: Config,
                          banner: list[tuple[str, str]],
-                         extra_banner_lines: list[str] | None = None) -> str:
-    """Render one deployment-team .txt file for a layer's DDL entries."""
+                         extra_banner_lines: list[str] | None = None,
+                         profile=None, flags: list[str] | None = None) -> str:
+    """Render one deployment-team .txt file for a layer's DDL entries.
+    M7: under a profile requiring qualified names, an entry whose CREATE is
+    not three-part is left out (flagged catalog_unstated:<layer>)."""
     from codegen.emit.emitter import _environment
 
+    flags = flags if flags is not None else []
     descriptions = _description_map(spec)
     tables = []
     for _file_name, statement, purpose in sorted(
             entries, key=lambda e: (_DDL_PURPOSE_ORDER.get(e[2], 9), e[0])):
         qualified, columns = _parse_ddl_statement(statement)
+        if profile is not None and len(qualified.split(".")) < 3:
+            default = profile.default_catalog.get(layer)
+            if default:
+                flags.append(f"catalog_from_config:{layer} — {qualified}: no FRD / STTM catalog; "
+                             f"conventions profile default_catalog[{layer}] = {default!r}")
+                qualified = f"{default}.{qualified}"
+            elif profile.require_qualified_names:
+                flags.append(f"catalog_unstated:{layer} — {qualified}: sources checked: FRD "
+                             "Target Catalog and Schema label, STTM target band catalog "
+                             f"column, conventions profile default_catalog[{layer}] — none "
+                             f"states one; the {layer} DDL is not written (a two-part name is "
+                             "never written)")
+                continue
         rendered_columns = [
             {
                 "name": name,
@@ -273,8 +334,8 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
             "qualified": qualified,
             "columns": rendered_columns,
             "table_comment": _sql_comment(
-                f"{purpose.capitalize()} for feed {spec.feed_name} "
-                f"(source: {spec.source_system})"),
+                f"{purpose.capitalize()} for feed {spec.feed_name}"
+                f"{_source_fragment(spec)}"),
             "location": (_synthetic_location(spec, config, qualified.rsplit(".", 1)[-1])
                          if layer == "stage" else None),
             "tags": ((spec.domain, spec.sub_domain)
@@ -478,19 +539,33 @@ def emit_framework(
             flags.append(f"ddl_file_name_from_slug: no feed_abbreviation in the load-pattern "
                          f"FAQ; the combined DDL is named {abbrev!r} from the feed slug")
         ddl_names = [profile.ddl_file_name_pattern.format(feed_abbrev=abbrev)]
-        txt_path = framework_dir / ddl_names[0]
-        txt_path.write_text(_combined_ddl_text(spec, profile), encoding="utf-8", newline="")
-        files.append(txt_path)
+        combined = _combined_ddl_text(spec, profile, flags)
+        if combined is not None:
+            txt_path = framework_dir / ddl_names[0]
+            txt_path.write_text(combined, encoding="utf-8", newline="")
+            files.append(txt_path)
+        else:
+            ddl_names = []
     else:
         ddl_names = []
         for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
             txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
             txt_path.write_text(
                 _table_creation_text(layer, entries, spec, config, banner,
-                                     extra_banner_lines=extra_banner_lines),
+                                     extra_banner_lines=extra_banner_lines,
+                                     profile=profile, flags=flags),
                 encoding="utf-8", newline="\n")
             files.append(txt_path)
             ddl_names.append(txt_path.name)
+    # M7 gate checks: unstated catalog / schema is a FAIL, not a flag.
+    checks: list[GateCheck] = []
+    unqualified = [f for f in flags if f.startswith(("catalog_unstated:", "schema_unstated:"))]
+    if unqualified:
+        checks.append(GateCheck(name="qualified_names", passed=False,
+                                details="; ".join(unqualified)))
+    ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files if p.suffix == ".txt"]
+    checks.append(check_sql_literals(ddl_texts, config))
+    checks.append(check_iig_derivations(payload, config))
 
     rows_workbook = build_workbook(payload)
     inputs_sheet = rows_workbook.create_sheet(title="_inputs")
@@ -576,6 +651,8 @@ def emit_framework(
         assumed_notes=assumed_notes,
         held_back=held_back,
         flags=flags,
+        checks=checks,
+        payload=payload,
     )
 
 

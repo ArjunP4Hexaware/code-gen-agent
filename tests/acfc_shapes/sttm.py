@@ -227,15 +227,15 @@ def build_pair11():
     specs = {
         "MAPPING-VC_ENROLLMENT": ("stg_dom_a", "dom_a", "vc_enrollment",
                                   [("MEMBER_ID", "String"), ("ZIP_CODE", "String"),
-                                   ("POVERTY_PCT", "Decimal"), ("UNEMPLOYMENT_PCT", "Decimal"),
-                                   ("UNINSURED_PCT", "String"), ("TOTAL_POP", "Decimal"),
-                                   ("ELDERLY_POP", "Decimal"), ("REPORT_DT", "Date")]),
+                                   ("POVERTY_PCT", "Decimal(18,2)"), ("UNEMPLOYMENT_PCT", "Decimal(18,2)"),
+                                   ("UNINSURED_PCT", "String"), ("TOTAL_POP", "Decimal(18,0)"),
+                                   ("ELDERLY_POP", "Decimal(18,0)"), ("REPORT_DT", "Date")]),
         "MAPPING-VC_DISENROLLMENT": ("stg_dom_a", "dom_a", "vc_disenrollment",
                                      [("MEMBER_ID", "String"), ("ZIP_CODE", "String"),
-                                      ("RISK_SCORE", "Decimal"), ("RISK_CD", "String"),
+                                      ("RISK_SCORE", "Decimal(18,4)"), ("RISK_CD", "String"),
                                       ("REPORT_DT", "Date")]),
         "MAPPING-VC_INDIVIDUAL_RISK": ("stg_dom_b", "dom_b", "vc_individual_risk",
-                                       [("MEMBER_ID", "String"), ("RISK_SCORE", "Decimal"),
+                                       [("MEMBER_ID", "String"), ("RISK_SCORE", "Decimal(18,4)"),
                                         ("RISK_CD", "String"), ("REPORT_DT", "Date")]),
     }
     for sheet_name, (stage_schema, std_schema, table, fields) in specs.items():

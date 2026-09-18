@@ -88,12 +88,16 @@ def _generate_feed(
     # a fixed-width FRD with no VDD positions is a failed gate check.
     # M4: resolver provenance flags (facts taken from the STTM because the
     # FRD named none) and the drag-fill detector ride the same list.
+    from codegen.gate.derivations import sibling_type_flags
     from codegen.gate.drag_fill import drag_fill_flags
     from codegen.gate.vdd_check import vdd_cross_check
 
     vdd_flags, vdd_check = vdd_cross_check(spec, config)
+    # M7: the derivation gate (sibling types here, cell / literal checks after
+    # the framework emit) runs under a conventions profile that asks for it.
+    strict = config.conventions.get(conventions_profile).strict_derivations
     extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
-                   *vdd_flags]
+                   *(sibling_type_flags(spec, config) if strict else []), *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
     # same review artifact and decision flow as Layer-2 candidates.
     candidates = [*segmented_review_items(spec), *candidates]
@@ -180,6 +184,8 @@ def _generate_feed(
             checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
     if vdd_check is not None:
         checks = [*checks, vdd_check]
+    if framework_artefacts is not None and strict:
+        checks = [*checks, *framework_artefacts.checks]   # M7 derivation gate
 
     gate = compute_verdict(
         spec.feed_id,

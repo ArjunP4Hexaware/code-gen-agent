@@ -200,14 +200,25 @@ def _sanitize_name_part(value: str | None) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").upper()
 
 
+# A name component longer than this after sanitizing is prose, not a token
+# (M7 derivation gate: names come from short tokens or stay blank). Mirrors
+# gate.derivations.max_name_token_length's default; the gate re-checks the
+# assembled name against the configured caps.
+_MAX_NAME_TOKEN = 32
+
+
 def _abbreviate(value: str | None, abbreviations: dict[str, str]) -> str:
     """EDO abbreviation-table lookup (case-insensitive on the sanitized key);
-    an unmapped value falls back to its sanitized uppercase form."""
-    if value is None:
+    an unmapped value falls back to its sanitized uppercase form — unless it
+    is prose (a line break, or longer than the token cap), which leaves the
+    component blank rather than slugging a description into a name."""
+    if value is None or "\n" in value or "\r" in value:
         return ""
     normalized = _sanitize_name_part(value)
     by_normalized = {_sanitize_name_part(k): v for k, v in abbreviations.items()}
-    return by_normalized.get(normalized, normalized)
+    if normalized in by_normalized:
+        return by_normalized[normalized]
+    return normalized if len(normalized) <= _MAX_NAME_TOKEN else ""
 
 
 def _name_components(

@@ -600,6 +600,25 @@ gate:
     - "print('DEBUG"
   # How many trailing pytest output lines the gate keeps in check details.
   pytest_tail_lines: 15
+  # M7 (2026-09-18) derivation gate — codegen.gate.derivations. Every IIG
+  # cell single-line; identifier columns charset + cap; path columns no
+  # whitespace / empty segment / punctuation-ended segment / doubled
+  # separator; DDL COMMENT / LOCATION / TBLPROPERTIES literals single-line,
+  # quotes balanced. The framework's own limits are NOT documented — these
+  # caps are conservative defaults, replace them with the framework team's.
+  derivations:
+    name_pattern: "^[A-Za-z0-9_]+$"
+    name_columns: [PIPELINE_NAME, DATABRICKS_NOTEBOOK_NAME, TGT_TABLE_NAME, SRC_TABLE_NAME,
+                   TGT_DATABASE_NAME, TGT_SCHEMA_NAME, SRC_SCHEMA_NAME, TGT_CATALOG_NAME,
+                   SRC_CATALOG_NAME, TGT_RJT_TABLE_NAME, RECYCL_TBL_NM]
+    name_max_length: {default: 128, PIPELINE_NAME: 128, DATABRICKS_NOTEBOOK_NAME: 128}
+    path_column_suffixes: [_PATH, _DIR, _ROOT_DIR]
+    path_max_length: 1024
+    max_name_token_length: 32
+    # Sibling-type check: suffix groups whose standard-band types must agree
+    # (plus any suffix >= sibling_min_group columns share).
+    sibling_suffixes: [_pct, _pop, _amt, _dt, _cd, _id, _nm, _flg, _cnt, _ind, _qty]
+    sibling_min_group: 3
 
 sharepoint:
   # Microsoft Graph transport (codegen.sharepoint) — the document library is
@@ -735,6 +754,14 @@ conventions:
       trailing_newline: false
       block_using_prefix: {stage: "", standard: " "}
       audit_type_casing: {String: STRING, Timestamp: TIMESTAMP}
+      # M7: three-part names or no DDL (catalog_unstated:<layer> FAILs).
+      # default_catalog is the LAST fallback (FRD label -> STTM band -> here);
+      # empty = none configured. Set per environment in an overlay.
+      require_qualified_names: true
+      default_catalog: {}
+      # M7: derived names / paths / SQL literals are gate CHECKS and sibling
+      # types are flags under this profile (edo_sfmc keeps today's verdicts).
+      strict_derivations: true
 
 metadata:
   # M4: IIG workbook template versions. iig_v1 = demo.metadata_sheet (the

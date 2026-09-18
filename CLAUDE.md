@@ -51,7 +51,11 @@ src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
                     rfc.py the RFC package, dml.py the SQL Server DML — M7),
                     gate/ (preflight, tests, verdict, vdd_check, drag_fill,
                     derivations — M7), metadata_template.py (IIG template
-                    versions), report/, templates/, cli.py, config.py
+                    versions), report/, templates/, cli.py, config.py,
+                    storage/ (M8.1: local | workspace | volume backends, role
+                    stores, input catalog — an EDGE, never imported by the
+                    generation path), pairing.py (M8.2: pairing by content),
+                    layout/answers.py (M8.3: answers file + unresolved report)
 tests/              offline, no Spark needed; some SKIP when the fixtures they
                     drive on are absent (see "Fixtures & data rules"); the
                     demo-UI and SharePoint-route tests also skip when the [ui]
@@ -91,6 +95,8 @@ ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip inst
                     ui/frontend/dist IS TRACKED (M6): rebuild (`npm run build`) and
                     commit it whenever ui/frontend/src changes — the App serves it
 inputs/sharepoint/  gitignored landing dir for documents pulled from SharePoint
+acfc_run.py         Databricks notebook source: the one-pair fallback run (storage URIs as
+                    widgets, answers file) for a workspace where the App is not usable
 ```
 
 ## STTM workbook extractor (codegen extract-sttm)
@@ -130,6 +136,8 @@ its committed expected output and can NEVER match the MIDS fixture
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # deps from pyproject
+# Python 3.10 – 3.12 are supported (the Databricks Apps floor is 3.10): before shipping,
+# run the suite on 3.10 and 3.12 too — uv venv --python 3.10 <dir> && uv pip install -e ".[dev,ui,databricks]"
 # Live Layer-2 runs additionally need the Anthropic SDK: -e ".[dev,live]"
 .venv/bin/python -m pytest -q          # no Spark, no network
 
@@ -268,6 +276,94 @@ agent. Workbook serialization is pinned byte-stable
 (`stable_workbook_bytes`). The FAQ gained `has_header`/`has_trailer`
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
+
+## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
+
+Driven by what Genie Code recorded inside the ACFC workspace
+(`origin/genie-code`: `docs/acfc/ENVIRONMENT_ACFC.md`, `RETROFIT_LOG.md` —
+**never merge that branch**: its `config.yaml` carries a ten-pair
+`pairing_map` with real client file names and ticket numbers, its `app.yaml`
+a user e-mail in a path). Facts that shaped the code: the App container gets
+no gitignored file and has no `/Volumes` mount; on serverless,
+`Path.mkdir(parents=True)` under `/Volumes` dies with `PermissionError …
+'/Volumes'`; the App's service principal has zero UC grants and the user
+cannot grant; four of ten pairs share one ticket; the real pair-1 STTM
+leaves six roles open under synonyms. Deploy doc: `docs/ACFC_DEPLOY.md`
+(rewritten around those facts — grants, env names, redeploy sequence).
+
+- **Storage (`src/codegen/storage/`, M8.1).** One interface (`list`,
+  `read_bytes`, `write_bytes`, `exists`, `mkdir`), three backends by URI:
+  `local:<dir>`, `workspace:/Workspace/Users/…` (Workspace API),
+  `volume:/Volumes/<cat>/<schema>/<vol>/…` (Files API — never the mount).
+  Roles `storage.inputs|state|outputs` (env `CODEGEN_STORAGE_INPUTS|STATE|
+  OUTPUTS` win; `outputs: null` = `output.dir`). **mkdir rule: folders are
+  created only BELOW a root, never the root or an ancestor** — a missing
+  remote / absolute root is a named `StorageConfigError`; only a relative
+  `local:` root (inside the checkout) is created. `local:/Volumes/…`,
+  `local:/Workspace/…` and a mount path in `layout.*cache*` are refused at
+  load. It is an EDGE like the SharePoint / volumes seams: resolve / rules /
+  reasoning / emit / gate never import it. A `RoleStore` pairs a backend
+  with a local working directory — `fetch` before a read, `push` /
+  `push_tree` after a write; for a local backend the working directory IS
+  the root and both are no-ops, which is what keeps every baseline
+  byte-identical. `ui/backend/stores.py` is the UI's accessor: with default
+  roles it returns the pre-M8 paths (the module constants tests patch —
+  `FETCH_DIR`, `INPUTS_DIR`, `DECISIONS_PATH` — still work). Uploads, the
+  volume / SharePoint inboxes, `decisions.json`, the runtime layout cache
+  and `out/demo_<ts>/` all go through it; past runs are pulled back from a
+  remote outputs role after a container restart; the CLI's `generate`
+  honours the outputs role too (`STORED …`). Tests use the fake SDK client
+  in `tests/storage_fakes.py` (it answers PermissionDenied for a root and
+  its ancestors, like the mount). The governance "never writes back" check
+  still scans `codegen.databricks` / `sharepoint` only: storage writes are
+  scoped to the operator-configured roots, not to `WRITABLE_PREFIX`.
+- **Input discovery (M8.2).** `inputs.extra_dirs` (storage URIs, scan
+  depth 1: the root + its immediate subfolders; `CODEGEN_EXTRA_INPUT_DIRS`
+  `;`-separated is appended, a bare `/Workspace/…` entry is read as
+  `workspace:`). `codegen.storage.catalog.InputCatalog` lists sources
+  (first source wins per name, remote listings cached
+  `inputs.listing_ttl_seconds`); an unreachable root is reported
+  (`status.input_errors`), never fatal.
+- **Pairing by content (`src/codegen/pairing.py`, M8.2).** Replaces the
+  ticket → name-stem chain at selection time: every FRD / VDD candidate is
+  scored with the deterministic readers (synonyms only, never a model) —
+  feed name in the STTM header region (`_name_match`: short tokens exact,
+  so "FEED_8" ≠ "Feed Type"), tables / schemas vs the bands, file patterns
+  vs file-details rows (an FRD's "tables" are also compared with the files:
+  the many-files shape), VDD FILES-sheet vs STTM meta; ticket and name stem
+  are two weak signals. Paired only at `inputs.pairing.min_score` (3) AND a
+  lead of `margin` (2); else the top candidates become a `choice` question
+  (key `pair.frd` / `pair.vdd`, answered through `gaps`) asked in the layout
+  dialog when the run starts (`DemoRunner._ask_pairing`) or printed by
+  `codegen pair` with the answers-file remedy. `demo.pairing_map` still
+  overrides; a manual pick always wins; when NO document shares content the
+  pre-M8 name rules still decide (so the CV golden still reports
+  `name_stem`). The reported rule is the name rule when it alone would have
+  picked the same document, else `content`.
+- **Layout in a real workspace (M8.3).** `layout.provider: live` (+
+  `layout.endpoint`; env `CODEGEN_LAYOUT_PROVIDER` / `_ENDPOINT`) is the
+  recognizer's OWN opt-in: it queries the FMAPI endpoint even while Layer 2
+  is mock-locked (same request as the mock — fingerprint material only —
+  same validator); dry-run and `CODEGEN_FORCE_MOCK_LAYOUT=1` force the mock.
+  `codegen layout --answers answers.yaml` / `extract-sttm --answers` place
+  open roles by (document, sheet, [layer], role) → header text | index |
+  letter, source=user, open questions only; `--report-unresolved` writes
+  `unresolved_headers.md` — STRUCTURAL LABELS ONLY (a test asserts no data
+  cell leaks). The runtime profile cache lives in the state role
+  (`<state>/layout_profiles`, `codegen.storage.runtime_layout_cache`);
+  `_save_runtime` and `LayoutConfig` refuse anything under `fixtures/`
+  (runtime profiles carry real sheet names). **Python 3.10 – 3.12**
+  (`requires-python >=3.10`, ruff `py310`; `StrEnum` has a 3.10 fallback in
+  `layout/profile.py`, `datetime.UTC` is gone) — run the suite on all three
+  with uv venvs before shipping.
+- **Shipped `app.yaml` is mock-locked again (M8.5)**
+  (`CODEGEN_FORCE_MOCK_PROVIDER=1`): a fresh deploy makes no model call
+  until CAN_QUERY is confirmed. The Hexaware App's next deploy inherits the
+  lock — remove the env entry there to keep it live. `acfc_run.py` (repo
+  root) is the scrubbed notebook fallback: widgets for storage URIs, pair →
+  layout (answers) → extract → generate → push.
+- **main is at 4c35c61 (v0.4.1-acfc)** — none of M7 / M8; merge staging →
+  main only on Soham's say-so.
 
 ## M7 (2026-09-18, v0.4.2-acfc): metadata-DB DML, the many-files FRD shape, the derivation gate
 
@@ -513,7 +609,9 @@ docx→contract extractor here" rule is retired.
 Pairing precedence: explicit `demo.pairing_map` (canonical stems; ships
 MIDS) → shared ticket number (CAQH `1005034`) → the ≥3-token content-stem
 match (role tokens `frd`/`sttm` and a `.contract` suffix ignored; unique
-both ways). **Since 2026-09-18 pairing is automatic at selection time**:
+both ways). **M8.2 (v0.5.0): at selection time this chain is superseded by
+pairing by CONTENT (`codegen.pairing`, see the M8 section) — the name rules
+below decide only when no document shares any content.** **Since 2026-09-18 pairing is automatic at selection time**:
 choosing an STTM selects its associated FRD among the LOCAL candidates
 (contracts dir + the three inboxes; no network) and the status carries
 `frd_auto_paired {frd, rule}`; the same happens for the Vendor Data

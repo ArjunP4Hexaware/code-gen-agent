@@ -364,6 +364,28 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   // cell — the claim {table,row,col,label,section} the merge step re-validates.
   const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
   const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
+  useEffect(() => {
+    // Pre-select each question's suggested candidate (still confirmed by the
+    // person with Continue; the merge step re-validates every claim).
+    const qs = status?.layout_questions ?? [];
+    if (status?.state !== "needs_layout" || !qs.length) return;
+    const picks: Record<string, number> = {};
+    const frd: Record<string, Record<string, unknown>> = {};
+    for (const q of qs) {
+      if (q.suggested === null || q.suggested === undefined) continue;
+      const c = q.candidates[q.suggested];
+      if (!c) continue;
+      if (q.document === "frd") {
+        if (c.table !== undefined && c.row !== undefined)
+          frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
+      } else if (c.col !== undefined) {
+        picks[q.key] = c.col;
+      }
+    }
+    setLayoutPicks((prev) => ({ ...picks, ...prev }));
+    setFrdPicks((prev) => ({ ...frd, ...prev }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.state, status?.layout_questions]);
   const submitLayout = async (proceed: boolean) => {
     const sttm: Record<string, number> = {};
     for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
@@ -808,8 +830,17 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                           {qs.map((q) => (
                             <div key={q.key} style={{ marginTop: 8 }}>
                               <div>
-                                <code>{q.key}</code>{" "}
-                                <span className="hint">— {q.reason}</span>
+                                <strong>{q.title || q.key}</strong>{" "}
+                                <code style={{ fontSize: 11 }}>{q.key}</code>
+                              </div>
+                              {q.hint ? (
+                                <div className="hint" style={{ marginTop: 2 }}>{q.hint}</div>
+                              ) : null}
+                              <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
+                                Why it is asked: {q.reason}.{" "}
+                                {q.suggested !== null && q.suggested !== undefined
+                                  ? "The most likely match is pre-selected — confirm or pick another."
+                                  : "No candidate matches the usual labels — pick the one that states it, or proceed without."}
                               </div>
                               {q.header.length ? (
                                 <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
@@ -843,6 +874,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                       />{" "}
                                       {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}
                                       {c.label ?? c.header}
+                                      {q.suggested === q.candidates.indexOf(c) ? (
+                                        <span className="hint"> (suggested)</span>
+                                      ) : null}
                                     </label>
                                   ) : (
                                     <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
@@ -858,6 +892,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                       />{" "}
                                       {c.col !== undefined ? `col ${c.col}: ` : ""}
                                       {c.header ?? c.label}
+                                      {q.suggested === q.candidates.indexOf(c) ? (
+                                        <span className="hint"> (suggested)</span>
+                                      ) : null}
                                     </label>
                                   ),
                                 )}

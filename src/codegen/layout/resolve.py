@@ -51,6 +51,7 @@ from codegen.layout.frd_profile import (
     FrdUnresolved,
     frd_fingerprint,
 )
+from codegen.layout.hints import frd_field_help, role_help
 from codegen.layout.model import (
     LayoutModelProvider,
     LayoutProviderError,
@@ -80,6 +81,11 @@ class LayoutQuestion:
     reason: str
     header: list[str] = field(default_factory=list)          # "C: Field Name" …
     candidates: list[dict] = field(default_factory=list)     # {col, header} / {table,row,col,label}
+    # Plain-language help (layout/hints.py): what is asked, where it usually
+    # sits in the document, and the candidate the dialog pre-selects.
+    title: str = ""
+    hint: str = ""
+    suggested: int | None = None
 
     @property
     def key(self) -> str:
@@ -90,7 +96,8 @@ class LayoutQuestion:
     def as_dict(self) -> dict:
         return {"document": self.document, "key": self.key, "sheet": self.sheet,
                 "layer": self.layer, "role": self.role, "reason": self.reason,
-                "header": self.header, "candidates": self.candidates}
+                "header": self.header, "candidates": self.candidates,
+                "title": self.title, "hint": self.hint, "suggested": self.suggested}
 
 
 @dataclass(frozen=True)
@@ -259,10 +266,11 @@ def _questions_for(profile: LayoutProfile, workbook,
         span = range(band.col_start, band.col_end + 1) if band else range(1, len(header) + 1)
         candidates = [{"col": c, "header": text(header[c - 1])} for c in span
                       if c not in claimed and c - 1 < len(header) and text(header[c - 1])]
+        title, hint, suggested = role_help(item.role, item.layer, candidates)
         questions.append(LayoutQuestion(
             document=document, sheet=item.sheet, layer=item.layer, role=item.role,
             reason=item.reason, header=_header_strip(ws, sheet.header_row),
-            candidates=candidates))
+            candidates=candidates, title=title, hint=hint, suggested=suggested))
     return questions
 
 
@@ -468,7 +476,7 @@ def _frd_labels(content) -> list[str]:
     return lines
 
 
-def _frd_questions(profile: FrdLayoutProfile, content) -> list[LayoutQuestion]:
+def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[LayoutQuestion]:
     used = {(f.table, f.row) for f in profile.fields.values()}
     candidates = []
     for ref in profile.sections:
@@ -480,9 +488,13 @@ def _frd_questions(profile: FrdLayoutProfile, content) -> list[LayoutQuestion]:
             if row[col].strip():
                 candidates.append({"table": ref.table, "row": row_index, "col": col,
                                    "label": row[col].strip(), "section": ref.section})
-    return [LayoutQuestion(document="frd", sheet=None, layer=None, role=item.field,
-                           reason=item.reason, header=[], candidates=candidates)
-            for item in profile.unresolved]
+    questions = []
+    for item in profile.unresolved:
+        title, hint, suggested = frd_field_help(item.field, candidates, config)
+        questions.append(LayoutQuestion(document="frd", sheet=None, layer=None, role=item.field,
+                                        reason=item.reason, header=[], candidates=candidates,
+                                        title=title, hint=hint, suggested=suggested))
+    return questions
 
 
 def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
@@ -571,7 +583,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
                 profile, user_rejections = _validate_frd(profile, content, config, {"user"})
                 doc.rejections += user_rejections
                 doc.profile = profile
-            doc.questions = _frd_questions(doc.profile, content)
+            doc.questions = _frd_questions(doc.profile, content, config)
             return doc, content
         except ValidationError as exc:
             rejections.append(Rejection("frd", None, None, None,
@@ -609,7 +621,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
 
     doc = DocumentResolution("frd", profile, rejections=rejections, provider_calls=calls,
                              fingerprint=digest)
-    doc.questions = _frd_questions(profile, content)
+    doc.questions = _frd_questions(profile, content, config)
     if not profile.unresolved and runtime_cache_dir is not None and calls + len(answers or {}):
         _save_runtime(profile.model_dump(mode="json"), runtime_cache_dir, f"{digest}.json")
     return doc, content

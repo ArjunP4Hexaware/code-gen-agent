@@ -96,6 +96,11 @@ export interface LayoutQuestion {
   reason: string;
   header: string[];
   candidates: { col?: number; header?: string; table?: number; row?: number; label?: string }[];
+  // Plain-language help: what is asked, where it usually sits, the
+  // pre-selected candidate index (or null).
+  title?: string;
+  hint?: string;
+  suggested?: number | null;
 }
 
 export interface DemoStatus {

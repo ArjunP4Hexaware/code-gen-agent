@@ -202,6 +202,14 @@ def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
         if _canonical_file_name(row.file_name) in canonical_patterns
     ]
     if len(matches) != 1:
+        if not feed.file_name_patterns:
+            raise ExtractionError(
+                f"feed {feed.feed_name!r}: the FRD contract names NO file for it "
+                f"(file_name_patterns is empty) while FILE_DETAILS lists "
+                f"{[r.file_name for r in ir.file_details]}. Answer the layout dialog's "
+                f"'File for table {feed.feed_name}' question (the run paused there) or add "
+                "the file name to the FRD — the agent never guesses a file."
+            )
         raise ExtractionError(
             f"feed {feed.feed_name!r}: {len(matches)} FILE_DETAILS rows match its "
             f"file_name_patterns {feed.file_name_patterns} "

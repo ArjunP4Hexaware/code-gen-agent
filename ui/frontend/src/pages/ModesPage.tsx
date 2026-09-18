@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import type { LayoutQuestion } from "../api";
 import {
   api,
   ApiError,
@@ -373,11 +374,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     if (status?.state !== "needs_layout" || !qs.length) return;
     const picks: Record<string, number> = {};
     const frd: Record<string, Record<string, unknown>> = {};
+    const gaps: Record<string, { value: string; layer?: string; source: string }> = {};
     for (const q of qs) {
       if (q.suggested === null || q.suggested === undefined) continue;
       const c = q.candidates[q.suggested];
       if (!c) continue;
-      if (q.document === "frd") {
+      if (q.kind === "choice" || q.kind === "layer") {
+        gaps[q.key] = gapPickFor(q, c);
+      } else if (q.document === "frd") {
         if (c.table !== undefined && c.row !== undefined)
           frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
       } else if (c.col !== undefined) {
@@ -386,8 +390,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
     setLayoutPicks((prev) => ({ ...picks, ...prev }));
     setFrdPicks((prev) => ({ ...frd, ...prev }));
+    setGapPicks((prev) => ({ ...gaps, ...prev }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.state, status?.layout_questions]);
+  const gapPickFor = (q: LayoutQuestion, c: LayoutQuestion["candidates"][number]) => ({
+    value: c.value ?? "",
+    ...(q.kind === "layer" ? { layer: c.layer } : {}),
+    source: c.source ?? "STTM",
+  });
   const submitLayout = async (proceed: boolean) => {
     const sttm: Record<string, number> = {};
     for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
@@ -429,12 +439,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     const advice = status?.layout_advice?.advice ?? {};
     const picks: Record<string, number> = { ...layoutPicks };
     const frd: Record<string, Record<string, unknown>> = { ...frdPicks };
+    const gaps = { ...gapPicks };
     for (const q of status?.layout_questions ?? []) {
       const a = advice[q.key];
       if (!a || a.index === null || a.index === undefined) continue;
       const c = q.candidates[a.index];
       if (!c) continue;
-      if (q.document === "frd") {
+      if (q.kind === "choice" || q.kind === "layer") {
+        gaps[q.key] = gapPickFor(q, c);
+      } else if (q.document === "frd") {
         if (c.table !== undefined && c.row !== undefined)
           frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
       } else if (c.col !== undefined) {
@@ -443,6 +456,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
     setLayoutPicks(picks);
     setFrdPicks(frd);
+    setGapPicks(gaps);
   };
   const est = status?.estimates;
 
@@ -899,7 +913,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                 Why it is asked: {q.reason}.{" "}
                                 {q.suggested !== null && q.suggested !== undefined
                                   ? "The most likely match is pre-selected — confirm or pick another."
-                                  : "No candidate matches the usual labels — pick the one that states it, or proceed without."}
+                                  : q.kind === "choice"
+                                    ? "No document value uniquely names this — pick the one the source team confirms; proceeding without it leaves the feed with no file and the run stops at extraction."
+                                    : "No candidate matches the usual labels — pick the one that states it, or proceed without."}
                               </div>
                               {status.layout_advice?.advice[q.key] ? (
                                 <div className="flag-hitl" style={{ padding: "4px 8px", marginTop: 4, fontSize: 12 }}>
@@ -932,16 +948,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                           gapPicks[q.key].value === c.value &&
                                           (q.kind === "layer" ? gapPicks[q.key].layer === c.layer : gapPicks[q.key].source === c.source)
                                         }
-                                        onChange={() =>
-                                          setGapPicks({
-                                            ...gapPicks,
-                                            [q.key]: {
-                                              value: c.value ?? "",
-                                              ...(q.kind === "layer" ? { layer: c.layer } : {}),
-                                              source: c.source ?? "STTM",
-                                            },
-                                          })
-                                        }
+                                        onChange={() => setGapPicks({ ...gapPicks, [q.key]: gapPickFor(q, c) })}
                                       />{" "}
                                       {q.kind === "layer" ? (
                                         <>
@@ -954,6 +961,12 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                           <code>{c.value}</code>
                                         </>
                                       )}
+                                      {q.suggested === q.candidates.indexOf(c) ? (
+                                        <span className="hint"> (suggested)</span>
+                                      ) : null}
+                                      {status.layout_advice?.advice[q.key]?.index === q.candidates.indexOf(c) ? (
+                                        <span className="hint"> (model's pick)</span>
+                                      ) : null}
                                     </label>
                                   ) : doc === "frd" ? (
                                     <label key={`${q.key}-${frdPickKey(c)}`} style={{ fontSize: 12 }}>

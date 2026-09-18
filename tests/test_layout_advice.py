@@ -29,8 +29,8 @@ QUESTIONS = [
 def test_advice_request_carries_only_question_texts_and_labels():
     request = build_advice_request([{**QUESTIONS[0], "secret": "data row"}])
     assert request["kind"] == "layout_advice"
-    assert set(request["questions"][0]) == {"key", "document", "title", "hint", "reason",
-                                            "header", "candidates"}
+    assert set(request["questions"][0]) == {"key", "document", "kind", "title", "hint", "reason",
+                                            "header", "candidates", "suggested"}
     assert "secret" not in str(request)
 
 
@@ -43,6 +43,30 @@ def test_mock_advice_picks_matching_labels_and_says_when_none_does():
     assert "none of the remaining labels" in advice["feeds[0].file_format"]["rationale"]
     assert advice["S/source/field_name"]["index"] == 1
     assert provider.requests[-1]["kind"] == "layout_advice"
+
+
+CHOICE = {"document": "frd", "key": "feeds[1].file_name_patterns", "kind": "choice",
+          "title": "File for table sd_community_risk", "hint": "Which file feeds it.",
+          "reason": "no unique name match", "header": [],
+          "candidates": [{"value": "demographics_package_YYYY_MM.csv", "source": "STTM",
+                          "cell": "B2"},
+                         {"value": "analytics_package_YYYY_MM.csv", "source": "STTM",
+                          "cell": "B3"}]}
+
+
+def test_mock_advice_on_a_choice_question_uses_the_resolvers_suggestion_only():
+    """A choice question offers document VALUES, not labels: offline advice
+    is the resolver's own suggestion (the leftover file) or honestly none."""
+    provider = MockLayoutProvider([])
+    with_suggestion = {**CHOICE, "suggested": 1}
+    advice = validate_advice(provider.advise_layout(build_advice_request([with_suggestion])),
+                             [with_suggestion])
+    assert advice[CHOICE["key"]]["index"] == 1
+    assert "analytics_package_YYYY_MM.csv" in advice[CHOICE["key"]]["rationale"]
+    none = {**CHOICE, "suggested": None}
+    advice = validate_advice(provider.advise_layout(build_advice_request([none])), [none])
+    assert advice[CHOICE["key"]]["index"] is None
+    assert "source team" in advice[CHOICE["key"]]["rationale"]
 
 
 def test_validate_advice_drops_unknown_keys_and_out_of_range_picks():

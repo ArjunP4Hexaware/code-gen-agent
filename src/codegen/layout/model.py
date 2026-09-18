@@ -87,7 +87,9 @@ def build_frd_request(fingerprint: str, labels: list[str], partial: dict,
 _ADVICE_SYSTEM_PROMPT = """You advise a data engineer who must place fields the layout \
 recognizer could not resolve. For EACH question you are given its title, what the field means \
 (hint), why it is unresolved, the header strip of the sheet (STTM / VDD) and the CANDIDATE \
-labels or headers still available in the document. You see no data rows.
+labels or headers still available in the document. You see no data rows. A question of kind \
+"choice" asks which of several DOCUMENT VALUES (each with its source cell) applies — e.g. which \
+listed file feeds a table; kind "layer" asks which target layer a single stated value applies to.
 
 Respond with ONLY a JSON object: {"advice": [{"key": <question key>, "candidate_index": \
 <0-based index into that question's candidates, or null when NO candidate states the field>, \
@@ -96,7 +98,8 @@ its label or header clearly states the field; otherwise return null and say the 
 not state it (the engineer will proceed without, gate-flagged). Never invent a value."""
 
 # Keys a question exposes to the advice call — labels / headers only.
-_ADVICE_QUESTION_KEYS = ("key", "document", "title", "hint", "reason", "header", "candidates")
+_ADVICE_QUESTION_KEYS = ("key", "document", "kind", "title", "hint", "reason", "header",
+                         "candidates", "suggested")
 
 
 def build_advice_request(questions: list[dict]) -> dict:
@@ -131,6 +134,19 @@ def _heuristic_advice(request: dict) -> dict:
     advice = []
     for q in request.get("questions", []):
         candidates = q.get("candidates") or []
+        if q.get("kind") in ("choice", "layer"):
+            # Document values, not labels: the resolver's own suggestion (the
+            # leftover file / the stated layer) is the only offline basis.
+            index = q.get("suggested") if isinstance(q.get("suggested"), int) else None
+            if index is None:
+                rationale = ("mock provider (offline): several document values fit and none "
+                             "names this table — pick the one the source team confirms.")
+            else:
+                value = candidates[index].get("value") if index < len(candidates) else None
+                rationale = (f"mock provider (offline): {value!r} is the only value not already "
+                             "taken by another feed.")
+            advice.append({"key": q.get("key"), "candidate_index": index, "rationale": rationale})
+            continue
         if q.get("document") == "frd":
             labels = [c.get("label") or "" for c in candidates]
             title = (q.get("title") or "").lower()

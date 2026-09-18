@@ -167,6 +167,19 @@ def test_shared_family_token_never_pairs_and_the_leftover_is_only_a_suggestion()
     assert _mutual_unique_matches(["a_risk", "b_risk"], ["risk_YYYYMMDD.csv"]) == {}
 
 
+def test_empty_file_patterns_name_the_dialog_question_as_the_remedy():
+    from types import SimpleNamespace
+
+    from codegen.extract.extractor import ExtractionError, _match_file_details
+
+    feed = SimpleNamespace(feed_name="sd_community_risk", file_name_patterns=[])
+    ir = SimpleNamespace(file_details=[SimpleNamespace(file_name="analytics_package_YYYY_MM.csv")])
+    with pytest.raises(ExtractionError) as info:
+        _match_file_details(feed, ir)
+    assert "names NO file" in str(info.value)
+    assert "'File for table sd_community_risk'" in str(info.value)
+
+
 def test_extension_implies_the_delimiter_when_the_format_is_prose():
     assert _extension_delimiter("demographics_package_YYYY_MM.csv") == ","
     assert _extension_delimiter("sd_ind_risk_YYYYMMDD_HHMM.psv") == "|"

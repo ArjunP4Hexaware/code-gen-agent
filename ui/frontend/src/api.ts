@@ -51,6 +51,7 @@ export interface FrameworkSummary {
 }
 
 export type OutputMode = "notebook" | "framework" | "both" | "rfc" | "all";
+export type OutputPart = "notebook" | "framework" | "rfc" | "all";
 
 export interface GenerationOptionGroup {
   options: string[];
@@ -112,7 +113,8 @@ export interface DemoStatus {
   estimates: { calls: number; cost_usd: number; seconds: number };
   sttm_workbook?: string;
   sttm_chosen?: boolean;
-  output_mode?: OutputMode;
+  output_mode?: OutputMode | null;
+  output_parts?: OutputPart[];
   conventions_profile?: string;
   iig_template?: string;
   playbook_template?: string;
@@ -485,6 +487,12 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode }),
+    }),
+  setOutputParts: (parts: OutputPart[]) =>
+    request<DemoStatus>("/api/demo/output-parts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ parts }),
     }),
   generationOptions: () => request<GenerationOptions>("/api/demo/generation-options"),
   setGenerationOptions: (body: {

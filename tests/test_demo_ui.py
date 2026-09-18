@@ -608,3 +608,28 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
         client.delete("/api/demo/vdd")
         vdd.unlink(missing_ok=True)
 
+
+def test_output_parts_are_independent_and_empty_refuses_a_run(client, monkeypatch):
+    """The Output toggles are a real multi-select: any subset, none allowed
+    (run-live then 400), All its own state; the generator mode is derived."""
+    try:
+        r = client.post("/api/demo/output-parts", json={"parts": ["notebook", "rfc"]})
+        assert r.status_code == 200
+        assert r.json()["output_parts"] == ["notebook", "rfc"] and r.json()["output_mode"] == "all"
+        r = client.post("/api/demo/output-parts", json={"parts": ["all"]})
+        assert r.json()["output_parts"] == ["all"] and r.json()["output_mode"] == "all"
+        r = client.post("/api/demo/output-parts", json={"parts": ["framework"]})
+        assert r.json()["output_mode"] == "framework"
+        r = client.post("/api/demo/output-parts", json={"parts": []})
+        assert r.status_code == 200
+        assert r.json()["output_parts"] == [] and r.json()["output_mode"] is None
+        monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
+        r = client.post("/api/demo/run-live", json={"confirm": True})
+        assert r.status_code == 400 and "no output selected" in r.json()["detail"]
+        r = client.post("/api/demo/output-parts", json={"parts": ["zip"]})
+        assert r.status_code == 400
+        r = client.post("/api/demo/output-parts", json={"parts": None})
+        assert r.json()["output_parts"] == ["notebook"]  # config default
+    finally:
+        client.post("/api/demo/output-parts", json={"parts": None})
+

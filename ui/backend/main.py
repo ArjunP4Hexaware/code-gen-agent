@@ -342,6 +342,8 @@ def run_live(req: LiveRunRequest) -> dict:
         _require_runner().start_live()
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:  # nothing selected under Output
+        raise HTTPException(400, str(exc)) from exc
     return _require_runner().status()
 
 
@@ -424,9 +426,13 @@ def demo_status() -> dict:
                      if _require_runner().selected_vdd is not None else None),
         # Output mode a run would use (Option A notebook / Option B
         # framework / both) — the runner's override or the config default.
+        # The generator mode the Output selection maps onto (None while
+        # nothing is selected) and the selection itself (the UI's toggles).
         "output_mode": (
-            _require_runner().output_mode or _require_store().config.output.mode
+            _require_runner().output_mode if _require_runner().output_parts is not None
+            else _require_store().config.output.mode
         ),
+        "output_parts": _require_runner().effective_output_parts(),
         # M4/M5 generation options a run would use (override or config default).
         "conventions_profile": (_require_runner().conventions_profile
                                 or _require_store().config.conventions.profile),
@@ -659,6 +665,23 @@ class OutputModeRequest(BaseModel):
 def select_output_mode(req: OutputModeRequest) -> dict:
     try:
         _require_runner().select_output_mode(req.mode)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return demo_status()
+
+
+class OutputPartsRequest(BaseModel):
+    # any subset of notebook | framework | rfc | all; [] = nothing selected
+    # (a run is refused); null = the config default
+    parts: list[str] | None = None
+
+
+@app.post("/api/demo/output-parts")
+def select_output_parts(req: OutputPartsRequest) -> dict:
+    try:
+        _require_runner().select_output_parts(req.parts)
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:

@@ -26,6 +26,39 @@ class LiveRunInProgress(RuntimeError):
     """A live run is already in flight (surface as HTTP 409)."""
 
 
+# Output selection as independent PARTS (what the UI toggles) mapped onto
+# the generator's single mode. "all" is its own part — selecting it is not
+# the same UI state as ticking the three others, even though it generates
+# the same set. An rfc part always carries the framework artefacts it is
+# built from (the generator writes them either way).
+OUTPUT_PARTS = ("notebook", "framework", "rfc", "all")
+_MODE_TO_PARTS = {
+    "notebook": ["notebook"],
+    "framework": ["framework"],
+    "both": ["notebook", "framework"],
+    "rfc": ["rfc"],
+    "all": ["all"],
+}
+
+
+def parts_for_mode(mode: str) -> list[str]:
+    return list(_MODE_TO_PARTS[mode])
+
+
+def mode_for_parts(parts: list[str]) -> str | None:
+    """None when nothing is selected (a run is refused)."""
+    chosen = set(parts)
+    if not chosen:
+        return None
+    if "all" in chosen or ("notebook" in chosen and "rfc" in chosen):
+        return "all"
+    if "rfc" in chosen:
+        return "rfc"
+    if "notebook" in chosen and "framework" in chosen:
+        return "both"
+    return "framework" if "framework" in chosen else "notebook"
+
+
 class DemoRunner:
     """One live run at a time; stage list is append-only per run."""
 
@@ -49,9 +82,9 @@ class DemoRunner:
         # The operator's chosen STTM workbook. None = the config default.
         # In-memory only: a restart returns to config.demo.workbook.
         self.selected_workbook: Path | None = None
-        # Output mode override (notebook | framework | both). None = the
-        # config default; in-memory only, same as the workbook choice.
-        self.output_mode: str | None = None
+        # Output selection (parts, see OUTPUT_PARTS). None = the config
+        # default; [] = nothing selected (Generate refused); in-memory only.
+        self.output_parts: list[str] | None = None
         # The chosen FRD contract path. None = the demo golden (config.demo
         # .frd) — the pinned default that keeps the golden path byte-
         # identical. Set via /api/demo/frd (local file or a materialized
@@ -176,15 +209,46 @@ class DemoRunner:
                 return self.vdd_auto_paired
         return None
 
+    @property
+    def output_mode(self) -> str | None:
+        """The generator mode the selected parts map onto; None = config
+        default when nothing was selected, also None when the selection is
+        empty (callers refuse a run in that case)."""
+        if self.output_parts is None:
+            return None
+        return mode_for_parts(self.output_parts)
+
+    def effective_output_parts(self) -> list[str]:
+        if self.output_parts is not None:
+            return list(self.output_parts)
+        return parts_for_mode(self._store.config.output.mode)
+
     def select_output_mode(self, mode: str | None) -> None:
+        """Compatibility entry: a single mode selects its parts."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress(
                     "cannot change the output mode while a live run is in progress"
                 )
-        if mode is not None and mode not in ("notebook", "framework", "both", "rfc", "all"):
+        if mode is not None and mode not in _MODE_TO_PARTS:
             raise ValueError(f"unknown output mode {mode!r}")
-        self.output_mode = mode
+        self.output_parts = None if mode is None else parts_for_mode(mode)
+
+    def select_output_parts(self, parts: list[str] | None) -> None:
+        """The UI's toggles: any subset of OUTPUT_PARTS, empty allowed
+        (Generate is refused until one is chosen); None = config default."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change the output while a live run is in progress"
+                )
+        if parts is None:
+            self.output_parts = None
+            return
+        unknown = [p for p in parts if p not in OUTPUT_PARTS]
+        if unknown:
+            raise ValueError(f"unknown output part(s) {unknown!r}; expected {OUTPUT_PARTS}")
+        self.output_parts = list(dict.fromkeys(parts))
 
     def select_generation_options(self, *, conventions_profile: str | None = None,
                                   iig_template: str | None = None,
@@ -311,6 +375,7 @@ class DemoRunner:
             "layout_report": self.layout_report,
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
+            "output_parts": self.effective_output_parts(),
         }
 
     def answer_layout(self, answers: dict | None, *, proceed: bool = False,
@@ -364,6 +429,10 @@ class DemoRunner:
                 return result
 
     def start_live(self) -> None:
+        if self.output_parts == []:
+            raise ValueError("no output selected — choose at least one of notebook, "
+                             "framework artefacts, RFC package, or All")
+
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("a live demo run is already in progress")

@@ -352,11 +352,22 @@ def test_ui_runner_accepts_the_rfc_mode():
 
     runner._lock = threading.Lock()
     runner.state = "idle"
-    runner.output_mode = None
+    runner.output_parts = None
     runner.select_output_mode("rfc")
-    assert runner.output_mode == "rfc"
+    assert runner.output_mode == "rfc" and runner.output_parts == ["rfc"]
     runner.select_output_mode("all")
+    assert runner.output_mode == "all" and runner.output_parts == ["all"]
+    # Independent parts map onto one mode; empty = no mode (run refused).
+    runner.select_output_parts(["notebook", "rfc"])
     assert runner.output_mode == "all"
+    runner.select_output_parts(["framework", "rfc"])
+    assert runner.output_mode == "rfc"
+    runner.select_output_parts(["notebook", "framework"])
+    assert runner.output_mode == "both"
+    runner.select_output_parts([])
+    assert runner.output_mode is None
+    with pytest.raises(ValueError):
+        runner.select_output_parts(["zip"])
     with pytest.raises(ValueError):
         runner.select_output_mode("zip")
 

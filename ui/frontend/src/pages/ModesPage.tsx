@@ -10,7 +10,7 @@ import {
   type GovernanceChecksResponse,
   type GovernanceStatus,
   type Layer2Transport,
-  type OutputMode,
+  type OutputPart,
   type InputRequirementsResponse,
   type RequirementStatus,
   type SourceFilesResponse,
@@ -203,53 +203,26 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
   }, [loadDbDocs]);
 
-  // Output as independent parts. The backend keeps one mode; the parts map
-  // onto it: rfc always carries the framework artefacts it is built from.
-  type OutputPart = "notebook" | "framework" | "rfc";
-  const partsOf = (mode: OutputMode | undefined): Set<OutputPart> => {
-    switch (mode ?? "notebook") {
-      case "framework":
-        return new Set(["framework"]);
-      case "both":
-        return new Set(["notebook", "framework"]);
-      case "rfc":
-        return new Set(["framework", "rfc"]);
-      case "all":
-        return new Set(["notebook", "framework", "rfc"]);
-      default:
-        return new Set(["notebook"]);
-    }
-  };
-  const modeOf = (parts: Set<OutputPart>): OutputMode => {
-    const n = parts.has("notebook");
-    const r = parts.has("rfc");
-    const f = parts.has("framework");
-    if (r) return n ? "all" : "rfc";
-    if (n && f) return "both";
-    if (f) return "framework";
-    return "notebook";
-  };
-  const outputParts = partsOf(status?.output_mode);
-  const setOutputMode = async (mode: OutputMode) => {
+  // Output as independent toggles (backend: output_parts). "all" is its own
+  // state; the three others are free, including none — Generate then waits.
+  const outputParts = new Set<OutputPart>(status?.output_parts ?? ["notebook"]);
+  const setOutputParts = async (parts: OutputPart[]) => {
     try {
-      setStatus(await api.setOutputMode(mode));
+      setStatus(await api.setOutputParts(parts));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
   const toggleOutputPart = (part: OutputPart) => {
-    const next = new Set(outputParts);
-    if (next.has(part)) {
-      next.delete(part);
-      // The RFC package is built from the framework artefacts: dropping
-      // "framework" while "rfc" stays is not a real configuration.
-      if (part === "framework" && next.has("rfc")) next.delete("rfc");
-    } else {
-      next.add(part);
-      if (part === "rfc") next.add("framework");
+    if (part === "all") {
+      setOutputParts(outputParts.has("all") ? [] : ["all"]);
+      return;
     }
-    if (next.size === 0) return; // at least one output
-    setOutputMode(modeOf(next));
+    // Leaving "All" for a single part starts from just that part.
+    const next = new Set<OutputPart>(outputParts.has("all") ? [] : outputParts);
+    if (next.has(part)) next.delete(part);
+    else next.add(part);
+    setOutputParts([...next]);
   };
 
   // M6: conventions profile / IIG template / playbook template selectors,
@@ -722,13 +695,18 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))}
               <button
-                className={`btn sheet-tab${outputParts.size === 3 ? " active" : ""}`}
+                className={`btn sheet-tab${outputParts.has("all") ? " active" : ""}`}
                 disabled={running}
-                title="Notebook + framework artefacts + RFC package"
-                onClick={() => setOutputMode("all")}
+                title="Everything: notebook + framework artefacts + RFC package"
+                onClick={() => toggleOutputPart("all")}
               >
                 All
               </button>
+              {outputParts.size === 0 ? (
+                <span className="hint" style={{ alignSelf: "center" }}>
+                  choose at least one output
+                </span>
+              ) : null}
             </p>
             {genOptions ? (
               <p style={{ margin: "6px 0 4px", display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -771,8 +749,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : (
               <button
                 className="btn primary"
-                disabled={liveAvailable !== true || running || !status?.sttm_chosen}
-                title={status?.sttm_chosen ? undefined : "Choose an STTM workbook first"}
+                disabled={
+                  liveAvailable !== true || running || !status?.sttm_chosen || outputParts.size === 0
+                }
+                title={
+                  !status?.sttm_chosen
+                    ? "Choose an STTM workbook first"
+                    : outputParts.size === 0
+                      ? "Choose at least one output"
+                      : undefined
+                }
                 onClick={() => setConfirming(true)}
               >
                 {running ? "Live run in progress…" : "Generate from this STTM…"}

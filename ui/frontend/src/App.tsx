@@ -3,7 +3,6 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
 import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
-import { DemoPage } from "./pages/DemoPage";
 import { FeedDetailPage } from "./pages/FeedDetailPage";
 import { ModesPage } from "./pages/ModesPage";
 
@@ -77,15 +76,8 @@ export function App() {
             to="/modes"
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
           >
-            Run modes
-            <span className="nav-hint">live · replay</span>
-          </NavLink>
-          <NavLink
-            to="/demo"
-            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-          >
-            Demo mode
-            <span className="nav-hint">guided tour</span>
+            Generate
+            <span className="nav-hint">STTM · FRD · VDD</span>
           </NavLink>
         </nav>
         <div className="sidebar-section">Feeds</div>
@@ -160,7 +152,6 @@ export function App() {
             }
           />
           <Route path="/modes" element={<ModesPage onFeedsChanged={refresh} />} />
-          <Route path="/demo" element={<DemoPage data={data} />} />
           <Route
             path="/feeds/:slug"
             element={<FeedDetailPage onFeedsChanged={refresh} />}

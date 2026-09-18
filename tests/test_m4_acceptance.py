@@ -356,7 +356,7 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config
     names = sorted(p.name for p in framework_dir.iterdir())
     assert names == ["ADDITION.md", "accumulators_stage_table_creation.txt",
                      "accumulators_standard_table_creation.txt", "config_inserts.xlsx",
-                     "config_rows.xlsx"]
+                     "config_rows.xlsx"]          # no DML under the reference profile (M7)
     # iig_v1: the 7-tab reference layout, no blank-and-flag flags.
     assert not any(f.startswith("iig_blank:") for f in gate.flags)
     ours = load_workbook(framework_dir / "config_rows.xlsx")

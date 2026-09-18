@@ -557,8 +557,18 @@ def emit_framework(
                 encoding="utf-8", newline="\n")
             files.append(txt_path)
             ddl_names.append(txt_path.name)
+    # M7 §3: the SQL Server DML deliverable from the same rows.
+    dml_artefacts = None
+    if config.dml.enabled and profile.emit_dml:
+        from codegen.emit.dml import emit_dml
+
+        dml_artefacts = emit_dml(spec, faq, payload, config, framework_dir, banner)
+        files.extend(dml_artefacts.files)
+        flags.extend(dml_artefacts.flags)
     # M7 gate checks: unstated catalog / schema is a FAIL, not a flag.
     checks: list[GateCheck] = []
+    if dml_artefacts is not None:
+        checks.extend(dml_artefacts.checks)
     unqualified = [f for f in flags if f.startswith(("catalog_unstated:", "schema_unstated:"))]
     if unqualified:
         checks.append(GateCheck(name="qualified_names", passed=False,

@@ -762,6 +762,8 @@ conventions:
       # M7: derived names / paths / SQL literals are gate CHECKS and sibling
       # types are flags under this profile (edo_sfmc keeps today's verdicts).
       strict_derivations: true
+      # M7: the SQL Server metadata-DB DML deliverable (dml: section below).
+      emit_dml: true
 
 metadata:
   # M4: IIG workbook template versions. iig_v1 = demo.metadata_sheet (the
@@ -885,6 +887,39 @@ rfc:
     - "[CREATED_DATE] [datetime] NOT NULL"
     - "[UPDATED_BY] [varchar](<length>) NOT NULL"
     - "[UPDATED_DATE] [datetime] NOT NULL"
+
+dml:
+  # M7 (2026-09-18): the SQL Server metadata-DB DML deliverable
+  # (emit/dml.py), from the SAME config rows as the IIG; every rule cites
+  # docs/acfc/METADATA_DB_SEMANTICS.md. One config_inserts_<env>.sql per
+  # environment (variables block differs, body identical) + the Databricks
+  # notebook source that runs it over JDBC in one transaction.
+  enabled: true
+  environments: [q1, a2, prod]
+  file_name_pattern: "config_inserts_{env}.sql"
+  notebook_file_name_pattern: "Insert_scripts_config_table_{env}.py"
+  schema: dbo
+  # §1: the framework picks rows WHERE ACTIVE_FLAG = 'S' (the IIG goldens
+  # print 'Y' — kept there for byte-identity; §10).
+  active_flag: "S"
+  claim_type_id_default: null
+  # Per-environment path prefix for path columns (CONCAT(@PATH_PREFIX, …));
+  # '' = none. Fill from the platform team per environment.
+  env_path_prefix: {q1: "", a2: "", prod: ""}
+  # Databricks secret scope + key NAMES the notebook reads (never values).
+  secret_scope: metadata-db
+  jdbc_url_secret: jdbc-url
+  user_secret: jdbc-user
+  password_secret: jdbc-password
+  # The file connection table as SPOKEN in the walkthrough (§3) — flagged
+  # dml_unconfirmed until the framework team confirms the identifiers.
+  connection_table:
+    name: FILE_CONNECTION_DETAILS
+    id_column: CONNECTION_ID
+    description_column: CONNECTION_DESCRIPTION
+    host_column: HOST_NAME
+    root_column: ROOT_PATH
+    source_type_column: SOURCE_TYPE
 
 playbook:
   # Deployment playbook templates (rfc mode). sfmc_7sheet reads the

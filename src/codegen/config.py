@@ -788,6 +788,10 @@ class ConventionsProfileConfig(BaseModel):
     # spaces) — recorded in METADATA_DB_SEMANTICS.md §10 / CLAUDE.md, flip
     # deliberately.
     strict_derivations: bool = False
+    # M7 §3: write the SQL Server DML deliverable (config_inserts_<env>.sql +
+    # the runner notebook) next to the IIG. Off for the reference profile so
+    # its byte-compared reports keep today's file list.
+    emit_dml: bool = False
 
 
 class ConventionsConfig(BaseModel):
@@ -941,6 +945,87 @@ class PlaybookTemplateConfig(BaseModel):
     headers: list[str] = Field(default_factory=list)
 
 
+class DmlVariableConfig(BaseModel):
+    """One variable of the DML variables block (METADATA_DB_SEMANTICS §1–§5):
+    who assigns it, the uniqueness rule, its T-SQL type and the FAQ
+    companion that may supply the value."""
+
+    model_config = _MODEL_CONFIG
+
+    assigned_by: str
+    rule: str
+    sql_type: str = "INT"
+    faq_field: str | None = None
+
+
+class DmlConnectionTableConfig(BaseModel):
+    """The file connection table AS SPOKEN in the walkthrough (§3) — not
+    printed in the session, so flagged dml_unconfirmed until confirmed."""
+
+    model_config = _MODEL_CONFIG
+
+    name: str = "FILE_CONNECTION_DETAILS"
+    id_column: str = "CONNECTION_ID"
+    description_column: str = "CONNECTION_DESCRIPTION"
+    host_column: str = "HOST_NAME"
+    root_column: str = "ROOT_PATH"
+    source_type_column: str = "SOURCE_TYPE"
+
+
+class DmlConfig(BaseModel):
+    """M7 §3: the SQL Server metadata-DB DML deliverable (emit/dml.py)."""
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = True
+    environments: list[str] = Field(default_factory=lambda: ["q1", "a2", "prod"])
+    file_name_pattern: str = "config_inserts_{env}.sql"
+    notebook_file_name_pattern: str = "Insert_scripts_config_table_{env}.py"
+    schema: str = "dbo"
+    # §1: rows the framework picks are ACTIVE_FLAG = 'S'.
+    active_flag: str = "S"
+    # §7: "populated with null only or even NA".
+    claim_type_id_default: str | None = None
+    # §9 dependency order (tables absent from the IIG payload are skipped).
+    table_order: list[str] = Field(default_factory=lambda: [
+        "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
+        "ADLS_DELTA_INGESTION_DETAILS", "STGDELTA_STDDELTA_INGESTION_DET",
+        "ADLS_FIXED_WIDTH_HANDLER", "DATA_QUALITY_RULES", "DATABRICKS_NOTEBOOK_DETAILS",
+        "EMAIL_TEMPLATE_CONFIG", "ALL_FILES_STATIC_INFORMATION"])
+    # Tables the walkthrough described (§2, §5, §7); the rest are marked.
+    described_tables: list[str] = Field(default_factory=lambda: [
+        "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
+        "ADLS_DELTA_INGESTION_DETAILS"])
+    connection_table: DmlConnectionTableConfig = DmlConnectionTableConfig()
+    connection_roles: list[str] = Field(default_factory=lambda: [
+        "SRC_CONNECTION_ID", "SRC_ADLS_CONNECTION_ID", "METADATA_CONNECTION_ID",
+        "TGT_CONNECTION_ID"])
+    variables: dict[str, DmlVariableConfig] = Field(default_factory=lambda: {
+        "RFC_NUMBER": DmlVariableConfig(
+            assigned_by="engineer (the RFC / ATMT ticket)", sql_type="NVARCHAR(50)",
+            rule="CREATED_BY and UPDATED_BY on every row (§1)", faq_field="rfc_number"),
+        "PIPELINE_ID": DmlVariableConfig(
+            assigned_by="engineer", rule="unique across DATA_FACTORY_PIPELINE_SCHEDULE, one per "
+            "process (§2)", faq_field="pipeline_id"),
+        "PARENT_PIPELINE_ID": DmlVariableConfig(
+            assigned_by="engineer", rule="0 for a master pipeline, else the master's "
+            "PIPELINE_ID (§2)", faq_field="parent_pipeline_id"),
+        "GROUP_ID": DmlVariableConfig(
+            assigned_by="engineer", rule="unique across the ingestion tables and never reused "
+            "by another process (§5)", faq_field="group_id"),
+        "OBJECT_ID": DmlVariableConfig(
+            assigned_by="engineer", rule="1..n within the group, one per input file (§5)",
+            faq_field="object_id"),
+    })
+    # Per-environment path prefix ('' = none); the body stays identical.
+    env_path_prefix: dict[str, str] = Field(default_factory=dict)
+    # NAMES of the Databricks secret scope and its keys — never values.
+    secret_scope: str = "metadata-db"
+    jdbc_url_secret: str = "jdbc-url"
+    user_secret: str = "jdbc-user"
+    password_secret: str = "jdbc-password"
+
+
 class PlaybookConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -1002,6 +1087,8 @@ class Config(BaseModel):
     # Optional (M5): the rfc output mode's package layout + playbook templates.
     rfc: RfcConfig = RfcConfig()
     playbook: PlaybookConfig = PlaybookConfig()
+    # Optional (M7): the SQL Server metadata-DB DML deliverable.
+    dml: DmlConfig = DmlConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

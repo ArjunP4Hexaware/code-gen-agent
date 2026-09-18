@@ -115,6 +115,16 @@ class LoadPatternFaq(BaseModel):
     # package is named after — a run input; unanswered = documented
     # placeholder + flag.
     rfc_number: FaqAnswer = FaqAnswer(value="unknown")
+    # M7 companions (NOT questions): the engineer-assigned framework ids the
+    # DML variables block carries (METADATA_DB_SEMANTICS §2, §5) and the
+    # source connection's host; unanswered = NULL -- ASSIGN + dml_unassigned.
+    pipeline_id: FaqAnswer = FaqAnswer(value="unknown")
+    parent_pipeline_id: FaqAnswer = FaqAnswer(value="unknown")
+    group_id: FaqAnswer = FaqAnswer(value="unknown")
+    object_id: FaqAnswer = FaqAnswer(value="unknown")
+    source_host: FaqAnswer = FaqAnswer(value="unknown")
+    # connection role -> existing CONNECTION_ID (identity values reused, §3)
+    connection_ids: dict[str, str] = Field(default_factory=dict)
     # Segmented-dialect declarations (NOT questions — banner/flag counts
     # untouched). The H/D/T record-type discriminator values are stated
     # nowhere in a segmented workbook: absent here, a segmented extraction

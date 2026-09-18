@@ -113,6 +113,31 @@ def _faq_cell(answer, tooltip_prefix: str):
     return _cell(answer.value, "from_faq", tooltip + ")")
 
 
+_AUDIT_BY_HEADERS = ("CREATED_BY", "UPDATED_BY", "CRETAED_BY")   # the iig_v1 typo is real
+_AUDIT_BY_TOOLTIP = ("the RFC number stamps CREATED_BY / UPDATED_BY (framework walkthrough, "
+                     "docs/acfc/METADATA_DB_SEMANTICS.md §1) — load-pattern FAQ rfc_number")
+
+
+def audit_by_cells(headers: list[str], faq) -> dict[str, dict]:
+    """M7 §5: CREATED_BY / UPDATED_BY = the RFC number when the FAQ answers
+    rfc_number (badged from_faq); otherwise nothing — the cell stays blank
+    and flagged, never invented."""
+    answer = getattr(faq, "rfc_number", None) if faq is not None else None
+    if answer is None or answer.source == "unknown":
+        return {}
+    value = f"RFC{answer.value}"
+    return {h: _cell(value, "from_faq", f"{_AUDIT_BY_TOOLTIP} (source: {answer.source})")
+            for h in headers if h in _AUDIT_BY_HEADERS}
+
+
+def _claim_type_cell(config: Config) -> dict | None:
+    default = config.metadata.claim_type_id_default
+    if default is None:
+        return None
+    return _cell(default, "synthetic", "CLAIM_TYPE_ID default (config metadata."
+                 "claim_type_id_default; framework walkthrough §7: 'null only or even NA')")
+
+
 def _file_layout_row(feed: FrdFeed, config: Config,
                      spec: ResolvedFeedSpec | None, faq=None) -> dict[str, dict]:
     source = feed_source_files(feed, config)  # Part A's synthesis rules, reused
@@ -326,6 +351,9 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
                         or _cell("", "needs_template",
                                  "no header indicator in the FRD contract")),
     }
+    claim_type = _claim_type_cell(config)
+    if claim_type is not None:
+        cells["CLAIM_TYPE_ID"] = claim_type
     if feed.delimiter:
         cells["SRC_FILE_DELIMITER"] = _cell(feed.delimiter, "from_frd")
     elif spec is not None:
@@ -779,6 +807,7 @@ def metadata_sheet_payload(
                 spec = spec_by_id.get(slug)
                 for cells in template_tab_rows(name, feed, config, spec,
                                                faq_by_slug.get(slug), template_cfg):
+                    cells = {**cells, **audit_by_cells(tab.headers, faq_by_slug.get(slug))}
                     rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
         elif name in _IIG_TAB_BUILDERS:
             builder = _IIG_TAB_BUILDERS[name]
@@ -788,6 +817,7 @@ def metadata_sheet_payload(
                 unmapped = unmapped_by_slug.get(slug, set())
                 for cells in builder(feed, config, spec,
                                      faq_by_slug.get(slug), unmapped):
+                    cells = {**cells, **audit_by_cells(tab.headers, faq_by_slug.get(slug))}
                     rows.append(_row(tab.headers, always_blank, cells,
                                      feed_slug=slug))
         entry: dict = {"headers": list(tab.headers), "rows": rows}

@@ -248,18 +248,27 @@ export function Dashboard({
                       derived
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {f.framework!.files.map((name) => (
-                      <a
-                        key={name}
-                        className="btn"
-                        href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
-                        download
-                      >
-                        {name}
-                      </a>
-                    ))}
-                  </div>
+                  {Object.entries(
+                    f.framework!.groups ?? { Artefacts: f.framework!.files },
+                  ).map(([group, names]) => (
+                    <div key={group} style={{ marginBottom: 6 }}>
+                      <div className="hint" style={{ fontWeight: 600, marginBottom: 2 }}>
+                        {group}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {names.map((name) => (
+                          <a
+                            key={name}
+                            className="btn"
+                            href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
+                            download
+                          >
+                            {name}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                   <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
                     Framework-assigned IDs left blank:{" "}
                     {f.framework!.flagged_blank_columns.join(", ") || "none"} — the

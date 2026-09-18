@@ -97,6 +97,11 @@ def _package_dir(tmp: Path, slug: str) -> Path:
     return package
 
 
+# M7: the SQL Server DML deliverable rides the acfc_prx profile into the package.
+DML_FILES = sorted([f"Insert_scripts_config_table_{env}.py" for env in ("q1", "a2", "prod")]
+                   + [f"config_inserts_{env}.sql" for env in ("q1", "a2", "prod")])
+
+
 def _manifest_files(package: Path) -> list[str]:
     import re
 
@@ -122,9 +127,9 @@ def test_pair1_prx_package_file_set_and_names(pair1_rfc, pair1_spec):
     gate, tmp, package = pair1_rfc
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert package.name == "RFC######_ACCUM"
-    assert sorted(p.name for p in package.iterdir()) == [
-        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", "MANIFEST.md",
-        "RFC######_ACCUM_Deployment_Playbook.xlsx"]
+    assert sorted(p.name for p in package.iterdir()) == sorted([
+        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
+        "RFC######_ACCUM_Deployment_Playbook.xlsx"])
     # The DDL is the golden, byte for byte; framework/ still holds the sources.
     assert (package / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
     framework_dir = tmp / "out" / pair1_spec.feed_slug / "framework"
@@ -192,9 +197,9 @@ def test_answered_rfc_number_names_the_package(pair1_rfc, pair1_config, pair1_sp
                            conventions_profile="acfc_prx", iig_template="iig_v2",
                            playbook_template="main_single")
     assert rfc.package_dir.name == "RFCSYN001_ACCUM"
-    assert sorted(p.name for p in rfc.files) == [
-        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", "MANIFEST.md",
-        "RFCSYN001_ACCUM_Deployment_Playbook.xlsx"]
+    assert sorted(p.name for p in rfc.files) == sorted([
+        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
+        "RFCSYN001_ACCUM_Deployment_Playbook.xlsx"])
     assert not any(f.startswith("rfc_") for f in rfc.flags)
     wb = load_workbook(rfc.package_dir / "RFCSYN001_ACCUM_Deployment_Playbook.xlsx")
     rows = [r for r in wb["Main"].iter_rows(min_row=2, values_only=True) if any(r)]
@@ -383,9 +388,9 @@ def test_all_mode_writes_notebook_framework_and_rfc(pair1_config, pair1_spec, tm
     feed_dir = tmp_path / "out" / pair1_spec.feed_slug
     assert (feed_dir / "pipeline").is_dir() and (feed_dir / "framework").is_dir()
     package = _package_dir(tmp_path, pair1_spec.feed_slug)
-    assert sorted(p.name for p in package.iterdir()) == [
-        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", "MANIFEST.md",
-        "RFC######_ACCUM_Deployment_Playbook.xlsx"]
+    assert sorted(p.name for p in package.iterdir()) == sorted([
+        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
+        "RFC######_ACCUM_Deployment_Playbook.xlsx"])
     assert (package / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert any(f.startswith("playbook_blank:") for f in gate.flags)

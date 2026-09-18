@@ -764,6 +764,9 @@ conventions:
       strict_derivations: true
       # M7: the SQL Server metadata-DB DML deliverable (dml: section below).
       emit_dml: true
+      # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
+      # the target system is labelled in ADDITION.md / MANIFEST.md instead.
+      target_system_header: false
 
 metadata:
   # M4: IIG workbook template versions. iig_v1 = demo.metadata_sheet (the
@@ -777,6 +780,9 @@ metadata:
   # constant across rows, badged synthetic with this citation — or is left
   # blank and flagged (iig_blank:<TAB>.<HEADER>). CLI: --iig-template.
   template: iig_v1
+  # M7 §5: CLAIM_TYPE_ID default for ADLS→Delta rows — null keeps the
+  # goldens' blank; "NA" writes the walkthrough's alternative (§7).
+  claim_type_id_default: null
   templates:
     iig_v2:
       citation: "pair-1 RFC package (aliased golden RFC_ACCUMULATORS_IIG.xlsx, docs/acfc/rfc_capture)"
@@ -799,8 +805,11 @@ metadata:
           headers: [TEMPLATE_ID, TEMPLATE_NAME, PROCESS_NAME, STATUS, ACTIVE_FLAG, SUBJECT, BODY, BODY_QUERY, SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
       # Framework-assigned identifiers, connections, containers, the storage
       # account, workspace/cluster/secret handles, template IDs and the
-      # audit stamps: always blank, never invented.
-      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE]
+      # audit DATES: always blank, never invented. CREATED_BY / UPDATED_BY
+      # left this list in M7: they are the RFC number (METADATA_DB_SEMANTICS
+      # §1) — filled from the FAQ rfc_number when answered, blank + flagged
+      # otherwise.
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]
       # Derivation knobs (each names the golden cell shape it reproduces).
       src_columns_style: positional        # SRC_COLUMNS 'col1:SEGMENT_IDENTIFIER,...'
       data_type_style: base                # SRC_DATA_TYPE 'String:Decimal', 'Decimal:Decimal'

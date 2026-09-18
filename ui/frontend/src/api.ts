@@ -40,6 +40,8 @@ export interface FeedSummary {
 
 export interface FrameworkSummary {
   files: string[];
+  // M7 §4: file names grouped by the system they run against
+  groups?: Record<string, string[]>;
   row_counts: Record<string, number>;
   coverage: {
     derived: number;

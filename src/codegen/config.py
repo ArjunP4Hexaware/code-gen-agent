@@ -792,6 +792,11 @@ class ConventionsProfileConfig(BaseModel):
     # the runner notebook) next to the IIG. Off for the reference profile so
     # its byte-compared reports keep today's file list.
     emit_dml: bool = False
+    # M7 §4: prefix every deployment DDL file with the target-system header
+    # line. Off in both shipped profiles: the pair-1 combined DDL and the
+    # SFMC two-file DDL are compared byte for byte with client goldens; the
+    # target system is labelled in ADDITION.md / MANIFEST.md instead.
+    target_system_header: bool = False
 
 
 class ConventionsConfig(BaseModel):
@@ -858,6 +863,10 @@ class MetadataConfig(BaseModel):
     # iig_v1 = demo.metadata_sheet (today's layout, byte for byte).
     template: str = "iig_v1"
     templates: dict[str, MetadataTemplateConfig] = Field(default_factory=dict)
+    # M7 §5: CLAIM_TYPE_ID default for the ADLS→Delta rows ("null only or
+    # even NA", METADATA_DB_SEMANTICS §7). None = blank (the goldens'
+    # value); "NA" writes the constant with this citation.
+    claim_type_id_default: str | None = None
 
     @model_validator(mode="after")
     def _template_exists(self) -> MetadataConfig:

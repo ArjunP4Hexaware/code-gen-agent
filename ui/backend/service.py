@@ -183,12 +183,14 @@ class GenerationStore:
         playbook_template: str | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
+        from codegen.gate.derivations import sibling_type_flags
         from codegen.gate.drag_fill import drag_fill_flags
         from codegen.gate.vdd_check import vdd_cross_check
 
         vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
+        strict = self.config.conventions.get(conventions_profile).strict_derivations
         extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
-                       *vdd_flags]
+                       *(sibling_type_flags(spec, self.config) if strict else []), *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
         stage = on_stage or (lambda _detail: None)
@@ -294,6 +296,8 @@ class GenerationStore:
             checks = run_preflight(feed_dir, self.config)
         if vdd_check is not None:
             checks = [*checks, vdd_check]
+        if framework_artefacts is not None and strict:
+            checks = [*checks, *framework_artefacts.checks]   # M7 derivation gate
             if not tests_skipped:
                 checks = [
                     *checks,
@@ -333,6 +337,7 @@ class GenerationStore:
                     handle.write(rfc_report_section(rfc_artefacts))
             framework_summary = {
                 "files": [p.name for p in framework_artefacts.files],
+                "groups": framework_artefacts.groups,
                 "row_counts": framework_artefacts.row_counts,
                 "coverage": framework_artefacts.coverage,
                 "flagged_blank_columns": framework_artefacts.flagged_blank_columns,

@@ -57,7 +57,7 @@ it only produces the add-ons.
 
 Columns awaiting framework-assigned IDs (rendered as `{id_placeholder}`,
 never invented): {blank_columns}.
-{segmented_block}
+{segmented_block}{target_block}
 Layout note: the tab names and column headers are the client IIG template
 (anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
 
@@ -65,6 +65,36 @@ On approval: the config rows land in the ingestion framework database, and
 the DDL + insert SQL are added on to ACFC's master notebook with the
 framework-assigned IDs. The agent never inserts unapproved rows.
 """
+
+
+# M7 §4: artefacts labelled by the system they run against.
+TARGET_DDL = "DDL — Databricks (Unity Catalog)"
+TARGET_DML = "DML — SQL Server metadata DB (run from notebook)"
+TARGET_REVIEW = "Review sheets"
+TARGET_NOTES = "Notes"
+DDL_TARGET_HEADER = "-- TARGET SYSTEM = Databricks (Unity Catalog) — run in SQL editor/notebook"
+
+
+def artefact_group(name: str) -> str:
+    if name.endswith("_table_creation.txt") or name.endswith("_DDL.txt"):
+        return TARGET_DDL
+    if name.startswith("config_inserts_") and name.endswith(".sql"):
+        return TARGET_DML
+    if name.startswith("Insert_scripts_config_table_") and name.endswith(".py"):
+        return TARGET_DML
+    if name.endswith(".xlsx"):
+        return TARGET_REVIEW
+    return TARGET_NOTES
+
+
+def artefact_groups(files: list[Path]) -> dict[str, list[str]]:
+    """target system -> file names, groups in a fixed order."""
+    out: dict[str, list[str]] = {}
+    for group in (TARGET_DDL, TARGET_DML, TARGET_REVIEW, TARGET_NOTES):
+        names = [p.name for p in files if artefact_group(p.name) == group]
+        if names:
+            out[group] = names
+    return out
 
 
 @dataclass(frozen=True)
@@ -87,6 +117,8 @@ class FrameworkArtefacts:
     checks: list[GateCheck] = field(default_factory=list)
     # M7: the framework payload (IIG rows) the DML emitter renders from.
     payload: dict | None = None
+    # M7 §4: file names grouped by target system (artefact_groups).
+    groups: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _sanitize_abbrev(slug: str) -> str:
@@ -541,6 +573,8 @@ def emit_framework(
         ddl_names = [profile.ddl_file_name_pattern.format(feed_abbrev=abbrev)]
         combined = _combined_ddl_text(spec, profile, flags)
         if combined is not None:
+            if profile.target_system_header:
+                combined = DDL_TARGET_HEADER + "\n" + combined
             txt_path = framework_dir / ddl_names[0]
             txt_path.write_text(combined, encoding="utf-8", newline="")
             files.append(txt_path)
@@ -550,11 +584,12 @@ def emit_framework(
         ddl_names = []
         for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
             txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
-            txt_path.write_text(
-                _table_creation_text(layer, entries, spec, config, banner,
-                                     extra_banner_lines=extra_banner_lines,
-                                     profile=profile, flags=flags),
-                encoding="utf-8", newline="\n")
+            text = _table_creation_text(layer, entries, spec, config, banner,
+                                        extra_banner_lines=extra_banner_lines,
+                                        profile=profile, flags=flags)
+            if profile.target_system_header:
+                text = DDL_TARGET_HEADER + "\n" + text
+            txt_path.write_text(text, encoding="utf-8", newline="\n")
             files.append(txt_path)
             ddl_names.append(txt_path.name)
     # M7 §3: the SQL Server DML deliverable from the same rows.
@@ -587,8 +622,17 @@ def emit_framework(
     files.append(rows_path)
 
     inserts_path = framework_dir / "config_inserts.xlsx"
-    inserts_path.write_bytes(stable_workbook_bytes(
-        _config_inserts_workbook(payload, spec, config, banner)))
+    inserts_workbook = _config_inserts_workbook(payload, spec, config, banner)
+    if config.dml.enabled and profile.emit_dml:
+        # M7 §4: sheet 1 says this workbook is the REVIEW copy; the executable
+        # script is the per-environment .sql next to it.
+        readme = inserts_workbook.create_sheet(title="README", index=0)
+        readme.append(["review copy — executable script is config_inserts_<env>.sql "
+                       f"(environments: {', '.join(config.dml.environments)}); run it from "
+                       f"{config.dml.notebook_file_name_pattern.format(env='<env>')} against "
+                       "the SQL Server metadata DB after the config rows are approved"])
+        readme.column_dimensions["A"].width = 140
+    inserts_path.write_bytes(stable_workbook_bytes(inserts_workbook))
     files.append(inserts_path)
 
     blank_list = (template_cfg.always_blank if template_cfg is not None
@@ -637,6 +681,22 @@ def emit_framework(
     segmented_lines += [f"- **HELD BACK**: {held}" for held in held_back]
     segmented_block = ("\n" + "\n".join(segmented_lines) + "\n"
                        if segmented_lines else "")
+    groups = artefact_groups(files + [framework_dir / "ADDITION.md"])
+    target_block = ""
+    if TARGET_DML in groups:
+        target_lines = ["", "## By target system", ""]
+        notes = {
+            TARGET_DDL: "run in the Databricks SQL editor / a notebook by the deployment team",
+            TARGET_DML: "run from the Databricks notebook against the SQL Server metadata DB, "
+                        "in one transaction, after the review sheets are approved",
+            TARGET_REVIEW: "review copies — `config_inserts.xlsx` sheet 1 says so; the "
+                           "executable script is `config_inserts_<env>.sql`",
+            TARGET_NOTES: "this manifest",
+        }
+        for group, names in groups.items():
+            target_lines.append(f"- **{group}** — {notes[group]}: "
+                                + ", ".join(f"`{n}`" for n in names))
+        target_block = "\n".join(target_lines) + "\n"
     addition_path = framework_dir / "ADDITION.md"
     addition_path.write_text(
         _ADDITION_TEMPLATE.format(
@@ -648,6 +708,7 @@ def emit_framework(
             id_placeholder=config.framework.id_placeholder,
             blank_columns=", ".join(f"`{c}`" for c in flagged) or "none",
             segmented_block=segmented_block,
+            target_block=target_block,
         ),
         encoding="utf-8", newline="\n",
     )
@@ -663,6 +724,7 @@ def emit_framework(
         flags=flags,
         checks=checks,
         payload=payload,
+        groups=artefact_groups(files),
     )
 
 

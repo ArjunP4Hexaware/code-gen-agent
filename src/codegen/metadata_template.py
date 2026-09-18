@@ -197,6 +197,10 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                 if tpl.reject_table_suffix is not None else "stage table + errors suffix"),
             "RECYCL_ENBL_FLG": _cell("Y" if spec.recycle else "N", "from_frd"),
         }
+        if config.metadata.claim_type_id_default is not None:
+            from codegen.metadata_sheet import _claim_type_cell
+
+            cells["CLAIM_TYPE_ID"] = _claim_type_cell(config)
         extension = PurePosixPath(pattern).suffix.lstrip(".")
         if extension:
             cells["SRC_FORMAT"] = _cell(extension, "from_frd" if feed.file_name_patterns

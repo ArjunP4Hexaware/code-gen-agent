@@ -1,173 +1,269 @@
-# Deploying CodeGen inside ACFC (v0.4.2-acfc)
+# Deploying CodeGen inside ACFC (v0.5.0-acfc)
 
-How to stand the agent up in ACFC's own Databricks workspace from a Git
-folder clone of `staging`, run the ten documented pairs, and check the
-pair-1 output against the golden. Every value below that is ACFC's (catalog,
-schema, endpoint, volume names) is a placeholder the deploying engineer
-confirms; nothing here invents one. Items marked **(confirm)** were written
-without access to the ACFC workspace.
+How to stand the agent up in ACFC's own Databricks workspace, written around
+what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
+`docs/acfc/ENVIRONMENT_ACFC.md` and `docs/acfc/RETROFIT_LOG.md` on the
+`genie-code` branch — not merged here because they carry workspace
+identifiers). Values in `<angle brackets>` are ACFC's and are set in the App's
+environment or a config overlay, never in the tracked `config/config.yaml`.
 
-## 1. Clone `staging` as a Git folder
+## 1. What the workspace proved — and what follows from it
 
-Workspace → **Repos** (Git folders) → **Add Git folder** → this repository's
-URL, branch `staging`. The tree is self-contained for a deploy: the built
-frontend bundle (`ui/frontend/dist/`), the synthetic fixture universe
-(`fixtures/acfc_shapes/`, `fixtures/layout_profiles/`), the scrubbed SFMC
-reference artefacts (`fixtures/reference/`) and the CV golden pair are all
-tracked. **Not** on `staging` (by the no-client-documents rule): the MIDS /
-CAQH client documents and the SFMC client-derived contract pair. They are on
-`main` if ACFC wants them; nothing in this document needs them.
+| Fact (ENVIRONMENT_ACFC / RETROFIT_LOG) | Consequence in v0.5.0 |
+| --- | --- |
+| The App container does **not** receive gitignored files (`inputs/`, `*.docx`, `*.xlsx`), so documents copied into the Git folder never reach the App (§c, log #6). | Inputs are read through a storage URI (`workspace:` / `volume:`), listed and downloaded by API. |
+| `/Volumes` is **not** a usable filesystem: `Path.mkdir(parents=True)` on a `/Volumes/…` path from serverless raises `PermissionError: [Errno 13] … '/Volumes'` (log #5, #8); an App container has no such mount at all. | No code path treats `/Volumes` or `/Workspace` as a path. `volume:` goes through the Files API, `workspace:` through the Workspace API. `local:/Volumes/…`, and a `/Volumes` path in `layout.runtime_cache_dir`, are refused at config load with the remedy. |
+| Directories may only be created **below** a root the caller can write; the root (and its ancestors) cannot be created (same error). | Every backend creates folders only below its root. A missing root is a named configuration error, never an attempted `mkdir`. **Create the root folders up front (§3).** |
+| The App's service principal has **zero** Unity Catalog grants and the deploying user lacks `MANAGE` on the catalog, so cannot grant (§d, log #9). | The App runs entirely on **workspace folders shared with the service principal** — a folder permission the user can give, no catalog admin involved. UC volumes become an option once an admin runs §4. |
+| Four of the ten pairs share one ticket number, so ticket pairing pairs nothing (log #7). | Pairing is by **content** (§7); the ten-entry `pairing_map` with real file names is not needed and stays out of tracked config. |
+| The real pair-1 STTM leaves six roles unresolved under synonyms with the mock recognizer (log #2) — the stage / standard table, column and type columns. | Three ways forward, in order of preference: the **live recognizer** (§5), an **answers file** (§6), or the UI's layout dialog. `unresolved_headers.md` takes the header strings home without any data. |
+| Serverless notebook: Python 3.12.3; Apps runtime: documented as Python 3.10+ (§a). | The package supports **Python 3.10 – 3.12**; the suite runs on 3.10, 3.11 and 3.12. |
+| PyPI resolves; `pip install -e .[ui,databricks]` dry-runs clean (§b). | `requirements.txt` (`.[ui,databricks]`) is the App's install, unchanged. |
+| `conventions.default_catalog` was rejected by the v0.4.2 loader (log #1). | It is a real key since M7.1 — see §2. |
 
-## 2. Config edits before the first run
+## 2. Config: one overlay, nothing workspace-specific in the tracked file
 
-All knobs live in `config/config.yaml`; the loader refuses unknown keys, so a
-typo fails at start-up. Edit these:
+Put ACFC's values in an overlay (`CODEGEN_CONFIG_OVERLAYS=<path.yaml>`) — a
+YAML mapping deep-merged onto `config/config.yaml` before validation. The
+loader refuses unknown keys, so a typo fails at start-up.
 
-| Section | Key | Set to | Why |
-| --- | --- | --- | --- |
-| `databricks` | `catalog` / `schema` | `d1_dlk` / `codegen` **(confirm the catalog and schema exist)** | where the raw FRD/STTM volumes live; `codegen.databricks` refuses writes outside this prefix |
-| `databricks` | `frd_volume` / `sttm_volume` | ACFC's volume names for raw FRD `.docx` and STTM `.xlsx` **(confirm)** | the UI's Fetch buttons list these volumes |
-| `databricks` | `landing_volume` / `output_volume` | the writable landing volume and the artefact publish target **(confirm)** | `codegen databricks-publish` / the UI publish panel write only here |
-| `databricks` | `serving_endpoint` | the workspace serving endpoint that fronts a Claude model **(confirm the name)** | Layer 2 (reasoning) and the layout recognizer both call it through FMAPI; `reasoning.model` names the same model |
-| `databricks` | `warehouse_id` / `wrapper_notebook_path` | ACFC's values, or leave empty | `EXPLAIN` is the only SQL the seam sends; empty = feature off |
-| `demo` | `databricks_paths` | `{catalog: d1_dlk, schema: codegen, volume: <landing volume>}` | the synthetic `databricks fs ls` block on the Generate card |
-| `conventions` | `profile` | `acfc_prx` | one combined `<ABBREV>_DDL.txt`, typed stage columns, the pair-1 shape |
-| `conventions` | `default_catalog` | `{stage: <catalog>, standard: <catalog>}` **(confirm ACFC's catalogs)** | the LAST link of the catalog chain (FRD label → STTM band → here): a pair whose FRD / STTM state no catalog (MIDS does not) resolves to it with provenance `config_default`; without it `acfc_prx` FAILs `catalog_unstated:<layer>` and writes no DDL for that layer |
-| `metadata` | `template` | `iig_v2` | the eight-sheet IIG layout of the PRX packages |
-| `playbook` | `template` | `main_single` | the single-sheet `Main` playbook of the PRX packages |
-| `output` | `mode` | `rfc` (or leave `notebook` and pick per run in the UI) | framework artefacts + the assembled `RFC<number>_<Feed>/` package |
-| `layout` | `provider` | `auto` (live via the serving endpoint) or `mock` | `mock` never calls a model: a workbook no synonym resolves pauses for a human instead |
-
-Optional overlay: `CODEGEN_CONFIG_OVERLAYS=<path.yaml>` (or `load_config(...,
-overlays=[...])`) deep-merges a YAML mapping onto the config before
-validation. ACFC's own pipeline / notebook inventory for the IIG
-(`metadata.templates.iig_v2.template_rows`) belongs in such an overlay,
-never in the tracked config; `fixtures/acfc_shapes/pair_1/config_overlay.yaml`
-is the shape.
-
-Per-feed answers the documents do not state go in
-`fixtures/faq/<feed_slug>.faq.yaml` (each with its citation): `process_name`,
-`feed_abbreviation`, `rfc_number`, the record-type discriminators. Unanswered
-means blank-and-flag, never a guess.
-
-### First deploy: mock the model
-
-Set `CODEGEN_FORCE_MOCK_PROVIDER=1` in `app.yaml`'s `env` for the first
-deploy. Every run then uses the mock Layer-2 provider and the mock layout
-provider (answers from `fixtures/layout_profiles/`), so the App can be
-exercised end to end with zero model calls and no serving-endpoint
-permission. Remove the variable and redeploy once the endpoint permission
-(`CAN_QUERY` for the App's service principal) is confirmed.
-
-### Notification DL
-
-The tracked config carries a synthetic prod-support address. The real DL is
-a client value: set `CODEGEN_NOTIFICATION_EMAILS=<dl>` in `app.yaml`'s `env`
-(or `.env` locally); never commit it.
-
-## 3. Running the ten pairs
-
-The documented shapes (`docs/acfc/SHAPES_FOR_PORT.md`: STTM families A–E,
-FRD families F1/F2, VDD patterns V1–V3) are exercised by the synthetic pairs
-under `fixtures/acfc_shapes/`. FRD documents exist for pairs 1, 2 and 8; VDDs
-for pairs 1, 2 and 9; every pair has an STTM.
-
-### Through the UI (the intended path)
-
-1. Generate page → **Choose documents…**. In the modal: pick the STTM `.xlsx`
-   (fixture, fetched from a volume, or uploaded from the device). Its
-   associated FRD — and VDD, when one is among the listed workbooks — is
-   selected automatically when present locally (config pairing map → shared
-   ticket number → matching document name; the card says "auto-paired by …");
-   otherwise, or to override, pick the FRD
-   (an upstream contract row, a local `.contract.json`, or the FRD **`.docx`**
-   itself, extracted deterministically when the run starts); optionally pick
-   the **VDD** `.xlsx` in its own section (cross-checked against the STTM,
-   never a source of values). Each input has a Clear button on the card.
-2. Output: pick `RFC package` (or the mode you want) and confirm the three
-   selectors show `acfc_prx` / `iig_v2` / `main_single` (or the config
-   defaults you set). The card's badge and the "Model transport" line name
-   the Layer-2 transport the run will use — inside a Databricks runtime that
-   is always the Foundation Model serving endpoint.
-3. **Generate from this STTM…** → confirm the cost dialog.
-
-### Through the CLI (batch, or CI)
-
-```bash
-codegen extract-frd  --docx fixtures/acfc_shapes/frd/f1_pair_1.docx --out out/pair1/frd.contract.json
-codegen extract-sttm --workbook fixtures/acfc_shapes/sttm/pair_1_family_a.xlsx \
-                     --frd-contract out/pair1/frd.contract.json --out out/pair1/sttm.contract.json \
-                     --generated-date 2026-01-01
-codegen extract-vdd  --vdd fixtures/acfc_shapes/vdd/pair_1_v1_segments.xlsx --out out/pair1/vdd.contract.json
-codegen generate --frd-contract out/pair1/frd.contract.json --sttm-contract out/pair1/sttm.contract.json \
-                 --vdd out/pair1/vdd.contract.json --output-mode rfc \
-                 --profile acfc_prx --iig-template iig_v2 --playbook-template main_single --dry-run --skip-tests
+```yaml
+# acfc.overlay.yaml — lives in the shared workspace folder, NOT in the repo
+databricks:
+  catalog: <catalog>                 # only for the volume fetch / publish panels
+  schema: <schema>
+  frd_volume: <raw FRD volume>
+  sttm_volume: <raw STTM volume>
+  output_volume: <publish volume>
+  serving_endpoint: databricks-claude-opus-5
+conventions:
+  profile: acfc_prx
+  default_catalog: {stage: <stage catalog>, standard: <standard catalog>}
+metadata: {template: iig_v2}
+playbook: {template: main_single}
+layout: {provider: live, endpoint: databricks-claude-opus-5}
 ```
 
-`--dry-run` forces the mock providers (no model calls). Drop it for live
-Layer 2. `codegen layout --workbook X --frd Y --vdd Z --dry-run --json`
-shows what the recognizer resolved before any extraction. `contracts.pairs`
-in the config lists (FRD contract, STTM contract) pairs for `codegen
-generate-all`; it ships empty.
+| Section | Key | Why |
+| --- | --- | --- |
+| `conventions.profile` | `acfc_prx` | one combined `<ABBREV>_DDL.txt`, typed stage columns, the DML deliverable, three-part names |
+| `conventions.default_catalog` | `{stage, standard}` | the LAST link of the catalog chain (FRD label → STTM band → here, provenance `config_default`); without it `acfc_prx` FAILs `catalog_unstated:<layer>` for a pair that states no catalog |
+| `metadata.template` / `playbook.template` | `iig_v2` / `main_single` | the PRX package layouts |
+| `layout.provider` / `layout.endpoint` | `live` + the endpoint name | §5 |
+| `storage.*`, `inputs.extra_dirs` | storage URIs | §3 — usually set as App env instead |
 
-## 4. Where outputs land
+ACFC's pipeline / notebook inventory for the IIG
+(`metadata.templates.iig_v2.template_rows`) and any explicit
+`demo.pairing_map` entries also belong in the overlay. Per-feed answers the
+documents do not state go in `fixtures/faq/<feed_slug>.faq.yaml`, each with
+its citation; unanswered means blank-and-flag, never a guess. The real
+prod-support DL is `CODEGEN_NOTIFICATION_EMAILS` in the App env.
 
-- UI runs: `out/demo_<timestamp>/<feed_slug>/` plus `run_meta.json`,
-  `frd.contract.json`, `extracted_sttm.contract.json` and, with a VDD,
-  `vdd.contract.json`. Reports under `out/demo_<timestamp>/reports/`.
-- CLI runs: `out/<feed_slug>/` and `reports/<feed_slug>.md`.
-- Per feed: `ddl/` (the generator's own `.sql`), `framework/` (the profile's
-  deployment DDL `.txt`, `config_rows.xlsx` = the approval artefact with its
-  `_provenance` sheet, `config_inserts.xlsx`, `ADDITION.md`), and in `rfc`
-  mode `RFC<number>_<FEED>/` with the DDL, `<FEED>_IIG.xlsx`, the playbook,
-  `FILE_LOG_INFORMATION.txt` when enabled, and `MANIFEST.md` listing every
-  file, its source and the flags that apply. `candidates/candidates.json`
-  holds the Layer-2 review items.
-- The App container's disk is wiped on every restart; publish what you want
-  to keep to the output volume (`codegen databricks-publish` or the UI's
-  publish panel, both confirm-gated).
+## 3. Storage: workspace folders shared with the App's service principal
 
-## 5. Databricks Apps deploy
+Three roles, one storage URI each:
 
-Click path: **Compute → Apps → Create app → Custom** → name (`codegen-agent`)
-→ **Source code path**: the Git folder from §1 **(confirm that a Git folder
-path is accepted as the source; the Hexaware deploys used a synced workspace
-path)** → **Resources**: add the serving endpoint as `llm-endpoint` with
-`CAN_QUERY` → Create. Later deploys: open the app → **Deploy** with the same
-path. The CLI equivalent:
+| Role | What lives there | Config key | Env (wins) | Default |
+| --- | --- | --- | --- | --- |
+| inputs | the inboxes `uploads/`, `databricks/`, `sharepoint/` | `storage.inputs` | `CODEGEN_STORAGE_INPUTS` | `local:./inputs` |
+| state | `decisions.json`, `layout_profiles/` (runtime profile cache) | `storage.state` | `CODEGEN_STORAGE_STATE` | `local:./ui/backend/state` |
+| outputs | `demo_<timestamp>/…` run folders, CLI output | `storage.outputs` | `CODEGEN_STORAGE_OUTPUTS` | `output.dir` (local) |
+| extra inputs (read-only) | folders of documents, scanned at depth 1 (`pair_1/ … pair_N/`) | `inputs.extra_dirs` | `CODEGEN_EXTRA_INPUT_DIRS` (`;`-separated) | none |
 
-```bash
-databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>
+URI forms: `local:<dir>` · `workspace:/Workspace/Users/<user>/<folder>` ·
+`volume:/Volumes/<catalog>/<schema>/<volume>/<folder>`. The generator still
+reads and writes local files: a remote role has a local working copy (system
+temp, or `CODEGEN_STORAGE_SCRATCH`) that is filled before a document is read
+and pushed after a result is written. The App container's disk is wiped on
+every restart; a remote state / outputs role is what survives it (past runs
+are pulled back when listed).
+
+**Set-up, once, by the user — no admin needed:**
+
+1. Create the folders (Workspace → your user folder → Create → Folder):
+   `codegen/pairs` (put `pair_1/ … pair_N/` inside, each with its STTM, FRD
+   and VDD), `codegen/inputs`, `codegen/state`, `codegen/outputs`. **The
+   agent never creates a root** — a missing one is reported by name.
+2. Find the App's service principal: `databricks apps get codegen-agent`
+   → `service_principal_name` / `service_principal_client_id`.
+3. Share the `codegen` folder with it: folder → **Share** → add the service
+   principal → **Can Manage** (creating and importing files in a folder is a
+   Can-Manage ability in the workspace folder ACL; Can Run is enough for a
+   read-only `pairs` folder) **(confirm against the workspace's folder
+   permission table)**. CLI equivalent:
+
+   ```bash
+   databricks workspace get-status /Users/<user>/codegen          # -> object_id
+   databricks workspace update-permissions directories <object_id> --json \
+     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_MANAGE"}]}'
+   ```
+
+Workspace files are limited to 10 MB per import call — far above any artefact
+the agent writes; a very large input workbook belongs in a volume.
+
+## 4. Grants for the admin (when UC volumes and live model calls are wanted)
+
+Nothing in §3 needs these. They enable `volume:` storage roles, the UI's
+volume fetch / publish panels, and live model calls.
+
+```sql
+-- Unity Catalog (a principal with MANAGE on the catalog runs these)
+GRANT USE CATALOG ON CATALOG <catalog> TO `<app-sp-client-id>`;
+GRANT USE SCHEMA  ON SCHEMA  <catalog>.<schema> TO `<app-sp-client-id>`;
+GRANT READ VOLUME ON VOLUME  <catalog>.<schema>.<raw FRD volume>  TO `<app-sp-client-id>`;
+GRANT READ VOLUME ON VOLUME  <catalog>.<schema>.<raw STTM volume> TO `<app-sp-client-id>`;
+GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.<schema>.<state / outputs volume> TO `<app-sp-client-id>`;
+GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.<schema>.<publish volume>         TO `<app-sp-client-id>`;
 ```
 
-`requirements.txt` is the runtime's pip install (`.[ui,databricks]`,
-includes ruff). The runtime caches the environment keyed on that file:
-bump the `codegen-version-marker` comment (and the pyproject version)
-whenever `src/` changes, or the App serves stale code. The App's service
-principal needs `READ VOLUME` on the raw volumes and `WRITE VOLUME` on the
-landing / output volumes **(confirm the grant names in ACFC's UC setup)**.
-`app.yaml` already sets the command; the platform injects the port and the
-`DATABRICKS_HOST` credentials, which `codegen.databricks` prefers over any
-CLI profile.
+`CAN_QUERY` on the serving endpoint (not SQL — an endpoint permission):
 
-## 6. The layout dialog, first time a new workbook is seen
+- **Declaratively (preferred):** App → Edit → **Resources** → add *Serving
+  endpoint* `databricks-claude-opus-5`, permission **Can query**, key
+  `llm-endpoint`. The platform grants the App's service principal the
+  permission on deploy.
+- **Or by CLI:**
 
-The recognizer reads a workbook through a layout profile: cache → synonyms →
-model → validator → human. On a workbook whose fingerprint (its header
-region only, never a data row) is not cached and whose roles the synonyms
-cannot all place, the run **pauses** in state `needs_layout`. The Generate
-card shows one question per unresolved role, grouped by document (STTM /
-FRD / VDD), each a radio over the candidate columns (STTM/VDD) or candidate
-table cells (FRD), with the header row printed for orientation. Choose,
-then **Continue**; **Proceed with unresolved** reads the remaining roles as
-empty and gate-flags them; **Cancel run** stops. The completed profile is
-cached under `ui/backend/state/layout_profiles/` (also wiped on restart), so
-the same workbook never asks twice. With `layout.provider: mock` or the
-mock lock, the model step is skipped and the dialog is the only fallback.
-Expect questions on families A, C and E: their band rows do not name every
-role, and the synonym tables are deliberately not widened to force them.
+  ```bash
+  databricks serving-endpoints get databricks-claude-opus-5        # -> id
+  databricks serving-endpoints update-permissions <endpoint-id> --json \
+    '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_QUERY"}]}'
+  ```
 
-## 7. What to compare against the pair-1 golden
+The upstream FRD-contracts table read (optional) additionally needs `SELECT`
+on that table and `CAN_USE` on the SQL warehouse.
+
+## 5. Model posture: two independent switches
+
+| Switch | Values | Effect |
+| --- | --- | --- |
+| `CODEGEN_FORCE_MOCK_PROVIDER=1` (App env; **set in the shipped `app.yaml`**) | set / unset | Layer 2 (rule reasoning) is mock-locked. Remove it and redeploy once `CAN_QUERY` is in place. |
+| `layout.provider` / `CODEGEN_LAYOUT_PROVIDER` | `auto` (default: live only when Layer 2 is live) · `mock` · `live` | `live`: the layout recognizer queries `layout.endpoint` / `CODEGEN_LAYOUT_ENDPOINT` (else `databricks.serving_endpoint`) **even while Layer 2 stays mock-locked**. Needs `CAN_QUERY` (§4). |
+| `CODEGEN_FORCE_MOCK_LAYOUT=1` | set / unset | locks the recognizer to mock regardless of the above. |
+
+The live recognizer sends the same request as the mock — the fingerprint
+material only: header regions and table labels, never a data row — and its
+answer passes the same validator before any role is merged; no model string
+reaches a contract, DDL or IIG cell (`docs/LAYOUT_RECOGNITION.md`). A
+completed profile is cached in the state role (`<state>/layout_profiles/`), so
+a workbook is asked about once. Runtime profiles carry real sheet names and
+are **never** written under `fixtures/` (refused in code and at config load).
+
+## 6. When roles stay unresolved: the answers file
+
+```bash
+codegen layout --workbook STTM.xlsx --frd FRD.docx --vdd VDD.xlsx \
+               --report-unresolved unresolved_headers.md --require-complete
+```
+
+`unresolved_headers.md` lists, per unresolved role, the sheet name as written,
+the header-row texts and the candidate columns — **structural labels only, no
+data rows** — so it can leave the workspace and the strings be added to the
+synonym tables (`extractor.discovery` / `extractor.vdd` / `extractor.frd`, in
+an overlay). Until then, place the roles by hand:
+
+```yaml
+# answers.yaml — (document, sheet, role) -> column header text, index or letter
+answers:
+  - document: sttm
+    sheet: "FEED_1_MAPPING"            # as written in the workbook
+    layer: stage                       # needed when the role is open in two bands
+    role: table
+    column: "Target Table Name in DL"  # header text (compared normalized)
+  - {sheet: "FEED_1_MAPPING", layer: stage,    role: column,      column: 20}
+  - {sheet: "FEED_1_MAPPING", layer: stage,    role: target_type, column: U}
+  - {sheet: "FEED_1_MAPPING", layer: standard, role: table,       column: "Target Table Name in DL"}
+  - {sheet: "FEED_1_MAPPING", layer: standard, role: column,      column: 26}
+  - {sheet: "FEED_1_MAPPING", layer: standard, role: target_type, column: AA}
+gaps:                                   # choice / layer questions, by question key
+  "feeds[0].file_format": {value: "Fixed Width"}
+pairing:                                # an undecided content pairing (§7)
+  "STTM.xlsx": {frd: "FRD.docx", vdd: "VDD.xlsx"}
+```
+
+```bash
+codegen layout       --workbook STTM.xlsx --frd FRD.docx --answers answers.yaml --require-complete
+codegen extract-sttm --workbook STTM.xlsx --frd-contract frd.contract.json \
+                     --answers answers.yaml --out sttm.contract.json
+```
+
+Answers address OPEN questions only, land with `source=user` through the same
+merge and validation as the dialog's answers, and an entry that matches no
+open question is reported (`NOTE …`), never applied elsewhere. In the UI the
+same questions appear in the layout dialog (state `needs_layout`): choose,
+**Continue**; **Proceed with unresolved** reads the remaining roles as empty
+and gate-flags them.
+
+## 7. Pairing by content
+
+Choosing an STTM scores every FRD and VDD candidate on what the documents
+say — FRD feed / object name in the STTM's header region, target tables and
+schemas against the STTM's bands, file patterns against its file-details rows
+(the one-block / many-files FRD lists file names as "tables"; both are
+compared); VDD FILES-sheet patterns, format, delimiter and cadence against the
+STTM's file and meta rows. The ticket number and the file-name stem are two
+weak signals among several. A candidate is paired only when it reaches
+`inputs.pairing.min_score` **and** leads the next by `margin`; otherwise the
+top candidates — each with its score and the cells behind it — are asked in
+the layout dialog when the run starts, or printed by `codegen pair --sttm X`
+with the `pairing:` remedy for the answers file. An explicit
+`demo.pairing_map` / `vdd_pairing_map` entry (overlay) still overrides. A
+manual pick in the chooser always wins. When no document says anything in
+common, the pre-0.5 name rules (unique shared ticket, else unique name stem)
+still apply.
+
+## 8. Deploy and redeploy
+
+First deploy — **Compute → Apps → Create app → Custom** → name `codegen-agent`
+→ source code path: the Git folder of `staging` → Resources: the serving
+endpoint (§4) → Create. The shipped `app.yaml` sets the command and
+`CODEGEN_FORCE_MOCK_PROVIDER=1`; add the workspace values as App env:
+
+```yaml
+env:
+  - {name: CODEGEN_FORCE_MOCK_PROVIDER, value: "1"}          # remove once CAN_QUERY is in place
+  - {name: CODEGEN_EXTRA_INPUT_DIRS, value: "workspace:/Workspace/Users/<user>/codegen/pairs"}
+  - {name: CODEGEN_STORAGE_INPUTS,   value: "workspace:/Workspace/Users/<user>/codegen/inputs"}
+  - {name: CODEGEN_STORAGE_STATE,    value: "workspace:/Workspace/Users/<user>/codegen/state"}
+  - {name: CODEGEN_STORAGE_OUTPUTS,  value: "workspace:/Workspace/Users/<user>/codegen/outputs"}
+  - {name: CODEGEN_CONFIG_OVERLAYS,  value: "<path to acfc.overlay.yaml inside the source tree>"}
+  - {name: CODEGEN_LAYOUT_PROVIDER,  value: "live"}           # optional, §5
+  - {name: CODEGEN_NOTIFICATION_EMAILS, value: "<prod-support DL>"}
+```
+
+Keep a workspace-specific `app.yaml` out of the shared branch (a user email in
+a path is a workspace identifier).
+
+Redeploy sequence, every time `src/` or `ui/` changes:
+
+1. Pull `staging` in the Git folder.
+2. Check `requirements.txt`'s `codegen-version-marker` differs from the
+   deployed one (it moves with the `pyproject.toml` version — 0.5.0 now). The
+   Apps runtime caches the installed environment keyed on that file; an
+   unchanged marker serves stale code.
+3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
+   (or **Deploy** in the UI).
+4. Open the App → Generate → **Choose documents…**: the pair folders list
+   under their folder names (`pairs/pair_1`, …). An input root the App cannot
+   list is reported by name with the API's message, and the rest still lists.
+5. After a restart nothing local survives: selections reset; past runs reload
+   from the outputs role.
+
+`ui/frontend/dist` is tracked, so the Git folder carries the built bundle —
+no Node toolchain is needed in the workspace (there is no `npm` on the
+serverless image).
+
+### The notebook fallback
+
+`acfc_run.py` (repo root, Databricks notebook source) runs one pair from a
+serverless notebook with the same storage URIs as widgets: it downloads the
+pair folder by API, pairs by content, resolves the layout with the answers
+file (writing `unresolved_headers.md` and stopping when roles stay open),
+extracts, generates in `rfc` mode and pushes the outputs to the outputs role.
+Use it when the App is stopped or its service principal has no access yet —
+the notebook runs as the user, whose own folders need no sharing.
+
+## 9. What to compare against the pair-1 golden
 
 Run pair 1 (`f1_pair_1.docx` + `pair_1_family_a.xlsx` + `pair_1_v1_segments.xlsx`)
 under `acfc_prx` / `iig_v2` / `main_single` with the pair-1 overlay loaded,
@@ -195,36 +291,25 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
-## What v0.4.2-acfc adds (M7)
+## What v0.5.0-acfc adds (M7.1 + M8)
 
-- **`docs/acfc/METADATA_DB_SEMANTICS.md`** — the framework maintainer's
-  SQL Server metadata-DB walkthrough as a per-table spec (six tables
-  covered; the rest marked "not yet described"; §10 lists where the
-  walkthrough contradicts the IIG goldens).
-- **F1 FRD reader** handles the one-block / many-files shape: nested tables
-  (Object Name, ADLS Location), per-file "Domain = …" blocks, pointer
-  sentences ("refer to the File Details tab …"), label-prefixed
-  descriptions ("Vendor Files = …") and multi-line cells are UNSTATED and
-  recorded; the layout stage resolves nested rows / blocks per derived
-  feed by file name and takes the frequency from the STTM File Details row.
-- **Derivation gate** (`gate/derivations.py`) and **DML deliverable**
-  (`emit/dml.py`: `config_inserts_<env>.sql` + the runner notebook) ride the
-  `acfc_prx` conventions profile (`strict_derivations`, `emit_dml`,
-  `require_qualified_names`). Select that profile in the UI or pass
-  `--profile acfc_prx` on the CLI; the reference `edo_sfmc` profile keeps
-  the byte-compared output unchanged.
-- **Correctness gates are global (M7.1):** SQL-literal validation, path-
-  literal validation and the derived-name length / charset caps are gate
-  CHECKS for every profile (FAIL semantics); sibling-type consistency is a
-  global FLAG (never FAIL). Three-part-name enforcement and the DML emitter
-  stay profile knobs (conventions).
-- The DML variables (`@RFC_NUMBER`, `@PIPELINE_ID`, `@GROUP_ID`, …) come
-  from the feed's FAQ companions (`rfc_number`, `pipeline_id`,
-  `parent_pipeline_id`, `group_id`, `object_id`, `source_host`,
-  `connection_ids`) or are `NULL -- ASSIGN` + flagged; the notebook reads
-  the JDBC secret NAMES from `config.yaml dml:` (`secret_scope`,
-  `jdbc_url_secret`, `user_secret`, `password_secret`) — create that
-  Databricks secret scope before the first run.
+- **Global correctness gates (M7.1):** SQL-literal, path-literal and derived-
+  name cap checks are gate CHECKS for every profile (FAIL); sibling-type
+  consistency is a global FLAG. `conventions.default_catalog` is a top-level
+  key (provenance `config_default`); the iig_v1 synthetic `TGT_ADLS_PATH`
+  slugifies its domain segments (`metadata.synthetic_path_slug`). Only
+  conventions stay profile knobs (`emit_dml`, `require_qualified_names`).
+- **Storage backends (M8.1):** `codegen.storage` — `local` / `workspace` /
+  `volume` behind one interface; roles `storage.inputs|state|outputs`.
+- **Input discovery + content pairing (M8.2):** `inputs.extra_dirs`,
+  `codegen.pairing`, `codegen pair`.
+- **Layout in a real workspace (M8.3):** `layout.provider: live`, the answers
+  file, `--report-unresolved`, the profile cache in the state role, Python
+  3.10 – 3.12.
+- Earlier (v0.4.2, M7): `docs/acfc/METADATA_DB_SEMANTICS.md`, the one-block /
+  many-files F1 reader, the derivation gate, the SQL Server DML deliverable
+  (`config_inserts_<env>.sql` + the runner notebook; create the `dml:` secret
+  scope before the first run).
 
 ## Open questions to raise with the document authors
 

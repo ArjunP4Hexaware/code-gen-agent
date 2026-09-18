@@ -590,6 +590,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     {" "}(auto-paired by{" "}
                     {status.frd_auto_paired.rule === "pairing_map"
                       ? "the config pairing map"
+                      : status.frd_auto_paired.rule === "content"
+                        ? "the documents' content"
                       : status.frd_auto_paired.rule === "ticket"
                         ? "a shared ticket number"
                         : "a matching document name"}
@@ -612,6 +614,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     {" "}(auto-paired by{" "}
                     {status.vdd_auto_paired.rule === "pairing_map"
                       ? "the config pairing map"
+                      : status.vdd_auto_paired.rule === "content"
+                        ? "the documents' content"
                       : status.vdd_auto_paired.rule === "ticket"
                         ? "a shared ticket number"
                         : "a matching document name"}
@@ -623,6 +627,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   Clear
                 </button>
               </span>
+              {Object.entries(status?.pair_candidates ?? {}).map(([kind, pending]) => (
+                <span key={`pair-${kind}`} className="hint" title={pending.reason}>
+                  {kind.toUpperCase()} not paired automatically — {pending.candidates.length}{" "}
+                  candidate(s) by content ({pending.candidates
+                    .map((c) => `${c.name}: ${c.score}`)
+                    .join(", ")}); pick one in the chooser, or answer when the run starts.
+                </span>
+              ))}
+              {Object.entries(status?.input_errors ?? {}).map(([root, message]) => (
+                <span key={`root-${root}`} className="hint" style={{ color: "var(--warn, #b45309)" }}>
+                  Input folder <code>{root}</code> could not be listed: {message}
+                </span>
+              ))}
               {status?.frd_warning ? (
                 <span className="pill req-missing"
                       title="Pick the companion FRD in the chooser">

@@ -23,11 +23,30 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
-# MOCK LOCK REMOVED (2026-09-01, Soham's direction): the App now runs live
-# Layer 2 via Databricks FMAPI (reasoning.provider: databricks_fmapi →
-# databricks.serving_endpoint: databricks-claude-opus-5). The original reason
-# for the lock — the SP's CAN_QUERY being unverifiable by CLI — is superseded
-# by the app's declared serving-endpoint RESOURCE (llm-endpoint, CAN_QUERY),
-# which grants the permission declaratively. The UI's own gates stay: an
-# explicit STTM choice, the cost-confirmation dialog, and mock-on-dry-run.
-# To re-lock, set CODEGEN_FORCE_MOCK_PROVIDER=1 here and redeploy.
+# SHIPPED DEFAULT (M8.5, 2026-09-18): Layer 2 is MOCK-LOCKED. A fresh deploy
+# makes zero model calls until the App's service principal is known to hold
+# CAN_QUERY on the serving endpoint (docs/ACFC_DEPLOY.md §4 — declare the
+# endpoint as the App resource `llm-endpoint`, or grant it by CLI). Remove the
+# variable and redeploy to run live Layer 2 via Databricks FMAPI
+# (reasoning.provider: databricks_fmapi -> databricks.serving_endpoint). The
+# UI's own gates stay either way: an explicit STTM choice, the cost
+# confirmation and mock-on-dry-run. History: the Hexaware App ran unlocked
+# from 0.3.4 (2026-09-01) on the strength of that declared resource.
+#
+# The layout recognizer has its OWN switch: CODEGEN_LAYOUT_PROVIDER=live lets
+# it query the endpoint while Layer 2 stays locked (header regions and table
+# labels only, never a data row); CODEGEN_FORCE_MOCK_LAYOUT=1 locks it too.
+#
+# Workspace-specific values are App env, never committed here (a user folder
+# path is a workspace identifier). Storage URIs — workspace: = Workspace API,
+# volume: = Files API; the roots must exist and be shared with the App's
+# service principal (docs/ACFC_DEPLOY.md §3):
+#   CODEGEN_EXTRA_INPUT_DIRS   workspace:/Workspace/Users/<user>/codegen/pairs   (';'-separated)
+#   CODEGEN_STORAGE_INPUTS     workspace:/Workspace/Users/<user>/codegen/inputs
+#   CODEGEN_STORAGE_STATE      workspace:/Workspace/Users/<user>/codegen/state
+#   CODEGEN_STORAGE_OUTPUTS    workspace:/Workspace/Users/<user>/codegen/outputs
+#   CODEGEN_CONFIG_OVERLAYS    <acfc.overlay.yaml>
+#   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>
+env:
+  - name: CODEGEN_FORCE_MOCK_PROVIDER
+    value: "1"

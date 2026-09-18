@@ -520,6 +520,8 @@ class DemoRunner:
             "layout_fills": list(self.layout_fills),
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
+            # M8.1: input roots whose last listing failed (label -> API message).
+            "input_errors": self.input_errors(),
             # M8.2: undecided pairings (asked in the dialog when the run starts).
             "pair_candidates": {
                 kind: {"reason": d.reason,

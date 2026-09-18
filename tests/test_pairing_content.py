@@ -127,3 +127,40 @@ def test_names_alone_still_pair_when_no_document_speaks(config, tmp_path):
 ])
 def test_name_match_is_strict_about_short_tokens(name, text, expected):
     assert _name_match(name, text) is expected
+
+
+# -- the runner: an undecided pairing is asked in the layout dialog ---------------------
+
+def test_runner_asks_an_undecided_pairing_and_takes_the_answer(shared_ticket, config, tmp_path):
+    pytest.importorskip("fastapi")
+    import threading
+    import time
+
+    from ui.backend.demo import DemoRunner
+    from ui.backend.service import GenerationStore
+
+    sttms, frds, _truth = shared_ticket
+    variant = f"FRD_{TICKET}_v.docx"
+    frds = {**frds, variant: Path(shutil.copy(
+        SHAPES / "frd" / "f1_pair_11_multi_file_catalog.docx", tmp_path / variant))}
+    runner = DemoRunner(GenerationStore(str(REPO / "config" / "config.yaml")),
+                        work=lambda: None)
+    runner.pair_decisions["frd"] = pair_by_content(
+        "frd", sttms[f"STTM_{TICKET}_d.xlsx"], frds, config, REPO)
+    runner.fetch_frd_candidate = lambda name: frds[name]          # the tmp folder is the inbox
+    assert set(runner.status()["pair_candidates"]) == {"frd"}
+
+    runner.state = "running"
+    worker = threading.Thread(target=runner._ask_pairing, daemon=True)  # noqa: SLF001
+    worker.start()
+    deadline = time.time() + 5
+    while runner.state != "needs_layout" and time.time() < deadline:
+        time.sleep(0.01)
+    question = runner.status()["layout_questions"][0]
+    assert question["key"] == "pair.frd" and question["kind"] == "choice"
+    assert {c["value"] for c in question["candidates"]} >= {variant, f"FRD_{TICKET}_x.docx"}
+
+    runner.answer_layout({"gaps": {"pair.frd": {"value": variant, "source": "candidate 1"}}})
+    worker.join(timeout=5)
+    assert runner.selected_frd == frds[variant] and runner.selected_frd_label == variant
+    assert runner.frd_auto_paired is None                          # the person chose

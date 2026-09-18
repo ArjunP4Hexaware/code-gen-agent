@@ -118,6 +118,8 @@ export interface LayoutQuestion {
   suggested_reason?: string;
 }
 
+export type PairRule = "pairing_map" | "content" | "ticket" | "name_stem";
+
 export interface DemoStatus {
   state: "idle" | "running" | "needs_layout" | "done" | "failed";
   stages: DemoStage[];
@@ -149,8 +151,15 @@ export interface DemoStatus {
   playbook_template?: string;
   frd_name?: string;
   frd_chosen?: boolean;
-  frd_auto_paired?: { frd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
-  vdd_auto_paired?: { vdd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
+  frd_auto_paired?: { frd: string; rule: PairRule } | null;
+  vdd_auto_paired?: { vdd: string; rule: PairRule } | null;
+  // M8.2: pairings the content scoring could not decide (asked in the layout
+  // dialog when the run starts), and input roots whose listing failed.
+  pair_candidates?: Record<string, {
+    reason: string;
+    candidates: { name: string; score: number; signals: string }[];
+  }>;
+  input_errors?: Record<string, string>;
   frd_warning?: boolean;
   error_hint?: {
     sttm: string;

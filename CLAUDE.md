@@ -271,37 +271,18 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## M7 (2026-09-18, v0.4.2-acfc): metadata-DB DML, the many-files FRD shape, the derivation gate
 
-**M7.1 is PARKED (2026-09-18), resume after the demo.** The brief: make the
-correctness gates GLOBAL (SQL-literal, path-literal and derived-name cap
-checks as FAILs for every profile; sibling-type consistency a global FLAG),
-slugify the iig_v1 synthetic TGT_ADLS_PATH domain segments (config
-`metadata.synthetic_path_slug`), add a global `conventions.default_catalog`
-(provenance `config_default`), docs (ACFC_DEPLOY config row + open
-questions; METADATA_DB_SEMANTICS §11 yes/no questions for the framework
-team), then re-baseline CV / SFMC deliberately — STOP for Soham's review of
-the per-file diff before committing the new baseline. The code + docs are
-done and sit in `git stash` `stash@{0}` "m7.1-wip global gates +
-rebaseline" (nine files; `strict_derivations` removed from the profile
-model + config.yaml). The per-file diff was produced and matched the
-expected set exactly: TGT_ADLS_PATH cells (+ their INSERT column) in
-config_rows / config_inserts for the 4 feeds, and in the reports the two
-new passing checks (sql_literals, derivations) + CV's sibling_type flags
-— nothing else. Scratch artefacts (session scratchpad): `regen_old/`
-(outputs from a worktree at 9b64d38, registered as `wt_old` — remove with
-`git worktree remove`), `regen_new/`, `regen_outputs.py`,
-`diff_outputs.py`, `baseline.py` (`--check` reports NEW artefacts
-separately). Still to do on resume: `git stash pop`, suite / ruff / tsc /
-scrub, regenerate `baseline_manifest.json`, commit + push, update this
-section. **main is at 4c35c61 (v0.4.1-acfc)** — fourteen staging commits
-behind, none of M7; merge staging→main only on Soham's say-so.
-
-Six commits (415e17b … 2e08af7 + the tag commit). Every M7 behaviour that
-would change the byte-compared CV / SFMC / pair-1 output rides the
-**conventions profile**: `acfc_prx` carries `strict_derivations`,
-`emit_dml`, `require_qualified_names` (all on); the reference `edo_sfmc`
-profile keeps today's output byte for byte. The UI's profile selector /
-CLI `--profile` choose. **Select `acfc_prx` to get the DML and the strict
-gate** — the tracked default is still `edo_sfmc`.
+Six commits (415e17b … 9b64d38, tag v0.4.2-acfc). **M7.1 (2026-09-18):
+correctness gates are GLOBAL** — SQL-literal validation, path-literal
+validation and the derived-name length / charset caps are gate CHECKS for
+every profile (FAIL), sibling-type consistency is a global FLAG (never
+FAIL); the CV / SFMC baselines were re-generated deliberately (the iig_v1
+synthetic TGT_ADLS_PATH now slugifies its domain segments —
+`metadata.synthetic_path_slug`; CV gains its sibling_type flags). Only
+CONVENTIONS stay profile knobs: `acfc_prx` carries `emit_dml` and
+`require_qualified_names`; the catalog chain's last link is
+`conventions.default_catalog` (global, provenance `config_default`) or a
+profile's own `default_catalog`. **Select `acfc_prx` to get the DML and
+three-part names** — the tracked default is still `edo_sfmc`.
 
 - **`docs/acfc/METADATA_DB_SEMANTICS.md`** transcribes the framework
   maintainer's SQL Server metadata-DB walkthrough (2026-09-11): six tables

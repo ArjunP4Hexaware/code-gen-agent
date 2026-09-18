@@ -736,6 +736,11 @@ conventions:
   # standard block's USING clause, and ends WITHOUT a trailing newline.
   # CLI: codegen generate --profile <name>.
   profile: edo_sfmc
+  # M7.1: the last fallback of the catalog chain (FRD label -> STTM band ->
+  # here) for every profile; a pair whose documents state no catalog
+  # resolves to it with provenance `config_default`. Per environment in an
+  # overlay, e.g. {stage: d1_dlk, standard: d1_dlk}. Empty = none configured.
+  default_catalog: {}
   profiles:
     edo_sfmc:
       ddl_layout: two_files
@@ -759,9 +764,6 @@ conventions:
       # empty = none configured. Set per environment in an overlay.
       require_qualified_names: true
       default_catalog: {}
-      # M7: derived names / paths / SQL literals are gate CHECKS and sibling
-      # types are flags under this profile (edo_sfmc keeps today's verdicts).
-      strict_derivations: true
       # M7: the SQL Server metadata-DB DML deliverable (dml: section below).
       emit_dml: true
       # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
@@ -783,6 +785,10 @@ metadata:
   # M7 §5: CLAIM_TYPE_ID default for ADLS→Delta rows — null keeps the
   # goldens' blank; "NA" writes the walkthrough's alternative (§7).
   claim_type_id_default: null
+  # M7.1: iig_v1 synthetic TGT_ADLS_PATH domain / subdomain segments are
+  # slugified with the names' slug (SOCIAL_DETERMINANTS_OF_HEALTH), so the
+  # synthetic path passes the global path gate. false = the old raw words.
+  synthetic_path_slug: true
   templates:
     iig_v2:
       citation: "pair-1 RFC package (aliased golden RFC_ACCUMULATORS_IIG.xlsx, docs/acfc/rfc_capture)"

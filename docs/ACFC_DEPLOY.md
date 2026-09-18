@@ -32,6 +32,7 @@ typo fails at start-up. Edit these:
 | `databricks` | `warehouse_id` / `wrapper_notebook_path` | ACFC's values, or leave empty | `EXPLAIN` is the only SQL the seam sends; empty = feature off |
 | `demo` | `databricks_paths` | `{catalog: d1_dlk, schema: codegen, volume: <landing volume>}` | the synthetic `databricks fs ls` block on the Generate card |
 | `conventions` | `profile` | `acfc_prx` | one combined `<ABBREV>_DDL.txt`, typed stage columns, the pair-1 shape |
+| `conventions` | `default_catalog` | `{stage: <catalog>, standard: <catalog>}` **(confirm ACFC's catalogs)** | the LAST link of the catalog chain (FRD label → STTM band → here): a pair whose FRD / STTM state no catalog (MIDS does not) resolves to it with provenance `config_default`; without it `acfc_prx` FAILs `catalog_unstated:<layer>` and writes no DDL for that layer |
 | `metadata` | `template` | `iig_v2` | the eight-sheet IIG layout of the PRX packages |
 | `playbook` | `template` | `main_single` | the single-sheet `Main` playbook of the PRX packages |
 | `output` | `mode` | `rfc` (or leave `notebook` and pick per run in the UI) | framework artefacts + the assembled `RFC<number>_<Feed>/` package |
@@ -212,6 +213,11 @@ framework team listed in `CLAUDE.md`.
   `require_qualified_names`). Select that profile in the UI or pass
   `--profile acfc_prx` on the CLI; the reference `edo_sfmc` profile keeps
   the byte-compared output unchanged.
+- **Correctness gates are global (M7.1):** SQL-literal validation, path-
+  literal validation and the derived-name length / charset caps are gate
+  CHECKS for every profile (FAIL semantics); sibling-type consistency is a
+  global FLAG (never FAIL). Three-part-name enforcement and the DML emitter
+  stay profile knobs (conventions).
 - The DML variables (`@RFC_NUMBER`, `@PIPELINE_ID`, `@GROUP_ID`, …) come
   from the feed's FAQ companions (`rfc_number`, `pipeline_id`,
   `parent_pipeline_id`, `group_id`, `object_id`, `source_host`,
@@ -219,3 +225,13 @@ framework team listed in `CLAUDE.md`.
   the JDBC secret NAMES from `config.yaml dml:` (`secret_scope`,
   `jdbc_url_secret`, `user_secret`, `password_secret`) — create that
   Databricks secret scope before the first run.
+
+## Open questions to raise with the document authors
+
+- **MIDS FRD, Structural Metadata → ADLS Location, row "Individual Risk"**:
+  the path ends in a period (`…\care_management\sdoh\socially_determined.`).
+  The path gate FAILs a segment that ends in punctuation, so the
+  individual-risk feed cannot ship until the FRD is corrected (an FRD typo
+  to raise with the author) — the agent does not silently strip it.
+- **MIDS FRD, Target Schema**: names no catalog; set
+  `conventions.default_catalog` (above) or have the FRD state it.

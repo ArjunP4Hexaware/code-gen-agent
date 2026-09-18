@@ -93,11 +93,11 @@ def _generate_feed(
     from codegen.gate.vdd_check import vdd_cross_check
 
     vdd_flags, vdd_check = vdd_cross_check(spec, config)
-    # M7: the derivation gate (sibling types here, cell / literal checks after
-    # the framework emit) runs under a conventions profile that asks for it.
-    strict = config.conventions.get(conventions_profile).strict_derivations
+    # M7.1: correctness gates are GLOBAL — sibling-type consistency is a flag
+    # (never FAIL); the cell / literal / cap checks join the gate after the
+    # framework emit for every profile.
     extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
-                   *(sibling_type_flags(spec, config) if strict else []), *vdd_flags]
+                   *sibling_type_flags(spec, config), *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
     # same review artifact and decision flow as Layer-2 candidates.
     candidates = [*segmented_review_items(spec), *candidates]
@@ -184,8 +184,8 @@ def _generate_feed(
             checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
     if vdd_check is not None:
         checks = [*checks, vdd_check]
-    if framework_artefacts is not None and strict:
-        checks = [*checks, *framework_artefacts.checks]   # M7 derivation gate
+    if framework_artefacts is not None:
+        checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
 
     gate = compute_verdict(
         spec.feed_id,

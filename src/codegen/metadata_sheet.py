@@ -394,9 +394,18 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
                 cells["MAPPING_EXPRESSION"] = _cell(
                     "; ".join(mapped_rules), "from_frd",
                     "FRD business rule(s), verbatim")
-        tgt_path = f"/{feed.domain or ''}/{feed.sub_domain or ''}/Processed/{stage_table}"
-        cells["TGT_ADLS_PATH"] = _cell(tgt_path.replace("//", "/"),
-                                       "synthetic", _SYNTHETIC_PATH_TOOLTIP)
+        if config.metadata.synthetic_path_slug:
+            # M7.1: segments slugified like the names (no whitespace in a path).
+            from codegen.emit.context import _sanitize_name_part
+            from codegen.gate.derivations import join_path
+
+            tgt_path = "/" + join_path(_sanitize_name_part(feed.domain),
+                                       _sanitize_name_part(feed.sub_domain),
+                                       "Processed", stage_table)
+        else:
+            tgt_path = (f"/{feed.domain or ''}/{feed.sub_domain or ''}/Processed/{stage_table}"
+                        ).replace("//", "/")
+        cells["TGT_ADLS_PATH"] = _cell(tgt_path, "synthetic", _SYNTHETIC_PATH_TOOLTIP)
     return cells
 
 

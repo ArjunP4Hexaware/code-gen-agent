@@ -109,7 +109,7 @@
   "out/cv_individual_risk/tests/test_run_report.py": "dd98e690d4c621bc44aafa06af73b77133a4272fcd33b2ad83cbf421f52646aa",
   "out/cv_individual_risk/tests/test_writer.py": "0769525fc2e2fc7f81a9b9064483cd7c78b30317f65b1b55f74ed39bb60b9b90",
   "out/cv_individual_risk/tools/make_fixtures.py": "0e65e525422954fe8719e0a9553c994502ae75ec35e8f889b2b18bd8cc3149e1",
-  "reports/cv_community_demographic_risk.md": "b86d2917bbd99e2056cca908670ca24230e73887703e435412aa0177fcddf870",
-  "reports/cv_community_risk.md": "d82d643f59da41247e90bb0e687f3400ab01d43258bf3d1224759db6311690f6",
+  "reports/cv_community_demographic_risk.md": "5e427b85ed4d5f320ac902a81cad4f23a6e0b01a3ce39e730ac3f28d4be3c469",
+  "reports/cv_community_risk.md": "e4cf6d9e83165511d88b6e7e8015fc49b78c23025f8f66927a8b808cd860abad",
   "reports/cv_individual_risk.md": "8882f1ae87aa5c49b6afbafe094a20fa2cfc565ce0b3378c2e23894d9e7e465b"
 }

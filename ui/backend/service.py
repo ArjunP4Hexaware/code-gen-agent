@@ -188,9 +188,8 @@ class GenerationStore:
         from codegen.gate.vdd_check import vdd_cross_check
 
         vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
-        strict = self.config.conventions.get(conventions_profile).strict_derivations
         extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
-                       *(sibling_type_flags(spec, self.config) if strict else []), *vdd_flags]
+                       *sibling_type_flags(spec, self.config), *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
         stage = on_stage or (lambda _detail: None)
@@ -296,13 +295,13 @@ class GenerationStore:
             checks = run_preflight(feed_dir, self.config)
         if vdd_check is not None:
             checks = [*checks, vdd_check]
-        if framework_artefacts is not None and strict:
-            checks = [*checks, *framework_artefacts.checks]   # M7 derivation gate
-            if not tests_skipped:
-                checks = [
-                    *checks,
-                    run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
-                ]
+        if framework_artefacts is not None:
+            checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
+        if not tests_skipped:
+            checks = [
+                *checks,
+                run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
+            ]
 
         gate = compute_verdict(
             spec.feed_id,

@@ -224,3 +224,38 @@ byte-compared and carry these findings:
 | iig_v1 `ADLS_DELTA_INGESTION_DETAILS.TGT_ADLS_PATH` (synthetic shape) | built from the FRD domain words, so it carries spaces (`/Social Determinants of Health/Public/Processed/…`) — the path rule FAILs it | the synthetic path shape is a stand-in ("real container/path assigned at deployment"); replace the shape or abbreviate the domain before turning the strict gate on for `edo_sfmc` |
 | MIDS FRD `ADLS Location` nested table, row "Individual Risk" | the path ends in a period (`…socially_determined.`) — a segment ending in punctuation FAILs the path rule under `acfc_prx` | an FRD typo; fix the document or accept the FAIL as the signal it is |
 | MIDS FRD `Target Schema` | names no catalog anywhere (FRD, STTM bands, config default) | `catalog_unstated:stage` / `standard` FAIL under `acfc_prx` until a catalog is stated (`conventions.profiles.acfc_prx.default_catalog` in an overlay, or the FRD) |
+
+## 11. Questions for the framework team
+
+Yes / no questions, ready to send as-is. Each names the section it settles.
+
+**Connection table (§3) — identifiers were spoken, never printed**
+
+1. Is the file connection table named `FILE_CONNECTION_DETAILS`? If not, what is its exact name?
+2. Is its identity column named `CONNECTION_ID`?
+3. Are the description, host, root-path and source-type columns named `CONNECTION_DESCRIPTION`, `HOST_NAME`, `ROOT_PATH` and `SOURCE_TYPE`? If not, what are they?
+4. Is a connection uniquely identified by host name + root path (so a lookup returning more than one row is an error)?
+5. Does the connection row carry the port number and the Key Vault secret key as columns of their own, and are they mandatory on insert?
+6. Are the four audit columns (`CREATED_BY`, `CREATED_DATE`, `UPDATED_BY`, `UPDATED_DATE`) present on the connection table too?
+
+**Tables not yet described (§8)**
+
+7. `STGDELTA_STDDELTA_INGESTION_DET`: is the key (`GROUP_ID`, `OBJECT_ID`, `PIPELINE_ID`), as for the ADLS → Delta table?
+8. `DATA_QUALITY_RULES`: is `SEQUENCE_NO` assigned by the engineer, and is (`GROUP_ID`, `OBJECT_ID`, `SEQUENCE_NO`) the key?
+9. `DATABRICKS_NOTEBOOK_DETAILS`: are `DATABRICKS_WORKSPACE_URL`, `DATABRICKS_WORKSPACE_SECRET`, `DATABRICKS_CLUSTERID` and `CLUSTER_DETAILS_ID` assigned by the platform team (never by the engineer)?
+10. `EMAIL_TEMPLATE_CONFIG`: is `TEMPLATE_ID` an identity column?
+11. `ALL_FILES_STATIC_INFORMATION` (SFMC reference layout) and `ADLS_FIXED_WIDTH_HANDLER` (PRX layout): are both live tables in the current framework, or has one replaced the other?
+12. `FILE_LOG_INFORMATION`: is it written by the framework only (never by a deployment script)?
+13. Are the stored procedures part of a deployment, or framework-internal only?
+
+**Contradictions with the IIG goldens (§10)**
+
+14. `ACTIVE_FLAG`: is the active value `S` (the framework selects `WHERE ACTIVE_FLAG = 'S'`), given every row of the reference IIG workbooks reads `Y`?
+15. `DAY_OF_SCHEDULE`: should a new row leave it NULL today (the reference rows carry `0`)?
+16. `PARENT_PIPELINE_ID`: is `0` the correct value for a new master pipeline, and must a child row carry its master's `PIPELINE_ID`?
+17. `CLAIM_TYPE_ID`: should a file-ingestion row carry NULL (or the literal `NA`)?
+
+**Also (§1, §2)**
+
+18. Is the `CREATED_BY` / `UPDATED_BY` value the bare ticket number (`RFC######`, the digits only after `RFC`) or does it carry a prefix?
+19. Is `IsFileCopyReqFlag` `Y` for every file ingestion the framework copies from the O drive, and `N` only for non-file processes?

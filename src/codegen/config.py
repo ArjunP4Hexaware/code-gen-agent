@@ -781,13 +781,6 @@ class ConventionsProfileConfig(BaseModel):
     # behaviour, unchanged).
     require_qualified_names: bool = False
     default_catalog: dict[str, str] = Field(default_factory=dict)
-    # M7: run the derivation gate (IIG cells, SQL literals) as gate CHECKS and
-    # the sibling-type check as flags. Off for the reference profile: the CV
-    # and SFMC baselines are byte-compared, and both carry findings the gate
-    # would surface (CV: mixed sibling types; iig_v1 synthetic path with
-    # spaces) — recorded in METADATA_DB_SEMANTICS.md §10 / CLAUDE.md, flip
-    # deliberately.
-    strict_derivations: bool = False
     # M7 §3: write the SQL Server DML deliverable (config_inserts_<env>.sql +
     # the runner notebook) next to the IIG. Off for the reference profile so
     # its byte-compared reports keep today's file list.
@@ -805,6 +798,10 @@ class ConventionsConfig(BaseModel):
     profile: str = "edo_sfmc"
     profiles: dict[str, ConventionsProfileConfig] = Field(
         default_factory=lambda: {"edo_sfmc": ConventionsProfileConfig()})
+    # M7.1: the LAST fallback of the catalog chain for every profile (a
+    # profile's own default_catalog wins): pairs whose FRD / STTM state no
+    # catalog resolve to it with provenance `config_default`. Empty = none.
+    default_catalog: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _profile_exists(self) -> ConventionsConfig:
@@ -867,6 +864,11 @@ class MetadataConfig(BaseModel):
     # even NA", METADATA_DB_SEMANTICS §7). None = blank (the goldens'
     # value); "NA" writes the constant with this citation.
     claim_type_id_default: str | None = None
+    # M7.1: the iig_v1 synthetic TGT_ADLS_PATH's domain / subdomain segments
+    # go through the same slug the WF_/NB_ names use (emit.context
+    # _sanitize_name_part: upper-case, runs of non-alphanumerics -> '_'), so
+    # the path passes the global path gate (no whitespace in a segment).
+    synthetic_path_slug: bool = True
 
     @model_validator(mode="after")
     def _template_exists(self) -> MetadataConfig:

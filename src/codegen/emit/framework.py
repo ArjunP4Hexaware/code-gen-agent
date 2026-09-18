@@ -125,18 +125,30 @@ def _sanitize_abbrev(slug: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", slug).strip("_").upper()
 
 
+def _config_default_catalog(config: Config | None, profile, layer: str) -> str | None:
+    """The catalog chain's last link: the profile's default_catalog, else the
+    global conventions.default_catalog (M7.1)."""
+    own = profile.default_catalog.get(layer)
+    if own or config is None:
+        return own
+    return config.conventions.default_catalog.get(layer)
+
+
 def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
-             flags: list[str]) -> str | None:
+             flags: list[str], config: Config) -> str | None:
     """catalog.schema.table for a CREATE, or None when the profile requires
     three parts and no source states the catalog / schema. Chain: the
     resolved table's catalog (FRD label, else the STTM band — the resolver
-    carries whichever stated one) -> profile.default_catalog[layer]; each
-    fallback is a provenance flag; nothing is invented."""
+    carries whichever stated one) -> profile / conventions default_catalog
+    (provenance config_default); each fallback is a provenance flag;
+    nothing is invented."""
     catalog, schema, name = table.catalog, table.schema_name, table.table
-    if not catalog and profile.default_catalog.get(layer):
-        catalog = profile.default_catalog[layer]
+    default = _config_default_catalog(config, profile, layer)
+    if not catalog and default:
+        catalog = default
         flags.append(f"catalog_from_config:{layer} — {schema}.{name}: no FRD / STTM catalog; "
-                     f"conventions profile default_catalog[{layer}] = {catalog!r}")
+                     f"provenance config_default (conventions default_catalog[{layer}] = "
+                     f"{catalog!r})")
     if profile.require_qualified_names and not (catalog and schema):
         missing = "catalog" if not catalog else "schema"
         flags.append(f"{missing}_unstated:{layer} — {schema or '?'}.{name}: sources checked: "
@@ -147,8 +159,8 @@ def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
     return ".".join(p for p in (catalog, schema, name) if p)
 
 
-def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None
-                       ) -> str | None:
+def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
+                       config: Config | None = None) -> str | None:
     """The combined-layout deployment DDL (M4, ``acfc_prx``): stage columns
     as the STTM stage band types them (distinct across segments, STTM
     order), audit columns in the profile's casing, standard = the stage
@@ -174,13 +186,14 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
     audit = [(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
              for a in spec.audit_columns]
     stage_table = spec.detail_segment.stage_table
-    stage_qualified = _qualify(stage_table, "stage", profile, spec, flags)
+    stage_qualified = _qualify(stage_table, "stage", profile, spec, flags, config)
     stage = ({"qualified": stage_qualified, "columns": stage_columns + audit}
              if stage_qualified else None)
     standard = None
     if spec.standard_table is not None:
         columns = stage_columns if profile.standard_from_stage else standard_columns
-        standard_qualified = _qualify(spec.standard_table, "standard", profile, spec, flags)
+        standard_qualified = _qualify(spec.standard_table, "standard", profile, spec, flags,
+                                      config)
         if standard_qualified:
             standard = {"qualified": standard_qualified, "columns": columns + audit}
     if stage is None and standard is None:
@@ -341,10 +354,11 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
             entries, key=lambda e: (_DDL_PURPOSE_ORDER.get(e[2], 9), e[0])):
         qualified, columns = _parse_ddl_statement(statement)
         if profile is not None and len(qualified.split(".")) < 3:
-            default = profile.default_catalog.get(layer)
+            default = _config_default_catalog(config, profile, layer)
             if default:
                 flags.append(f"catalog_from_config:{layer} — {qualified}: no FRD / STTM catalog; "
-                             f"conventions profile default_catalog[{layer}] = {default!r}")
+                             f"provenance config_default (conventions default_catalog[{layer}] "
+                             f"= {default!r})")
                 qualified = f"{default}.{qualified}"
             elif profile.require_qualified_names:
                 flags.append(f"catalog_unstated:{layer} — {qualified}: sources checked: FRD "
@@ -571,7 +585,7 @@ def emit_framework(
             flags.append(f"ddl_file_name_from_slug: no feed_abbreviation in the load-pattern "
                          f"FAQ; the combined DDL is named {abbrev!r} from the feed slug")
         ddl_names = [profile.ddl_file_name_pattern.format(feed_abbrev=abbrev)]
-        combined = _combined_ddl_text(spec, profile, flags)
+        combined = _combined_ddl_text(spec, profile, flags, config)
         if combined is not None:
             if profile.target_system_header:
                 combined = DDL_TARGET_HEADER + "\n" + combined

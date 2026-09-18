@@ -23,11 +23,15 @@ from pydantic import BaseModel, ConfigDict, Field
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
 ProfileSource = Literal["synonyms", "model", "user", "cache"]
-Layer = Literal["source", "rules", "stage", "standard"]
+# "files" / "fields": the two role-bearing sheet layers of a Vendor Data
+# Dictionary (M3) — its FILES sheet and its field sheets.
+Layer = Literal["source", "rules", "stage", "standard", "files", "fields"]
 SheetKind = Literal[
     "mapping", "file_details", "table_details", "layout", "lob_crosswalk",
-    "dq_rules", "version", "ignore",
+    "dq_rules", "version", "ignore", "vdd_files", "vdd_fields",
 ]
+# Sheet kinds whose bands carry roles (validated like a mapping sheet).
+ROLE_BEARING_KINDS = ("mapping", "vdd_files", "vdd_fields")
 # "banner": segments introduced by in-sheet label rows ("Detail Record")
 # spanning the source group — the family-A pair-8 shape (SHAPES_FOR_PORT
 # §1); an addition to the column|sheet|none vocabulary of the M2.5 brief.
@@ -86,6 +90,21 @@ class Role(StrEnum):
     # trailing columns (after the standard band)
     RECYCLE_FLAG = "recycle_flag"
     DQ_MANDATORY = "dq_mandatory"
+    # Vendor Data Dictionary field sheets (M3; V1/V2/V3 headers)
+    POSITION = "position"
+    DATA_TYPE = "data_type"
+    PHI = "phi"
+    EXAMPLE = "example"
+    # Vendor Data Dictionary FILES sheet (M3)
+    FILE_PATTERN = "file_pattern"
+    TITLE = "title"
+    FORMAT = "format"
+    DELIMITER = "delimiter"
+    CADENCE = "cadence"
+    FIELD_SHEET = "field_sheet"
+    MULTI_RECORD = "multi_record"
+    RECORD_TYPE_FIELD = "record_type_field"
+    HEADER_ROW = "header_row"
 
 
 ROLE_DEFINITIONS: dict[Role, str] = {
@@ -133,6 +152,19 @@ ROLE_DEFINITIONS: dict[Role, str] = {
     Role.TRANSFORMATION: "transformations / data-quality text",
     Role.RECYCLE_FLAG: "per-row recycle flag text",
     Role.DQ_MANDATORY: "mandatory fields included in the DQ check",
+    Role.POSITION: "VDD field ordinal within the file / table",
+    Role.DATA_TYPE: "VDD data type",
+    Role.PHI: "VDD PHI/PII indicator",
+    Role.EXAMPLE: "VDD example value",
+    Role.FILE_PATTERN: "VDD FILES: file name pattern",
+    Role.TITLE: "VDD FILES: file title",
+    Role.FORMAT: "VDD FILES: file format",
+    Role.DELIMITER: "VDD FILES: delimiter",
+    Role.CADENCE: "VDD FILES: delivery cadence",
+    Role.FIELD_SHEET: "VDD FILES: the field sheet describing the file",
+    Role.MULTI_RECORD: "VDD FILES: multi-record-type flag",
+    Role.RECORD_TYPE_FIELD: "VDD FILES: the field that carries the record type",
+    Role.HEADER_ROW: "VDD FILES: header-row flag",
 }
 
 # Roles a mapping sheet needs before any field can be emitted.
@@ -141,6 +173,8 @@ REQUIRED_ROLES: dict[Layer, tuple[Role, ...]] = {
     "rules": (),
     "stage": (Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
     "standard": (Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
+    "files": (Role.FILE_PATTERN,),
+    "fields": (Role.FIELD_NAME, Role.DATA_TYPE, Role.LENGTH),
 }
 
 
@@ -231,6 +265,10 @@ class LayoutProfile(BaseModel):
     def mapping_sheets(self) -> list[SheetProfile]:
         return [s for s in self.sheets if s.kind == "mapping"]
 
+    @property
+    def role_sheets(self) -> list[SheetProfile]:
+        return [s for s in self.sheets if s.kind in ROLE_BEARING_KINDS]
+
     def unresolved_for(self, sheet: str) -> list[UnresolvedRole]:
         return [u for u in self.unresolved if u.sheet == sheet]
 
@@ -243,6 +281,7 @@ def confidence_key(sheet: str, layer: str, role: Role | str) -> str:
 
 
 __all__ = [
+    "ROLE_BEARING_KINDS",
     "ROLE_DEFINITIONS",
     "REQUIRED_ROLES",
     "BandProfile",

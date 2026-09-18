@@ -80,8 +80,18 @@ def sha256_of_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]) -> str:
+def _is_fixed_width(file_format: str | None, config: Config) -> bool:
+    fmt = (file_format or "").lower()
+    return any(token.lower() in fmt for token in config.extractor.vdd.fixed_width_tokens)
+
+
+def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str],
+                       config: Config | None = None) -> str:
     explicit = [d for d in (sttm_feed.source_file.delimiter, frd_feed.delimiter) if d]
+    if not explicit and config is not None and _is_fixed_width(frd_feed.file_format, config):
+        # M3: a fixed-width file has no delimiter by definition (positions
+        # come from the VDD / STTM); an empty delimiter is the honest value.
+        return ""
     if explicit:
         if len(set(explicit)) > 1:
             errors.append(
@@ -294,7 +304,7 @@ def _resolve_one(
     feed_id = sttm_feed.feed_id
     catalog = frd_feed.stage_target.catalog
 
-    delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors)
+    delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config)
     segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors)
     # docx-extracted FRD contracts (M2) leave unsourced values null; each
     # is a loud stop here, never a default (M4 takes the file pattern from
@@ -451,17 +461,26 @@ def _resolve_one(
         # FRD-driven AS-IS switch: business columns STRING in BOTH layers when
         # the FRD's rules state an AS-IS load (acceptance criterion 3 shape).
         load_as_is=any(_AS_IS_RE.search(r) for r in frd_feed.validation_rules),
+        source_table=sttm_feed.source_table,
     )
 
 
-def resolve_pair(frd_path: Path, sttm_path: Path, config: Config) -> list[ResolvedFeedSpec]:
-    """Load, validate, and join one FRD/STTM contract file pair."""
+def resolve_pair(frd_path: Path, sttm_path: Path, config: Config,
+                 vdd_path: Path | None = None) -> list[ResolvedFeedSpec]:
+    """Load, validate, and join one FRD/STTM contract file pair; a VDD
+    contract (M3) attaches to every spec as the third input."""
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
     sttm = SttmContract.model_validate(json.loads(sttm_path.read_text(encoding="utf-8")))
-    return resolve_feeds(
+    specs = resolve_feeds(
         frd,
         sttm,
         config,
         frd_sha256=sha256_of_file(frd_path),
         sttm_sha256=sha256_of_file(sttm_path),
     )
+    if vdd_path is not None:
+        from codegen.contracts.vdd import VddContract
+
+        vdd = VddContract.model_validate(json.loads(Path(vdd_path).read_text(encoding="utf-8")))
+        specs = [spec.model_copy(update={"vdd": vdd}) for spec in specs]
+    return specs

@@ -468,6 +468,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             standard_column=_first(row, "standard.column") if has_standard else None,
             standard_datatype=_first(row, "standard.target_type") if has_standard else None,
             value_spec=value_spec,
+            source_length=_first(row, "source.length", "source.field_length"),
+            source_start=_first(row, "source.start"),
+            source_end=_first(row, "source.end"),
             record_segment=row.segment if segmented else None,  # type: ignore[arg-type]
             stage_table=(_first(row, "stage.table") or stage_table) if segmented else None,
             standard_table=(_first(row, "standard.table") if segmented and has_standard
@@ -528,6 +531,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             field_count=len(fields),
             fields=fields,
             meta_rows=dict(sheet.meta),
+            source_table=_dominant([r.values.get("source.source_table") for r in sheet.fields]),
         )
     except ValueError as exc:
         raise GenericExtractionError(

@@ -181,6 +181,10 @@ class GenerationStore:
         extra_flags: list[str] | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
+        from codegen.gate.vdd_check import vdd_cross_check
+
+        vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
+        extra_flags = [*(extra_flags or []), *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
         stage = on_stage or (lambda _detail: None)
@@ -255,6 +259,8 @@ class GenerationStore:
         stage("gate")
         if checks is None:
             checks = run_preflight(feed_dir, self.config)
+        if vdd_check is not None:
+            checks = [*checks, vdd_check]
             if not tests_skipped:
                 checks = [
                     *checks,

@@ -58,6 +58,8 @@ class DemoRunner:
         # upstream contract); in-memory only.
         self.selected_frd: Path | None = None
         self.selected_frd_label: str | None = None
+        # M3: optional Vendor Data Dictionary (third input); None = no VDD.
+        self.selected_vdd: Path | None = None
         # Structured hint for the failed-run card: when a feed-match
         # failure has a known companion FRD, the UI renders a one-click
         # "choose the pair" button from this. Never an auto-retry.
@@ -76,6 +78,12 @@ class DemoRunner:
                 )
         self.selected_frd = path
         self.selected_frd_label = label
+
+    def select_vdd(self, path: Path | None) -> None:
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress("cannot change the VDD while a live run is in progress")
+        self.selected_vdd = path
 
     def clear_frd(self) -> None:
         with self._lock:
@@ -184,7 +192,8 @@ class DemoRunner:
         self._layout_answers = {"answers": answers or {}, "proceed": proceed, "cancel": cancel}
         self._layout_event.set()
 
-    def _resolve_layout(self, workbook_path: Path, frd_path: Path, config):
+    def _resolve_layout(self, workbook_path: Path, frd_path: Path, config,
+                        vdd_path: Path | None = None):
         """cache -> synonyms -> model -> validate -> user, pausing the run in
         ``needs_layout`` until every question is answered or the human
         chooses to proceed with the unresolved roles read as empty."""
@@ -193,11 +202,11 @@ class DemoRunner:
 
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
         runtime_cache = REPO_ROOT / config.layout.runtime_cache_dir
-        answers: dict = {"sttm": {}, "frd": {}}
+        answers: dict = {"sttm": {}, "frd": {}, "vdd": {}}
         while True:
             result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                   answers=answers, runtime_cache_dir=runtime_cache,
-                                  base_dir=REPO_ROOT)
+                                  base_dir=REPO_ROOT, vdd_path=vdd_path)
             self.layout_report = result.report()
             if not result.questions:
                 return result
@@ -215,11 +224,12 @@ class DemoRunner:
                 raise RuntimeError("layout resolution cancelled by the user")
             merged = parse_answers(reply.get("answers") or {})
             answers = {"sttm": {**answers["sttm"], **merged["sttm"]},
-                       "frd": {**answers["frd"], **merged["frd"]}}
+                       "frd": {**answers["frd"], **merged["frd"]},
+                       "vdd": {**answers.get("vdd", {}), **merged.get("vdd", {})}}
             if reply.get("proceed"):
                 result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                       answers=answers, runtime_cache_dir=runtime_cache,
-                                      base_dir=REPO_ROOT)
+                                      base_dir=REPO_ROOT, vdd_path=vdd_path)
                 self.layout_report = result.report()
                 return result
 
@@ -322,8 +332,20 @@ class DemoRunner:
 
         self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
         resolution = self._resolve_layout(
-            workbook_path, self.effective_frd() if frd_is_docx else frd_path, config)
+            workbook_path, self.effective_frd() if frd_is_docx else frd_path, config,
+            vdd_path=self.selected_vdd)
         layout_flags = list(resolution.flags)
+        vdd_contract_path: Path | None = None
+        if self.selected_vdd is not None and resolution.vdd is not None:
+            from codegen.extract.vdd import contract_to_json as vdd_to_json
+            from codegen.extract.vdd import extract_vdd_contract
+
+            self._stage("extracting VDD", f"{self.selected_vdd.name} → VDD contract")
+            vdd_contract, _ = extract_vdd_contract(self.selected_vdd, config,
+                                                   layout=resolution.vdd.profile)
+            vdd_contract_path = run_root / "vdd.contract.json"
+            vdd_contract_path.write_text(vdd_to_json(vdd_contract), encoding="utf-8",
+                                         newline="\n")
 
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
@@ -335,7 +357,7 @@ class DemoRunner:
             raise
 
         self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
-        specs = resolve_pair(frd_path, contract_path, config)
+        specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)
 
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = []

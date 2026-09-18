@@ -68,6 +68,14 @@ STTM_CURATED: dict[str, dict[str, int]] = {
 
 FRD_FIXTURES = ["f1_pair_1.docx", "f1_pair_2_variant.docx", "f2_pair_8.docx"]
 
+# VDD fixtures (M3): all three carry the V1/V2/V3 headers verbatim, so the
+# synonym tables resolve every role — pinned: no curated roles needed.
+VDD_CURATED: dict[str, dict[str, int]] = {
+    "pair_1_v1_segments.xlsx": {},
+    "pair_2_v2_per_file.xlsx": {},
+    "pair_9_v3_per_table.xlsx": {},
+}
+
 # Adversarial mock answers (M2.5 §5c), each derived from the pair-1 truth
 # with ONE wrong claim; the validator must reject exactly that claim with
 # the right reason and keep everything else.
@@ -96,6 +104,13 @@ ADVERSARIAL: dict[str, dict] = {
         "mutation": "canary",
         "reason_fragment": "",
     },
+}
+
+# VDD adversarial answers (M3), derived from the pair-1 VDD truth.
+VDD_ADVERSARIAL: dict[str, dict] = {
+    "adversarial_vdd_canary.json": {"mutation": "canary", "reason_fragment": ""},
+    "adversarial_vdd_free_text_column.json": {"mutation": "free_text",
+                                              "reason_fragment": "integer-like"},
 }
 
 CANARY = "CANARY_7f3a9c_MODEL_STRING"

@@ -1,0 +1,164 @@
+{
+  "fingerprint": "027305ee02c80ab8a65895aefa843ef18355ee37dd4cc8810fe74ac4486125a1",
+  "sheets": [
+    {
+      "name": "FILES",
+      "kind": "vdd_files",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "files",
+          "col_start": 1,
+          "col_end": 10,
+          "roles": {
+            "file_pattern": 1,
+            "title": 2,
+            "format": 3,
+            "delimiter": 4,
+            "cadence": 5,
+            "description": 6,
+            "field_sheet": 7,
+            "multi_record": 8,
+            "record_type_field": 9,
+            "header_row": 10
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "ENCOUNTER",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "length": 4,
+            "required": 5,
+            "phi": 6,
+            "key": 7,
+            "description": 8
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "ENCOUNTER_LINE",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "length": 4,
+            "required": 5,
+            "phi": 6,
+            "key": 7,
+            "description": 8
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "ENCOUNTER_STATUS",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "length": 4,
+            "required": 5,
+            "phi": 6,
+            "key": 7,
+            "description": 8
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "FILES/files/file_pattern": 1.0,
+    "FILES/files/title": 1.0,
+    "FILES/files/format": 1.0,
+    "FILES/files/delimiter": 1.0,
+    "FILES/files/cadence": 1.0,
+    "FILES/files/description": 1.0,
+    "FILES/files/field_sheet": 1.0,
+    "FILES/files/multi_record": 1.0,
+    "FILES/files/record_type_field": 1.0,
+    "FILES/files/header_row": 1.0,
+    "ENCOUNTER/fields/position": 1.0,
+    "ENCOUNTER/fields/field_name": 1.0,
+    "ENCOUNTER/fields/data_type": 1.0,
+    "ENCOUNTER/fields/length": 1.0,
+    "ENCOUNTER/fields/required": 1.0,
+    "ENCOUNTER/fields/phi": 1.0,
+    "ENCOUNTER/fields/key": 1.0,
+    "ENCOUNTER/fields/description": 1.0,
+    "ENCOUNTER_LINE/fields/position": 1.0,
+    "ENCOUNTER_LINE/fields/field_name": 1.0,
+    "ENCOUNTER_LINE/fields/data_type": 1.0,
+    "ENCOUNTER_LINE/fields/length": 1.0,
+    "ENCOUNTER_LINE/fields/required": 1.0,
+    "ENCOUNTER_LINE/fields/phi": 1.0,
+    "ENCOUNTER_LINE/fields/key": 1.0,
+    "ENCOUNTER_LINE/fields/description": 1.0,
+    "ENCOUNTER_STATUS/fields/position": 1.0,
+    "ENCOUNTER_STATUS/fields/field_name": 1.0,
+    "ENCOUNTER_STATUS/fields/data_type": 1.0,
+    "ENCOUNTER_STATUS/fields/length": 1.0,
+    "ENCOUNTER_STATUS/fields/required": 1.0,
+    "ENCOUNTER_STATUS/fields/phi": 1.0,
+    "ENCOUNTER_STATUS/fields/key": 1.0,
+    "ENCOUNTER_STATUS/fields/description": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "vdd",
+  "unresolved": [],
+  "notes": []
+}

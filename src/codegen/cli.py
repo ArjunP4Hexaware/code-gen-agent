@@ -81,6 +81,12 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    # M3: STTM-vs-VDD cross-check — one flag per mismatch citing both cells;
+    # a fixed-width FRD with no VDD positions is a failed gate check.
+    from codegen.gate.vdd_check import vdd_cross_check
+
+    vdd_flags, vdd_check = vdd_cross_check(spec, config)
+    extra_flags = [*(extra_flags or []), *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
     # same review artifact and decision flow as Layer-2 candidates.
     candidates = [*segmented_review_items(spec), *candidates]
@@ -136,6 +142,8 @@ def _generate_feed(
         tests_skipped = skip_tests or not config.gate.run_generated_tests
         if not tests_skipped:
             checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
+    if vdd_check is not None:
+        checks = [*checks, vdd_check]
 
     gate = compute_verdict(
         spec.feed_id,
@@ -224,12 +232,13 @@ def _run_pairs(
     dry_run: bool,
     skip_tests: bool,
     output_mode: str | None = None,
+    vdd_path: Path | None = None,
 ) -> int:
     failed = False
     matched_feed = False
     for frd_path, sttm_path in pairs:
         try:
-            specs = resolve_pair(frd_path, sttm_path, config)
+            specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path)
         except (ContractMismatchError, ValueError) as exc:
             print(f"{'FAIL':<15} {frd_path.name} + {sttm_path.name} — {exc}")
             failed = True
@@ -332,6 +341,47 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             print(f"{'QUESTION':<15} {question.document} {question.key} — {question.reason}; "
                   f"candidates {question.candidates}")
         return 1
+    return 0
+
+
+def _extract_vdd(args: argparse.Namespace, config: Config) -> int:
+    from codegen.extract.vdd import VddExtractionError, contract_to_json, extract_vdd_contract
+    from codegen.layout.discover import NoLayoutError
+
+    try:
+        vdd_path = Path(args.vdd)
+        if not vdd_path.is_file():
+            raise FileNotFoundError(f"VDD workbook not found: {vdd_path}")
+        tables: list[str] | None = None
+        if args.sttm_contract:
+            from codegen.contracts.sttm import SttmContract
+
+            sttm = SttmContract.model_validate_json(
+                Path(args.sttm_contract).read_text(encoding="utf-8"))
+            tables = sorted({t for f in sttm.feeds
+                             for t in (f.stage.table, f.source_table, f.feed_id) if t})
+        layout = None
+        if args.layout:
+            from codegen.layout.profile import LayoutProfile
+
+            layout = LayoutProfile.model_validate_json(
+                Path(args.layout).read_text(encoding="utf-8"))
+        contract, profile = extract_vdd_contract(
+            vdd_path, config, sttm_tables=tables, layout=layout,
+            generated_date=args.generated_date, contract_name=args.contract_name)
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")
+        if args.profile:
+            Path(args.profile).write_text(profile.model_dump_json(indent=2) + "\n",
+                                          encoding="utf-8", newline="\n")
+    except (VddExtractionError, NoLayoutError, FileNotFoundError, ValueError) as exc:
+        print(f"{'FAIL':<15} extract-vdd — {exc}")
+        return 1
+    print(f"{'EXTRACTED':<15} {args.out} — {len(contract.files)} file row(s), "
+          f"{len(contract.fields)} field(s) on {contract.field_sheets}, "
+          f"{len(contract.position_rows)} position row(s); layout source {profile.source}, "
+          f"{len(profile.unresolved)} unresolved role(s)")
     return 0
 
 
@@ -757,6 +807,8 @@ def main(argv: list[str] | None = None) -> int:
                           help="FRD contract JSON (the pair's FRD side)")
     generate.add_argument("--sttm-contract", "--sttm", dest="sttm_contract", required=True,
                           help="STTM mapping contract JSON (the pair's STTM side)")
+    generate.add_argument("--vdd-contract", "--vdd", dest="vdd_contract",
+                          help="VDD contract JSON (codegen extract-vdd) — the pair's third input")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 
@@ -795,6 +847,21 @@ def main(argv: list[str] | None = None) -> int:
     layout.add_argument("--profile-out", help="write the resolved STTM profile JSON here")
     layout.add_argument("--require-complete", action="store_true",
                         help="print the open questions and exit non-zero when roles remain")
+
+    extract_vdd = subparsers.add_parser(
+        "extract-vdd",
+        help="extract a Vendor Data Dictionary contract from a VDD workbook (patterns V1/V2/V3)",
+    )
+    extract_vdd.add_argument("--config", default="config/config.yaml")
+    extract_vdd.add_argument("--vdd", required=True, help="vendor data dictionary (.xlsx)")
+    extract_vdd.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    extract_vdd.add_argument("--sttm-contract", help="STTM contract JSON whose table names "
+                                                     "select the field sheets of a "
+                                                     "one-sheet-per-table dictionary")
+    extract_vdd.add_argument("--layout", help="read through this resolved LayoutProfile JSON")
+    extract_vdd.add_argument("--profile", help="also write the resolved layout profile JSON here")
+    extract_vdd.add_argument("--contract-name", help="override the derived contract_name")
+    extract_vdd.add_argument("--generated-date", help="YYYY-MM-DD stamped as generated_date")
 
     extract_frd = subparsers.add_parser(
         "extract-frd",
@@ -901,6 +968,8 @@ def main(argv: list[str] | None = None) -> int:
         return _extract_sttm(args, config)
     if args.command == "extract-frd":
         return _extract_frd(args, config)
+    if args.command == "extract-vdd":
+        return _extract_vdd(args, config)
     if args.command == "layout":
         return _layout(args, config)
 

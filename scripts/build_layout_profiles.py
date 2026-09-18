@@ -19,10 +19,17 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tests"))
 sys.path.insert(0, str(REPO / "src"))
 
-from acfc_shapes.layout_truth import ADVERSARIAL, CANARY, FRD_FIXTURES, STTM_CURATED  # noqa: E402
+from acfc_shapes.layout_truth import (  # noqa: E402
+    ADVERSARIAL,
+    CANARY,
+    FRD_FIXTURES,
+    STTM_CURATED,
+    VDD_ADVERSARIAL,
+    VDD_CURATED,
+)
 from codegen.config import load_config  # noqa: E402
 from codegen.extract.frd_docx import discover_frd, read_docx  # noqa: E402
-from codegen.layout.discover import discover  # noqa: E402
+from codegen.layout.discover import discover, discover_vdd  # noqa: E402
 from codegen.layout.profile import LayoutProfile  # noqa: E402
 from codegen.layout.resolve import _merge_columns  # noqa: E402
 
@@ -41,6 +48,27 @@ def sttm_truth(name: str, config) -> LayoutProfile:
     profile = profile.model_copy(update={"source": "cache", "notes": [], "role_sources": {}})
     assert not profile.unresolved, (name, [u.role for u in profile.unresolved])
     return profile
+
+
+def vdd_truth(name: str, config) -> LayoutProfile:
+    found = discover_vdd(FIXTURES / "vdd" / name, config.extractor)
+    profile = _merge_columns(found.profile, VDD_CURATED[name], "cache", 1.0)
+    profile = profile.model_copy(update={"source": "cache", "notes": [], "role_sources": {}})
+    assert not profile.unresolved, (name, [u.role for u in profile.unresolved])
+    return profile
+
+
+def vdd_adversarial(base: LayoutProfile, mutation: str) -> dict:
+    payload = base.model_dump(mode="json")
+    fields = next(s for s in payload["sheets"] if s["kind"] == "vdd_fields")
+    band = fields["bands"][0]
+    if mutation == "canary":
+        payload["notes"] = [CANARY]
+        band["roles"][CANARY] = 2
+        payload["source"] = "model"
+    elif mutation == "free_text":
+        band["roles"]["length"] = 11           # the Description column
+    return payload
 
 
 def frd_truth(name: str, config) -> dict:
@@ -88,6 +116,12 @@ def build_all() -> dict[str, str]:
     pair1 = truths["pair_1_family_a.xlsx"]
     for file_name, spec in ADVERSARIAL.items():
         out[f"mock/{file_name}"] = _dump(adversarial(pair1, spec["mutation"]))
+    vdd_truths = {name: vdd_truth(name, config) for name in VDD_CURATED}
+    for name, profile in vdd_truths.items():
+        out[f"vdd_{Path(name).stem}.layout.json"] = _dump(profile.model_dump(mode="json"))
+    for file_name, spec in VDD_ADVERSARIAL.items():
+        out[f"mock/{file_name}"] = _dump(
+            vdd_adversarial(vdd_truths["pair_1_v1_segments.xlsx"], spec["mutation"]))
     return out
 
 

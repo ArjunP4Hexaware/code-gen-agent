@@ -309,6 +309,25 @@ class FrdExtractorConfig(BaseModel):
     blank_values: list[str] = Field(default_factory=list)
 
 
+class VddExtractorConfig(BaseModel):
+    """Vendor Data Dictionary vocabulary (M3): FILES-sheet and field-sheet
+    role synonyms — ONLY the V1/V2/V3 headers of SHAPES_FOR_PORT §3 —
+    header signatures, the type-equivalence classes of the STTM-vs-VDD
+    cross-check and the fixed-width format tokens. Empty = nothing
+    resolves, loudly."""
+
+    model_config = _MODEL_CONFIG
+
+    files_signature: list[list[str]] = Field(default_factory=list)
+    fields_signature: list[list[str]] = Field(default_factory=list)
+    files_roles: dict[str, list[str]] = Field(default_factory=dict)
+    field_roles: dict[str, list[str]] = Field(default_factory=dict)
+    # Type tokens that are one class (never a vdd_mismatch:type).
+    type_equivalence: list[list[str]] = Field(default_factory=list)
+    # FRD file-format words that mean fixed width (positions required).
+    fixed_width_tokens: list[str] = Field(default_factory=list)
+
+
 class ExtractorConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -331,6 +350,8 @@ class ExtractorConfig(BaseModel):
     discovery: DiscoveryConfig = DiscoveryConfig()
     # FRD .docx extractor vocabulary (M2); empty = nothing resolves, loudly.
     frd: FrdExtractorConfig = FrdExtractorConfig()
+    # Vendor Data Dictionary vocabulary (M3); empty = nothing resolves, loudly.
+    vdd: VddExtractorConfig = VddExtractorConfig()
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:

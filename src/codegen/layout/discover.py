@@ -86,6 +86,126 @@ class NoLayoutError(ValueError):
     """No discovery strategy applies to this workbook."""
 
 
+def discover_vdd(path: Path, config: ExtractorConfig,
+                 sttm_tables: list[str] | None = None) -> Discovery:
+    """A Vendor Data Dictionary's layout (M3): the FILES sheet by header
+    signature (roles from ``extractor.vdd.files_roles``), field sheets by
+    the FILES sheet's ``Field Sheet`` column or by header signature (roles
+    from ``field_roles``), segments by a Segment column. One-sheet-per-table
+    dictionaries are narrowed to the sheets whose names match the STTM's
+    table names (normalized); everything else is logged and ignored."""
+    workbook = load_workbook(path, data_only=True)
+    digest = fingerprint(workbook)
+    vcfg = config.vdd
+    diagnostics: list[str] = []
+    sheets: list[SheetProfile] = []
+    confidence: dict[str, float] = {}
+    unresolved: list[UnresolvedRole] = []
+    files_sheet: str | None = None
+    listed: set[str] = set()
+    for ws in workbook.worksheets:
+        found = _signature_row(ws, vcfg.files_signature)
+        if found is None or files_sheet is not None:
+            continue
+        header_row, header = found
+        band = _resolve_flat_roles(ws.title, "files", header, vcfg.files_roles, confidence,
+                                   unresolved, diagnostics)
+        files_sheet = ws.title
+        sheets.append(SheetProfile(name=ws.title, kind="vdd_files", header_row=header_row,
+                                   bands=[band]))
+        col = band.column(Role.FIELD_SHEET)
+        if col is not None:
+            for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+                value = text(row[col - 1]) if col - 1 < len(row) else None
+                if value:
+                    listed.add(value)
+        diagnostics.append(f"sheet {ws.title!r}: VDD FILES sheet (header row {header_row})")
+    normalized_tables = {normalize(t).replace(" ", "") for t in (sttm_tables or []) if t}
+    for ws in workbook.worksheets:
+        if ws.title == files_sheet:
+            continue
+        found = _signature_row(ws, vcfg.fields_signature)
+        if found is None and ws.title not in listed:
+            diagnostics.append(f"sheet {ws.title!r}: no VDD field-sheet signature; ignored")
+            sheets.append(SheetProfile(name=ws.title, kind="ignore"))
+            continue
+        if found is None:
+            diagnostics.append(f"sheet {ws.title!r}: listed in FILES but no field header "
+                               "signature; ignored")
+            sheets.append(SheetProfile(name=ws.title, kind="ignore"))
+            continue
+        header_row, header = found
+        band = _resolve_flat_roles(ws.title, "fields", header, vcfg.field_roles, confidence,
+                                   unresolved, diagnostics)
+        segment_col = band.column(Role.SEGMENT)
+        sheets.append(SheetProfile(
+            name=ws.title, kind="vdd_fields", header_row=header_row, bands=[band],
+            segment_strategy="column" if segment_col is not None else "none",
+            segment_column=segment_col))
+    field_sheets = [s for s in sheets if s.kind == "vdd_fields"]
+    if normalized_tables and len(field_sheets) > 1:
+        keep = {s.name for s in field_sheets
+                if normalize(s.name).replace(" ", "") in normalized_tables
+                or any(t.endswith(normalize(s.name).replace(" ", "")) for t in normalized_tables)}
+        if keep:
+            for index, sp in enumerate(sheets):
+                if sp.kind == "vdd_fields" and sp.name not in keep:
+                    diagnostics.append(f"sheet {sp.name!r}: not among the STTM's tables "
+                                       f"{sorted(sttm_tables or [])}; ignored")
+                    sheets[index] = sp.model_copy(update={"kind": "ignore", "bands": []})
+                    unresolved[:] = [u for u in unresolved if u.sheet != sp.name]
+        else:
+            diagnostics.append("no field sheet matches an STTM table name; all kept")
+    if not any(s.kind in ("vdd_files", "vdd_fields") for s in sheets):
+        raise NoLayoutError(f"{path.name}: no FILES sheet and no field sheet signature found; "
+                            f"sheets present: {workbook.sheetnames}")
+    profile = LayoutProfile(fingerprint=digest, sheets=sheets, confidence=confidence,
+                            source="synonyms", strategy="vdd", unresolved=unresolved,
+                            notes=list(diagnostics))
+    return Discovery(profile=profile, workbook=workbook, diagnostics=diagnostics)
+
+
+def _signature_row(ws, alternatives: list[list[str]]) -> tuple[int, list] | None:
+    rows = [list(r) for _, r in zip(range(_AUX_SCAN_ROWS), ws.iter_rows(values_only=True),
+                                    strict=False)]
+    for index, row in enumerate(rows, start=1):
+        cells = [normalize(c) for c in row if text(c) is not None]
+        if not cells:
+            continue
+        for tokens in alternatives:
+            if all(any(normalize(t) == c for c in cells) for t in tokens):
+                return index, row
+    return None
+
+
+def _resolve_flat_roles(sheet: str, layer: str, header: list, synonyms: dict[str, list[str]],
+                        confidence: dict[str, float], unresolved: list[UnresolvedRole],
+                        diagnostics: list[str]) -> BandProfile:
+    table = {role: {normalize(s) for s in spellings} for role, spellings in synonyms.items()}
+    roles: dict[str, int] = {}
+    last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=1)
+    for col in range(1, last_col + 1):
+        raw = header[col - 1] if col - 1 < len(header) else None
+        value = normalize(raw)
+        if not value:
+            continue
+        matches = [role for role, spellings in table.items() if value in spellings]
+        if len(matches) == 1 and matches[0] not in roles:
+            roles[matches[0]] = col
+            confidence[confidence_key(sheet, layer, matches[0])] = _SYNONYM_CONFIDENCE
+        elif not matches:
+            diagnostics.append(f"sheet {sheet!r}: {layer} header {raw!r} (column {col}) matches "
+                               "no VDD synonym; left unresolved")
+    band = BandProfile(layer=layer, col_start=1, col_end=last_col, roles=roles)  # type: ignore[arg-type]
+    for role in REQUIRED_ROLES.get(layer, ()):  # type: ignore[call-overload]
+        if band.column(role) is None:
+            unresolved.append(UnresolvedRole(
+                sheet=sheet, layer=layer, role=role.value,  # type: ignore[arg-type]
+                reason="required VDD role has no header matching its synonyms",
+                candidates=[c for c in range(1, last_col + 1) if c not in roles.values()]))
+    return band
+
+
 def discover(path: Path, config: ExtractorConfig) -> Discovery:
     workbook = load_workbook(path, data_only=True)
     digest = fingerprint(workbook)
@@ -584,6 +704,7 @@ def _classify_auxiliary(ws, disc: DiscoveryConfig, diagnostics: list[str]) -> Sh
 __all__ = [
     "Discovery",
     "NoLayoutError",
+    "discover_vdd",
     "SEGMENTED_FAMILY_NOTE",
     "SEGMENTED_SOURCE_ROLES",
     "SEGMENTED_TABLE_ROLES",

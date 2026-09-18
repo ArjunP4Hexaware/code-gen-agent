@@ -294,6 +294,51 @@ extractor:
     # Placeholders the documents write for "nothing stated" — read as blank.
     blank_values: ["None", "N/A", "NA", "-", "TBD"]
 
+  # ---- Vendor Data Dictionary reader (M3, 2026-09-18) --------------------
+  # codegen.layout.discover.discover_vdd + codegen.extract.vdd: the FILES
+  # sheet (universal ten-column header) and the field sheets of patterns
+  # V1 (full position), V2 (length only + Example Value), V3 (DB table).
+  # Spellings ONLY from SHAPES_FOR_PORT §3; same normalization as the STTM
+  # discovery. The VDD never feeds the standard layer.
+  vdd:
+    files_signature: [["file name pattern", "field sheet"], ["file name pattern"]]
+    fields_signature: [["position", "field name", "data type"]]
+    files_roles:
+      file_pattern: ["File Name Pattern"]
+      title: ["File Title"]
+      format: ["Format"]
+      delimiter: ["Delimiter"]
+      cadence: ["Delivery Cadence"]
+      description: ["Content Description"]
+      field_sheet: ["Field Sheet"]
+      multi_record: ["Multi Record Type"]
+      record_type_field: ["Record Type Field"]
+      header_row: ["Header Row"]
+    field_roles:
+      position: ["Position"]
+      field_name: ["Field Name"]
+      data_type: ["Data Type"]
+      start: ["Start Position"]
+      end: ["End Position"]
+      length: ["Length"]
+      required: ["Required"]
+      phi: ["PHI/PII"]
+      key: ["Key"]
+      segment: ["Segment"]
+      description: ["Description"]
+      example: ["Example Value"]
+    # STTM source type vs VDD data type: members of one class never raise
+    # vdd_mismatch:type (compared on the base token, parentheses stripped).
+    type_equivalence:
+      - ["string", "varchar", "varchar2", "nvarchar", "char", "nchar", "text", "x", "an", "alphanumeric"]
+      - ["int", "integer", "bigint", "smallint", "tinyint", "number", "numeric", "9", "n"]
+      - ["decimal", "numeric", "number", "float", "double", "money", "s9"]
+      - ["date"]
+      - ["datetime", "timestamp", "datetime2"]
+      - ["boolean", "bool", "bit"]
+    # FRD Object/data Format words that require VDD positions (gate FAIL otherwise).
+    fixed_width_tokens: ["fixed width", "fixed-width", "fixedwidth"]
+
 reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;

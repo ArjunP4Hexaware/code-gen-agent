@@ -353,6 +353,37 @@ def run_live(req: LiveRunRequest) -> dict:
     return _require_runner().status()
 
 
+class VddSelectRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/demo/vdd")
+def select_vdd(req: VddSelectRequest) -> dict:
+    """M3: choose a Vendor Data Dictionary workbook (.xlsx) from the input
+    directories as the pair's third input; DELETE clears it."""
+    runner = _require_runner()
+    if "/" in req.name or "\\" in req.name or ".." in req.name:
+        raise HTTPException(400, f"invalid workbook name {req.name!r}")
+    for _label, directory in runner._workbook_dirs():  # noqa: SLF001
+        candidate = directory / req.name
+        if candidate.is_file() and candidate.suffix.lower() == ".xlsx":
+            try:
+                runner.select_vdd(candidate)
+            except LiveRunInProgress as exc:
+                raise HTTPException(409, str(exc)) from exc
+            return {"selected": req.name}
+    raise HTTPException(404, f"no workbook named {req.name!r} in the input directories")
+
+
+@app.delete("/api/demo/vdd")
+def clear_vdd() -> dict:
+    try:
+        _require_runner().select_vdd(None)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"selected": None}
+
+
 class LayoutAnswersRequest(BaseModel):
     answers: dict = {}
     proceed: bool = False
@@ -396,6 +427,9 @@ def demo_status() -> dict:
         # config-default fallback, so the UI can demand the choice up front.
         "sttm_workbook": _require_runner().effective_workbook().name,
         "sttm_chosen": _require_runner().selected_workbook is not None,
+        # M3: the optional Vendor Data Dictionary (third input), file name only.
+        "vdd_name": (_require_runner().selected_vdd.name
+                     if _require_runner().selected_vdd is not None else None),
         # Output mode a run would use (Option A notebook / Option B
         # framework / both) — the runner's override or the config default.
         "output_mode": (

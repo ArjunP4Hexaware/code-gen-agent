@@ -94,6 +94,27 @@ Agreement adds `layout.crosscheck_bonus` to the involved confidences
 (capped at 1.0); disagreement is a gate flag `layout_crosscheck:<name>`
 citing both cells. A completed pair is cached under its pair fingerprint.
 
+## The Vendor Data Dictionary (M3)
+
+The VDD goes through the same machinery: `discover_vdd` finds the `FILES`
+sheet by header signature and the field sheets by the FILES sheet's
+`Field Sheet` column or by signature, with roles from `extractor.vdd`
+(populated only from the V1/V2/V3 headers of SHAPES_FOR_PORT §3), segments
+from a `Segment` column, and one-sheet-per-table dictionaries narrowed to
+the STTM's table names. `resolve_pair(vdd_path=…)` resolves it as the third
+document (same cache → synonyms → model → validate → user order, same
+dialog group), and `codegen extract-vdd` reads it into a `VddContract`
+(`src/codegen/contracts/vdd.py`) with a cell reference on every value.
+The VDD is never a source for the standard layer: its values enter an
+output only as the fixed-width position rows (IIG v2, M4) and as the
+STTM-vs-VDD gate flags (`src/codegen/gate/vdd_check.py`: one flag per
+mismatch citing both cells — `vdd_mismatch:type` through the
+type-equivalence classes in config, `vdd_mismatch:length`,
+`vdd_mismatch:position`, `vdd_missing_in_sttm`, `vdd_missing_in_vdd`,
+`vdd_segment_mismatch`, plus one `vdd_field_count` summary). The verdict
+stays PASS_WITH_FLAGS except when the FRD states a fixed-width format and
+the VDD supplies no positions — a failed gate check naming the remedy.
+
 ## Caches and fixtures
 
 `fixtures/layout_profiles/<doc>.layout.json` — the correct profile of every

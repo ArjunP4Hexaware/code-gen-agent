@@ -43,7 +43,7 @@ from pydantic import ValidationError
 
 from codegen.config import Config
 from codegen.contracts.frd import FrdContract
-from codegen.layout.discover import Discovery, discover, normalize, text
+from codegen.layout.discover import Discovery, discover, discover_vdd, normalize, text
 from codegen.layout.fingerprint import fingerprint, render_region, sheet_region
 from codegen.layout.frd_profile import (
     FrdFieldSource,
@@ -144,18 +144,24 @@ class PairResolution:
     flags: list[str] = field(default_factory=list)
     pair_fingerprint: str | None = None
     pair_cache_hit: bool = False
+    # M3: the Vendor Data Dictionary, the pair's third document.
+    vdd: DocumentResolution | None = None
+
+    @property
+    def documents(self) -> list[DocumentResolution]:
+        return [d for d in (self.sttm, self.frd, self.vdd) if d is not None]
 
     @property
     def questions(self) -> list[LayoutQuestion]:
-        return list(self.sttm.questions) + (list(self.frd.questions) if self.frd else [])
+        return [q for d in self.documents for q in d.questions]
 
     @property
     def provider_calls(self) -> int:
-        return self.sttm.provider_calls + (self.frd.provider_calls if self.frd else 0)
+        return sum(d.provider_calls for d in self.documents)
 
     @property
     def rejections(self) -> list[Rejection]:
-        return list(self.sttm.rejections) + (list(self.frd.rejections) if self.frd else [])
+        return [r for d in self.documents for r in d.rejections]
 
     def report(self) -> dict:
         return {
@@ -164,6 +170,7 @@ class PairResolution:
             "provider_calls": self.provider_calls,
             "sttm": _document_report(self.sttm),
             "frd": _document_report(self.frd) if self.frd else None,
+            "vdd": _document_report(self.vdd) if self.vdd else None,
             "cross_checks": [c.render() for c in self.cross_checks],
             "flags": list(self.flags),
             "questions": [q.as_dict() for q in self.questions],
@@ -237,7 +244,8 @@ def _header_strip(ws, header_row: int) -> list[str]:
             if text(c) is not None]
 
 
-def _questions_for(profile: LayoutProfile, workbook) -> list[LayoutQuestion]:
+def _questions_for(profile: LayoutProfile, workbook,
+                   document: str = "sttm") -> list[LayoutQuestion]:
     questions: list[LayoutQuestion] = []
     for item in profile.unresolved:
         sheet = profile.sheet(item.sheet)
@@ -252,7 +260,7 @@ def _questions_for(profile: LayoutProfile, workbook) -> list[LayoutQuestion]:
         candidates = [{"col": c, "header": text(header[c - 1])} for c in span
                       if c not in claimed and c - 1 < len(header) and text(header[c - 1])]
         questions.append(LayoutQuestion(
-            document="sttm", sheet=item.sheet, layer=item.layer, role=item.role,
+            document=document, sheet=item.sheet, layer=item.layer, role=item.role,
             reason=item.reason, header=_header_strip(ws, sheet.header_row),
             candidates=candidates))
     return questions
@@ -325,7 +333,11 @@ def _claims_from_model(model_profile: LayoutProfile) -> dict[str, int]:
 def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvider | None = None,
                      cache_dirs: list[Path] | None = None, runtime_cache_dir: Path | None = None,
                      answers: dict[str, int] | None = None, base_dir: Path | None = None,
-                     use_cache: bool = True) -> tuple[DocumentResolution, object]:
+                     use_cache: bool = True, document: str = "sttm",
+                     sttm_tables: list[str] | None = None) -> tuple[DocumentResolution, object]:
+    """Resolve a workbook's layout — an STTM (``document="sttm"``) or a Vendor
+    Data Dictionary (``document="vdd"``, discovered by ``discover_vdd`` and
+    narrowed to ``sttm_tables``); the rest of the path is identical."""
     base = base_dir if base_dir is not None else Path(".")
     dirs = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
     workbook = load_workbook(path, data_only=True)
@@ -337,20 +349,22 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     if cached is not None:
         try:
             profile = _as_cache(LayoutProfile.model_validate(cached))
-            doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=digest)
+            doc = DocumentResolution(document, profile, cache_hit=True, fingerprint=digest)
             if answers:
                 profile = _merge_columns(profile, answers, "user", 1.0)
                 profile, user_rejections = validate_profile(
-                    profile, workbook, config.extractor, check_sources={"user"})
+                    profile, workbook, config.extractor, check_sources={"user"},
+                    document=document)
                 doc.rejections += user_rejections
                 doc.profile = profile
-            doc.questions = _questions_for(doc.profile, workbook)
+            doc.questions = _questions_for(doc.profile, workbook, document)
             return doc, workbook
         except ValidationError as exc:
-            rejections.append(Rejection("sttm", None, None, None,
+            rejections.append(Rejection(document, None, None, None,
                                         f"cached profile failed schema validation: {exc}"))
 
-    found: Discovery = discover(path, config.extractor)
+    found: Discovery = (discover_vdd(path, config.extractor, sttm_tables=sttm_tables)
+                        if document == "vdd" else discover(path, config.extractor))
     profile = found.profile
     keys = [confidence_key(s.name, b.layer, r) for s in profile.sheets for b in s.bands
             for r in b.roles]
@@ -359,14 +373,18 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     if profile.unresolved and provider is not None:
         regions = [render_region(sheet_region(workbook[name])) for name in workbook.sheetnames]
         request = build_sttm_request(digest, regions, profile, profile.unresolved, config)
+        if document == "vdd":
+            request["kind"] = "vdd_layout"
+            request["synonym_hints"] = {"files": config.extractor.vdd.files_roles,
+                                        "fields": config.extractor.vdd.field_roles}
         calls += 1
         try:
             answer = provider.complete_layout(request)
             model_profile = LayoutProfile.model_validate(answer)
         except LayoutProviderError as exc:
-            rejections.append(Rejection("sttm", None, None, None, f"model: {exc}"))
+            rejections.append(Rejection(document, None, None, None, f"model: {exc}"))
         except ValidationError as exc:
-            rejections.append(Rejection("sttm", None, None, None,
+            rejections.append(Rejection(document, None, None, None,
                                         f"model response failed schema validation: "
                                         f"{str(exc).splitlines()[0]}"))
         else:
@@ -378,7 +396,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             model_profile, dropped = _strip_unknown_roles(model_profile)
             if dropped:
                 # Never echo a model-invented name into a report.
-                rejections.append(Rejection("sttm", None, None, None,
+                rejections.append(Rejection(document, None, None, None,
                                             f"{dropped} role name(s) outside the vocabulary "
                                             "dropped from the model answer"))
             known = {confidence_key(s.name, b.layer, r): c for s in profile.sheets
@@ -399,25 +417,26 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                         else "model")
                     for k, c in answer_keys.items()}})
             checked, answer_rejections = validate_profile(
-                answer_profile, workbook, config.extractor, check_sources={"model"})
+                answer_profile, workbook, config.extractor, check_sources={"model"},
+                document=document)
             rejections += answer_rejections
             profile = _merge_columns(profile, _claims_from_model(checked), "model",
                                      config.layout.model_confidence)
             profile = profile.model_copy(update={"source": "model"})
             profile, model_rejections = validate_profile(
-                profile, workbook, config.extractor, check_sources={"model"})
+                profile, workbook, config.extractor, check_sources={"model"}, document=document)
             rejections += [r for r in model_rejections if r not in rejections]
 
     if answers:
         profile = _merge_columns(profile, answers, "user", 1.0)
         profile = profile.model_copy(update={"source": "user"})
         profile, user_rejections = validate_profile(profile, workbook, config.extractor,
-                                                    check_sources={"user"})
+                                                    check_sources={"user"}, document=document)
         rejections += user_rejections
 
-    doc = DocumentResolution("sttm", profile, rejections=rejections, provider_calls=calls,
+    doc = DocumentResolution(document, profile, rejections=rejections, provider_calls=calls,
                              fingerprint=digest)
-    doc.questions = _questions_for(profile, workbook)
+    doc.questions = _questions_for(profile, workbook, document)
     if not profile.unresolved and runtime_cache_dir is not None and calls + len(answers or {}):
         _save_runtime(profile.model_dump(mode="json"), runtime_cache_dir, f"{digest}.json")
     return doc, workbook
@@ -668,23 +687,47 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     return facts
 
 
-def _vdd_facts(vdd_path: Path | None) -> dict[str, list[tuple[str, str]]]:
-    if vdd_path is None or not Path(vdd_path).is_file():
+def _vdd_facts(vdd_profile: LayoutProfile | None, workbook) -> dict[str, list[tuple[str, str]]]:
+    """The FILES sheet's format / delimiter / cadence values, read through
+    the VDD profile's roles, each with its cell."""
+    if vdd_profile is None or workbook is None:
         return {}
-    wb = load_workbook(vdd_path, data_only=True)
-    if "FILES" not in wb.sheetnames:
-        return {}
-    ws = wb["FILES"]
-    headers = [normalize(c) for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
-    wanted = {"format": "file_format", "delimiter": "delimiter", "delivery cadence": "frequency"}
     out: dict[str, list[tuple[str, str]]] = {}
-    for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        for index, header in enumerate(headers):
-            key = wanted.get(header)
-            if key and index < len(row) and text(row[index]):
-                out.setdefault(key, []).append(
-                    (text(row[index]), f"FILES!{get_column_letter(index + 1)}{row_index}"))
+    for sp in vdd_profile.sheets:
+        if sp.kind != "vdd_files" or sp.header_row is None:
+            continue
+        band = sp.band("files")  # type: ignore[arg-type]
+        if band is None:
+            continue
+        ws = workbook[sp.name]
+        wanted = {Role.FORMAT: "file_format", Role.DELIMITER: "delimiter",
+                  Role.CADENCE: "frequency"}
+        for row_index, row in enumerate(ws.iter_rows(min_row=sp.header_row + 1, values_only=True),
+                                        start=sp.header_row + 1):
+            for role, key in wanted.items():
+                col = band.column(role)
+                if col is not None and col - 1 < len(row) and text(row[col - 1]):
+                    out.setdefault(key, []).append(
+                        (text(row[col - 1]), f"{sp.name}!{get_column_letter(col)}{row_index}"))
     return out
+
+
+def _sttm_tables(profile: LayoutProfile, workbook) -> list[str]:
+    """Table names the STTM speaks of (stage tables and database source
+    tables), for narrowing a one-sheet-per-table dictionary."""
+    tables: list[str] = []
+    for sp in profile.mapping_sheets:
+        ws = workbook[sp.name]
+        rows = list(ws.iter_rows(min_row=(sp.header_row or 1) + 1, values_only=True))
+        for layer, role in (("stage", Role.TABLE), ("source", Role.SOURCE_TABLE)):
+            band = sp.band(layer)  # type: ignore[arg-type]
+            col = band.column(role) if band else None
+            if col is None:
+                continue
+            value = _dominant([text(r[col - 1]) if col - 1 < len(r) else None for r in rows])
+            if value:
+                tables.append(value)
+    return tables
 
 
 def _frd_citation(contract: FrdContract, index: int, field_name: str) -> str:
@@ -695,9 +738,9 @@ def _frd_citation(contract: FrdContract, index: int, field_name: str) -> str:
 
 
 def cross_check(contract: FrdContract, sttm_profile: LayoutProfile, workbook, config: Config,
-                vdd_path: Path | None = None) -> list[CrossCheck]:
+                vdd_profile: LayoutProfile | None = None, vdd_workbook=None) -> list[CrossCheck]:
     facts = _sttm_facts(sttm_profile, workbook, config)
-    vdd = _vdd_facts(vdd_path)
+    vdd = _vdd_facts(vdd_profile, vdd_workbook)
     checks: list[CrossCheck] = []
     for index, feed in enumerate(contract.feeds):
         # 1. feed / object name against the STTM meta rows and file details.
@@ -789,12 +832,13 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
     base = base_dir if base_dir is not None else Path(".")
     dirs = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
     frd_is_docx = frd_path is not None and Path(frd_path).suffix.lower() == ".docx"
+    has_vdd = vdd_path is not None and Path(vdd_path).is_file()
 
     # a. pair cache first — a repeat pair costs zero model calls.
     pair_fp = None
     pair_hit = False
-    sttm_doc = frd_doc = None
-    workbook = content = None
+    sttm_doc = frd_doc = vdd_doc = None
+    workbook = content = vdd_workbook = None
     if frd_path is not None:
         sttm_fp = fingerprint(load_workbook(sttm_path, data_only=True))
         if frd_is_docx:
@@ -803,7 +847,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_fp = frd_fingerprint(read_docx(frd_path).tables)
         else:
             frd_fp = hashlib.sha256(Path(frd_path).read_bytes()).hexdigest()
-        pair_fp = hashlib.sha256(f"{sttm_fp}:{frd_fp}".encode()).hexdigest()
+        vdd_fp = fingerprint(load_workbook(vdd_path, data_only=True)) if has_vdd else ""
+        pair_fp = hashlib.sha256(f"{sttm_fp}:{frd_fp}:{vdd_fp}".encode()).hexdigest()
         cached = _load_cached(pair_fp, dirs, prefix="pair_") if use_cache else None
         if cached is not None and not answers:
             try:
@@ -817,9 +862,14 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                         "field_sources": {k: "cache" for k in frd_profile.fields}})
                     frd_doc = DocumentResolution("frd", frd_profile, cache_hit=True,
                                                  fingerprint=frd_fp)
+                if cached.get("vdd") is not None and has_vdd:
+                    vdd_workbook = load_workbook(vdd_path, data_only=True)
+                    vdd_doc = DocumentResolution(
+                        "vdd", _as_cache(LayoutProfile.model_validate(cached["vdd"])),
+                        cache_hit=True, fingerprint=vdd_fp)
                 pair_hit = True
             except (ValidationError, KeyError):
-                sttm_doc = frd_doc = None
+                sttm_doc = frd_doc = vdd_doc = None
 
     if sttm_doc is None:
         sttm_doc, workbook = resolve_workbook(
@@ -831,6 +881,13 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_path, config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("frd"), base_dir=base,
             use_cache=use_cache)
+    if has_vdd and vdd_doc is None:
+        assert isinstance(sttm_doc.profile, LayoutProfile)
+        vdd_doc, vdd_workbook = resolve_workbook(
+            Path(vdd_path), config, provider=provider, cache_dirs=cache_dirs,
+            runtime_cache_dir=runtime_cache_dir, answers=answers.get("vdd"), base_dir=base,
+            use_cache=use_cache, document="vdd",
+            sttm_tables=_sttm_tables(sttm_doc.profile, workbook))
 
     frd_contract: FrdContract | None = None
     if frd_path is not None:
@@ -848,10 +905,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                 json.loads(Path(frd_path).read_text(encoding="utf-8")))
 
     pair = PairResolution(sttm=sttm_doc, frd=frd_doc, frd_contract=frd_contract,
-                          pair_fingerprint=pair_fp, pair_cache_hit=pair_hit)
-    for doc in (sttm_doc, frd_doc):
-        if doc is None:
-            continue
+                          pair_fingerprint=pair_fp, pair_cache_hit=pair_hit, vdd=vdd_doc)
+    for doc in pair.documents:
         for item in doc.profile.unresolved:
             where = (f"{item.sheet}/{item.layer}/{item.role}" if isinstance(item, UnresolvedRole)
                      else item.field)
@@ -860,8 +915,10 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         for rejection in doc.rejections:
             pair.flags.append(f"layout_rejected:{rejection.render()}")
     if frd_contract is not None and isinstance(sttm_doc.profile, LayoutProfile):
-        pair.cross_checks = cross_check(frd_contract, sttm_doc.profile, workbook, config,
-                                        vdd_path)
+        pair.cross_checks = cross_check(
+            frd_contract, sttm_doc.profile, workbook, config,
+            vdd_profile=vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
+            vdd_workbook=vdd_workbook)
         _apply_cross_checks(pair, pair.cross_checks, config)
     if (pair_fp and runtime_cache_dir is not None and not pair.questions and not pair_hit
             and (pair.provider_calls or answers)):
@@ -869,6 +926,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             "pair_fingerprint": pair_fp,
             "sttm": pair.sttm.profile.model_dump(mode="json"),
             "frd": pair.frd.profile.model_dump(mode="json") if pair.frd else None,
+            "vdd": pair.vdd.profile.model_dump(mode="json") if pair.vdd else None,
         }, runtime_cache_dir, f"pair_{pair_fp}.json")
     return pair
 
@@ -878,17 +936,18 @@ def discovery_for(profile: LayoutProfile, workbook) -> Discovery:
     return Discovery(profile=profile, workbook=workbook, diagnostics=list(profile.notes))
 
 
-_ANSWER_KEY_RE = re.compile(r"^[^/]+/(source|rules|stage|standard)/[a-z_]+$")
+_ANSWER_KEY_RE = re.compile(r"^[^/]+/(source|rules|stage|standard|files|fields)/[a-z_]+$")
 
 
 def parse_answers(raw: dict) -> dict:
     """Validate the shape of a user's answers payload (values only; the
     merge step re-validates every claim against the document)."""
-    out: dict = {"sttm": {}, "frd": {}}
-    for key, col in (raw.get("sttm") or {}).items():
-        if not _ANSWER_KEY_RE.match(str(key)) or not isinstance(col, int) or col < 1:
-            raise ValueError(f"bad STTM answer {key!r}: {col!r}")
-        out["sttm"][key] = col
+    out: dict = {"sttm": {}, "frd": {}, "vdd": {}}
+    for document in ("sttm", "vdd"):
+        for key, col in (raw.get(document) or {}).items():
+            if not _ANSWER_KEY_RE.match(str(key)) or not isinstance(col, int) or col < 1:
+                raise ValueError(f"bad {document.upper()} answer {key!r}: {col!r}")
+            out[document][key] = col
     for path, claim in (raw.get("frd") or {}).items():
         if not isinstance(claim, dict):
             raise ValueError(f"bad FRD answer {path!r}")

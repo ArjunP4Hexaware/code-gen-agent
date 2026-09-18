@@ -75,7 +75,7 @@ export interface DemoStage {
 }
 
 export interface LayoutQuestion {
-  document: "sttm" | "frd";
+  document: "sttm" | "frd" | "vdd";
   key: string;
   sheet: string | null;
   layer: string | null;
@@ -94,6 +94,7 @@ export interface DemoStatus {
   // the layout report (sources per role, rejections, cross-checks).
   layout_questions?: LayoutQuestion[];
   layout_report?: Record<string, unknown> | null;
+  vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
   estimates: { calls: number; cost_usd: number; seconds: number };

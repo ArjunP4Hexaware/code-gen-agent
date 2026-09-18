@@ -1,0 +1,170 @@
+{
+  "fingerprint": "f1564f2834e44482cd62c70e7ffed51c8ff2aa69591603a0d4236f874a3aa0da",
+  "sheets": [
+    {
+      "name": "FILES",
+      "kind": "vdd_files",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "files",
+          "col_start": 1,
+          "col_end": 10,
+          "roles": {
+            "file_pattern": 1,
+            "title": 2,
+            "format": 3,
+            "delimiter": 4,
+            "cadence": 5,
+            "description": 6,
+            "field_sheet": 7,
+            "multi_record": 8,
+            "record_type_field": 9,
+            "header_row": 10
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Claims Fields",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 9,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "length": 4,
+            "required": 5,
+            "phi": 6,
+            "key": 7,
+            "description": 8,
+            "example": 9
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Members Fields",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 9,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "length": 4,
+            "required": 5,
+            "phi": 6,
+            "key": 7,
+            "description": 8,
+            "example": 9
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Providers Fields",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 9,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "length": 4,
+            "required": 5,
+            "phi": 6,
+            "key": 7,
+            "description": 8,
+            "example": 9
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "FILES/files/file_pattern": 1.0,
+    "FILES/files/title": 1.0,
+    "FILES/files/format": 1.0,
+    "FILES/files/delimiter": 1.0,
+    "FILES/files/cadence": 1.0,
+    "FILES/files/description": 1.0,
+    "FILES/files/field_sheet": 1.0,
+    "FILES/files/multi_record": 1.0,
+    "FILES/files/record_type_field": 1.0,
+    "FILES/files/header_row": 1.0,
+    "Claims Fields/fields/position": 1.0,
+    "Claims Fields/fields/field_name": 1.0,
+    "Claims Fields/fields/data_type": 1.0,
+    "Claims Fields/fields/length": 1.0,
+    "Claims Fields/fields/required": 1.0,
+    "Claims Fields/fields/phi": 1.0,
+    "Claims Fields/fields/key": 1.0,
+    "Claims Fields/fields/description": 1.0,
+    "Claims Fields/fields/example": 1.0,
+    "Members Fields/fields/position": 1.0,
+    "Members Fields/fields/field_name": 1.0,
+    "Members Fields/fields/data_type": 1.0,
+    "Members Fields/fields/length": 1.0,
+    "Members Fields/fields/required": 1.0,
+    "Members Fields/fields/phi": 1.0,
+    "Members Fields/fields/key": 1.0,
+    "Members Fields/fields/description": 1.0,
+    "Members Fields/fields/example": 1.0,
+    "Providers Fields/fields/position": 1.0,
+    "Providers Fields/fields/field_name": 1.0,
+    "Providers Fields/fields/data_type": 1.0,
+    "Providers Fields/fields/length": 1.0,
+    "Providers Fields/fields/required": 1.0,
+    "Providers Fields/fields/phi": 1.0,
+    "Providers Fields/fields/key": 1.0,
+    "Providers Fields/fields/description": 1.0,
+    "Providers Fields/fields/example": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "vdd",
+  "unresolved": [],
+  "notes": []
+}

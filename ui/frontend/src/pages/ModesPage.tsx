@@ -338,7 +338,12 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     const sttm: Record<string, number> = {};
     for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
     try {
-      const s = await api.layoutAnswers({ answers: { sttm, frd: {} }, proceed });
+      const vdd: Record<string, number> = {};
+      const sttmOnly: Record<string, number> = {};
+      for (const [key, col] of Object.entries(sttm)) {
+        ((status?.layout_questions ?? []).find((q) => q.key === key)?.document === "vdd" ? vdd : sttmOnly)[key] = col;
+      }
+      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd: {}, vdd }, proceed });
       setStatus(s);
       setLayoutPicks({});
     } catch (e) {
@@ -871,12 +876,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 ) : null}
                 {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
                   <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
-                    {(["sttm", "frd"] as const).map((doc) => {
+                    {(["sttm", "frd", "vdd"] as const).map((doc) => {
                       const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
                       if (!qs.length) return null;
                       return (
                         <div key={doc} style={{ marginBottom: 10 }}>
-                          <strong>{doc === "sttm" ? "STTM workbook" : "FRD document"}</strong>
+                          <strong>
+                            {doc === "sttm" ? "STTM workbook" : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
+                          </strong>
                           {qs.map((q) => (
                             <div key={q.key} style={{ marginTop: 8 }}>
                               <div>
@@ -898,7 +905,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                     <input
                                       type="radio"
                                       name={q.key}
-                                      disabled={doc !== "sttm" || c.col === undefined}
+                                      disabled={doc === "frd" || c.col === undefined}
                                       checked={c.col !== undefined && layoutPicks[q.key] === c.col}
                                       onChange={() =>
                                         c.col !== undefined &&

@@ -63,7 +63,10 @@ def test_tracked_layout_profiles_equal_a_fresh_build():
         path = PROFILES / rel
         assert path.is_file(), rel
         assert path.read_text(encoding="utf-8") == text, f"{rel} drifted"
-    assert len(built) == len(STTM_CURATED) + 3 + len(ADVERSARIAL)
+    from acfc_shapes.layout_truth import VDD_ADVERSARIAL, VDD_CURATED
+
+    assert len(built) == (len(STTM_CURATED) + 3 + len(ADVERSARIAL)
+                          + len(VDD_CURATED) + len(VDD_ADVERSARIAL))
 
 
 # ------------------------------------------------- (a) synonyms alone + cache path
@@ -311,9 +314,11 @@ def test_pair1_cross_checks_agree_and_raise_confidence(config, no_cache, tmp_pat
     # Second resolution of the same pair: served from the pair cache, zero calls.
     again = resolve_pair(STTM / "pair_1_family_a.xlsx", FRD / "f1_pair_1.docx", config,
                          provider=MockLayoutProvider([MOCK, PROFILES]), cache_dirs=no_cache,
+                         vdd_path=VDD / "pair_1_v1_segments.xlsx",
                          runtime_cache_dir=tmp_path / "runtime", generated_date="2026-01-01")
     assert again.pair_cache_hit and again.provider_calls == 0
     assert again.sttm.profile.source == "cache" and again.frd.profile.source == "cache"
+    assert again.vdd is not None and again.vdd.profile.source == "cache"
 
 
 def test_target_schema_mismatch_is_a_flag_citing_both_and_the_run_completes(config, no_cache,

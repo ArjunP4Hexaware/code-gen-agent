@@ -32,6 +32,7 @@ from codegen.config import ExtractorConfig
 from codegen.layout.discover import _band_layer, _has_token, normalize, text
 from codegen.layout.profile import (
     REQUIRED_ROLES,
+    ROLE_BEARING_KINDS,
     BandProfile,
     LayoutProfile,
     MetaRow,
@@ -42,11 +43,12 @@ from codegen.layout.profile import (
 )
 
 _INTEGER_ROLES = {Role.LENGTH.value, Role.FIELD_LENGTH.value, Role.START.value, Role.END.value,
-                  Role.ORDINAL.value}
-_TYPE_ROLES = {Role.SOURCE_TYPE.value, Role.TARGET_TYPE.value}
+                  Role.ORDINAL.value, Role.POSITION.value}
+_TYPE_ROLES = {Role.SOURCE_TYPE.value, Role.TARGET_TYPE.value, Role.DATA_TYPE.value}
 _YES_NO_ROLES = {Role.PRIMARY_KEY.value, Role.PII.value, Role.REQUIRED.value,
                  Role.NOT_NULL.value, Role.MANDATORY.value, Role.MANDATORY_COLUMN.value,
-                 Role.CRITICAL.value, Role.KEY.value, Role.INSCOPE.value}
+                 Role.CRITICAL.value, Role.KEY.value, Role.INSCOPE.value, Role.PHI.value,
+                 Role.MULTI_RECORD.value, Role.HEADER_ROW.value}
 _YES_NO_RE = re.compile(r"^(y|n|yes|no|true|false|x|m|s|null|not null|nullable|required|"
                         r"optional|situational|mandatory)$", re.IGNORECASE)
 _MIN_DATA_CELLS = 2
@@ -115,7 +117,7 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
             reject(sp.name, None, None, "sheet does not exist in the workbook")
             continue
         ws = workbook[sp.name]
-        if sp.kind != "mapping":
+        if sp.kind not in ROLE_BEARING_KINDS:
             sheets.append(_validate_auxiliary(sp, ws, disc, reject))
             continue
         if sp.header_row is None or sp.header_row > ws.max_row:

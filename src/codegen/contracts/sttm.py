@@ -195,6 +195,11 @@ class SttmField(BaseModel):
     standard_table: str | None = None
     # M1: the cell this field came from + the layout source that read it.
     provenance: FieldProvenance | None = None
+    # M3: the source band's length / start / end cells, verbatim, when the
+    # layout carries those roles — compared against the VDD by the gate.
+    source_length: str | None = None
+    source_start: str | None = None
+    source_end: str | None = None
 
 
 class SttmFeed(BaseModel):
@@ -219,6 +224,9 @@ class SttmFeed(BaseModel):
     # M1: the mapping sheet's meta rows (resolved key -> verbatim value);
     # empty on the legacy MAPPING- path (its facts live in FILE_DETAILS).
     meta_rows: dict[str, str] = Field(default_factory=dict)
+    # M3: database-table sources name their source table (dominant value of
+    # the source band's table column); None on file sources.
+    source_table: str | None = None
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:

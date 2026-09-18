@@ -253,7 +253,11 @@ unresolved remainder is merged out of its answer, every merged claim is
 validated against the document, and no model string can reach a contract,
 DDL or IIG cell. Full description, resolution order, validator checks,
 caches (`fixtures/layout_profiles/`, runtime under `ui/backend/state/`)
-and surfaces: `docs/LAYOUT_RECOGNITION.md`.
+and surfaces: `docs/LAYOUT_RECOGNITION.md`. The Vendor Data Dictionary
+(M3) is the pair's third input through the same machinery
+(`codegen extract-vdd`, `generate --vdd`, `contracts/vdd.py`); it never
+feeds the standard layer — only the IIG fixed-width rows and the
+STTM-vs-VDD gate flags (`gate/vdd_check.py`).
 
 ## FRD pairing + upstream contracts (added 2026-08-28)
 

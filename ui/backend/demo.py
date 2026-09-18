@@ -12,6 +12,7 @@ the default out/ tree and never the tracked replay fixtures.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from datetime import datetime
@@ -144,13 +145,26 @@ class DemoRunner:
     def local_frd_candidates(self) -> dict[str, Path]:
         """FRDs a run can use without a network call: contract JSONs and
         FRD-named .docx in the contracts dir and the three inboxes (any .docx
-        in the uploads inbox — only a kind=frd upload puts one there)."""
+        in the uploads inbox — only a kind=frd upload puts one there),
+        plus ``CODEGEN_EXTRA_INPUT_DIRS`` paths (and their immediate
+        subdirectories)."""
         from codegen.demo_sources import canonical_document_name
 
         contracts_dir = REPO_ROOT / self._store.config.contracts.dir
         uploads = REPO_ROOT / "inputs" / "uploads"
-        dirs = (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                REPO_ROOT / "inputs" / "sharepoint", uploads)
+        dirs: list[Path] = [contracts_dir, REPO_ROOT / "inputs" / "databricks",
+                            REPO_ROOT / "inputs" / "sharepoint", uploads]
+        extra_raw = os.environ.get("CODEGEN_EXTRA_INPUT_DIRS", "")
+        for entry in extra_raw.split(os.pathsep):
+            entry = entry.strip()
+            if not entry:
+                continue
+            p = Path(entry)
+            if p.is_dir():
+                dirs.append(p)
+                for child in sorted(p.iterdir()):
+                    if child.is_dir():
+                        dirs.append(child)
         found: dict[str, Path] = {}
         for directory in dirs:
             if not directory.is_dir():
@@ -293,10 +307,14 @@ class DemoRunner:
         """Directories a live run's STTM may come from, with display labels.
 
         The config workbook's own directory, plus the SharePoint landing dir
-        (where ``sharepoint-fetch --dest`` and the UI picker deliver files).
+        (where ``sharepoint-fetch --dest`` and the UI picker deliver files),
+        plus any ``CODEGEN_EXTRA_INPUT_DIRS``-supplied workspace paths (colon-
+        separated; immediate subdirectories are included so a parent like
+        ``/Workspace/.../frd_sttm_pairs`` that contains ``pair_1/…pair_10/``
+        works without listing each one).
         """
         configured = REPO_ROOT / self._store.config.demo.workbook
-        return (
+        base = [
             (configured.parent.relative_to(REPO_ROOT).as_posix(), configured.parent),
             ("inputs/sharepoint", REPO_ROOT / "inputs" / "sharepoint"),
             # Where `codegen databricks-fetch` and the UI's volume fetch land
@@ -305,7 +323,20 @@ class DemoRunner:
             # Where the UI's from-device upload (POST /api/demo/upload) lands
             # documents — same treatment as the other two inboxes.
             ("inputs/uploads", REPO_ROOT / "inputs" / "uploads"),
-        )
+        ]
+        extra_raw = os.environ.get("CODEGEN_EXTRA_INPUT_DIRS", "")
+        for entry in extra_raw.split(os.pathsep):
+            entry = entry.strip()
+            if not entry:
+                continue
+            p = Path(entry)
+            if p.is_dir():
+                base.append((p.name, p))
+                # Also add immediate subdirectories (pair_1/ … pair_10/).
+                for child in sorted(p.iterdir()):
+                    if child.is_dir():
+                        base.append((f"{p.name}/{child.name}", child))
+        return tuple(base)
 
     def effective_workbook(self) -> Path:
         return self.selected_workbook or (REPO_ROOT / self._store.config.demo.workbook)

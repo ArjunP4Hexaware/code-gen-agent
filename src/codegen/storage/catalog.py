@@ -34,6 +34,7 @@ class InputDocument:
     source: str             # display label, e.g. "inputs/uploads", "pairs/pair_1"
     store: RoleStore
     rel: str                # path inside the store
+    size: int | None = None
 
     @property
     def uri(self) -> str:
@@ -44,7 +45,7 @@ class InputDocument:
         return self.store.local_path(self.rel)
 
     def fetch(self) -> Path:
-        return self.store.fetch(self.rel)
+        return self.store.fetch(self.rel, self.size)
 
 
 def local_source(label: str, directory: Path, depth: int = 0) -> InputSource:
@@ -72,13 +73,13 @@ class InputCatalog:
             self.errors[source.label] = str(exc)
             found = []
         documents = []
-        for rel, _entry in found:
+        for rel, entry in found:
             inner = rel[len(source.folder):].lstrip("/") if source.folder else rel
             sub = inner.rsplit("/", 1)[0] if "/" in inner else ""
             documents.append(InputDocument(
                 name=rel.rsplit("/", 1)[-1],
                 source=f"{source.label}/{sub}" if sub else source.label,
-                store=source.store, rel=rel))
+                store=source.store, rel=rel, size=entry.size))
         self._cache[index] = (time.monotonic(), documents)
         return documents
 

@@ -136,12 +136,15 @@ class RoleStore:
 
     # -- working copies -------------------------------------------------------
 
-    def fetch(self, rel: str) -> Path:
-        """The document as a local file (downloaded for a remote backend)."""
+    def fetch(self, rel: str, size: int | None = None) -> Path:
+        """The document as a local file (downloaded for a remote backend; a
+        working copy whose size equals the listed ``size`` is reused)."""
         target = self.local_path(rel)
         if self.is_local:
             if not target.is_file():
                 raise StorageNotFound(f"{self.uri(rel)} does not exist")
+            return target
+        if size is not None and target.is_file() and target.stat().st_size == size:
             return target
         data = self.backend.read_bytes(rel)
         target.parent.mkdir(parents=True, exist_ok=True)

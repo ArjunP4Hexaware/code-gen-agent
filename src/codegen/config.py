@@ -786,6 +786,33 @@ class StorageConfig(BaseModel):
         return self
 
 
+def _default_pair_weights() -> dict[str, float]:
+    return {"feed_name": 2.0, "tables": 3.0, "schema": 1.0, "file_patterns": 3.0,
+            "meta": 1.0, "ticket": 1.0, "name_stem": 1.0}
+
+
+class PairingConfig(BaseModel):
+    """Auto-pairing by content (M8.2, ``codegen.pairing``): signal weights —
+    content signals outweigh the two name signals (ticket, name_stem) — and
+    the decision rule: pair only when the best candidate reaches
+    ``min_score`` AND leads the next by ``margin``; otherwise the top
+    ``top_candidates`` become a question."""
+
+    model_config = _MODEL_CONFIG
+
+    weights: dict[str, float] = Field(default_factory=_default_pair_weights)
+    min_score: float = Field(default=3.0, gt=0)
+    margin: float = Field(default=2.0, gt=0)
+    top_candidates: int = Field(default=4, gt=0)
+
+    @model_validator(mode="after")
+    def _weights_complete(self) -> PairingConfig:
+        missing = sorted(set(_default_pair_weights()) - set(self.weights))
+        if missing:
+            raise ValueError(f"inputs.pairing.weights is missing {missing}")
+        return self
+
+
 class InputsConfig(BaseModel):
     """Input discovery (M8.2): extra read-only roots scanned for documents
     (the root and its immediate subfolders — depth 1) next to the inboxes
@@ -799,6 +826,7 @@ class InputsConfig(BaseModel):
     # A remote root's listing is an API call and the chooser polls: reuse a
     # listing this long (an upload / fetch drops it at once).
     listing_ttl_seconds: float = Field(default=30.0, ge=0)
+    pairing: PairingConfig = PairingConfig()
 
     @model_validator(mode="after")
     def _uris_parse(self) -> InputsConfig:

@@ -1032,3 +1032,14 @@ inputs:
   extra_dirs: []
   scan_depth: 1
   listing_ttl_seconds: 30      # remote listings are API calls; the chooser polls
+  # Auto-pairing by content (codegen.pairing): for the chosen STTM every FRD /
+  # VDD candidate is scored on what the documents SAY; the ticket number and
+  # the file-name stem are two weak signals among several. Paired only when
+  # the best reaches min_score and leads the next by margin — otherwise the
+  # top candidates are asked (layout dialog / answers file). An explicit
+  # demo.pairing_map entry still overrides.
+  pairing:
+    weights: { feed_name: 2, tables: 3, schema: 1, file_patterns: 3, meta: 1, ticket: 1, name_stem: 1 }
+    min_score: 3      # one weak signal (a name, a lone feed-name echo) never pairs
+    margin: 2
+    top_candidates: 4

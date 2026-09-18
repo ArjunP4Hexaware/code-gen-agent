@@ -138,6 +138,8 @@ class DemoRunner:
         self.error_hint: dict | None = None
         # M8.1: input catalogs (sources + cached remote listings), per kind.
         self._catalogs: dict[str, tuple] = {}
+        # M8.2: the last content-pairing decision per kind ("frd" / "vdd").
+        self.pair_decisions: dict = {}
 
     def effective_frd(self) -> Path:
         return self.selected_frd or (
@@ -199,11 +201,9 @@ class DemoRunner:
         (config pairing map -> shared ticket -> unique name stem). A manual
         FRD choice is replaced only when a pair is found; a stale automatic
         pair from a previous STTM is cleared."""
-        from codegen.demo_sources import auto_pair_frd
-
         candidates = self.local_frd_candidates()
-        match = auto_pair_frd(sttm_name, list(candidates),
-                              explicit_map=self._store.config.demo.pairing_map)
+        match = self._pair("frd", sttm_name, candidates,
+                           self._store.config.demo.pairing_map)
         if match is None:
             if self.frd_auto_paired is not None:
                 self.selected_frd = None
@@ -216,15 +216,89 @@ class DemoRunner:
         self.frd_auto_paired = {"frd": frd_name, "rule": rule}
         return self.frd_auto_paired
 
+    def _pair(self, kind: str, sttm_name: str, candidates: dict[str, Path],
+              explicit_map: dict[str, str]) -> tuple[str, str] | None:
+        """(document, rule) for the chosen STTM — by CONTENT (codegen.pairing:
+        explicit map, then what the documents say, the ticket number one
+        signal among several). An undecided result is kept in
+        ``pair_decisions`` and asked in the layout dialog when the run starts."""
+        from codegen.pairing import pair_by_content
+        from codegen.storage import StorageError
+
+        catalog = self._frd_catalog() if kind == "frd" else self._workbook_catalog()
+        suffixes = (".contract.json", ".docx") if kind == "frd" else (".xlsx",)
+        local: dict[str, Path] = {}
+        for name in candidates:
+            doc = catalog.find(name, suffixes)
+            try:
+                local[name] = doc.fetch() if doc is not None else candidates[name]
+            except StorageError:
+                continue                     # unreachable candidate: not a contender
+        sttm_doc = self._workbook_catalog().find(sttm_name, (".xlsx",))
+        sttm_path = (self.selected_workbook if self.selected_workbook is not None
+                     and self.selected_workbook.name == sttm_name
+                     else sttm_doc.fetch() if sttm_doc is not None else Path(sttm_name))
+        decision = pair_by_content(kind, sttm_path, local, self._store.config, REPO_ROOT,
+                                   explicit_map=explicit_map)
+        self.pair_decisions[kind] = decision
+        if decision.chosen is None:
+            return None
+        return decision.chosen, decision.rule or "content"
+
+    def _ask_pairing(self) -> None:
+        """Run start: an undecided pairing becomes a question in the layout
+        dialog (top candidates with their scores and the cells behind them).
+        A manual pick in the chooser always wins and is never asked about."""
+        pending = []
+        if self.selected_frd is None and "frd" in self.pair_decisions \
+                and self.pair_decisions["frd"].ambiguous:
+            pending.append(self.pair_decisions["frd"])
+        if self.selected_vdd is None and "vdd" in self.pair_decisions \
+                and self.pair_decisions["vdd"].ambiguous:
+            pending.append(self.pair_decisions["vdd"])
+        if not pending:
+            return
+        self.layout_questions = [d.question() for d in pending]
+        self.layout_advice = None
+        self._layout_answers = None
+        self._layout_event.clear()
+        self.state = "needs_layout"
+        self._stage("needs pairing", "; ".join(d.reason for d in pending))
+        self._layout_event.wait()
+        self.state = "running"
+        reply = self._layout_answers or {}
+        self.layout_questions = []
+        if reply.get("cancel"):
+            raise RuntimeError("pairing cancelled by the user")
+        gaps = (reply.get("answers") or {}).get("gaps") or {}
+        for decision in pending:
+            picked = (gaps.get(f"pair.{decision.kind}") or {}).get("value")
+            if picked not in {c.name for c in decision.candidates}:
+                if decision.kind == "frd":
+                    raise RuntimeError(
+                        f"no FRD chosen for {decision.sttm}: {decision.reason}. Choose the "
+                        "FRD in the document chooser (or answer the question) and run again "
+                        "— the agent never guesses a pair.")
+                continue                                   # a VDD is optional
+            if decision.kind == "frd":
+                self.selected_frd = self.fetch_frd_candidate(picked)
+                self.selected_frd_label = picked
+                self.frd_auto_paired = None                # the person chose
+            else:
+                doc = self._workbook_catalog().find(picked, (".xlsx",))
+                self.selected_vdd = doc.fetch() if doc is not None else None
+                self.vdd_auto_paired = None
+            self._stage("paired", f"{decision.kind.upper()}: {picked} (chosen by the user)")
+
     def auto_pair_vdd(self, sttm_name: str) -> dict | None:
         """Select the Vendor Data Dictionary associated with the chosen STTM
         when one is present among the listed workbooks (config vdd_pairing_map
         -> shared ticket -> unique name stem); same override rules as the FRD."""
-        from codegen.demo_sources import auto_pair_vdd
-
-        candidates = {c["name"]: c for c in self.workbook_choices() if c["name"] != sttm_name}
-        match = auto_pair_vdd(sttm_name, list(candidates),
-                              explicit_map=self._store.config.demo.vdd_pairing_map)
+        candidates = {doc.name: doc.local_path()
+                      for doc in self._workbook_catalog().documents((".xlsx",))
+                      if doc.name != sttm_name}
+        match = self._pair("vdd", sttm_name, candidates,
+                           self._store.config.demo.vdd_pairing_map)
         if match is None:
             if self.vdd_auto_paired is not None:
                 self.selected_vdd = None
@@ -424,6 +498,7 @@ class DemoRunner:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
         self.selected_workbook = None
+        self.pair_decisions = {}
         if self.frd_auto_paired is not None:
             self.selected_frd = None
             self.selected_frd_label = None
@@ -445,6 +520,12 @@ class DemoRunner:
             "layout_fills": list(self.layout_fills),
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
+            # M8.2: undecided pairings (asked in the dialog when the run starts).
+            "pair_candidates": {
+                kind: {"reason": d.reason,
+                       "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
+                                      for c in d.candidates]}
+                for kind, d in self.pair_decisions.items() if d.ambiguous},
             "output_parts": self.effective_output_parts(),
         }
 
@@ -600,6 +681,9 @@ class DemoRunner:
         contract_path = run_root / "extracted_sttm.contract.json"
 
         self.error_hint = None
+        self._ask_pairing()
+        frd_path = self.effective_frd()
+        frd_label = self.selected_frd_label or frd_path.name
         # Self-contained run directory: copy the FRD the run actually used
         # (content-identical => provenance hashes unchanged) and record run
         # metadata, so a past run reloads with ITS pair — never the pinned

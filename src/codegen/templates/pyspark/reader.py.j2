@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
-{% if is_segmented %}
+{% if is_segmented or fixed_width %}
 from pyspark.sql import functions as F
 {% endif %}
 
@@ -33,7 +33,20 @@ def check_file_name(path: str) -> str:
     return file_name
 
 
-{% if is_segmented %}
+{% if fixed_width %}
+RAW_LINE_COLUMN = "value"
+
+
+def read_source(spark: SparkSession, path: str) -> DataFrame:
+    """Read raw fixed-width lines; ``segments.py`` slices them by position.
+
+    No delimiter and no header row: every record carries its segment
+    identifier at the first position. Blank lines are dropped.
+    """
+    check_file_name(path)
+    lines = spark.read.text(path)
+    return lines.where(F.length(F.trim(F.col(RAW_LINE_COLUMN))) > 0)
+{% elif is_segmented %}
 RAW_LINE_COLUMN = "value"
 RAW_FIELDS_COLUMN = "_fields"
 

@@ -64,7 +64,10 @@ class OutputConfig(BaseModel):
     # Option A ("notebook", the default — today's output exactly), Option B
     # ("framework": DDL scripts + config rows + insert statements for the
     # existing ingestion framework, no notebook/module tree), or "both".
-    mode: Literal["notebook", "framework", "both"] = "notebook"
+    # "rfc" (M5): framework artefacts + the assembled RFC deployment package
+    # (out/<slug>/RFC<number>_<Feed>/), see RfcConfig / PlaybookConfig.
+    # "all" = notebook tree + framework artefacts + the RFC package.
+    mode: Literal["notebook", "framework", "both", "rfc", "all"] = "notebook"
 
 
 class FrameworkConfig(BaseModel):
@@ -215,6 +218,119 @@ class SegmentedExtractorConfig(BaseModel):
     member_reference_table: str = "facets_member"
 
 
+class ValidateConfig(BaseModel):
+    """Plausibility thresholds of the layout-profile validator (M2.5 §4):
+    the share of data cells under a claimed header that must look the part
+    before a model- or user-placed role is accepted."""
+
+    model_config = _MODEL_CONFIG
+
+    integer_like: float = Field(default=0.8, ge=0, le=1)
+    type_like: float = Field(default=0.8, ge=0, le=1)
+    yes_no_like: float = Field(default=0.8, ge=0, le=1)
+    field_name_non_empty: float = Field(default=0.9, ge=0, le=1)
+    # Type tokens the generator already accepts (emit.context._SQL_TYPES,
+    # DECIMAL(p,s)) plus the COBOL-style pictures the source bands use.
+    type_token_regex: str = (
+        r"(?:[a-z]+(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?"
+        r"|s?9\(\d+\)(?:v9+|v\d+)?|x\(\d+\)|an|n|x|9)")
+
+
+class DiscoveryConfig(BaseModel):
+    """Content-driven layout discovery vocabulary (M1) — the synonym tables
+    behind ``codegen.layout.discover``. EVERYTHING here is data: band-label
+    tokens per layer, header→role synonyms per band group, meta-row label
+    synonyms, segment spellings, auxiliary-sheet header signatures, yes/no
+    spellings. The model defaults are EMPTY on purpose: a config without the
+    tables resolves nothing and discovery says so loudly, rather than
+    carrying a second copy of the vocabulary in code."""
+
+    model_config = _MODEL_CONFIG
+
+    # How many leading rows are scanned for band / header / meta rows.
+    scan_rows: int = Field(default=40, gt=0)
+    # layer -> band-label tokens (normalized substring match).
+    band_tokens: dict[str, list[str]] = Field(default_factory=dict)
+    # band group ("source" | "rules" | "target" | "trailing") -> role -> header
+    # spellings. "target" serves both the stage and the standard band.
+    roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    # meta key -> label spellings (label:value rows above the band row).
+    meta_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # canonical segment (Header/Detail/Trailer) -> spellings seen in Segment
+    # columns, sheet names and in-sheet banner rows.
+    segment_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # sheet kind -> alternatives, each a list of header tokens that must ALL
+    # appear (normalized substring) on one of the first rows.
+    auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)
+    yes_values: list[str] = Field(default_factory=list)
+    no_values: list[str] = Field(default_factory=list)
+    # Validator thresholds (M2.5 §4).
+    validate: ValidateConfig = ValidateConfig()
+
+    @model_validator(mode="after")
+    def _check_vocabulary(self) -> DiscoveryConfig:
+        from codegen.layout.profile import Role
+
+        known_roles = {r.value for r in Role}
+        problems = []
+        for group, table in self.roles.items():
+            if group not in {"source", "rules", "target", "trailing"}:
+                problems.append(f"unknown roles group {group!r}")
+            unknown = set(table) - known_roles
+            if unknown:
+                problems.append(f"roles.{group}: unknown role(s) {sorted(unknown)}")
+        for layer in self.band_tokens:
+            if layer not in {"source", "rules", "stage", "standard"}:
+                problems.append(f"band_tokens: unknown layer {layer!r}")
+        if problems:
+            raise ValueError("extractor.discovery config: " + "; ".join(problems))
+        return self
+
+
+class FrdExtractorConfig(BaseModel):
+    """FRD .docx extractor vocabulary (M2, codegen.extract.frd_docx): section
+    titles, label synonyms (ONLY the variants SHAPES_FOR_PORT §2 lists), the
+    Solution Requirement table shape, and the separators used to split a
+    cell into list values. Empty defaults = nothing resolves, loudly."""
+
+    model_config = _MODEL_CONFIG
+
+    section_titles: dict[str, list[str]] = Field(default_factory=dict)
+    labels: dict[str, list[str]] = Field(default_factory=dict)
+    # Rows 1-3 of every F1 section table (and the F2 SR rows) by label.
+    fixed_rows: dict[str, list[str]] = Field(default_factory=dict)
+    solution_requirement_prefix: str = "Solution Requirement"
+    # 0-based row index whose first cell names the metadata section (F2).
+    solution_requirement_section_row: int = Field(default=4, ge=1)
+    inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
+    list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
+    domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])
+    target_schema_markers: dict[str, list[str]] = Field(default_factory=dict)
+    target_schema_separators: list[str] = Field(default_factory=lambda: ["/", ";"])
+    acd_headers: list[str] = Field(default_factory=lambda: ["ACD Type", "Name", "Description"])
+    # Cell texts that mean "blank" (a stated placeholder, never a value).
+    blank_values: list[str] = Field(default_factory=list)
+
+
+class VddExtractorConfig(BaseModel):
+    """Vendor Data Dictionary vocabulary (M3): FILES-sheet and field-sheet
+    role synonyms — ONLY the V1/V2/V3 headers of SHAPES_FOR_PORT §3 —
+    header signatures, the type-equivalence classes of the STTM-vs-VDD
+    cross-check and the fixed-width format tokens. Empty = nothing
+    resolves, loudly."""
+
+    model_config = _MODEL_CONFIG
+
+    files_signature: list[list[str]] = Field(default_factory=list)
+    fields_signature: list[list[str]] = Field(default_factory=list)
+    files_roles: dict[str, list[str]] = Field(default_factory=dict)
+    field_roles: dict[str, list[str]] = Field(default_factory=dict)
+    # Type tokens that are one class (never a vdd_mismatch:type).
+    type_equivalence: list[list[str]] = Field(default_factory=list)
+    # FRD file-format words that mean fixed width (positions required).
+    fixed_width_tokens: list[str] = Field(default_factory=list)
+
+
 class ExtractorConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -232,6 +348,13 @@ class ExtractorConfig(BaseModel):
     # Segmented (CAQH-style) family knobs — all defaulted, so a config
     # without the section still loads.
     segmented: SegmentedExtractorConfig = SegmentedExtractorConfig()
+    # Content-driven discovery vocabulary (M1); empty tables = nothing
+    # resolves beyond the two legacy strategies, loudly.
+    discovery: DiscoveryConfig = DiscoveryConfig()
+    # FRD .docx extractor vocabulary (M2); empty = nothing resolves, loudly.
+    frd: FrdExtractorConfig = FrdExtractorConfig()
+    # Vendor Data Dictionary vocabulary (M3); empty = nothing resolves, loudly.
+    vdd: VddExtractorConfig = VddExtractorConfig()
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:
@@ -378,6 +501,9 @@ class DemoConfig(BaseModel):
     # Contract pair for replay + the FRD side of a live extract-sttm run.
     frd: str
     sttm: str
+    # Selection-time VDD pairing (2026-09-18): canonical STTM stem -> VDD
+    # stem, tried before the shared-ticket and name-stem rules. Optional.
+    vdd_pairing_map: dict[str, str] = Field(default_factory=dict)
     # Workbook the live demo extracts from (repo-relative path).
     workbook: str
     # Cost-confirmation copy shown before a live run fires.
@@ -553,6 +679,239 @@ class JobConfig(BaseModel):
     runtime_engine: str = ""
 
 
+class LayoutConfig(BaseModel):
+    """Layout recognition (M2.5): profile caches, the mock answer directory,
+    the provider posture and the confidence a model-placed role starts with.
+    Paths are repo-relative. A config without the section still loads."""
+
+    model_config = _MODEL_CONFIG
+
+    # Repo cache(s) of completed profiles, searched in order, keyed by the
+    # ``fingerprint`` field inside each JSON file.
+    cache_dirs: list[str] = Field(default_factory=lambda: ["fixtures/layout_profiles"])
+    # Runtime cache (gitignored under ui/backend/state/) for profiles a
+    # model + validation or a person completed.
+    runtime_cache_dir: str = "ui/backend/state/layout_profiles"
+    # Mock provider answers (adversarial + hand-written), then cache_dirs.
+    mock_dir: str = "fixtures/layout_profiles/mock"
+    # auto (live when Layer 2 is live) | mock (never call a model).
+    provider: Literal["auto", "mock"] = "auto"
+    max_tokens: int = Field(default=8192, gt=0)
+    max_attempts: int = Field(default=2, gt=0)
+    # Confidence a model-placed role starts with (validated, not trusted).
+    model_confidence: float = Field(default=0.8, ge=0, le=1)
+    # Confidence bump a cross-document agreement adds (capped at 1.0).
+    crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
+
+
+class ConventionsProfileConfig(BaseModel):
+    """One client conventions profile (M4): how the deployment DDL is laid
+    out. ``edo_sfmc`` (two files, the SFMC reference goldens) is today's
+    output exactly; ``acfc_prx`` is the pair-1 combined-file shape. Every
+    whitespace knob is data because the client golden is compared byte for
+    byte."""
+
+    model_config = _MODEL_CONFIG
+
+    # two_files: <slug>_stage/_standard_table_creation.txt (today) |
+    # combined: ONE file with '--stage table' / '--standard table' banners.
+    ddl_layout: Literal["two_files", "combined"] = "two_files"
+    # combined-layout file name; {feed_abbrev} = the FAQ's feed_abbreviation
+    # (client-assigned), else the sanitized slug + a flag.
+    ddl_file_name_pattern: str = "{feed_abbrev}_DDL.txt"
+    # Stage columns typed as the STTM stage band states them (not STRING).
+    typed_stage: bool = False
+    # Standard table column list = the stage list (client convention).
+    standard_from_stage: bool = False
+    create_statement: str = "CREATE OR REPLACE TABLE"
+    using_clause: str = "USING delta"
+    stage_banner: str = "--stage table"
+    standard_banner: str = "--standard table"
+    leading_newline: bool = False
+    trailing_newline: bool = True
+    # Text between the closing ')' line and the USING clause, per block.
+    block_using_prefix: dict[str, str] = Field(default_factory=dict)
+    # Audit-column type spelling in the DDL (contract enum -> as written).
+    audit_type_casing: dict[str, str] = Field(default_factory=dict)
+
+
+class ConventionsConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    profile: str = "edo_sfmc"
+    profiles: dict[str, ConventionsProfileConfig] = Field(
+        default_factory=lambda: {"edo_sfmc": ConventionsProfileConfig()})
+
+    @model_validator(mode="after")
+    def _profile_exists(self) -> ConventionsConfig:
+        if self.profile not in self.profiles:
+            raise ValueError(f"conventions.profile {self.profile!r} is not one of "
+                             f"{sorted(self.profiles)}")
+        return self
+
+    def get(self, name: str | None) -> ConventionsProfileConfig:
+        key = name or self.profile
+        if key not in self.profiles:
+            raise ValueError(f"unknown conventions profile {key!r}; expected one of "
+                             f"{sorted(self.profiles)}")
+        return self.profiles[key]
+
+
+class MetadataTemplateConfig(BaseModel):
+    """An IIG workbook template version (M4) other than the default
+    ``iig_v1`` (= ``demo.metadata_sheet``): sheets + headers transcribed
+    from the client's golden, the framework-assigned always-blank columns,
+    and the derivation knobs the row builders read. ``constants`` /
+    ``template_rows`` are framework vocabulary the config carries WITH its
+    citation — never a guess."""
+
+    model_config = _MODEL_CONFIG
+
+    tabs: dict[str, DemoMetadataTabConfig]
+    always_blank: list[str] = Field(default_factory=list)
+    citation: str = ""
+    # SRC_COLUMNS: name_pair 'src:stage' | positional 'col<i>:<stage>'.
+    src_columns_style: Literal["name_pair", "positional"] = "name_pair"
+    # SRC_DATA_TYPE pairs: full types | base types ('Decimal' for Decimal(17,2)).
+    data_type_style: Literal["full", "base"] = "full"
+    rows_per_file_pattern: bool = False
+    object_name_from_pattern: bool = False
+    reject_table_suffix: str | None = None
+    segment_filter_pattern: str | None = None
+    dq_rules: list[Literal["date_format", "data_type_cast"]] = Field(default_factory=list)
+    dq_rule_classes: dict[str, str] = Field(default_factory=dict)
+    date_format_rule_regex: str = r"^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$"
+    date_format_param_joiner: str = "--"
+    cast_type_order: list[str] = Field(default_factory=list)
+    audit_type_casing: dict[str, str] = Field(default_factory=dict)
+    # tab -> header -> path shape with {landing} {stage_table} {reject_table}
+    # (the golden spells the archive path differently per sheet).
+    path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    constants: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # tab -> rows of header -> value; keys starting with '_' steer the
+    # builder (e.g. _layer: standard) and never render.
+    template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+
+
+class MetadataConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    # iig_v1 = demo.metadata_sheet (today's layout, byte for byte).
+    template: str = "iig_v1"
+    templates: dict[str, MetadataTemplateConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _template_exists(self) -> MetadataConfig:
+        if self.template != "iig_v1" and self.template not in self.templates:
+            raise ValueError(f"metadata.template {self.template!r} is neither iig_v1 nor one of "
+                             f"{sorted(self.templates)}")
+        return self
+
+    def resolve(self, name: str | None) -> tuple[str, MetadataTemplateConfig | None]:
+        key = name or self.template
+        if key == "iig_v1":
+            return key, None
+        if key not in self.templates:
+            raise ValueError(f"unknown IIG template {key!r}; expected iig_v1 or one of "
+                             f"{sorted(self.templates)}")
+        return key, self.templates[key]
+
+
+class RfcConfig(BaseModel):
+    """`rfc` output mode (M5): the INGESTION-family package tree of
+    RFC_PACKAGE_SHAPES §1. Tokens: {rfc_number} (FAQ rfc_number, else
+    number_placeholder + flag), {feed_slug} / {feed} (FAQ feed_abbreviation,
+    else the sanitized feed slug + flag)."""
+
+    model_config = _MODEL_CONFIG
+
+    dir_pattern: str = "RFC{rfc_number}_{feed_slug}"
+    iig_file_name: str = "{feed_slug}_IIG.xlsx"
+    playbook_file_name: str = "RFC{rfc_number}_{feed_slug}_Deployment_Playbook.xlsx"
+    manifest_file_name: str = "MANIFEST.md"
+    # The shapes document's own masked spelling of an RFC number.
+    number_placeholder: str = "######"
+    file_log_information: bool = False
+    file_log_file_name: str = "FILE_LOG_INFORMATION.txt"
+    file_log_header_line: str = "CREATE TABLE [dbo].[FILE_LOG_INFORMATION]("
+    # Column definitions in the documented T-SQL shape; a masked value such
+    # as <length> is transcribed as documented and flagged.
+    file_log_columns: list[str] = Field(default_factory=list)
+
+
+class PlaybookTaskConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    task: str
+    detail: str = ""
+
+
+class PlaybookTasksConfig(BaseModel):
+    """Task rows per playbook section. A row is here or the cell is blank."""
+
+    model_config = _MODEL_CONFIG
+
+    pre_production: list[PlaybookTaskConfig] = Field(default_factory=list)
+    production: list[PlaybookTaskConfig] = Field(default_factory=list)
+    post_production: list[PlaybookTaskConfig] = Field(default_factory=list)
+    rollback_execution: list[PlaybookTaskConfig] = Field(default_factory=list)
+    rollback_validation: list[PlaybookTaskConfig] = Field(default_factory=list)
+
+
+class PlaybookTemplateConfig(BaseModel):
+    """sfmc_7sheet: the 7-sheet IS-methodology template read from the
+    scrubbed reference workbook (structure kept, values blank-and-flag);
+    main_single: the single 'Main' sheet of the PRX packages (header
+    pattern per RFC_PACKAGE_SHAPES §1)."""
+
+    model_config = _MODEL_CONFIG
+
+    kind: Literal["sfmc_7sheet", "main_single"]
+    # sfmc_7sheet
+    source: str | None = None
+    header_row: int = 2
+    task_sheet: str | None = None
+    rollback_execution_sheet: str | None = None
+    rollback_validation_sheet: str | None = None
+    contact_sheet: str | None = None
+    cover_sheet: str | None = None
+    overview_sheet: str | None = None
+    section_labels: dict[str, str] = Field(default_factory=dict)
+    # Cover-page cells: value cells to blank (coordinate -> flag label) and
+    # label cells to (re)write (coordinate -> label text).
+    cover_value_cells: dict[str, str] = Field(default_factory=dict)
+    cover_label_cells: dict[str, str] = Field(default_factory=dict)
+    # main_single
+    sheet: str = "Main"
+    headers: list[str] = Field(default_factory=list)
+
+
+class PlaybookConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    template: str = "sfmc_7sheet"
+    templates: dict[str, PlaybookTemplateConfig] = Field(default_factory=dict)
+    # conventions profile name -> task rows ("default" when a profile has none).
+    tasks: dict[str, PlaybookTasksConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _template_exists(self) -> PlaybookConfig:
+        if self.templates and self.template not in self.templates:
+            raise ValueError(f"playbook.template {self.template!r} is not one of "
+                             f"{sorted(self.templates)}")
+        return self
+
+    def resolve(self, name: str | None) -> tuple[str, PlaybookTemplateConfig]:
+        key = name or self.template
+        if key not in self.templates:
+            raise ValueError(f"unknown playbook template {key!r}; expected one of "
+                             f"{sorted(self.templates)}")
+        return key, self.templates[key]
+
+    def tasks_for(self, profile: str) -> PlaybookTasksConfig:
+        return self.tasks.get(profile) or self.tasks.get("default") or PlaybookTasksConfig()
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -580,13 +939,39 @@ class Config(BaseModel):
     load_pattern_faq: LoadPatternFaqConfig = LoadPatternFaqConfig()
     # Optional: Option B output knobs (see FrameworkConfig).
     framework: FrameworkConfig = FrameworkConfig()
+    # Optional: layout recognition caches / provider posture (M2.5).
+    layout: LayoutConfig = LayoutConfig()
+    # Optional (M4): client conventions profiles + IIG template versions.
+    conventions: ConventionsConfig = ConventionsConfig()
+    metadata: MetadataConfig = MetadataConfig()
+    # Optional (M5): the rfc output mode's package layout + playbook templates.
+    rfc: RfcConfig = RfcConfig()
+    playbook: PlaybookConfig = PlaybookConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)
 
 
-def load_config(path: str | Path) -> Config:
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursive mapping merge: overlay mappings merge into base mappings,
+    every other overlay value (lists included) replaces the base value."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> Config:
     """Load the YAML config, failing loudly on unknown top-level sections.
+
+    ``overlays`` (and the env ``CODEGEN_CONFIG_OVERLAYS``, ``;``/``,``
+    separated paths, applied after them) are YAML mappings deep-merged onto
+    the file before validation — the M5 home for client-shaped vocabulary
+    (e.g. the pair-1 IIG template rows under fixtures/) so the shipped
+    config carries none of it. Unknown sections are refused after the merge.
 
     ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
     ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
@@ -597,6 +982,15 @@ def load_config(path: str | Path) -> Config:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
+    overlay_paths = [Path(p) for p in (overlays or [])]
+    env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
+    if env_overlays:
+        overlay_paths += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]
+    for overlay_path in overlay_paths:
+        overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
+        if not isinstance(overlay, dict):
+            raise ValueError(f"config overlay {overlay_path} is not a YAML mapping")
+        raw = _deep_merge(raw, overlay)
     unknown = set(raw) - _TOP_LEVEL_KEYS
     if unknown:
         raise ValueError(

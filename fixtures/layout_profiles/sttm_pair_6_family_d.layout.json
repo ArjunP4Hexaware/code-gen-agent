@@ -1,0 +1,132 @@
+{
+  "fingerprint": "eaf5007155b2c5a746a0b7bd228ad692edc42a4519cef1fe6d934614adbe2aa4",
+  "sheets": [
+    {
+      "name": "Version Control",
+      "kind": "version",
+      "header_row": 2,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Version",
+        "Date",
+        "Author(s)",
+        "Description of Version/Changes"
+      ],
+      "notes": []
+    },
+    {
+      "name": "Server details",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "FEED_6_MAPPING",
+      "kind": "mapping",
+      "header_row": 3,
+      "band_row": 2,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 10,
+          "roles": {
+            "inscope": 1,
+            "server": 2,
+            "source_database": 3,
+            "source_schema": 4,
+            "source_table": 5,
+            "field_name": 6,
+            "key": 7,
+            "source_type": 8,
+            "nullable": 9,
+            "load_rule": 10
+          },
+          "label": "Source table"
+        },
+        {
+          "layer": "stage",
+          "col_start": 11,
+          "col_end": 16,
+          "roles": {
+            "workspace": 11,
+            "catalog": 12,
+            "schema": 13,
+            "table": 14,
+            "column": 15,
+            "target_type": 16
+          },
+          "label": "Stage Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 17,
+          "col_end": 22,
+          "roles": {
+            "workspace": 17,
+            "catalog": 18,
+            "schema": 19,
+            "table": 20,
+            "column": 21,
+            "target_type": 22
+          },
+          "label": "STD layer"
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 1,
+          "col": 1,
+          "label": "FEED_6 — SRC_SYS_C table to lakehouse mapping",
+          "key": null,
+          "value_col": null
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 2, header row 3"
+      ]
+    }
+  ],
+  "confidence": {
+    "FEED_6_MAPPING/source/inscope": 1.0,
+    "FEED_6_MAPPING/source/server": 1.0,
+    "FEED_6_MAPPING/source/source_database": 1.0,
+    "FEED_6_MAPPING/source/source_schema": 1.0,
+    "FEED_6_MAPPING/source/source_table": 1.0,
+    "FEED_6_MAPPING/source/field_name": 1.0,
+    "FEED_6_MAPPING/source/key": 1.0,
+    "FEED_6_MAPPING/source/source_type": 1.0,
+    "FEED_6_MAPPING/source/nullable": 1.0,
+    "FEED_6_MAPPING/source/load_rule": 1.0,
+    "FEED_6_MAPPING/stage/workspace": 1.0,
+    "FEED_6_MAPPING/stage/catalog": 1.0,
+    "FEED_6_MAPPING/stage/schema": 1.0,
+    "FEED_6_MAPPING/stage/table": 1.0,
+    "FEED_6_MAPPING/stage/column": 1.0,
+    "FEED_6_MAPPING/stage/target_type": 1.0,
+    "FEED_6_MAPPING/standard/workspace": 1.0,
+    "FEED_6_MAPPING/standard/catalog": 1.0,
+    "FEED_6_MAPPING/standard/schema": 1.0,
+    "FEED_6_MAPPING/standard/table": 1.0,
+    "FEED_6_MAPPING/standard/column": 1.0,
+    "FEED_6_MAPPING/standard/target_type": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

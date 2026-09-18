@@ -1,0 +1,96 @@
+{
+  "fingerprint": "d0768934ce4c08f4c8b65962b88901d837567e81a22b19e04069d7ebb2901649",
+  "sheets": [
+    {
+      "name": "FILES",
+      "kind": "vdd_files",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "files",
+          "col_start": 1,
+          "col_end": 10,
+          "roles": {
+            "file_pattern": 1,
+            "title": 2,
+            "format": 3,
+            "delimiter": 4,
+            "cadence": 5,
+            "description": 6,
+            "field_sheet": 7,
+            "multi_record": 8,
+            "record_type_field": 9,
+            "header_row": 10
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "FEED_1 Fields",
+      "kind": "vdd_fields",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "fields",
+          "col_start": 1,
+          "col_end": 11,
+          "roles": {
+            "position": 1,
+            "field_name": 2,
+            "data_type": 3,
+            "start": 4,
+            "end": 5,
+            "length": 6,
+            "required": 7,
+            "phi": 8,
+            "key": 9,
+            "segment": 10,
+            "description": 11
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "column",
+      "segment_column": 10,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "FILES/files/file_pattern": 1.0,
+    "FILES/files/title": 1.0,
+    "FILES/files/format": 1.0,
+    "FILES/files/delimiter": 1.0,
+    "FILES/files/cadence": 1.0,
+    "FILES/files/description": 1.0,
+    "FILES/files/field_sheet": 1.0,
+    "FILES/files/multi_record": 1.0,
+    "FILES/files/record_type_field": 1.0,
+    "FILES/files/header_row": 1.0,
+    "FEED_1 Fields/fields/position": 1.0,
+    "FEED_1 Fields/fields/field_name": 1.0,
+    "FEED_1 Fields/fields/data_type": 1.0,
+    "FEED_1 Fields/fields/start": 1.0,
+    "FEED_1 Fields/fields/end": 1.0,
+    "FEED_1 Fields/fields/length": 1.0,
+    "FEED_1 Fields/fields/required": 1.0,
+    "FEED_1 Fields/fields/phi": 1.0,
+    "FEED_1 Fields/fields/key": 1.0,
+    "FEED_1 Fields/fields/segment": 1.0,
+    "FEED_1 Fields/fields/description": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "vdd",
+  "unresolved": [],
+  "notes": []
+}

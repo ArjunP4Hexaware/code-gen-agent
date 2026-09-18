@@ -1,0 +1,233 @@
+{
+  "fingerprint": "cbd50904bb5d49496ebd72a707ee76cefbb0550d3b40e450223e7d63f11733da",
+  "sheets": [
+    {
+      "name": "Version",
+      "kind": "version",
+      "header_row": 3,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Date",
+        "Version",
+        "Author(s)",
+        "Description of Version/Changes"
+      ],
+      "notes": []
+    },
+    {
+      "name": "LOB_CROSSWALK",
+      "kind": "lob_crosswalk",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Source LOB Code",
+        "Source LOB Name",
+        "Target LOB",
+        "Region",
+        "Notes"
+      ],
+      "notes": []
+    },
+    {
+      "name": "FEED_1_MAPPING",
+      "kind": "mapping",
+      "header_row": 15,
+      "band_row": 14,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 9,
+          "roles": {
+            "ordinal": 1,
+            "segment": 2,
+            "field_name": 3,
+            "required": 4,
+            "start": 6,
+            "length": 7,
+            "end": 8,
+            "description": 9,
+            "source_type": 5
+          },
+          "label": "Source Data"
+        },
+        {
+          "layer": "rules",
+          "col_start": 10,
+          "col_end": 15,
+          "roles": {
+            "data_definition": 10,
+            "pii": 11,
+            "primary_key": 12,
+            "critical": 13,
+            "not_null": 14,
+            "load_rule": 15
+          },
+          "label": "Data Rules and Primary Keys"
+        },
+        {
+          "layer": "stage",
+          "col_start": 16,
+          "col_end": 21,
+          "roles": {
+            "workspace": 16,
+            "catalog": 17,
+            "schema": 18,
+            "table": 30,
+            "column": 20,
+            "target_type": 21
+          },
+          "label": "Staging Layer Table"
+        },
+        {
+          "layer": "standard",
+          "col_start": 22,
+          "col_end": 27,
+          "roles": {
+            "workspace": 22,
+            "catalog": 23,
+            "schema": 24,
+            "table": 25,
+            "column": 26,
+            "target_type": 27
+          },
+          "label": "Standard Layer Table"
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 1,
+          "col": 1,
+          "label": "File Names",
+          "key": "file_names",
+          "value_col": 2
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "label": "File Name Example",
+          "key": "file_name_example",
+          "value_col": 2
+        },
+        {
+          "row": 3,
+          "col": 1,
+          "label": "Frequency",
+          "key": "frequency",
+          "value_col": 2
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "label": "File Format (text, csv)",
+          "key": "file_format",
+          "value_col": 2
+        },
+        {
+          "row": 5,
+          "col": 1,
+          "label": "File Delimiter",
+          "key": "delimiter",
+          "value_col": null
+        },
+        {
+          "row": 6,
+          "col": 1,
+          "label": "Last Update Date",
+          "key": "last_update_date",
+          "value_col": null
+        },
+        {
+          "row": 7,
+          "col": 1,
+          "label": "Version",
+          "key": "version",
+          "value_col": null
+        },
+        {
+          "row": 8,
+          "col": 1,
+          "label": "LOB",
+          "key": "lob",
+          "value_col": 2
+        },
+        {
+          "row": 9,
+          "col": 1,
+          "label": "Target table Name Desc",
+          "key": "target_table_desc",
+          "value_col": 2
+        },
+        {
+          "row": 10,
+          "col": 1,
+          "label": "Feed Type",
+          "key": "feed_type",
+          "value_col": null
+        },
+        {
+          "row": 11,
+          "col": 1,
+          "label": "Load Strategy",
+          "key": "load_strategy",
+          "value_col": 2
+        },
+        {
+          "row": 12,
+          "col": 1,
+          "label": "Notes",
+          "key": "notes",
+          "value_col": null
+        }
+      ],
+      "segment_strategy": "column",
+      "segment_column": 2,
+      "headers": [],
+      "notes": [
+        "band row 14, header row 15"
+      ]
+    }
+  ],
+  "confidence": {
+    "FEED_1_MAPPING/source/ordinal": 1.0,
+    "FEED_1_MAPPING/source/segment": 1.0,
+    "FEED_1_MAPPING/source/field_name": 1.0,
+    "FEED_1_MAPPING/source/required": 1.0,
+    "FEED_1_MAPPING/source/start": 1.0,
+    "FEED_1_MAPPING/source/length": 1.0,
+    "FEED_1_MAPPING/source/end": 1.0,
+    "FEED_1_MAPPING/source/description": 1.0,
+    "FEED_1_MAPPING/rules/data_definition": 1.0,
+    "FEED_1_MAPPING/rules/pii": 1.0,
+    "FEED_1_MAPPING/rules/primary_key": 1.0,
+    "FEED_1_MAPPING/rules/critical": 1.0,
+    "FEED_1_MAPPING/rules/not_null": 1.0,
+    "FEED_1_MAPPING/rules/load_rule": 1.0,
+    "FEED_1_MAPPING/stage/workspace": 1.0,
+    "FEED_1_MAPPING/stage/catalog": 1.0,
+    "FEED_1_MAPPING/standard/workspace": 1.0,
+    "FEED_1_MAPPING/standard/catalog": 1.0,
+    "FEED_1_MAPPING/source/source_type": 1.0,
+    "FEED_1_MAPPING/stage/schema": 1.0,
+    "FEED_1_MAPPING/stage/table": 1.0,
+    "FEED_1_MAPPING/stage/column": 1.0,
+    "FEED_1_MAPPING/stage/target_type": 1.0,
+    "FEED_1_MAPPING/standard/schema": 1.0,
+    "FEED_1_MAPPING/standard/table": 1.0,
+    "FEED_1_MAPPING/standard/column": 1.0,
+    "FEED_1_MAPPING/standard/target_type": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

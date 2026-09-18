@@ -5,7 +5,11 @@
 import pytest
 
 from conftest import detail_rows, write_source_file
+{% if fixed_width %}
+from pipeline import reader
+{% else %}
 from pipeline import feed_spec, reader
+{% endif %}
 
 
 def test_unrecognized_file_name_raises(spark, tmp_path):
@@ -15,7 +19,14 @@ def test_unrecognized_file_name_raises(spark, tmp_path):
         reader.read_source(spark, str(bad))
 
 
-{% if is_segmented %}
+{% if fixed_width %}
+def test_read_source_reads_raw_lines(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(2))
+    df = reader.read_source(spark, str(path))
+    assert df.columns == [reader.RAW_LINE_COLUMN]
+    # header + 2 details + trailer
+    assert df.count() == 4
+{% elif is_segmented %}
 def test_read_source_splits_lines_into_field_arrays(spark, tmp_path):
     path = write_source_file(tmp_path, detail_rows(2))
     df = reader.read_source(spark, str(path))

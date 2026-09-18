@@ -21,6 +21,7 @@ from codegen.contracts.sttm import (
     SegmentedExtraction,
     SttmField,
 )
+from codegen.contracts.vdd import VddContract
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -142,6 +143,17 @@ class ResolvedFeedSpec(BaseModel):
     # Type of the fields in Stage and standard should be STRING except for
     # audit date fields"): business columns render STRING in BOTH layers.
     load_as_is: bool = False
+    # M3: the pair's third input — the Vendor Data Dictionary contract, when
+    # one was supplied. Read by the cross-check gate and (M4) the IIG v2
+    # fixed-width rows; never by the standard layer. None keeps every
+    # existing output byte-identical.
+    vdd: VddContract | None = None
+    # M3: the STTM's source table (database-table sources), for VDD sheet
+    # selection in one-sheet-per-table dictionaries.
+    source_table: str | None = None
+    # M4: facts the resolver took from the STTM because the FRD named none
+    # (file pattern, record segments) — surfaced as gate flags, never silent.
+    provenance_flags: list[str] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

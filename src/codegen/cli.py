@@ -5,6 +5,8 @@ Commands:
   generate-all  every pair listed in config.contracts.pairs
   extract-sttm  extract an STTM mapping contract from a client workbook
                 paired with its FRD feed contract (deterministic, no LLM)
+  extract-frd   extract an FRD feed contract from a client FRD .docx
+                (families F1/F2, deterministic, stdlib docx reading)
   sharepoint-fetch    library -> local input dir (workbooks + contracts)
   sharepoint-publish  one feed's generated artifacts -> library output folder
   databricks-fetch    UC volumes -> local input dir (FRDs + STTM workbooks)
@@ -70,6 +72,10 @@ def _generate_feed(
     dry_run: bool,
     skip_tests: bool,
     output_mode: str | None = None,
+    extra_flags: list[str] | None = None,
+    conventions_profile: str | None = None,
+    iig_template: str | None = None,
+    playbook_template: str | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -78,6 +84,16 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    # M3: STTM-vs-VDD cross-check — one flag per mismatch citing both cells;
+    # a fixed-width FRD with no VDD positions is a failed gate check.
+    # M4: resolver provenance flags (facts taken from the STTM because the
+    # FRD named none) and the drag-fill detector ride the same list.
+    from codegen.gate.drag_fill import drag_fill_flags
+    from codegen.gate.vdd_check import vdd_cross_check
+
+    vdd_flags, vdd_check = vdd_cross_check(spec, config)
+    extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
+                   *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
     # same review artifact and decision flow as Layer-2 candidates.
     candidates = [*segmented_review_items(spec), *candidates]
@@ -109,23 +125,52 @@ def _generate_feed(
     # "both" persists everything. MIRRORED in service._generate_feed.
     effective_mode = output_mode or config.output.mode
     framework_artefacts = None
-    if effective_mode == "framework":
+    rfc_artefacts = None
+    if effective_mode in ("framework", "rfc"):
         written, checks, tests_skipped, ddl_sources = _emit_framework_only(
             context, spec, config, feed_dir, skip_tests
         )
         framework_artefacts = _run_emit_framework(
-            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None
+            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
+            conventions_profile=conventions_profile, iig_template=iig_template,
         )
         written = [*written, *framework_artefacts.files]
+        if effective_mode == "rfc":
+            # M5: the RFC deployment package, assembled from the framework
+            # artefacts + config/FAQ; its blank-and-flag list joins the gate.
+            from codegen.emit.rfc import emit_rfc_package
+
+            rfc_artefacts = emit_rfc_package(
+                spec, faq, config, out_root, framework_artefacts,
+                flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                conventions_profile=conventions_profile, iig_template=iig_template,
+                playbook_template=playbook_template, base_dir=None,
+            )
+            written = [*written, *rfc_artefacts.files]
     else:
         written = emit_feed(context, out_root)
         checks = None  # computed below, exactly as before
-        if effective_mode == "both":
+        if effective_mode in ("both", "all"):
             ddl_sources = _read_ddl_sources(feed_dir)
             framework_artefacts = _run_emit_framework(
-                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None
+                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
+                conventions_profile=conventions_profile, iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
+            if effective_mode == "all":
+                from codegen.emit.rfc import emit_rfc_package
+
+                rfc_artefacts = emit_rfc_package(
+                    spec, faq, config, out_root, framework_artefacts,
+                    flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                    conventions_profile=conventions_profile, iig_template=iig_template,
+                    playbook_template=playbook_template, base_dir=None,
+                )
+                written = [*written, *rfc_artefacts.files]
+    if framework_artefacts is not None:
+        extra_flags = [*extra_flags, *framework_artefacts.flags]
+    if rfc_artefacts is not None:
+        extra_flags = [*extra_flags, *rfc_artefacts.flags]
     _write_candidates_artifact(candidates, feed_dir)
 
     if checks is None:
@@ -133,6 +178,8 @@ def _generate_feed(
         tests_skipped = skip_tests or not config.gate.run_generated_tests
         if not tests_skipped:
             checks = [*checks, run_generated_tests(feed_dir, config.gate.pytest_tail_lines)]
+    if vdd_check is not None:
+        checks = [*checks, vdd_check]
 
     gate = compute_verdict(
         spec.feed_id,
@@ -142,6 +189,7 @@ def _generate_feed(
         tests_skipped,
         faq=faq,
         standards=config.engineering_standards,
+        extra_flags=extra_flags,
     )
     write_generation_report(
         spec,
@@ -161,6 +209,10 @@ def _generate_feed(
         with open(reports_dir / f"{spec.feed_slug}.md", "a",
                   encoding="utf-8", newline="\n") as handle:
             handle.write(report_section(framework_artefacts))
+            if rfc_artefacts is not None:
+                from codegen.emit.rfc import report_section as rfc_report_section
+
+                handle.write(rfc_report_section(rfc_artefacts))
     print(console_summary(spec, gate))
     return gate
 
@@ -195,7 +247,7 @@ def _emit_framework_only(context, spec, config, feed_dir, skip_tests):
 
 
 def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
-                        base_dir):
+                        base_dir, conventions_profile=None, iig_template=None):
     from codegen.emit.framework import emit_framework
 
     contracts_dir = Path(config.contracts.dir)
@@ -209,6 +261,8 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
         unmapped_rule_texts={
             o.rule_text for o in outcomes if o.classification == "unmapped"
         },
+        conventions_profile=conventions_profile,
+        iig_template=iig_template,
     )
 
 
@@ -220,12 +274,16 @@ def _run_pairs(
     dry_run: bool,
     skip_tests: bool,
     output_mode: str | None = None,
+    vdd_path: Path | None = None,
+    conventions_profile: str | None = None,
+    iig_template: str | None = None,
+    playbook_template: str | None = None,
 ) -> int:
     failed = False
     matched_feed = False
     for frd_path, sttm_path in pairs:
         try:
-            specs = resolve_pair(frd_path, sttm_path, config)
+            specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path)
         except (ContractMismatchError, ValueError) as exc:
             print(f"{'FAIL':<15} {frd_path.name} + {sttm_path.name} — {exc}")
             failed = True
@@ -236,7 +294,10 @@ def _run_pairs(
             matched_feed = True
             try:
                 gate = _generate_feed(spec, config, dry_run=dry_run,
-                                      skip_tests=skip_tests, output_mode=output_mode)
+                                      skip_tests=skip_tests, output_mode=output_mode,
+                                      conventions_profile=conventions_profile,
+                                      iig_template=iig_template,
+                                      playbook_template=playbook_template)
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -256,6 +317,12 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         workbook_path = Path(args.workbook)
         if not workbook_path.is_file():
             raise FileNotFoundError(f"workbook not found: {workbook_path}")
+        layout = None
+        if getattr(args, "layout", None):
+            from codegen.layout.profile import LayoutProfile
+
+            layout = LayoutProfile.model_validate_json(
+                Path(args.layout).read_text(encoding="utf-8"))
         contract = extract_to_file(
             workbook_path,
             _contract_path(args.frd_contract, config),
@@ -263,12 +330,137 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             config,
             contract_name=args.contract_name,
             generated_date=args.generated_date,
+            layout=layout,
+            require_complete=bool(getattr(args, "require_complete", False)),
         )
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
         print(f"{'FAIL':<15} extract-sttm — {exc}")
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
+    return 0
+
+
+def _layout(args: argparse.Namespace, config: Config) -> int:
+    """Resolve and print the layout of a workbook (and optionally its FRD
+    document): source per role, confidences, unresolved roles, the
+    provider call count and — for a pair — the cross-document checks."""
+    from codegen.layout.model import build_layout_provider
+    from codegen.layout.resolve import resolve_pair
+
+    workbook = Path(args.workbook)
+    if not workbook.is_file():
+        print(f"{'FAIL':<15} layout — workbook not found: {workbook}")
+        return 1
+    frd = Path(args.frd) if args.frd else None
+    provider = build_layout_provider(config, dry_run=args.dry_run)
+    result = resolve_pair(
+        workbook, frd, config, vdd_path=Path(args.vdd) if args.vdd else None,
+        provider=provider, runtime_cache_dir=Path(config.layout.runtime_cache_dir),
+        use_cache=not args.no_cache,
+    )
+    report = result.report()
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        for document in ("sttm", "frd"):
+            doc = report[document]
+            if doc is None:
+                continue
+            print(f"{document.upper():<15} source={doc['source']} cache_hit={doc['cache_hit']} "
+                  f"provider_calls={doc['provider_calls']} roles_by_source="
+                  f"{doc['roles_by_source']}")
+            for item in doc["rejections"]:
+                print(f"{'REJECTED':<15} {item}")
+            for item in doc["unresolved"]:
+                print(f"{'UNRESOLVED':<15} {item}")
+        profile = result.sttm.profile
+        for key in sorted(profile.confidence):
+            print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "
+                  f"source={profile.role_sources.get(key, profile.source)}")
+        for check in report["cross_checks"]:
+            print(f"{'CROSSCHECK':<15} {check}")
+        print(f"{'PROVIDER':<15} {provider.name}, {report['provider_calls']} call(s)")
+    if args.profile_out:
+        Path(args.profile_out).write_text(
+            result.sttm.profile.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+    if args.require_complete and result.questions:
+        for question in result.questions:
+            print(f"{'QUESTION':<15} {question.document} {question.key} — {question.reason}; "
+                  f"candidates {question.candidates}")
+        return 1
+    return 0
+
+
+def _extract_vdd(args: argparse.Namespace, config: Config) -> int:
+    from codegen.extract.vdd import VddExtractionError, contract_to_json, extract_vdd_contract
+    from codegen.layout.discover import NoLayoutError
+
+    try:
+        vdd_path = Path(args.vdd)
+        if not vdd_path.is_file():
+            raise FileNotFoundError(f"VDD workbook not found: {vdd_path}")
+        tables: list[str] | None = None
+        if args.sttm_contract:
+            from codegen.contracts.sttm import SttmContract
+
+            sttm = SttmContract.model_validate_json(
+                Path(args.sttm_contract).read_text(encoding="utf-8"))
+            tables = sorted({t for f in sttm.feeds
+                             for t in (f.stage.table, f.source_table, f.feed_id) if t})
+        layout = None
+        if args.layout:
+            from codegen.layout.profile import LayoutProfile
+
+            layout = LayoutProfile.model_validate_json(
+                Path(args.layout).read_text(encoding="utf-8"))
+        contract, profile = extract_vdd_contract(
+            vdd_path, config, sttm_tables=tables, layout=layout,
+            generated_date=args.generated_date, contract_name=args.contract_name)
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")
+        if args.profile:
+            Path(args.profile).write_text(profile.model_dump_json(indent=2) + "\n",
+                                          encoding="utf-8", newline="\n")
+    except (VddExtractionError, NoLayoutError, FileNotFoundError, ValueError) as exc:
+        print(f"{'FAIL':<15} extract-vdd — {exc}")
+        return 1
+    print(f"{'EXTRACTED':<15} {args.out} — {len(contract.files)} file row(s), "
+          f"{len(contract.fields)} field(s) on {contract.field_sheets}, "
+          f"{len(contract.position_rows)} position row(s); layout source {profile.source}, "
+          f"{len(profile.unresolved)} unresolved role(s)")
+    return 0
+
+
+def _extract_frd(args: argparse.Namespace, config: Config) -> int:
+    from codegen.extract.frd_docx import FrdDocxError, contract_to_json, extract_frd_contract
+
+    try:
+        docx_path = Path(args.docx)
+        if not docx_path.is_file():
+            raise FileNotFoundError(f"FRD document not found: {docx_path}")
+        contract, profile = extract_frd_contract(
+            docx_path, config, contract_name=args.contract_name,
+            generated_date=args.generated_date,
+        )
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")
+        if args.profile:
+            profile_path = Path(args.profile)
+            profile_path.parent.mkdir(parents=True, exist_ok=True)
+            profile_path.write_text(profile.model_dump_json(indent=2) + "\n",
+                                    encoding="utf-8", newline="\n")
+    except (FrdDocxError, FileNotFoundError, ValueError) as exc:
+        print(f"{'FAIL':<15} extract-frd — {exc}")
+        return 1
+    feeds = ", ".join(f.feed_name for f in contract.feeds)
+    print(f"{'EXTRACTED':<15} {args.out} — family {profile.family}, layout source "
+          f"{profile.source}, {len(contract.feeds)} feed(s): {feeds}; "
+          f"{len(profile.unresolved)} unresolved field(s); status {contract.status}")
+    for item in profile.unresolved:
+        print(f"{'UNRESOLVED':<15} {item.field} — {item.reason}")
     return 0
 
 
@@ -648,11 +840,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     common.add_argument(
         "--output-mode",
-        choices=["notebook", "framework", "both"],
+        choices=["notebook", "framework", "both", "rfc", "all"],
         default=None,
         help="override output.mode: notebook (Option A, default), framework "
         "(Option B: DDL scripts + config rows + inserts for the existing "
-        "ingestion framework), or both",
+        "ingestion framework), both (notebook + framework), rfc (framework "
+        "artefacts + the assembled RFC<number>_<Feed>/ deployment package), "
+        "or all (notebook + framework + rfc)",
     )
 
     generate = subparsers.add_parser(
@@ -663,6 +857,17 @@ def main(argv: list[str] | None = None) -> int:
                           help="FRD contract JSON (the pair's FRD side)")
     generate.add_argument("--sttm-contract", "--sttm", dest="sttm_contract", required=True,
                           help="STTM mapping contract JSON (the pair's STTM side)")
+    generate.add_argument("--vdd-contract", "--vdd", dest="vdd_contract",
+                          help="VDD contract JSON (codegen extract-vdd) — the pair's third input")
+    generate.add_argument("--profile", dest="conventions_profile", default=None,
+                          help="conventions profile (config conventions.profiles; default "
+                               "conventions.profile — edo_sfmc = today's output)")
+    generate.add_argument("--iig-template", dest="iig_template", default=None,
+                          help="IIG workbook template version (iig_v1 = demo.metadata_sheet, "
+                               "or a key of config metadata.templates)")
+    generate.add_argument("--playbook-template", dest="playbook_template", default=None,
+                          help="rfc mode: deployment playbook template (a key of config "
+                               "playbook.templates; default playbook.template)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 
@@ -676,6 +881,58 @@ def main(argv: list[str] | None = None) -> int:
     extract.add_argument("--out", required=True, help="path for the emitted contract JSON")
     extract.add_argument("--contract-name", help="override the derived contract_name")
     extract.add_argument(
+        "--generated-date",
+        help="YYYY-MM-DD stamped as generated_date; defaults to today "
+        "(inject for byte-reproducible output)",
+    )
+    extract.add_argument("--layout", help="read through this resolved LayoutProfile JSON "
+                                          "instead of discovering the layout")
+    extract.add_argument("--require-complete", action="store_true",
+                         help="refuse when the layout has unresolved roles")
+
+    layout = subparsers.add_parser(
+        "layout",
+        help="resolve a workbook's (and optionally its FRD's) layout: cache -> synonyms "
+             "-> model -> validate -> user",
+    )
+    layout.add_argument("--config", default="config/config.yaml")
+    layout.add_argument("--workbook", required=True, help="STTM workbook (.xlsx)")
+    layout.add_argument("--frd", help="FRD document (.docx) or contract JSON of the pair")
+    layout.add_argument("--vdd", help="vendor data dictionary (.xlsx) for the cross-checks")
+    layout.add_argument("--dry-run", action="store_true",
+                        help="mock provider (answers from fixtures/layout_profiles)")
+    layout.add_argument("--no-cache", action="store_true", help="ignore cached profiles")
+    layout.add_argument("--json", action="store_true", help="print the report as JSON")
+    layout.add_argument("--profile-out", help="write the resolved STTM profile JSON here")
+    layout.add_argument("--require-complete", action="store_true",
+                        help="print the open questions and exit non-zero when roles remain")
+
+    extract_vdd = subparsers.add_parser(
+        "extract-vdd",
+        help="extract a Vendor Data Dictionary contract from a VDD workbook (patterns V1/V2/V3)",
+    )
+    extract_vdd.add_argument("--config", default="config/config.yaml")
+    extract_vdd.add_argument("--vdd", required=True, help="vendor data dictionary (.xlsx)")
+    extract_vdd.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    extract_vdd.add_argument("--sttm-contract", help="STTM contract JSON whose table names "
+                                                     "select the field sheets of a "
+                                                     "one-sheet-per-table dictionary")
+    extract_vdd.add_argument("--layout", help="read through this resolved LayoutProfile JSON")
+    extract_vdd.add_argument("--profile", help="also write the resolved layout profile JSON here")
+    extract_vdd.add_argument("--contract-name", help="override the derived contract_name")
+    extract_vdd.add_argument("--generated-date", help="YYYY-MM-DD stamped as generated_date")
+
+    extract_frd = subparsers.add_parser(
+        "extract-frd",
+        help="extract an FRD feed contract from a client FRD .docx (families F1/F2)",
+    )
+    extract_frd.add_argument("--config", default="config/config.yaml")
+    extract_frd.add_argument("--docx", required=True, help="client FRD document (.docx)")
+    extract_frd.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    extract_frd.add_argument("--profile", help="also write the resolved FRD layout profile "
+                                               "JSON to this path")
+    extract_frd.add_argument("--contract-name", help="override the derived contract_name")
+    extract_frd.add_argument(
         "--generated-date",
         help="YYYY-MM-DD stamped as generated_date; defaults to today "
         "(inject for byte-reproducible output)",
@@ -768,6 +1025,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "extract-sttm":
         return _extract_sttm(args, config)
+    if args.command == "extract-frd":
+        return _extract_frd(args, config)
+    if args.command == "extract-vdd":
+        return _extract_vdd(args, config)
+    if args.command == "layout":
+        return _layout(args, config)
 
     if args.command == "demo-source-files":
         # Same JSON as GET /api/demo/source-files — display data only.

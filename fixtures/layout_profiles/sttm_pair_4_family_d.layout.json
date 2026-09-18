@@ -1,0 +1,145 @@
+{
+  "fingerprint": "8916cd50338bab5a13da55e8ab63304deb4536997b411ae0480d55bd0299d91b",
+  "sheets": [
+    {
+      "name": "STTM",
+      "kind": "mapping",
+      "header_row": 5,
+      "band_row": 4,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 7,
+          "roles": {
+            "ordinal": 1,
+            "field_name": 2,
+            "source_type": 3,
+            "start": 4,
+            "end": 5,
+            "length": 6,
+            "description": 7
+          },
+          "label": "Source Data"
+        },
+        {
+          "layer": "rules",
+          "col_start": 8,
+          "col_end": 13,
+          "roles": {
+            "data_definition": 8,
+            "pii": 9,
+            "primary_key": 10,
+            "critical": 11,
+            "not_null": 12,
+            "load_rule": 13
+          },
+          "label": "Data Rules"
+        },
+        {
+          "layer": "stage",
+          "col_start": 14,
+          "col_end": 19,
+          "roles": {
+            "workspace": 14,
+            "catalog": 15,
+            "schema": 16,
+            "table": 17,
+            "column": 18,
+            "target_type": 19
+          },
+          "label": "Target Table - Staging Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 20,
+          "col_end": 25,
+          "roles": {
+            "workspace": 20,
+            "catalog": 21,
+            "schema": 22,
+            "table": 23,
+            "column": 24,
+            "target_type": 25
+          },
+          "label": "Target Table - Standard Layer"
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 1,
+          "col": 1,
+          "label": "File Name",
+          "key": "file_names",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 4, header row 5"
+      ]
+    },
+    {
+      "name": "LOB_CROSSWALK",
+      "kind": "lob_crosswalk",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Plan Code",
+        "LOB",
+        "Region"
+      ],
+      "notes": []
+    },
+    {
+      "name": "OVERPUNCH_RULES",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "STTM/source/ordinal": 1.0,
+    "STTM/source/field_name": 1.0,
+    "STTM/source/source_type": 1.0,
+    "STTM/source/start": 1.0,
+    "STTM/source/end": 1.0,
+    "STTM/source/length": 1.0,
+    "STTM/source/description": 1.0,
+    "STTM/rules/data_definition": 1.0,
+    "STTM/rules/pii": 1.0,
+    "STTM/rules/primary_key": 1.0,
+    "STTM/rules/critical": 1.0,
+    "STTM/rules/not_null": 1.0,
+    "STTM/rules/load_rule": 1.0,
+    "STTM/stage/workspace": 1.0,
+    "STTM/stage/catalog": 1.0,
+    "STTM/stage/schema": 1.0,
+    "STTM/stage/table": 1.0,
+    "STTM/stage/column": 1.0,
+    "STTM/stage/target_type": 1.0,
+    "STTM/standard/workspace": 1.0,
+    "STTM/standard/catalog": 1.0,
+    "STTM/standard/schema": 1.0,
+    "STTM/standard/table": 1.0,
+    "STTM/standard/column": 1.0,
+    "STTM/standard/target_type": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

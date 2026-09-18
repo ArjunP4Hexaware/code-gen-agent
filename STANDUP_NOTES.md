@@ -114,3 +114,5 @@ exactly:
 
 Then rebuild the frontend and restart the server (both frozen until after
 the demo).
+
+2026-09-16: gate.ruff runs `python -m ruff` at runtime but ruff is declared only in [dev]; a plain .[ui] install produces FAIL verdicts on every feed. Shipped zip patches pyproject [ui]; fix in source next.

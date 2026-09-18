@@ -129,6 +129,19 @@ def write_source_file(
     extra_lines: list[str] | None = None,
 ) -> str:
     """Write a Header/Detail/Trailer file; trailer count defaults to len(rows)."""
+{% if fixed_width %}
+    header = header_line if header_line is not None else fixed_width_line(
+        "Header", HEADER_SAMPLE
+    )
+    trailer_sample = dict(TRAILER_SAMPLE)
+    trailer_sample[TRAILER_COUNT_SOURCE_COLUMN or ""] = str(
+        trailer_count if trailer_count is not None else len(rows)
+    )
+    trailer = trailer_line if trailer_line is not None else fixed_width_line(
+        "Trailer", trailer_sample
+    )
+    lines = [header, *[fixed_width_line("Detail", row) for row in rows], trailer]
+{% else %}
     header = header_line if header_line is not None else DELIMITER.join(
         HEADER_SAMPLE.values()
     )
@@ -140,10 +153,23 @@ def write_source_file(
         trailer_sample.values()
     )
     lines = [header, *[DELIMITER.join(row.values()) for row in rows], trailer]
+{% endif %}
     lines += extra_lines or []
     path = Path(directory) / file_name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return str(path)
+{% if fixed_width %}
+
+
+def fixed_width_line(segment: str, values: dict[str, str]) -> str:
+    """Pad every value to its STTM position (left-justified, truncated)."""
+    from pipeline import feed_spec
+
+    parts = []
+    for column, _start, length in feed_spec.SEGMENT_POSITIONS[segment]:
+        parts.append(str(values.get(column, "")).ljust(length)[:length])
+    return "".join(parts)
+{% endif %}
 {% else %}
 def write_source_file(
     directory,

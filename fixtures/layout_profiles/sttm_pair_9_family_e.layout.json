@@ -1,0 +1,243 @@
+{
+  "fingerprint": "8f9efdf0f460bf2b5456a536224fcb790db5d3d512b425df17c82de06c46040b",
+  "sheets": [
+    {
+      "name": "Summary",
+      "kind": "table_details",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "S.No",
+        "Source",
+        "Source Type",
+        "Name",
+        "Table Description",
+        "Total Count",
+        "Load strategy(Stage)",
+        "Load strategy(std)"
+      ],
+      "notes": []
+    },
+    {
+      "name": "MAPPING_FEED_9",
+      "kind": "mapping",
+      "header_row": 2,
+      "band_row": 1,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 12,
+          "roles": {
+            "source_database": 1,
+            "source_schema": 2,
+            "source_table": 3,
+            "field_name": 4,
+            "key": 5,
+            "required": 6,
+            "length": 7,
+            "source_type": 8,
+            "description": 9,
+            "pii": 11,
+            "critical": 12
+          },
+          "label": "Source Tables"
+        },
+        {
+          "layer": "stage",
+          "col_start": 13,
+          "col_end": 18,
+          "roles": {
+            "workspace": 13,
+            "catalog": 14,
+            "schema": 15,
+            "table": 16,
+            "column": 17,
+            "target_type": 18
+          },
+          "label": "Target - DL Staging Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 19,
+          "col_end": 24,
+          "roles": {
+            "workspace": 19,
+            "catalog": 20,
+            "schema": 21,
+            "table": 22,
+            "column": 23,
+            "target_type": 24
+          },
+          "label": "Target - DL Standard Layer"
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 1, header row 2"
+      ]
+    },
+    {
+      "name": "MAPPING_FEED_9_TBL2",
+      "kind": "mapping",
+      "header_row": 2,
+      "band_row": 1,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 12,
+          "roles": {
+            "source_database": 1,
+            "source_schema": 2,
+            "source_table": 3,
+            "field_name": 4,
+            "key": 5,
+            "required": 6,
+            "length": 7,
+            "source_type": 8,
+            "description": 9,
+            "pii": 11,
+            "critical": 12
+          },
+          "label": "Source Tables"
+        },
+        {
+          "layer": "stage",
+          "col_start": 13,
+          "col_end": 18,
+          "roles": {
+            "workspace": 13,
+            "catalog": 14,
+            "schema": 15,
+            "table": 16,
+            "column": 17,
+            "target_type": 18
+          },
+          "label": "Target - DL Staging Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 19,
+          "col_end": 24,
+          "roles": {
+            "workspace": 19,
+            "catalog": 20,
+            "schema": 21,
+            "table": 22,
+            "column": 23,
+            "target_type": 24
+          },
+          "label": "Target - DL Standard Layer"
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 1, header row 2"
+      ]
+    },
+    {
+      "name": "Sheet2",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Log",
+      "kind": "version",
+      "header_row": 2,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Version",
+        "Date",
+        "Description"
+      ],
+      "notes": []
+    },
+    {
+      "name": "Sheet1",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "MAPPING_FEED_9/source/source_database": 1.0,
+    "MAPPING_FEED_9/source/source_schema": 1.0,
+    "MAPPING_FEED_9/source/source_table": 1.0,
+    "MAPPING_FEED_9/source/field_name": 1.0,
+    "MAPPING_FEED_9/source/key": 1.0,
+    "MAPPING_FEED_9/source/required": 1.0,
+    "MAPPING_FEED_9/source/length": 1.0,
+    "MAPPING_FEED_9/source/source_type": 1.0,
+    "MAPPING_FEED_9/source/description": 1.0,
+    "MAPPING_FEED_9/source/pii": 1.0,
+    "MAPPING_FEED_9/stage/workspace": 1.0,
+    "MAPPING_FEED_9/stage/catalog": 1.0,
+    "MAPPING_FEED_9/stage/schema": 1.0,
+    "MAPPING_FEED_9/stage/table": 1.0,
+    "MAPPING_FEED_9/stage/column": 1.0,
+    "MAPPING_FEED_9/stage/target_type": 1.0,
+    "MAPPING_FEED_9/standard/workspace": 1.0,
+    "MAPPING_FEED_9/standard/catalog": 1.0,
+    "MAPPING_FEED_9/standard/schema": 1.0,
+    "MAPPING_FEED_9/standard/table": 1.0,
+    "MAPPING_FEED_9/standard/column": 1.0,
+    "MAPPING_FEED_9/standard/target_type": 1.0,
+    "MAPPING_FEED_9_TBL2/source/source_database": 1.0,
+    "MAPPING_FEED_9_TBL2/source/source_schema": 1.0,
+    "MAPPING_FEED_9_TBL2/source/source_table": 1.0,
+    "MAPPING_FEED_9_TBL2/source/field_name": 1.0,
+    "MAPPING_FEED_9_TBL2/source/key": 1.0,
+    "MAPPING_FEED_9_TBL2/source/required": 1.0,
+    "MAPPING_FEED_9_TBL2/source/length": 1.0,
+    "MAPPING_FEED_9_TBL2/source/source_type": 1.0,
+    "MAPPING_FEED_9_TBL2/source/description": 1.0,
+    "MAPPING_FEED_9_TBL2/source/pii": 1.0,
+    "MAPPING_FEED_9_TBL2/stage/workspace": 1.0,
+    "MAPPING_FEED_9_TBL2/stage/catalog": 1.0,
+    "MAPPING_FEED_9_TBL2/stage/schema": 1.0,
+    "MAPPING_FEED_9_TBL2/stage/table": 1.0,
+    "MAPPING_FEED_9_TBL2/stage/column": 1.0,
+    "MAPPING_FEED_9_TBL2/stage/target_type": 1.0,
+    "MAPPING_FEED_9_TBL2/standard/workspace": 1.0,
+    "MAPPING_FEED_9_TBL2/standard/catalog": 1.0,
+    "MAPPING_FEED_9_TBL2/standard/schema": 1.0,
+    "MAPPING_FEED_9_TBL2/standard/table": 1.0,
+    "MAPPING_FEED_9_TBL2/standard/column": 1.0,
+    "MAPPING_FEED_9_TBL2/standard/target_type": 1.0,
+    "MAPPING_FEED_9/source/critical": 1.0,
+    "MAPPING_FEED_9_TBL2/source/critical": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

@@ -3,7 +3,7 @@ name = "codegen-data-engineer-agent"
 # Bump on every Apps redeploy that changes src/ — the Apps pip install
 # reuses its cached wheel for an unchanged version, silently deploying
 # stale code against fresh config (bitten 2026-08-28).
-version = "0.3.5"
+version = "0.4.1"
 description = "Generates Databricks ingestion pipelines (PySpark + Delta) from approved machine-readable contracts"
 requires-python = ">=3.11"
 dependencies = [
@@ -34,6 +34,10 @@ live = [
 ui = [
     "fastapi>=0.111",
     "uvicorn>=0.30",
+    # The gate's ruff check runs `python -m ruff` at generation time (also
+    # from the UI's live runs), so a plain .[ui] install must carry it —
+    # without it every feed verdicts FAIL (STANDUP_NOTES 2026-09-16).
+    "ruff>=0.5",
     # FastAPI's multipart form handling — the from-device upload route
     # (POST /api/demo/upload) refuses to register without it.
     "python-multipart",

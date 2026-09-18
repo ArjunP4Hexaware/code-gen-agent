@@ -3,3 +3,8 @@
 # that rewrites line endings changes every generated file's banner and breaks
 # the notebook_mode snapshot. Never convert fixture bytes.
 fixtures/** -text
+
+# Built frontend bundle: committed as-is, never line-ending converted
+ui/frontend/dist/** -text
+# Shell scripts run on Linux (Apps runtime, CI): always LF
+*.sh text eol=lf

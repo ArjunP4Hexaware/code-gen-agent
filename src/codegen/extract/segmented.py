@@ -32,12 +32,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from openpyxl import load_workbook
-
 from codegen.config import Config, SegmentedExtractorConfig
 from codegen.contracts.frd import FrdContract, FrdFeed
 from codegen.contracts.sttm import (
     AuditColumn,
+    FieldProvenance,
+    LayoutSummary,
     LoadRules,
     ProvenanceNote,
     RecordIdentification,
@@ -51,6 +51,7 @@ from codegen.contracts.sttm import (
 )
 from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError, _norm, _text
 from codegen.faq import load_faq
+from codegen.layout.profile import LayoutProfile, SheetProfile
 from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
 
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
@@ -274,6 +275,24 @@ def _derive_identification(seg_rows: list[_SegRow], blocks: _Blocks,
     )
 
 
+def _blocks_from_profile(sheet_profile: SheetProfile) -> _Blocks:
+    """The legacy block dicts (logical name -> 0-based column) read back from
+    the layout profile the segmented_family strategy produced."""
+    from codegen.layout.discover import SEGMENTED_SOURCE_ROLES, SEGMENTED_TABLE_ROLES
+
+    def _band(layer: str, roles: dict) -> dict[str, int] | None:
+        band = sheet_profile.band(layer)  # type: ignore[arg-type]
+        if band is None:
+            return None
+        return {legacy: band.roles[role.value] - 1 for legacy, role in roles.items()
+                if role.value in band.roles}
+
+    source = _band("source", SEGMENTED_SOURCE_ROLES)
+    stage = _band("stage", SEGMENTED_TABLE_ROLES)
+    assert source is not None and stage is not None
+    return _Blocks(source=source, stage=stage, standard=_band("standard", SEGMENTED_TABLE_ROLES))
+
+
 def extract_segmented_contract(
     workbook_path: Path,
     frd: FrdContract,
@@ -282,40 +301,34 @@ def extract_segmented_contract(
     refusal_evidence: str,
     contract_name: str | None = None,
     generated_date: str | None = None,
+    profile: LayoutProfile | None = None,
+    workbook=None,
 ) -> SttmContract:
-    """Parse a segmented workbook + its FRD feed into the STTM contract."""
+    """Parse a segmented workbook + its FRD feed into the STTM contract.
+
+    M1: column positions come from the ``segmented_family`` layout profile
+    (``codegen.layout.discover``); the cells are read here, verbatim."""
     from codegen.extract.extractor import ExtractionError  # local: avoid cycle
 
     seg_config = config.extractor.segmented
-    labels = config.extractor.band_labels
-    band_vocabulary = (
-        {_norm(labels.source), _norm(labels.stage), _norm(labels.standard)}
-        | {_norm(v) for v in seg_config.source_band_variants}
-    )
 
-    workbook = load_workbook(workbook_path, data_only=True)
-    ws, band_row, rows = _find_mapping_sheet(
-        workbook, seg_config, band_vocabulary, workbook_path.name)
+    if profile is None or workbook is None:
+        from codegen.layout.discover import discover
 
-    band_starts: dict[str, int] = {}
-    for index, cell in enumerate(rows[band_row]):
-        text = _norm(cell)
-        if not text:
-            continue
-        if text in {_norm(labels.source)} | {_norm(v) for v in seg_config.source_band_variants}:
-            band_starts["source"] = index
-        elif text == _norm(labels.stage):
-            band_starts["stage"] = index
-        elif text == _norm(labels.standard):
-            band_starts["standard"] = index
-    if "source" not in band_starts or "stage" not in band_starts:
-        raise WorkbookParseError(
-            f"{ws.title}: band row {band_row + 1} lacks source/stage band labels")
+        found = discover(workbook_path, config.extractor)
+        profile, workbook = found.profile, found.workbook
+    if profile.strategy != "segmented_family":
+        raise SegmentedWorkbookError(
+            f"{workbook_path.name}: {refusal_evidence}; the segmented extractor cannot "
+            f"resolve this workbook (discovery strategy {profile.strategy!r})")
+    sheet_profile = profile.mapping_sheets[0]
+    ws = workbook[sheet_profile.name]
+    rows = list(ws.iter_rows(values_only=True))
+    assert sheet_profile.band_row is not None
+    band_row = sheet_profile.band_row - 1
 
     facts = _parse_metadata_block(rows, band_row, seg_config, ws.title)
-    max_col = max(len(r) for r in rows) - 1
-    header = list(rows[band_row + 1])
-    blocks = _resolve_blocks(header, band_starts, max_col, seg_config, ws.title)
+    blocks = _blocks_from_profile(sheet_profile)
     seg_rows = _segment_rows(rows, band_row + 1, blocks, seg_config, ws.title)
 
     frd_feed = _match_frd_feed(frd, facts, workbook_path.name)
@@ -454,6 +467,10 @@ def extract_segmented_contract(
                                      "stage TableName"),
                 standard_table=(_cell(row, blocks.standard["tablename"])
                                 if emit_standard else None),
+                provenance=FieldProvenance(
+                    sheet=ws.title, row=seg_row.row_number,
+                    col=blocks.source["field_name"] + 1,
+                    source=profile.role_source(ws.title, "source", "field_name")),
             ))
 
     # ---- no natural-key requirement (FRD: no keys, no MERGE) ---------------
@@ -575,6 +592,11 @@ def extract_segmented_contract(
             "segmented.identification citation.",
         ],
         feeds=[feed],
+        layout=LayoutSummary(
+            strategy=profile.strategy, source=profile.source,
+            fingerprint=profile.fingerprint,
+            unresolved=[f"{u.sheet}/{u.layer}/{u.role}: {u.reason}"
+                        for u in profile.unresolved]),
     )
 
 

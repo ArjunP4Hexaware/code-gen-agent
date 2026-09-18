@@ -1,5 +1,51 @@
 {% from "_macros.py.j2" import banner %}
-{% if segment_identification %}
+{% if fixed_width %}
+"""Slice raw fixed-width lines into per-segment DataFrames (Header/Detail/Trailer).
+
+The record type sits at the first position of every line (the segment
+identifier field's start/length, from the STTM source band); every other
+field is a substring at its STTM position. A line whose length differs from
+the segment's record length is reported through ``_field_count`` (-1) so the
+drift check quarantines it.
+"""
+{{ banner(provenance, feed) }}
+
+from __future__ import annotations
+
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+from pipeline import feed_spec, reader
+
+
+def _record_type(line: F.Column, segment: str) -> F.Column:
+    _column, start, length = feed_spec.SEGMENT_POSITIONS[segment][0]
+    return F.substring(line, start, length)
+
+
+def split_segments(raw: DataFrame) -> tuple[dict[str, DataFrame], DataFrame]:
+    """Raw lines -> ({segment: DataFrame with source columns}, unknown rows)."""
+    line = F.col(reader.RAW_LINE_COLUMN)
+    known_values = {
+        segment: spec["record_type_value"] for segment, spec in feed_spec.SEGMENTS.items()
+    }
+    by_segment: dict[str, DataFrame] = {}
+    for segment, record_type_value in known_values.items():
+        positions = feed_spec.SEGMENT_POSITIONS[segment]
+        selected = [
+            F.substring(line, start, length).alias(column) for column, start, length in positions
+        ]
+        expected = F.lit(feed_spec.RECORD_LENGTHS[segment])
+        field_count = F.when(F.length(line) == expected, F.lit(len(positions))).otherwise(
+            F.lit(-1)
+        )
+        by_segment[segment] = raw.where(_record_type(line, segment) == record_type_value).select(
+            *selected, field_count.alias("_field_count")
+        )
+    first = next(iter(known_values))
+    unknown = raw.where(~_record_type(line, first).isin(list(known_values.values())))
+    return by_segment, unknown
+{% elif segment_identification %}
 """Split raw delimited lines into per-segment DataFrames (Header/Detail/Trailer).
 
 Record identification is DERIVED from the STTM ({{ segment_identification.method }}):

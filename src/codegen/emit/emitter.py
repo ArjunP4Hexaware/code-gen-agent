@@ -71,7 +71,7 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
 
     ddl_dir = feed_dir / "ddl"
     qualified_prefix = f"{context['default_catalog']}." if context["default_catalog"] else ""
-    for seg in context["segments"]:
+    for seg in context.get("stage_tables", context["segments"]):
         renders.append(
             (
                 "ddl/stage_table.sql.j2",

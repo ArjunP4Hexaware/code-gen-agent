@@ -45,7 +45,7 @@ engineering_standards:`.
 | Dedup rule on key columns when target load is upsert | `dq.py` `duplicate_key` check over (SRC_FILE_NAME, natural key); the writer's MERGE is keyed the same way. |
 | NULL check on referential columns when recycle enabled | `recycle.py`/`reference.py`: no-match and null-reference rows land in the recycle table, retried for the window. |
 | Rejects captured in a reject table + email alert to Production Support | Errors side table per feed; `email_notifications` now **always** emitted (see next row). |
-| Every pipeline must have success AND failure alerts to `DLAzureDataLakeProdSupport@amerihealthcaritas.com` | `config.yaml job.notification_emails`; `workflow.json.j2` emits `on_success` + `on_failure` unconditionally (previously only when a contract rule asked). |
+| Every pipeline must have success AND failure alerts to the prod-support DL (a client value — the tracked config carries the synthetic stand-in `syn.dl.prodsupport@synthetic.example`; the real DL rides `CODEGEN_NOTIFICATION_EMAILS` at deployment) | `config.yaml job.notification_emails`; `workflow.json.j2` emits `on_success` + `on_failure` unconditionally (previously only when a contract rule asked). |
 | Never leave the default (7-day) timeout; use execution hours + 1 | `job.timeout_hours` (7 = the SFMC FRD's 6-hour file SLA + 1) → `timeout_seconds` on the job and task. |
 | Job clusters: DBR ≥ 15.4 LTS with Photon | `job.spark_version: 15.4.x-scala2.12`, `job.runtime_engine: PHOTON` in the generated cluster spec. |
 | Liquid Clustering for new tables (`CLUSTER BY AUTO`) | All five DDL templates now emit `CLUSTER BY AUTO` (DDL remains REFERENCE-only under `create_tables: false`). |

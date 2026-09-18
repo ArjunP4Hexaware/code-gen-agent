@@ -300,38 +300,30 @@ def _live_ready() -> tuple[bool, str]:
     """
     if store is None:
         return False, "backend has no config loaded"
-    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
-        # Hard mock lock (the App deployment): the run button stays usable —
-        # build_provider returns the mock, so a "live" run makes ZERO model
-        # calls. The provider surface reports the lock explicitly.
-        return True, ""
-    provider = store.config.reasoning.provider
-    if provider == "databricks_fmapi":
-        from codegen.databricks import DatabricksConfigError, config_for
+    from codegen.reasoning.transport import resolve_transport
 
-        try:
-            cfg = config_for(store.config.databricks)
-        except DatabricksConfigError:
-            return False, "Databricks workspace config does not resolve"
-        if not cfg.serving_endpoint:
-            return False, "databricks.serving_endpoint is not configured"
-        return True, ""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return False, "no ANTHROPIC_API_KEY in the backend env"
-    return True, ""
+    transport = resolve_transport(store.config)
+    return transport.available, transport.reason
 
 
 @app.get("/api/demo/live-available")
 def live_available() -> dict:
-    # `reason` is the provider-specific remedy (never a secret, never env
-    # contents): the UI used to hardwire "no ANTHROPIC_API_KEY", which is
-    # simply wrong on the FMAPI-backed Databricks App deployment.
-    available, reason = _live_ready()
-    if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER"):
-        provider = "mock (locked)"
-    else:
-        provider = store.config.reasoning.provider if store is not None else None
-    return {"available": available, "provider": provider, "reason": reason}
+    """Which Layer-2 transport a live run would use, and whether it can.
+
+    ``provider`` is the EFFECTIVE transport (``databricks_fmapi`` inside a
+    Databricks runtime whatever the yaml says, ``anthropic`` locally with a
+    key, ``mock (locked)`` under the lock); ``transport`` carries the
+    detection detail the UI renders (runtime, marker, endpoint, model,
+    label, override). ``reason`` is the remedy — never a secret, never env
+    contents."""
+    if store is None:
+        return {"available": False, "provider": None,
+                "reason": "backend has no config loaded", "transport": None}
+    from codegen.reasoning.transport import resolve_transport
+
+    transport = resolve_transport(store.config)
+    return {"available": transport.available, "provider": transport.provider_name,
+            "reason": transport.reason, "transport": transport.as_dict()}
 
 
 class LiveRunRequest(BaseModel):
@@ -350,7 +342,65 @@ def run_live(req: LiveRunRequest) -> dict:
         _require_runner().start_live()
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:  # nothing selected under Output
+        raise HTTPException(400, str(exc)) from exc
     return _require_runner().status()
+
+
+class VddSelectRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/demo/vdd")
+def select_vdd(req: VddSelectRequest) -> dict:
+    """M3: choose a Vendor Data Dictionary workbook (.xlsx) from the input
+    directories as the pair's third input; DELETE clears it."""
+    runner = _require_runner()
+    if "/" in req.name or "\\" in req.name or ".." in req.name:
+        raise HTTPException(400, f"invalid workbook name {req.name!r}")
+    for _label, directory in runner._workbook_dirs():  # noqa: SLF001
+        candidate = directory / req.name
+        if candidate.is_file() and candidate.suffix.lower() == ".xlsx":
+            try:
+                runner.select_vdd(candidate)
+            except LiveRunInProgress as exc:
+                raise HTTPException(409, str(exc)) from exc
+            return {"selected": req.name}
+    raise HTTPException(404, f"no workbook named {req.name!r} in the input directories")
+
+
+@app.delete("/api/demo/vdd")
+def clear_vdd() -> dict:
+    try:
+        _require_runner().select_vdd(None)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"selected": None}
+
+
+class LayoutAnswersRequest(BaseModel):
+    answers: dict = {}
+    proceed: bool = False
+    cancel: bool = False
+
+
+@app.post("/api/demo/layout-answers")
+def layout_answers(req: LayoutAnswersRequest) -> dict:
+    """The human's role placements for a run paused in ``needs_layout``
+    (M2.5 §6): ``answers`` = ``{"sttm": {"<sheet>/<layer>/<role>": col},
+    "frd": {"<field>": {table,row,col,…}}}``; ``proceed`` continues with the
+    remaining roles read as empty (gate-flagged); ``cancel`` stops the run."""
+    from codegen.layout.resolve import parse_answers
+
+    runner = _require_runner()
+    try:
+        parse_answers(req.answers)
+        runner.answer_layout(req.answers, proceed=req.proceed, cancel=req.cancel)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return runner.status()
 
 
 @app.get("/api/demo/status")
@@ -371,17 +421,35 @@ def demo_status() -> dict:
         # config-default fallback, so the UI can demand the choice up front.
         "sttm_workbook": _require_runner().effective_workbook().name,
         "sttm_chosen": _require_runner().selected_workbook is not None,
+        # M3: the optional Vendor Data Dictionary (third input), file name only.
+        "vdd_name": (_require_runner().selected_vdd.name
+                     if _require_runner().selected_vdd is not None else None),
         # Output mode a run would use (Option A notebook / Option B
         # framework / both) — the runner's override or the config default.
+        # The generator mode the Output selection maps onto (None while
+        # nothing is selected) and the selection itself (the UI's toggles).
         "output_mode": (
-            _require_runner().output_mode or _require_store().config.output.mode
+            _require_runner().output_mode if _require_runner().output_parts is not None
+            else _require_store().config.output.mode
         ),
+        "output_parts": _require_runner().effective_output_parts(),
+        # M4/M5 generation options a run would use (override or config default).
+        "conventions_profile": (_require_runner().conventions_profile
+                                or _require_store().config.conventions.profile),
+        "iig_template": (_require_runner().iig_template
+                         or _require_store().config.metadata.template),
+        "playbook_template": (_require_runner().playbook_template
+                              or _require_store().config.playbook.template),
         # The FRD side of the pair. frd_warning: the STTM is an explicit
         # non-golden pick while the FRD is still the pinned demo golden —
         # a feed-match failure is likely; the human decides, no auto-fix.
         "frd_name": (_require_runner().selected_frd_label
                      or _require_store().config.demo.frd),
         "frd_chosen": _require_runner().selected_frd is not None,
+        # Set when choosing the STTM selected its associated FRD automatically
+        # ({frd, rule: pairing_map | ticket | name_stem}); None for a manual pick.
+        "frd_auto_paired": _require_runner().frd_auto_paired,
+        "vdd_auto_paired": _require_runner().vdd_auto_paired,
         "frd_warning": (
             _require_runner().selected_workbook is not None
             and _require_runner().selected_workbook.name
@@ -395,10 +463,12 @@ def demo_status() -> dict:
 @app.get("/api/demo/frd-choices")
 def frd_choices() -> dict:
     """FRD options for the chooser: upstream contracts (FRD→STTM agent's
-    table, with audit stamps and pairing vs the current STTM), local
-    contract JSONs, and documents with NO contract (not selectable — "run
-    the FRD→STTM agent first"). Upstream unreachable → that section absent
-    with a reason, everything else still renders."""
+    table, with audit stamps and pairing vs the current STTM) and local
+    FRDs — contract JSONs AND FRD .docx documents (standalone doctrine,
+    2026-09-18: a .docx is extracted by ``codegen.extract.frd_docx`` when
+    the run starts). ``no_contract`` is kept for API compatibility and is
+    always empty now. Upstream unreachable → that section absent with a
+    reason, everything else still renders."""
     from codegen.demo_sources import (
         canonical_document_name,
         document_stem,
@@ -429,25 +499,9 @@ def frd_choices() -> dict:
                           and paired.get(sttm_name) != row["doc_id"]),
         })
 
-    contracts_dir = REPO_ROOT / store.config.contracts.dir
-    local = sorted(
-        {p.name for d in (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                          REPO_ROOT / "inputs" / "sharepoint",
-                          REPO_ROOT / "inputs" / "uploads")
-         if d.is_dir()
-         for p in d.glob("*.contract.json")}
-    )
-
-    upstream_stems = {document_stem(d) for d in doc_ids}
-    orphans = sorted({
-        p.name
-        for d in (REPO_ROOT / "inputs" / "databricks",
-                  REPO_ROOT / "inputs" / "sharepoint")
-        if d.is_dir()
-        for p in d.glob("*.docx")
-        if canonical_document_name(p.name).startswith("frd")
-        and document_stem(p.name) not in upstream_stems
-    })
+    local = sorted(runner.local_frd_candidates())
+    del canonical_document_name, document_stem
+    orphans: list[str] = []
 
     return {
         "sttm": sttm_name,
@@ -488,6 +542,8 @@ def select_frd(req: FrdSelectRequest) -> dict:
             return {"selected": req.id, "kind": "upstream",
                     "audited_at": meta["audited_at"], "feeds": feeds}
         if req.kind == "local":
+            # A local FRD is a .contract.json or an FRD .docx (extracted by
+            # the runner when the run starts — standalone doctrine).
             if "/" in req.id or "\\" in req.id or ".." in req.id:
                 raise HTTPException(400, f"invalid contract name {req.id!r}")
             for directory in (REPO_ROOT / store.config.contracts.dir,
@@ -513,13 +569,17 @@ _UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # same cap as the SharePoint import
 async def upload_demo_document(
     kind: Annotated[str, Form()], file: Annotated[UploadFile, File()]
 ) -> dict:
-    """From-device upload for the choose step: an STTM workbook (.xlsx) or an
-    FRD contract JSON. Lands in the gitignored ``inputs/uploads/`` inbox
-    (scanned exactly like the SharePoint/Databricks ones) and is selected for
-    the next run in the same motion. An FRD upload must PARSE as an FRD
-    contract — a raw .docx has no contract and the answer stays "run the
-    FRD→STTM agent first", never a guess."""
+    """From-device upload for the choose step: an STTM workbook (.xlsx), an
+    FRD contract JSON, or an FRD .docx. Lands in the gitignored
+    ``inputs/uploads/`` inbox (scanned exactly like the SharePoint/Databricks
+    ones) and is selected for the next run in the same motion. A JSON upload
+    must PARSE as an FRD contract; a .docx must be an F1/F2 FRD the
+    extractor recognises (``codegen.extract.frd_docx``) — either refusal is
+    loud, never a guess."""
+    import tempfile
+
     from codegen.contracts import FrdContract
+    from codegen.extract.frd_docx import FrdDocxError, discover_frd, read_docx
 
     runner = _require_runner()
     if runner.state == "running":
@@ -540,22 +600,33 @@ async def upload_demo_document(
         if not lower.endswith(".xlsx"):
             raise HTTPException(400, f"an STTM upload must be a .xlsx workbook, got {name!r}")
     elif kind == "frd":
-        if not lower.endswith(".json"):
+        if lower.endswith(".docx"):
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as handle:
+                handle.write(payload)
+                probe = Path(handle.name)
+            try:
+                discover_frd(read_docx(probe), _require_store().config.extractor.frd)
+            except FrdDocxError as exc:
+                raise HTTPException(400, f"not an F1/F2 FRD document: {exc}") from exc
+            finally:
+                probe.unlink(missing_ok=True)
+        elif not lower.endswith(".json"):
             raise HTTPException(
                 400,
-                "an FRD upload must be a .contract.json produced by the "
-                f"FRD→STTM agent, got {name!r}",
+                "an FRD upload must be a .contract.json (FRD→STTM agent) or an FRD "
+                f".docx, got {name!r}",
             )
-        try:
-            FrdContract.model_validate_json(payload)
-        except Exception as exc:  # noqa: BLE001 — surface the first validation line
-            raise HTTPException(
-                400,
-                "not a valid FRD contract: " + str(exc).splitlines()[0][:200]
-                + " — run the FRD→STTM agent to produce one",
-            ) from exc
-        if not lower.endswith(".contract.json"):
-            name = name[: -len(".json")] + ".contract.json"
+        else:
+            try:
+                FrdContract.model_validate_json(payload)
+            except Exception as exc:  # noqa: BLE001 — surface the first validation line
+                raise HTTPException(
+                    400,
+                    "not a valid FRD contract: " + str(exc).splitlines()[0][:200]
+                    + " — upload the FRD .docx instead, or run the FRD→STTM agent",
+                ) from exc
+            if not lower.endswith(".contract.json"):
+                name = name[: -len(".json")] + ".contract.json"
     else:
         raise HTTPException(400, f"unknown upload kind {kind!r}")
 
@@ -587,7 +658,7 @@ def clear_frd() -> dict:
 
 
 class OutputModeRequest(BaseModel):
-    mode: str | None = None  # notebook | framework | both; null = config default
+    mode: str | None = None  # notebook | framework | both | rfc | all; null = config default
 
 
 @app.post("/api/demo/output-mode")
@@ -599,6 +670,50 @@ def select_output_mode(req: OutputModeRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return demo_status()
+
+
+class OutputPartsRequest(BaseModel):
+    # any subset of notebook | framework | rfc | all; [] = nothing selected
+    # (a run is refused); null = the config default
+    parts: list[str] | None = None
+
+
+@app.post("/api/demo/output-parts")
+def select_output_parts(req: OutputPartsRequest) -> dict:
+    try:
+        _require_runner().select_output_parts(req.parts)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return demo_status()
+
+
+class GenerationOptionsRequest(BaseModel):
+    # null = the config default for that knob
+    conventions_profile: str | None = None
+    iig_template: str | None = None
+    playbook_template: str | None = None
+
+
+@app.get("/api/demo/generation-options")
+def generation_options() -> dict:
+    """M6: the conventions profile / IIG template / playbook template
+    selectors — options from config, selection (None = default)."""
+    return _require_runner().generation_options()
+
+
+@app.post("/api/demo/generation-options")
+def select_generation_options(req: GenerationOptionsRequest) -> dict:
+    try:
+        _require_runner().select_generation_options(
+            conventions_profile=req.conventions_profile, iig_template=req.iig_template,
+            playbook_template=req.playbook_template)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _require_runner().generation_options()
 
 
 @app.get("/api/feeds/{slug}/download")
@@ -748,7 +863,20 @@ def governance_checks() -> dict:
         ),
         candidate_providers=tuple(c.provider for c in candidates),
     )
-    return governance_checks_payload(store.config, REPO_ROOT, facts)
+    return {"configured": _reference_documents_present(store.config),
+            **governance_checks_payload(store.config, REPO_ROOT, facts)}
+
+
+def _reference_documents_present(config) -> bool:
+    """The request-time checks are grounded in demo.input_documents; when
+    none of those files resolve (an ACFC deployment), the panels hide and
+    the endpoints say so with ``configured: false``."""
+    from codegen.demo_sources import scan_reference_documents
+
+    try:
+        return bool(scan_reference_documents(config, REPO_ROOT)["present"])
+    except Exception:  # noqa: BLE001 — a scan failure reads as unconfigured
+        return False
 
 
 @app.get("/api/demo/input-requirements")
@@ -756,7 +884,9 @@ def input_requirements() -> dict:
     """The FRD contract evaluated against the client requirements deck,
     read LIVE from the input dirs (codegen.input_requirements). The one
     reference document consumed in processing; absent deck → absent check."""
-    return input_requirements_payload(_require_store().config, REPO_ROOT)
+    config = _require_store().config
+    return {"configured": _reference_documents_present(config),
+            **input_requirements_payload(config, REPO_ROOT)}
 
 
 @app.get("/api/demo/metadata-sheet")

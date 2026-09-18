@@ -717,17 +717,21 @@ def metadata_sheet_payload(
     run_label: str | None = None,
     faq_by_slug: dict | None = None,
     frd_path: Path | None = None,
+    template: str | None = None,
 ) -> dict:
     """The whole preview. ``specs`` (a run's resolved feeds) populate the
     STTM-derived cells; without them the ``columns`` tab is empty with an
-    explicit state and STTM-derived cells fall back to needs_template."""
+    explicit state and STTM-derived cells fall back to needs_template.
+    ``template`` (M4) picks an IIG template version; the default
+    ``iig_v1`` is ``demo.metadata_sheet`` rendered exactly as before."""
     if frd_path is None:
         frd_path = base_dir / config.contracts.dir / config.demo.frd
     if not frd_path.is_file():
         raise FileNotFoundError(f"demo FRD contract not found: {frd_path}")
     contract = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
 
-    sheet = config.demo.metadata_sheet
+    template_name, template_cfg = config.metadata.resolve(template)
+    sheet = template_cfg if template_cfg is not None else config.demo.metadata_sheet
     always_blank = set(sheet.always_blank)
     spec_by_id = {s.feed_id: s for s in (specs or [])}
     unmapped_by_slug = unmapped_by_slug or {}
@@ -767,6 +771,15 @@ def metadata_sheet_payload(
                 unmapped = unmapped_by_slug.get(spec.feed_slug, set())
                 for cells, slug in _columns_rows(spec, unmapped):
                     rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
+        elif template_cfg is not None:
+            from codegen.metadata_template import template_tab_rows
+
+            for feed in feed_rows:
+                slug = normalize_feed_name(feed.feed_name)
+                spec = spec_by_id.get(slug)
+                for cells in template_tab_rows(name, feed, config, spec,
+                                               faq_by_slug.get(slug), template_cfg):
+                    rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
         elif name in _IIG_TAB_BUILDERS:
             builder = _IIG_TAB_BUILDERS[name]
             for feed in feed_rows:
@@ -795,7 +808,7 @@ def metadata_sheet_payload(
                 else:
                     needs_template += 1
 
-    return {
+    payload = {
         "layout_note": LAYOUT_NOTE,
         "run_label": run_label,
         "tabs": tabs,
@@ -806,6 +819,12 @@ def metadata_sheet_payload(
             "total": total,
         },
     }
+    if template_cfg is not None:
+        # M4: non-default templates name themselves and their blank list;
+        # the iig_v1 payload is unchanged (byte-identical artefacts).
+        payload["template"] = template_name
+        payload["always_blank"] = list(sheet.always_blank)
+    return payload
 
 
 # -- xlsx export --------------------------------------------------------------- #

@@ -1,0 +1,133 @@
+{
+  "fingerprint": "80a5697505b710646f18fb09c34bb1ff77e6d320696220bf889677426414d086",
+  "sheets": [
+    {
+      "name": "FEED_8_LAYOUT",
+      "kind": "mapping",
+      "header_row": 8,
+      "band_row": 7,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 9,
+          "roles": {
+            "ordinal": 2,
+            "pii": 6,
+            "key": 7,
+            "field_name": 3,
+            "description": 5,
+            "critical": 8,
+            "not_null": 9
+          },
+          "label": "Header Record"
+        },
+        {
+          "layer": "stage",
+          "col_start": 10,
+          "col_end": 15,
+          "roles": {
+            "workspace": 10,
+            "catalog": 11,
+            "schema": 12,
+            "table": 13,
+            "column": 14,
+            "target_type": 15
+          },
+          "label": "Staging Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 16,
+          "col_end": 21,
+          "roles": {
+            "workspace": 16,
+            "catalog": 17,
+            "schema": 18,
+            "table": 19,
+            "column": 20,
+            "target_type": 21
+          },
+          "label": "Standard Layer"
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 1,
+          "col": 1,
+          "label": "File Names",
+          "key": "file_names",
+          "value_col": 2
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "label": "Last Update Date",
+          "key": "last_update_date",
+          "value_col": 2
+        },
+        {
+          "row": 3,
+          "col": 1,
+          "label": "Version",
+          "key": "version",
+          "value_col": 2
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "label": "LOB",
+          "key": "lob",
+          "value_col": 2
+        },
+        {
+          "row": 5,
+          "col": 1,
+          "label": "Target table Name Desc",
+          "key": "target_table_desc",
+          "value_col": 2
+        },
+        {
+          "row": 6,
+          "col": 1,
+          "label": "Feed Type",
+          "key": "feed_type",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "banner",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 7, header row 8",
+        "segments introduced by in-sheet label rows spanning the source group"
+      ]
+    }
+  ],
+  "confidence": {
+    "FEED_8_LAYOUT/source/ordinal": 1.0,
+    "FEED_8_LAYOUT/source/pii": 1.0,
+    "FEED_8_LAYOUT/source/key": 1.0,
+    "FEED_8_LAYOUT/stage/workspace": 1.0,
+    "FEED_8_LAYOUT/stage/catalog": 1.0,
+    "FEED_8_LAYOUT/stage/schema": 1.0,
+    "FEED_8_LAYOUT/stage/table": 1.0,
+    "FEED_8_LAYOUT/stage/column": 1.0,
+    "FEED_8_LAYOUT/stage/target_type": 1.0,
+    "FEED_8_LAYOUT/standard/workspace": 1.0,
+    "FEED_8_LAYOUT/standard/catalog": 1.0,
+    "FEED_8_LAYOUT/standard/schema": 1.0,
+    "FEED_8_LAYOUT/standard/table": 1.0,
+    "FEED_8_LAYOUT/standard/column": 1.0,
+    "FEED_8_LAYOUT/standard/target_type": 1.0,
+    "FEED_8_LAYOUT/source/field_name": 1.0,
+    "FEED_8_LAYOUT/source/description": 1.0,
+    "FEED_8_LAYOUT/source/critical": 1.0,
+    "FEED_8_LAYOUT/source/not_null": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

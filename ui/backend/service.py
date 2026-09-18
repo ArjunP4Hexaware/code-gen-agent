@@ -130,9 +130,8 @@ class GenerationStore:
             # live/replay run's feeds pointing at roots that hold no files.
             if not self.config.contracts.pairs:
                 raise NothingToGenerateError(
-                    "config.contracts.pairs is empty — nothing to generate. "
-                    "Restore anonymized contract pairs in config/config.yaml, "
-                    "or load a replay set / past live run instead."
+                    "No contract pairs are configured (contracts.pairs) — use the Generate "
+                    "page to run from an STTM workbook and its FRD."
                 )
             # A plain generate returns the UI to mock state and default roots.
             self.mode = "mock"
@@ -178,8 +177,18 @@ class GenerationStore:
         candidates_override: list[RuleCandidate] | None = None,
         on_stage: Callable[[str], None] | None = None,
         output_mode: str | None = None,
+        extra_flags: list[str] | None = None,
+        conventions_profile: str | None = None,
+        iig_template: str | None = None,
+        playbook_template: str | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
+        from codegen.gate.drag_fill import drag_fill_flags
+        from codegen.gate.vdd_check import vdd_cross_check
+
+        vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
+        extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
+                       *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
         stage = on_stage or (lambda _detail: None)
@@ -227,33 +236,64 @@ class GenerationStore:
 
         effective_mode = output_mode or self.config.output.mode
         framework_artefacts = None
+        rfc_artefacts = None
         checks = None
         tests_skipped = skip_tests or not self.config.gate.run_generated_tests
-        if effective_mode == "framework":
+        if effective_mode in ("framework", "rfc"):
             stage("framework artefacts")
             written, checks, tests_skipped, ddl_sources = _emit_framework_only(
                 context, spec, self.config, feed_dir, skip_tests
             )
             framework_artefacts = _run_emit_framework(
                 spec, faq, ddl_sources, self.config, out_root, outcomes,
-                base_dir=REPO_ROOT,
+                base_dir=REPO_ROOT, conventions_profile=conventions_profile,
+                iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
+            if effective_mode == "rfc":
+                stage("RFC package")
+                from codegen.emit.rfc import emit_rfc_package
+
+                rfc_artefacts = emit_rfc_package(
+                    spec, faq, self.config, out_root, framework_artefacts,
+                    flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                    conventions_profile=conventions_profile, iig_template=iig_template,
+                    playbook_template=playbook_template, base_dir=REPO_ROOT,
+                )
+                written = [*written, *rfc_artefacts.files]
         else:
             written = emit_feed(context, out_root)
-            if effective_mode == "both":
+            if effective_mode in ("both", "all"):
                 stage("framework artefacts")
                 ddl_sources = _read_ddl_sources(feed_dir)
                 framework_artefacts = _run_emit_framework(
                     spec, faq, ddl_sources, self.config, out_root, outcomes,
-                    base_dir=REPO_ROOT,
+                    base_dir=REPO_ROOT, conventions_profile=conventions_profile,
+                    iig_template=iig_template,
                 )
                 written = [*written, *framework_artefacts.files]
+                if effective_mode == "all":
+                    stage("RFC package")
+                    from codegen.emit.rfc import emit_rfc_package
+
+                    rfc_artefacts = emit_rfc_package(
+                        spec, faq, self.config, out_root, framework_artefacts,
+                        flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                        conventions_profile=conventions_profile, iig_template=iig_template,
+                        playbook_template=playbook_template, base_dir=REPO_ROOT,
+                    )
+                    written = [*written, *rfc_artefacts.files]
+        if framework_artefacts is not None:
+            extra_flags = [*extra_flags, *framework_artefacts.flags]
+        if rfc_artefacts is not None:
+            extra_flags = [*extra_flags, *rfc_artefacts.flags]
         self._write_candidates_artifact(candidates, feed_dir)
 
         stage("gate")
         if checks is None:
             checks = run_preflight(feed_dir, self.config)
+        if vdd_check is not None:
+            checks = [*checks, vdd_check]
             if not tests_skipped:
                 checks = [
                     *checks,
@@ -268,6 +308,7 @@ class GenerationStore:
             tests_skipped,
             faq=faq,
             standards=self.config.engineering_standards,
+            extra_flags=extra_flags,
         )
         write_generation_report(
             spec,
@@ -286,6 +327,10 @@ class GenerationStore:
             with open(reports_dir / f"{spec.feed_slug}.md", "a",
                       encoding="utf-8", newline="\n") as handle:
                 handle.write(report_section(framework_artefacts))
+                if rfc_artefacts is not None:
+                    from codegen.emit.rfc import report_section as rfc_report_section
+
+                    handle.write(rfc_report_section(rfc_artefacts))
             framework_summary = {
                 "files": [p.name for p in framework_artefacts.files],
                 "row_counts": framework_artefacts.row_counts,

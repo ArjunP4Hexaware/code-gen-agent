@@ -1,0 +1,405 @@
+{
+  "fingerprint": "0b5d67958d4f1da044e410ea3ed223246140b6c636ba57b6ea0cb0cfbb3861be",
+  "sheets": [
+    {
+      "name": "Version",
+      "kind": "version",
+      "header_row": 2,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Date",
+        "Version",
+        "Author(s)",
+        "Description of Version/Changes"
+      ],
+      "notes": []
+    },
+    {
+      "name": "Outbound_REGION_A",
+      "kind": "mapping",
+      "header_row": 5,
+      "band_row": 4,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 4,
+          "roles": {
+            "nullable": 2,
+            "description": 3,
+            "field_name": 1,
+            "pii": 4
+          },
+          "label": "Source Data"
+        },
+        {
+          "layer": "stage",
+          "col_start": 5,
+          "col_end": 10,
+          "roles": {
+            "workspace": 5,
+            "catalog": 6,
+            "schema": 7,
+            "table": 8,
+            "column": 9,
+            "target_type": 10
+          },
+          "label": "Stage Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 11,
+          "col_end": 16,
+          "roles": {
+            "workspace": 11,
+            "catalog": 12,
+            "schema": 13,
+            "table": 14,
+            "column": 15,
+            "target_type": 16
+          },
+          "label": "Standard Layer"
+        },
+        {
+          "layer": "rules",
+          "col_start": 17,
+          "col_end": 17,
+          "roles": {
+            "comments": 17
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 2,
+          "col": 1,
+          "label": "Target Table Description",
+          "key": "target_table_desc",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 4, header row 5"
+      ]
+    },
+    {
+      "name": "Inbound_REGION_A",
+      "kind": "mapping",
+      "header_row": 5,
+      "band_row": 4,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 7,
+          "roles": {
+            "source_type": 4,
+            "required": 5,
+            "description": 7,
+            "ordinal": 1,
+            "field_name": 2,
+            "pii": 3
+          },
+          "label": "Source Data"
+        },
+        {
+          "layer": "stage",
+          "col_start": 8,
+          "col_end": 13,
+          "roles": {
+            "workspace": 8,
+            "catalog": 9,
+            "schema": 10,
+            "table": 11,
+            "column": 12,
+            "target_type": 13
+          },
+          "label": "Stage Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 14,
+          "col_end": 19,
+          "roles": {
+            "workspace": 14,
+            "catalog": 15,
+            "schema": 16,
+            "table": 17,
+            "column": 18,
+            "target_type": 19
+          },
+          "label": "Standard Layer"
+        },
+        {
+          "layer": "rules",
+          "col_start": 20,
+          "col_end": 20,
+          "roles": {
+            "comments": 20
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 2,
+          "col": 1,
+          "label": "Target Table Description",
+          "key": "target_table_desc",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 4, header row 5"
+      ]
+    },
+    {
+      "name": "Inbound_REGION_B_Adult",
+      "kind": "mapping",
+      "header_row": 5,
+      "band_row": 4,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 5,
+          "roles": {
+            "description": 3,
+            "required": 5,
+            "ordinal": 1,
+            "field_name": 2,
+            "pii": 4
+          },
+          "label": "Source Data"
+        },
+        {
+          "layer": "stage",
+          "col_start": 6,
+          "col_end": 11,
+          "roles": {
+            "workspace": 6,
+            "catalog": 7,
+            "schema": 8,
+            "table": 9,
+            "column": 10,
+            "target_type": 11
+          },
+          "label": "Stage Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 12,
+          "col_end": 17,
+          "roles": {
+            "workspace": 12,
+            "catalog": 13,
+            "schema": 14,
+            "table": 15,
+            "column": 16,
+            "target_type": 17
+          },
+          "label": "Standard Layer"
+        },
+        {
+          "layer": "rules",
+          "col_start": 18,
+          "col_end": 18,
+          "roles": {
+            "comments": 18
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 2,
+          "col": 1,
+          "label": "Target Table Description",
+          "key": "target_table_desc",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 4, header row 5"
+      ]
+    },
+    {
+      "name": "Inbound_REGION_B_Child",
+      "kind": "mapping",
+      "header_row": 5,
+      "band_row": 4,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 5,
+          "roles": {
+            "description": 3,
+            "required": 5,
+            "ordinal": 1,
+            "field_name": 2,
+            "pii": 4
+          },
+          "label": "Source Data"
+        },
+        {
+          "layer": "stage",
+          "col_start": 6,
+          "col_end": 11,
+          "roles": {
+            "workspace": 6,
+            "catalog": 7,
+            "schema": 8,
+            "table": 9,
+            "column": 10,
+            "target_type": 11
+          },
+          "label": "Stage Layer"
+        },
+        {
+          "layer": "standard",
+          "col_start": 12,
+          "col_end": 17,
+          "roles": {
+            "workspace": 12,
+            "catalog": 13,
+            "schema": 14,
+            "table": 15,
+            "column": 16,
+            "target_type": 17
+          },
+          "label": "Standard Layer"
+        },
+        {
+          "layer": "rules",
+          "col_start": 18,
+          "col_end": 18,
+          "roles": {
+            "comments": 18
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [
+        {
+          "row": 2,
+          "col": 1,
+          "label": "Target Table Description",
+          "key": "target_table_desc",
+          "value_col": 2
+        }
+      ],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "band row 4, header row 5"
+      ]
+    },
+    {
+      "name": "Mapping",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "Outbound_REGION_A/source/nullable": 1.0,
+    "Outbound_REGION_A/source/description": 1.0,
+    "Outbound_REGION_A/stage/workspace": 1.0,
+    "Outbound_REGION_A/stage/catalog": 1.0,
+    "Outbound_REGION_A/stage/schema": 1.0,
+    "Outbound_REGION_A/stage/table": 1.0,
+    "Outbound_REGION_A/stage/column": 1.0,
+    "Outbound_REGION_A/stage/target_type": 1.0,
+    "Outbound_REGION_A/standard/workspace": 1.0,
+    "Outbound_REGION_A/standard/catalog": 1.0,
+    "Outbound_REGION_A/standard/schema": 1.0,
+    "Outbound_REGION_A/standard/table": 1.0,
+    "Outbound_REGION_A/standard/column": 1.0,
+    "Outbound_REGION_A/standard/target_type": 1.0,
+    "Outbound_REGION_A/rules/comments": 1.0,
+    "Inbound_REGION_A/source/source_type": 1.0,
+    "Inbound_REGION_A/source/required": 1.0,
+    "Inbound_REGION_A/source/description": 1.0,
+    "Inbound_REGION_A/stage/workspace": 1.0,
+    "Inbound_REGION_A/stage/catalog": 1.0,
+    "Inbound_REGION_A/stage/schema": 1.0,
+    "Inbound_REGION_A/stage/table": 1.0,
+    "Inbound_REGION_A/stage/column": 1.0,
+    "Inbound_REGION_A/stage/target_type": 1.0,
+    "Inbound_REGION_A/standard/workspace": 1.0,
+    "Inbound_REGION_A/standard/catalog": 1.0,
+    "Inbound_REGION_A/standard/schema": 1.0,
+    "Inbound_REGION_A/standard/table": 1.0,
+    "Inbound_REGION_A/standard/column": 1.0,
+    "Inbound_REGION_A/standard/target_type": 1.0,
+    "Inbound_REGION_A/rules/comments": 1.0,
+    "Inbound_REGION_B_Adult/source/description": 1.0,
+    "Inbound_REGION_B_Adult/source/required": 1.0,
+    "Inbound_REGION_B_Adult/stage/workspace": 1.0,
+    "Inbound_REGION_B_Adult/stage/catalog": 1.0,
+    "Inbound_REGION_B_Adult/stage/schema": 1.0,
+    "Inbound_REGION_B_Adult/stage/table": 1.0,
+    "Inbound_REGION_B_Adult/stage/column": 1.0,
+    "Inbound_REGION_B_Adult/stage/target_type": 1.0,
+    "Inbound_REGION_B_Adult/standard/workspace": 1.0,
+    "Inbound_REGION_B_Adult/standard/catalog": 1.0,
+    "Inbound_REGION_B_Adult/standard/schema": 1.0,
+    "Inbound_REGION_B_Adult/standard/table": 1.0,
+    "Inbound_REGION_B_Adult/standard/column": 1.0,
+    "Inbound_REGION_B_Adult/standard/target_type": 1.0,
+    "Inbound_REGION_B_Adult/rules/comments": 1.0,
+    "Inbound_REGION_B_Child/source/description": 1.0,
+    "Inbound_REGION_B_Child/source/required": 1.0,
+    "Inbound_REGION_B_Child/stage/workspace": 1.0,
+    "Inbound_REGION_B_Child/stage/catalog": 1.0,
+    "Inbound_REGION_B_Child/stage/schema": 1.0,
+    "Inbound_REGION_B_Child/stage/table": 1.0,
+    "Inbound_REGION_B_Child/stage/column": 1.0,
+    "Inbound_REGION_B_Child/stage/target_type": 1.0,
+    "Inbound_REGION_B_Child/standard/workspace": 1.0,
+    "Inbound_REGION_B_Child/standard/catalog": 1.0,
+    "Inbound_REGION_B_Child/standard/schema": 1.0,
+    "Inbound_REGION_B_Child/standard/table": 1.0,
+    "Inbound_REGION_B_Child/standard/column": 1.0,
+    "Inbound_REGION_B_Child/standard/target_type": 1.0,
+    "Inbound_REGION_B_Child/rules/comments": 1.0,
+    "Outbound_REGION_A/source/field_name": 1.0,
+    "Outbound_REGION_A/source/pii": 1.0,
+    "Inbound_REGION_A/source/ordinal": 1.0,
+    "Inbound_REGION_A/source/field_name": 1.0,
+    "Inbound_REGION_A/source/pii": 1.0,
+    "Inbound_REGION_B_Adult/source/ordinal": 1.0,
+    "Inbound_REGION_B_Adult/source/field_name": 1.0,
+    "Inbound_REGION_B_Adult/source/pii": 1.0,
+    "Inbound_REGION_B_Child/source/ordinal": 1.0,
+    "Inbound_REGION_B_Child/source/field_name": 1.0,
+    "Inbound_REGION_B_Child/source/pii": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

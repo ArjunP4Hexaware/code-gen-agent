@@ -6,17 +6,16 @@ import {
   type DatabricksDocumentsResponse,
   type DemoStatus,
   type FrdChoicesResponse,
+  type GenerationOptions,
   type GovernanceChecksResponse,
   type GovernanceStatus,
-  type InputDocumentScan,
+  type Layer2Transport,
+  type OutputPart,
   type InputRequirementsResponse,
-  type PastLiveRun,
-  type ReplaySet,
   type RequirementStatus,
   type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
-import { MetadataSheetPanel } from "../components/MetadataSheetPanel";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
@@ -72,19 +71,19 @@ function GovernanceChip({ status }: { status: GovernanceStatus }) {
 
 export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
   const navigate = useNavigate();
-  const [sets, setSets] = useState<ReplaySet[] | null>(null);
-  const [liveRuns, setLiveRuns] = useState<PastLiveRun[] | null>(null);
   const [liveAvailable, setLiveAvailable] = useState<boolean | null>(null);
   const [liveProvider, setLiveProvider] = useState<string | null>(null);
   // Why live is unavailable, from the backend — provider-specific, never a
   // hardwired "no ANTHROPIC_API_KEY" (wrong on the FMAPI-backed App).
   const [liveReason, setLiveReason] = useState<string | null>(null);
+  // The detected Layer-2 transport (codegen.reasoning.transport): inside a
+  // Databricks runtime this is the Foundation Model endpoint whatever the
+  // yaml says; the card and the confirm dialog word themselves from it.
+  const [transport, setTransport] = useState<Layer2Transport | null>(null);
   const [status, setStatus] = useState<DemoStatus | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [workbooks, setWorkbooks] = useState<SttmWorkbook[] | null>(null);
-  const [docModal, setDocModal] = useState<"reference_documents" | "frd" | null>(null);
-  const [docScan, setDocScan] = useState<InputDocumentScan[] | null>(null);
   const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
   // null = unconfigured/unreachable → the Databricks section renders nothing.
   const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
@@ -102,32 +101,26 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
-  const refreshLiveRuns = useCallback(() => {
-    api.liveRuns().then((r) => setLiveRuns(r.runs)).catch(() => setLiveRuns([]));
-  }, []);
-
   useEffect(() => {
-    api.replaySets().then((r) => setSets(r.sets)).catch(() => setSets([]));
     api.liveAvailable().then((r) => {
       setLiveAvailable(r.available);
       setLiveProvider(r.provider ?? null);
       setLiveReason(r.reason ?? null);
+      setTransport(r.transport ?? null);
     }).catch((e) => {
       setLiveAvailable(false);
       setLiveReason(e instanceof Error ? e.message : String(e));
     });
     api.demoStatus().then(setStatus).catch(() => setStatus(null));
-    // The documents card and the source-files panel render on load — both
-    // are live reads on the backend, nothing is cached to disk.
-    api.inputDocuments().then((r) => setDocScan(r.documents)).catch(() => setDocScan([]));
+    // The source-files panel and the request-time checks render on load —
+    // live reads on the backend, nothing is cached to disk.
     api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
     api.inputRequirements().then(setRequirements).catch(() => setRequirements(null));
     api.governanceChecks().then(setGovernance).catch(() => setGovernance(null));
-    refreshLiveRuns();
     return () => {
       if (pollRef.current !== null) window.clearInterval(pollRef.current);
     };
-  }, [refreshLiveRuns]);
+  }, []);
 
   const poll = useCallback(() => {
     if (pollRef.current !== null) window.clearInterval(pollRef.current);
@@ -138,7 +131,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         if (s.state === "done" || s.state === "failed") {
           if (pollRef.current !== null) window.clearInterval(pollRef.current);
           pollRef.current = null;
-          refreshLiveRuns();
           if (s.state === "done") {
             await onFeedsChanged();
             // Run-dependent checks flip from "awaiting a run" once loaded.
@@ -151,23 +143,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }, 1000);
   }, [onFeedsChanged]);
 
-  const loadReplay = useCallback(
-    async (name: string) => {
-      setLoadingSet(name);
-      setError(null);
-      try {
-        await api.replayLoad(name);
-        await onFeedsChanged();
-        navigate("/");
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoadingSet(null);
-      }
-    },
-    [navigate, onFeedsChanged],
-  );
-
   const fireLive = useCallback(async () => {
     setConfirming(false);
     setError(null);
@@ -179,7 +154,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   }, [poll]);
 
-  // Restore a completed live run's results as LIVE state, from anywhere.
+  // Restore a completed live run's results as LIVE state (the View-results
+  // button after a run whose results are not the store's current ones).
   const loadLiveRun = useCallback(
     async (name: string) => {
       setLoadingSet(name);
@@ -226,6 +202,64 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     loadDbDocs();
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
   }, [loadDbDocs]);
+
+  // Output as independent toggles (backend: output_parts). "all" is its own
+  // state; the three others are free, including none — Generate then waits.
+  const outputParts = new Set<OutputPart>(status?.output_parts ?? ["notebook"]);
+  const setOutputParts = async (parts: OutputPart[]) => {
+    try {
+      setStatus(await api.setOutputParts(parts));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const toggleOutputPart = (part: OutputPart) => {
+    if (part === "all") {
+      setOutputParts(outputParts.has("all") ? [] : ["all"]);
+      return;
+    }
+    // Leaving "All" for a single part starts from just that part.
+    const next = new Set<OutputPart>(outputParts.has("all") ? [] : outputParts);
+    if (next.has(part)) next.delete(part);
+    else next.add(part);
+    setOutputParts([...next]);
+  };
+
+  // M6: conventions profile / IIG template / playbook template selectors,
+  // populated from config; null = the config default.
+  const [genOptions, setGenOptions] = useState<GenerationOptions | null>(null);
+  useEffect(() => {
+    api.generationOptions().then(setGenOptions).catch(() => setGenOptions(null));
+  }, []);
+  const chooseGenerationOption = async (
+    knob: keyof GenerationOptions,
+    value: string,
+  ) => {
+    if (!genOptions) return;
+    const body = {
+      conventions_profile: genOptions.conventions_profile.selected,
+      iig_template: genOptions.iig_template.selected,
+      playbook_template: genOptions.playbook_template.selected,
+      [knob]: value === "" ? null : value,
+    };
+    try {
+      setGenOptions(await api.setGenerationOptions(body));
+      setStatus(await api.demoStatus());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  // M3/M6: the optional Vendor Data Dictionary — any listed workbook can be
+  // the pair's third input.
+  const chooseVdd = async (name: string | null) => {
+    try {
+      if (name === null) await api.clearVdd();
+      else await api.selectVdd(name);
+      setStatus(await api.demoStatus());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // From-device upload: the file lands in inputs/uploads and is selected in
   // the same motion (the backend validates an FRD upload as a contract).
@@ -313,13 +347,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   }, []);
 
-  // Document attach flow: a fresh scan each open, so a document dropped into
-  // an input directory appears without a restart.
-  const openDocModal = useCallback((kind: "reference_documents" | "frd") => {
-    setDocModal(kind);
-    api.inputDocuments().then((r) => setDocScan(r.documents)).catch(() => setDocScan([]));
-  }, []);
-
   // Presenter's reset: back to "none chosen" without a backend restart.
   const clearWorkbook = useCallback(async () => {
     setError(null);
@@ -331,17 +358,43 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   }, []);
 
-  const running = status?.state === "running";
+  const running = status?.state === "running" || status?.state === "needs_layout";
+  // M2.5 layout dialog: one choice per unresolved role, keyed "<sheet>/<layer>/<role>"
+  // (STTM / VDD: a column number); FRD questions (M6) pick a candidate table
+  // cell — the claim {table,row,col,label,section} the merge step re-validates.
+  const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
+  const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
+  const submitLayout = async (proceed: boolean) => {
+    const sttm: Record<string, number> = {};
+    for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
+    try {
+      const vdd: Record<string, number> = {};
+      const sttmOnly: Record<string, number> = {};
+      for (const [key, col] of Object.entries(sttm)) {
+        ((status?.layout_questions ?? []).find((q) => q.key === key)?.document === "vdd" ? vdd : sttmOnly)[key] = col;
+      }
+      const frd: Record<string, unknown> = {};
+      for (const [field, claim] of Object.entries(frdPicks)) frd[field] = { ...claim, source: "user" };
+      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd, vdd }, proceed });
+      setStatus(s);
+      setLayoutPicks({});
+      setFrdPicks({});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const frdPickKey = (c: { table?: number; row?: number; col?: number }) =>
+    `${c.table}/${c.row}/${c.col}`;
   const est = status?.estimates;
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>Run modes</h1>
+          <h1>Generate a pipeline</h1>
           <p className="subtitle">
-            Pick how the results you're about to walk through get produced. Both modes end on
-            the same dashboard — and the same human review queue.
+            Choose the documents, pick the output, generate. Every run ends on the dashboard
+            with its human review queue.
           </p>
         </div>
       </div>
@@ -351,100 +404,116 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       <div className="mode-cards">
         <div className="panel">
           <div className="panel-head">
-            <h2>Replay a recorded run</h2>
-            <span className="mode-badge mode-replay">REPLAY</span>
-          </div>
-          <div className="panel-body">
-            <p className="hint" style={{ marginTop: 0 }}>
-              Loads a tracked, real live run instantly — zero API calls, zero cost, no key
-              needed. The deterministic pipeline re-runs locally; the recorded AI candidates
-              are injected exactly as the model returned them.
-            </p>
-            {sets === null ? (
-              <div className="empty">Discovering replay sets…</div>
-            ) : sets.length === 0 ? (
-              <div className="empty">No replay sets tracked under fixtures/replay/.</div>
-            ) : (
-              sets.map((s) => (
-                <div className="replay-row" key={s.name}>
-                  <div>
-                    <div className="replay-name">{s.name}</div>
-                    <div className="hint">
-                      {s.date ? `recorded ${s.date} · ` : ""}
-                      {s.feeds.length} feeds{s.has_call_log ? " · call log" : ""}
-                    </div>
-                  </div>
-                  <button
-                    className="btn primary"
-                    disabled={loadingSet !== null || running}
-                    onClick={() => loadReplay(s.name)}
-                  >
-                    {loadingSet === s.name ? "Loading…" : "Load"}
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-head">
             <h2>Generate a Pipeline</h2>
             {liveProvider === "mock (locked)" ? (
               <span className="mode-badge">MOCK — provider locked</span>
+            ) : transport?.kind === "databricks_fmapi" ? (
+              <span className="mode-badge mode-live" title={transport.label}>
+                LIVE · Databricks FM endpoint
+              </span>
+            ) : transport?.kind === "anthropic" ? (
+              <span className="mode-badge mode-live" title={transport.label}>
+                LIVE · Anthropic API
+              </span>
             ) : (
               <span className="mode-badge mode-live">LIVE</span>
             )}
           </div>
           <div className="panel-body">
+            {transport ? (
+              <p className="hint" style={{ marginTop: 0 }}>
+                <strong>Model transport:</strong>{" "}
+                {transport.kind === "mock_locked"
+                  ? "mock provider (locked) — a run makes zero model calls."
+                  : transport.kind === "databricks_fmapi"
+                    ? <>
+                        Databricks Foundation Model serving endpoint{" "}
+                        <code>{transport.endpoint ?? "unconfigured"}</code> ({transport.model}).
+                      </>
+                    : transport.kind === "anthropic"
+                      ? <>Anthropic API ({transport.model}).</>
+                      : <>none resolvable — runs use the mock provider.</>}{" "}
+                <span className="hint">
+                  Detected by {transport.detected_by}
+                  {transport.runtime === "databricks_app"
+                    ? " (Databricks App runtime)"
+                    : transport.runtime === "databricks"
+                      ? " (Databricks workspace)"
+                      : ""}
+                  {transport.overridden
+                    ? ` — config says ${transport.configured}; the endpoint is used inside Databricks.`
+                    : "."}
+                </span>
+              </p>
+            ) : null}
             <p className="hint" style={{ marginTop: 0 }}>
-              <strong>Step 1 — choose an STTM.</strong> The pipeline's input is a client
-              STTM mapping workbook, picked from the SharePoint document library — the
-              program's system of record. Choose the workbook this run will consume:
+              Choose the STTM workbook, its FRD (a contract or the .docx itself) and,
+              optionally, the vendor data dictionary; pick the output; generate.
             </p>
-            <p style={{ margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 10 }}>
+            <p style={{ margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <button className="btn primary" disabled={running} onClick={openChooser}>
+                Choose documents…
+              </button>
               <span>
-                STTM workbook:{" "}
+                STTM:{" "}
                 {status?.sttm_chosen ? (
                   <code>{status.sttm_workbook}</code>
                 ) : (
                   <em className="hint">none chosen</em>
-                )}
+                )}{" "}
+                <button className="btn" disabled={running || !status?.sttm_chosen}
+                        onClick={clearWorkbook} title="Back to none chosen">
+                  Clear
+                </button>
               </span>
-              <button className="btn" disabled={running} onClick={openChooser}>
-                Choose STTM…
-              </button>
-              <button
-                className="btn"
-                disabled={running || !status?.sttm_chosen}
-                title={status?.sttm_chosen ? "Back to none chosen"
-                                           : "Nothing chosen yet"}
-                onClick={clearWorkbook}
-              >
-                Clear
-              </button>
-            </p>
-            <p style={{ margin: "0 0 10px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span>
-                FRD contract: <code>{status?.frd_name ?? "…"}</code>
-                {status?.frd_chosen ? null : (
-                  <span className="hint"> (demo golden — default)</span>
-                )}
+                FRD: <code>{status?.frd_name ?? "…"}</code>
+                {status?.frd_chosen ? null : <span className="hint"> (config default)</span>}
+                {status?.frd_auto_paired ? (
+                  <span
+                    className="hint"
+                    title="Chosen automatically for this STTM; pick another in the chooser to override"
+                  >
+                    {" "}(auto-paired by{" "}
+                    {status.frd_auto_paired.rule === "pairing_map"
+                      ? "the config pairing map"
+                      : status.frd_auto_paired.rule === "ticket"
+                        ? "a shared ticket number"
+                        : "a matching document name"}
+                    )
+                  </span>
+                ) : null}{" "}
+                <button className="btn" disabled={running || !status?.frd_chosen}
+                        onClick={resetFrd} title="Back to the config default">
+                  Clear
+                </button>
               </span>
-              <button className="btn" disabled={running} onClick={openChooser}
-                      title="Pick the FRD for this run (companion FRDs are suggested for the chosen STTM)">
-                Choose FRD…
-              </button>
-              <button className="btn" disabled={running || !status?.frd_chosen}
-                      onClick={resetFrd}
-                      title={status?.frd_chosen ? "Back to the demo golden default"
-                                                : "Already on the demo golden default"}>
-                Reset
-              </button>
+              <span>
+                VDD:{" "}
+                {status?.vdd_name ? <code>{status.vdd_name}</code> : <em className="hint">none</em>}
+                {status?.vdd_auto_paired ? (
+                  <span
+                    className="hint"
+                    title="Chosen automatically for this STTM; pick another in the chooser to override"
+                  >
+                    {" "}(auto-paired by{" "}
+                    {status.vdd_auto_paired.rule === "pairing_map"
+                      ? "the config pairing map"
+                      : status.vdd_auto_paired.rule === "ticket"
+                        ? "a shared ticket number"
+                        : "a matching document name"}
+                    )
+                  </span>
+                ) : null}{" "}
+                <button className="btn" disabled={running || !status?.vdd_name}
+                        onClick={() => chooseVdd(null)} title="No vendor data dictionary">
+                  Clear
+                </button>
+              </span>
               {status?.frd_warning ? (
                 <span className="pill req-missing"
-                      title="Pick the companion FRD in the STTM chooser">
-                  This STTM does not appear to belong to the demo FRD — expect a
+                      title="Pick the companion FRD in the chooser">
+                  This STTM does not appear to belong to the selected FRD — expect a
                   feed-match failure.
                 </span>
               ) : null}
@@ -453,8 +522,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <>
                 <div className="panel-subhead">Source files this run will read</div>
                 <p className="hint" style={{ marginTop: 0 }}>
-                  From the demo FRD contract <code>{sourceFiles.frd_contract}</code>, read
-                  at request time.
+                  From the FRD contract <code>{sourceFiles.frd_contract}</code>, read at
+                  request time.
                 </p>
                 <div className="source-files-scroll">
                   <table className="source-files-table">
@@ -524,7 +593,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {sourceFiles.convention_check ? (
                   <>
                     <div className="panel-subhead">
-                      Convention check — real FRD 1005310
+                      Convention check — reference FRD document
                     </div>
                     <p className="hint" style={{ marginTop: 0 }}>
                       Read live from <code>{sourceFiles.convention_check.source}</code>{" "}
@@ -597,116 +666,271 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     ))}
                   </div>
                 </details>
-                <MetadataSheetPanel
-                  refreshKey={`${status?.state}-${status?.last_run_label}`}
-                />
               </>
             ) : null}
 
-            <p className="hint" style={{ marginTop: 12 }}>
-              <strong>Step 2 — generate.</strong> Extract the chosen STTM into a mapping
-              contract → deterministic generate → live AI reasoning on the unmapped rules →
-              safety gate. Makes billed API calls.
-            </p>
-
-            <div className="panel-subhead">Output</div>
-            <p style={{ margin: "6px 0 4px", display: "flex", gap: 8 }}>
-              {(["notebook", "framework", "both"] as const).map((mode) => (
+            <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
+            <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {(
+                [
+                  ["notebook", "Notebook"],
+                  ["framework", "Framework artefacts"],
+                  ["rfc", "RFC package"],
+                ] as const
+              ).map(([part, label]) => (
                 <button
-                  key={mode}
-                  className={`btn sheet-tab${(status?.output_mode ?? "notebook") === mode ? " active" : ""}`}
+                  key={part}
+                  className={`btn sheet-tab${outputParts.has(part) ? " active" : ""}`}
                   disabled={running}
-                  onClick={async () => {
-                    try {
-                      setStatus(await api.setOutputMode(mode));
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : String(e));
-                    }
-                  }}
+                  title={
+                    part === "rfc"
+                      ? "The RFC deployment package (includes the framework artefacts it is built from)"
+                      : part === "framework"
+                        ? "DDL scripts + config rows + inserts for the existing ingestion framework"
+                        : "A fresh standalone PySpark pipeline"
+                  }
+                  onClick={() => toggleOutputPart(part)}
                 >
-                  {mode === "notebook"
-                    ? "Notebook"
-                    : mode === "framework"
-                      ? "Framework artefacts"
-                      : "Both"}
+                  {label}
                 </button>
               ))}
+              <button
+                className={`btn sheet-tab${outputParts.has("all") ? " active" : ""}`}
+                disabled={running}
+                title="Everything: notebook + framework artefacts + RFC package"
+                onClick={() => toggleOutputPart("all")}
+              >
+                All
+              </button>
+              {outputParts.size === 0 ? (
+                <span className="hint" style={{ alignSelf: "center" }}>
+                  choose at least one output
+                </span>
+              ) : null}
             </p>
-            <p className="hint" style={{ marginTop: 0 }}>
-              Framework artefacts = DDL scripts + config rows + insert statements for
-              the existing ingestion framework — the ~90% case, adding a feed to what
-              already runs. Notebook = a fresh standalone pipeline — the ~10% case.
-            </p>
+            {genOptions ? (
+              <p style={{ margin: "6px 0 4px", display: "flex", gap: 14, flexWrap: "wrap" }}>
+                {(
+                  [
+                    ["conventions_profile", "Conventions profile"],
+                    ["iig_template", "IIG template"],
+                    ["playbook_template", "Playbook template"],
+                  ] as const
+                ).map(([knob, label]) => {
+                  const group = genOptions[knob];
+                  return (
+                    <label key={knob} className="hint" style={{ fontSize: 12 }}>
+                      {label}{" "}
+                      <select
+                        disabled={running}
+                        value={group.selected ?? ""}
+                        onChange={(e) => chooseGenerationOption(knob, e.target.value)}
+                      >
+                        <option value="">{`default (${group.default})`}</option>
+                        {group.options.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </p>
+            ) : null}
 
-            <div className="panel-subhead">Input documents</div>
-            {(() => {
-              const refDocs = docScan?.find((d) => d.kind === "reference_documents");
-              const expected = refDocs?.expected ?? [];
-              const presentNames = new Set((refDocs?.present ?? []).map((p) => p.name));
-              const state =
-                expected.length === 0 || presentNames.size === 0
-                  ? "none"
-                  : (refDocs?.missing ?? []).length === 0
-                    ? "all"
-                    : "partial";
-              return state === "none" ? (
-                <div
-                  className="flag-hitl"
-                  style={{
-                    padding: "8px 10px",
-                    marginTop: 6,
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "center",
-                  }}
-                >
-                  <span style={{ flex: 1 }}>
-                    <strong>No reference documents found.</strong>{" "}
-                    <span className="hint">
-                      The generator's naming, path and structural checks are grounded in
-                      the client FRD and architecture decks; none are present in the
-                      configured input directories. Runs proceed without them.
-                    </span>
-                  </span>
-                  <button className="btn" onClick={() => openDocModal("reference_documents")}>
-                    Attach…
-                  </button>
+            {liveAvailable === false ? (
+              <div className="empty">
+                Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
+                {liveProvider ? (
+                  <span className="hint"> (provider: {liveProvider})</span>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                className="btn primary"
+                disabled={
+                  liveAvailable !== true || running || !status?.sttm_chosen || outputParts.size === 0
+                }
+                title={
+                  !status?.sttm_chosen
+                    ? "Choose an STTM workbook first"
+                    : outputParts.size === 0
+                      ? "Choose at least one output"
+                      : undefined
+                }
+                onClick={() => setConfirming(true)}
+              >
+                {running ? "Live run in progress…" : "Generate from this STTM…"}
+              </button>
+            )}
+
+            {status && status.state !== "idle" ? (
+              <div style={{ marginTop: 14 }}>
+                <div className="hint">
+                  {status.state === "running" && "Running — stages appear as they start:"}
+                  {status.state === "needs_layout" &&
+                    "Paused — the layout needs a human decision before any value is read:"}
+                  {status.state === "done" && "Last live run completed."}
+                  {status.state === "failed" && "Last live run FAILED — nothing was published."}
                 </div>
-              ) : (
-                <div className={`doc-card ${state === "all" ? "doc-card-all" : "doc-card-partial"}`}>
-                  <div className="doc-card-title">
-                    {state === "all"
-                      ? "Reference documents attached"
-                      : "Some reference documents are missing"}
+                {status.state === "failed" && status.error ? (
+                  <div className="error-banner" style={{ marginTop: 8 }}>
+                    {status.error}
+                    {status.error_hint ? (
+                      <div style={{ marginTop: 8 }}>
+                        <div className="hint">{status.error_hint.message}</div>
+                        <button
+                          className="btn"
+                          style={{ marginTop: 6 }}
+                          onClick={async () => {
+                            await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
+                            openChooser();
+                          }}
+                        >
+                          Choose companion FRD "
+                          {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  {expected.map((name) => (
-                    <div className="doc-card-row" key={name}>
-                      <span className="doc-card-mark">
-                        {presentNames.has(name) ? "✓" : "☐"}
+                ) : null}
+                {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
+                  <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
+                    {(["sttm", "frd", "vdd"] as const).map((doc) => {
+                      const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
+                      if (!qs.length) return null;
+                      return (
+                        <div key={doc} style={{ marginBottom: 10 }}>
+                          <strong>
+                            {doc === "sttm" ? "STTM workbook" : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
+                          </strong>
+                          {qs.map((q) => (
+                            <div key={q.key} style={{ marginTop: 8 }}>
+                              <div>
+                                <code>{q.key}</code>{" "}
+                                <span className="hint">— {q.reason}</span>
+                              </div>
+                              {q.header.length ? (
+                                <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                                  {q.header.map((h) => (
+                                    <code key={h} style={{ padding: "1px 4px", border: "1px solid var(--line, #ccc)" }}>
+                                      {h}
+                                    </code>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+                                {q.candidates.map((c) =>
+                                  doc === "frd" ? (
+                                    <label key={`${q.key}-${frdPickKey(c)}`} style={{ fontSize: 12 }}>
+                                      <input
+                                        type="radio"
+                                        name={q.key}
+                                        disabled={c.table === undefined || c.row === undefined}
+                                        checked={
+                                          frdPicks[q.key] !== undefined &&
+                                          frdPickKey(frdPicks[q.key] as { table?: number; row?: number; col?: number }) === frdPickKey(c)
+                                        }
+                                        onChange={() =>
+                                          c.table !== undefined &&
+                                          c.row !== undefined &&
+                                          setFrdPicks({
+                                            ...frdPicks,
+                                            [q.key]: { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" },
+                                          })
+                                        }
+                                      />{" "}
+                                      {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}
+                                      {c.label ?? c.header}
+                                    </label>
+                                  ) : (
+                                    <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
+                                      <input
+                                        type="radio"
+                                        name={q.key}
+                                        disabled={c.col === undefined}
+                                        checked={c.col !== undefined && layoutPicks[q.key] === c.col}
+                                        onChange={() =>
+                                          c.col !== undefined &&
+                                          setLayoutPicks({ ...layoutPicks, [q.key]: c.col })
+                                        }
+                                      />{" "}
+                                      {c.col !== undefined ? `col ${c.col}: ` : ""}
+                                      {c.header ?? c.label}
+                                    </label>
+                                  ),
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    <div className="decision-row" style={{ marginTop: 10 }}>
+                      <button className="btn" onClick={() => submitLayout(false)}
+                              disabled={!Object.keys(layoutPicks).length && !Object.keys(frdPicks).length}>
+                        Continue
+                      </button>
+                      <button className="btn" onClick={() => submitLayout(true)}
+                              title="Continue with the remaining roles read as empty (gate-flagged)">
+                        Proceed with unresolved
+                      </button>
+                      <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(() => {})}>
+                        Cancel run
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                <ul className="stage-list">
+                  {status.stages.map((s, i) => (
+                    <li key={`${s.stage}-${s.at}`}>
+                      <span className="stage-mark">
+                        {i < status.stages.length - 1 || !running ? "✓" : "⋯"}
                       </span>
-                      <code>{name}</code>
-                    </div>
+                      <span>
+                        <strong>{s.stage}</strong>
+                        {s.detail ? <span className="hint"> — {s.detail}</span> : null}
+                      </span>
+                    </li>
                   ))}
-                  {state === "all" ? (
-                    <div className="hint" style={{ marginTop: 6 }}>
-                      Drives the generator's naming, path and structural checks via
-                      config.
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()}
-            <p className="hint" style={{ margin: "4px 0 0", fontSize: 11 }}>
-              All four documents are read and used in the request-time checks below.
-              None of them alters generated output — the generation path stays
-              contract-driven, byte-stable.
-            </p>
+                </ul>
+                {status.state === "done" ? (
+                  <button
+                    className="btn primary"
+                    disabled={loadingSet !== null}
+                    onClick={async () => {
+                      // A just-finished run's results are ALREADY adopted in
+                      // the store — navigate straight there instead of
+                      // reloading from disk.
+                      if (
+                        status.last_run_label &&
+                        status.label === status.last_run_label &&
+                        status.mode === "live"
+                      ) {
+                        await onFeedsChanged();
+                        navigate("/");
+                        return;
+                      }
+                      if (status.last_run_label) {
+                        loadLiveRun(status.last_run_label);
+                      } else {
+                        navigate("/");
+                      }
+                    }}
+                  >
+                    View results →
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
 
-            {requirements?.check ? (
+
+            {requirements?.configured !== false && requirements?.check ? (
               <>
                 <div className="panel-subhead">Input requirements check</div>
                 <p className="hint" style={{ marginTop: 0 }}>
-                  The demo FRD contract, evaluated against the eleven Structural
+                  The FRD contract, evaluated against the eleven Structural
                   Metadata rows of <code>{requirements.check.source}</code> — read live
                   from the document at request time.{" "}
                   {requirements.check.summary.filled} filled ·{" "}
@@ -759,7 +983,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </>
             ) : null}
 
-            {governance && governance.checks.length > 0 ? (
+            {governance && governance.configured !== false && governance.checks.length > 0 ? (
               <>
                 <div className="panel-subhead">Reference-architecture checks</div>
                 <p className="hint" style={{ marginTop: 0 }}>
@@ -791,260 +1015,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </>
             ) : null}
 
-            <div className="panel-subhead">Known input gaps</div>
-            <div
-              className="flag-hitl"
-              style={{ padding: "8px 10px", margin: "6px 0 12px", display: "flex", gap: 12, alignItems: "center" }}
-            >
-              <span style={{ flex: 1 }}>
-                <strong>Demo FRD, not the real one.</strong>{" "}
-                <span className="hint">
-                  A production run needs the FRD with the paths to the actual client files —
-                  this build carries an anonymized stand-in. The pipeline runs end-to-end,
-                  but the output does not represent an accurate case.
-                </span>
-              </span>
-              <button className="btn" onClick={() => openDocModal("frd")}>
-                Provide…
-              </button>
-            </div>
-            {liveAvailable === false ? (
-              <div className="empty">
-                Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
-                {liveProvider ? (
-                  <span className="hint"> (provider: {liveProvider})</span>
-                ) : null}
-              </div>
-            ) : (
-              <button
-                className="btn primary"
-                disabled={liveAvailable !== true || running || !status?.sttm_chosen}
-                title={status?.sttm_chosen ? undefined : "Choose an STTM workbook first"}
-                onClick={() => setConfirming(true)}
-              >
-                {running ? "Live run in progress…" : "Generate from this STTM…"}
-              </button>
-            )}
-
-            {status && status.state !== "idle" ? (
-              <div style={{ marginTop: 14 }}>
-                <div className="hint">
-                  {status.state === "running" && "Running — stages appear as they start:"}
-                  {status.state === "done" && "Last live run completed."}
-                  {status.state === "failed" && "Last live run FAILED — nothing was published."}
-                </div>
-                {status.state === "failed" && status.error ? (
-                  <div className="error-banner" style={{ marginTop: 8 }}>
-                    {status.error}
-                    {status.error_hint ? (
-                      <div style={{ marginTop: 8 }}>
-                        <div className="hint">{status.error_hint.message}</div>
-                        <button
-                          className="btn"
-                          style={{ marginTop: 6 }}
-                          onClick={async () => {
-                            await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
-                            openChooser();
-                          }}
-                        >
-                          Choose companion FRD "
-                          {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <ul className="stage-list">
-                  {status.stages.map((s, i) => (
-                    <li key={`${s.stage}-${s.at}`}>
-                      <span className="stage-mark">
-                        {i < status.stages.length - 1 || status.state !== "running" ? "✓" : "⋯"}
-                      </span>
-                      <span>
-                        <strong>{s.stage}</strong>
-                        {s.detail ? <span className="hint"> — {s.detail}</span> : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                {status.state === "done" ? (
-                  <button
-                    className="btn primary"
-                    disabled={loadingSet !== null}
-                    onClick={async () => {
-                      // A just-finished run's results are ALREADY adopted in
-                      // the store — navigate straight there instead of
-                      // reloading from disk (the reload path is for the
-                      // Past-live-runs list).
-                      if (
-                        status.last_run_label &&
-                        status.label === status.last_run_label &&
-                        status.mode === "live"
-                      ) {
-                        await onFeedsChanged();
-                        navigate("/");
-                        return;
-                      }
-                      if (status.last_run_label) {
-                        loadLiveRun(status.last_run_label);
-                      } else {
-                        navigate("/");
-                      }
-                    }}
-                  >
-                    View results →
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="panel-subhead">Past live runs</div>
-            <p className="hint" style={{ marginTop: 0 }}>
-              Completed live runs stay on disk — reload one to restore its results (LIVE
-              state, that run's real candidates) without spending anything. These are this
-              machine's run history, not the tracked replay fixtures.
-            </p>
-            {liveRuns === null ? (
-              <div className="empty">Scanning past runs…</div>
-            ) : liveRuns.length === 0 ? (
-              <div className="empty">No past live runs on this machine yet.</div>
-            ) : (
-              liveRuns.map((r) => (
-                <div className="replay-row" key={r.name}>
-                  <div>
-                    <div className="replay-name">
-                      {r.name}
-                      <span className="mode-badge mode-live" style={{ marginLeft: 8 }}>
-                        LIVE RUN
-                      </span>
-                      {!r.complete ? (
-                        <span className="pill ungrounded" style={{ marginLeft: 6 }}>
-                          failed — not loadable
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="hint">
-                      {r.timestamp ? `${r.timestamp} · ` : ""}
-                      {r.complete ? `${r.feeds.length} feeds` : "no results produced"}
-                    </div>
-                  </div>
-                  <button
-                    className="btn primary"
-                    disabled={!r.complete || loadingSet !== null || running}
-                    onClick={() => loadLiveRun(r.name)}
-                  >
-                    {loadingSet === r.name ? "Loading…" : "Load"}
-                  </button>
-                </div>
-              ))
-            )}
           </div>
         </div>
       </div>
 
-      {docModal ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal">
-            <h2>
-              {docModal === "reference_documents"
-                ? "Attach the reference documents"
-                : "Provide the real FRD contract"}
-            </h2>
-            {docModal === "frd" ? (
-              <>
-                <p className="hint">
-                  Currently in use:{" "}
-                  <code>{docScan?.find((d) => d.kind === "frd")?.stand_in ?? "…"}</code> —
-                  an anonymized demo stand-in without the real file paths.
-                </p>
-                <p className="hint">
-                  Scanned live from <code>inputs/sharepoint</code> — the landing folder{" "}
-                  <code>sharepoint-fetch</code> and the SharePoint picker deliver
-                  documents to.
-                </p>
-              </>
-            ) : (
-              <p className="hint">
-                Filenames as they appear in the client SharePoint library, matched live
-                against the configured input directories on every open. Drop a file there
-                — or fetch it from the SharePoint library — and it will appear here.
-              </p>
-            )}
-            {(() => {
-              if (docScan === null) return <div className="empty">Scanning…</div>;
-              if (docModal === "reference_documents") {
-                const refDocs = docScan.find((d) => d.kind === "reference_documents");
-                const expected = refDocs?.expected ?? [];
-                const presentNames = new Set(
-                  (refDocs?.present ?? []).map((p) => p.name),
-                );
-                if (expected.length === 0)
-                  return (
-                    <div className="empty">
-                      No reference documents configured (demo.input_documents in
-                      config/config.yaml).
-                    </div>
-                  );
-                return (
-                  <>
-                    {expected.map((name) => (
-                      <div className="doc-card-row" key={name} style={{ marginTop: 8 }}>
-                        <span className="doc-card-mark">
-                          {presentNames.has(name) ? "✓" : "☐"}
-                        </span>
-                        <code>{name}</code>
-                        <span className="hint">
-                          {presentNames.has(name) ? "present" : "missing"}
-                        </span>
-                      </div>
-                    ))}
-                    <p className="hint" style={{ marginTop: 10 }}>
-                      Display only in this build — wiring these into generation is the
-                      next step.
-                    </p>
-                  </>
-                );
-              }
-              const scan = docScan.find((d) => d.kind === "frd");
-              if (!scan || (scan.matches ?? []).length === 0)
-                return (
-                  <div className="empty">
-                    Not present. Fetch the real FRD contract (.contract.json) from the
-                    SharePoint library into inputs/sharepoint/ and it will appear here.
-                    Until then, runs use the demo stand-in.
-                  </div>
-                );
-              return (
-                <>
-                  {(scan.matches ?? []).map((m) => (
-                    <div
-                      key={m}
-                      className="flag-hitl"
-                      style={{ padding: "8px 10px", marginTop: 8 }}
-                    >
-                      <code>{m}</code>{" "}
-                      <span className="hint">
-                        found — wiring into the generator is pending; runs do not consume
-                        it yet.
-                      </span>
-                    </div>
-                  ))}
-                </>
-              );
-            })()}
-            <div className="decision-row" style={{ marginTop: 14 }}>
-              <button className="btn" onClick={() => setDocModal(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {choosing ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
-            <h2>Choose an STTM workbook</h2>
+            <h2>Choose documents</h2>
             <p className="hint">
               Scanned live from the local fixtures directory and the{" "}
               <code>inputs/sharepoint</code>, <code>inputs/databricks</code> and{" "}
@@ -1066,7 +1044,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <input
                 ref={frdUploadRef}
                 type="file"
-                accept=".json"
+                accept=".json,.docx"
                 hidden
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -1086,9 +1064,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 className="btn"
                 disabled={uploading !== null || running}
                 onClick={() => frdUploadRef.current?.click()}
-                title="Upload an FRD contract JSON produced by the FRD→STTM agent; a raw .docx has no contract"
+                title="Upload an FRD: a contract JSON produced by the FRD→STTM agent, or the FRD .docx itself (extracted when the run starts)"
               >
-                {uploading === "frd" ? "Uploading…" : "Upload FRD contract (.json)…"}
+                {uploading === "frd" ? "Uploading…" : "Upload FRD (.json / .docx)…"}
               </button>
               <span className="hint" style={{ fontSize: 11 }}>
                 Uploads land in <code>inputs/uploads</code> on the server (wiped on an App
@@ -1116,6 +1094,27 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))
             )}
+            <p className="hint" style={{ margin: "14px 0 4px" }}>
+              <strong>Vendor data dictionary (optional third input)</strong> — currently{" "}
+              {status?.vdd_name ? <code>{status.vdd_name}</code> : "none"}. Cross-checked
+              against the STTM (positions, types, segments); never a source of values.
+            </p>
+            <p style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {(workbooks ?? []).map((w) => (
+                <button
+                  key={`vdd-${w.name}`}
+                  className={`btn${status?.vdd_name === w.name ? " active" : ""}`}
+                  disabled={running}
+                  title={`Use ${w.name} as the Vendor Data Dictionary`}
+                  onClick={() => chooseVdd(w.name)}
+                >
+                  VDD: {middleTruncate(w.name, 32)}
+                </button>
+              ))}
+              <button className="btn" disabled={running || !status?.vdd_name} onClick={() => chooseVdd(null)}>
+                No VDD
+              </button>
+            </p>
             {dbDocsError ? (
               <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 12 }}>
                 <strong>Databricks volumes unavailable.</strong>{" "}
@@ -1277,7 +1276,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     <code className="chooser-name" title={name}>
                       {middleTruncate(name)}
                     </code>
-                    <span className="chooser-chip">local contract</span>
+                    <span className="chooser-chip">
+                      {name.toLowerCase().endsWith(".docx")
+                        ? "FRD document — extracted at run start"
+                        : "local contract"}
+                    </span>
                   </button>
                 ))}
                 {frdChoices.no_contract.map((name) => (
@@ -1315,9 +1318,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </p>
             ) : (
               <p>
-                {liveProvider === "databricks_fmapi"
-                  ? "This makes real, billed Claude calls through the Databricks serving endpoint:"
-                  : "This makes real, billed Anthropic API calls:"}
+                {transport?.kind === "databricks_fmapi" ? (
+                  <>
+                    This makes real, billed Claude calls through the Databricks Foundation
+                    Model endpoint <code>{transport.endpoint}</code> ({transport.model}):
+                  </>
+                ) : (
+                  "This makes real, billed Anthropic API calls:"
+                )}
                 <br />
                 <strong>~{est?.calls ?? 3} calls · ≈ ${(est?.cost_usd ?? 0.1).toFixed(2)} · ~
                 {est?.seconds ?? 20}s</strong>
@@ -1328,13 +1336,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               default output are never touched.
             </p>
             <p className="hint">
-              {status?.frd_chosen
-                ? "Client documents in play: live runs on client STTM/FRD pairs are " +
-                  "permitted only per the program's client-document process (Venu's " +
-                  "email approval). The demo CV golden remains the default rehearsal " +
-                  "pair; mock runs need no approval."
-                : "Known input gap applies: a demo FRD without the real file paths — " +
-                  "the run is real, the case it represents is not."}
+              A live run sends the chosen documents' content to the model endpoint — run
+              it only on documents cleared for that. Mock runs send nothing.
             </p>
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn primary" onClick={fireLive}>

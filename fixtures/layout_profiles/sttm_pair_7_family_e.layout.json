@@ -1,0 +1,216 @@
+{
+  "fingerprint": "2dd774bfc1be472db1ab2424fd700f9c6906f22748a750a15af6e0fbb81f9f33",
+  "sheets": [
+    {
+      "name": "Version History",
+      "kind": "version",
+      "header_row": 6,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Version",
+        "Date",
+        "Author",
+        "Description"
+      ],
+      "notes": []
+    },
+    {
+      "name": "File Details",
+      "kind": "file_details",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [
+        "Vendor",
+        "FileName",
+        "File Description",
+        "Location",
+        "Frequency (Historical Drops)"
+      ],
+      "notes": []
+    },
+    {
+      "name": "MAPPING_FEED_7",
+      "kind": "mapping",
+      "header_row": 1,
+      "band_row": null,
+      "bands": [
+        {
+          "layer": "source",
+          "col_start": 1,
+          "col_end": 8,
+          "roles": {
+            "ordinal": 1,
+            "field_name": 2,
+            "description": 4,
+            "comments": 5,
+            "pii": 8,
+            "required": 3,
+            "source_type": 6,
+            "length": 7
+          },
+          "label": null
+        },
+        {
+          "layer": "stage",
+          "col_start": 9,
+          "col_end": 12,
+          "roles": {
+            "schema": 9,
+            "table": 10,
+            "column": 11,
+            "target_type": 12
+          },
+          "label": null
+        },
+        {
+          "layer": "standard",
+          "col_start": 13,
+          "col_end": 16,
+          "roles": {
+            "schema": 13,
+            "table": 14,
+            "target_type": 16,
+            "column": 15
+          },
+          "label": null
+        },
+        {
+          "layer": "rules",
+          "col_start": 17,
+          "col_end": 19,
+          "roles": {
+            "dq_mandatory": 17,
+            "recycle_flag": 18,
+            "comments": 19
+          },
+          "label": null
+        }
+      ],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": [
+        "no band row; layer prefixes in header row 1"
+      ]
+    },
+    {
+      "name": "Sheet2",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Queries",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Analysis_Notes",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Analysis Sheet - Detail",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Analysis Sheet - Compound",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Sample Records",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    },
+    {
+      "name": "Sheet1",
+      "kind": "ignore",
+      "header_row": null,
+      "band_row": null,
+      "bands": [],
+      "meta_rows": [],
+      "segment_strategy": "none",
+      "segment_column": null,
+      "headers": [],
+      "notes": []
+    }
+  ],
+  "confidence": {
+    "MAPPING_FEED_7/source/ordinal": 1.0,
+    "MAPPING_FEED_7/source/field_name": 1.0,
+    "MAPPING_FEED_7/source/description": 1.0,
+    "MAPPING_FEED_7/source/comments": 1.0,
+    "MAPPING_FEED_7/source/pii": 1.0,
+    "MAPPING_FEED_7/stage/schema": 1.0,
+    "MAPPING_FEED_7/stage/table": 1.0,
+    "MAPPING_FEED_7/standard/schema": 1.0,
+    "MAPPING_FEED_7/standard/table": 1.0,
+    "MAPPING_FEED_7/standard/target_type": 1.0,
+    "MAPPING_FEED_7/rules/dq_mandatory": 1.0,
+    "MAPPING_FEED_7/rules/recycle_flag": 1.0,
+    "MAPPING_FEED_7/rules/comments": 1.0,
+    "MAPPING_FEED_7/source/required": 1.0,
+    "MAPPING_FEED_7/source/source_type": 1.0,
+    "MAPPING_FEED_7/source/length": 1.0,
+    "MAPPING_FEED_7/stage/column": 1.0,
+    "MAPPING_FEED_7/stage/target_type": 1.0,
+    "MAPPING_FEED_7/standard/column": 1.0
+  },
+  "source": "cache",
+  "role_sources": {},
+  "strategy": "content",
+  "unresolved": [],
+  "notes": []
+}

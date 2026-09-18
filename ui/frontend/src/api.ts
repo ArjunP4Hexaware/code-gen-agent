@@ -50,7 +50,20 @@ export interface FrameworkSummary {
   flagged_blank_columns: string[];
 }
 
-export type OutputMode = "notebook" | "framework" | "both";
+export type OutputMode = "notebook" | "framework" | "both" | "rfc" | "all";
+export type OutputPart = "notebook" | "framework" | "rfc" | "all";
+
+export interface GenerationOptionGroup {
+  options: string[];
+  default: string;
+  selected: string | null;
+}
+
+export interface GenerationOptions {
+  conventions_profile: GenerationOptionGroup;
+  iig_template: GenerationOptionGroup;
+  playbook_template: GenerationOptionGroup;
+}
 
 export type RunMode = "mock" | "live" | "replay";
 
@@ -74,19 +87,41 @@ export interface DemoStage {
   at: number;
 }
 
+export interface LayoutQuestion {
+  document: "sttm" | "frd" | "vdd";
+  key: string;
+  sheet: string | null;
+  layer: string | null;
+  role: string;
+  reason: string;
+  header: string[];
+  candidates: { col?: number; header?: string; table?: number; row?: number; label?: string }[];
+}
+
 export interface DemoStatus {
-  state: "idle" | "running" | "done" | "failed";
+  state: "idle" | "running" | "needs_layout" | "done" | "failed";
   stages: DemoStage[];
   error: string | null;
   last_run_label: string | null;
+  // M2.5: the questions a paused run (state "needs_layout") waits on, and
+  // the layout report (sources per role, rejections, cross-checks).
+  layout_questions?: LayoutQuestion[];
+  layout_report?: Record<string, unknown> | null;
+  vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
   estimates: { calls: number; cost_usd: number; seconds: number };
   sttm_workbook?: string;
   sttm_chosen?: boolean;
-  output_mode?: OutputMode;
+  output_mode?: OutputMode | null;
+  output_parts?: OutputPart[];
+  conventions_profile?: string;
+  iig_template?: string;
+  playbook_template?: string;
   frd_name?: string;
   frd_chosen?: boolean;
+  frd_auto_paired?: { frd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
+  vdd_auto_paired?: { vdd: string; rule: "pairing_map" | "ticket" | "name_stem" } | null;
   frd_warning?: boolean;
   error_hint?: {
     sttm: string;
@@ -214,6 +249,7 @@ export interface InputRequirementRow {
 }
 
 export interface InputRequirementsResponse {
+  configured?: boolean;
   check: {
     source: string;
     rows: InputRequirementRow[];
@@ -237,6 +273,7 @@ export interface GovernanceCheck {
 }
 
 export interface GovernanceChecksResponse {
+  configured?: boolean;
   checks: GovernanceCheck[];
   summary: Record<GovernanceStatus, number>;
   absent_decks: string[];
@@ -365,11 +402,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface Layer2Transport {
+  kind: "mock_locked" | "databricks_fmapi" | "anthropic" | "mock";
+  configured: string;
+  runtime: "databricks_app" | "databricks" | "local";
+  detected_by: string;
+  endpoint: string | null;
+  model: string;
+  available: boolean;
+  reason: string;
+  label: string;
+  overridden: boolean;
+  provider_name: string;
+}
+
 export interface LiveAvailability {
   available: boolean;
   provider: string | null;
-  // Provider-specific remedy when unavailable ("" when available).
   reason?: string;
+  transport?: Layer2Transport | null;
 }
 
 export const api = {
@@ -437,6 +488,30 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode }),
     }),
+  setOutputParts: (parts: OutputPart[]) =>
+    request<DemoStatus>("/api/demo/output-parts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ parts }),
+    }),
+  generationOptions: () => request<GenerationOptions>("/api/demo/generation-options"),
+  setGenerationOptions: (body: {
+    conventions_profile: string | null;
+    iig_template: string | null;
+    playbook_template: string | null;
+  }) =>
+    request<GenerationOptions>("/api/demo/generation-options", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  selectVdd: (name: string) =>
+    request<{ selected: string }>("/api/demo/vdd", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+  clearVdd: () => request<{ selected: null }>("/api/demo/vdd", { method: "DELETE" }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
   sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),
@@ -473,6 +548,12 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
   demoStatus: () => request<DemoStatus>("/api/demo/status"),
+  layoutAnswers: (body: { answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean }) =>
+    request<DemoStatus>("/api/demo/layout-answers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   liveRuns: () => request<{ runs: PastLiveRun[] }>("/api/demo/live-runs"),
   loadLiveRun: (run: string) =>
     request<FeedsResponse>("/api/demo/load-live-run", {

@@ -287,18 +287,36 @@ def resolve_notebook_name(
 
 
 def _segment_context(
-    segment: SegmentSpec, spec: ResolvedFeedSpec, config: Config
+    segment: SegmentSpec, spec: ResolvedFeedSpec, config: Config,
+    faq: LoadPatternFaq | None = None, fixed_width: bool = False,
 ) -> dict[str, Any]:
     record_type_value = None
     if spec.is_segmented and spec.segmented_extraction is None:
         # Legacy segmented contracts: split by configured record-type values.
         # Segmented-extraction feeds derive identification from the STTM and
-        # need no configured discriminators.
-        record_type_value = config.segments.record_type_values.get(segment.segment)
+        # need no configured discriminators. M4: a CONFIRMED FAQ declaration
+        # (the engineer's transcription of the STTM's stated marker values)
+        # wins over the config guess.
+        declared = faq.record_type_discriminators if faq is not None else None
+        if declared is not None and declared.status == "confirmed":
+            record_type_value = getattr(declared, segment.segment.lower(), None)
+        else:
+            record_type_value = config.segments.record_type_values.get(segment.segment)
         if record_type_value is None:
             raise TemplateGapError(
                 f"no record_type value configured for segment '{segment.segment}'"
             )
+    positions: list[tuple[str, int, int]] = []
+    if fixed_width:
+        for f in segment.fields:
+            start = _as_int(f.source_start)
+            length = _as_int(f.source_length)
+            if start is None or length is None:
+                raise TemplateGapError(
+                    f"fixed-width feed: field {f.source_column!r} in segment "
+                    f"'{segment.segment}' has no start/length in the STTM source band "
+                    f"(start={f.source_start!r}, length={f.source_length!r})")
+            positions.append((f.source_column, start, length))
     not_null_stage = [
         f.stage_column for f in segment.fields if f.stage_column in set(spec.not_null_columns)
     ]
@@ -318,7 +336,40 @@ def _segment_context(
         "stage_columns": [f.stage_column for f in segment.fields],
         "not_null_stage_columns": not_null_stage,
         "column_samples": _column_samples(segment, spec),
+        **({"positions": positions,
+            "record_length": max(s + n - 1 for _c, s, n in positions)} if positions else {}),
     }
+
+
+def _as_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    match = re.match(r"^\s*0*(\d+)(?:\.0+)?\s*$", value)
+    return int(match.group(1)) if match else None
+
+
+def _merge_shared_tables(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Segments that land in ONE stage table (the pair-1 shape) become one
+    DDL entry with the union of their columns; distinct tables pass through
+    unchanged (identity — flat feeds render byte-identically)."""
+    by_table: dict[str, list[dict[str, Any]]] = {}
+    for seg in segments:
+        by_table.setdefault(seg["stage_table"], []).append(seg)
+    out: list[dict[str, Any]] = []
+    for _table, group in by_table.items():
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+        merged = dict(group[0])
+        merged["name"] = "+".join(s["name"] for s in group)
+        merged["source_columns"] = list(dict.fromkeys(
+            c for s in group for c in s["source_columns"]))
+        merged["stage_columns"] = list(dict.fromkeys(c for s in group for c in s["stage_columns"]))
+        merged["not_null_stage_columns"] = list(dict.fromkeys(
+            c for s in group for c in s["not_null_stage_columns"]))
+        merged["is_detail"] = any(s["is_detail"] for s in group)
+        out.append(merged)
+    return out
 
 
 def _column_samples(segment: SegmentSpec,
@@ -351,8 +402,14 @@ def build_context(
     # No file read here — callers load the FAQ (codegen.faq.faq_for_spec) so
     # rendering stays a pure function of its arguments. None → all defaults.
     faq = faq if faq is not None else LoadPatternFaq()
-    segments = [_segment_context(s, spec, config) for s in spec.segments]
+    fixed_width = spec.delimiter == "" or any(
+        token.lower() in (spec.file_format or "").lower()
+        for token in config.extractor.vdd.fixed_width_tokens)
+    segments = [_segment_context(s, spec, config, faq, fixed_width) for s in spec.segments]
     detail = next(s for s in segments if s["is_detail"])
+    # DDL tables: segments sharing one stage table render as one table.
+    stage_tables = _merge_shared_tables(segments)
+    shared_stage_table = len(stage_tables) < len(segments)
 
     trailer_count_stage_column = None
     trailer_count_source_column = None
@@ -397,6 +454,19 @@ def build_context(
         per_segment = [s for s in spec.segments if s.standard_table is not None]
         if per_segment:
             for seg_spec in per_segment:
+                if any(t["table"] == seg_spec.standard_table.table
+                       and t["schema"] == seg_spec.standard_table.schema_name
+                       for t in standard_tables):
+                    # Shared standard table: extend the first entry's columns.
+                    entry = next(t for t in standard_tables
+                                 if t["table"] == seg_spec.standard_table.table)
+                    known = {c for c, _t in entry["columns"]}
+                    entry["columns"] = entry["columns"] + [
+                        (f.standard_column, _standard_type(f.standard_datatype))
+                        for f in seg_spec.fields
+                        if f.standard_column is not None and f.standard_datatype is not None
+                        and f.standard_column not in known]
+                    continue
                 standard_tables.append({
                     "catalog": seg_spec.standard_table.catalog,
                     "schema": seg_spec.standard_table.schema_name,
@@ -521,6 +591,11 @@ def build_context(
         "default_catalog": next((s.stage_table.catalog for s in spec.segments), None),
         "stage_schema": spec.segments[0].stage_table.schema_name,
         "is_segmented": spec.is_segmented,
+        # M4: fixed-width source (positions from the STTM source band) and
+        # the segments-in-one-table shape. Both False on every existing feed.
+        "fixed_width": fixed_width,
+        "shared_stage_table": shared_stage_table,
+        "stage_tables": stage_tables,
         # Derived record identification (segmented extraction); None on flat
         # feeds and on legacy config-discriminator contracts.
         "segment_identification": (

@@ -1,5 +1,31 @@
 {% from "_macros.py.j2" import banner %}
-{% if segment_identification %}
+{% if fixed_width %}
+"""Header/Detail/Trailer slicing by fixed-width positions and record type."""
+{{ banner(provenance, feed) }}
+
+from conftest import detail_rows, write_source_file
+from pipeline import feed_spec, reader, segments
+
+
+def test_split_segments_by_record_type(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(3))
+    raw = reader.read_source(spark, str(path))
+    by_segment, unknown = segments.split_segments(raw)
+    assert set(by_segment) == set(feed_spec.SEGMENTS)
+    assert by_segment["Header"].count() == 1
+    assert by_segment[feed_spec.DETAIL_SEGMENT].count() == 3
+    assert by_segment["Trailer"].count() == 1
+    assert unknown.count() == 0
+
+
+def test_segment_columns_are_source_names(spark, tmp_path):
+    path = write_source_file(tmp_path, detail_rows(1))
+    raw = reader.read_source(spark, str(path))
+    by_segment, _unknown = segments.split_segments(raw)
+    detail = by_segment[feed_spec.DETAIL_SEGMENT]
+    expected = feed_spec.SEGMENTS[feed_spec.DETAIL_SEGMENT]["source_columns"]
+    assert detail.columns == [*expected, "_field_count"]
+{% elif segment_identification %}
 """Header/Detail/Trailer splitting by derived identification (marker + position)."""
 {{ banner(provenance, feed) }}
 

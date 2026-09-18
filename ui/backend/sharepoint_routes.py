@@ -198,13 +198,19 @@ def _import_item(client, item_id: str, name: str) -> dict:
         )
 
     safe = _SAFE_NAME.sub("_", name)
-    INPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = INPUTS_DIR / safe
+    from ui.backend import stores
+
+    # INPUTS_DIR under the default inputs role, else the role's working copy.
+    inbox = stores.inbox_dir(_store.config, "sharepoint", INPUTS_DIR) if _store else INPUTS_DIR
+    inbox.mkdir(parents=True, exist_ok=True)
+    dest = inbox / safe
     # Write-then-rename: a failed transfer must never leave a truncated .xlsx
     # that the workbook parser would report as a layout problem.
     tmp = dest.with_suffix(dest.suffix + ".part")
     tmp.write_bytes(payload)
     tmp.replace(dest)
+    if inbox != INPUTS_DIR:
+        stores.push_input(_store.config, "sharepoint", safe)
 
     return {
         "path": _rel(dest),

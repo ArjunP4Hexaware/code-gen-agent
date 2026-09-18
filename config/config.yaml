@@ -1007,3 +1007,28 @@ playbook:
       rollback_validation:
         - task: "Validate the IIG tables are reverted"
           detail: "No rows from {iig_file} remain."
+
+# M8.1: where inputs, state and outputs live — one storage URI per role.
+#   local:<dir>        a directory (relative = inside the checkout; default)
+#   workspace:/Workspace/Users/<user>/<folder>   Workspace API via databricks-sdk
+#   volume:/Volumes/<catalog>/<schema>/<volume>/<folder>   UC Volumes, Files API
+# Remote roots must already exist and be shared with the caller (the App's
+# service principal / the notebook user): the agent creates folders only
+# BELOW a root, never the root — and never touches /Volumes or /Workspace as
+# a mounted filesystem (docs/ACFC_DEPLOY.md). Env CODEGEN_STORAGE_INPUTS /
+# CODEGEN_STORAGE_STATE / CODEGEN_STORAGE_OUTPUTS win over these. Workspace-
+# specific URIs belong in an overlay or the App's env, not in this file.
+storage:
+  inputs: "local:./inputs"              # inboxes: sharepoint/ databricks/ uploads/
+  state: "local:./ui/backend/state"     # decisions.json, layout_profiles/
+  outputs: null                         # null = output.dir (local), as before M8
+  scratch_dir: null                     # working copies of remote roles; null = system temp
+
+# M8.2: extra read-only input roots (storage URIs), scanned at depth 1 — the
+# root and its immediate subfolders (pair_1/ ... pair_N/). Env
+# CODEGEN_EXTRA_INPUT_DIRS (';'-separated) is appended. Real folder names
+# live in an overlay / the App's env, never here.
+inputs:
+  extra_dirs: []
+  scan_depth: 1
+  listing_ttl_seconds: 30      # remote listings are API calls; the chooser polls

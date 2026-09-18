@@ -572,14 +572,12 @@ def select_frd(req: FrdSelectRequest) -> dict:
             # the runner when the run starts — standalone doctrine).
             if "/" in req.id or "\\" in req.id or ".." in req.id:
                 raise HTTPException(400, f"invalid contract name {req.id!r}")
-            for directory in (REPO_ROOT / store.config.contracts.dir,
-                              REPO_ROOT / "inputs" / "databricks",
-                              REPO_ROOT / "inputs" / "sharepoint",
-                              REPO_ROOT / "inputs" / "uploads"):
-                candidate = directory / req.id
-                if candidate.is_file():
-                    runner.select_frd(candidate, req.id)
-                    return {"selected": req.id, "kind": "local", "feeds": None}
+            # The contracts dir, the inboxes of the inputs role and the extra
+            # input roots (M8.1) — a remote document is downloaded on selection.
+            candidate = runner.fetch_frd_candidate(req.id)
+            if candidate is not None:
+                runner.select_frd(candidate, req.id)
+                return {"selected": req.id, "kind": "local", "feeds": None}
             raise HTTPException(404, f"no local contract named {req.id!r}")
         raise HTTPException(400, f"unknown kind {req.kind!r}")
     except LiveRunInProgress as exc:
@@ -656,13 +654,18 @@ async def upload_demo_document(
     else:
         raise HTTPException(400, f"unknown upload kind {kind!r}")
 
-    dest_dir = REPO_ROOT / "inputs" / "uploads"
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    from ui.backend import stores as ui_stores
+
+    config = _require_store().config
+    dest_dir = ui_stores.inbox_dir(config, "uploads", REPO_ROOT / "inputs" / "uploads")
+    dest_dir.mkdir(parents=True, exist_ok=True)      # repo dir or local working copy
     # Write-then-rename, same discipline as the SharePoint import.
     tmp = dest_dir / (name + ".part")
     tmp.write_bytes(payload)
     dest = dest_dir / name
     tmp.replace(dest)
+    ui_stores.push_input(config, "uploads", name)    # no-op for the local role
+    runner.refresh_inputs()
 
     try:
         if kind == "sttm":
@@ -808,7 +811,10 @@ def input_documents() -> dict:
     found document into the generator is the next step. The ``frd`` kind is
     unchanged: a scan of the SharePoint inbox for a real FRD contract.
     """
-    inbox = REPO_ROOT / "inputs" / "sharepoint"
+    from ui.backend import stores as ui_stores
+
+    inbox = ui_stores.inbox_dir(_require_store().config, "sharepoint",
+                                REPO_ROOT / "inputs" / "sharepoint")
 
     def scan(patterns: list[str]) -> list[str]:
         if not inbox.is_dir():

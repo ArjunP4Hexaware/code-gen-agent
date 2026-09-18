@@ -136,6 +136,8 @@ class DemoRunner:
         # failure has a known companion FRD, the UI renders a one-click
         # "choose the pair" button from this. Never an auto-retry.
         self.error_hint: dict | None = None
+        # M8.1: input catalogs (sources + cached remote listings), per kind.
+        self._catalogs: dict[str, tuple] = {}
 
     def effective_frd(self) -> Path:
         return self.selected_frd or (
@@ -175,22 +177,22 @@ class DemoRunner:
         in the uploads inbox — only a kind=frd upload puts one there)."""
         from codegen.demo_sources import canonical_document_name
 
-        contracts_dir = REPO_ROOT / self._store.config.contracts.dir
-        uploads = REPO_ROOT / "inputs" / "uploads"
-        dirs = (contracts_dir, REPO_ROOT / "inputs" / "databricks",
-                REPO_ROOT / "inputs" / "sharepoint", uploads)
         found: dict[str, Path] = {}
-        for directory in dirs:
-            if not directory.is_dir():
+        for doc in self._frd_catalog().documents((".contract.json", ".docx")):
+            if doc.name.lower().endswith(".docx") and not (
+                    doc.source == "inputs/uploads"
+                    or canonical_document_name(doc.name).startswith("frd")):
                 continue
-            for path in sorted(directory.glob("*.contract.json")):
-                found.setdefault(path.name, path)
-            for path in sorted(directory.glob("*.docx")):
-                if path.name.startswith("~$"):
-                    continue
-                if directory == uploads or canonical_document_name(path.name).startswith("frd"):
-                    found.setdefault(path.name, path)
+            # The working-copy path; a remote document is downloaded when the
+            # FRD is actually selected (``fetch_frd_candidate``).
+            found.setdefault(doc.name, doc.local_path())
         return found
+
+    def fetch_frd_candidate(self, name: str) -> Path | None:
+        """The named local FRD candidate as a file on disk (downloaded first
+        when it lives in a remote input root); None when no source has it."""
+        doc = self._frd_catalog().find(name, (".contract.json", ".docx"))
+        return doc.fetch() if doc is not None else None
 
     def auto_pair_frd(self, sttm_name: str) -> dict | None:
         """Select the FRD associated with the chosen STTM when one is present
@@ -209,7 +211,7 @@ class DemoRunner:
                 self.frd_auto_paired = None
             return None
         frd_name, rule = match
-        self.selected_frd = candidates[frd_name]
+        self.selected_frd = self.fetch_frd_candidate(frd_name) or candidates[frd_name]
         self.selected_frd_label = frd_name
         self.frd_auto_paired = {"frd": frd_name, "rule": rule}
         return self.frd_auto_paired
@@ -229,13 +231,12 @@ class DemoRunner:
                 self.vdd_auto_paired = None
             return None
         vdd_name, rule = match
-        for _source, directory in self._workbook_dirs():
-            candidate = directory / vdd_name
-            if candidate.is_file():
-                self.selected_vdd = candidate
-                self.vdd_auto_paired = {"vdd": vdd_name, "rule": rule}
-                return self.vdd_auto_paired
-        return None
+        doc = self._workbook_catalog().find(vdd_name, (".xlsx",))
+        if doc is None:
+            return None
+        self.selected_vdd = doc.fetch()
+        self.vdd_auto_paired = {"vdd": vdd_name, "rule": rule}
+        return self.vdd_auto_paired
 
     @property
     def output_mode(self) -> str | None:
@@ -335,6 +336,57 @@ class DemoRunner:
             ("inputs/uploads", REPO_ROOT / "inputs" / "uploads"),
         )
 
+    def _input_sources(self, first: tuple[str, Path]):
+        """``first`` (a repo directory), the three inboxes of the inputs role,
+        then every extra input root at the configured scan depth."""
+        from codegen.storage.catalog import InputSource, local_source
+        from ui.backend import stores as ui_stores
+
+        config = self._store.config
+        stores = ui_stores.get_stores(config)
+        sources = [local_source(*first)]
+        for sub in ("sharepoint", "databricks", "uploads"):
+            default = REPO_ROOT / "inputs" / sub
+            if ui_stores.inbox_dir(config, sub, default) == default:
+                sources.append(local_source(f"inputs/{sub}", default))
+            else:
+                sources.append(InputSource(f"inputs/{sub}", stores.inputs, sub, 0))
+        for extra in stores.extra_inputs:
+            label = extra.backend.root.rstrip("/").rsplit("/", 1)[-1] or extra.uri()
+            sources.append(InputSource(label, extra, "", config.inputs.scan_depth))
+        return sources
+
+    def _catalog(self, key: str, first: tuple[str, Path]):
+        from codegen.storage.catalog import InputCatalog
+
+        cached = self._catalogs.get(key)
+        if cached is None or cached[0] is not self._store.config:
+            config = self._store.config
+            cached = (config, InputCatalog(self._input_sources(first),
+                                           ttl_seconds=config.inputs.listing_ttl_seconds))
+            self._catalogs[key] = cached
+        return cached[1]
+
+    def _workbook_catalog(self):
+        label, directory = self._workbook_dirs()[0]
+        return self._catalog("workbooks", (label, directory))
+
+    def _frd_catalog(self):
+        contracts_dir = REPO_ROOT / self._store.config.contracts.dir
+        return self._catalog("frds", (self._store.config.contracts.dir, contracts_dir))
+
+    def refresh_inputs(self) -> None:
+        """Drop cached remote listings (after an upload / a fetch)."""
+        for _config, catalog in self._catalogs.values():
+            catalog.refresh()
+
+    def input_errors(self) -> dict[str, str]:
+        """Input roots whose last listing failed: label -> message."""
+        errors: dict[str, str] = {}
+        for _config, catalog in self._catalogs.values():
+            errors.update(catalog.errors)
+        return errors
+
     def effective_workbook(self) -> Path:
         return self.selected_workbook or (REPO_ROOT / self._store.config.demo.workbook)
 
@@ -346,37 +398,24 @@ class DemoRunner:
         back to the config default.
         """
         effective = self.selected_workbook
-        seen: set[str] = set()
-        choices: list[dict] = []
-        for source, directory in self._workbook_dirs():
-            if not directory.is_dir():
-                continue
-            for path in sorted(directory.glob("*.xlsx")):
-                if path.name.startswith("~$") or path.name in seen:  # Excel lock files / dupes
-                    continue
-                seen.add(path.name)
-                choices.append(
-                    {"name": path.name, "source": source, "selected": path == effective}
-                )
-        return choices
+        return [{"name": doc.name, "source": doc.source,
+                 "selected": doc.local_path() == effective}
+                for doc in self._workbook_catalog().documents((".xlsx",))]
 
     def select_workbook(self, name: str) -> Path:
         """Pick a workbook BY NAME from the scanned dirs — never a raw path."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
-        for _source, directory in self._workbook_dirs():
-            if not directory.is_dir():
-                continue
-            for path in directory.glob("*.xlsx"):
-                if path.name == name and not path.name.startswith("~$"):
-                    self.selected_workbook = path
-                    self.auto_pair_frd(name)
-                    self.auto_pair_vdd(name)
-                    return path
+        doc = self._workbook_catalog().find(name, (".xlsx",))
+        if doc is not None:
+            self.selected_workbook = doc.fetch()
+            self.auto_pair_frd(name)
+            self.auto_pair_vdd(name)
+            return self.selected_workbook
         raise FileNotFoundError(
             f"no STTM workbook named {name!r} in "
-            + " or ".join(src for src, _ in self._workbook_dirs())
+            + " or ".join(source.label for source in self._workbook_catalog().sources)
         )
 
     def clear_workbook(self) -> None:
@@ -444,9 +483,10 @@ class DemoRunner:
         chooses to proceed with the unresolved roles read as empty."""
         from codegen.layout.model import build_layout_provider
         from codegen.layout.resolve import parse_answers, resolve_pair
+        from ui.backend import stores as ui_stores
 
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
-        runtime_cache = REPO_ROOT / config.layout.runtime_cache_dir
+        runtime_cache = ui_stores.layout_cache_dir(config)
         answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
         while True:
             result = resolve_pair(workbook_path, frd_path, config, provider=provider,
@@ -455,6 +495,7 @@ class DemoRunner:
             self.layout_report = result.report()
             self.layout_fills = list(result.gap_fills)
             if not result.questions:
+                ui_stores.push_layout_cache(config)
                 return result
             self.layout_questions = [q.as_dict() for q in result.questions]
             self.layout_advice = None
@@ -480,6 +521,7 @@ class DemoRunner:
                                       base_dir=REPO_ROOT, vdd_path=vdd_path)
                 self.layout_report = result.report()
                 self.layout_fills = list(result.gap_fills)
+                ui_stores.push_layout_cache(config)
                 return result
 
     def start_live(self) -> None:
@@ -544,7 +586,11 @@ class DemoRunner:
     def _execute(self) -> None:
         config = self._store.config
         label = f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        run_root = REPO_ROOT / config.output.dir / label
+        from ui.backend import stores as ui_stores
+
+        # Generated into the outputs role's local directory (./out by default;
+        # a remote role's working copy otherwise) and pushed up once complete.
+        run_root = ui_stores.outputs_root(config) / label
         reports_root = run_root / "reports"
         run_root.mkdir(parents=True, exist_ok=True)
 
@@ -665,6 +711,10 @@ class DemoRunner:
             raise RuntimeError(f"live run produced no feeds — {details}")
 
         self.set_aside = [f.model_dump() for f in pre_failures]
+        sent = ui_stores.push_run(config, label)
+        if sent:
+            self._stage("storing outputs", f"{len(sent)} file(s) → "
+                        f"{ui_stores.get_stores(config).outputs.uri(label)}")
         self._stage("publishing results", f"{len(runs)} feed(s), {len(failures)} failure(s)")
         self._store.adopt(
             runs,

@@ -743,6 +743,71 @@ class LayoutConfig(BaseModel):
     # Confidence bump a cross-document agreement adds (capped at 1.0).
     crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
 
+    @model_validator(mode="after")
+    def _cache_paths_are_local(self) -> LayoutConfig:
+        """The caches are LOCAL directories. A /Volumes or /Workspace path here
+        is the serverless PermissionError (docs/acfc/RETROFIT_LOG.md §8): the
+        durable runtime cache is ``storage.state`` (<state>/layout_profiles)."""
+        for value in (self.runtime_cache_dir, self.mock_dir, *self.cache_dirs):
+            normalized = value.replace("\\", "/")
+            if normalized.startswith(("/Volumes", "/Workspace")):
+                raise ValueError(
+                    f"layout cache path {value!r} addresses a Databricks mount — set "
+                    "storage.state to a volume: / workspace: URI instead; the runtime "
+                    "profile cache then lives at <state>/layout_profiles")
+        return self
+
+
+class StorageConfig(BaseModel):
+    """Where inputs, state and outputs live (M8.1): one storage URI per role —
+    ``local:<dir>`` (relative = inside the checkout), ``workspace:/Workspace/
+    Users/<user>/…`` (Workspace API) or ``volume:/Volumes/<catalog>/<schema>/
+    <volume>/…`` (Files API; never the /Volumes mount). Env
+    ``CODEGEN_STORAGE_INPUTS`` / ``_STATE`` / ``_OUTPUTS`` win. A config
+    without the section keeps the pre-M8 local directories."""
+
+    model_config = _MODEL_CONFIG
+
+    inputs: str = "local:./inputs"
+    state: str = "local:./ui/backend/state"
+    # None = the generator's own output.dir (local), as before M8.
+    outputs: str | None = None
+    # Local scratch for the working copies of a remote role (None = the
+    # system temp dir). Never the record: recreated freely.
+    scratch_dir: str | None = None
+
+    @model_validator(mode="after")
+    def _uris_parse(self) -> StorageConfig:
+        from codegen.storage import parse_uri
+
+        for uri in (self.inputs, self.state, self.outputs):
+            if uri is not None:
+                parse_uri(uri)
+        return self
+
+
+class InputsConfig(BaseModel):
+    """Input discovery (M8.2): extra read-only roots scanned for documents
+    (the root and its immediate subfolders — depth 1) next to the inboxes
+    under ``storage.inputs``. Storage URIs; env ``CODEGEN_EXTRA_INPUT_DIRS``
+    (';'-separated) is appended. Real folder names belong in an overlay."""
+
+    model_config = _MODEL_CONFIG
+
+    extra_dirs: list[str] = Field(default_factory=list)
+    scan_depth: int = Field(default=1, ge=0, le=1)
+    # A remote root's listing is an API call and the chooser polls: reuse a
+    # listing this long (an upload / fetch drops it at once).
+    listing_ttl_seconds: float = Field(default=30.0, ge=0)
+
+    @model_validator(mode="after")
+    def _uris_parse(self) -> InputsConfig:
+        from codegen.storage import parse_uri
+
+        for uri in self.extra_dirs:
+            parse_uri(uri)
+        return self
+
 
 class ConventionsProfileConfig(BaseModel):
     """One client conventions profile (M4): how the deployment DDL is laid
@@ -1100,6 +1165,9 @@ class Config(BaseModel):
     playbook: PlaybookConfig = PlaybookConfig()
     # Optional (M7): the SQL Server metadata-DB DML deliverable.
     dml: DmlConfig = DmlConfig()
+    # Optional (M8): storage backends per role + extra input roots.
+    storage: StorageConfig = StorageConfig()
+    inputs: InputsConfig = InputsConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

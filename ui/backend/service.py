@@ -377,22 +377,30 @@ class GenerationStore:
         """Identity of the currently loaded run: decisions are scoped to it."""
         return self.label or "mock"
 
-    @staticmethod
-    def _load_all_decisions() -> dict[str, dict[str, dict[str, dict]]]:
-        if not DECISIONS_PATH.is_file():
+    def _decisions_path(self) -> Path:
+        from ui.backend import stores
+
+        return stores.state_file(self.config, "decisions.json", DECISIONS_PATH)
+
+    def _load_all_decisions(self) -> dict[str, dict[str, dict[str, dict]]]:
+        path = self._decisions_path()
+        if not path.is_file():
             return {}
-        payload = json.loads(DECISIONS_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("version") != DECISIONS_VERSION:
             # Pre-v2 shape was keyed by rule alone and bled across runs and
             # modes — disposable dev state, deliberately discarded.
             return {}
         return payload.get("runs", {})
 
-    @staticmethod
-    def _write_all_decisions(runs: dict) -> None:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
+    def _write_all_decisions(self, runs: dict) -> None:
+        from ui.backend import stores
+
+        path = self._decisions_path()
+        path.parent.mkdir(parents=True, exist_ok=True)   # repo dir or local scratch
         payload = {"version": DECISIONS_VERSION, "runs": runs}
-        DECISIONS_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        stores.push_state(self.config, "decisions.json")
 
     def load_decisions(self) -> dict[str, dict[str, dict]]:
         """Decisions for the CURRENT run only — each run starts pending."""

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
@@ -138,7 +139,7 @@ def load_replay_set(store: GenerationStore, name: str) -> None:
     if replay_set is None:
         raise FileNotFoundError(f"no replay set named {name!r} under fixtures/replay/")
 
-    out_root = REPO_ROOT / store.config.output.dir / f"replay_{name}"
+    out_root = _outputs_dir(store) / f"replay_{name}"
     _rebuild_state(
         store,
         _resolve_demo_specs(store),
@@ -174,8 +175,25 @@ def _run_timestamp(name: str) -> str | None:
     return f"{y}-{mo}-{d} {h}:{mi}:{s}"
 
 
+def _outputs_dir(store: GenerationStore, root=None) -> Path:
+    """The outputs role's local directory (``./out`` by default)."""
+    if root is not None:
+        return root
+    from ui.backend import stores
+
+    return stores.outputs_root(store.config)
+
+
 def list_past_live_runs(store: GenerationStore, root=None) -> list[PastLiveRun]:
-    out_dir = root if root is not None else REPO_ROOT / store.config.output.dir
+    out_dir = _outputs_dir(store, root)
+    if root is None:
+        # A remote outputs role outlives the container: bring down the runs
+        # this process has no working copy of, so they list and load.
+        from ui.backend import stores
+
+        for label in stores.remote_run_labels(store.config):
+            if not (out_dir / label).is_dir():
+                stores.pull_run(store.config, label)
     if not out_dir.is_dir():
         return []
     runs = []
@@ -217,7 +235,7 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
     served from the run's own directory.
     """
     _reject_traversal(name)
-    out_dir = root if root is not None else REPO_ROOT / store.config.output.dir
+    out_dir = _outputs_dir(store, root)
     run = next((r for r in list_past_live_runs(store, root=root) if r.name == name), None)
     if run is None:
         raise FileNotFoundError(f"no past live run named {name!r} under {out_dir.name}/")

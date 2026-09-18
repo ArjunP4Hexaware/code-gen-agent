@@ -46,12 +46,21 @@ def _config():
         raise HTTPException(503, str(exc)) from exc
 
 
+def _fetch_dir() -> Path:
+    """FETCH_DIR under the default inputs role, else the role's working copy."""
+    from ui.backend import stores
+
+    if _store is None:
+        return FETCH_DIR
+    return stores.inbox_dir(_store.config, "databricks", FETCH_DIR)
+
+
 def _local_index() -> dict[str, tuple[str, int]]:
     """canonical name -> (local file name, size) across every input dir the
     STTM chooser's local scan covers, so the volumes list can be deduped
     SERVER-SIDE against what is already on disk."""
     directories = [
-        FETCH_DIR,
+        _fetch_dir(),
         REPO_ROOT / "inputs" / "sharepoint",
         (REPO_ROOT / _store.config.demo.workbook).parent if _store else None,
     ]
@@ -117,9 +126,13 @@ def fetch(req: FetchRequest) -> dict:
     if req.volume not in (cfg.frd_volume, cfg.sttm_volume):
         raise HTTPException(400, f"unknown volume {req.volume!r}")
     try:
-        local = fetch_document(cfg, req.volume, req.name, FETCH_DIR)
+        local = fetch_document(cfg, req.volume, req.name, _fetch_dir())
     except DatabricksTransportError as exc:
         raise HTTPException(502, str(exc)) from exc
+    if _store is not None and _fetch_dir() != FETCH_DIR:
+        from ui.backend import stores
+
+        stores.push_input(_store.config, "databricks", local.name)
     return {"fetched": local.name, "dest": "inputs/databricks"}
 
 

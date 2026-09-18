@@ -37,13 +37,23 @@ REPO = Path(__file__).resolve().parent.parent
 RAW = REPO / "inputs" / "reference_raw"
 OUT = REPO / "fixtures" / "reference"
 
-# raw name -> scrubbed name (the playbook's raw name carries the RFC number)
+# raw name -> scrubbed name. The playbook's raw name carries the client RFC
+# number, so it is located by glob and never spelled here (the scrub scanner
+# denylists it).
 FILES = {
     "SFMC_IIG.xlsx": "SFMC_IIG.xlsx",
-    "RFC111816_SFMC_Deployment_Playbook.xlsx": "SFMC_Deployment_Playbook.xlsx",
     "SFMC_stage_table_creation.txt": "SFMC_stage_table_creation.txt",
     "SFMC_standard_table_creation.txt": "SFMC_standard_table_creation.txt",
 }
+PLAYBOOK_GLOB = "RFC*_SFMC_Deployment_Playbook.xlsx"
+PLAYBOOK_OUT = "SFMC_Deployment_Playbook.xlsx"
+
+
+def raw_playbook_path():
+    matches = sorted(RAW.glob(PLAYBOOK_GLOB))
+    if not matches:
+        raise FileNotFoundError(f"no {PLAYBOOK_GLOB} under {RAW}")
+    return matches[0]
 
 
 class TokenMap:
@@ -188,7 +198,7 @@ def replace_ids_and_names(text: str, id_map: dict[str, str], names: list[str]) -
     # text; short ones (OBJECT_ID '1') are handled cell-exact in scrub_cell.
     for raw, tok in sorted(id_map.items(), key=lambda kv: -len(kv[0])):
         if len(raw) >= 4:
-            if raw.isdigit():  # survive _RFC_111816-style separators
+            if raw.isdigit():  # survive _RFC_<number>-style separators
                 text = re.sub(rf"(?<!\d){re.escape(raw)}(?!\d)", tok, text)
             else:
                 text = re.sub(rf"\b{re.escape(raw)}\b", tok, text)
@@ -256,6 +266,10 @@ def scrub_workbook(raw_path: Path, out_path: Path,
 def main() -> int:
     if not RAW.is_dir():
         sys.exit(f"raw input dir missing: {RAW}")
+    try:
+        FILES[raw_playbook_path().name] = PLAYBOOK_OUT
+    except FileNotFoundError as exc:
+        sys.exit(str(exc))
     missing = [n for n in FILES if not (RAW / n).exists()]
     if missing:
         sys.exit(f"missing raw reference files: {missing}")
@@ -265,15 +279,15 @@ def main() -> int:
     # in either file (and in the .txt goldens) map to the same tokens.
     iig = openpyxl.load_workbook(RAW / "SFMC_IIG.xlsx", read_only=True, data_only=True)
     playbook = openpyxl.load_workbook(
-        RAW / "RFC111816_SFMC_Deployment_Playbook.xlsx", read_only=True, data_only=True)
+        raw_playbook_path(), read_only=True, data_only=True)
     id_map = harvest_ids(iig)
     id_map.update(harvest_ids(playbook))
     # RFC numbers: seed both the RFC-prefixed and bare-digit forms onto ONE
-    # token, so an "RFC#s" column holding just "111816" maps coherently.
+    # token, so an "RFC#s" column holding just the bare number maps coherently.
     rfc_pat = re.compile(r"(?<![A-Za-z0-9])RFC[ _-]?(\d{5,6})(?!\d)")
     for wbook in (
         openpyxl.load_workbook(RAW / "SFMC_IIG.xlsx", read_only=True, data_only=True),
-        openpyxl.load_workbook(RAW / "RFC111816_SFMC_Deployment_Playbook.xlsx",
+        openpyxl.load_workbook(raw_playbook_path(),
                                read_only=True, data_only=True),
     ):
         for ws in wbook.worksheets:

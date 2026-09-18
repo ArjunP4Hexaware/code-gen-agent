@@ -47,7 +47,7 @@ def test_incomplete_record_rejection_without_mandatory_columns_is_flagged():
 def test_email_notification_should_be_sent_classifies_as_notification():
     rule = (
         "Email notification should be sent to the Support team "
-        "(dlazuredatalakeprodsupport@amerihealthcaritas.com) whenever there is "
+        "(syn.dl.prodsupport@synthetic.example) whenever there is "
         "an issue while ingesting data from inbound files."
     )
     (outcome,) = compile_rules(_stub_spec([rule]))

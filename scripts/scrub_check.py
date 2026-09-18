@@ -104,6 +104,8 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
         for f in files:
             if RAW in f.parents or f == RAW:
                 continue  # never scan the raw dir itself
+            if f.resolve() == Path(__file__).resolve():
+                continue  # the scanner's own pattern table is not a leak
             for text in _iter_strings(f):
                 for klass, pat in GENERIC_PATTERNS:
                     m = pat.search(text)

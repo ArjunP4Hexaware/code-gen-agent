@@ -6,3 +6,5 @@ fixtures/** -text
 
 # Built frontend bundle: committed as-is, never line-ending converted
 ui/frontend/dist/** -text
+# Shell scripts run on Linux (Apps runtime, CI): always LF
+*.sh text eol=lf

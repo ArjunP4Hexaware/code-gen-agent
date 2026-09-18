@@ -23,6 +23,11 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
+env:
+  - name: CODEGEN_FORCE_MOCK_PROVIDER
+    value: "1"
+  - name: CODEGEN_EXTRA_INPUT_DIRS
+    value: "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/frd_sttm_pairs"
 # MOCK LOCK REMOVED (2026-09-01, Soham's direction): the App now runs live
 # Layer 2 via Databricks FMAPI (reasoning.provider: databricks_fmapi →
 # databricks.serving_endpoint: databricks-claude-opus-5). The original reason

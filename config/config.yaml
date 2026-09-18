@@ -416,12 +416,32 @@ demo:
   # number pairing; the token heuristic only ever SUGGESTS in the UI.
   pairing_map:
     "sttm-medicare expansion-mids-social determine": "frd_medicare expansion-mids - socially determined"
+    # --- real client pairs 1-10 (ticket 1005789 is shared by 1/3/4/6) ---
+    "sttm_project eagle_optumrx_1005789_accumulators file ingestion from optumrx": "frd_stg_std_optumrx-project eagle 1005789_accumulators file ingestion from optumrx"
+    "sttm_medicare expansion-mids - socially determined": "frd_medicare expansion-mids - socially determined"
+    "sttm_project eagle_optumrx_1005789_facets member eligibility_v1.2": "frd_stg_std_optumrx-project eagle 1005789_facets member eligibility"
+    "sttm_project_eagle_optumrx_1005789_pde edit code report": "frd_stg_std_optumrx-project eagle 1005789_pde edit code report file"
+    "sttm_stg_std_acdc_wellpoint_medicaid_medicalclaims_historical_ingestion_1006111": "frd_wellpoint_medical_claims_historical_ingestion_1006111"
+    "sttm_project eagle_optumrx_1005789_facets cag crosswalk table": "frd_stg_std_optumrx-project eagle 1005789_ingestion of cag crosswalk & provider relationship tables from facets"
+    "sttm_stg_std_acla_uhc_medicaid_member_distribution_rxclaims_historical_ingestion_1005567": "frd_stg_std_acla_uhc_medicaid_member_distribution_rxclaims_historical_ingestion_1005567"
+    "sttm_pa chc reprocurement_1004429_834_unified layout_file": "frd_stg_std_pa chc reprocurement_1004429_834_unified layout_file"
+    "sttm_hr_analytics_hcm_to_dl_mapping_document_1004845_v1.0": "frd_stg_std_hr_analytics_hcm_data_ingestion_1004845_v1.1"
+    "sttm_isfda_1004808_e17231_bestfootforward_hradataingestion": "frd_std_isfda_1004808_e17231_bestfootforward_hradataingestion"
   # Same idea for the Vendor Data Dictionary (chosen automatically with the
-  # STTM when present): canonical STTM stem -> VDD stem. Ships the pair-1
-  # fixture names; a shared ticket number or a matching document name pairs
-  # without an entry here.
+  # STTM when present): canonical STTM stem -> VDD stem.
   vdd_pairing_map:
     "pair_1_family_a": "pair_1_v1_segments"
+    # --- real client pairs 1-10 ---
+    "sttm_project eagle_optumrx_1005789_accumulators file ingestion from optumrx": "vdd_optumrx_accumulators"
+    "sttm_medicare expansion-mids - socially determined": "vdd_socially_determined_mids"
+    "sttm_project eagle_optumrx_1005789_facets member eligibility_v1.2": "vdd_facets_member_eligibility"
+    "sttm_project_eagle_optumrx_1005789_pde edit code report": "vdd_optumrx_pde_edit_code_report"
+    "sttm_stg_std_acdc_wellpoint_medicaid_medicalclaims_historical_ingestion_1006111": "vdd_wellpoint_medical_claims"
+    "sttm_project eagle_optumrx_1005789_facets cag crosswalk table": "vdd_facets_cag_crosswalk"
+    "sttm_stg_std_acla_uhc_medicaid_member_distribution_rxclaims_historical_ingestion_1005567": "vdd_uhc_medicaid_rxclaims"
+    "sttm_pa chc reprocurement_1004429_834_unified layout_file": "vdd_834_unified_layout"
+    "sttm_hr_analytics_hcm_to_dl_mapping_document_1004845_v1.0": "vdd_hcm_peoplesoft"
+    "sttm_isfda_1004808_e17231_bestfootforward_hradataingestion": "vdd_bestfootforward_hra"
 
   # "Source files this run will read" panel. The landing-root template
   # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS
@@ -439,7 +459,7 @@ demo:
   # `codegen databricks-seed-landing` (the seam's first write task, the one
   # the Option A header named). Live mode lists it through the volumes
   # seam; synthetic mode remains the offline fallback.
-  databricks_paths: { catalog: soham_workspace, schema: codegen_agent, volume: mftlanding }
+  databricks_paths: { catalog: d1_dlk, schema: codegen, volume: mftlanding }
   # live | synthetic | auto (live when creds resolve and the volume exists,
   # else synthetic — honestly labelled either way).
   shell_listing: auto
@@ -617,10 +637,10 @@ databricks:
   # seam reads (uploaded 2026-08-27). The demo shell block's placeholders
   # live separately under demo.databricks_paths — no landing volume exists
   # in the workspace yet (Option A decision).
-  catalog: soham_workspace
-  schema: codegen_agent
-  frd_volume: frd_raw
-  sttm_volume: sttm_raw
+  catalog: d1_dlk
+  schema: codegen
+  frd_volume: codegen_inputs
+  sttm_volume: codegen_workbooks_in
   # B1 (discovery 2026-08-27, docs/DATABRICKS_DISCOVERY.md):
   # "Serverless Starter Warehouse", serverless PRO, auto-stop 10 min.
   # EXPLAIN is the ONLY statement shape this seam sends — and an EXPLAIN
@@ -639,7 +659,7 @@ databricks:
   # CLI / the UI's publish panel). The panel lets the user pick any
   # catalog.schema.volume, but code refuses anything outside
   # WRITABLE_PREFIX — publishing never touches client schemas.
-  output_volume: generated
+  output_volume: codegen_outputs
   # SELECT-only table-read allowlist (read_table_rows renders the statement
   # itself; callers never pass SQL). Reads wake the serverless warehouse —
   # DBU spend from the shared pool. FRD contracts come from the upstream
@@ -659,7 +679,7 @@ layout:
   mock_dir: "fixtures/layout_profiles/mock"
   # auto: live when Layer 2 is live (same transport, databricks_fmapi /
   # anthropic; mock on dry-run and on the mock lock) | mock: never a model.
-  provider: auto
+  provider: mock
   max_tokens: 8192
   max_attempts: 2
   model_confidence: 0.8
@@ -695,7 +715,9 @@ conventions:
   # the golden opens with a blank line, has a lone-space line before the
   # standard block's USING clause, and ends WITHOUT a trailing newline.
   # CLI: codegen generate --profile <name>.
-  profile: edo_sfmc
+  profile: acfc_prx
+  # STTM stage-band majority catalog: pr_dlk (7/10 pairs); pr_std for standard.
+  # Pairs 2, 7 state no catalog. Not a config key — documented here for reference.
   profiles:
     edo_sfmc:
       ddl_layout: two_files
@@ -726,7 +748,7 @@ metadata:
   # constants / template rows below — framework vocabulary the golden shows
   # constant across rows, badged synthetic with this citation — or is left
   # blank and flagged (iig_blank:<TAB>.<HEADER>). CLI: --iig-template.
-  template: iig_v1
+  template: iig_v2
   templates:
     iig_v2:
       citation: "pair-1 RFC package (aliased golden RFC_ACCUMULATORS_IIG.xlsx, docs/acfc/rfc_capture)"
@@ -848,7 +870,7 @@ playbook:
   # header pattern). Task rows come ONLY from `tasks` below, per
   # conventions profile ("default" otherwise); RFC#s from the run input.
   # CLI: generate --output-mode rfc --playbook-template <name>.
-  template: sfmc_7sheet
+  template: main_single
   templates:
     sfmc_7sheet:
       kind: sfmc_7sheet

@@ -211,3 +211,16 @@ walkthrough where the brief says so (ACTIVE_FLAG).
 | PARENT_PIPELINE_ID | `0` for a master pipeline | a pipeline id on every golden row (the golden rows are children of an existing master) | `@PARENT_PIPELINE_ID` — engineer supplies; `NULL -- ASSIGN` |
 | DATA_FACTORY_PIPELINE_SCHEDULE.DAY_OF_SCHEDULE for weekly feeds (iig_v1) | not populated today | the SFMC-reference-shaped sheet prints the FRD's weekday | IIG unchanged (baseline); DML NULL |
 | Connection table / column identifiers | spoken only | not in any golden | `dml.connection_table` config, flagged `dml_unconfirmed` |
+
+### Findings the strict derivation gate raised on the repo's own baselines (recorded, not fixed)
+
+The gate (`gate/derivations.py`) is ON under the `acfc_prx` profile and OFF
+under the reference `edo_sfmc` profile because the CV / SFMC baselines are
+byte-compared and carry these findings:
+
+| Where | Finding | Status |
+| --- | --- | --- |
+| CV STTM standard band | `sibling_type_mismatch`: e.g. 2 of 42 `_pct` columns typed String among Decimal, 7 of 17 `_index`, 3 of 7 `_score`, `_10k`, `_income` (cv_community_risk / cv_community_demographic_risk) | transcribed as stated; confirm with the STTM author |
+| iig_v1 `ADLS_DELTA_INGESTION_DETAILS.TGT_ADLS_PATH` (synthetic shape) | built from the FRD domain words, so it carries spaces (`/Social Determinants of Health/Public/Processed/…`) — the path rule FAILs it | the synthetic path shape is a stand-in ("real container/path assigned at deployment"); replace the shape or abbreviate the domain before turning the strict gate on for `edo_sfmc` |
+| MIDS FRD `ADLS Location` nested table, row "Individual Risk" | the path ends in a period (`…socially_determined.`) — a segment ending in punctuation FAILs the path rule under `acfc_prx` | an FRD typo; fix the document or accept the FAIL as the signal it is |
+| MIDS FRD `Target Schema` | names no catalog anywhere (FRD, STTM bands, config default) | `catalog_unstated:stage` / `standard` FAIL under `acfc_prx` until a catalog is stated (`conventions.profiles.acfc_prx.default_catalog` in an overlay, or the FRD) |

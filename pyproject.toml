@@ -3,7 +3,7 @@ name = "codegen-data-engineer-agent"
 # Bump on every Apps redeploy that changes src/ — the Apps pip install
 # reuses its cached wheel for an unchanged version, silently deploying
 # stale code against fresh config (bitten 2026-08-28).
-version = "0.4.1"
+version = "0.4.2"
 description = "Generates Databricks ingestion pipelines (PySpark + Delta) from approved machine-readable contracts"
 requires-python = ">=3.11"
 dependencies = [
@@ -18,6 +18,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.5",
+    # M7: validates the emitted T-SQL DML (tsql dialect); the emitter degrades
+    # to a structural check when it is absent.
+    "sqlglot>=25",
     # Needed only to run the tests generated for the emitted pipelines.
     "pyspark>=3.5,<4.0",
     "delta-spark>=3.2,<4.0",

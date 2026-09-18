@@ -48,8 +48,9 @@ src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
                     frd_docx.py, vdd.py), rules/ (rule classifier),
                     reasoning/ (Layer 2: providers, verbatim grounding),
                     emit/ (Jinja2 + notebook assembler; framework.py Option B,
-                    rfc.py the RFC package), gate/ (preflight, tests, verdict,
-                    vdd_check, drag_fill), metadata_template.py (IIG template
+                    rfc.py the RFC package, dml.py the SQL Server DML — M7),
+                    gate/ (preflight, tests, verdict, vdd_check, drag_fill,
+                    derivations — M7), metadata_template.py (IIG template
                     versions), report/, templates/, cli.py, config.py
 tests/              offline, no Spark needed; some SKIP when the fixtures they
                     drive on are absent (see "Fixtures & data rules"); the
@@ -83,7 +84,8 @@ docs/               DESIGN.md, WORKFLOW.md, EXTRACTOR_RECON.md, SEGMENTED_MODE_D
                     LAYOUT_RECOGNITION.md (the recognizer), ACFC_DEPLOY.md (stand-up
                     inside ACFC), acfc/SHAPES_FOR_PORT.md + acfc/rfc_capture/…/
                     RFC_PACKAGE_SHAPES.md (the documented client shapes) + the pair-1
-                    goldens, media/
+                    goldens, acfc/METADATA_DB_SEMANTICS.md (the SQL Server metadata-DB
+                    walkthrough as a spec — M7; its raw .docx stays untracked), media/
 ui/                 demo dashboard: FastAPI (8571) + Vite/React (5173); pip install -e ".[ui]", see ui/README.md
                     backend/sharepoint_routes.py: picker + confirm-gated publish.
                     ui/frontend/dist IS TRACKED (M6): rebuild (`npm run build`) and
@@ -267,19 +269,99 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
-## Metadata DB semantics (M7, 2026-09-18)
+## M7 (2026-09-18, v0.4.2-acfc): metadata-DB DML, the many-files FRD shape, the derivation gate
 
-`docs/acfc/METADATA_DB_SEMANTICS.md` transcribes the framework
-maintainer's walkthrough of the SQL Server metadata config tables (six
-tables covered: pipeline schedule, file connection, RDBMS connection,
-file→ADLS, RDBMS→ADLS, ADLS→Delta; the rest marked "not yet described").
-It is THE spec for the DML emitter (`emit/dml.py`): audit columns =
-`@RFC_NUMBER` + `GETDATE()`, active rows are `'S'`, pipeline / group IDs
-are engineer-assigned and preflight-checked unused, connection IDs are
-identity values reused by host / root path, and its §10 lists where the
-walkthrough contradicts the IIG goldens (the goldens win in the review
-workbooks; the DML follows the walkthrough where the M7 brief says so).
-The raw transcript stays untracked (`*.docx`).
+Six commits (415e17b … 2e08af7 + the tag commit). Every M7 behaviour that
+would change the byte-compared CV / SFMC / pair-1 output rides the
+**conventions profile**: `acfc_prx` carries `strict_derivations`,
+`emit_dml`, `require_qualified_names` (all on); the reference `edo_sfmc`
+profile keeps today's output byte for byte. The UI's profile selector /
+CLI `--profile` choose. **Select `acfc_prx` to get the DML and the strict
+gate** — the tracked default is still `edo_sfmc`.
+
+- **`docs/acfc/METADATA_DB_SEMANTICS.md`** transcribes the framework
+  maintainer's SQL Server metadata-DB walkthrough (2026-09-11): six tables
+  covered (pipeline schedule, file connection, RDBMS connection, file→ADLS,
+  RDBMS→ADLS, ADLS→Delta), the rest "not yet described"; §1 conventions
+  (audit = RFC number + GETDATE(), active rows `'S'`, id uniqueness, who
+  assigns what), §9 dependency order, §10 the walkthrough-vs-golden
+  contradictions (goldens kept in the IIG review workbooks: ACTIVE_FLAG
+  `Y`, DAY_OF_SCHEDULE `0`, PARENT_PIPELINE_ID) AND the findings the strict
+  gate raised on the repo's own baselines (CV mixed sibling types; the
+  iig_v1 synthetic TGT_ADLS_PATH with spaces; the MIDS trailing-dot path;
+  MIDS states no catalog). The raw transcript is untracked (`*.docx`).
+- **F1 reader — the one-block / many-files shape** (fixture pair 11 in
+  `tests/acfc_shapes`, two variants: no catalog / catalog stated):
+  `DocxContent.nested` reads tables INSIDE cells; a `single_line_fields`
+  cell that is a nested table, per-file blocks (`<File> file Ingestion
+  from <Src>:` headings + `Domain = …` lines), a pointer sentence
+  (`extractor.frd.pointer_phrases`), a label-prefixed description
+  (`Vendor Files = …`) or still multi-line is UNSTATED and recorded as
+  `FrdContract.structured[path]` (StructuredValue: kind, rows, target,
+  prefix_label, truncated text — logged, never a value). The layout stage
+  (`layout/resolve.py::resolve_structured_fields`) gives every derived
+  feed its own nested row (landing path) / block (domain, sub_domain) by
+  file name — exact match, then mutual-best token score by elimination —
+  with `frd_nested:` provenance flags; pointer / label-prefixed / multiline
+  stay unstated (`frd_pointer:<field> → <target>` …) and the gap chain
+  fills **frequency** from the STTM File Details row of THIS feed's file
+  (`facts["file_rows"]`), then the meta row, then the VDD. The vendor
+  label alone names the source; a refused Object Name never falls back to
+  the section's "Name" row; a bare direction word ("Inbound") is not a
+  landing path. Real MIDS: 3 feeds, each with its own domain / subdomain /
+  landing path / frequency, zero newline cells, one dialog question left
+  (the file for `sd_community_risk`).
+- **Derivation gate** (`gate/derivations.py`, config `gate.derivations`,
+  caps are CONSERVATIVE defaults — the framework's limits are undocumented):
+  every IIG cell single-line; identifier columns charset + cap; path
+  columns no whitespace / empty segment / punctuation-ended segment /
+  doubled separator; DDL COMMENT / LOCATION / TBLPROPERTIES literals
+  single-line + balanced; `join_path` assembles paths from normalized
+  segments (never raw concatenation); `_abbreviate` keeps prose out of
+  WF_/NB_ names (blank component, never a slug); `sibling_type_flags`
+  groups standard-band columns by suffix and flags a mixed group citing
+  the minority rows' STTM cells. Under `require_qualified_names` every
+  CREATE is `catalog.schema.table` or that layer's DDL is not written and
+  the gate FAILs `catalog_unstated:<layer>` (chain: FRD label → STTM band →
+  `profile.default_catalog[layer]`, each a provenance flag); the table
+  COMMENT's `(source: …)` fragment uses the vendor label only.
+- **DML deliverable** (`emit/dml.py`; `config.yaml dml:`; templates/
+  framework/insert_scripts_notebook.py.j2): from the SAME IIG rows,
+  `config_inserts_<env>.sql` for q1 / a2 / prod + `Insert_scripts_config_
+  table_<env>.py` (Databricks notebook source, JDBC in one transaction,
+  secret-scope NAMES only). Variables block (`@RFC_NUMBER`, `@PIPELINE_ID`,
+  `@PARENT_PIPELINE_ID`, `@GROUP_ID`, `@OBJECT_ID`, one `@<ROLE>` per
+  connection column, `@SRC_HOST_NAME`, `@SRC_ROOT_PATH`) from the FAQ
+  companions `rfc_number`, `pipeline_id`, `parent_pipeline_id`, `group_id`,
+  `object_id`, `source_host`, `connection_ids` — else `NULL -- ASSIGN` +
+  `dml_unassigned:@<name>`; preflight RAISERRORs (ids unused, connection
+  lookup 0 or 1 rows) + connection insert-or-reuse with SCOPE_IDENTITY()
+  (identifiers as spoken → `dml_unconfirmed:connection_table`); one INSERT
+  per row in §9 order, audit = `@RFC_NUMBER` / GETDATE(), ACTIVE_FLAG
+  `dml.active_flag` ('S'), CLAIM_TYPE_ID / DAY_OF_SCHEDULE / UDF2–5 NULL,
+  a multi-line source value → NULL + `dml_multiline` (never a literal);
+  path columns `CONCAT(@PATH_PREFIX, …)` so environments differ only in
+  the variables block. Gate checks `dml_parse_<env>` (sqlglot tsql,
+  statement by statement; a raw-Command fallback FAILs) and
+  `dml_row_counts` (= the IIG's). The runner notebook must stay ruff- and
+  secrets-check clean (the `all` mode gate scans it).
+- **Labelling by target system**: `artefact_groups` ("DDL — Databricks
+  (Unity Catalog)", "DML — SQL Server metadata DB (run from notebook)",
+  "Review sheets", "Notes") on `FrameworkArtefacts.groups` → the Dashboard
+  panel, ADDITION.md's "By target system" block, MANIFEST.md's target
+  column + summary; the RFC package carries the .sql + notebooks;
+  `config_inserts.xlsx` gets a README sheet 1 ("review copy — executable
+  script is config_inserts_<env>.sql") — all only when the DML is emitted.
+  `target_system_header` (DDL header line) is OFF in both profiles because
+  the pair-1 combined DDL and the SFMC two-file DDL are golden-compared.
+- **Template semantics**: CREATED_BY / UPDATED_BY (and iig_v1's
+  `CRETAED_BY`) = `RFC<rfc_number>` from the FAQ in BOTH IIG versions
+  (badged from FAQ; blank + `iig_blank` otherwise — they left iig_v2's
+  `always_blank`; the DATES stay blank, GETDATE() at insert);
+  `metadata.claim_type_id_default` (None = goldens' blank).
+- **Baseline discipline**: the scratch `baseline.py --check` now reports
+  NEW artefacts separately from changed ones; `sqlglot` is in the `[dev]`
+  extra (the DML tests `importorskip` it).
 
 ## Layout recognition (added 2026-09-18, M2.5)
 

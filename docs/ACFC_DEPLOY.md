@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.4.1-acfc)
+# Deploying CodeGen inside ACFC (v0.4.2-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace from a Git
 folder clone of `staging`, run the ten documented pairs, and check the
@@ -193,3 +193,29 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.4.2-acfc adds (M7)
+
+- **`docs/acfc/METADATA_DB_SEMANTICS.md`** — the framework maintainer's
+  SQL Server metadata-DB walkthrough as a per-table spec (six tables
+  covered; the rest marked "not yet described"; §10 lists where the
+  walkthrough contradicts the IIG goldens).
+- **F1 FRD reader** handles the one-block / many-files shape: nested tables
+  (Object Name, ADLS Location), per-file "Domain = …" blocks, pointer
+  sentences ("refer to the File Details tab …"), label-prefixed
+  descriptions ("Vendor Files = …") and multi-line cells are UNSTATED and
+  recorded; the layout stage resolves nested rows / blocks per derived
+  feed by file name and takes the frequency from the STTM File Details row.
+- **Derivation gate** (`gate/derivations.py`) and **DML deliverable**
+  (`emit/dml.py`: `config_inserts_<env>.sql` + the runner notebook) ride the
+  `acfc_prx` conventions profile (`strict_derivations`, `emit_dml`,
+  `require_qualified_names`). Select that profile in the UI or pass
+  `--profile acfc_prx` on the CLI; the reference `edo_sfmc` profile keeps
+  the byte-compared output unchanged.
+- The DML variables (`@RFC_NUMBER`, `@PIPELINE_ID`, `@GROUP_ID`, …) come
+  from the feed's FAQ companions (`rfc_number`, `pipeline_id`,
+  `parent_pipeline_id`, `group_id`, `object_id`, `source_host`,
+  `connection_ids`) or are `NULL -- ASSIGN` + flagged; the notebook reads
+  the JDBC secret NAMES from `config.yaml dml:` (`secret_scope`,
+  `jdbc_url_secret`, `user_secret`, `password_secret`) — create that
+  Databricks secret scope before the first run.

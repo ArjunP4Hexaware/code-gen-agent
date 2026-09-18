@@ -422,7 +422,26 @@ a manual pick is never marked automatic, and clearing the STTM clears an
 automatic pair. No match or ambiguity pairs nothing. Defaults are
 unchanged (golden STTM + golden FRD, snapshot byte-identical), a
 mismatched pick shows a warning chip, and feed-match failures name the
-FRD used and offer the paired candidate — nothing auto-retries. **Client-document rule:** the MIDS/CAQH artefacts are real
+FRD used and offer the paired candidate — nothing auto-retries.
+
+**FRD gap handling (2026-09-18, `resolve/gapfill.py`):** when a docx FRD is
+silent, the fallback chain fills — each fill a `frd_unstated:<field>
+source_used:<document cell>` flag — file format and delimiter from the
+STTM meta row then the VDD FILES sheet; the stage load strategy from the
+STTM "Load Strategy" meta row when it states one per layer (`STG: …; STD:
+…`) then the FAQ `load_mode`; the standard strategy from the STTM per
+layer only (else blank + flag). Domain / subdomain stay FRD-only; the
+STTM stage band is authoritative for catalog / schema / tables (never
+asked; the FRD's statement is a cross-check). The layout dialog does NOT
+ask when exactly one other document states the value ("Taken from other
+documents" lists the fills), DOES ask when sources disagree (a `choice`
+question showing each value + cell; the answer lands with source=user) or
+when the only source is ambiguous (one layer-less "Load Strategy" → the
+`layer` question: stage / standard / both). The contract resolver applies
+the same chain on the CLI path. Remaining hard stops: file format and
+stage load strategy when every source is silent (the reader / writer
+cannot proceed without them); an ambiguous single strategy on the CLI
+path names the dialog / FAQ as the remedy. **Client-document rule:** the MIDS/CAQH artefacts are real
 client documents, and a LIVE run sends their content to the model API —
 live runs on client STTM/FRD pairs are permitted only per the program's
 client-document process (Venu's email approval); the demo CV golden

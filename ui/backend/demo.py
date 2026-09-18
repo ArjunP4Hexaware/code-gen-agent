@@ -76,6 +76,9 @@ class DemoRunner:
         # {"provider": name, "advice": {key: {index, rationale}}}; reset when the
         # question set changes. Display + a pre-selection — never a value.
         self.layout_advice: dict | None = None
+        # FRD fields taken from another document / the person's choice while
+        # resolving the layout: [{field, title, value, source, cell}].
+        self.layout_fills: list[dict] = []
         self._layout_event = threading.Event()
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
@@ -378,6 +381,7 @@ class DemoRunner:
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,
+            "layout_fills": list(self.layout_fills),
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
             "output_parts": self.effective_output_parts(),
@@ -421,12 +425,13 @@ class DemoRunner:
 
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
         runtime_cache = REPO_ROOT / config.layout.runtime_cache_dir
-        answers: dict = {"sttm": {}, "frd": {}, "vdd": {}}
+        answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
         while True:
             result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                   answers=answers, runtime_cache_dir=runtime_cache,
                                   base_dir=REPO_ROOT, vdd_path=vdd_path)
             self.layout_report = result.report()
+            self.layout_fills = list(result.gap_fills)
             if not result.questions:
                 return result
             self.layout_questions = [q.as_dict() for q in result.questions]
@@ -445,12 +450,14 @@ class DemoRunner:
             merged = parse_answers(reply.get("answers") or {})
             answers = {"sttm": {**answers["sttm"], **merged["sttm"]},
                        "frd": {**answers["frd"], **merged["frd"]},
-                       "vdd": {**answers.get("vdd", {}), **merged.get("vdd", {})}}
+                       "vdd": {**answers.get("vdd", {}), **merged.get("vdd", {})},
+                       "gaps": {**answers.get("gaps", {}), **merged.get("gaps", {})}}
             if reply.get("proceed"):
                 result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                       answers=answers, runtime_cache_dir=runtime_cache,
                                       base_dir=REPO_ROOT, vdd_path=vdd_path)
                 self.layout_report = result.report()
+                self.layout_fills = list(result.gap_fills)
                 return result
 
     def start_live(self) -> None:
@@ -534,16 +541,23 @@ class DemoRunner:
 
         run_frd = run_root / "frd.contract.json"
         frd_is_docx = frd_path.suffix.lower() == ".docx"
-        if frd_is_docx:
-            # M2: a .docx FRD is extracted into the run's own contract file
-            # (deterministic, stdlib) — the rest of the path is unchanged.
-            from codegen.extract.frd_docx import contract_to_json, extract_frd_contract
+        # Layout first: the resolved layout also produces the FRD contract
+        # (a .docx read through its profile, with any FRD gaps filled from the
+        # STTM / VDD / FAQ or the person's choice — resolve/gapfill.py).
+        self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
+        resolution = self._resolve_layout(workbook_path, frd_path, config,
+                                          vdd_path=self.selected_vdd)
+        from codegen.extract.frd_docx import contract_to_json
 
-            self._stage("extracting FRD", f"{frd_path.name} → FRD feed contract (docx)")
-            frd_contract, _profile = extract_frd_contract(frd_path, config)
-            run_frd.write_text(contract_to_json(frd_contract), encoding="utf-8", newline="\n")
+        if frd_is_docx or resolution.gap_fills:
+            self._stage("extracting FRD" if frd_is_docx else "filling FRD gaps",
+                        f"{frd_path.name} → FRD feed contract"
+                        + (f" ({len(resolution.gap_fills)} field(s) from other documents)"
+                           if resolution.gap_fills else ""))
+            run_frd.write_text(contract_to_json(resolution.frd_contract), encoding="utf-8",
+                               newline="\n")
         else:
-            shutil.copyfile(frd_path, run_frd)
+            shutil.copyfile(frd_path, run_frd)  # content-identical: hashes unchanged
         (run_root / "run_meta.json").write_text(
             json_module.dumps({
                 "frd_label": frd_label,
@@ -556,11 +570,6 @@ class DemoRunner:
             encoding="utf-8", newline="\n",
         )
         frd_path = run_frd
-
-        self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
-        resolution = self._resolve_layout(
-            workbook_path, self.effective_frd() if frd_is_docx else frd_path, config,
-            vdd_path=self.selected_vdd)
         layout_flags = list(resolution.flags)
         vdd_contract_path: Path | None = None
         if self.selected_vdd is not None and resolution.vdd is not None:

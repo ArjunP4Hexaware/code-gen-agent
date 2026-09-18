@@ -158,7 +158,7 @@ def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
             break
         time.sleep(0.02)
     assert runner.state == "done" and seen["questions"] == []
-    assert calls[-1] == {"sttm": {"S/stage/column": 1}, "frd": {}, "vdd": {}}
+    assert calls[-1] == {"sttm": {"S/stage/column": 1}, "frd": {}, "vdd": {}, "gaps": {}}
     # Not waiting -> answering is refused.
     with pytest.raises(LiveRunInProgress):
         runner.answer_layout({})

@@ -95,7 +95,19 @@ export interface LayoutQuestion {
   role: string;
   reason: string;
   header: string[];
-  candidates: { col?: number; header?: string; table?: number; row?: number; label?: string }[];
+  candidates: {
+    col?: number;
+    header?: string;
+    table?: number;
+    row?: number;
+    label?: string;
+    // kind "choice" / "layer" candidates
+    value?: string;
+    source?: string;
+    cell?: string;
+    layer?: "stage" | "standard" | "both";
+  }[];
+  kind?: "role" | "choice" | "layer";
   // Plain-language help: what is asked, where it usually sits, the
   // pre-selected candidate index (or null).
   title?: string;
@@ -116,6 +128,9 @@ export interface DemoStatus {
     provider: string;
     advice: Record<string, { index: number | null; rationale: string }>;
   } | null;
+  // FRD fields taken from another document (or the person's choice) while
+  // resolving the layout — shown as "Taken from other documents".
+  layout_fills?: { field: string; title: string; value: string; source: string; cell: string }[];
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;

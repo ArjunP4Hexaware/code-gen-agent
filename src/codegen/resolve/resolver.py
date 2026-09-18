@@ -137,6 +137,77 @@ def _frd_window_days(frd_feed: FrdFeed) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
+                   ) -> tuple[FrdFeed, list[str], list[str]]:
+    """The contract-level gap chain. Returns (patched feed, flags, errors)."""
+    from codegen.faq import load_faq
+    from codegen.resolve.gapfill import (
+        Statement,
+        distinct,
+        fill_flag,
+        parse_load_strategy_text,
+        strategy_from_faq,
+    )
+
+    flags: list[str] = []
+    errors: list[str] = []
+    meta = sttm_feed.meta_rows
+    sheet = sttm_feed.mapping_sheet
+    feed = frd_feed
+    vdd_files = list(getattr(vdd, "files", []) or [])
+
+    def others_for(meta_key: str, vdd_attr: str) -> list[Statement]:
+        out: list[Statement] = []
+        if meta.get(meta_key):
+            out.append(Statement(meta[meta_key], "STTM", f"{sheet} meta row {meta_key!r}"))
+        for f in vdd_files:
+            value = getattr(f, vdd_attr, None)
+            if value:
+                out.append(Statement(value, "VDD", f"FILES row {f.row}"))
+        return distinct(out)
+
+    if feed.file_format is None:
+        others = others_for("file_format", "format")
+        if len(others) == 1:
+            feed = feed.model_copy(update={"file_format": others[0].value})
+            flags.append(fill_flag("file_format", others[0]))
+        elif len(others) > 1:
+            errors.append("the FRD states no file format and the other documents disagree: "
+                          + "; ".join(f"{s.source} {s.cell} says {s.value!r}" for s in others)
+                          + " — choose one in the layout dialog")
+    if feed.delimiter is None:
+        others = others_for("delimiter", "delimiter")
+        if len(others) == 1:
+            feed = feed.model_copy(update={"delimiter": others[0].value})
+            flags.append(fill_flag("delimiter", others[0]))
+    parsed = parse_load_strategy_text(meta.get("load_strategy"),
+                                      config.extractor.frd.target_schema_markers)
+    cell = f"{sheet} meta row 'load_strategy'"
+    if feed.stage_target.load_strategy is None:
+        if parsed.get("stage"):
+            statement = Statement(parsed["stage"], "STTM", cell)
+        else:
+            statement = strategy_from_faq(load_faq(normalize_feed_name(feed.feed_name), config))
+        if statement is not None:
+            feed = feed.model_copy(update={"stage_target": feed.stage_target.model_copy(
+                update={"load_strategy": statement.value})})
+            flags.append(fill_flag("stage_target.load_strategy", statement))
+        elif "any" in parsed:
+            errors.append(f"the STTM states one load strategy ({parsed['any']!r}, {cell}) "
+                          "without a layer — say which layer it applies to in the layout "
+                          "dialog, or answer the FAQ load_mode")
+    if feed.standard_target.load_strategy is None:
+        if parsed.get("standard"):
+            statement = Statement(parsed["standard"], "STTM", cell)
+            feed = feed.model_copy(update={"standard_target": feed.standard_target.model_copy(
+                update={"load_strategy": statement.value})})
+            flags.append(fill_flag("standard_target.load_strategy", statement))
+        elif feed.standard_target.tables:
+            flags.append("frd_unstated:standard_target.load_strategy source_used:none — the "
+                         "FRD and the STTM state no standard-layer strategy; left blank")
+    return feed, flags, errors
+
+
 def _sttm_segment_names(sttm_feed: SttmFeed) -> list[str]:
     """Header / Detail / Trailer as the STTM's fields declare them, in order."""
     return [s for s in ("Header", "Detail", "Trailer")
@@ -274,6 +345,7 @@ def resolve_feeds(
     *,
     frd_sha256: str,
     sttm_sha256: str,
+    vdd=None,
 ) -> list[ResolvedFeedSpec]:
     """Join every FRD feed to its STTM feed. Unmatched feeds on either side fail."""
     sttm_by_id = {f.feed_id: f for f in sttm.feeds}
@@ -290,7 +362,8 @@ def resolve_feeds(
             unmatched_frd.append(f"{frd_feed.feed_name!r} (looked for STTM feed_id '{feed_id}')")
             continue
         matched_sttm_ids.add(feed_id)
-        specs.append(_resolve_one(frd, frd_feed, sttm, sttm_feed, config, frd_sha256, sttm_sha256))
+        specs.append(_resolve_one(frd, frd_feed, sttm, sttm_feed, config, frd_sha256, sttm_sha256,
+                                  vdd=vdd))
 
     errors = [f"FRD feed has no STTM mapping: {name}" for name in unmatched_frd]
     errors += [
@@ -310,10 +383,19 @@ def _resolve_one(
     config: Config,
     frd_sha256: str,
     sttm_sha256: str,
+    vdd=None,
 ) -> ResolvedFeedSpec:
     errors: list[str] = []
     feed_id = sttm_feed.feed_id
     catalog = frd_feed.stage_target.catalog
+
+    # FRD gap chain (resolve/gapfill.py): a docx-extracted FRD that states no
+    # file format / load strategy takes them from the STTM meta rows, the VDD
+    # FILES sheet or the FAQ — each fill a provenance flag. The layout stage
+    # applies the same chain earlier (with the dialog for disagreements);
+    # here it covers the CLI path and anything the dialog left blank.
+    frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd)
+    errors.extend(gap_errors)
 
     delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config)
     provenance_flags: list[str] = []
@@ -343,10 +425,16 @@ def _resolve_one(
         else:
             errors.append("FRD names no file pattern (docx-extracted contract with no file "
                           "pattern label) and the STTM states none either")
+    # Hard stops that remain: fields every source is silent on and the
+    # generator cannot proceed without (a reader needs the format; a writer
+    # needs the stage strategy). Domain / standard strategy are blank-and-flag.
     if frd_feed.file_format is None:
-        errors.append("FRD states no file format (Object/data Format blank or absent)")
+        errors.append("no source states the file format: FRD 'Object/data Format', the STTM "
+                      "'File Format' meta row and the VDD FILES sheet are all blank")
     if frd_feed.stage_target.load_strategy is None:
-        errors.append("FRD states no stage load strategy (Load Strategy STG blank or absent)")
+        errors.append("no source states the stage load strategy: FRD 'Load Strategy STG' blank, "
+                      "the STTM 'Load Strategy' meta row states none per layer, and the FAQ "
+                      "load_mode is unanswered — answer it in the layout dialog or the FAQ")
 
     if not frd_feed.lobs:
         errors.append("FRD feed declares no LOBs; the LOB audit column needs at least one")
@@ -493,7 +581,7 @@ def _resolve_one(
         # the FRD's rules state an AS-IS load (acceptance criterion 3 shape).
         load_as_is=any(_AS_IS_RE.search(r) for r in frd_feed.validation_rules),
         source_table=sttm_feed.source_table,
-        provenance_flags=provenance_flags,
+        provenance_flags=[*gap_flags, *provenance_flags],
     )
 
 
@@ -503,16 +591,19 @@ def resolve_pair(frd_path: Path, sttm_path: Path, config: Config,
     contract (M3) attaches to every spec as the third input."""
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
     sttm = SttmContract.model_validate(json.loads(sttm_path.read_text(encoding="utf-8")))
+    vdd = None
+    if vdd_path is not None:
+        from codegen.contracts.vdd import VddContract
+
+        vdd = VddContract.model_validate(json.loads(Path(vdd_path).read_text(encoding="utf-8")))
     specs = resolve_feeds(
         frd,
         sttm,
         config,
         frd_sha256=sha256_of_file(frd_path),
         sttm_sha256=sha256_of_file(sttm_path),
+        vdd=vdd,
     )
-    if vdd_path is not None:
-        from codegen.contracts.vdd import VddContract
-
-        vdd = VddContract.model_validate(json.loads(Path(vdd_path).read_text(encoding="utf-8")))
+    if vdd is not None:
         specs = [spec.model_copy(update={"vdd": vdd}) for spec in specs]
     return specs

@@ -364,6 +364,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   // cell — the claim {table,row,col,label,section} the merge step re-validates.
   const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
   const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
+  // Answers to "choice" / "layer" questions: {key: {value, layer?, source}}.
+  const [gapPicks, setGapPicks] = useState<Record<string, { value: string; layer?: string; source: string }>>({});
   useEffect(() => {
     // Pre-select each question's suggested candidate (still confirmed by the
     // person with Continue; the merge step re-validates every claim).
@@ -397,10 +399,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       }
       const frd: Record<string, unknown> = {};
       for (const [field, claim] of Object.entries(frdPicks)) frd[field] = { ...claim, source: "user" };
-      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd, vdd }, proceed });
+      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd, vdd, gaps: gapPicks }, proceed });
       setStatus(s);
       setLayoutPicks({});
       setFrdPicks({});
+      setGapPicks({});
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -853,6 +856,28 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 ) : null}
                 {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
                   <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
+                    {(status.layout_fills ?? []).length ? (
+                      <details className="shell-block" style={{ marginBottom: 10 }}>
+                        <summary>
+                          Taken from other documents{" "}
+                          <span className="hint">
+                            ({(status.layout_fills ?? []).length} FRD field
+                            {(status.layout_fills ?? []).length === 1 ? "" : "s"} filled without asking — each is a gate flag)
+                          </span>
+                        </summary>
+                        <ul className="flag-list">
+                          {(status.layout_fills ?? []).map((f) => (
+                            <li key={f.field}>
+                              <span className="verdict-dot PASS_WITH_FLAGS fdot" />
+                              <span>
+                                <strong>{f.title}</strong> ← {f.source} <code>{f.cell}</code>:{" "}
+                                <code>{f.value}</code>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
                     {(["sttm", "frd", "vdd"] as const).map((doc) => {
                       const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
                       if (!qs.length) return null;
@@ -897,7 +922,40 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                               ) : null}
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
                                 {q.candidates.map((c) =>
-                                  doc === "frd" ? (
+                                  q.kind === "choice" || q.kind === "layer" ? (
+                                    <label key={`${q.key}-${c.layer ?? c.source}-${c.value}`} style={{ fontSize: 12 }}>
+                                      <input
+                                        type="radio"
+                                        name={q.key}
+                                        checked={
+                                          gapPicks[q.key] !== undefined &&
+                                          gapPicks[q.key].value === c.value &&
+                                          (q.kind === "layer" ? gapPicks[q.key].layer === c.layer : gapPicks[q.key].source === c.source)
+                                        }
+                                        onChange={() =>
+                                          setGapPicks({
+                                            ...gapPicks,
+                                            [q.key]: {
+                                              value: c.value ?? "",
+                                              ...(q.kind === "layer" ? { layer: c.layer } : {}),
+                                              source: c.source ?? "STTM",
+                                            },
+                                          })
+                                        }
+                                      />{" "}
+                                      {q.kind === "layer" ? (
+                                        <>
+                                          apply <code>{c.value}</code> to{" "}
+                                          <strong>{c.layer === "both" ? "stage and standard" : c.layer}</strong>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <strong>{c.source}</strong> <span className="hint">{c.cell}</span>:{" "}
+                                          <code>{c.value}</code>
+                                        </>
+                                      )}
+                                    </label>
+                                  ) : doc === "frd" ? (
                                     <label key={`${q.key}-${frdPickKey(c)}`} style={{ fontSize: 12 }}>
                                       <input
                                         type="radio"
@@ -956,7 +1014,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     })}
                     <div className="decision-row" style={{ marginTop: 10 }}>
                       <button className="btn" onClick={() => submitLayout(false)}
-                              disabled={!Object.keys(layoutPicks).length && !Object.keys(frdPicks).length}>
+                              disabled={!Object.keys(layoutPicks).length && !Object.keys(frdPicks).length && !Object.keys(gapPicks).length}>
                         Continue
                       </button>
                       <button className="btn" onClick={() => submitLayout(true)}

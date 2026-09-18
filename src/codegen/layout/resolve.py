@@ -86,6 +86,11 @@ class LayoutQuestion:
     title: str = ""
     hint: str = ""
     suggested: int | None = None
+    # role: place a column / an FRD table cell (candidates {col,header} or
+    # {table,row,col,label}); choice: pick between documents' values
+    # (candidates {value, source, cell}); layer: apply a single stated load
+    # strategy to stage / standard / both (candidates {layer, value}).
+    kind: str = "role"
 
     @property
     def key(self) -> str:
@@ -97,7 +102,8 @@ class LayoutQuestion:
         return {"document": self.document, "key": self.key, "sheet": self.sheet,
                 "layer": self.layer, "role": self.role, "reason": self.reason,
                 "header": self.header, "candidates": self.candidates,
-                "title": self.title, "hint": self.hint, "suggested": self.suggested}
+                "title": self.title, "hint": self.hint, "suggested": self.suggested,
+                "kind": self.kind}
 
 
 @dataclass(frozen=True)
@@ -153,6 +159,10 @@ class PairResolution:
     pair_cache_hit: bool = False
     # M3: the Vendor Data Dictionary, the pair's third document.
     vdd: DocumentResolution | None = None
+    # FRD fields taken from another document (or the person's choice):
+    # [{field, title, value, source, cell}] — shown as "Taken from other
+    # documents"; each one also a frd_unstated flag.
+    gap_fills: list[dict] = field(default_factory=list)
 
     @property
     def documents(self) -> list[DocumentResolution]:
@@ -178,6 +188,7 @@ class PairResolution:
             "sttm": _document_report(self.sttm),
             "frd": _document_report(self.frd) if self.frd else None,
             "vdd": _document_report(self.vdd) if self.vdd else None,
+            "gap_fills": list(self.gap_fills),
             "cross_checks": [c.render() for c in self.cross_checks],
             "flags": list(self.flags),
             "questions": [q.as_dict() for q in self.questions],
@@ -675,7 +686,7 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                                f"dominant value)")
         for entry in sp.meta_rows:
             if entry.key in ("file_format", "delimiter", "frequency", "file_names",
-                             "target_table_desc") and entry.value_col is not None:
+                             "target_table_desc", "load_strategy") and entry.value_col is not None:
                 value = text(ws.cell(row=entry.row, column=entry.value_col).value)
                 if value:
                     facts["meta"][entry.key] = (
@@ -916,12 +927,31 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_contract = FrdContract.model_validate(
                 json.loads(Path(frd_path).read_text(encoding="utf-8")))
 
+    # FRD gaps: fill from the STTM meta rows / VDD FILES / FAQ, or ask when
+    # sources disagree or the only source is ambiguous (resolve/gapfill.py).
+    gap = None
+    if frd_contract is not None and isinstance(sttm_doc.profile, LayoutProfile):
+        gap = fill_frd_gaps(
+            frd_contract, frd_doc, _sttm_facts(sttm_doc.profile, workbook, config),
+            _vdd_facts(vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
+                       vdd_workbook),
+            answers.get("gaps") or {}, config, base)
+        frd_contract = gap.contract
+        if frd_doc is not None:
+            frd_doc.questions = [q for q in frd_doc.questions
+                                 if q.role not in gap.handled] + gap.questions
     pair = PairResolution(sttm=sttm_doc, frd=frd_doc, frd_contract=frd_contract,
-                          pair_fingerprint=pair_fp, pair_cache_hit=pair_hit, vdd=vdd_doc)
+                          pair_fingerprint=pair_fp, pair_cache_hit=pair_hit, vdd=vdd_doc,
+                          gap_fills=list(gap.fills) if gap else [])
+    if gap is not None:
+        pair.flags.extend(gap.flags)
+    handled = gap.handled if gap is not None else set()
     for doc in pair.documents:
         for item in doc.profile.unresolved:
             where = (f"{item.sheet}/{item.layer}/{item.role}" if isinstance(item, UnresolvedRole)
                      else item.field)
+            if doc.document == "frd" and where in handled:
+                continue  # filled from another document / never asked: flagged above
             pair.flags.append(f"layout_unresolved:{doc.document} {where} — read as empty "
                               f"({item.reason})")
         for rejection in doc.rejections:
@@ -941,6 +971,199 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             "vdd": pair.vdd.profile.model_dump(mode="json") if pair.vdd else None,
         }, runtime_cache_dir, f"pair_{pair_fp}.json")
     return pair
+
+
+@dataclass
+class GapFillResult:
+    contract: FrdContract
+    fills: list[dict] = field(default_factory=list)
+    questions: list[LayoutQuestion] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
+    handled: set[str] = field(default_factory=set)   # FRD question keys not to ask
+
+
+_GAP_FIELDS = ("file_format", "delimiter", "stage_target.load_strategy",
+               "standard_target.load_strategy")
+_STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
+
+
+def _feed_get(feed, dotted: str):
+    obj = feed
+    for part in dotted.split("."):
+        obj = getattr(obj, part if part != "schema" else "schema_name", None)
+    return obj
+
+
+def _feed_set(feed, dotted: str, value):
+    head, _sep, tail = dotted.partition(".")
+    if not tail:
+        return feed.model_copy(update={head: value})
+    inner = getattr(feed, head)
+    return feed.model_copy(update={head: _feed_set(inner, tail, value)})
+
+
+class _FeedGapFiller:
+    """Applies the gap chain to ONE FRD feed (resolve/gapfill.py doctrine)."""
+
+    def __init__(self, contract: FrdContract, index: int, facts: dict, vdd: dict,
+                 gaps: dict, config: Config, base_dir: Path, result: GapFillResult) -> None:
+        from codegen.layout.hints import frd_field_help
+
+        self.contract = contract
+        self.feed = contract.feeds[index]
+        self.patched = self.feed
+        self.prefix = f"feeds[{index}]."
+        self.meta = facts.get("meta", {})
+        self.vdd = vdd
+        self.gaps = gaps
+        self.config = config
+        self.base_dir = base_dir
+        self.result = result
+        self._title = lambda path: frd_field_help(path, [], config)[0]
+
+    # -- helpers ------------------------------------------------------------------
+    def frd_stmt(self, dotted: str, value):
+        from codegen.resolve.gapfill import Statement
+
+        item = self.contract.field_provenance.get(self.prefix + dotted)
+        cell = (f"table {item.table} row {item.row} ({item.label!r})" if item
+                else "FRD contract")
+        return Statement(str(value), "FRD", cell)
+
+    def record_fill(self, dotted: str, statement) -> None:
+        from codegen.resolve.gapfill import fill_flag
+
+        key = self.prefix + dotted
+        self.patched = _feed_set(self.patched, dotted, statement.value)
+        self.result.fills.append({"field": key, "title": self._title(key),
+                                  "value": statement.value, "source": statement.source,
+                                  "cell": statement.cell})
+        self.result.flags.append(fill_flag(key, statement))
+        self.result.handled.add(key)
+
+    def ask(self, dotted: str, kind: str, candidates: list[dict], reason: str) -> None:
+        from codegen.layout.hints import frd_field_help
+
+        key = self.prefix + dotted
+        title, hint, _s = frd_field_help(key, [], self.config)
+        self.result.questions.append(LayoutQuestion(
+            document="frd", sheet=None, layer=None, role=key, reason=reason, header=[],
+            candidates=candidates, title=title, hint=hint, kind=kind))
+        self.result.handled.add(key)
+
+    def handled(self, dotted: str) -> bool:
+        return self.prefix + dotted in self.result.handled
+
+    # -- the chain ----------------------------------------------------------------
+    def run(self):
+        from codegen.faq import load_faq
+        from codegen.resolve.gapfill import (
+            Statement,
+            distinct,
+            parse_load_strategy_text,
+            same_value,
+            strategy_from_faq,
+        )
+        from codegen.resolve.resolver import normalize_feed_name
+
+        feed, prefix, meta = self.feed, self.prefix, self.meta
+        # a. the person's earlier answers win.
+        for key, choice in self.gaps.items():
+            if not key.startswith(prefix):
+                continue
+            dotted = key[len(prefix):]
+            statement = Statement(choice["value"], "user", f"chosen from {choice['source']}")
+            if dotted == "load_strategy":
+                layers = (("stage", "standard") if choice.get("layer") in (None, "both")
+                          else (choice["layer"],))
+                for layer in layers:
+                    self.record_fill(f"{layer}_target.load_strategy", statement)
+                self.result.handled.add(key)
+            elif dotted in _GAP_FIELDS:
+                self.record_fill(dotted, statement)
+
+        # b. file format / delimiter: STTM meta row, then VDD FILES.
+        for dotted in ("file_format", "delimiter"):
+            if self.handled(dotted):
+                continue
+            others = []
+            if dotted in meta:
+                value, cell = meta[dotted]
+                others.append(Statement(value, "STTM", cell))
+            others += [Statement(v, "VDD", cell) for v, cell in self.vdd.get(dotted, [])]
+            others = distinct(others)
+            current = _feed_get(feed, dotted)
+            if current is not None:
+                disagreeing = [o for o in others if not same_value(current, o.value)]
+                if disagreeing:
+                    self.ask(dotted, "choice",
+                             [{"value": s.value, "source": s.source, "cell": s.cell}
+                              for s in distinct([self.frd_stmt(dotted, current), *disagreeing])],
+                             "the documents disagree — choose the value to use")
+                continue
+            if len(others) == 1:
+                self.record_fill(dotted, others[0])
+            elif len(others) > 1:
+                self.ask(dotted, "choice",
+                         [{"value": s.value, "source": s.source, "cell": s.cell} for s in others],
+                         "the FRD is silent and the other documents disagree")
+            # no statement anywhere: the ordinary FRD question stays.
+
+        # c. load strategies: STTM per layer, else FAQ (stage) / blank (standard).
+        text_, sttm_cell = meta.get("load_strategy", (None, "STTM meta row 'Load Strategy'"))
+        parsed = parse_load_strategy_text(text_, self.config.extractor.frd.target_schema_markers)
+        for layer in ("stage", "standard"):
+            dotted = f"{layer}_target.load_strategy"
+            if self.handled(dotted):
+                continue
+            current = _feed_get(feed, dotted)
+            per_layer = parsed.get(layer)
+            if current is not None:
+                if per_layer and not same_value(current, per_layer):
+                    self.ask(dotted, "choice",
+                             [{"value": current, "source": "FRD",
+                               "cell": self.frd_stmt(dotted, current).cell},
+                              {"value": per_layer, "source": "STTM", "cell": sttm_cell}],
+                             "the FRD and the STTM disagree — choose the value to use")
+                continue
+            if per_layer:
+                self.record_fill(dotted, Statement(per_layer, "STTM", sttm_cell))
+        stage_missing = _feed_get(self.patched, "stage_target.load_strategy") is None
+        standard_missing = _feed_get(self.patched, "standard_target.load_strategy") is None
+        if "any" in parsed and not self.handled("load_strategy") and (
+                stage_missing or standard_missing):
+            value = parsed["any"]
+            self.ask("load_strategy", "layer",
+                     [{"layer": "stage", "value": value}, {"layer": "standard", "value": value},
+                      {"layer": "both", "value": value}],
+                     f"the STTM states one load strategy ({value!r}, {sttm_cell}) without "
+                     "saying which layer it applies to")
+            self.result.handled.update({prefix + "stage_target.load_strategy",
+                                        prefix + "standard_target.load_strategy"})
+        if stage_missing and not self.handled("stage_target.load_strategy"):
+            faq = load_faq(normalize_feed_name(feed.feed_name), self.config,
+                           base_dir=self.base_dir)
+            statement = strategy_from_faq(faq)
+            if statement is not None:
+                self.record_fill("stage_target.load_strategy", statement)
+
+        # d. the STTM stage band is authoritative for catalog / schema / tables.
+        for dotted in _STTM_AUTHORITATIVE:
+            if _feed_get(feed, dotted) in (None, [], ""):
+                self.result.flags.append(f"frd_unstated:{prefix}{dotted} source_used:STTM stage "
+                                         "band (authoritative; never asked)")
+                self.result.handled.add(prefix + dotted)
+        return self.patched
+
+
+def fill_frd_gaps(contract: FrdContract, frd_doc, facts: dict, vdd: dict, gaps: dict,
+                  config: Config, base_dir: Path) -> GapFillResult:
+    """Apply the FRD gap chain to every feed (see resolve/gapfill.py)."""
+    result = GapFillResult(contract=contract)
+    feeds = [_FeedGapFiller(contract, index, facts, vdd, gaps, config, base_dir, result).run()
+             for index in range(len(contract.feeds))]
+    result.contract = contract.model_copy(update={"feeds": feeds})
+    return result
 
 
 def discovery_for(profile: LayoutProfile, workbook) -> Discovery:
@@ -964,6 +1187,14 @@ def parse_answers(raw: dict) -> dict:
         if not isinstance(claim, dict):
             raise ValueError(f"bad FRD answer {path!r}")
         out["frd"][path] = claim
+    out["gaps"] = {}
+    for key, choice in (raw.get("gaps") or {}).items():
+        if not isinstance(choice, dict) or not isinstance(choice.get("value"), str):
+            raise ValueError(f"bad gap answer {key!r}: expected {{value, layer?, source?}}")
+        if choice.get("layer") not in (None, "stage", "standard", "both"):
+            raise ValueError(f"bad gap answer {key!r}: layer must be stage | standard | both")
+        out["gaps"][str(key)] = {"value": choice["value"], "layer": choice.get("layer"),
+                                 "source": str(choice.get("source") or "user")}
     return out
 
 

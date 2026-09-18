@@ -441,7 +441,32 @@ when the only source is ambiguous (one layer-less "Load Strategy" → the
 the same chain on the CLI path. Remaining hard stops: file format and
 stage load strategy when every source is silent (the reader / writer
 cannot proceed without them); an ambiguous single strategy on the CLI
-path names the dialog / FAQ as the remedy. **Client-document rule:** the MIDS/CAQH artefacts are real
+path names the dialog / FAQ as the remedy.
+**The one-block / many-files FRD shape (MIDS, 2026-09-18,
+`layout/resolve.py::split_frd_feeds_by_sttm`):** section titles may carry
+a requirement-ID suffix ("Structural Metadata: MDST231070" —
+`frd_docx._section_key` prefix-matches); the "Object Name" cell can be a
+flattened nested table (a name with newlines / >80 chars is "garbled");
+and one metadata block's "Target Table Name" may list FILE names for
+several feeds, none an STTM stage table. The layout stage then derives
+ONE FRD feed per STTM mapping sheet (feed name + stage/standard tables +
+stage schema from the sheet's bands, everything else shared; flag
+`frd_feeds_split_from_sttm:`), pairs each feed's file by a MUTUAL unique
+token match (tokens every table shares, e.g. `risk`, carry no
+information and are dropped; a leftover single file is only the
+dialog's `suggested`), and asks a `choice` question otherwise. A
+single-sheet STTM keeps the FRD feed name unless garbled and takes the
+file-like entries as its patterns. `format: File Data Ingestion` states
+no delimiter, so the extractor / resolver fall back to the file
+EXTENSION (`.csv` → `,`, `.psv` → `|`, `.tsv` → tab; else the existing
+hard stop). `feed_spec.py.j2` renders the free-text constants
+(FEED_NAME / SOURCE_SYSTEM / FILE_FORMAT) through the `pyconst` filter:
+identical to `tojson` when short, a parenthesized implicit
+concatenation when the line would exceed the emitted ruff line length
+(a long "Data Source" cell made every MIDS feed FAIL its own ruff
+check). MIDS in mock mode now runs end to end: 3 feeds
+PASS_WITH_FLAGS, one dialog question (the file for `sd_community_risk`,
+whose name matches no file). **Client-document rule:** the MIDS/CAQH artefacts are real
 client documents, and a LIVE run sends their content to the model API —
 live runs on client STTM/FRD pairs are permitted only per the program's
 client-document process (Venu's email approval); the demo CV golden

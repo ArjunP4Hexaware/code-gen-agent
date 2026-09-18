@@ -101,9 +101,17 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
         return explicit[0]
     implied = _FORMAT_DELIMITERS.get((frd_feed.file_format or "").lower())
     if implied is None:
+        # Last resort: the delimiter the file extension implies (csv / psv / tsv).
+        from codegen.extract.extractor import _extension_delimiter
+
+        for pattern in (*frd_feed.file_name_patterns, sttm_feed.source_file.name_pattern):
+            implied = _extension_delimiter(pattern)
+            if implied is not None:
+                break
+    if implied is None:
         errors.append(
-            f"format '{frd_feed.file_format}' has no implied delimiter and neither "
-            "contract states one"
+            f"format '{frd_feed.file_format}' has no implied delimiter, neither contract "
+            "states one, and no file pattern carries a csv / psv / tsv extension"
         )
         return ""
     return implied

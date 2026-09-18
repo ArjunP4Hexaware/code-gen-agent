@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 from pathlib import Path
 
 from codegen.config import Config
@@ -211,14 +212,30 @@ def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
     return matches[0]
 
 
-def _resolve_delimiter(feed: FrdFeed) -> str:
+_EXTENSION_DELIMITERS = {"csv": ",", "psv": "|", "tsv": "\t", "pipe": "|"}
+
+
+def _extension_delimiter(file_name: str | None) -> str | None:
+    """The delimiter a file extension implies (csv / psv / tsv), else None —
+    the last resort when neither contract states one and the FRD's 'format'
+    is prose ("File Data Ingestion")."""
+    if not file_name:
+        return None
+    match = re.search(r"\.([a-z0-9]{2,4})$", file_name.strip(), re.IGNORECASE)
+    return _EXTENSION_DELIMITERS.get(match.group(1).lower()) if match else None
+
+
+def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None) -> str:
     if feed.delimiter:
         return feed.delimiter
-    implied = _FORMAT_DELIMITERS.get(feed.file_format.lower())
+    implied = _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
+    if implied is None:
+        implied = _extension_delimiter(file_name)
     if implied is None:
         raise ExtractionError(
             f"feed {feed.feed_name!r}: format {feed.file_format!r} has no implied "
-            "delimiter and the FRD contract states none"
+            "delimiter, the FRD contract states none and the file name "
+            f"{file_name!r} has no delimiter-bearing extension (csv / psv / tsv)"
         )
     return implied
 
@@ -301,7 +318,7 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             source_file=SourceFile(
                 name_pattern=file_details.file_name,
                 format=frd_feed.file_format,
-                delimiter=_resolve_delimiter(frd_feed),
+                delimiter=_resolve_delimiter(frd_feed, file_details.file_name),
                 frequency=file_details.frequency,
             ),
             stage=TableRef(schema=sheet.stage_schema, table=sheet.stage_table),

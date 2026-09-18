@@ -56,3 +56,24 @@ def test_caqh_emits_segments_and_recycle(specs_by_id, config, tmp_path):
     assert "test_segments.py" in names and "test_recycle.py" in names
     # Stage-only feed: no standard DDL.
     assert not any(p.name.endswith(".standard.sql") for p in written)
+
+
+def test_pyconst_is_tojson_for_short_values_and_wraps_long_free_text():
+    """Short constants render exactly as before (baseline byte-identical);
+    a free-text FRD value that would overflow the emitted ruff line length
+    becomes a parenthesized implicit concatenation of the SAME text."""
+    import ast
+    import json
+
+    from codegen.emit.emitter import _LINE_LENGTH, _py_const
+
+    assert _py_const("sd_community_risk", "FEED_NAME") == 'FEED_NAME = "sd_community_risk"'
+    assert _py_const("File Data Ingestion", "FILE_FORMAT") == \
+        'FILE_FORMAT = ' + json.dumps("File Data Ingestion")
+    long_text = ("Vendor Files = Community Demographic, Community Risk & \n"
+                 "Individual Risk Reports and a further trailing clause")
+    rendered = _py_const(long_text, "SOURCE_SYSTEM")
+    assert rendered.startswith("SOURCE_SYSTEM = (\n    ") and rendered.endswith("\n)")
+    assert all(len(line) <= _LINE_LENGTH for line in rendered.splitlines())
+    module = ast.parse(rendered)
+    assert ast.literal_eval(module.body[0].value) == long_text     # verbatim

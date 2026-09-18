@@ -14,11 +14,11 @@ import re
 from pyspark.sql import SparkSession
 
 FEED_ID = {{ feed.id | tojson }}
-FEED_NAME = {{ feed.name | tojson }}
-SOURCE_SYSTEM = {{ feed.source_system | tojson }}
+{{ feed.name | pyconst("FEED_NAME") }}
+{{ feed.source_system | pyconst("SOURCE_SYSTEM") }}
 LOBS = {{ pylist(lobs) }}
 
-FILE_FORMAT = {{ file_format | tojson }}
+{{ file_format | pyconst("FILE_FORMAT") }}
 DELIMITER = {{ delimiter | tojson }}
 FILE_NAME_PATTERNS = {{ pylist(file_name_patterns) }}
 _FILE_NAME_REGEXES = [

@@ -155,8 +155,8 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     sections = _lookup(config.section_titles)
     labels = _lookup(config.labels)
     sr_prefix = normalize_label(config.solution_requirement_prefix)
-    f1_tables = [(i, sections[normalize_label(t[0][0])]) for i, t in enumerate(tables)
-                 if t and t[0] and normalize_label(t[0][0]) in sections]
+    f1_tables = [(i, _section_key(t[0][0], sections)) for i, t in enumerate(tables)
+                 if t and t[0] and _section_key(t[0][0], sections) is not None]
     sr_tables = [i for i, t in enumerate(tables)
                  if t and t[0] and normalize_label(t[0][0]).startswith(sr_prefix)]
     if f1_tables:
@@ -169,12 +169,29 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     )
 
 
+def _section_key(title: str, sections: dict[str, str]) -> str | None:
+    """The metadata section a table title names. Real FRDs suffix the title
+    with a requirement ID ("Structural Metadata: MDST231070"): a synonym
+    followed by ':' / ' ' / '-' / '(' still names the section."""
+    key = normalize_label(title)
+    if key in sections:
+        return sections[key]
+    for synonym, section in sections.items():
+        if key.startswith(synonym) and key[len(synonym):len(synonym) + 1] in (":", " ", "-", "("):
+            return section
+    return None
+
+
 def _row_label(row: list[str], labels: dict[str, str], title: str,
                fixed: dict[str, str]) -> tuple[int, str, str | None] | None:
     """(label col, label text, label key) — the first cell whose text is a
     known label; the section-prefix column (repeating the title) is skipped."""
     for col, cell in enumerate(row):
-        if col == 0 and normalize_label(cell) == normalize_label(title) and len(row) > 1:
+        # The prefix column repeats the section title — with or without the
+        # requirement-ID suffix the title itself may carry.
+        if col == 0 and len(row) > 1 and normalize_label(cell) and (
+                normalize_label(cell) == normalize_label(title)
+                or normalize_label(title).startswith(normalize_label(cell))):
             continue
         key = labels.get(normalize_label(cell)) or fixed.get(normalize_label(cell))
         if key is not None:

@@ -663,10 +663,26 @@ def _dominant(values: list[str | None]) -> str | None:
 
 def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     """What the STTM says about the feed, each with a citation."""
-    facts: dict = {"texts": [], "schemas": {}, "meta": {}}
+    facts: dict = {"texts": [], "schemas": {}, "meta": {}, "files": [], "sheet_tables": []}
     for ws in workbook.worksheets:
         region = sheet_region(ws)
         facts["texts"] += [(f"{ws.title}!{coord}", value) for coord, value in region.cells]
+    for sp in profile.mapping_sheets:
+        # Per mapping sheet: the dominant stage / standard table and stage schema.
+        ws = workbook[sp.name]
+        rows = list(ws.iter_rows(min_row=(sp.header_row or 1) + 1, values_only=True))
+        entry = {"sheet": sp.name, "stage_table": None, "standard_table": None,
+                 "stage_schema": None}
+        for layer, role, key in (("stage", Role.TABLE, "stage_table"),
+                                 ("standard", Role.TABLE, "standard_table"),
+                                 ("stage", Role.SCHEMA, "stage_schema")):
+            band = sp.band(layer)  # type: ignore[arg-type]
+            col = band.column(role) if band else None
+            if col is not None:
+                entry[key] = _dominant([text(r[col - 1]) if col - 1 < len(r) else None
+                                        for r in rows])
+        if entry["stage_table"]:
+            facts["sheet_tables"].append(entry)
     for sp in profile.mapping_sheets:
         ws = workbook[sp.name]
         header_row = sp.header_row or 1
@@ -700,6 +716,8 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                                                             max_row=sp.header_row,
                                                             values_only=True))]
         freq_col = next((i for i, h in enumerate(headers) if "frequency" in h), None)
+        name_col = next((i for i, h in enumerate(headers)
+                         if "file" in h and "name" in h and "description" not in h), None)
         for row_index, row in enumerate(ws.iter_rows(min_row=sp.header_row + 1,
                                                      values_only=True),
                                         start=sp.header_row + 1):
@@ -707,6 +725,9 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                 facts["meta"].setdefault("frequency", (
                     text(row[freq_col]),
                     f"{sp.name}!{get_column_letter(freq_col + 1)}{row_index}"))
+            if name_col is not None and name_col < len(row) and text(row[name_col]):
+                facts["files"].append((text(row[name_col]),
+                                       f"{sp.name}!{get_column_letter(name_col + 1)}{row_index}"))
     return facts
 
 
@@ -927,22 +948,31 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_contract = FrdContract.model_validate(
                 json.loads(Path(frd_path).read_text(encoding="utf-8")))
 
-    # FRD gaps: fill from the STTM meta rows / VDD FILES / FAQ, or ask when
-    # sources disagree or the only source is ambiguous (resolve/gapfill.py).
+    # FRD gaps: (1) one metadata block describing several files becomes one
+    # feed per STTM mapping sheet (the stage band is authoritative for tables;
+    # each feed's file is paired by a unique name match or asked); (2) fill
+    # from the STTM meta rows / VDD FILES / FAQ, or ask when sources disagree
+    # or the only source is ambiguous (resolve/gapfill.py).
     gap = None
+    split_flags: list[str] = []
+    split_questions: list[LayoutQuestion] = []
     if frd_contract is not None and isinstance(sttm_doc.profile, LayoutProfile):
+        facts = _sttm_facts(sttm_doc.profile, workbook, config)
+        frd_contract, split_flags, split_questions = split_frd_feeds_by_sttm(
+            frd_contract, facts, answers.get("gaps") or {}, config)
         gap = fill_frd_gaps(
-            frd_contract, frd_doc, _sttm_facts(sttm_doc.profile, workbook, config),
+            frd_contract, frd_doc, facts,
             _vdd_facts(vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
                        vdd_workbook),
             answers.get("gaps") or {}, config, base)
         frd_contract = gap.contract
         if frd_doc is not None:
             frd_doc.questions = [q for q in frd_doc.questions
-                                 if q.role not in gap.handled] + gap.questions
+                                 if q.role not in gap.handled] + split_questions + gap.questions
     pair = PairResolution(sttm=sttm_doc, frd=frd_doc, frd_contract=frd_contract,
                           pair_fingerprint=pair_fp, pair_cache_hit=pair_hit, vdd=vdd_doc,
                           gap_fills=list(gap.fills) if gap else [])
+    pair.flags.extend(split_flags)
     if gap is not None:
         pair.flags.extend(gap.flags)
     handled = gap.handled if gap is not None else set()
@@ -1000,6 +1030,159 @@ def _feed_set(feed, dotted: str, value):
         return feed.model_copy(update={head: value})
     inner = getattr(feed, head)
     return feed.model_copy(update={head: _feed_set(inner, tail, value)})
+
+
+_FILE_LIKE = re.compile(r"(\.[a-z0-9]{2,4}$|[*?]|yyyy|ccyy|mmdd)", re.IGNORECASE)
+_NOISE_TOKENS = {"sd", "data", "package", "file", "files", "report", "the", "and", "of", "stg",
+                 "std", "src", "tgt", "raw", "yyyy", "yyyymmdd", "mm", "dd", "hhmm", "csv",
+                 "psv", "txt", "dat", "to", "from"}
+
+
+_DATE_TOKEN = re.compile(r"^[ymdhc]+$")
+
+
+def _name_tokens(name: str) -> set[str]:
+    return {t for t in re.split(r"[^a-z0-9]+", name.lower()) if len(t) >= 3
+            and t not in _NOISE_TOKENS and not _DATE_TOKEN.match(t)}
+
+
+def _tokens_overlap(a: set[str], b: set[str]) -> bool:
+    return any(x == y or x.startswith(y) or y.startswith(x) for x in a for y in b)
+
+
+def _mutual_unique_matches(tables: list[str], files: list[str]) -> dict[str, str]:
+    """table -> file when the two name each other uniquely: the file is the
+    only one whose tokens overlap the table's AND the table is the only one
+    whose tokens overlap the file's. Tokens every table shares (a family
+    suffix such as ``risk``) carry no information and are dropped first."""
+    table_tokens = {t: _name_tokens(t) for t in tables}
+    if len(tables) > 1:
+        common = set.intersection(*table_tokens.values()) if table_tokens else set()
+        table_tokens = {t: toks - common for t, toks in table_tokens.items()}
+    file_tokens = {f: _name_tokens(f) for f in files}
+    forward = {t: [f for f in files if _tokens_overlap(toks, file_tokens[f])]
+               for t, toks in table_tokens.items()}
+    reverse = {f: [t for t in tables if _tokens_overlap(table_tokens[t], toks)]
+               for f, toks in file_tokens.items()}
+    return {t: fs[0] for t, fs in forward.items()
+            if len(fs) == 1 and reverse[fs[0]] == [t]}
+
+
+def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config
+                            ) -> tuple[FrdContract, list[str], list[LayoutQuestion]]:
+    """A single FRD metadata block that describes several files (its
+    'Target Table Name' row lists FILE names, none of them an STTM stage
+    table) becomes one FRD feed per STTM mapping sheet: feed name and stage
+    / standard tables from the sheet's target bands (authoritative), every
+    other fact shared. Each feed's file pattern is the FILE_DETAILS / FRD
+    file name whose tokens uniquely match the table's; otherwise a 'choice'
+    question asks which file feeds the table. Flagged, never silent."""
+    from codegen.layout.hints import frd_field_help
+
+    sheet_tables = facts.get("sheet_tables") or []
+    if len(contract.feeds) != 1 or not sheet_tables:
+        return contract, [], []
+    feed = contract.feeds[0]
+    stated = {normalize(t) for t in feed.stage_target.tables}
+    if any(normalize(e["stage_table"]) in stated for e in sheet_tables):
+        return contract, [], []   # the FRD names the STTM's tables: nothing to split
+    file_like = [t for t in feed.stage_target.tables if _FILE_LIKE.search(t)]
+    pool = [(name, f"FRD 'Target Table Name' ({name!r})") for name in file_like]
+    pool += [(name, cell) for name, cell in facts.get("files", [])]
+    if "file_names" in facts.get("meta", {}):
+        value, cell = facts["meta"]["file_names"]
+        pool += [(n.strip(), cell) for n in re.split(r"[;\n,]+", value) if n.strip()]
+    pool += [(p, "FRD file pattern") for p in feed.file_name_patterns]
+    seen: set[str] = set()
+    candidates = []
+    for name, cell in pool:
+        key = normalize(name)
+        if key and key not in seen:
+            seen.add(key)
+            candidates.append((name, cell))
+    garbled_name = "\n" in feed.feed_name or len(feed.feed_name) > 80
+    rename = len(sheet_tables) > 1 or garbled_name
+    if len(sheet_tables) > 1:
+        flags = [f"frd_feeds_split_from_sttm: FRD feed {feed.feed_name[:60]!r} names "
+                 f"{feed.stage_target.tables} as target tables — none is an STTM stage table; "
+                 f"{len(sheet_tables)} feeds derived from the STTM mapping sheets "
+                 f"{[(e['sheet'], e['stage_table']) for e in sheet_tables]} "
+                 "(stage band authoritative)"]
+    else:
+        flags = [f"frd_unstated:feeds[0].stage_target.tables source_used:STTM stage band "
+                 f"{sheet_tables[0]['sheet']!r}: {sheet_tables[0]['stage_table']!r} (the FRD names "
+                 f"{feed.stage_target.tables or 'no table'})"]
+        if garbled_name:
+            flags.append(f"frd_unstated:feeds[0].feed_name source_used:STTM stage band "
+                         f"{sheet_tables[0]['sheet']!r}: {sheet_tables[0]['stage_table']!r} (the "
+                         "FRD's Object Name cell is a flattened table)")
+    questions: list[LayoutQuestion] = []
+    feeds = []
+    matched = _mutual_unique_matches([e["stage_table"] for e in sheet_tables],
+                                     [n for n, _c in candidates])
+    # When exactly one table and one file are left over after the unique
+    # matches, that file is the dialog's SUGGESTION for it — never its value.
+    leftover_files = [n for n, _c in candidates if n not in matched.values()]
+    leftover_tables = [e["stage_table"] for e in sheet_tables if e["stage_table"] not in matched]
+    suggest = leftover_files[0] if len(leftover_files) == 1 and len(leftover_tables) == 1 else None
+    for index, entry in enumerate(sheet_tables):
+        table = entry["stage_table"]
+        key = f"feeds[{index}].file_name_patterns"
+        patterns: list[str] = []
+        chosen = gaps.get(key)
+        if len(sheet_tables) == 1:
+            # One sheet = one feed: every file the documents name belongs to it.
+            # File-like 'Target Table Name' entries are its patterns when the
+            # FRD states none; the resolver's STTM fallback covers the rest.
+            if file_like and not feed.file_name_patterns:
+                patterns = list(file_like)
+                flags.append(f"frd_unstated:{key} source_used:FRD 'Target Table Name' "
+                             f"(file-like entries): {file_like}")
+        elif chosen is not None:
+            patterns = [chosen["value"]]
+            flags.append(f"frd_unstated:{key} source_used:user chosen from {chosen['source']}: "
+                         f"{chosen['value']!r}")
+        elif len(candidates) == 1:
+            patterns = [candidates[0][0]]
+            flags.append(f"frd_unstated:{key} source_used:{candidates[0][1]}: "
+                         f"{candidates[0][0]!r} (the only file named)")
+        elif candidates:
+            if table in matched:
+                name = matched[table]
+                cell = next(c for n, c in candidates if n == name)
+                patterns = [name]
+                flags.append(f"frd_unstated:{key} source_used:{cell}: "
+                             f"{name!r} (unique name match with table {table!r})")
+            else:
+                title, hint, _s = frd_field_help(key, [], config)
+                names = [n for n, _c in candidates]
+                questions.append(LayoutQuestion(
+                    document="frd", sheet=None, layer=None, role=key,
+                    reason=f"which file feeds stage table {table!r} (sheet {entry['sheet']!r})? "
+                           "no unique name match", header=[],
+                    candidates=[{"value": n, "source": "STTM FILE_DETAILS / FRD", "cell": c}
+                                for n, c in candidates],
+                    title=f"File for table {table}", hint=hint, kind="choice",
+                    suggested=names.index(suggest) if suggest else None))
+        standard_tables = [entry["standard_table"]] if entry["standard_table"] else list(
+            feed.standard_target.tables if not file_like else [])
+        stage_update: dict = {"tables": [table]}
+        sheet_schema = entry.get("stage_schema")
+        frd_schema = feed.stage_target.schema_name
+        if sheet_schema and (frd_schema or "").lower() != sheet_schema.lower():
+            # One FRD block, several sheets: the sheet's stage band names the
+            # schema THIS feed lands in (authoritative, never asked).
+            stage_update["schema_name"] = sheet_schema   # field name, not the "schema" alias
+            flags.append(f"frd_unstated:feeds[{index}].stage_target.schema source_used:STTM "
+                         f"stage band {entry['sheet']!r}: {sheet_schema!r} (the FRD block says "
+                         f"{frd_schema!r} for every file)")
+        feeds.append(feed.model_copy(update={
+            "feed_name": table if rename else feed.feed_name,
+            "file_name_patterns": patterns or list(feed.file_name_patterns),
+            "stage_target": feed.stage_target.model_copy(update=stage_update),
+            "standard_target": feed.standard_target.model_copy(update={"tables": standard_tables}),
+        }))
+    return contract.model_copy(update={"feeds": feeds}), flags, questions
 
 
 class _FeedGapFiller:
@@ -1081,6 +1264,7 @@ class _FeedGapFiller:
                 self.result.handled.add(key)
             elif dotted in _GAP_FIELDS:
                 self.record_fill(dotted, statement)
+            # feeds[i].file_name_patterns answers are consumed by the split step.
 
         # b. file format / delimiter: STTM meta row, then VDD FILES.
         for dotted in ("file_format", "delimiter"):
@@ -1147,12 +1331,13 @@ class _FeedGapFiller:
             if statement is not None:
                 self.record_fill("stage_target.load_strategy", statement)
 
-        # d. the STTM stage band is authoritative for catalog / schema / tables.
+        # d. the STTM stage band is authoritative for catalog / schema / tables:
+        # never a question; flagged when the FRD stated nothing.
         for dotted in _STTM_AUTHORITATIVE:
             if _feed_get(feed, dotted) in (None, [], ""):
                 self.result.flags.append(f"frd_unstated:{prefix}{dotted} source_used:STTM stage "
                                          "band (authoritative; never asked)")
-                self.result.handled.add(prefix + dotted)
+            self.result.handled.add(prefix + dotted)
         return self.patched
 
 

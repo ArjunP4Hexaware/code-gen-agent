@@ -12,6 +12,7 @@ half-covered pipeline.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,38 @@ def _py_literal(value: Any) -> str:
     return json.dumps(value)
 
 
+# Mirrors ``line-length`` in templates/ruff.toml.j2: a generated module must
+# pass the lint config emitted next to it.
+_LINE_LENGTH = 100
+_INDENT = "    "
+
+
+def _py_const(value: str, name: str) -> str:
+    """``NAME = "literal"`` — or, when that line would exceed the emitted ruff
+    line length (a free-text FRD value such as a long 'Data Source' cell), the
+    same literal as a parenthesized implicit concatenation split at word
+    boundaries. The text is transcribed verbatim either way (JSON escaping,
+    exactly what ``tojson`` emitted before)."""
+    literal = json.dumps(value)
+    line = f"{name} = {literal}"
+    if len(line) <= _LINE_LENGTH:
+        return line
+    budget = _LINE_LENGTH - len(_INDENT)
+    words = [w for w in re.split(r"(?<=\s)", value) if w]
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        if current and len(json.dumps(current + word)) > budget:
+            chunks.append(current)
+            current = word
+        else:
+            current += word
+    if current:
+        chunks.append(current)
+    body = "\n".join(f"{_INDENT}{json.dumps(c)}" for c in chunks)
+    return f"{name} = (\n{body}\n)"
+
+
 def _environment() -> Environment:
     env = Environment(
         loader=PackageLoader("codegen", "templates"),
@@ -46,6 +79,7 @@ def _environment() -> Environment:
         keep_trailing_newline=True,
     )
     env.filters["py"] = _py_literal
+    env.filters["pyconst"] = _py_const
     return env
 
 

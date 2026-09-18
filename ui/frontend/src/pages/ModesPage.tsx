@@ -367,11 +367,17 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
   // Answers to "choice" / "layer" questions: {key: {value, layer?, source}}.
   const [gapPicks, setGapPicks] = useState<Record<string, { value: string; layer?: string; source: string }>>({});
+  const preselectedRef = useRef<string | null>(null);
   useEffect(() => {
     // Pre-select each question's suggested candidate (still confirmed by the
     // person with Continue; the merge step re-validates every claim).
     const qs = status?.layout_questions ?? [];
     if (status?.state !== "needs_layout" || !qs.length) return;
+    // The status poll hands back a NEW array each tick; pre-select once per
+    // question SET, or a cleared pick would snap back a few seconds later.
+    const signature = qs.map((q) => q.key).join(" ");
+    if (preselectedRef.current === signature) return;
+    preselectedRef.current = signature;
     const picks: Record<string, number> = {};
     const frd: Record<string, Record<string, unknown>> = {};
     const gaps: Record<string, { value: string; layer?: string; source: string }> = {};

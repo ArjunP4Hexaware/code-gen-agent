@@ -15,7 +15,16 @@ shows them) so a profile is readable next to the workbook.
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
+
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 (the Databricks Apps floor): the same semantics by hand
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        """A str-valued enum whose str() / format() are the VALUE."""
+
+        __str__ = str.__str__
+        __format__ = str.__format__
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field

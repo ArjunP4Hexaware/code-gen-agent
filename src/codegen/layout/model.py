@@ -21,6 +21,7 @@ parameters, ever.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -216,14 +217,26 @@ class MockLayoutProvider:
 class FmapiLayoutProvider:
     name = "databricks_fmapi"
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, endpoint: str | None = None) -> None:
+        from types import SimpleNamespace
+
         from codegen.databricks import DatabricksConfigError, config_for
 
-        self._cfg = config_for(config.databricks)
-        self._endpoint = self._cfg.serving_endpoint
+        try:
+            self._cfg = config_for(config.databricks)
+        except DatabricksConfigError:
+            # The recognizer needs auth + an endpoint, not the document volumes:
+            # a workspace config without them still resolves a client.
+            self._cfg = SimpleNamespace(
+                profile=(os.environ.get("DATABRICKS_PROFILE")
+                         or os.environ.get("DATABRICKS_CONFIG_PROFILE")
+                         or config.databricks.profile or "DEFAULT"),
+                serving_endpoint=config.databricks.serving_endpoint)
+        self._endpoint = endpoint or self._cfg.serving_endpoint
         if not self._endpoint:
             raise DatabricksConfigError(
-                "layout provider is databricks_fmapi but databricks.serving_endpoint is unset")
+                "the layout provider queries a Foundation Model endpoint but neither "
+                "layout.endpoint nor databricks.serving_endpoint is set")
         self._max_tokens = config.layout.max_tokens
         self._max_attempts = config.layout.max_attempts
         self.requests: list[dict] = []
@@ -335,8 +348,19 @@ def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None =
 
     root = base_dir if base_dir is not None else Path(".")
     mock_dirs = [root / config.layout.mock_dir] + [root / d for d in config.layout.cache_dirs]
-    if dry_run or config.layout.provider == "mock":
+    posture = os.environ.get("CODEGEN_LAYOUT_PROVIDER", "").strip() or config.layout.provider
+    if posture not in ("auto", "mock", "live"):
+        raise ValueError(f"CODEGEN_LAYOUT_PROVIDER={posture!r}: expected auto | mock | live")
+    if dry_run or posture == "mock" or os.environ.get("CODEGEN_FORCE_MOCK_LAYOUT"):
         return MockLayoutProvider(mock_dirs)
+    if posture == "live":
+        # M8.3: an explicit opt-in of its own. The request is the same
+        # fingerprint material (header regions / table labels, never a data
+        # row), the answer goes through the same validator — and Layer 2 may
+        # stay mock-locked (CODEGEN_FORCE_MOCK_PROVIDER) while roles resolve.
+        return FmapiLayoutProvider(
+            config, endpoint=(os.environ.get("CODEGEN_LAYOUT_ENDPOINT", "").strip()
+                              or config.layout.endpoint))
     # Same transport decision as Layer 2 (codegen.reasoning.transport):
     # mock lock, Databricks runtime -> Foundation Model endpoint, else config.
     transport = resolve_transport(config)

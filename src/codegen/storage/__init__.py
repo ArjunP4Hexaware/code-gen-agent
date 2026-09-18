@@ -45,7 +45,7 @@ __all__ = [
     "DEFAULT_URIS", "ENV_OVERRIDES", "LocalBackend", "RoleStore", "StorageBackend",
     "StorageConfigError", "StorageEntry", "StorageError", "StorageNotFound", "StorageSet",
     "VolumeBackend", "WorkspaceBackend", "clean_rel", "open_backend", "open_storage",
-    "parse_uri",
+    "parse_uri", "runtime_layout_cache",
 ]
 
 SCHEMES = ("local", "workspace", "volume")
@@ -242,6 +242,29 @@ def extra_input_uris(config, env: Mapping[str, str]) -> list[str]:
                 entry = f"local:{entry}"
         uris.append(entry)
     return list(dict.fromkeys(uris))
+
+
+def runtime_layout_cache(config, base_dir: Path, *, stores: StorageSet | None = None,
+                         env: Mapping[str, str] | None = None
+                         ) -> tuple[Path, Callable[[], list[str]]]:
+    """(local directory, push) for the RUNTIME layout-profile cache. Under the
+    default state role that is ``layout.runtime_cache_dir`` inside the
+    checkout and ``push`` does nothing; otherwise the cache lives in the
+    state role at ``layout_profiles/`` — pulled now, pushed by ``push()``."""
+    env = os.environ if env is None else env
+    stores = stores or open_storage(config, base_dir, env=env)
+    state = stores.state
+    default = Path(base_dir) / Path(DEFAULT_URIS["state"].partition(":")[2])
+    if state.is_local and state.workdir == default:
+        return Path(base_dir) / config.layout.runtime_cache_dir, lambda: []
+    state.fetch_tree("layout_profiles")
+
+    def push() -> list[str]:
+        if not state.local_path("layout_profiles").is_dir():
+            return []
+        return state.push_tree("layout_profiles")
+
+    return state.local_path("layout_profiles"), push
 
 
 def open_storage(config, base_dir: Path, *, env: Mapping[str, str] | None = None,

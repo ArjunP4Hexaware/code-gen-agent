@@ -329,6 +329,8 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
 
             layout = LayoutProfile.model_validate_json(
                 Path(args.layout).read_text(encoding="utf-8"))
+        elif getattr(args, "answers", None):
+            layout = _layout_from_answers(workbook_path, Path(args.answers), config)
         contract = extract_to_file(
             workbook_path,
             _contract_path(args.frd_contract, config),
@@ -347,6 +349,112 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
     return 0
 
 
+def _outputs_through_storage(config: Config):
+    """(config, push). Under the default outputs role (``output.dir`` in the
+    checkout) nothing changes. With ``storage.outputs`` /
+    ``CODEGEN_STORAGE_OUTPUTS`` set, generation writes into the role's local
+    working directory and ``push()`` sends the tree up afterwards (Workspace
+    API / Files API — never a /Volumes or /Workspace path)."""
+    from codegen.storage import StorageError, open_storage
+
+    outputs = open_storage(config, Path(".")).outputs
+    if outputs.is_local and outputs.workdir == Path(".") / config.output.dir:
+        return config, lambda: None
+    scoped = config.model_copy(update={"output": config.output.model_copy(update={
+        "dir": str(outputs.workdir), "reports_dir": str(outputs.workdir / "reports")})})
+
+    def push() -> None:
+        try:
+            sent = outputs.push_tree("")
+        except StorageError as exc:
+            print(f"{'WARN':<15} outputs not stored: {exc} — they remain in {outputs.workdir}")
+            return
+        if sent:
+            print(f"{'STORED':<15} {len(sent)} file(s) -> {outputs.uri()}")
+
+    return scoped, push
+
+
+def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
+    """The workbook's layout profile with the answers file applied — cache and
+    synonyms first, then the file's placements (source=user); never a model."""
+    from codegen.layout.answers import apply_answers, load_answers
+    from codegen.layout.resolve import resolve_workbook
+    from codegen.storage import runtime_layout_cache
+
+    runtime_cache, push_cache = runtime_layout_cache(config, Path("."))
+    doc, _wb = resolve_workbook(workbook, config, provider=None,
+                                runtime_cache_dir=runtime_cache)
+    if doc.questions:
+        answers, notes = apply_answers(load_answers(answers_path), doc.questions,
+                                       {"sttm": workbook.name})
+        for note in notes:
+            print(f"{'NOTE':<15} {note}")
+        if answers["sttm"]:
+            doc, _wb = resolve_workbook(workbook, config, provider=None,
+                                        runtime_cache_dir=runtime_cache,
+                                        answers=answers["sttm"])
+            print(f"{'ANSWERS':<15} {len(answers['sttm'])} answer(s) applied from "
+                  f"{answers_path} (source=user)")
+        push_cache()
+    for question in doc.questions:
+        print(f"{'UNRESOLVED':<15} {question.key} — {question.reason}")
+    return doc.profile
+
+
+def _pair(args: argparse.Namespace, config: Config) -> int:
+    """Pair an STTM with its FRD / VDD among a folder's documents BY CONTENT
+    (codegen.pairing). An undecided pairing prints its candidates; settle it
+    with `pairing:` in the answers file."""
+    from codegen.demo_sources import canonical_document_name
+    from codegen.layout.answers import AnswersFileError, load_answers
+    from codegen.pairing import pair_by_content
+
+    sttm = Path(args.sttm)
+    if not sttm.is_file():
+        print(f"{'FAIL':<15} pair — workbook not found: {sttm}")
+        return 1
+    folders = [Path(d) for d in (args.candidates or [str(sttm.parent)])]
+    files = [p for d in folders if d.is_dir() for p in sorted(d.iterdir())
+             if p.is_file() and not p.name.startswith("~$") and p != sttm]
+    frds = {p.name: p for p in files
+            if p.name.lower().endswith((".docx", ".contract.json"))
+            and (p.suffix.lower() != ".docx" or canonical_document_name(p.name).startswith("frd"))}
+    vdds = {p.name: p for p in files if p.suffix.lower() == ".xlsx"
+            and not canonical_document_name(p.name).startswith("sttm")}
+    try:
+        chosen = (load_answers(Path(args.answers)).pairing.get(sttm.name, {})
+                  if args.answers else {})
+    except (AnswersFileError, OSError) as exc:
+        print(f"{'FAIL':<15} pair — answers file: {exc}")
+        return 1
+    undecided = False
+    for kind, candidates, explicit in (("frd", frds, config.demo.pairing_map),
+                                       ("vdd", vdds, config.demo.vdd_pairing_map)):
+        if chosen.get(kind):
+            known = chosen[kind] in candidates
+            print(f"{'PAIRED' if known else 'FAIL':<15} {kind} {chosen[kind]} — answers file"
+                  + ("" if known else " names a document that is not among the candidates"))
+            undecided = undecided or not known
+            continue
+        decision = pair_by_content(kind, sttm, candidates, config, Path("."),
+                                   explicit_map=explicit)
+        if decision.chosen:
+            print(f"{'PAIRED':<15} {kind} {decision.chosen} — rule {decision.rule}: "
+                  f"{decision.reason}")
+        elif decision.ambiguous:
+            undecided = True
+            print(f"{'QUESTION':<15} {kind} — {decision.reason}")
+            for candidate in decision.candidates:
+                print(f"{'CANDIDATE':<15} {candidate.name} score {candidate.score:g} — "
+                      f"{candidate.summary()}")
+            print(f"{'REMEDY':<15} answers file: pairing: {{\"{sttm.name}\": "
+                  f"{{{kind}: <candidate>}}}}")
+        else:
+            print(f"{'NONE':<15} {kind} — {decision.reason}")
+    return 1 if undecided else 0
+
+
 def _layout(args: argparse.Namespace, config: Config) -> int:
     """Resolve and print the layout of a workbook (and optionally its FRD
     document): source per role, confidences, unresolved roles, the
@@ -358,13 +466,56 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
     if not workbook.is_file():
         print(f"{'FAIL':<15} layout — workbook not found: {workbook}")
         return 1
-    frd = Path(args.frd) if args.frd else None
-    provider = build_layout_provider(config, dry_run=args.dry_run)
-    result = resolve_pair(
-        workbook, frd, config, vdd_path=Path(args.vdd) if args.vdd else None,
-        provider=provider, runtime_cache_dir=Path(config.layout.runtime_cache_dir),
-        use_cache=not args.no_cache,
+    from codegen.layout.answers import (
+        AnswersFileError,
+        apply_answers,
+        load_answers,
+        unresolved_report,
     )
+    from codegen.storage import StorageError, runtime_layout_cache
+
+    frd = Path(args.frd) if args.frd else None
+    vdd = Path(args.vdd) if args.vdd else None
+    provider = build_layout_provider(config, dry_run=args.dry_run)
+    try:
+        # M8.3: the runtime profile cache lives in the state role
+        # (storage.state) — the checkout by default, a workspace folder / a
+        # volume when configured; never under fixtures/.
+        runtime_cache, push_cache = runtime_layout_cache(config, Path("."))
+    except StorageError as exc:
+        print(f"{'FAIL':<15} layout — state storage: {exc}")
+        return 1
+
+    def resolve(answers: dict | None):
+        return resolve_pair(workbook, frd, config, vdd_path=vdd, provider=provider,
+                            runtime_cache_dir=runtime_cache, use_cache=not args.no_cache,
+                            answers=answers)
+
+    result = resolve(None)
+    names = {"sttm": workbook.name, "frd": frd.name if frd else "", "vdd": vdd.name if vdd else ""}
+    if args.answers and result.questions:
+        try:
+            answers, notes = apply_answers(load_answers(Path(args.answers)), result.questions,
+                                           names)
+        except (AnswersFileError, OSError) as exc:
+            print(f"{'FAIL':<15} layout — answers file: {exc}")
+            return 1
+        for note in notes:
+            print(f"{'NOTE':<15} {note}")
+        placed = sum(len(answers[k]) for k in ("sttm", "vdd", "gaps"))
+        if placed:
+            result = resolve(answers)
+            print(f"{'ANSWERS':<15} {placed} answer(s) applied from {args.answers} (source=user)")
+    try:
+        push_cache()
+    except StorageError as exc:
+        print(f"{'WARN':<15} layout — profile cache not stored: {exc}")
+    if args.report_unresolved:
+        target = Path(args.report_unresolved)
+        target.write_text(unresolved_report(result.questions, names), encoding="utf-8",
+                          newline="\n")
+        print(f"{'REPORT':<15} {target} — {len(result.questions)} unresolved item(s), "
+              "structural labels only")
     report = result.report()
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -893,6 +1044,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     extract.add_argument("--layout", help="read through this resolved LayoutProfile JSON "
                                           "instead of discovering the layout")
+    extract.add_argument("--answers", help="answers.yaml placing unresolved roles by hand "
+                                           "(see `codegen layout --answers`); no model is "
+                                           "called")
     extract.add_argument("--require-complete", action="store_true",
                          help="refuse when the layout has unresolved roles")
 
@@ -910,8 +1064,26 @@ def main(argv: list[str] | None = None) -> int:
     layout.add_argument("--no-cache", action="store_true", help="ignore cached profiles")
     layout.add_argument("--json", action="store_true", help="print the report as JSON")
     layout.add_argument("--profile-out", help="write the resolved STTM profile JSON here")
+    layout.add_argument("--answers", help="answers.yaml placing unresolved roles by hand: "
+                                          "(document, sheet, role) -> column header text or "
+                                          "index; applied with source=user")
+    layout.add_argument("--report-unresolved", nargs="?", const="unresolved_headers.md",
+                        help="write unresolved_headers.md (or the given path): per unresolved "
+                             "role the sheet name, the header row texts and the candidate "
+                             "columns — structural labels only, no data rows")
     layout.add_argument("--require-complete", action="store_true",
                         help="print the open questions and exit non-zero when roles remain")
+
+    pair = subparsers.add_parser(
+        "pair",
+        help="pair an STTM with its FRD / VDD among a folder's documents by CONTENT (feed "
+             "name, target tables, file patterns; the ticket number is one weak signal)",
+    )
+    pair.add_argument("--config", default="config/config.yaml")
+    pair.add_argument("--sttm", required=True, help="STTM workbook (.xlsx)")
+    pair.add_argument("--candidates", action="append",
+                      help="folder of candidate documents (repeatable; default: the STTM's)")
+    pair.add_argument("--answers", help="answers.yaml whose `pairing:` settles an undecided pair")
 
     extract_vdd = subparsers.add_parser(
         "extract-vdd",
@@ -1037,6 +1209,8 @@ def main(argv: list[str] | None = None) -> int:
         return _extract_vdd(args, config)
     if args.command == "layout":
         return _layout(args, config)
+    if args.command == "pair":
+        return _pair(args, config)
 
     if args.command == "demo-source-files":
         # Same JSON as GET /api/demo/source-files — display data only.
@@ -1159,10 +1333,17 @@ def main(argv: list[str] | None = None) -> int:
         pairs = [(contracts_dir / p.frd, contracts_dir / p.sttm) for p in config.contracts.pairs]
         only_feed = None
 
-    return _run_pairs(
+    try:
+        config, push_outputs = _outputs_through_storage(config)
+    except Exception as exc:  # noqa: BLE001 — a storage URI / auth problem, named
+        print(f"{'FAIL':<15} outputs storage — {exc}")
+        return 1
+    code = _run_pairs(
         pairs, config, only_feed=only_feed, dry_run=args.dry_run,
         skip_tests=args.skip_tests, output_mode=args.output_mode
     )
+    push_outputs()
+    return code
 
 
 if __name__ == "__main__":

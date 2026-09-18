@@ -36,7 +36,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import timezone
 from pathlib import Path
 
 # What the generator can consume from a volume: STTM workbooks for
@@ -589,7 +589,7 @@ def list_landing(cfg: DatabricksConfig, prefix: str = "",
                     from datetime import datetime
 
                     modified = datetime.fromtimestamp(
-                        entry.last_modified / 1000, tz=UTC
+                        entry.last_modified / 1000, tz=timezone.utc
                     ).strftime("%Y-%m-%d %H:%M:%S")
                 entries.append({
                     "path": relative,

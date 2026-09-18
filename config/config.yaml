@@ -698,8 +698,15 @@ layout:
   runtime_cache_dir: "ui/backend/state/layout_profiles"
   mock_dir: "fixtures/layout_profiles/mock"
   # auto: live when Layer 2 is live (same transport, databricks_fmapi /
-  # anthropic; mock on dry-run and on the mock lock) | mock: never a model.
+  # anthropic; mock on dry-run and on the mock lock) | mock: never a model
+  # | live (M8.3): the recognizer's OWN opt-in — it queries `endpoint` (else
+  # databricks.serving_endpoint) through FMAPI even while Layer 2 is
+  # mock-locked; same request (header regions / table labels, never a data
+  # row), same validator. dry-run and CODEGEN_FORCE_MOCK_LAYOUT=1 still force
+  # the mock. Env CODEGEN_LAYOUT_PROVIDER / CODEGEN_LAYOUT_ENDPOINT win. The
+  # App's service principal needs CAN_QUERY on it (docs/ACFC_DEPLOY.md §4).
   provider: auto
+  endpoint: null
   max_tokens: 8192
   max_attempts: 2
   model_confidence: 0.8

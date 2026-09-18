@@ -241,6 +241,11 @@ def _load_cached(fingerprint_value: str, dirs: list[Path], prefix: str = "") -> 
 
 
 def _save_runtime(payload: dict, runtime_cache_dir: Path | None, name: str) -> Path | None:
+    if runtime_cache_dir is not None and "fixtures" in Path(runtime_cache_dir).parts:
+        # A runtime profile carries the document's REAL sheet names; fixtures/
+        # is tracked. Fixture profiles are built by scripts/build_layout_profiles.py.
+        raise ValueError(f"runtime layout profiles are never written under fixtures/ "
+                         f"(got {runtime_cache_dir})")
     if runtime_cache_dir is None:
         return None
     runtime_cache_dir.mkdir(parents=True, exist_ok=True)

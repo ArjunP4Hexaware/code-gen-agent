@@ -74,11 +74,9 @@ def push_state(config, name: str) -> None:
 def layout_cache_dir(config) -> Path:
     """The runtime layout-profile cache directory, pulled from a remote
     state role; ``layout.runtime_cache_dir`` under the default state role."""
-    store = get_stores(config).state
-    if _is_default(store, _DEFAULT_STATE):
-        return REPO_ROOT / config.layout.runtime_cache_dir
-    store.fetch_tree("layout_profiles")
-    return store.local_path("layout_profiles")
+    from codegen.storage import runtime_layout_cache
+
+    return runtime_layout_cache(config, REPO_ROOT, stores=get_stores(config))[0]
 
 
 def push_layout_cache(config) -> None:

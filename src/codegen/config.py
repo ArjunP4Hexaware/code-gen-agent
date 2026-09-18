@@ -734,8 +734,13 @@ class LayoutConfig(BaseModel):
     runtime_cache_dir: str = "ui/backend/state/layout_profiles"
     # Mock provider answers (adversarial + hand-written), then cache_dirs.
     mock_dir: str = "fixtures/layout_profiles/mock"
-    # auto (live when Layer 2 is live) | mock (never call a model).
-    provider: Literal["auto", "mock"] = "auto"
+    # auto (live when Layer 2 is live) | mock (never call a model) | live (the
+    # recognizer calls the Foundation Model endpoint below on its own — also
+    # when Layer 2 is mock-locked; dry-run and CODEGEN_FORCE_MOCK_LAYOUT still
+    # force the mock). Env CODEGEN_LAYOUT_PROVIDER / CODEGEN_LAYOUT_ENDPOINT win.
+    provider: Literal["auto", "mock", "live"] = "auto"
+    # The serving endpoint `live` queries; None = databricks.serving_endpoint.
+    endpoint: str | None = None
     max_tokens: int = Field(default=8192, gt=0)
     max_attempts: int = Field(default=2, gt=0)
     # Confidence a model-placed role starts with (validated, not trusted).
@@ -748,6 +753,12 @@ class LayoutConfig(BaseModel):
         """The caches are LOCAL directories. A /Volumes or /Workspace path here
         is the serverless PermissionError (docs/acfc/RETROFIT_LOG.md §8): the
         durable runtime cache is ``storage.state`` (<state>/layout_profiles)."""
+        runtime = self.runtime_cache_dir.replace("\\", "/").strip("./")
+        if runtime.split("/")[0] == "fixtures" or runtime in {
+                d.replace("\\", "/").strip("./") for d in self.cache_dirs}:
+            raise ValueError(
+                f"layout.runtime_cache_dir {self.runtime_cache_dir!r} is a tracked fixture "
+                "directory — runtime profiles carry real sheet names and never land there")
         for value in (self.runtime_cache_dir, self.mock_dir, *self.cache_dirs):
             normalized = value.replace("\\", "/")
             if normalized.startswith(("/Volumes", "/Workspace")):

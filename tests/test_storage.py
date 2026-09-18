@@ -205,3 +205,24 @@ def test_layout_cache_paths_may_not_be_databricks_mounts():
 
     with pytest.raises(ValidationError, match="storage.state"):
         LayoutConfig(runtime_cache_dir="/Volumes/cat/sch/vol/state/layout_profiles")
+
+
+_CV_PAIR = (REPO / "fixtures" / "contracts" / "FRD_demo_cv_golden.contract.json",
+            REPO / "fixtures" / "contracts" / "sttm_mapping_contracts_cv_golden.json")
+
+
+@pytest.mark.skipif(not all(p.is_file() for p in _CV_PAIR),
+                    reason="demo fixture pair not restored (removed 2026-08-22)")
+def test_cli_generate_lands_in_the_outputs_role(tmp_path, monkeypatch, capsys):
+    from codegen import cli
+
+    role = tmp_path / "outputs_role"
+    role.mkdir()
+    monkeypatch.chdir(REPO)
+    monkeypatch.setenv("CODEGEN_STORAGE_OUTPUTS", f"local:{role.as_posix()}")
+    assert cli.main(["generate", "--frd-contract", str(_CV_PAIR[0]), "--sttm-contract",
+                     str(_CV_PAIR[1]), "--feed", "cv_individual_risk", "--dry-run",
+                     "--skip-tests"]) == 0
+    capsys.readouterr()
+    assert (role / "cv_individual_risk" / "README.md").is_file()
+    assert (role / "reports" / "cv_individual_risk.md").is_file()

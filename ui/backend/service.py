@@ -263,7 +263,7 @@ class GenerationStore:
                 written = [*written, *rfc_artefacts.files]
         else:
             written = emit_feed(context, out_root)
-            if effective_mode == "both":
+            if effective_mode in ("both", "all"):
                 stage("framework artefacts")
                 ddl_sources = _read_ddl_sources(feed_dir)
                 framework_artefacts = _run_emit_framework(
@@ -272,6 +272,17 @@ class GenerationStore:
                     iig_template=iig_template,
                 )
                 written = [*written, *framework_artefacts.files]
+                if effective_mode == "all":
+                    stage("RFC package")
+                    from codegen.emit.rfc import emit_rfc_package
+
+                    rfc_artefacts = emit_rfc_package(
+                        spec, faq, self.config, out_root, framework_artefacts,
+                        flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                        conventions_profile=conventions_profile, iig_template=iig_template,
+                        playbook_template=playbook_template, base_dir=REPO_ROOT,
+                    )
+                    written = [*written, *rfc_artefacts.files]
         if framework_artefacts is not None:
             extra_flags = [*extra_flags, *framework_artefacts.flags]
         if rfc_artefacts is not None:

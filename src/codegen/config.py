@@ -66,7 +66,8 @@ class OutputConfig(BaseModel):
     # existing ingestion framework, no notebook/module tree), or "both".
     # "rfc" (M5): framework artefacts + the assembled RFC deployment package
     # (out/<slug>/RFC<number>_<Feed>/), see RfcConfig / PlaybookConfig.
-    mode: Literal["notebook", "framework", "both", "rfc"] = "notebook"
+    # "all" = notebook tree + framework artefacts + the RFC package.
+    mode: Literal["notebook", "framework", "both", "rfc", "all"] = "notebook"
 
 
 class FrameworkConfig(BaseModel):

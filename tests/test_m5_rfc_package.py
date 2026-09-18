@@ -355,5 +355,27 @@ def test_ui_runner_accepts_the_rfc_mode():
     runner.output_mode = None
     runner.select_output_mode("rfc")
     assert runner.output_mode == "rfc"
+    runner.select_output_mode("all")
+    assert runner.output_mode == "all"
     with pytest.raises(ValueError):
         runner.select_output_mode("zip")
+
+
+@needs_golden
+def test_all_mode_writes_notebook_framework_and_rfc(pair1_config, pair1_spec, tmp_path):
+    """`all` = the notebook tree + framework artefacts + the RFC package,
+    the same package `rfc` mode writes."""
+    scoped = _scoped(pair1_config, tmp_path)
+    gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
+                              output_mode="all", conventions_profile="acfc_prx",
+                              iig_template="iig_v2", playbook_template="main_single")
+    feed_dir = tmp_path / "out" / pair1_spec.feed_slug
+    assert (feed_dir / "pipeline").is_dir() and (feed_dir / "framework").is_dir()
+    package = _package_dir(tmp_path, pair1_spec.feed_slug)
+    assert sorted(p.name for p in package.iterdir()) == [
+        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", "MANIFEST.md",
+        "RFC######_ACCUM_Deployment_Playbook.xlsx"]
+    assert (package / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
+    assert gate.verdict == "PASS_WITH_FLAGS"
+    assert any(f.startswith("playbook_blank:") for f in gate.flags)
+

@@ -228,9 +228,12 @@ non-secret.
 
 ## Output modes (Option A / Option B, added 2026-08-27; `rfc` added 2026-09-18)
 
-`output.mode: notebook | framework | both | rfc` (CLI `--output-mode`, UI
-selector). `rfc` = framework artefacts + the assembled deployment package
-(see "Conventions profiles, IIG / playbook templates, the rfc package"). **Option A** ("notebook", the default) is today's output byte
+`output.mode: notebook | framework | both | rfc | all` (CLI `--output-mode`;
+the UI shows three toggles — Notebook, Framework artefacts, RFC package —
+plus All, and maps the selection onto one mode: rfc implies framework,
+notebook+rfc = all). `rfc` = framework artefacts + the assembled deployment
+package; `all` = notebook tree + framework + package (see "Conventions
+profiles, IIG / playbook templates, the rfc package"). **Option A** ("notebook", the default) is today's output byte
 for byte — a fresh standalone pipeline, the ~10% case; guarded by
 `tests/snapshots/notebook_mode.json` (sha256 per emitted file for the CV
 pair — regenerate deliberately, never casually). **Option B**

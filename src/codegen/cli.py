@@ -150,13 +150,23 @@ def _generate_feed(
     else:
         written = emit_feed(context, out_root)
         checks = None  # computed below, exactly as before
-        if effective_mode == "both":
+        if effective_mode in ("both", "all"):
             ddl_sources = _read_ddl_sources(feed_dir)
             framework_artefacts = _run_emit_framework(
                 spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
                 conventions_profile=conventions_profile, iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
+            if effective_mode == "all":
+                from codegen.emit.rfc import emit_rfc_package
+
+                rfc_artefacts = emit_rfc_package(
+                    spec, faq, config, out_root, framework_artefacts,
+                    flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                    conventions_profile=conventions_profile, iig_template=iig_template,
+                    playbook_template=playbook_template, base_dir=None,
+                )
+                written = [*written, *rfc_artefacts.files]
     if framework_artefacts is not None:
         extra_flags = [*extra_flags, *framework_artefacts.flags]
     if rfc_artefacts is not None:
@@ -830,12 +840,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     common.add_argument(
         "--output-mode",
-        choices=["notebook", "framework", "both", "rfc"],
+        choices=["notebook", "framework", "both", "rfc", "all"],
         default=None,
         help="override output.mode: notebook (Option A, default), framework "
         "(Option B: DDL scripts + config rows + inserts for the existing "
-        "ingestion framework), both, or rfc (framework artefacts + the "
-        "assembled RFC<number>_<Feed>/ deployment package)",
+        "ingestion framework), both (notebook + framework), rfc (framework "
+        "artefacts + the assembled RFC<number>_<Feed>/ deployment package), "
+        "or all (notebook + framework + rfc)",
     )
 
     generate = subparsers.add_parser(

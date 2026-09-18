@@ -50,7 +50,7 @@ export interface FrameworkSummary {
   flagged_blank_columns: string[];
 }
 
-export type OutputMode = "notebook" | "framework" | "both" | "rfc";
+export type OutputMode = "notebook" | "framework" | "both" | "rfc" | "all";
 
 export interface GenerationOptionGroup {
   options: string[];

@@ -243,7 +243,10 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
         first = run_dir / run.feeds[0]
         has_framework = (first / "framework").is_dir()
         has_pipeline = (first / "pipeline").is_dir()
-        output_mode = ("both" if has_framework and has_pipeline
+        has_rfc = any(p.is_dir() and p.name.startswith("RFC") for p in first.iterdir())
+        output_mode = ("all" if has_rfc and has_pipeline
+                       else "rfc" if has_rfc
+                       else "both" if has_framework and has_pipeline
                        else "framework" if has_framework else "notebook")
     _rebuild_state(
         store,

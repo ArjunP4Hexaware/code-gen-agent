@@ -1,0 +1,23 @@
+# Pair-1 config overlay (M5): the client's pipeline / notebook inventory as
+# the aliased golden IIG lists it — client-shaped vocabulary that the shipped
+# config/config.yaml deliberately does NOT carry. Tests load it via
+# load_config(path, overlays=[this file]); a local run via
+# CODEGEN_CONFIG_OVERLAYS=fixtures/acfc_shapes/pair_1/config_overlay.yaml.
+# Rendered badge: synthetic, tooltip = the template citation. '_layer' steers
+# which FRD load strategy feeds TGT_REFRESH_TYPE.
+metadata:
+  templates:
+    iig_v2:
+      template_rows:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          - {PIPELINE_NAME: PARENT_PIPELINE, PIPELINE_DESCRIPTION: PARENT_PIPELINE}
+          - {PIPELINE_NAME: FILE_ONPREM_ADLS, PIPELINE_DESCRIPTION: "On Prem to Raw"}
+          - {PIPELINE_NAME: FILE_RAW_TO_STAGE, PIPELINE_DESCRIPTION: "Raw to Stage"}
+          - {PIPELINE_NAME: STAGE_TO_STD, PIPELINE_DESCRIPTION: "Stage to Std"}
+        DATABRICKS_NOTEBOOK_DETAILS:
+          - {PIPELINE_NAME: PL_VND_P_INGESTION_REPORT, DATABRICKS_NOTEBOOK_NAME: Daily_Ingested_Status_Report_V2, _layer: stage}
+          - {PIPELINE_NAME: PL_CHLD_FILE_RAW_STAGE_VND_P_HANDLER, DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V1, _layer: stage}
+          - {PIPELINE_NAME: PL_CHLD_FILE_STG_STD_VND_P_HANDLER, DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard}
+        EMAIL_TEMPLATE_CONFIG:
+          - {STATUS: Success}
+          - {STATUS: Failed}

@@ -75,6 +75,7 @@ def _generate_feed(
     extra_flags: list[str] | None = None,
     conventions_profile: str | None = None,
     iig_template: str | None = None,
+    playbook_template: str | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -124,7 +125,8 @@ def _generate_feed(
     # "both" persists everything. MIRRORED in service._generate_feed.
     effective_mode = output_mode or config.output.mode
     framework_artefacts = None
-    if effective_mode == "framework":
+    rfc_artefacts = None
+    if effective_mode in ("framework", "rfc"):
         written, checks, tests_skipped, ddl_sources = _emit_framework_only(
             context, spec, config, feed_dir, skip_tests
         )
@@ -133,6 +135,18 @@ def _generate_feed(
             conventions_profile=conventions_profile, iig_template=iig_template,
         )
         written = [*written, *framework_artefacts.files]
+        if effective_mode == "rfc":
+            # M5: the RFC deployment package, assembled from the framework
+            # artefacts + config/FAQ; its blank-and-flag list joins the gate.
+            from codegen.emit.rfc import emit_rfc_package
+
+            rfc_artefacts = emit_rfc_package(
+                spec, faq, config, out_root, framework_artefacts,
+                flags_so_far=[*extra_flags, *framework_artefacts.flags],
+                conventions_profile=conventions_profile, iig_template=iig_template,
+                playbook_template=playbook_template, base_dir=None,
+            )
+            written = [*written, *rfc_artefacts.files]
     else:
         written = emit_feed(context, out_root)
         checks = None  # computed below, exactly as before
@@ -145,6 +159,8 @@ def _generate_feed(
             written = [*written, *framework_artefacts.files]
     if framework_artefacts is not None:
         extra_flags = [*extra_flags, *framework_artefacts.flags]
+    if rfc_artefacts is not None:
+        extra_flags = [*extra_flags, *rfc_artefacts.flags]
     _write_candidates_artifact(candidates, feed_dir)
 
     if checks is None:
@@ -183,6 +199,10 @@ def _generate_feed(
         with open(reports_dir / f"{spec.feed_slug}.md", "a",
                   encoding="utf-8", newline="\n") as handle:
             handle.write(report_section(framework_artefacts))
+            if rfc_artefacts is not None:
+                from codegen.emit.rfc import report_section as rfc_report_section
+
+                handle.write(rfc_report_section(rfc_artefacts))
     print(console_summary(spec, gate))
     return gate
 
@@ -247,6 +267,7 @@ def _run_pairs(
     vdd_path: Path | None = None,
     conventions_profile: str | None = None,
     iig_template: str | None = None,
+    playbook_template: str | None = None,
 ) -> int:
     failed = False
     matched_feed = False
@@ -265,7 +286,8 @@ def _run_pairs(
                 gate = _generate_feed(spec, config, dry_run=dry_run,
                                       skip_tests=skip_tests, output_mode=output_mode,
                                       conventions_profile=conventions_profile,
-                                      iig_template=iig_template)
+                                      iig_template=iig_template,
+                                      playbook_template=playbook_template)
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -808,11 +830,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     common.add_argument(
         "--output-mode",
-        choices=["notebook", "framework", "both"],
+        choices=["notebook", "framework", "both", "rfc"],
         default=None,
         help="override output.mode: notebook (Option A, default), framework "
         "(Option B: DDL scripts + config rows + inserts for the existing "
-        "ingestion framework), or both",
+        "ingestion framework), both, or rfc (framework artefacts + the "
+        "assembled RFC<number>_<Feed>/ deployment package)",
     )
 
     generate = subparsers.add_parser(
@@ -831,6 +854,9 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--iig-template", dest="iig_template", default=None,
                           help="IIG workbook template version (iig_v1 = demo.metadata_sheet, "
                                "or a key of config metadata.templates)")
+    generate.add_argument("--playbook-template", dest="playbook_template", default=None,
+                          help="rfc mode: deployment playbook template (a key of config "
+                               "playbook.templates; default playbook.template)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 

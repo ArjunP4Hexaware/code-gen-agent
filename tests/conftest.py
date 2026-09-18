@@ -19,6 +19,7 @@ import pytest
 
 from codegen.config import load_config
 from codegen.resolve.resolver import resolve_pair
+from codegen.resolve.resolver import resolve_pair as resolve_contracts
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -57,6 +58,16 @@ def config():
     return load_config(REPO / "config" / "config.yaml")
 
 
+PAIR1_OVERLAY = REPO / "fixtures" / "acfc_shapes" / "pair_1" / "config_overlay.yaml"
+
+
+@pytest.fixture(scope="session")
+def pair1_config():
+    """The shipped config + the pair-1 fixture overlay (M5): the client-shaped
+    IIG template rows live in fixtures/, never in config/config.yaml."""
+    return load_config(REPO / "config" / "config.yaml", overlays=[PAIR1_OVERLAY])
+
+
 def _pair_paths(config, index: int) -> tuple[Path, Path]:
     if len(config.contracts.pairs) <= index:
         pytest.skip(f"{FIXTURES_REMOVED}: config.contracts.pairs[{index}] not configured")
@@ -84,3 +95,44 @@ def caqh_spec(config):
 @pytest.fixture(scope="session")
 def specs_by_id(mids_specs, caqh_spec):
     return {spec.feed_id: spec for spec in [*mids_specs, caqh_spec]}
+
+
+ACFC_SHAPES = REPO / "fixtures" / "acfc_shapes"
+LAYOUT_PROFILES = REPO / "fixtures" / "layout_profiles"
+
+
+@pytest.fixture(scope="session")
+def pair1_spec(pair1_config, tmp_path_factory):
+    """Pair 1 end to end the M4 way: mock layout, STTM + FRD(docx) + VDD
+    contracts, resolver takes file pattern + segments from the STTM."""
+    config = pair1_config
+    tmp = tmp_path_factory.mktemp("pair1_contracts")
+    import json
+
+    from codegen.extract import contract_to_json as sttm_to_json
+    from codegen.extract import extract_contract
+    from codegen.extract.frd_docx import contract_to_json as frd_to_json
+    from codegen.extract.vdd import contract_to_json as vdd_to_json
+    from codegen.extract.vdd import extract_vdd_contract
+    from codegen.layout.model import MockLayoutProvider
+    from codegen.layout.resolve import resolve_pair as resolve_layout_pair
+
+    pair = resolve_layout_pair(
+        ACFC_SHAPES / "sttm" / "pair_1_family_a.xlsx",
+        ACFC_SHAPES / "frd" / "f1_pair_1.docx", config,
+        provider=MockLayoutProvider([LAYOUT_PROFILES / "mock", LAYOUT_PROFILES]),
+                        cache_dirs=[tmp / "cache"], generated_date="2026-01-01",
+                        vdd_path=ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx")
+    frd_json = tmp / "frd.contract.json"
+    frd_json.write_text(frd_to_json(pair.frd_contract), encoding="utf-8")
+    assert json.loads(frd_json.read_text(encoding="utf-8"))["feeds"][0]["file_name_patterns"] == []
+    sttm_json = tmp / "sttm.contract.json"
+    contract = extract_contract(ACFC_SHAPES / "sttm" / "pair_1_family_a.xlsx", frd_json, config,
+                                generated_date="2026-01-01", layout=pair.sttm.profile)
+    sttm_json.write_text(sttm_to_json(contract), encoding="utf-8")
+    vdd_json = tmp / "vdd.contract.json"
+    vdd_contract, _ = extract_vdd_contract(ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx", config,
+                                           generated_date="2026-01-01")
+    vdd_json.write_text(vdd_to_json(vdd_contract), encoding="utf-8")
+    (spec,) = resolve_contracts(frd_json, sttm_json, config, vdd_path=vdd_json)
+    return spec

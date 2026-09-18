@@ -100,7 +100,7 @@ class DemoRunner:
                 raise LiveRunInProgress(
                     "cannot change the output mode while a live run is in progress"
                 )
-        if mode is not None and mode not in ("notebook", "framework", "both"):
+        if mode is not None and mode not in ("notebook", "framework", "both", "rfc"):
             raise ValueError(f"unknown output mode {mode!r}")
         self.output_mode = mode
 

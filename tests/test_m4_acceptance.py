@@ -20,7 +20,6 @@ tracked copy at fixtures/acfc_shapes/pair_1/golden/):
 from __future__ import annotations
 
 import io
-import json
 from pathlib import Path
 
 import pytest
@@ -28,22 +27,12 @@ from openpyxl import load_workbook
 
 from acfc_shapes.pair1 import alias_golden_iig
 from codegen import cli
-from codegen.extract import contract_to_json as sttm_to_json
-from codegen.extract import extract_contract
-from codegen.extract.frd_docx import contract_to_json as frd_to_json
-from codegen.extract.vdd import contract_to_json as vdd_to_json
-from codegen.extract.vdd import extract_vdd_contract
 from codegen.gate.drag_fill import drag_fill_flags
-from codegen.layout.model import MockLayoutProvider
-from codegen.layout.resolve import resolve_pair
-from codegen.resolve.resolver import resolve_pair as resolve_contracts
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
-PROFILES = REPO / "fixtures" / "layout_profiles"
 GOLDEN_DDL = SHAPES / "pair_1" / "golden" / "ACCUM_DDL.txt"
 GOLDEN_IIG = SHAPES / "pair_1" / "golden" / "RFC_ACCUMULATORS_IIG.xlsx"
-DATE = "2026-01-01"
 
 needs_golden = pytest.mark.skipif(
     not (GOLDEN_DDL.is_file() and GOLDEN_IIG.is_file()),
@@ -54,31 +43,6 @@ needs_golden = pytest.mark.skipif(
 # -- pair-1 run ----------------------------------------------------------------- #
 
 
-@pytest.fixture(scope="module")
-def pair1_spec(config, tmp_path_factory):
-    """Pair 1 end to end the M4 way: mock layout, STTM + FRD(docx) + VDD
-    contracts, resolver takes file pattern + segments from the STTM."""
-    tmp = tmp_path_factory.mktemp("pair1_contracts")
-    pair = resolve_pair(SHAPES / "sttm" / "pair_1_family_a.xlsx",
-                        SHAPES / "frd" / "f1_pair_1.docx", config,
-                        provider=MockLayoutProvider([PROFILES / "mock", PROFILES]),
-                        cache_dirs=[tmp / "cache"], generated_date=DATE,
-                        vdd_path=SHAPES / "vdd" / "pair_1_v1_segments.xlsx")
-    frd_json = tmp / "frd.contract.json"
-    frd_json.write_text(frd_to_json(pair.frd_contract), encoding="utf-8")
-    assert json.loads(frd_json.read_text(encoding="utf-8"))["feeds"][0]["file_name_patterns"] == []
-    sttm_json = tmp / "sttm.contract.json"
-    contract = extract_contract(SHAPES / "sttm" / "pair_1_family_a.xlsx", frd_json, config,
-                                generated_date=DATE, layout=pair.sttm.profile)
-    sttm_json.write_text(sttm_to_json(contract), encoding="utf-8")
-    vdd_json = tmp / "vdd.contract.json"
-    vdd_contract, _ = extract_vdd_contract(SHAPES / "vdd" / "pair_1_v1_segments.xlsx", config,
-                                           generated_date=DATE)
-    vdd_json.write_text(vdd_to_json(vdd_contract), encoding="utf-8")
-    (spec,) = resolve_contracts(frd_json, sttm_json, config, vdd_path=vdd_json)
-    return spec
-
-
 def _scoped(config, tmp: Path):
     return config.model_copy(update={
         "output": config.output.model_copy(update={
@@ -87,9 +51,9 @@ def _scoped(config, tmp: Path):
 
 
 @pytest.fixture(scope="module")
-def pair1_run(config, pair1_spec, tmp_path_factory):
+def pair1_run(pair1_config, pair1_spec, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_run")
-    scoped = _scoped(config, tmp)
+    scoped = _scoped(pair1_config, tmp)
     gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
@@ -323,6 +287,28 @@ def test_pair1_iig_everything_else_is_blank_and_flagged(pair1_run):
 
 
 @needs_golden
+def test_shipped_config_carries_no_client_pipeline_names(config, pair1_spec, tmp_path):
+    """Without the pair-1 overlay the pipeline/notebook inventory is one row
+    each with the names blank-and-flagged — the shipped config ships no
+    client-shaped vocabulary (M5)."""
+    rows = config.metadata.templates["iig_v2"].template_rows
+    assert set(rows) == {"EMAIL_TEMPLATE_CONFIG"}
+    scoped = _scoped(config, tmp_path)
+    gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
+                              output_mode="framework", conventions_profile="acfc_prx",
+                              iig_template="iig_v2")
+    ours = load_workbook(tmp_path / "out" / pair1_spec.feed_slug / "framework" / "config_rows.xlsx")
+    assert len(_sheet_rows(ours["DATA_FACTORY_PIPELINE_SCHEDULE"])[1]) == 1
+    assert len(_sheet_rows(ours["DATABRICKS_NOTEBOOK_DETAILS"])[1]) == 1
+    assert "iig_blank:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_NAME" in gate.flags
+    assert "iig_blank:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME" in gate.flags
+    for sheet in ours.worksheets:
+        for row in sheet.iter_rows(values_only=True):
+            assert not any(isinstance(v, str) and "VND_P" in v.upper() and "PL_" in v
+                           for v in row)
+
+
+@needs_golden
 def test_iig_v2_config_headers_are_the_golden_headers(config):
     template = config.metadata.templates["iig_v2"]
     golden = _golden_iig()
@@ -346,9 +332,9 @@ def test_default_profile_and_template_are_the_edo_sfmc_two_file_layout(config):
         config.metadata.resolve("iig_v9")
 
 
-def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(config, pair1_spec,
+def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config, pair1_spec,
                                                                     tmp_path):
-    scoped = _scoped(config, tmp_path)
+    scoped = _scoped(pair1_config, tmp_path)
     gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
                               output_mode="framework")
     framework_dir = tmp_path / "out" / pair1_spec.feed_slug / "framework"
@@ -360,15 +346,15 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(config, pair
     assert not any(f.startswith("iig_blank:") for f in gate.flags)
     ours = load_workbook(framework_dir / "config_rows.xlsx")
     assert [s for s in ours.sheetnames if not s.startswith("_")] == list(
-        config.demo.metadata_sheet.tabs)
+        pair1_config.demo.metadata_sheet.tabs)
 
 
 def test_combined_ddl_without_feed_abbreviation_falls_back_to_the_slug_and_flags(
-        config, pair1_spec, tmp_path):
+        pair1_config, pair1_spec, tmp_path):
     from codegen.emit.framework import emit_framework
     from codegen.faq import LoadPatternFaq
 
-    artefacts = emit_framework(pair1_spec, LoadPatternFaq(), [], config, tmp_path,
+    artefacts = emit_framework(pair1_spec, LoadPatternFaq(), [], pair1_config, tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     names = [p.name for p in artefacts.files]
     assert "ACCUMULATORS_DDL.txt" in names

@@ -99,6 +99,7 @@ port_kit_audit/
 # the upstream-scrubbed golden with fixtures/acfc_shapes/ALIASES.md applied.
 !fixtures/acfc_shapes/
 !fixtures/acfc_shapes/sttm/pair_1_family_a.xlsx
+!fixtures/acfc_shapes/pair_1/config_overlay.yaml
 !fixtures/acfc_shapes/sttm/pair_8_family_a.xlsx
 !fixtures/acfc_shapes/sttm/pair_2_family_b.xlsx
 !fixtures/acfc_shapes/sttm/pair_3_family_c.xlsx

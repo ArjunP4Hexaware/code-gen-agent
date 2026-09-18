@@ -29,6 +29,8 @@ output:
   # Option A ("notebook" — today's output, a fresh standalone pipeline, the
   # ~10% case) | Option B ("framework" — DDL scripts + config rows + insert
   # statements for the existing ingestion framework, the ~90% case) | both.
+  # rfc (M5): framework artefacts + the assembled RFC<number>_<Feed>/
+  # deployment package (rfc: / playbook: sections below).
   # CLI --output-mode and the UI selector override per run.
   mode: notebook
 
@@ -783,19 +785,121 @@ metadata:
         DATABRICKS_NOTEBOOK_DETAILS: {SEQ_NM: "1", ACTIVE_FLAG: "Y"}
         DATA_QUALITY_RULES: {RULE_TYPE: "Custom", ACTIVE_RULE_FLG: "Y"}
         EMAIL_TEMPLATE_CONFIG: {ACTIVE_FLAG: "Y"}
-      # Template rows: the framework's pipeline/notebook inventory as the
-      # golden lists it (synthetic; the client's framework team owns these
-      # names). '_layer' steers which FRD load strategy feeds TGT_REFRESH_TYPE.
+      # Template rows. The framework's email statuses are framework
+      # vocabulary; the client's pipeline / notebook inventory (pair-1 names)
+      # is NOT shipped here — it lives in the fixture overlay
+      # fixtures/acfc_shapes/pair_1/config_overlay.yaml (load_config
+      # overlays / CODEGEN_CONFIG_OVERLAYS). Without it the pipeline-schedule
+      # and notebook-details sheets render one row each, names blank+flagged.
+      # '_layer' steers which FRD load strategy feeds TGT_REFRESH_TYPE.
       template_rows:
-        DATA_FACTORY_PIPELINE_SCHEDULE:
-          - {PIPELINE_NAME: PARENT_PIPELINE, PIPELINE_DESCRIPTION: PARENT_PIPELINE}
-          - {PIPELINE_NAME: FILE_ONPREM_ADLS, PIPELINE_DESCRIPTION: "On Prem to Raw"}
-          - {PIPELINE_NAME: FILE_RAW_TO_STAGE, PIPELINE_DESCRIPTION: "Raw to Stage"}
-          - {PIPELINE_NAME: STAGE_TO_STD, PIPELINE_DESCRIPTION: "Stage to Std"}
-        DATABRICKS_NOTEBOOK_DETAILS:
-          - {PIPELINE_NAME: PL_VND_P_INGESTION_REPORT, DATABRICKS_NOTEBOOK_NAME: Daily_Ingested_Status_Report_V2, _layer: stage}
-          - {PIPELINE_NAME: PL_CHLD_FILE_RAW_STAGE_VND_P_HANDLER, DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V1, _layer: stage}
-          - {PIPELINE_NAME: PL_CHLD_FILE_STG_STD_VND_P_HANDLER, DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard}
         EMAIL_TEMPLATE_CONFIG:
           - {STATUS: Success}
           - {STATUS: Failed}
+
+rfc:
+  # M5 (2026-09-18): the `rfc` output mode's package tree, the INGESTION
+  # family of docs/acfc/rfc_capture/.../RFC_PACKAGE_SHAPES.md §1:
+  #   RFC<number>_<Feed>/ <Feed>_IIG.xlsx, the profile's DDL file(s),
+  #   RFC<number>_<Feed>_Deployment_Playbook.xlsx, FILE_LOG_INFORMATION.txt
+  #   (sometimes present), MANIFEST.md (ours). Runbook / TDD out of scope.
+  # {rfc_number} = load-pattern FAQ rfc_number (unanswered -> the shapes
+  # document's own masked spelling + a flag); {feed_slug} = FAQ
+  # feed_abbreviation, else the sanitized feed slug + a flag.
+  dir_pattern: "RFC{rfc_number}_{feed_slug}"
+  iig_file_name: "{feed_slug}_IIG.xlsx"
+  playbook_file_name: "RFC{rfc_number}_{feed_slug}_Deployment_Playbook.xlsx"
+  manifest_file_name: MANIFEST.md
+  number_placeholder: "######"
+  # FILE_LOG_INFORMATION.txt in the documented T-SQL shape (present in the
+  # INGESTION_A package, absent from the PRX ones): off by default; the
+  # documented <length> mask is transcribed as-is and flagged.
+  file_log_information: false
+  file_log_file_name: FILE_LOG_INFORMATION.txt
+  file_log_header_line: "CREATE TABLE [dbo].[FILE_LOG_INFORMATION]("
+  file_log_columns:
+    - "[ID] [int] IDENTITY(1,1) NOT NULL"
+    - "[PIPELINE_ID] [int] NOT NULL"
+    - "[GROUP_ID] [int] NOT NULL"
+    - "[OBJECT_ID] [int] NOT NULL"
+    - "[SRC_FILE_NAME] [varchar](MAX) NOT NULL"
+    - "[SOURCE_COUNT] [int] NOT NULL"
+    - "[TARGET_COUNT] [int] NOT NULL"
+    - "[REJECT_COUNT] [int] NOT NULL"
+    - "[RECYCLE_COUNT] [int] NOT NULL"
+    - "[CREATED_BY] [varchar](<length>) NOT NULL"
+    - "[CREATED_DATE] [datetime] NOT NULL"
+    - "[UPDATED_BY] [varchar](<length>) NOT NULL"
+    - "[UPDATED_DATE] [datetime] NOT NULL"
+
+playbook:
+  # Deployment playbook templates (rfc mode). sfmc_7sheet reads the
+  # SCRUBBED reference workbook for its structure (sheet order, band +
+  # header rows, cover-page labels) and blanks every value the reference
+  # carried — dates, times, owners, teams, status, contacts, the schedule
+  # grid — each blank flagged playbook_blank:<sheet>.<header>. main_single
+  # is the PRX packages' one-sheet layout (RFC_PACKAGE_SHAPES §1 / §4
+  # header pattern). Task rows come ONLY from `tasks` below, per
+  # conventions profile ("default" otherwise); RFC#s from the run input.
+  # CLI: generate --output-mode rfc --playbook-template <name>.
+  template: sfmc_7sheet
+  templates:
+    sfmc_7sheet:
+      kind: sfmc_7sheet
+      source: fixtures/reference/SFMC_Deployment_Playbook.xlsx
+      header_row: 2
+      task_sheet: "PrePost-Prod & Prod Execution"
+      rollback_execution_sheet: "Rollback Execution"
+      rollback_validation_sheet: "Rollback Validation"
+      contact_sheet: "Contact List"
+      cover_sheet: "Cover Page"
+      overview_sheet: "Overview"
+      section_labels:
+        pre_production: "PRE-PRODUCTION"
+        production: "PRODUCTION"
+        post_production: "POST PRODUCTION"
+        rollback_execution: "BACKOUT/ROLLBACK EXECUTION"
+        rollback_validation: "BACKOUT/ROLLBACK VALIDATION"
+      # Reference cover-page cells holding the deployment's own values
+      # (blanked + flagged) and the template labels kept as written.
+      cover_value_cells:
+        B6: "Project"
+        B15: "Revision history Date"
+        C15: "Revision history Version"
+        D15: "Revision history Author(s)"
+        E15: "Revision history Description of Version/Changes"
+      cover_label_cells:
+        B6: "Project:"
+    main_single:
+      kind: main_single
+      sheet: Main
+      # §1: Task #, Task, Detail, (blank), RFC#s, Deployment Team, dates/times,
+      # Task Owner, Status.
+      headers: ["Task #", "Task", "Detail", "", "RFC#s", "Deployment Team",
+                "Planned Start Date", "Planned End Date", "Actual Start Date", "Actual End Date",
+                "Planned Start Time", "Planned End Time", "Actual Start Time", "Actual End Time",
+                "Task Owner", "Status"]
+  # Task rows: deployment steps phrased over the package's OWN artefacts
+  # ({ddl_files}, {iig_file}, {rfc}, {feed}); no client wording. Dates,
+  # times, owners and teams are never filled.
+  tasks:
+    default:
+      pre_production: []
+      production:
+        - task: "Execute the deployment DDL"
+          detail: "Run {ddl_files} in the data lake (deployment team — the agent never creates target tables)."
+        - task: "Copy the IIG workbook to the ADLS raw location"
+          detail: "{iig_file}"
+        - task: "Execute the metadata pipeline to insert the IIG entries"
+          detail: "Rows of {iig_file}; framework-assigned IDs are blank in the workbook and assigned by the framework."
+      post_production:
+        - task: "Validate the metadata inserts"
+          detail: "Every row of {iig_file} is present in the framework tables."
+        - task: "Validate the stage and standard tables exist"
+          detail: "Tables created by {ddl_files}."
+      rollback_execution:
+        - task: "Revert the IIG table changes"
+          detail: "Remove the rows inserted from {iig_file}."
+      rollback_validation:
+        - task: "Validate the IIG tables are reverted"
+          detail: "No rows from {iig_file} remain."

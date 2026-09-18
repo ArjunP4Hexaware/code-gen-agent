@@ -111,6 +111,10 @@ class LoadPatternFaq(BaseModel):
     # transcribes with their citation; unanswered = blank-and-flag.
     process_name: FaqAnswer = FaqAnswer(value="unknown")
     feed_abbreviation: FaqAnswer = FaqAnswer(value="unknown")
+    # M5 companion (NOT a question): the RFC ticket number the deployment
+    # package is named after — a run input; unanswered = documented
+    # placeholder + flag.
+    rfc_number: FaqAnswer = FaqAnswer(value="unknown")
     # Segmented-dialect declarations (NOT questions — banner/flag counts
     # untouched). The H/D/T record-type discriminator values are stated
     # nowhere in a segmented workbook: absent here, a segmented extraction

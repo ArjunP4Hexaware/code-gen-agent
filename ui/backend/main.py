@@ -660,7 +660,7 @@ def clear_frd() -> dict:
 
 
 class OutputModeRequest(BaseModel):
-    mode: str | None = None  # notebook | framework | both; null = config default
+    mode: str | None = None  # notebook | framework | both | rfc; null = config default
 
 
 @app.post("/api/demo/output-mode")

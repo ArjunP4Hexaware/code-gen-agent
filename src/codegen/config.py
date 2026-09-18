@@ -64,7 +64,9 @@ class OutputConfig(BaseModel):
     # Option A ("notebook", the default — today's output exactly), Option B
     # ("framework": DDL scripts + config rows + insert statements for the
     # existing ingestion framework, no notebook/module tree), or "both".
-    mode: Literal["notebook", "framework", "both"] = "notebook"
+    # "rfc" (M5): framework artefacts + the assembled RFC deployment package
+    # (out/<slug>/RFC<number>_<Feed>/), see RfcConfig / PlaybookConfig.
+    mode: Literal["notebook", "framework", "both", "rfc"] = "notebook"
 
 
 class FrameworkConfig(BaseModel):
@@ -811,6 +813,101 @@ class MetadataConfig(BaseModel):
         return key, self.templates[key]
 
 
+class RfcConfig(BaseModel):
+    """`rfc` output mode (M5): the INGESTION-family package tree of
+    RFC_PACKAGE_SHAPES §1. Tokens: {rfc_number} (FAQ rfc_number, else
+    number_placeholder + flag), {feed_slug} / {feed} (FAQ feed_abbreviation,
+    else the sanitized feed slug + flag)."""
+
+    model_config = _MODEL_CONFIG
+
+    dir_pattern: str = "RFC{rfc_number}_{feed_slug}"
+    iig_file_name: str = "{feed_slug}_IIG.xlsx"
+    playbook_file_name: str = "RFC{rfc_number}_{feed_slug}_Deployment_Playbook.xlsx"
+    manifest_file_name: str = "MANIFEST.md"
+    # The shapes document's own masked spelling of an RFC number.
+    number_placeholder: str = "######"
+    file_log_information: bool = False
+    file_log_file_name: str = "FILE_LOG_INFORMATION.txt"
+    file_log_header_line: str = "CREATE TABLE [dbo].[FILE_LOG_INFORMATION]("
+    # Column definitions in the documented T-SQL shape; a masked value such
+    # as <length> is transcribed as documented and flagged.
+    file_log_columns: list[str] = Field(default_factory=list)
+
+
+class PlaybookTaskConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    task: str
+    detail: str = ""
+
+
+class PlaybookTasksConfig(BaseModel):
+    """Task rows per playbook section. A row is here or the cell is blank."""
+
+    model_config = _MODEL_CONFIG
+
+    pre_production: list[PlaybookTaskConfig] = Field(default_factory=list)
+    production: list[PlaybookTaskConfig] = Field(default_factory=list)
+    post_production: list[PlaybookTaskConfig] = Field(default_factory=list)
+    rollback_execution: list[PlaybookTaskConfig] = Field(default_factory=list)
+    rollback_validation: list[PlaybookTaskConfig] = Field(default_factory=list)
+
+
+class PlaybookTemplateConfig(BaseModel):
+    """sfmc_7sheet: the 7-sheet IS-methodology template read from the
+    scrubbed reference workbook (structure kept, values blank-and-flag);
+    main_single: the single 'Main' sheet of the PRX packages (header
+    pattern per RFC_PACKAGE_SHAPES §1)."""
+
+    model_config = _MODEL_CONFIG
+
+    kind: Literal["sfmc_7sheet", "main_single"]
+    # sfmc_7sheet
+    source: str | None = None
+    header_row: int = 2
+    task_sheet: str | None = None
+    rollback_execution_sheet: str | None = None
+    rollback_validation_sheet: str | None = None
+    contact_sheet: str | None = None
+    cover_sheet: str | None = None
+    overview_sheet: str | None = None
+    section_labels: dict[str, str] = Field(default_factory=dict)
+    # Cover-page cells: value cells to blank (coordinate -> flag label) and
+    # label cells to (re)write (coordinate -> label text).
+    cover_value_cells: dict[str, str] = Field(default_factory=dict)
+    cover_label_cells: dict[str, str] = Field(default_factory=dict)
+    # main_single
+    sheet: str = "Main"
+    headers: list[str] = Field(default_factory=list)
+
+
+class PlaybookConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    template: str = "sfmc_7sheet"
+    templates: dict[str, PlaybookTemplateConfig] = Field(default_factory=dict)
+    # conventions profile name -> task rows ("default" when a profile has none).
+    tasks: dict[str, PlaybookTasksConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _template_exists(self) -> PlaybookConfig:
+        if self.templates and self.template not in self.templates:
+            raise ValueError(f"playbook.template {self.template!r} is not one of "
+                             f"{sorted(self.templates)}")
+        return self
+
+    def resolve(self, name: str | None) -> tuple[str, PlaybookTemplateConfig]:
+        key = name or self.template
+        if key not in self.templates:
+            raise ValueError(f"unknown playbook template {key!r}; expected one of "
+                             f"{sorted(self.templates)}")
+        return key, self.templates[key]
+
+    def tasks_for(self, profile: str) -> PlaybookTasksConfig:
+        return self.tasks.get(profile) or self.tasks.get("default") or PlaybookTasksConfig()
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -843,13 +940,34 @@ class Config(BaseModel):
     # Optional (M4): client conventions profiles + IIG template versions.
     conventions: ConventionsConfig = ConventionsConfig()
     metadata: MetadataConfig = MetadataConfig()
+    # Optional (M5): the rfc output mode's package layout + playbook templates.
+    rfc: RfcConfig = RfcConfig()
+    playbook: PlaybookConfig = PlaybookConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)
 
 
-def load_config(path: str | Path) -> Config:
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Recursive mapping merge: overlay mappings merge into base mappings,
+    every other overlay value (lists included) replaces the base value."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> Config:
     """Load the YAML config, failing loudly on unknown top-level sections.
+
+    ``overlays`` (and the env ``CODEGEN_CONFIG_OVERLAYS``, ``;``/``,``
+    separated paths, applied after them) are YAML mappings deep-merged onto
+    the file before validation — the M5 home for client-shaped vocabulary
+    (e.g. the pair-1 IIG template rows under fixtures/) so the shipped
+    config carries none of it. Unknown sections are refused after the merge.
 
     ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
     ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
@@ -860,6 +978,15 @@ def load_config(path: str | Path) -> Config:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
+    overlay_paths = [Path(p) for p in (overlays or [])]
+    env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
+    if env_overlays:
+        overlay_paths += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]
+    for overlay_path in overlay_paths:
+        overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
+        if not isinstance(overlay, dict):
+            raise ValueError(f"config overlay {overlay_path} is not a YAML mapping")
+        raw = _deep_merge(raw, overlay)
     unknown = set(raw) - _TOP_LEVEL_KEYS
     if unknown:
         raise ValueError(

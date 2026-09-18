@@ -629,7 +629,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
 
             <div className="panel-subhead">Output</div>
             <p style={{ margin: "6px 0 4px", display: "flex", gap: 8 }}>
-              {(["notebook", "framework", "both"] as const).map((mode) => (
+              {(["notebook", "framework", "both", "rfc"] as const).map((mode) => (
                 <button
                   key={mode}
                   className={`btn sheet-tab${(status?.output_mode ?? "notebook") === mode ? " active" : ""}`}
@@ -646,7 +646,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     ? "Notebook"
                     : mode === "framework"
                       ? "Framework artefacts"
-                      : "Both"}
+                      : mode === "rfc"
+                        ? "RFC package"
+                        : "Both"}
                 </button>
               ))}
             </p>

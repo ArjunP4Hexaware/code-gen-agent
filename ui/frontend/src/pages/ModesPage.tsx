@@ -428,36 +428,70 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     setAdvising("busy");
     setError(null);
     try {
-      setStatus(await api.layoutAdvice());
+      const s = await api.layoutAdvice();
+      setStatus(s);
+      applyAdvice(s);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setAdvising(null);
     }
   };
-  const useModelPicks = () => {
-    const advice = status?.layout_advice?.advice ?? {};
+  // Apply the model's advice as the pre-selection: an advised candidate is
+  // selected, an advised "none" CLEARS the pick — so what is pre-selected
+  // and what the model said never disagree. Runs when advice arrives and
+  // again on the "Re-apply" button.
+  const applyAdvice = (s: DemoStatus | null) => {
+    const advice = s?.layout_advice?.advice;
+    if (!advice) return;
     const picks: Record<string, number> = { ...layoutPicks };
     const frd: Record<string, Record<string, unknown>> = { ...frdPicks };
     const gaps = { ...gapPicks };
-    for (const q of status?.layout_questions ?? []) {
+    for (const q of s?.layout_questions ?? []) {
       const a = advice[q.key];
-      if (!a || a.index === null || a.index === undefined) continue;
-      const c = q.candidates[a.index];
-      if (!c) continue;
+      if (!a) continue;
+      const c = a.index === null || a.index === undefined ? undefined : q.candidates[a.index];
       if (q.kind === "choice" || q.kind === "layer") {
-        gaps[q.key] = gapPickFor(q, c);
+        if (c) gaps[q.key] = gapPickFor(q, c);
+        else delete gaps[q.key];
       } else if (q.document === "frd") {
-        if (c.table !== undefined && c.row !== undefined)
+        if (c && c.table !== undefined && c.row !== undefined)
           frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
-      } else if (c.col !== undefined) {
+        else delete frd[q.key];
+      } else if (c && c.col !== undefined) {
         picks[q.key] = c.col;
+      } else {
+        delete picks[q.key];
       }
     }
     setLayoutPicks(picks);
     setFrdPicks(frd);
     setGapPicks(gaps);
   };
+  // "None of these": clear the pick for one question (a radio cannot be
+  // un-clicked); the question then stays unanswered — Continue re-asks it,
+  // Proceed unresolved reads it empty.
+  const clearPick = (q: LayoutQuestion) => {
+    if (q.kind === "choice" || q.kind === "layer") {
+      const next = { ...gapPicks };
+      delete next[q.key];
+      setGapPicks(next);
+    } else if (q.document === "frd") {
+      const next = { ...frdPicks };
+      delete next[q.key];
+      setFrdPicks(next);
+    } else {
+      const next = { ...layoutPicks };
+      delete next[q.key];
+      setLayoutPicks(next);
+    }
+  };
+  const hasPick = (q: LayoutQuestion) =>
+    q.kind === "choice" || q.kind === "layer"
+      ? gapPicks[q.key] !== undefined
+      : q.document === "frd"
+        ? frdPicks[q.key] !== undefined
+        : layoutPicks[q.key] !== undefined;
   const est = status?.estimates;
 
   return (
@@ -912,7 +946,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                               <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
                                 Why it is asked: {q.reason}.{" "}
                                 {q.suggested !== null && q.suggested !== undefined
-                                  ? "The most likely match is pre-selected — confirm or pick another."
+                                  ? q.suggested_reason
+                                    ? `Pre-selected because it is ${q.suggested_reason} — confirm, pick another, or choose none.`
+                                    : "The most likely match is pre-selected — confirm, pick another, or choose none."
                                   : q.kind === "choice"
                                     ? "No document value uniquely names this — pick the one the source team confirms; proceeding without it leaves the feed with no file and the run stops at extraction."
                                     : "No candidate matches the usual labels — pick the one that states it, or proceed without."}
@@ -1019,6 +1055,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                     </label>
                                   ),
                                 )}
+                                <label key={`${q.key}-none`} style={{ fontSize: 12 }}>
+                                  <input type="radio" name={q.key} checked={!hasPick(q)} onChange={() => clearPick(q)} />{" "}
+                                  <em>None of these</em>
+                                  <span className="hint"> (leave unanswered)</span>
+                                  {status.layout_advice?.advice[q.key] &&
+                                  status.layout_advice.advice[q.key].index === null ? (
+                                    <span className="hint"> (model's pick)</span>
+                                  ) : null}
+                                </label>
                               </div>
                             </div>
                           ))}
@@ -1049,10 +1094,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       <button
                         className="btn"
                         disabled={!status.layout_advice}
-                        title="Pre-select the candidates the model advised (you still confirm with Continue)"
-                        onClick={useModelPicks}
+                        title="Re-apply the model's advice as the pre-selection (an advised 'none' clears the pick; you still confirm with Continue)"
+                        onClick={() => applyAdvice(status)}
                       >
-                        Use the model's picks
+                        Re-apply the model's picks
                       </button>
                     </div>
                     {advising === "confirm" ? (

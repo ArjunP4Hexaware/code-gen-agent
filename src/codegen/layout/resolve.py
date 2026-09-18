@@ -86,6 +86,10 @@ class LayoutQuestion:
     title: str = ""
     hint: str = ""
     suggested: int | None = None
+    # WHY that candidate is pre-selected (a deterministic rule, named) — shown
+    # next to the pre-selection and given to the model so its advice can
+    # confirm or reject it on the same basis.
+    suggested_reason: str = ""
     # role: place a column / an FRD table cell (candidates {col,header} or
     # {table,row,col,label}); choice: pick between documents' values
     # (candidates {value, source, cell}); layer: apply a single stated load
@@ -103,7 +107,7 @@ class LayoutQuestion:
                 "layer": self.layer, "role": self.role, "reason": self.reason,
                 "header": self.header, "candidates": self.candidates,
                 "title": self.title, "hint": self.hint, "suggested": self.suggested,
-                "kind": self.kind}
+                "suggested_reason": self.suggested_reason, "kind": self.kind}
 
 
 @dataclass(frozen=True)
@@ -1163,7 +1167,9 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                     candidates=[{"value": n, "source": "STTM FILE_DETAILS / FRD", "cell": c}
                                 for n, c in candidates],
                     title=f"File for table {table}", hint=hint, kind="choice",
-                    suggested=names.index(suggest) if suggest else None))
+                    suggested=names.index(suggest) if suggest else None,
+                    suggested_reason=("the only file not already paired with another table "
+                                      "(a leftover, not a name match)") if suggest else ""))
         standard_tables = [entry["standard_table"]] if entry["standard_table"] else list(
             feed.standard_target.tables if not file_like else [])
         stage_update: dict = {"tables": [table]}

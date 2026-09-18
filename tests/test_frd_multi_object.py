@@ -139,6 +139,13 @@ def test_multi_sheet_split_pairs_files_uniquely_or_asks(tmp_path):
     (question,) = questions
     assert question.key == "feeds[1].file_name_patterns" and question.kind == "choice"
     assert len(question.candidates) == 3
+    assert question.suggested is None and question.suggested_reason == ""   # two files left
+    assert "suggested_reason" in question.as_dict()
+    # one table + one file left over -> pre-selected WITH its reason named
+    two_files = {**facts, "files": facts["files"][:2]}
+    _s, _f, (q2,) = split_frd_feeds_by_sttm(contract, two_files, {}, config)
+    assert q2.candidates[q2.suggested]["value"] == "analytics_package_YYYY_MM.csv"
+    assert "leftover, not a name match" in q2.suggested_reason
     split2, flags2, questions2 = split_frd_feeds_by_sttm(
         contract, facts, {"feeds[1].file_name_patterns": {
             "value": "analytics_package_YYYY_MM.csv", "layer": None, "source": "STTM"}}, config)

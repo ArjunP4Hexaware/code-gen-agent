@@ -89,7 +89,10 @@ recognizer could not resolve. For EACH question you are given its title, what th
 (hint), why it is unresolved, the header strip of the sheet (STTM / VDD) and the CANDIDATE \
 labels or headers still available in the document. You see no data rows. A question of kind \
 "choice" asks which of several DOCUMENT VALUES (each with its source cell) applies — e.g. which \
-listed file feeds a table; kind "layer" asks which target layer a single stated value applies to.
+listed file feeds a table; kind "layer" asks which target layer a single stated value applies to. \
+When a question carries `suggested` (a candidate index) with `suggested_reason`, a deterministic \
+rule pre-selected that candidate for the stated reason: confirm it (return its index) or reject \
+it (return null) — your answer REPLACES the pre-selection, so say why when you reject it.
 
 Respond with ONLY a JSON object: {"advice": [{"key": <question key>, "candidate_index": \
 <0-based index into that question's candidates, or null when NO candidate states the field>, \
@@ -99,7 +102,7 @@ not state it (the engineer will proceed without, gate-flagged). Never invent a v
 
 # Keys a question exposes to the advice call — labels / headers only.
 _ADVICE_QUESTION_KEYS = ("key", "document", "kind", "title", "hint", "reason", "header",
-                         "candidates", "suggested")
+                         "candidates", "suggested", "suggested_reason")
 
 
 def build_advice_request(questions: list[dict]) -> dict:

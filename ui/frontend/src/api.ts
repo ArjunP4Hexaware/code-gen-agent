@@ -113,6 +113,7 @@ export interface LayoutQuestion {
   title?: string;
   hint?: string;
   suggested?: number | null;
+  suggested_reason?: string;
 }
 
 export interface DemoStatus {

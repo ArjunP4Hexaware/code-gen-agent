@@ -30,7 +30,8 @@ def test_advice_request_carries_only_question_texts_and_labels():
     request = build_advice_request([{**QUESTIONS[0], "secret": "data row"}])
     assert request["kind"] == "layout_advice"
     assert set(request["questions"][0]) == {"key", "document", "kind", "title", "hint", "reason",
-                                            "header", "candidates", "suggested"}
+                                            "header", "candidates", "suggested",
+                                            "suggested_reason"}
     assert "secret" not in str(request)
 
 

@@ -187,6 +187,40 @@ def test_empty_file_patterns_name_the_dialog_question_as_the_remedy():
     assert "'File for table sd_community_risk'" in str(info.value)
 
 
+def test_runner_sets_aside_only_the_feed_whose_file_question_went_unanswered(tmp_path):
+    """Proceed unresolved on 'File for table X': the runner sets X aside
+    (failed feed + remedy) and extracts the others; an answered feed or one
+    with a file is never set aside."""
+    from ui.backend.demo import feeds_left_without_a_file
+
+    from codegen.extract.frd_docx import read_frd
+    from codegen.layout.resolve import split_frd_feeds_by_sttm
+
+    config = load_config_for_tests()
+    path = tmp_path / "frd.docx"
+    path.write_bytes(_multi_object_docx(
+        "demographics_package_YYYY_MM.csv\nanalytics_package_YYYY_MM.csv"))
+    content = read_docx(path)
+    contract = read_frd(content, discover_frd(content, config.extractor.frd), config,
+                        document_name="frd.docx", generated_date="2026-01-01")
+    facts = {"meta": {},
+             "files": [("demographics_package_YYYY_MM.csv", "FILE_DETAILS!B2"),
+                       ("analytics_package_YYYY_MM.csv", "FILE_DETAILS!B3"),
+                       ("other_YYYYMMDD.psv", "FILE_DETAILS!B4")],
+             "sheet_tables": [
+                 {"sheet": "S1", "stage_table": "sd_community_demographic_risk",
+                  "standard_table": None, "stage_schema": "stg_vnd_p_accum"},
+                 {"sheet": "S2", "stage_table": "sd_community_risk",
+                  "standard_table": None, "stage_schema": "stg_vnd_p_accum"}]}
+    split, _flags, questions = split_frd_feeds_by_sttm(contract, facts, {}, config)
+    aside = feeds_left_without_a_file(questions, split)
+    assert [(i, f.feed_name) for i, f in aside] == [(1, "sd_community_risk")]
+    assert feeds_left_without_a_file([], split) == []
+    # the dict form the runner stores in status works too
+    as_dicts = [q.as_dict() for q in questions]
+    assert [i for i, _f in feeds_left_without_a_file(as_dicts, split)] == [1]
+
+
 def test_extension_implies_the_delimiter_when_the_format_is_prose():
     assert _extension_delimiter("demographics_package_YYYY_MM.csv") == ","
     assert _extension_delimiter("sd_ind_risk_YYYYMMDD_HHMM.psv") == "|"

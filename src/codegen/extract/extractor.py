@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+from collections.abc import Collection
 from pathlib import Path
 
 from codegen.config import Config
@@ -75,7 +76,13 @@ def extract_contract(
     generated_date: str | None = None,
     layout: LayoutProfile | None = None,
     require_complete: bool = False,
+    skip_stage_tables: Collection[str] = (),
 ) -> SttmContract:
+    """``skip_stage_tables``: mapping sheets (by stage table) to leave out of
+    the contract — the runner passes the tables of FRD feeds it has already
+    set aside as failed (a feed the person left without a file), so the
+    remaining feeds still extract. Classic MAPPING- path only; the default
+    (nothing skipped) is byte-identical to before."""
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
     # M1: one discovery pass -> a layout profile; every strategy's reader
     # then copies cell values through it. Strategy order keeps the two
@@ -136,15 +143,18 @@ def extract_contract(
             generated_date=generated_date,
         )
 
+    skipped = {t for t in skip_stage_tables}
+    sheets = [s for s in ir.sheets if s.stage_table not in skipped]
     feeds = [
-        _build_feed(sheet, _match_frd_feed(sheet, frd), ir, config) for sheet in ir.sheets
+        _build_feed(sheet, _match_frd_feed(sheet, frd), ir, config) for sheet in sheets
     ]
 
-    sheet_tables = {s.stage_table for s in ir.sheets}
+    sheet_tables = {s.stage_table for s in sheets}
     unmatched_frd = [
         f.feed_name
         for f in frd.feeds
         if not sheet_tables & set(f.stage_target.tables)
+        and not set(f.stage_target.tables) <= skipped
     ]
     if unmatched_frd:
         raise ExtractionError(
@@ -372,6 +382,7 @@ def extract_to_file(
     generated_date: str | None = None,
     layout: LayoutProfile | None = None,
     require_complete: bool = False,
+    skip_stage_tables: Collection[str] = (),
 ) -> SttmContract:
     contract = extract_contract(
         workbook_path,
@@ -381,6 +392,7 @@ def extract_to_file(
         generated_date=generated_date,
         layout=layout,
         require_complete=require_complete,
+        skip_stage_tables=skip_stage_tables,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")

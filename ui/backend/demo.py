@@ -12,6 +12,7 @@ the default out/ tree and never the tracked replay fixtures.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from datetime import datetime
@@ -59,6 +60,24 @@ def mode_for_parts(parts: list[str]) -> str | None:
     return "framework" if "framework" in chosen else "notebook"
 
 
+def feeds_left_without_a_file(questions, contract) -> list[tuple[int, object]]:
+    """FRD feeds whose 'which file feeds this table' question the person
+    left unanswered (Proceed unresolved): ``[(index, feed)]``. The runner
+    sets them aside as failed feeds — with the remedy — so the rest of the
+    run proceeds; it never picks a file for them."""
+    out: list[tuple[int, object]] = []
+    for q in questions:
+        key = q.key if hasattr(q, "key") else q.get("key", "")
+        kind = q.kind if hasattr(q, "kind") else q.get("kind")
+        match = re.fullmatch(r"feeds\[(\d+)\]\.file_name_patterns", key or "")
+        if kind != "choice" or not match or contract is None:
+            continue
+        index = int(match.group(1))
+        if index < len(contract.feeds) and not contract.feeds[index].file_name_patterns:
+            out.append((index, contract.feeds[index]))
+    return out
+
+
 class DemoRunner:
     """One live run at a time; stage list is append-only per run."""
 
@@ -86,6 +105,8 @@ class DemoRunner:
         # Label of the most recent COMPLETED run, so the UI can restore its
         # results (via the past-live-run loader) from any later state.
         self.last_run_label: str | None = None
+        # Feeds the last run set aside (no file, question unanswered): [{label, error}]
+        self.set_aside: list[dict] = []
         # The operator's chosen STTM workbook. None = the config default.
         # In-memory only: a restart returns to config.demo.workbook.
         self.selected_workbook: Path | None = None
@@ -378,6 +399,7 @@ class DemoRunner:
             "stages": list(self.stages),
             "error": self.error,
             "last_run_label": self.last_run_label,
+            "set_aside": list(self.set_aside),
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,
@@ -549,7 +571,29 @@ class DemoRunner:
                                           vdd_path=self.selected_vdd)
         from codegen.extract.frd_docx import contract_to_json
 
-        if frd_is_docx or resolution.gap_fills:
+        # A feed the person left without a file (Proceed unresolved on its
+        # 'File for table …' question) cannot be extracted: set it aside as
+        # a failed feed WITH the remedy and carry on with the others.
+        set_aside = feeds_left_without_a_file(resolution.questions, resolution.frd_contract)
+        pre_failures: list[FailedRun] = []
+        skip_tables: set[str] = set()
+        if set_aside:
+            kept = [f for i, f in enumerate(resolution.frd_contract.feeds)
+                    if i not in {i for i, _f in set_aside}]
+            for _i, feed in set_aside:
+                skip_tables.update(feed.stage_target.tables)
+                pre_failures.append(FailedRun(
+                    label=feed.feed_name,
+                    error=(f"skipped: no document names the file that feeds stage table(s) "
+                           f"{feed.stage_target.tables} and the question 'File for table "
+                           f"{feed.feed_name}' was left unanswered. Re-run and answer it, or "
+                           "add the file name to the FRD — the agent never guesses a file."),
+                ))
+            resolution.frd_contract = resolution.frd_contract.model_copy(update={"feeds": kept})
+            self._stage("feeds set aside",
+                        f"{len(set_aside)} feed(s) without a file: "
+                        + ", ".join(f.feed_name for _i, f in set_aside))
+        if frd_is_docx or resolution.gap_fills or set_aside:
             self._stage("extracting FRD" if frd_is_docx else "filling FRD gaps",
                         f"{frd_path.name} → FRD feed contract"
                         + (f" ({len(resolution.gap_fills)} field(s) from other documents)"
@@ -587,7 +631,8 @@ class DemoRunner:
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
         try:
             extract_to_file(workbook_path, frd_path, contract_path, config,
-                            layout=resolution.sttm.profile)
+                            layout=resolution.sttm.profile,
+                            skip_stage_tables=sorted(skip_tables))
         except Exception as exc:
             self._attach_pairing_hint(exc, workbook_path, frd_label)
             raise
@@ -596,7 +641,7 @@ class DemoRunner:
         specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)
 
         runs: dict[str, FeedRun] = {}
-        failures: list[FailedRun] = []
+        failures: list[FailedRun] = list(pre_failures)
         for spec in specs:
             slug = spec.feed_slug
             try:
@@ -619,6 +664,7 @@ class DemoRunner:
             details = "; ".join(f"{f.label}: {f.error}" for f in failures) or "no feeds resolved"
             raise RuntimeError(f"live run produced no feeds — {details}")
 
+        self.set_aside = [f.model_dump() for f in pre_failures]
         self._stage("publishing results", f"{len(runs)} feed(s), {len(failures)} failure(s)")
         self._store.adopt(
             runs,

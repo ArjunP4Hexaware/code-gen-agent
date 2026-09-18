@@ -884,7 +884,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   {status.state === "running" && "Running — stages appear as they start:"}
                   {status.state === "needs_layout" &&
                     "Paused — the layout needs a human decision before any value is read:"}
-                  {status.state === "done" && "Last live run completed."}
+                  {status.state === "done" &&
+                    (status.set_aside?.length
+                      ? `Last live run completed with ${status.set_aside.length} feed(s) set aside.`
+                      : "Last live run completed.")}
+                  {status.state === "done" && status.set_aside?.length ? (
+                    <ul className="hint" style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
+                      {status.set_aside.map((f) => (
+                        <li key={f.label}>
+                          <code>{f.label}</code>: {f.error}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {status.state === "failed" && "Last live run FAILED — nothing was published."}
                 </div>
                 {status.state === "failed" && status.error ? (

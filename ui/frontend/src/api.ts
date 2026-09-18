@@ -121,6 +121,8 @@ export interface DemoStatus {
   stages: DemoStage[];
   error: string | null;
   last_run_label: string | null;
+  // feeds the last run set aside (no file for the table, question left unanswered)
+  set_aside?: { label: string; error: string }[];
   // M2.5: the questions a paused run (state "needs_layout") waits on, and
   // the layout report (sources per role, rejections, cross-checks).
   layout_questions?: LayoutQuestion[];

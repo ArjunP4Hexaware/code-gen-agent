@@ -64,6 +64,21 @@ def cv_contract(config):
     return extract_contract(WORKBOOK, FRD, config, generated_date=GENERATED_DATE)
 
 
+def test_skip_stage_tables_leaves_that_sheet_out_without_an_unmatched_error(config, cv_contract):
+    """The runner sets a feed aside (no file, question unanswered) and asks
+    the extractor to skip its sheet: the other feeds extract unchanged and
+    the FRD feed for the skipped sheet is not reported as unmatched."""
+    skipped = cv_contract.feeds[1].stage.table
+    partial = extract_contract(WORKBOOK, FRD, config, generated_date=GENERATED_DATE,
+                               skip_stage_tables=[skipped])
+    assert [f.feed_id for f in partial.feeds] == [
+        f.feed_id for f in cv_contract.feeds if f.stage.table != skipped]
+    kept = {f.feed_id: f for f in partial.feeds}
+    for feed in cv_contract.feeds:
+        if feed.stage.table != skipped:
+            assert kept[feed.feed_id] == feed
+
+
 # ------------------------------------------------------------ FRD side
 
 

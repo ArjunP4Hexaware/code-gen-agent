@@ -267,6 +267,20 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
+## Metadata DB semantics (M7, 2026-09-18)
+
+`docs/acfc/METADATA_DB_SEMANTICS.md` transcribes the framework
+maintainer's walkthrough of the SQL Server metadata config tables (six
+tables covered: pipeline schedule, file connection, RDBMS connection,
+file→ADLS, RDBMS→ADLS, ADLS→Delta; the rest marked "not yet described").
+It is THE spec for the DML emitter (`emit/dml.py`): audit columns =
+`@RFC_NUMBER` + `GETDATE()`, active rows are `'S'`, pipeline / group IDs
+are engineer-assigned and preflight-checked unused, connection IDs are
+identity values reused by host / root path, and its §10 lists where the
+walkthrough contradicts the IIG goldens (the goldens win in the review
+workbooks; the DML follows the walkthrough where the M7 brief says so).
+The raw transcript stays untracked (`*.docx`).
+
 ## Layout recognition (added 2026-09-18, M2.5)
 
 A model decides WHERE things are, code copies the values: every extractor

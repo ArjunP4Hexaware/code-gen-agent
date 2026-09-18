@@ -215,6 +215,55 @@ class SegmentedExtractorConfig(BaseModel):
     member_reference_table: str = "facets_member"
 
 
+class DiscoveryConfig(BaseModel):
+    """Content-driven layout discovery vocabulary (M1) — the synonym tables
+    behind ``codegen.layout.discover``. EVERYTHING here is data: band-label
+    tokens per layer, header→role synonyms per band group, meta-row label
+    synonyms, segment spellings, auxiliary-sheet header signatures, yes/no
+    spellings. The model defaults are EMPTY on purpose: a config without the
+    tables resolves nothing and discovery says so loudly, rather than
+    carrying a second copy of the vocabulary in code."""
+
+    model_config = _MODEL_CONFIG
+
+    # How many leading rows are scanned for band / header / meta rows.
+    scan_rows: int = Field(default=40, gt=0)
+    # layer -> band-label tokens (normalized substring match).
+    band_tokens: dict[str, list[str]] = Field(default_factory=dict)
+    # band group ("source" | "rules" | "target" | "trailing") -> role -> header
+    # spellings. "target" serves both the stage and the standard band.
+    roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    # meta key -> label spellings (label:value rows above the band row).
+    meta_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # canonical segment (Header/Detail/Trailer) -> spellings seen in Segment
+    # columns, sheet names and in-sheet banner rows.
+    segment_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # sheet kind -> alternatives, each a list of header tokens that must ALL
+    # appear (normalized substring) on one of the first rows.
+    auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)
+    yes_values: list[str] = Field(default_factory=list)
+    no_values: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_vocabulary(self) -> DiscoveryConfig:
+        from codegen.layout.profile import Role
+
+        known_roles = {r.value for r in Role}
+        problems = []
+        for group, table in self.roles.items():
+            if group not in {"source", "rules", "target", "trailing"}:
+                problems.append(f"unknown roles group {group!r}")
+            unknown = set(table) - known_roles
+            if unknown:
+                problems.append(f"roles.{group}: unknown role(s) {sorted(unknown)}")
+        for layer in self.band_tokens:
+            if layer not in {"source", "rules", "stage", "standard"}:
+                problems.append(f"band_tokens: unknown layer {layer!r}")
+        if problems:
+            raise ValueError("extractor.discovery config: " + "; ".join(problems))
+        return self
+
+
 class ExtractorConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -232,6 +281,9 @@ class ExtractorConfig(BaseModel):
     # Segmented (CAQH-style) family knobs — all defaulted, so a config
     # without the section still loads.
     segmented: SegmentedExtractorConfig = SegmentedExtractorConfig()
+    # Content-driven discovery vocabulary (M1); empty tables = nothing
+    # resolves beyond the two legacy strategies, loudly.
+    discovery: DiscoveryConfig = DiscoveryConfig()
 
     @model_validator(mode="after")
     def _check_header_synonym_keys(self) -> ExtractorConfig:

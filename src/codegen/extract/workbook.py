@@ -13,6 +13,13 @@ into audit columns, never returned as mapping rows. Flat dialect only: a
 sheet mapping to more than one stage table (or naming a segment column) is
 the segmented Header/Detail/Trailer dialect, which is out of scope — it
 raises :class:`SegmentedWorkbookError` (decision D4).
+
+M1 (2026-09-18): this path is the FIRST discovery strategy
+(``codegen.layout.discover``: ``mapping_prefix``). Header resolution below
+produces a :class:`~codegen.layout.profile.LayoutProfile`, and
+:func:`_parse_mapping_sheet` reads the cells through that profile — the
+same column indexes as before, so the output is byte-identical; every
+mapping row now also records the cell it came from.
 """
 
 from __future__ import annotations
@@ -20,11 +27,36 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from codegen.config import ExtractorConfig
+from codegen.layout.profile import Role
+
+if TYPE_CHECKING:
+    from codegen.layout.discover import Discovery
+    from codegen.layout.profile import LayoutProfile, SheetProfile
+
+# Legacy logical column names (the keys the parsing code below indexes by)
+# <-> layout-profile roles. The mapping_prefix discovery strategy emits the
+# profile with these roles; _parse_mapping_sheet reads back through them.
+LEGACY_SOURCE_ROLES = {
+    "source_column": Role.FIELD_NAME,
+    "description": Role.DESCRIPTION,
+    "sample_value": Role.SAMPLE_VALUE,
+    "source_datatype": Role.SOURCE_TYPE,
+    "null_check": Role.NULL_CHECK,
+    "phi": Role.PII,
+    "mandatory": Role.MANDATORY,
+    "value_spec": Role.COMMENTS,
+}
+LEGACY_TABLE_ROLES = {
+    "schema": Role.SCHEMA,
+    "tablename": Role.TABLE,
+    "columnname": Role.COLUMN,
+    "datatype": Role.TARGET_TYPE,
+}
 
 # Audit rows carry lowercase workbook datatypes; the contract's AuditColumn
 # is a Literal["String", "Timestamp"], so normalize casing here.
@@ -44,6 +76,12 @@ class WorkbookParseError(ValueError):
 
 class SegmentedWorkbookError(WorkbookParseError):
     """Segmented (Header/Detail/Trailer) dialect detected — v1 is flat-only."""
+
+
+class ContentLayoutDetected(WorkbookParseError):
+    """The workbook is neither MAPPING- nor segmented-family shaped; the
+    content-driven discovery strategy claimed it. ``parse_workbook`` (the
+    flat legacy API) cannot return it — use ``extract_contract``."""
 
 
 def _norm(value: object) -> str:
@@ -78,6 +116,8 @@ class MappingRow:
     standard_datatype: str | None
     value_spec: str | None
     recycle_text: str | None
+    # M1 provenance: the source-column cell's 1-based column.
+    source_col: int = 0
 
 
 @dataclass(frozen=True)
@@ -119,25 +159,50 @@ class WorkbookIR:
     version: str
     file_details: tuple[FileDetailsRow, ...]
     sheets: tuple[SheetIR, ...]
+    # M1: the layout profile the sheets were read through.
+    profile: LayoutProfile | None = None
 
 
 def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
-    workbook = load_workbook(path, data_only=True)
-    sheet_names = workbook.sheetnames
+    """The flat (MAPPING-) IR. Discovery runs every strategy; a workbook the
+    flat path cannot represent raises a diagnostic naming the path that can:
+    :class:`SegmentedWorkbookError` for the segmented family signature,
+    :class:`ContentLayoutDetected` otherwise (both via ``extract_contract``)."""
+    from codegen.layout.discover import SEGMENTED_FAMILY_NOTE, NoLayoutError, discover
 
-    mapping_sheets = [n for n in sheet_names if n.startswith(config.mapping_sheet_prefix)]
-    if not mapping_sheets:
-        _reject_segmented_family(workbook, config, path.name)
-        raise WorkbookParseError(
-            f"{path.name}: no mapping sheets found (prefix {config.mapping_sheet_prefix!r}); "
-            f"sheets present: {sheet_names}"
+    try:
+        found = discover(path, config)
+    except NoLayoutError as exc:
+        raise WorkbookParseError(str(exc)) from exc
+    profile = found.profile
+    if profile.strategy == "mapping_prefix":
+        return workbook_ir(found, path.name, config)
+    family = [d for d in found.diagnostics if SEGMENTED_FAMILY_NOTE in d]
+    if profile.strategy == "segmented_family" or family:
+        routed = ("" if profile.strategy == "segmented_family"
+                  else " — the segmented extractor could not resolve it, so content-driven "
+                       "discovery took it (extract_contract routes there)")
+        raise SegmentedWorkbookError(
+            f"{path.name}: {family[0] if family else profile.notes[0]}. This layout family "
+            "is recognized but unsupported by the flat parser (flat dialect only)" + routed
         )
+    raise ContentLayoutDetected(
+        f"{path.name}: no MAPPING- sheets; content-driven discovery found mapping sheet(s) "
+        f"{[s.name for s in profile.mapping_sheets]} — use extract_contract"
+    )
 
+
+def workbook_ir(found: Discovery, name: str, config: ExtractorConfig) -> WorkbookIR:
+    """The flat IR read through a ``mapping_prefix`` profile."""
+    workbook = found.workbook
+    profile = found.profile
     return WorkbookIR(
-        workbook_name=path.name,
-        version=_parse_version_history(workbook, config, path.name),
-        file_details=_parse_file_details(workbook, config, path.name),
-        sheets=tuple(_parse_mapping_sheet(workbook[n], config) for n in mapping_sheets),
+        workbook_name=name,
+        version=_parse_version_history(workbook, config, name),
+        file_details=_parse_file_details(workbook, config, name),
+        sheets=tuple(_parse_mapping_sheet(workbook[s.name], config, s)
+                     for s in profile.mapping_sheets),
+        profile=profile,
     )
 
 
@@ -447,16 +512,30 @@ def _required_text(ws: Worksheet, row_number: int, value: object, column_name: s
     return text
 
 
-def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig) -> SheetIR:
-    bands = _find_bands(ws, config)
-    headers = list(next(ws.iter_rows(min_row=2, max_row=2, values_only=True)))
-    recycle_col = _find_recycle_column(ws, headers, config)
-    source_cols = _resolve_source_headers(ws, headers, bands.source, config, recycle_col)
-    stage_cols = _resolve_table_headers(ws, headers, bands.stage, "stage", config, recycle_col)
+def _legacy_columns(band, roles: dict[str, Role]) -> dict[str, int]:
+    """Profile roles (1-based) -> the legacy 0-based logical-name dict."""
+    return {legacy: band.roles[role.value] - 1 for legacy, role in roles.items()
+            if role.value in band.roles}
+
+
+def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
+                         sheet_profile: SheetProfile) -> SheetIR:
+    # Column positions come from the layout profile (built by the
+    # mapping_prefix strategy with the legacy resolution functions above);
+    # the cell values are read here, verbatim, exactly as before.
+    source_band = sheet_profile.band("source")
+    stage_band = sheet_profile.band("stage")
+    standard_band = sheet_profile.band("standard")
+    assert source_band is not None and stage_band is not None
+    source_cols = _legacy_columns(source_band, LEGACY_SOURCE_ROLES)
+    stage_cols = _legacy_columns(stage_band, LEGACY_TABLE_ROLES)
     standard_cols = (
-        _resolve_table_headers(ws, headers, bands.standard, "standard", config, recycle_col)
-        if bands.standard is not None
-        else None
+        _legacy_columns(standard_band, LEGACY_TABLE_ROLES) if standard_band is not None else None
+    )
+    recycle_col = next(
+        (band.roles[Role.RECYCLE_FLAG.value] - 1 for band in sheet_profile.bands
+         if Role.RECYCLE_FLAG.value in band.roles),
+        None,
     )
 
     audit_markers = tuple(_norm(m) for m in config.audit_source_markers)
@@ -528,6 +607,7 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig) -> SheetIR:
                     _text(row[source_cols["value_spec"]]) if "value_spec" in source_cols else None
                 ),
                 recycle_text=_text(row[recycle_col]) if recycle_col is not None else None,
+                source_col=source_cols["source_column"] + 1,
             )
         )
 

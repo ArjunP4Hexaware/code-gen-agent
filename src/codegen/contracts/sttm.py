@@ -130,6 +130,46 @@ class SegmentedExtraction(BaseModel):
     segment_audit: dict[str, list[AuditColumn]] = Field(default_factory=dict)
 
 
+class FieldProvenance(BaseModel):
+    """The cell a field was read from (M1): sheet, 1-based row and column of
+    the field-name cell, plus who resolved the layout role that read it
+    (the layout profile's source). Part of the contract, not a side channel;
+    defaults to None so pre-M1 contract JSON still loads."""
+
+    model_config = _MODEL_CONFIG
+
+    sheet: str
+    row: int = Field(ge=1)
+    col: int = Field(ge=1)
+    source: Literal["synonyms", "model", "user", "cache"]
+
+
+class AuxiliarySheet(BaseModel):
+    """A non-mapping sheet recognised by header signature (file details,
+    table details, LOB crosswalk, DQ rules, family-C layout) — attached
+    verbatim (headers + rows), never interpreted here."""
+
+    model_config = _MODEL_CONFIG
+
+    kind: str
+    sheet: str
+    headers: list[str]
+    rows: list[list[str | None]]
+
+
+class LayoutSummary(BaseModel):
+    """Which discovery strategy/source produced the layout profile the
+    values were read through, its fingerprint, and what stayed unresolved
+    ("sheet/layer/role: reason") — empty on fully resolved layouts."""
+
+    model_config = _MODEL_CONFIG
+
+    strategy: str
+    source: Literal["synonyms", "model", "user", "cache"]
+    fingerprint: str
+    unresolved: list[str] = Field(default_factory=list)
+
+
 class SttmField(BaseModel):
     """One source→stage→standard column mapping row."""
 
@@ -153,6 +193,8 @@ class SttmField(BaseModel):
     # Segmented dialect: per-segment STANDARD table (the STTM's second target
     # column group). None on flat feeds and on stage-only segmented feeds.
     standard_table: str | None = None
+    # M1: the cell this field came from + the layout source that read it.
+    provenance: FieldProvenance | None = None
 
 
 class SttmFeed(BaseModel):
@@ -174,6 +216,9 @@ class SttmFeed(BaseModel):
     # None on every flat feed, so existing contracts and the byte-compared
     # extractor output are untouched.
     segmented: SegmentedExtraction | None = None
+    # M1: the mapping sheet's meta rows (resolved key -> verbatim value);
+    # empty on the legacy MAPPING- path (its facts live in FILE_DETAILS).
+    meta_rows: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:
@@ -244,6 +289,10 @@ class SttmContract(BaseModel):
     # True only on the clearly-labeled synthetic CAQH stand-in contract;
     # the real generator never emits this key, so it defaults False.
     synthetic: bool = False
+    # M1: auxiliary sheets attached verbatim + the layout the values were
+    # read through. Both default so pre-M1 contract JSON still loads.
+    auxiliary_sheets: list[AuxiliarySheet] = Field(default_factory=list)
+    layout: LayoutSummary | None = None
 
     @model_validator(mode="after")
     def _check_unique_feed_ids(self) -> SttmContract:

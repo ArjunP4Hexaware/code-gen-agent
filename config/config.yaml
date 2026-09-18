@@ -120,6 +120,108 @@ extractor:
   recycle_on_match: "Process record into stage table"
   recycle_on_no_match: "Load record to Recycle Table with recycle flag enabled for {window_days} days; retry on subsequent runs"
 
+  # ---- content-driven layout discovery (M1, 2026-09-18) ----------------
+  # Vocabulary for codegen.layout.discover: the third discovery strategy,
+  # after the MAPPING- prefix path and the segmented (CAQH-shaped) family.
+  # Matching is on NORMALIZED text (lowercased; every non-alphanumeric run,
+  # including _ / - ( ) ? : # . becomes one space; runs collapsed), so
+  # "Target_Column_Name_in_DL" reads "target column name in dl" and
+  # "PII (Y/N)" reads "pii y n". Spellings below are the documented headers
+  # of SHAPES_FOR_PORT §1 families B and D plus the plain forms every family
+  # shares; family A/C/E header oddities that stay unresolved under these
+  # tables are M2.5's job (model/user resolution) and are deliberately NOT
+  # widened here.
+  discovery:
+    scan_rows: 40
+    band_tokens:
+      source: ["source"]
+      rules: ["data rules", "destination", "rules"]
+      stage: ["stage", "staging"]
+      standard: ["standard", "std"]
+    roles:
+      source:
+        ordinal: ["s no", "sl no", "sr no", "field id", "column no", "position", "field no"]
+        field_name: ["field name", "database column name", "database name", "client data table column name", "column name", "columnname"]
+        source_type: ["type", "datatype", "data type"]
+        length: ["length", "len"]
+        field_length: ["field length", "field length fixed width"]
+        start: ["start", "start position", "start position fixed width"]
+        end: ["end", "end position", "end position fixed width"]
+        segment: ["segment", "record segment", "segment ex header trailer detail"]
+        required: ["required", "mandatory field", "mandatory"]
+        nullable: ["nullable", "null not null"]
+        null_check: ["null check"]
+        pii: ["pii", "phi field", "phi pii field", "pii phi"]
+        key: ["key y n", "key", "primary key"]
+        load_rule: ["load rules", "load rule"]
+        description: ["description", "column description"]
+        comments: ["comments", "comment"]
+        sample_value: ["sample value", "example values"]
+        example_value: ["example value"]
+        business_rule: ["business rule"]
+        source_database: ["database", "table catalog"]
+        source_schema: ["schema", "table schema"]
+        source_table: ["tablename", "table name"]
+        server: ["server name"]
+        inscope: ["inscope for implementation"]
+        lob: ["lob"]
+      rules:
+        data_definition: ["data definition"]
+        pii: ["pii", "phi field"]
+        primary_key: ["primary key"]
+        critical: ["critical data", "critical data elements"]
+        not_null: ["not null"]
+        required: ["required", "required situational optional"]
+        load_rule: ["load rules", "load rule"]
+        dq_rules: ["dq rules"]
+      target:
+        workspace: ["workspace"]
+        catalog: ["catalog", "target catalog"]
+        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "stage schema", "standard schema", "schemaname"]
+        table: ["tablename", "table name", "target table", "target table name in lakehouse", "stage table name", "standard table name"]
+        column: ["columnname", "column name", "target column", "target column name in lakehouse", "stage column name", "standard column name"]
+        target_type: ["datatype", "data type", "target data type in lakehouse", "stage datatype", "standard data type"]
+        mandatory_column: ["mandatory column", "mandatory"]
+        primary_key: ["primary key"]
+        constraints: ["constraints"]
+        field_description: ["field description"]
+        table_description: ["table description"]
+        transformation: ["transformations data quality", "transformation", "transformations"]
+      trailing:
+        recycle_flag: ["recycle flag"]
+        dq_mandatory: ["mandatory fields include in dq check"]
+        comments: ["comments", "comment"]
+    meta_synonyms:
+      file_names: ["file names", "file name", "file s", "files", "file name s"]
+      file_name_example: ["file name example"]
+      frequency: ["frequency", "file frequency"]
+      file_format: ["file format text csv", "file format", "file type"]
+      delimiter: ["file delimiter", "delimiter"]
+      last_update_date: ["last update date"]
+      version: ["version"]
+      lob: ["lob"]
+      target_table_desc: ["target table name desc", "target table description"]
+      feed_type: ["feed type"]
+      load_strategy: ["load strategy"]
+      notes: ["notes", "note"]
+      file_generator: ["file generator"]
+      file_location: ["file location"]
+      domain: ["domain"]
+      sub_domain: ["sub domain", "subdomain"]
+    segment_synonyms:
+      Header: ["header", "hdr", "hddr", "hr", "header record", "h"]
+      Detail: ["detail", "dtl", "det", "dr", "detail record", "d", "data"]
+      Trailer: ["trailer", "trl", "trlr", "tr", "trailer record", "t"]
+    auxiliary_sheets:
+      file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]
+      table_details: [["table name", "table description"], ["name", "table description", "load strategy"]]
+      dq_rules: [["dq rules"]]
+      layout: [["field name", "type", "length", "start", "end"]]
+      version: [["version", "date"]]
+      lob_crosswalk: [["lob"]]
+    yes_values: ["yes", "y", "true", "x", "required", "mandatory", "m", "not null", "1"]
+    no_values: ["no", "n", "false", "optional", "situational", "s", "null", "0", "nullable"]
+
 reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
   # cannot classify. Mock provider unless ANTHROPIC_API_KEY is set;

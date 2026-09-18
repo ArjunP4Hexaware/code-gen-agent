@@ -33,6 +33,8 @@ from codegen.config import Config
 from codegen.contracts.frd import FrdContract, FrdFeed
 from codegen.contracts.sttm import (
     AuditColumn,
+    FieldProvenance,
+    LayoutSummary,
     LoadRules,
     RecycleSpec,
     SourceFile,
@@ -48,8 +50,9 @@ from codegen.extract.workbook import (
     WorkbookIR,
     WorkbookParseError,
     parse_recycle_text,
-    parse_workbook,
+    workbook_ir,
 )
+from codegen.layout.discover import NoLayoutError, discover
 
 # normalize_feed_name is THE feed_id join invariant (resolver.py defines it);
 # _FORMAT_DELIMITERS is the resolver's own format->delimiter implication —
@@ -70,13 +73,39 @@ def extract_contract(
     generated_date: str | None = None,
 ) -> SttmContract:
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
+    # M1: one discovery pass -> a layout profile; every strategy's reader
+    # then copies cell values through it. Strategy order keeps the two
+    # legacy paths first, so their output is byte-identical to before.
     try:
-        ir = parse_workbook(workbook_path, config.extractor)
+        found = discover(workbook_path, config.extractor)
+    except NoLayoutError as exc:
+        raise WorkbookParseError(str(exc)) from exc
+    profile = found.profile
+    if profile.strategy == "segmented_family":
+        from codegen.extract.segmented import extract_segmented_contract
+
+        return extract_segmented_contract(
+            workbook_path, frd, config,
+            refusal_evidence=profile.notes[0] if profile.notes else profile.strategy,
+            contract_name=contract_name, generated_date=generated_date,
+            profile=profile, workbook=found.workbook,
+        )
+    if profile.strategy == "content":
+        from codegen.extract.generic import GenericExtractionError, extract_generic_contract
+
+        try:
+            return extract_generic_contract(
+                found, workbook_path, frd, config, contract_name=contract_name,
+                generated_date=generated_date or datetime.date.today().isoformat(),
+            )
+        except GenericExtractionError as exc:
+            raise ExtractionError(str(exc)) from exc
+    try:
+        ir = workbook_ir(found, workbook_path.name, config.extractor)
     except SegmentedWorkbookError as detected:
-        # v2 (2026-08-31): the segmented family routes to its own parser.
-        # The declaration gate inside it re-raises with this exact evidence
-        # plus the remedy line when no record_type_discriminators FAQ entry
-        # exists — same refusal as v1, now with the declare-to-proceed path.
+        # v2 (2026-08-31): a MAPPING- sheet whose rows land in several stage
+        # tables is the segmented dialect; the segmented extractor refuses
+        # it with this exact evidence plus the remedy line.
         from codegen.extract.segmented import extract_segmented_contract
 
         return extract_segmented_contract(
@@ -119,6 +148,10 @@ def extract_contract(
             "(no canonical rewriting; the resolver accepts the client phrasing).",
         ],
         feeds=feeds,
+        layout=LayoutSummary(
+            strategy=profile.strategy, source=profile.source, fingerprint=profile.fingerprint,
+            unresolved=[f"{u.sheet}/{u.layer}/{u.role}: {u.reason}" for u in profile.unresolved],
+        ),
     )
 
 
@@ -234,6 +267,9 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             standard_column=row.standard_column,
             standard_datatype=row.standard_datatype,
             value_spec=row.value_spec,
+            provenance=FieldProvenance(
+                sheet=sheet.sheet_name, row=row.row_number, col=row.source_col,
+                source=ir.profile.source if ir.profile is not None else "synonyms"),
         )
         for row in sheet.rows
     ]

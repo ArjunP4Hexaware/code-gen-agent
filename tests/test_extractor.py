@@ -338,8 +338,33 @@ def test_extracted_contract_shape(cv_contract):
     assert indiv.load_rules.recycle.recycle_window_days == 7
 
 
+def _without_m1_additions(text: str) -> str:
+    """The committed CV golden predates M1's provenance (per field) and
+    layout summary (per contract); the generated-output snapshot hashes the
+    committed file's sha256, so the file itself must not change. Compare the
+    rest byte for byte and check the additions separately."""
+    payload = json.loads(text)
+    payload.pop("layout", None)
+    for feed in payload["feeds"]:
+        for field in feed["fields"]:
+            field.pop("provenance", None)
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+
+
 def test_golden_output_is_byte_identical(cv_contract):
-    assert contract_to_json(cv_contract) == EXPECTED.read_text(encoding="utf-8")
+    rendered = contract_to_json(cv_contract)
+    assert _without_m1_additions(rendered) == EXPECTED.read_text(encoding="utf-8")
+    # M1: every field records its cell, the contract records its layout.
+    assert cv_contract.layout is not None
+    assert cv_contract.layout.strategy == "mapping_prefix"
+    assert cv_contract.layout.source == "synonyms"
+    assert cv_contract.layout.unresolved == []
+    for feed in cv_contract.feeds:
+        for field in feed.fields:
+            assert field.provenance is not None
+            assert field.provenance.sheet == feed.mapping_sheet
+            assert field.provenance.source == "synonyms"
+            assert field.provenance.row >= 3 and field.provenance.col >= 1
 
 
 def test_extracted_contract_resolves_through_resolver(config):
@@ -373,4 +398,5 @@ def test_cli_extract_sttm_reproduces_the_golden_fixture(tmp_path):
         ]
     )
     assert exit_code == 0
-    assert out.read_text(encoding="utf-8") == EXPECTED.read_text(encoding="utf-8")
+    assert _without_m1_additions(out.read_text(encoding="utf-8")) == EXPECTED.read_text(
+        encoding="utf-8")

@@ -300,6 +300,12 @@ def build_pair4():
                      "DLK", "syn_std", "remit", "feed_4_remit", name,
                      "Decimal(11,2)" if typ.startswith("S9") else "String"])
         start += length
+    for aud, dtype in (("SRC_FILE_NAME", "String"), ("REC_CREATION_TIME", "Timestamp"),
+                       ("REC_UPDATED_TIME", "Timestamp")):
+        rows.append([None, "NA", None, None, None, None, "Audit column",
+                     None, None, None, None, None, None,
+                     "DLK", "syn_dlk", "stg_remit", "feed_4_remit", aud, dtype,
+                     "DLK", "syn_std", "remit", "feed_4_remit", aud, dtype])
     write_rows(ws, rows, start_row=6)
     write_rows(wb.create_sheet("LOB_CROSSWALK"),
                [["Plan Code", "LOB", "Region"]] + [[f"P{i}", "ALL", f"REGION_{i}"] for i in range(1, 8)])
@@ -355,6 +361,11 @@ def build_pair6():
                      "DLK", "syn_dlk", "stg_um", "src_sys_c_authorization", name, "String",
                      "DLK", "syn_std", "um", "src_sys_c_authorization", name,
                      {"int": "Int", "datetime": "Timestamp"}.get(typ, "String")])
+    for aud, dtype in (("SRC_FILE_NAME", "String"), ("REC_CREATION_TIME", "Timestamp"),
+                       ("REC_UPDATED_TIME", "Timestamp")):
+        rows.append([None, None, None, None, None, "NA", None, None, None, None,
+                     "DLK", "syn_dlk", "stg_um", "src_sys_c_authorization", aud, dtype,
+                     "DLK", "syn_std", "um", "src_sys_c_authorization", aud, dtype])
     write_rows(ws, rows, start_row=4)
     return wb
 

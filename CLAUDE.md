@@ -280,10 +280,13 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 ## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
 
 Driven by what Genie Code recorded inside the ACFC workspace
-(`origin/genie-code`: `docs/acfc/ENVIRONMENT_ACFC.md`, `RETROFIT_LOG.md` —
-**never merge that branch**: its `config.yaml` carries a ten-pair
-`pairing_map` with real client file names and ticket numbers, its `app.yaml`
-a user e-mail in a path). Facts that shaped the code: the App container gets
+(`docs/acfc/ENVIRONMENT_ACFC.md`, `docs/acfc/RETROFIT_LOG.md` — SCRUBBED
+copies, 2026-09-20: SP client id / name, App URL, catalog and secret-scope
+names, ticket numbers and real file / feed / sheet names are placeholders).
+The remote `genie-code` branch was deleted 2026-09-20; a LOCAL branch
+`genie-code` keeps the originals — **never push or merge it**: its
+`config.yaml` carries a ten-pair `pairing_map` with real client file names
+and ticket numbers, its `app.yaml` a user e-mail in a path. Facts that shaped the code: the App container gets
 no gitignored file and has no `/Volumes` mount; on serverless,
 `Path.mkdir(parents=True)` under `/Volumes` dies with `PermissionError …
 '/Volumes'`; the App's service principal has zero UC grants and the user

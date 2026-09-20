@@ -2,9 +2,8 @@
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
-`docs/acfc/ENVIRONMENT_ACFC.md` and `docs/acfc/RETROFIT_LOG.md` on the
-`genie-code` branch — not merged here because they carry workspace
-identifiers). Values in `<angle brackets>` are ACFC's and are set in the App's
+`docs/acfc/ENVIRONMENT_ACFC.md` and `docs/acfc/RETROFIT_LOG.md` — scrubbed
+copies: workspace identifiers are `<placeholders>`). Values in `<angle brackets>` are ACFC's and are set in the App's
 environment or a config overlay, never in the tracked `config/config.yaml`.
 
 ## 1. What the workspace proved — and what follows from it

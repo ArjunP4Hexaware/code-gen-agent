@@ -85,16 +85,19 @@ are pulled back when listed).
    agent never creates a root** — a missing one is reported by name.
 2. Find the App's service principal: `databricks apps get codegen-agent`
    → `service_principal_name` / `service_principal_client_id`.
-3. Share the `codegen` folder with it: folder → **Share** → add the service
-   principal → **Can Manage** (creating and importing files in a folder is a
-   Can-Manage ability in the workspace folder ACL; Can Run is enough for a
-   read-only `pairs` folder) **(confirm against the workspace's folder
-   permission table)**. CLI equivalent:
+3. Share the folders with it (folder → **Share** → add the service
+   principal): **Can Edit** on `codegen/state` and `codegen/outputs` (and on
+   `codegen/inputs`, which the App's upload and fetch write to); **Can Read**
+   on the `codegen/pairs` folder, which is only listed and downloaded. CLI
+   equivalent, once per folder:
 
    ```bash
-   databricks workspace get-status /Users/<user>/codegen          # -> object_id
+   databricks workspace get-status /Users/<user>/codegen/state     # -> object_id
    databricks workspace update-permissions directories <object_id> --json \
-     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_MANAGE"}]}'
+     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_EDIT"}]}'
+   databricks workspace get-status /Users/<user>/codegen/pairs     # -> object_id
+   databricks workspace update-permissions directories <object_id> --json \
+     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_READ"}]}'
    ```
 
 Workspace files are limited to 10 MB per import call — far above any artefact

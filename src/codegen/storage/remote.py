@@ -138,8 +138,9 @@ class _SdkBackend(StorageBackend):
 class WorkspaceBackend(_SdkBackend):
     """Workspace files (``/Workspace/Users/<user>/…``) via the Workspace API:
     list / export / import / mkdirs / get-status. The folder only has to be
-    shared with the caller (the App's service principal: CAN_MANAGE or
-    CAN_EDIT on the folder) — no Unity Catalog grant is involved.
+    shared with the caller (the App's service principal: CAN_EDIT on a folder
+    it writes to, CAN_READ on a read-only one) — no Unity Catalog grant is
+    involved.
 
     The API addresses objects WITHOUT the ``/Workspace`` prefix, so it is
     stripped at the call boundary and kept in every URI a person reads."""

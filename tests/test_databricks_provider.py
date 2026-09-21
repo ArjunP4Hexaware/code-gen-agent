@@ -55,9 +55,17 @@ def test_selected_when_configured_and_not_dry_run(config):
     assert provider.name == "databricks_fmapi"
 
 
-def test_unresolvable_workspace_config_degrades_to_mock(config):
-    broken = _fmapi_config(config, catalog="", schema_name="")
-    assert build_provider(broken, dry_run=False).name == "mock"
+def test_no_document_volumes_does_NOT_degrade_to_mock(config):
+    """The volumes seam and the model transport are independent (2026-09-21).
+
+    The tracked config names no document volumes at all — that seam is off
+    by default. Before this, `config_for` demanded them for every caller, so
+    a workspace without those volumes silently dropped live Layer 2 to the
+    mock while the UI still reported FMAPI. The endpoint is what decides.
+    """
+    no_volumes = _fmapi_config(config, catalog="", schema_name="",
+                               frd_volume="", sttm_volume="")
+    assert build_provider(no_volumes, dry_run=False).name == "databricks_fmapi"
 
 
 def test_tracked_config_selects_fmapi(config, monkeypatch):

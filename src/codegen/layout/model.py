@@ -218,20 +218,11 @@ class FmapiLayoutProvider:
     name = "databricks_fmapi"
 
     def __init__(self, config: Config, endpoint: str | None = None) -> None:
-        from types import SimpleNamespace
-
         from codegen.databricks import DatabricksConfigError, config_for
 
-        try:
-            self._cfg = config_for(config.databricks)
-        except DatabricksConfigError:
-            # The recognizer needs auth + an endpoint, not the document volumes:
-            # a workspace config without them still resolves a client.
-            self._cfg = SimpleNamespace(
-                profile=(os.environ.get("DATABRICKS_PROFILE")
-                         or os.environ.get("DATABRICKS_CONFIG_PROFILE")
-                         or config.databricks.profile or "DEFAULT"),
-                serving_endpoint=config.databricks.serving_endpoint)
+        # require=(): the recognizer needs auth + an endpoint, not the
+        # document volumes — a workspace config without them still resolves.
+        self._cfg = config_for(config.databricks, require=())
         self._endpoint = endpoint or self._cfg.serving_endpoint
         if not self._endpoint:
             raise DatabricksConfigError(

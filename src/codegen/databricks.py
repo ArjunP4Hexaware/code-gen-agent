@@ -94,11 +94,23 @@ _YAML_KEYS = {
 # readable_tables is list-valued and comes from YAML only (no env override).
 
 
-def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
+VOLUME_KNOBS = ("catalog", "schema", "frd_volume", "sttm_volume")
+
+
+def config_for(settings=None, env=None,
+               require: tuple[str, ...] = VOLUME_KNOBS) -> DatabricksVolumesConfig:
     """YAML knobs + env overrides → config, failing loudly on gaps.
 
     Precedence per knob: DATABRICKS_* env var > config.yaml ``databricks:``
     section > nothing (an empty knob is an error naming both remedies).
+
+    ``require`` is what this caller actually needs. It defaults to the
+    document-volume knobs — the fetch seam's own requirement — but a caller
+    that only needs auth + a serving endpoint (the FMAPI Layer-2 provider,
+    the layout recognizer, the transport probe) passes ``require=()``. The
+    volumes seam is OFF in the tracked config (it addressed one specific
+    workspace's document volumes); coupling the model transport to it would
+    silently degrade live Layer 2 to mock wherever those volumes are absent.
     """
     env = os.environ if env is None else env
 
@@ -130,8 +142,7 @@ def config_for(settings=None, env=None) -> DatabricksVolumesConfig:
         "readable_tables": tuple(getattr(settings, "readable_tables", ()) or ())
         if settings is not None else (),
     }
-    required = ("catalog", "schema", "frd_volume", "sttm_volume")
-    missing = sorted(k for k in required if not values[k])
+    missing = sorted(k for k in require if not values[k])
     if missing:
         raise DatabricksConfigError(
             "Databricks volumes are not configured — missing: " + ", ".join(missing) + ". "

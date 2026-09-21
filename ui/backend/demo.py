@@ -59,9 +59,14 @@ class LiveRunInProgress(RuntimeError):
 
 # Output selection as independent PARTS (what the UI toggles) mapped onto
 # the generator's single mode. "all" is its own part — selecting it is not
-# the same UI state as ticking the three others, even though it generates
-# the same set. An rfc part always carries the framework artefacts it is
-# built from (the generator writes them either way).
+# the same UI state as ticking the others, even though it generates the
+# same set. An rfc part always carries the framework artefacts it is built
+# from (the generator writes them either way).
+#
+# 2026-09-21: the UI offers only `notebook` and `framework` — the RFC
+# package is no longer an option there, so no run started from the App
+# assembles one. `rfc` / `all` stay here for the CLI (--output-mode) and
+# so a past run recorded in either mode still replays and renders.
 OUTPUT_PARTS = ("notebook", "framework", "rfc", "all")
 _MODE_TO_PARTS = {
     "notebook": ["notebook"],
@@ -1145,8 +1150,8 @@ class DemoRunner:
 
     def start_live(self) -> None:
         if self.output_parts == []:
-            raise ValueError("no output selected — choose at least one of notebook, "
-                             "framework artefacts, RFC package, or All")
+            raise ValueError("no output selected — choose notebook, framework "
+                             "artefacts, or both")
 
         job = self.selection_job
         if job is not None and job["state"] == "running" and job["kind"] == "restore":

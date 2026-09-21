@@ -204,8 +204,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
   }, [loadDbDocs]);
 
-  // Output as independent toggles (backend: output_parts). "all" is its own
-  // state; the three others are free, including none — Generate then waits.
+  // Output as independent toggles (backend: output_parts): Notebook and
+  // Framework artefacts, either or both, including none — Generate then
+  // waits. The RFC package is NOT offered here (2026-09-21): the UI never
+  // selects the "rfc" / "all" parts, so a run never assembles one. The
+  // backend still understands both for the CLI and for replaying past runs.
   const outputParts = new Set<OutputPart>(status?.output_parts ?? ["notebook"]);
   const setOutputParts = async (parts: OutputPart[]) => {
     try {
@@ -851,7 +854,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 [
                   ["notebook", "Notebook"],
                   ["framework", "Framework artefacts"],
-                  ["rfc", "RFC package"],
                 ] as const
               ).map(([part, label]) => (
                 <button
@@ -859,25 +861,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   className={`btn sheet-tab${outputParts.has(part) ? " active" : ""}`}
                   disabled={running}
                   title={
-                    part === "rfc"
-                      ? "The RFC deployment package (includes the framework artefacts it is built from)"
-                      : part === "framework"
-                        ? "DDL scripts + config rows + inserts for the existing ingestion framework"
-                        : "A fresh standalone PySpark pipeline"
+                    part === "framework"
+                      ? "DDL scripts + config rows + inserts for the existing ingestion framework"
+                      : "A fresh standalone PySpark pipeline"
                   }
                   onClick={() => toggleOutputPart(part)}
                 >
                   {label}
                 </button>
               ))}
-              <button
-                className={`btn sheet-tab${outputParts.has("all") ? " active" : ""}`}
-                disabled={running}
-                title="Everything: notebook + framework artefacts + RFC package"
-                onClick={() => toggleOutputPart("all")}
-              >
-                All
-              </button>
               {outputParts.size === 0 ? (
                 <span className="hint" style={{ alignSelf: "center" }}>
                   choose at least one output
@@ -890,7 +882,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   [
                     ["conventions_profile", "Conventions profile"],
                     ["iig_template", "IIG template"],
-                    ["playbook_template", "Playbook template"],
+                    // No playbook selector: the playbook is an RFC-package
+                    // artefact and the RFC package is not offered here.
                   ] as const
                 ).map(([knob, label]) => {
                   const group = genOptions[knob];

@@ -687,14 +687,29 @@ databricks:
   # unconfigured: the UI hides the panel, the CLI fails loudly naming the
   # remedy, and everything else is unaffected.
   profile: DEFAULT
-  # NOTE: catalog/schema here address the REAL document volumes the fetch
-  # seam reads (uploaded 2026-08-27). The demo shell block's placeholders
-  # live separately under demo.databricks_paths — no landing volume exists
-  # in the workspace yet (Option A decision).
-  catalog: soham_workspace
-  schema: codegen_agent
-  frd_volume: frd_raw
-  sttm_volume: sttm_raw
+  # OFF BY DEFAULT (2026-09-21). These knobs addressed ONE workspace's
+  # document volumes (the build workspace's own catalog). Anywhere else —
+  # ACFC above all — that catalog does not exist, so opening the document
+  # chooser listed a foreign catalog and answered with a red "Databricks
+  # volumes unavailable" banner, and the Generate page probed a landing
+  # volume nobody had. Documents do NOT need this seam: they arrive through
+  # the storage roles (storage.inputs / inputs.extra_dirs, below), which
+  # read the operator's OWN folders and never call codegen.databricks.
+  #
+  # Blank = unconfigured: the chooser's volumes section renders nothing
+  # (503), the shell block stays synthetic, the publish panel hides, and
+  # the CLI fetch commands fail loudly naming the remedy. To use the seam
+  # in a workspace that has such volumes, set catalog / schema /
+  # frd_volume / sttm_volume in a config OVERLAY or as DATABRICKS_CATALOG /
+  # DATABRICKS_SCHEMA / DATABRICKS_FRD_VOLUME / DATABRICKS_STTM_VOLUME App
+  # env — never a workspace's own names in this tracked file.
+  #
+  # serving_endpoint below is INDEPENDENT of these: live Layer 2 and the
+  # layout recognizer resolve it with config_for(..., require=()).
+  catalog: ""
+  schema: ""
+  frd_volume: ""
+  sttm_volume: ""
   # B1 (discovery 2026-08-27, docs/DATABRICKS_DISCOVERY.md):
   # "Serverless Starter Warehouse", serverless PRO, auto-stop 10 min.
   # EXPLAIN is the ONLY statement shape this seam sends — and an EXPLAIN

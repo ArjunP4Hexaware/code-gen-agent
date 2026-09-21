@@ -87,7 +87,9 @@ def _fmapi(config: Config, configured: str, runtime: Runtime, detected_by: str,
     problems: list[str] = []
     config_resolves = True
     try:
-        endpoint = config_for(config.databricks).serving_endpoint or None
+        # require=(): the transport needs the endpoint, not the document
+        # volumes — an unconfigured volumes seam must not force mock.
+        endpoint = config_for(config.databricks, require=()).serving_endpoint or None
         if endpoint is None:
             problems.append(
                 "inside Databricks the Layer-2 transport is the Foundation Model serving "

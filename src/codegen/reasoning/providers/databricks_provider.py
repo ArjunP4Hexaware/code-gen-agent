@@ -33,7 +33,9 @@ class DatabricksFmapiProvider:
     def __init__(self, config: Config) -> None:
         from codegen.databricks import config_for
 
-        self._cfg = config_for(config.databricks)  # raises loudly if unset
+        # require=(): FMAPI needs auth + an endpoint, never the document
+        # volumes — those are a separate, optional seam.
+        self._cfg = config_for(config.databricks, require=())
         self._endpoint = self._cfg.serving_endpoint
         if not self._endpoint:
             from codegen.databricks import DatabricksConfigError

@@ -5,7 +5,11 @@ Order, enforced in code:
 
 a. **Cache**: ``layout.cache_dirs`` (repo) then the runtime cache, keyed by
    fingerprint (pair fingerprint first for a pair). Hit → source ``cache``,
-   zero model calls.
+   zero model calls. M9.1: a RUNTIME entry is also keyed by the vocabulary
+   hash (synonym tables + role vocabulary + required roles) — an entry made
+   under other tables is stale and ignored; a cached profile that lacks a
+   required role is never trusted (re-resolved) and never written; ``refresh``
+   bypasses the cache and overwrites the entry.
 b. **Synonyms**: the deterministic discovery of M1 / M2. Every required role
    resolved → done, source ``synonyms``.
 c. **Model**: ONE call per new document, carrying the fingerprint material
@@ -17,9 +21,11 @@ d. **Validate**: every merged claim is checked against the document
    (:mod:`codegen.layout.validate`); a failed claim drops to unresolved
    with its reason.
 e. **User**: what is still unresolved comes back as questions (role,
-   sheet, the header row rendered, candidate columns). Answers merge with
-   source ``user`` and confidence 1.0; a complete profile is saved to the
-   runtime cache.
+   sheet, the header row rendered, candidate columns) — a missing REQUIRED
+   role is always among them. Answers merge with source ``user`` and
+   confidence 1.0 and may place ANY role, open or not: an answer that
+   conflicts with a synonym / model / cache placement wins. A complete
+   profile is saved to the runtime cache.
 f. A profile with unresolved roles still extracts — those values read
    empty and the gate flags them.
 
@@ -59,10 +65,12 @@ from codegen.layout.model import (
     build_sttm_request,
 )
 from codegen.layout.profile import (
+    REQUIRED_ROLES,
     LayoutProfile,
     Role,
     UnresolvedRole,
     confidence_key,
+    missing_required_roles,
 )
 from codegen.layout.validate import Rejection, validate_profile
 
@@ -216,28 +224,115 @@ def _document_report(doc: DocumentResolution) -> dict:
 # ------------------------------------------------------------------ cache
 
 
+def vocabulary_hash(config: Config) -> str:
+    """The second half of a runtime cache key (M9.1): every table discovery
+    reads (``extractor:`` — header / label / segment synonyms, band tokens,
+    thresholds), the role vocabulary and the required roles. A profile cached
+    under other tables answers a different question and is ignored."""
+    material = {
+        "extractor": config.extractor.model_dump(mode="json"),
+        "roles": [r.value for r in Role],
+        "required": {layer: [r.value for r in roles] for layer, roles in REQUIRED_ROLES.items()},
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False)
+                          .encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class _Caches:
+    """The curated repo cache (``layout.cache_dirs`` — tracked, test-pinned to
+    a fresh build, also the mock provider's answers, so plain profiles) and
+    the RUNTIME cache, whose entries carry the vocabulary hash."""
+
+    repo: list[Path]
+    runtime: Path | None
+    vocabulary: str
+
+
 def _cache_dirs(config: Config, base_dir: Path, runtime_cache_dir: Path | None,
-                cache_dirs: list[Path] | None) -> list[Path]:
-    dirs = ([Path(d) for d in cache_dirs] if cache_dirs is not None
+                cache_dirs: list[Path] | None) -> _Caches:
+    repo = ([Path(d) for d in cache_dirs] if cache_dirs is not None
             else [base_dir / d for d in config.layout.cache_dirs])
-    if runtime_cache_dir is not None:
-        dirs.append(Path(runtime_cache_dir))
-    return dirs
+    runtime = Path(runtime_cache_dir) if runtime_cache_dir is not None else None
+    return _Caches(repo=repo, runtime=runtime, vocabulary=vocabulary_hash(config))
 
 
-def _load_cached(fingerprint_value: str, dirs: list[Path], prefix: str = "") -> dict | None:
-    for directory in dirs:
+def _load_cached(fingerprint_value: str, caches: _Caches, prefix: str = "") -> dict | None:
+    """The cached payload for a fingerprint, the ``vocabulary`` key removed. A
+    runtime entry made under another vocabulary, or tombstoned by a refresh
+    that could not complete, is skipped."""
+    for directory in [*caches.repo, *([caches.runtime] if caches.runtime else [])]:
         if not directory.is_dir():
             continue
+        runtime = caches.runtime is not None and directory == caches.runtime
         for path in sorted(directory.glob(f"{prefix}*.json")):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            if not isinstance(payload, dict):
+                continue
             if payload.get("fingerprint") == fingerprint_value or (
                     prefix and payload.get("pair_fingerprint") == fingerprint_value):
-                return payload
+                if runtime and (payload.get("invalidated")
+                                or payload.get("vocabulary") != caches.vocabulary):
+                    continue
+                return {k: v for k, v in payload.items() if k != "vocabulary"}
     return None
+
+
+def _stale_reason(profile: LayoutProfile) -> str | None:
+    missing = missing_required_roles(profile)
+    if not missing:
+        return None
+    return f"cached profile lacks required role(s) {missing}; ignored and re-resolved"
+
+
+def _invalidate_runtime(caches: _Caches, name: str, key: str, value: str) -> None:
+    """A refresh that could not complete tombstones the runtime entry (an
+    overwrite — the storage roles have no delete), so the old profile is not
+    served again."""
+    if caches.runtime is None or not (caches.runtime / name).is_file():
+        return
+    _save_runtime({key: value, "invalidated": True, "vocabulary": caches.vocabulary},
+                  caches.runtime, name)
+
+
+# Keys a schema-error location may name: the profile schemas' own field names
+# and the role vocabulary. Anything else is a string the model invented.
+_SCHEMA_KEYS = (
+    {name for model in (LayoutProfile, UnresolvedRole, FrdLayoutProfile, FrdFieldSource,
+                        FrdUnresolved) for name in model.model_fields}
+    | {"bands", "meta_rows", "roles", "layer", "col_start", "col_end", "label", "row", "col",
+       "key", "value_col", "name", "kind", "header_row", "band_row", "segment_strategy",
+       "segment_column", "headers"}
+    | {r.value for r in Role})
+
+
+def _schema_errors(exc: ValidationError) -> list[dict]:
+    return [{"type": e["type"], "msg": e["msg"],
+             "loc": [p if isinstance(p, int) or p in _SCHEMA_KEYS else "<key>"
+                     for p in e["loc"]]}
+            for e in exc.errors(include_input=False, include_url=False)]
+
+
+def _log_rejections(caches: _Caches, digest: str, document: str, rejections: list[Rejection],
+                    schema_errors: list[dict]) -> Path | None:
+    """``<runtime cache>/rejections/<fingerprint>.json`` — why a model answer
+    was rejected, in full (the report line keeps only the first line of a
+    schema failure). Reasons and error locations only: a location key outside
+    the profile schema / role vocabulary is written as ``<key>``; no workbook
+    cell and no model string is stored."""
+    if caches.runtime is None or not (rejections or schema_errors):
+        return None
+    payload = {
+        "fingerprint": digest,
+        "document": document,
+        "vocabulary": caches.vocabulary,
+        "rejections": [r.render() for r in rejections],
+        "schema_errors": schema_errors,
+    }
+    return _save_runtime(payload, caches.runtime / "rejections", f"{digest}.json")
 
 
 def _save_runtime(payload: dict, runtime_cache_dir: Path | None, name: str) -> Path | None:
@@ -260,6 +355,10 @@ def _as_cache(profile: LayoutProfile) -> LayoutProfile:
             for r in b.roles]
     return profile.model_copy(update={"source": "cache",
                                       "role_sources": {k: "cache" for k in keys}})
+
+
+class _StaleCache(Exception):
+    """A cached profile that must not be trusted (a required role missing)."""
 
 
 # ------------------------------------------------------------- STTM side
@@ -295,12 +394,18 @@ def _questions_for(profile: LayoutProfile, workbook,
 
 
 def _merge_columns(profile: LayoutProfile, claims: dict[str, int], source: str,
-                   confidence: float) -> LayoutProfile:
-    """Merge ``{"<sheet>/<layer>/<role>": col}`` claims — ONLY for roles the
-    profile has not placed, onto columns no other role of that band claims."""
+                   confidence: float, *, override: bool = False) -> LayoutProfile:
+    """Merge ``{"<sheet>/<layer>/<role>": col}`` claims. A model's claims fill
+    ONLY roles the profile has not placed, onto columns no other role of that
+    band claims. A person's (``override=True``, M9.1) may set ANY role: the
+    answer replaces a synonym / model / cache placement of that role, and a
+    role that held the answered column gives it up (a required one is then
+    listed as unresolved again); each displacement is a profile note."""
     sheets = []
     conf = dict(profile.confidence)
     role_sources = dict(profile.role_sources)
+    notes = list(profile.notes)
+    vocabulary = {r.value for r in Role}
     for sp in profile.sheets:
         bands = []
         for band in sp.bands:
@@ -310,10 +415,27 @@ def _merge_columns(profile: LayoutProfile, claims: dict[str, int], source: str,
                 if len(parts) != 3 or parts[0] != sp.name or parts[1] != band.layer:
                     continue
                 role = parts[2]
-                if not isinstance(col, int) or role in roles or col in roles.values():
+                if not isinstance(col, int) or role not in vocabulary:
                     continue
-                if role not in {r.value for r in Role}:
+                if roles.get(role) == col:
+                    if override:
+                        conf[key] = confidence
+                        role_sources[key] = source
                     continue
+                if not override and (role in roles or col in roles.values()):
+                    continue
+                if role in roles:
+                    was = role_sources.get(key, profile.source)
+                    notes.append(f"{key}: user answer moved the role from column {roles[role]} "
+                                 f"({was}) to column {col}")
+                for other, other_col in list(roles.items()):
+                    if other_col == col and other != role:
+                        other_key = confidence_key(sp.name, band.layer, other)
+                        notes.append(f"{other_key}: column {col} given to {role!r} by a user "
+                                     "answer; the role is open again")
+                        del roles[other]
+                        conf.pop(other_key, None)
+                        role_sources.pop(other_key, None)
                 roles[role] = col
                 conf[key] = confidence
                 role_sources[key] = source
@@ -331,8 +453,31 @@ def _merge_columns(profile: LayoutProfile, claims: dict[str, int], source: str,
                      for r in b.roles}
     unresolved = [u for u in profile.unresolved
                   if confidence_key(u.sheet, u.layer, u.role) not in resolved_keys]
-    return profile.model_copy(update={"sheets": sheets, "confidence": conf,
-                                      "role_sources": role_sources, "unresolved": unresolved})
+    merged = profile.model_copy(update={"sheets": sheets, "confidence": conf,
+                                        "role_sources": role_sources, "unresolved": unresolved,
+                                        "notes": notes})
+    return _list_missing_required(merged) if override else merged
+
+
+def _list_missing_required(profile: LayoutProfile) -> LayoutProfile:
+    """Every REQUIRED role a band does not place is in ``unresolved`` — and so
+    in the question list — whoever produced the profile (M9.1: a model-made
+    profile once omitted the schema AND the note that it was missing)."""
+    listed = {confidence_key(u.sheet, u.layer, u.role) for u in profile.unresolved}
+    added = []
+    for key in missing_required_roles(profile):
+        if key in listed:
+            continue
+        sheet_name, layer, role = key.rsplit("/", 2)
+        band = profile.sheet(sheet_name).band(layer)  # type: ignore[union-attr,arg-type]
+        added.append(UnresolvedRole(
+            sheet=sheet_name, layer=layer, role=role,  # type: ignore[arg-type]
+            reason="required role is not placed",
+            candidates=[c for c in range(band.col_start, band.col_end + 1)
+                        if c not in band.roles.values()]))
+    if not added:
+        return profile
+    return profile.model_copy(update={"unresolved": [*profile.unresolved, *added]})
 
 
 def _strip_unknown_roles(model_profile: LayoutProfile) -> tuple[LayoutProfile, int]:
@@ -362,34 +507,48 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                      cache_dirs: list[Path] | None = None, runtime_cache_dir: Path | None = None,
                      answers: dict[str, int] | None = None, base_dir: Path | None = None,
                      use_cache: bool = True, document: str = "sttm",
-                     sttm_tables: list[str] | None = None) -> tuple[DocumentResolution, object]:
+                     sttm_tables: list[str] | None = None,
+                     refresh: bool = False) -> tuple[DocumentResolution, object]:
     """Resolve a workbook's layout — an STTM (``document="sttm"``) or a Vendor
     Data Dictionary (``document="vdd"``, discovered by ``discover_vdd`` and
-    narrowed to ``sttm_tables``); the rest of the path is identical."""
+    narrowed to ``sttm_tables``); the rest of the path is identical.
+    ``refresh`` (M9.1) bypasses every cache and OVERWRITES the runtime entry:
+    a complete result replaces it, an incomplete one tombstones it."""
     base = base_dir if base_dir is not None else Path(".")
-    dirs = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
+    caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
     workbook = load_workbook(path, data_only=True)
     digest = fingerprint(workbook)
     rejections: list[Rejection] = []
+    schema_errors: list[dict] = []
     calls = 0
 
-    cached = _load_cached(digest, dirs) if use_cache else None
+    cached = _load_cached(digest, caches) if use_cache and not refresh else None
     if cached is not None:
         try:
             profile = _as_cache(LayoutProfile.model_validate(cached))
+            stale = _stale_reason(profile)
+            if stale is not None:
+                raise _StaleCache(stale)
             doc = DocumentResolution(document, profile, cache_hit=True, fingerprint=digest)
             if answers:
-                profile = _merge_columns(profile, answers, "user", 1.0)
+                profile = _merge_columns(profile, answers, "user", 1.0, override=True)
                 profile, user_rejections = validate_profile(
                     profile, workbook, config.extractor, check_sources={"user"},
                     document=document)
+                profile = _list_missing_required(profile)
                 doc.rejections += user_rejections
                 doc.profile = profile
+                if not profile.unresolved:
+                    _save_runtime({**profile.model_dump(mode="json"),
+                                   "vocabulary": caches.vocabulary},
+                                  caches.runtime, f"{digest}.json")
             doc.questions = _questions_for(doc.profile, workbook, document)
             return doc, workbook
         except ValidationError as exc:
             rejections.append(Rejection(document, None, None, None,
                                         f"cached profile failed schema validation: {exc}"))
+        except _StaleCache as exc:
+            rejections.append(Rejection(document, None, None, None, str(exc)))
 
     found: Discovery = (discover_vdd(path, config.extractor, sttm_tables=sttm_tables)
                         if document == "vdd" else discover(path, config.extractor))
@@ -398,6 +557,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             for r in b.roles]
     profile = profile.model_copy(update={"role_sources": {k: "synonyms" for k in keys}})
 
+    model_from = len(rejections)
     if profile.unresolved and provider is not None:
         regions = [render_region(sheet_region(workbook[name])) for name in workbook.sheetnames]
         request = build_sttm_request(digest, regions, profile, profile.unresolved, config)
@@ -415,6 +575,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             rejections.append(Rejection(document, None, None, None,
                                         f"model response failed schema validation: "
                                         f"{str(exc).splitlines()[0]}"))
+            schema_errors = _schema_errors(exc)
         else:
             # Every claim in the answer — sheets, header/band rows, spans,
             # roles — is validated against the workbook FIRST; only the
@@ -455,18 +616,30 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                 profile, workbook, config.extractor, check_sources={"model"}, document=document)
             rejections += [r for r in model_rejections if r not in rejections]
 
+    if calls:
+        # The full reasons a model answer was rejected (the report line keeps
+        # one) — before the person's answers add rejections of their own.
+        _log_rejections(caches, digest, document, rejections[model_from:], schema_errors)
+
     if answers:
-        profile = _merge_columns(profile, answers, "user", 1.0)
+        profile = _merge_columns(profile, answers, "user", 1.0, override=True)
         profile = profile.model_copy(update={"source": "user"})
         profile, user_rejections = validate_profile(profile, workbook, config.extractor,
                                                     check_sources={"user"}, document=document)
         rejections += user_rejections
 
+    profile = _list_missing_required(profile)
     doc = DocumentResolution(document, profile, rejections=rejections, provider_calls=calls,
                              fingerprint=digest)
     doc.questions = _questions_for(profile, workbook, document)
-    if not profile.unresolved and runtime_cache_dir is not None and calls + len(answers or {}):
-        _save_runtime(profile.model_dump(mode="json"), runtime_cache_dir, f"{digest}.json")
+    if not profile.unresolved:
+        # Never reached by a profile with a required role missing (it is in
+        # ``unresolved``). A refresh overwrites even a synonyms-only result.
+        if caches.runtime is not None and (refresh or calls + len(answers or {})):
+            _save_runtime({**profile.model_dump(mode="json"), "vocabulary": caches.vocabulary},
+                          caches.runtime, f"{digest}.json")
+    elif refresh:
+        _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
     return doc, workbook
 
 
@@ -581,17 +754,19 @@ def _merge_frd(profile: FrdLayoutProfile, claims: dict[str, dict], source: str,
 def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | None = None,
                 cache_dirs: list[Path] | None = None, runtime_cache_dir: Path | None = None,
                 answers: dict[str, dict] | None = None, base_dir: Path | None = None,
-                use_cache: bool = True) -> tuple[DocumentResolution, object]:
+                use_cache: bool = True,
+                refresh: bool = False) -> tuple[DocumentResolution, object]:
     from codegen.extract.frd_docx import discover_frd, read_docx
 
     base = base_dir if base_dir is not None else Path(".")
-    dirs = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
+    caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
     content = read_docx(path)
     digest = frd_fingerprint(content.tables)
     rejections: list[Rejection] = []
+    schema_errors: list[dict] = []
     calls = 0
 
-    cached = _load_cached(digest, dirs) if use_cache else None
+    cached = _load_cached(digest, caches) if use_cache and not refresh else None
     if cached is not None:
         try:
             profile = FrdLayoutProfile.model_validate(cached)
@@ -612,6 +787,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
     profile = discover_frd(content, config.extractor.frd)
     profile = profile.model_copy(update={"field_sources": {k: "synonyms" for k in profile.fields}})
 
+    model_from = len(rejections)
     if profile.unresolved and provider is not None:
         request = build_frd_request(digest, _frd_labels(content), profile.model_dump(mode="json"),
                                     [u.model_dump(mode="json") for u in profile.unresolved],
@@ -626,12 +802,15 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
             rejections.append(Rejection("frd", None, None, None,
                                         "model response failed schema validation: "
                                         f"{str(exc).splitlines()[0]}"))
+            schema_errors = _schema_errors(exc)
         else:
             claims = {k: v.model_dump(mode="json") for k, v in model_profile.fields.items()}
             profile = _merge_frd(profile, claims, "model", config.layout.model_confidence)
             profile = profile.model_copy(update={"source": "model"})
             profile, model_rejections = _validate_frd(profile, content, config, {"model"})
             rejections += model_rejections
+    if calls:
+        _log_rejections(caches, digest, "frd", rejections[model_from:], schema_errors)
 
     if answers:
         profile = _merge_frd(profile, answers, "user", 1.0)
@@ -642,8 +821,12 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
     doc = DocumentResolution("frd", profile, rejections=rejections, provider_calls=calls,
                              fingerprint=digest)
     doc.questions = _frd_questions(profile, content, config)
-    if not profile.unresolved and runtime_cache_dir is not None and calls + len(answers or {}):
-        _save_runtime(profile.model_dump(mode="json"), runtime_cache_dir, f"{digest}.json")
+    if not profile.unresolved:
+        if caches.runtime is not None and (refresh or calls + len(answers or {})):
+            _save_runtime({**profile.model_dump(mode="json"), "vocabulary": caches.vocabulary},
+                          caches.runtime, f"{digest}.json")
+    elif refresh:
+        _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
     return doc, content
 
 
@@ -711,11 +894,12 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                     facts["schemas"][f"{layer}.{role.value}"] = (
                         value, f"{sp.name}!{get_column_letter(col)} ({role.value} column, "
                                f"dominant value)")
+        blank = {normalize(b) for b in config.extractor.discovery.meta_blank_values}
         for entry in sp.meta_rows:
             if entry.key in ("file_format", "delimiter", "frequency", "file_names",
                              "target_table_desc", "load_strategy") and entry.value_col is not None:
                 value = text(ws.cell(row=entry.row, column=entry.value_col).value)
-                if value:
+                if value and normalize(value) not in blank:      # "TBD" states nothing
                     facts["meta"][entry.key] = (
                         value, f"{sp.name}!{get_column_letter(entry.value_col)}{entry.row} "
                                f"({entry.label!r})")
@@ -812,12 +996,22 @@ def cross_check(contract: FrdContract, sttm_profile: LayoutProfile, workbook, co
         # 1. feed / object name against the STTM meta rows and file details.
         hits = [(cit, value) for cit, value in facts["texts"] if _stem_match(feed.feed_name, value)]
         meta_cits = ", ".join(cit for cit, _ in facts["meta"].values()) or "header region"
-        checks.append(CrossCheck(
-            "feed_name", "agree" if hits else "disagree",
-            _frd_citation(contract, index, "feed_name"),
-            hits[0][0] if hits else meta_cits,
-            f"{feed.feed_name!r} ↔ {hits[0][1]!r}" if hits else
-            f"{feed.feed_name!r} appears in no STTM meta row / file-details cell"))
+        named_after = next((e for e in facts["sheet_tables"]
+                            if e["stage_table"] == feed.feed_name), None)
+        if named_after is not None and not hits:
+            # The FRD named no feed; the layout stage named it after this
+            # sheet's stage band — nothing independent is left to compare.
+            checks.append(CrossCheck(
+                "feed_name", "unchecked", _frd_citation(contract, index, "feed_name"),
+                f"{named_after['sheet']} stage band",
+                f"{feed.feed_name!r} is the STTM's own stage table (the FRD names no feed)"))
+        else:
+            checks.append(CrossCheck(
+                "feed_name", "agree" if hits else "disagree",
+                _frd_citation(contract, index, "feed_name"),
+                hits[0][0] if hits else meta_cits,
+                f"{feed.feed_name!r} ↔ {hits[0][1]!r}" if hits else
+                f"{feed.feed_name!r} appears in no STTM meta row / file-details cell"))
         # 2. target catalog / schema against the dominant target-band values.
         for layer, target in (("stage", feed.stage_target), ("standard", feed.standard_target)):
             for role, value in (("schema", target.schema_name), ("catalog", target.catalog)):
@@ -892,11 +1086,14 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                  vdd_path: Path | None = None, provider: LayoutModelProvider | None = None,
                  answers: dict | None = None, cache_dirs: list[Path] | None = None,
                  runtime_cache_dir: Path | None = None, base_dir: Path | None = None,
-                 use_cache: bool = True, generated_date: str | None = None) -> PairResolution:
-    """Resolve the pair; ``answers`` = ``{"sttm": {key: col}, "frd": {field: {…}}}``."""
+                 use_cache: bool = True, generated_date: str | None = None,
+                 refresh: bool = False) -> PairResolution:
+    """Resolve the pair; ``answers`` = ``{"sttm": {key: col}, "frd": {field: {…}}}``.
+    ``refresh`` re-resolves every document past the caches and overwrites the
+    runtime entries (the pair entry included)."""
     answers = answers or {}
     base = base_dir if base_dir is not None else Path(".")
-    dirs = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
+    caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
     frd_is_docx = frd_path is not None and Path(frd_path).suffix.lower() == ".docx"
     has_vdd = vdd_path is not None and Path(vdd_path).is_file()
 
@@ -915,10 +1112,13 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_fp = hashlib.sha256(Path(frd_path).read_bytes()).hexdigest()
         vdd_fp = fingerprint(load_workbook(vdd_path, data_only=True)) if has_vdd else ""
         pair_fp = hashlib.sha256(f"{sttm_fp}:{frd_fp}:{vdd_fp}".encode()).hexdigest()
-        cached = _load_cached(pair_fp, dirs, prefix="pair_") if use_cache else None
+        cached = (_load_cached(pair_fp, caches, prefix="pair_")
+                  if use_cache and not refresh else None)
         if cached is not None and not answers:
             try:
                 profile = _as_cache(LayoutProfile.model_validate(cached["sttm"]))
+                if _stale_reason(profile) is not None:
+                    raise KeyError("stale pair entry: a required role is missing")
                 workbook = load_workbook(sttm_path, data_only=True)
                 sttm_doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=sttm_fp)
                 if cached.get("frd") is not None:
@@ -941,19 +1141,19 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         sttm_doc, workbook = resolve_workbook(
             sttm_path, config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("sttm"), base_dir=base,
-            use_cache=use_cache)
+            use_cache=use_cache, refresh=refresh)
     if frd_is_docx and frd_doc is None:
         frd_doc, content = resolve_frd(
             frd_path, config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("frd"), base_dir=base,
-            use_cache=use_cache)
+            use_cache=use_cache, refresh=refresh)
     if has_vdd and vdd_doc is None:
         assert isinstance(sttm_doc.profile, LayoutProfile)
         vdd_doc, vdd_workbook = resolve_workbook(
             Path(vdd_path), config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("vdd"), base_dir=base,
             use_cache=use_cache, document="vdd",
-            sttm_tables=_sttm_tables(sttm_doc.profile, workbook))
+            sttm_tables=_sttm_tables(sttm_doc.profile, workbook), refresh=refresh)
 
     frd_contract: FrdContract | None = None
     if frd_path is not None:
@@ -992,6 +1192,17 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                        vdd_workbook),
             answers.get("gaps") or {}, config, base)
         frd_contract = gap.contract
+        if frd_is_docx:
+            # M9.3: what the layout stage DID to the contract (named the feed,
+            # split it, took a value from another document or the person)
+            # travels with it, so a CLI `generate` on the written contract
+            # raises the same flags the UI run does. The "authoritative, never
+            # asked" notes stay out: the contract resolver reports those with
+            # the value and the cell.
+            carried = [f for f in [*split_flags, *gap.flags]
+                       if "(authoritative; never asked)" not in f]
+            frd_contract = frd_contract.model_copy(update={"extraction_flags": list(
+                dict.fromkeys([*frd_contract.extraction_flags, *carried]))})
         if frd_doc is not None:
             frd_doc.questions = [q for q in frd_doc.questions
                                  if q.role not in gap.handled] + split_questions + gap.questions
@@ -1018,14 +1229,17 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             vdd_profile=vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
             vdd_workbook=vdd_workbook)
         _apply_cross_checks(pair, pair.cross_checks, config)
-    if (pair_fp and runtime_cache_dir is not None and not pair.questions and not pair_hit
-            and (pair.provider_calls or answers)):
-        _save_runtime({
-            "pair_fingerprint": pair_fp,
-            "sttm": pair.sttm.profile.model_dump(mode="json"),
-            "frd": pair.frd.profile.model_dump(mode="json") if pair.frd else None,
-            "vdd": pair.vdd.profile.model_dump(mode="json") if pair.vdd else None,
-        }, runtime_cache_dir, f"pair_{pair_fp}.json")
+    if pair_fp and caches.runtime is not None and not pair_hit:
+        if not pair.questions and (refresh or pair.provider_calls or answers):
+            _save_runtime({
+                "pair_fingerprint": pair_fp,
+                "vocabulary": caches.vocabulary,
+                "sttm": pair.sttm.profile.model_dump(mode="json"),
+                "frd": pair.frd.profile.model_dump(mode="json") if pair.frd else None,
+                "vdd": pair.vdd.profile.model_dump(mode="json") if pair.vdd else None,
+            }, caches.runtime, f"pair_{pair_fp}.json")
+        elif refresh and pair.questions:
+            _invalidate_runtime(caches, f"pair_{pair_fp}.json", "pair_fingerprint", pair_fp)
     return pair
 
 
@@ -1103,15 +1317,31 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     other fact shared. Each feed's file pattern is the FILE_DETAILS / FRD
     file name whose tokens uniquely match the table's; otherwise a 'choice'
     question asks which file feeds the table. Flagged, never silent."""
+    from codegen.extract.frd_docx import is_unnamed_feed
     from codegen.layout.hints import frd_field_help
 
     sheet_tables = facts.get("sheet_tables") or []
     if len(contract.feeds) != 1 or not sheet_tables:
         return contract, [], []
     feed = contract.feeds[0]
+    refused = contract.structured.get("feeds[0].feed_name")
+    garbled_name = ("\n" in feed.feed_name or len(feed.feed_name) > 80
+                    or refused is not None or is_unnamed_feed(feed.feed_name))
+    name_reason = (f"the FRD's Object Name cell is a {refused.kind} value, not a name"
+                   if refused is not None else
+                   "the FRD names no feed" if is_unnamed_feed(feed.feed_name) else
+                   "the FRD's feed name is not a name (line breaks / over 80 characters)")
     stated = {normalize(t) for t in feed.stage_target.tables}
     if any(normalize(e["stage_table"]) in stated for e in sheet_tables):
-        return contract, [], []   # the FRD names the STTM's tables: nothing to split
+        # The FRD names the STTM's tables: nothing to split. A single sheet
+        # still NAMES a feed the FRD left unnamed (M9.3) — flagged.
+        if len(sheet_tables) == 1 and garbled_name:
+            entry = sheet_tables[0]
+            renamed = feed.model_copy(update={"feed_name": entry["stage_table"]})
+            return contract.model_copy(update={"feeds": [renamed]}), [
+                f"frd_unstated:feeds[0].feed_name source_used:STTM stage band "
+                f"{entry['sheet']!r}: {entry['stage_table']!r} ({name_reason})"], []
+        return contract, [], []
     file_like = [t for t in feed.stage_target.tables if _FILE_LIKE.search(t)]
     pool = [(name, f"FRD 'Target Table Name' ({name!r})") for name in file_like]
     pool += [(name, cell) for name, cell in facts.get("files", [])]
@@ -1126,8 +1356,6 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
         if key and key not in seen:
             seen.add(key)
             candidates.append((name, cell))
-    garbled_name = ("\n" in feed.feed_name or len(feed.feed_name) > 80
-                    or "feeds[0].feed_name" in contract.structured)
     rename = len(sheet_tables) > 1 or garbled_name
     if len(sheet_tables) > 1:
         flags = [f"frd_feeds_split_from_sttm: FRD feed {feed.feed_name[:60]!r} names "
@@ -1141,8 +1369,8 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                  f"{feed.stage_target.tables or 'no table'})"]
         if garbled_name:
             flags.append(f"frd_unstated:feeds[0].feed_name source_used:STTM stage band "
-                         f"{sheet_tables[0]['sheet']!r}: {sheet_tables[0]['stage_table']!r} (the "
-                         "FRD's Object Name cell is a flattened table)")
+                         f"{sheet_tables[0]['sheet']!r}: {sheet_tables[0]['stage_table']!r} "
+                         f"({name_reason})")
     questions: list[LayoutQuestion] = []
     feeds = []
     matched = _mutual_unique_matches([e["stage_table"] for e in sheet_tables],
@@ -1304,6 +1532,10 @@ def resolve_structured_fields(contract: FrdContract, config: Config
     for path, item in contract.structured.items():
         field = path.split(".", 1)[1] if "." in path else path
         where = f"FRD table {item.table} row {item.row} ({item.label!r})"
+        if item.kind == "labelled_files":
+            # M9.3: the reader already took the listed files as the feed's
+            # patterns and flagged the unnamed feed (contract.extraction_flags).
+            continue
         if item.kind in ("nested_table", "per_file_blocks") and item.rows:
             matched = _match_rows_to_feeds([r.key for r in item.rows], feeds)
             for index, feed in enumerate(feeds):
@@ -1406,6 +1638,7 @@ class _FeedGapFiller:
         from codegen.resolve.gapfill import (
             Statement,
             distinct,
+            format_statements,
             parse_load_strategy_text,
             same_value,
             strategy_from_faq,
@@ -1438,6 +1671,13 @@ class _FeedGapFiller:
                 value, cell = meta[dotted]
                 others.append(Statement(value, "STTM", cell))
             others += [Statement(v, "VDD", cell) for v, cell in self.vdd.get(dotted, [])]
+            if dotted == "file_format":
+                # ".dat" names the file, not its layout: never a disagreement
+                # with a document that states a format.
+                others = format_statements(
+                    others if _feed_get(feed, dotted) is None
+                    else [self.frd_stmt(dotted, _feed_get(feed, dotted)), *others])
+                others = [o for o in others if o.source != "FRD"]
             others = distinct(others)
             current = _feed_get(feed, dotted)
             if current is not None:
@@ -1579,4 +1819,5 @@ __all__ = [
     "resolve_frd",
     "resolve_pair",
     "resolve_workbook",
+    "vocabulary_hash",
 ]

@@ -32,19 +32,36 @@ SHEET = "FEED_1_MAPPING"
 
 ANSWERS_YAML = f"""\
 answers:
+  - {{sheet: {SHEET}, layer: stage, role: schema, column: "Target Schema Name in DL"}}
   - {{document: sttm, sheet: {SHEET}, layer: stage, role: table, column: "Target Table Name in DL"}}
-  - {{document: sttm, sheet: {SHEET}, layer: stage, role: column, column: 20}}
-  - {{document: sttm, sheet: {SHEET}, layer: stage, role: target_type, column: U}}
+  - {{document: sttm, sheet: {SHEET}, layer: stage, role: column, column: 22}}
+  - {{document: sttm, sheet: {SHEET}, layer: stage, role: target_type, column: W}}
+  - {{sheet: {SHEET}, layer: standard, role: schema, column: AA}}
   - {{sheet: {SHEET}, layer: standard, role: table, column: "target table name in dl"}}
   - {{sheet: {SHEET}, layer: standard, role: column, column: "Target_Column_Name_in_DL"}}
   - {{sheet: {SHEET}, layer: standard, role: target_type, column: "Target Data Type in DL"}}
   - {{sheet: NO_SUCH_SHEET, role: table, column: 1}}
 """
+ANSWERED = {
+    f"{SHEET}/stage/schema": 20, f"{SHEET}/stage/table": 21, f"{SHEET}/stage/column": 22,
+    f"{SHEET}/stage/target_type": 23, f"{SHEET}/standard/schema": 27,
+    f"{SHEET}/standard/table": 28, f"{SHEET}/standard/column": 29,
+    f"{SHEET}/standard/target_type": 30}
 
 
 @pytest.fixture(scope="module")
-def config():
+def shipped_config():
     return load_config(REPO / "config" / "config.yaml")
+
+
+@pytest.fixture(scope="module")
+def config(shipped_config):
+    """The PRE-M9 vocabulary (tests/pre_m9_vocabulary.py): the pair-1 sheet
+    leaves its eight required target roles open, as inside ACFC on
+    2026-09-21 — the state the answers file exists for."""
+    import pre_m9_vocabulary
+
+    return pre_m9_vocabulary.strip(shipped_config)
 
 
 @pytest.fixture
@@ -61,13 +78,11 @@ def _open(config):
 
 def test_answers_place_every_open_role_with_source_user(config, answers_file):
     doc = _open(config)
-    assert len(doc.questions) == 6
+    assert len(doc.questions) == 8           # M9.1: the schema is required in both bands
+    assert sorted(q.key for q in doc.questions) == sorted(ANSWERED)
     answers, notes = apply_answers(load_answers(answers_file), doc.questions,
                                    {"sttm": PAIR_1.name})
-    assert answers["sttm"] == {
-        f"{SHEET}/stage/table": 19, f"{SHEET}/stage/column": 20,
-        f"{SHEET}/stage/target_type": 21, f"{SHEET}/standard/table": 25,
-        f"{SHEET}/standard/column": 26, f"{SHEET}/standard/target_type": 27}
+    assert answers["sttm"] == ANSWERED
     assert len(notes) == 1 and "NO_SUCH_SHEET" in notes[0]          # reported, never applied
 
     resolved, _wb = resolve_workbook(PAIR_1, config, provider=None, use_cache=False,
@@ -78,14 +93,62 @@ def test_answers_place_every_open_role_with_source_user(config, answers_file):
     sheet = next(s for s in resolved.profile.sheets if s.name == SHEET)
     for layer in ("stage", "standard"):
         roles = {str(k): v for k, v in sheet.band(layer).roles.items()}
-        assert {k: roles[k] for k in ("table", "column", "target_type")} == {
-            k: truth[(SHEET, layer)][k] for k in ("table", "column", "target_type")}
+        assert {k: roles[k] for k in ("schema", "table", "column", "target_type")} == {
+            k: truth[(SHEET, layer)][k] for k in ("schema", "table", "column", "target_type")}
     assert {resolved.profile.role_sources[key] for key in answers["sttm"]} == {"user"}
+
+
+def test_an_answer_may_set_a_role_no_question_asks_for_and_it_wins(shipped_config, tmp_path):
+    """M9.1 — inside ACFC an answer for a role the profile never listed as
+    open was refused ("matches no open question"). Under the shipped tables
+    nothing is open on pair 1; the answers still apply: one confirms a
+    synonym placement, one OVERRIDES one (and the role that held the column
+    gives it up), all recorded source=user."""
+    doc, workbook = resolve_workbook(PAIR_1, shipped_config, provider=None, use_cache=False)
+    assert doc.questions == [] and doc.profile.source == "synonyms"
+    path = tmp_path / "override.yaml"
+    path.write_text(
+        "answers:\n"
+        f"  - {{sheet: {SHEET}, layer: stage, role: schema, column: T}}\n"          # confirms
+        f"  - {{sheet: {SHEET}, role: description, column: \"Data Definition\"}}\n"  # overrides
+        f"  - {{sheet: {SHEET}, layer: standard, role: nonsense, column: 1}}\n",
+        encoding="utf-8")
+    with pytest.raises(AnswersFileError, match="is not a layout role"):
+        apply_answers(load_answers(path), doc.questions, {"sttm": PAIR_1.name},
+                      documents={"sttm": (doc.profile, workbook)})
+    path.write_text("\n".join(path.read_text(encoding="utf-8").splitlines()[:3]) + "\n",
+                    encoding="utf-8")
+    answers, notes = apply_answers(load_answers(path), doc.questions, {"sttm": PAIR_1.name},
+                                   documents={"sttm": (doc.profile, workbook)})
+    # "Data Definition" sits in the rules band only: the band is inferred.
+    assert answers["sttm"] == {f"{SHEET}/stage/schema": 20, f"{SHEET}/rules/description": 11}
+    assert any("confirms column 20 (synonyms)" in n for n in notes)
+    assert any("places a role no question asked for, at column 11" in n for n in notes)
+
+    resolved, _ = resolve_workbook(PAIR_1, shipped_config, provider=None, use_cache=False,
+                                   answers=answers["sttm"])
+    profile = resolved.profile
+    assert profile.role_sources[f"{SHEET}/stage/schema"] == "user"
+    assert profile.confidence[f"{SHEET}/stage/schema"] == 1.0
+    rules = profile.sheet(SHEET).band("rules")
+    # The answered column was data_definition's (synonyms): it gave the column up.
+    assert rules.roles["description"] == 11 and "data_definition" not in rules.roles
+    assert any("column 11 given to 'description' by a user answer" in n for n in profile.notes)
+    assert resolved.complete                      # data_definition is not a required role
+
+    # An answer that takes a REQUIRED role's column re-opens that role: it is
+    # back in the question list, never silently lost.
+    moved, _ = resolve_workbook(PAIR_1, shipped_config, provider=None, use_cache=False,
+                                answers={f"{SHEET}/stage/schema": 21})
+    assert moved.profile.sheet(SHEET).band("stage").roles["schema"] == 21
+    assert [q.key for q in moved.questions] == [f"{SHEET}/stage/table"]
+    assert any("moved the role from column 20 (synonyms) to column 21" in n
+               for n in moved.profile.notes)
 
 
 def test_an_ambiguous_entry_is_refused_not_guessed(config, tmp_path):
     path = tmp_path / "a.yaml"
-    path.write_text(f"answers:\n  - {{sheet: {SHEET}, role: table, column: 19}}\n",
+    path.write_text(f"answers:\n  - {{sheet: {SHEET}, role: table, column: 21}}\n",
                     encoding="utf-8")
     with pytest.raises(AnswersFileError, match="add `layer:`"):
         apply_answers(load_answers(path), _open(config).questions, {"sttm": PAIR_1.name})
@@ -106,7 +169,7 @@ def test_unresolved_report_has_structure_and_no_data(config):
     doc = _open(config)
     report = unresolved_report(doc.questions, {"sttm": PAIR_1.name})
     assert f"`{SHEET}`" in report and "`stage`" in report and "`table`" in report
-    assert "`19: Target Table Name in DL`" in report and "`C: Field Name`" in report
+    assert "`21: Target Table Name in DL`" in report and "`C: Field Name`" in report
     # No cell BELOW the header row may appear: structural labels only.
     sheet_profile = next(s for s in doc.profile.sheets if s.name == SHEET)
     ws = load_workbook(PAIR_1, data_only=True)[SHEET]
@@ -124,8 +187,14 @@ def test_cli_layout_answers_and_report(tmp_path, answers_file, monkeypatch, caps
     """A workbook no cache / mock answer knows (one renamed sheet = a new
     fingerprint): the CLI reports the open roles, then resolves them from
     the answers file. The mock posture is pinned — no model is reachable."""
+    import pre_m9_vocabulary
+
     monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
     monkeypatch.chdir(REPO)
+    overlay = tmp_path / "pre_m9_overlay.yaml"           # the vocabulary that leaves roles open
+    overlay.write_text(pre_m9_vocabulary.overlay_yaml(
+        load_config(REPO / "config" / "config.yaml")), encoding="utf-8")
+    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", str(overlay))
     workbook = tmp_path / "STTM_new_shape.xlsx"
     wb = load_workbook(PAIR_1)
     wb[SHEET].title = "FEED_X_MAPPING"
@@ -147,7 +216,7 @@ def test_cli_layout_answers_and_report(tmp_path, answers_file, monkeypatch, caps
                      "--answers", str(answers), "--require-complete",
                      "--report-unresolved", str(report)]) == 0
     out = capsys.readouterr().out
-    assert "6 answer(s) applied" in out and "Nothing is unresolved." in report.read_text(
+    assert "8 answer(s) applied" in out and "Nothing is unresolved." in report.read_text(
         encoding="utf-8")
     # The completed profile went to the STATE role — and nowhere under fixtures/.
     cached = list((state / "layout_profiles").glob("*.json"))

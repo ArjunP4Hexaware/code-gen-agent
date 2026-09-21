@@ -894,6 +894,17 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {running ? "Live run in progress…" : "Generate from this STTM…"}
               </button>
             )}
+            {status && !running ? (
+              <label className="hint" style={{ display: "block", marginTop: 8 }}
+                     title="The next run ignores every cached layout profile of these documents, resolves the layout again (synonyms, then the model, then you) and overwrites the cached entries.">
+                <input
+                  type="checkbox"
+                  checked={Boolean(status.layout_refresh)}
+                  onChange={(e) => api.layoutRefresh(e.target.checked).then(setStatus).catch(() => {})}
+                />{" "}
+                Re-resolve layout (ignore the cached layout profile)
+              </label>
+            ) : null}
 
             {status && status.state !== "idle" ? (
               <div style={{ marginTop: 14 }}>
@@ -1116,6 +1127,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       </button>
                       <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(() => {})}>
                         Cancel run
+                      </button>
+                      <button className="btn"
+                              title="Resolve the layout again past every cached profile (synonyms, then the model); the cached entries are overwritten and the questions asked afresh"
+                              onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(() => {})}>
+                        Re-resolve layout
                       </button>
                       <span style={{ flex: 1 }} />
                       <button

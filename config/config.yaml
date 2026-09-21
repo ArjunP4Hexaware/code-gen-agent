@@ -113,6 +113,11 @@ extractor:
   recycle_header_prefix: "recycle flag"
   # Source-side cell values (normalized) marking a trailing audit row.
   audit_source_markers: ["na"]
+  # M9.2 (docs/acfc/HANDOVER_GENIE.md §4 error 3): target-column cell texts
+  # (normalized) by which an STTM marks a source field as NOT mapped. The
+  # field is left out of stage and standard and flagged
+  # field_unmapped:<field>, citing the cell — never a note only.
+  unmapped_markers: ["do not map", "dnm", "not mapped", "n/a", "na", "none"]
   file_details_headers:
     vendor: ["vendor"]
     file_name: ["filename", "file name"]
@@ -144,7 +149,10 @@ extractor:
       source:
         ordinal: ["s no", "sl no", "sr no", "field id", "column no", "position", "field no"]
         field_name: ["field name", "database column name", "database name", "client data table column name", "column name", "columnname"]
-        source_type: ["type", "datatype", "data type"]
+        # "format": the source-type column of the real pair-1 sheet (M9 —
+        # PAIR1_HEADERS.md row 15, column E); without it the sheet's source
+        # types read "unstated" and nothing asks (the role is optional).
+        source_type: ["type", "datatype", "data type", "format"]
         length: ["length", "len"]
         field_length: ["field length", "field length fixed width"]
         start: ["start", "start position", "start position fixed width"]
@@ -179,10 +187,10 @@ extractor:
       target:
         workspace: ["workspace"]
         catalog: ["catalog", "target catalog"]
-        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "stage schema", "standard schema", "schemaname"]
-        table: ["tablename", "table name", "target table", "target table name in lakehouse", "stage table name", "standard table name"]
-        column: ["columnname", "column name", "target column", "target column name in lakehouse", "stage column name", "standard column name"]
-        target_type: ["datatype", "data type", "target data type in lakehouse", "stage datatype", "standard data type"]
+        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "target schema name in dl", "stage schema", "standard schema", "schemaname"]
+        table: ["tablename", "table name", "target table", "target table name in lakehouse", "target table name in dl", "stage table name", "standard table name"]
+        column: ["columnname", "column name", "target column", "target column name in lakehouse", "target column name in dl", "stage column name", "standard column name"]
+        target_type: ["datatype", "data type", "target data type in lakehouse", "target data type in dl", "stage datatype", "standard data type"]
         mandatory_column: ["mandatory column", "mandatory"]
         primary_key: ["primary key"]
         constraints: ["constraints"]
@@ -210,9 +218,12 @@ extractor:
       file_location: ["file location"]
       domain: ["domain"]
       sub_domain: ["sub domain", "subdomain"]
+    # M9.0: meta VALUE placeholders read as blank (the real pair-1 sheet
+    # writes "TBD" for its file names / example / frequency).
+    meta_blank_values: ["tbd", "n/a", "na", "-", "none"]
     segment_synonyms:
       Header: ["header", "hdr", "hddr", "hr", "header record", "h"]
-      Detail: ["detail", "dtl", "det", "dr", "detail record", "d", "data"]
+      Detail: ["detail", "details", "dtl", "det", "dr", "detail record", "d", "data"]
       Trailer: ["trailer", "trl", "trlr", "tr", "trailer record", "t"]
     auxiliary_sheets:
       file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]
@@ -316,6 +327,20 @@ extractor:
     nested_table_header_words: ["file_name", "file name", "filename", "path", "mftlanding path",
                                 "vendor", "inb/oub", "location", "description"]
     structured_text_max_chars: 200
+    # M9.3 (docs/acfc/HANDOVER_GENIE.md §4 error 6): a target cell may hold
+    # an inline layer block —
+    #     Staging Layer:
+    #     Table: <name>
+    #     Standard Layer:
+    #     Table: <name>
+    # a heading "<target_schema_markers word> <heading word>:" then
+    # "Label: value" lines, parsed per layer into the structured targets;
+    # none of its lines is ever a table name.
+    layer_block_heading_words: ["layer"]
+    layer_block_labels:
+      table: ["Table", "Table Name", "Target Table", "Target Table Name"]
+      schema: ["Schema", "Schema Name", "Target Schema"]
+      catalog: ["Catalog", "Catalog Name", "Target Catalog"]
 
   # ---- Vendor Data Dictionary reader (M3, 2026-09-18) --------------------
   # codegen.layout.discover.discover_vdd + codegen.extract.vdd: the FILES
@@ -748,6 +773,10 @@ conventions:
   # resolves to it with provenance `config_default`. Per environment in an
   # overlay, e.g. {stage: d1_dlk, standard: d1_dlk}. Empty = none configured.
   default_catalog: {}
+  # M9.2: last link of the SCHEMA chain (layer -> schema): STTM target band
+  # -> FRD 'Target Catalog and Schema' -> here (provenance config_default);
+  # none of the three states one = extract-sttm's hard stop. Empty = none.
+  default_schema: {}
   profiles:
     edo_sfmc:
       ddl_layout: two_files

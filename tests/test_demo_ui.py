@@ -177,6 +177,72 @@ def test_needs_layout_pauses_the_run_until_answered(monkeypatch):
     assert runner.state == "failed" and "cancelled" in (runner.error or "")
 
 
+def test_re_resolve_layout_is_a_one_shot_refresh_before_a_run_and_from_the_dialog(monkeypatch):
+    """M9.1: "re-resolve layout" bypasses every cached profile — armed for the
+    next run (one shot), or asked from the needs_layout dialog, where it also
+    drops the answers given to the OLD profile's questions."""
+    from codegen.layout import resolve as resolve_module
+    from codegen.layout.profile import LayoutProfile
+    from codegen.layout.resolve import DocumentResolution, LayoutQuestion, PairResolution
+
+    calls: list[dict] = []
+
+    def fake_resolve_pair(sttm, frd, config, **kwargs):
+        calls.append({"refresh": kwargs.get("refresh"), "answers": kwargs.get("answers")})
+        profile = LayoutProfile(fingerprint="f", sheets=[], source="synonyms",
+                                strategy="content")
+        doc = DocumentResolution("sttm", profile)
+        if len(calls) < 3:          # two rounds of questions, then complete
+            doc.questions = [LayoutQuestion("sttm", "S", "stage", "schema", "why",
+                                            ["A: x"], [{"col": 1, "header": "x"}])]
+        return PairResolution(sttm=doc, frd=None, frd_contract=None)
+
+    monkeypatch.setattr(resolve_module, "resolve_pair", fake_resolve_pair)
+    store = GenerationStore("config/config.yaml")
+    runner = DemoRunner(store)
+    runner._work = lambda: runner._resolve_layout(REPO / "x.xlsx", REPO / "y.docx", store.config)
+
+    assert runner.status()["layout_refresh"] is False
+    runner.set_layout_refresh(True)
+    assert runner.status()["layout_refresh"] is True
+    runner.start_live()
+    for _ in range(100):
+        if runner.state == "needs_layout":
+            break
+        time.sleep(0.02)
+    assert runner.state == "needs_layout"
+    assert calls[0]["refresh"] is True and runner.layout_refresh is False      # consumed
+    assert any(s["stage"] == "re-resolve layout" for s in runner.status()["stages"])
+    with pytest.raises(LiveRunInProgress):
+        runner.set_layout_refresh(True)             # a run is in progress: use its dialog
+    # An ordinary answer round: no refresh, the answer is carried.
+    runner.answer_layout({"sttm": {"S/stage/schema": 1}})
+    for _ in range(100):
+        if len(calls) == 2 and runner.state == "needs_layout":
+            break
+        time.sleep(0.02)
+    assert calls[1]["refresh"] is False and calls[1]["answers"]["sttm"] == {"S/stage/schema": 1}
+    # "Re-resolve layout" from the dialog: refresh again, the old answers dropped.
+    runner.answer_layout({}, refresh=True)
+    for _ in range(100):
+        if runner.state == "done":
+            break
+        time.sleep(0.02)
+    assert runner.state == "done"
+    assert calls[2]["refresh"] is True and calls[2]["answers"]["sttm"] == {}
+
+
+def test_layout_refresh_endpoint(client):
+    r = client.post("/api/demo/layout-refresh", json={"enabled": True})
+    assert r.status_code == 200 and r.json()["layout_refresh"] is True
+    assert client.get("/api/demo/status").json()["layout_refresh"] is True
+    r = client.post("/api/demo/layout-refresh", json={"enabled": False})
+    assert r.status_code == 200 and r.json()["layout_refresh"] is False
+    # The dialog's re-resolve needs a waiting run, like every other answer.
+    r = client.post("/api/demo/layout-answers", json={"answers": {}, "refresh": True})
+    assert r.status_code == 409
+
+
 def test_layout_answers_endpoint_guards(client):
     r = client.post("/api/demo/layout-answers", json={"answers": {"sttm": {"bad key": 1}}})
     assert r.status_code == 400

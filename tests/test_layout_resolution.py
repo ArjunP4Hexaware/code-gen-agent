@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from openpyxl import load_workbook
 
+import pre_m9_vocabulary
 from acfc_shapes.layout_truth import ADVERSARIAL, CANARY, STTM_CURATED
 from codegen.extract import extract_contract
 from codegen.extract.generic import read_workbook
@@ -31,15 +32,23 @@ VDD = REPO / "fixtures" / "acfc_shapes" / "vdd"
 PROFILES = REPO / "fixtures" / "layout_profiles"
 MOCK = PROFILES / "mock"
 
-FULL_BY_SYNONYMS = ["pair_2_family_b.xlsx", "pair_4_family_d.xlsx", "pair_6_family_d.xlsx",
-                    "pair_5_family_e.xlsx", "pair_9_family_e.xlsx"]
-NEEDS_MODEL = ["pair_1_family_a.xlsx", "pair_8_family_a.xlsx", "pair_7_family_e.xlsx",
-               "pair_10_family_e.xlsx"]
+# M9: pair 1 (the real-shape sheet) resolves by synonyms alone.
+FULL_BY_SYNONYMS = ["pair_1_family_a.xlsx", "pair_2_family_b.xlsx", "pair_4_family_d.xlsx",
+                    "pair_6_family_d.xlsx", "pair_5_family_e.xlsx", "pair_9_family_e.xlsx"]
+NEEDS_MODEL = ["pair_8_family_a.xlsx", "pair_7_family_e.xlsx", "pair_10_family_e.xlsx"]
 
 
 @pytest.fixture()
 def mock():
     return MockLayoutProvider([MOCK, PROFILES])
+
+
+@pytest.fixture(scope="module")
+def pre_m9(config):
+    """The pre-M9 synonym tables: pair 1 then leaves its eight required target
+    roles open — the carrier of the model / adversarial / canary tests (and
+    the state of the 2026-09-21 ACFC run)."""
+    return pre_m9_vocabulary.strip(config)
 
 
 @pytest.fixture()
@@ -123,6 +132,15 @@ def test_mock_model_resolves_the_remainder_and_extraction_matches_the_truth(
     assert (runtime / f"{doc.fingerprint}.json").is_file()
 
 
+def test_pair1_under_the_pre_m9_tables_needs_the_model_for_nine_roles(pre_m9, mock, no_cache,
+                                                                      tmp_path):
+    doc, _ = resolve_workbook(STTM / "pair_1_family_a.xlsx", pre_m9, provider=mock,
+                              cache_dirs=no_cache, runtime_cache_dir=tmp_path / "runtime")
+    assert doc.provider_calls == 1 and doc.complete and doc.rejections == []
+    placed = sorted(k for k, s in doc.profile.role_sources.items() if s == "model")
+    assert placed == sorted(pre_m9_vocabulary.PAIR1_MODEL_ROLES)
+
+
 def test_pairs_8_and_10_rows_per_band_after_resolution(config, mock, no_cache):
     expected = {
         "pair_8_family_a.xlsx": {"FEED_8_LAYOUT": {"Header": 4, "Detail": 8, "Trailer": 3,
@@ -140,16 +158,16 @@ def test_pairs_8_and_10_rows_per_band_after_resolution(config, mock, no_cache):
 # ------------------------------------------------- the model never sees a data row
 
 
-def test_model_request_carries_header_regions_only(config, no_cache, tmp_path):
+def test_model_request_carries_header_regions_only(pre_m9, no_cache, tmp_path):
     source = STTM / "pair_1_family_a.xlsx"
     wb = load_workbook(source)
     canary = "DATA_ROW_CANARY_5c1e"
     wb["FEED_1_MAPPING"].cell(row=20, column=9, value=canary)     # a data row (header is r15)
-    wb["FEED_1_MAPPING"].cell(row=41, column=3, value=canary)     # an audit row
+    wb["FEED_1_MAPPING"].cell(row=44, column=3, value=canary)     # an audit row
     path = tmp_path / "pair_1_canary.xlsx"
     wb.save(path)
     recorder = MockLayoutProvider([MOCK, PROFILES])
-    doc, _ = resolve_workbook(path, config, provider=recorder, cache_dirs=no_cache)
+    doc, _ = resolve_workbook(path, pre_m9, provider=recorder, cache_dirs=no_cache)
     assert doc.provider_calls == 1
     body = json.dumps(recorder.requests[0])
     assert canary not in body
@@ -162,10 +180,10 @@ def test_model_request_carries_header_regions_only(config, no_cache, tmp_path):
 
 
 @pytest.mark.parametrize("file_name", [f for f in ADVERSARIAL if "canary" not in f])
-def test_adversarial_mock_profiles_are_rejected_with_the_right_reason(file_name, config,
+def test_adversarial_mock_profiles_are_rejected_with_the_right_reason(file_name, pre_m9,
                                                                       no_cache):
     provider = MockLayoutProvider([MOCK], override=MOCK / file_name)
-    doc, _ = resolve_workbook(STTM / "pair_1_family_a.xlsx", config, provider=provider,
+    doc, _ = resolve_workbook(STTM / "pair_1_family_a.xlsx", pre_m9, provider=provider,
                               cache_dirs=no_cache)
     fragment = ADVERSARIAL[file_name]["reason_fragment"]
     assert any(fragment in r.reason for r in doc.rejections), [r.render() for r in doc.rejections]
@@ -178,9 +196,9 @@ def test_adversarial_mock_profiles_are_rejected_with_the_right_reason(file_name,
         r.reason == "sheet does not exist in the workbook" for r in doc.rejections)
 
 
-def test_swapped_spans_and_wrong_header_row_leave_specific_roles_unresolved(config, no_cache):
+def test_swapped_spans_and_wrong_header_row_leave_specific_roles_unresolved(pre_m9, no_cache):
     provider = MockLayoutProvider([MOCK], override=MOCK / "adversarial_free_text_column.json")
-    doc, _ = resolve_workbook(STTM / "pair_1_family_a.xlsx", config, provider=provider,
+    doc, _ = resolve_workbook(STTM / "pair_1_family_a.xlsx", pre_m9, provider=provider,
                               cache_dirs=no_cache)
     # The free-text claim (length → Description) is rejected; the other
     # model claims (stage/standard table, column, type, schema) survive.
@@ -243,26 +261,33 @@ def test_user_answers_merge_validate_and_cache(config, no_cache, tmp_path):
     again, _ = resolve_workbook(STTM / "pair_7_family_e.xlsx", config, provider=None,
                                 cache_dirs=no_cache, runtime_cache_dir=runtime)
     assert again.cache_hit and again.complete and again.provider_calls == 0
-    # A wrong answer (a column another role claims) is refused, not applied.
+    # A wrong answer (a column outside the stage band) is rejected by the
+    # validator, not applied: the role stays open.
     bad, _ = resolve_workbook(STTM / "pair_7_family_e.xlsx", config, provider=None,
-                              cache_dirs=no_cache, answers={"MAPPING_FEED_7/stage/column": 9})
+                              cache_dirs=no_cache, answers={"MAPPING_FEED_7/stage/column": 2})
     assert not bad.complete
+    assert "column" not in bad.profile.sheet("MAPPING_FEED_7").band("stage").roles
+    assert any(r.role == "column" for r in bad.rejections)
 
 
 # ------------------------------------------------- (f) canary: no model string reaches an artefact
 
 
-def test_no_model_string_reaches_any_output(config, no_cache, tmp_path):
+def test_no_model_string_reaches_any_output(config, pre_m9, no_cache, tmp_path):
     provider = MockLayoutProvider([MOCK], override=MOCK / "adversarial_canary.json")
     runtime = tmp_path / "runtime"
     frd = FRD / "f1_pair_1.docx"
-    pair = resolve_pair(STTM / "pair_1_family_a.xlsx", frd, config, provider=provider,
+    pair = resolve_pair(STTM / "pair_1_family_a.xlsx", frd, pre_m9, provider=provider,
                         cache_dirs=no_cache, runtime_cache_dir=runtime, generated_date="2026-01-01")
-    assert pair.sttm.complete
+    assert pair.sttm.complete and pair.provider_calls == 1
     outputs = [json.dumps(pair.report(), ensure_ascii=False),
                pair.sttm.profile.model_dump_json(),
                "\n".join(pair.flags)]
-    for path in runtime.glob("*.json"):
+    # The runtime cache AND the rejection log (M9.1) — the canary role name the
+    # answer carried is written nowhere.
+    logged = list(runtime.rglob("*.json"))
+    assert any(p.parent.name == "rejections" for p in logged)
+    for path in logged:
         outputs.append(path.read_text(encoding="utf-8"))
     # The contract read through the resolved profile.
     frd_json = tmp_path / "pair1.frd.contract.json"
@@ -290,8 +315,16 @@ def test_no_model_string_reaches_any_output(config, no_cache, tmp_path):
 # ------------------------------------------------- (§9) pair-level cross-checks
 
 
-def test_pair1_cross_checks_agree_and_raise_confidence(config, no_cache, tmp_path):
-    pair = resolve_pair(STTM / "pair_1_family_a.xlsx", FRD / "f1_pair_1.docx", config,
+def test_pair1_cross_checks_agree_and_raise_confidence(pre_m9, no_cache, tmp_path):
+    # The DOCUMENTED-shape FRD (it names the feed, the schemas and the
+    # catalogs — test_frd_gapfill's builder), so every cross-check has two
+    # sides; the pre-M9 tables, so the model places the schema roles.
+    from test_frd_gapfill import _pair1_docx_without
+
+    config = pre_m9
+    frd_path = tmp_path / "f1_pair_1_documented.docx"
+    frd_path.write_bytes(_pair1_docx_without(set()))
+    pair = resolve_pair(STTM / "pair_1_family_a.xlsx", frd_path, config,
                         provider=MockLayoutProvider([MOCK, PROFILES]), cache_dirs=no_cache,
                         vdd_path=VDD / "pair_1_v1_segments.xlsx",
                         runtime_cache_dir=tmp_path / "runtime", generated_date="2026-01-01")
@@ -310,9 +343,11 @@ def test_pair1_cross_checks_agree_and_raise_confidence(config, no_cache, tmp_pat
         config.layout.model_confidence + config.layout.crosscheck_bonus)
     fmt = next(c for c in pair.cross_checks if c.name == "file_format")
     assert "Object/data Format" in fmt.frd_citation
-    assert fmt.sttm_citation.startswith("FEED_1_MAPPING!")
+    # The real sheet's format cell reads ".dat" (an extension): the agreeing
+    # statement is the VDD FILES sheet's.
+    assert fmt.sttm_citation.startswith("FILES!")
     # Second resolution of the same pair: served from the pair cache, zero calls.
-    again = resolve_pair(STTM / "pair_1_family_a.xlsx", FRD / "f1_pair_1.docx", config,
+    again = resolve_pair(STTM / "pair_1_family_a.xlsx", frd_path, config,
                          provider=MockLayoutProvider([MOCK, PROFILES]), cache_dirs=no_cache,
                          vdd_path=VDD / "pair_1_v1_segments.xlsx",
                          runtime_cache_dir=tmp_path / "runtime", generated_date="2026-01-01")

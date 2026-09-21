@@ -96,7 +96,10 @@ def _generate_feed(
     # M7.1: correctness gates are GLOBAL — sibling-type consistency is a flag
     # (never FAIL); the cell / literal / cap checks join the gate after the
     # framework emit for every profile.
-    extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
+    # (de-duplicated: the UI passes the layout stage's flags, and the FRD
+    # contract the layout stage wrote carries the same ones — M9.3)
+    extra_flags = [*dict.fromkeys([*(extra_flags or []), *spec.provenance_flags]),
+                   *drag_fill_flags(spec),
                    *sibling_type_flags(spec, config), *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
     # same review artifact and decision flow as Layer-2 candidates.
@@ -385,17 +388,19 @@ def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
     runtime_cache, push_cache = runtime_layout_cache(config, Path("."))
     doc, _wb = resolve_workbook(workbook, config, provider=None,
                                 runtime_cache_dir=runtime_cache)
-    if doc.questions:
-        answers, notes = apply_answers(load_answers(answers_path), doc.questions,
-                                       {"sttm": workbook.name})
-        for note in notes:
-            print(f"{'NOTE':<15} {note}")
-        if answers["sttm"]:
-            doc, _wb = resolve_workbook(workbook, config, provider=None,
-                                        runtime_cache_dir=runtime_cache,
-                                        answers=answers["sttm"])
-            print(f"{'ANSWERS':<15} {len(answers['sttm'])} answer(s) applied from "
-                  f"{answers_path} (source=user)")
+    # M9.1: an answer may set any role, open or not — the file is applied even
+    # when nothing is open (it then overrides a synonym / cached placement).
+    answers, notes = apply_answers(load_answers(answers_path), doc.questions,
+                                   {"sttm": workbook.name},
+                                   documents={"sttm": (doc.profile, _wb)})
+    for note in notes:
+        print(f"{'NOTE':<15} {note}")
+    if answers["sttm"]:
+        doc, _wb = resolve_workbook(workbook, config, provider=None,
+                                    runtime_cache_dir=runtime_cache,
+                                    answers=answers["sttm"])
+        print(f"{'ANSWERS':<15} {len(answers['sttm'])} answer(s) applied from "
+              f"{answers_path} (source=user)")
         push_cache()
     for question in doc.questions:
         print(f"{'UNRESOLVED':<15} {question.key} — {question.reason}")
@@ -455,6 +460,12 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     return 1 if undecided else 0
 
 
+def load_workbook_for_answers(path: Path):
+    from openpyxl import load_workbook
+
+    return load_workbook(path, data_only=True)
+
+
 def _layout(args: argparse.Namespace, config: Config) -> int:
     """Resolve and print the layout of a workbook (and optionally its FRD
     document): source per role, confidences, unresolved roles, the
@@ -486,17 +497,25 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         print(f"{'FAIL':<15} layout — state storage: {exc}")
         return 1
 
-    def resolve(answers: dict | None):
+    def resolve(answers: dict | None, refresh: bool = False):
         return resolve_pair(workbook, frd, config, vdd_path=vdd, provider=provider,
                             runtime_cache_dir=runtime_cache, use_cache=not args.no_cache,
-                            answers=answers)
+                            answers=answers, refresh=refresh)
 
-    result = resolve(None)
+    result = resolve(None, refresh=args.refresh)
     names = {"sttm": workbook.name, "frd": frd.name if frd else "", "vdd": vdd.name if vdd else ""}
-    if args.answers and result.questions:
+    if args.refresh:
+        print(f"{'REFRESH':<15} caches bypassed; runtime entries overwritten "
+              f"({result.provider_calls} provider call(s))")
+    if args.answers:
+        # M9.1: applied even when nothing is open — an answer may override a
+        # synonym / model / cached placement.
         try:
+            documents = {"sttm": (result.sttm.profile, load_workbook_for_answers(workbook))}
+            if vdd is not None and result.vdd is not None:
+                documents["vdd"] = (result.vdd.profile, load_workbook_for_answers(vdd))
             answers, notes = apply_answers(load_answers(Path(args.answers)), result.questions,
-                                           names)
+                                           names, documents=documents)
         except (AnswersFileError, OSError) as exc:
             print(f"{'FAIL':<15} layout — answers file: {exc}")
             return 1
@@ -541,6 +560,19 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
     if args.profile_out:
         Path(args.profile_out).write_text(
             result.sttm.profile.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+    if args.frd_contract_out:
+        if result.frd_contract is None:
+            print(f"{'FAIL':<15} layout — --frd-contract-out needs --frd")
+            return 1
+        from codegen.extract.frd_docx import contract_to_json as frd_contract_to_json
+
+        target = Path(args.frd_contract_out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(frd_contract_to_json(result.frd_contract), encoding="utf-8",
+                          newline="\n")
+        print(f"{'FRD CONTRACT':<15} {target} — feeds "
+              f"{[f.feed_name for f in result.frd_contract.feeds]} "
+              f"({len(result.gap_fills)} value(s) taken from the other documents)")
     if args.require_complete and result.questions:
         for question in result.questions:
             print(f"{'QUESTION':<15} {question.document} {question.key} — {question.reason}; "
@@ -1062,6 +1094,16 @@ def main(argv: list[str] | None = None) -> int:
     layout.add_argument("--dry-run", action="store_true",
                         help="mock provider (answers from fixtures/layout_profiles)")
     layout.add_argument("--no-cache", action="store_true", help="ignore cached profiles")
+    layout.add_argument("--frd-contract-out",
+                        help="write the FRD contract AS THE PAIR RESOLVED IT (a feed the FRD "
+                             "leaves unnamed is named after the STTM stage band, gaps filled "
+                             "from the STTM / VDD, each flagged) — use it for extract-sttm / "
+                             "generate instead of a separate extract-frd")
+    layout.add_argument("--refresh", action="store_true",
+                        help="re-resolve past every cache AND overwrite the runtime cache "
+                             "entries (a result with open questions tombstones them); the "
+                             "reasons a model answer was rejected are written to "
+                             "<runtime cache>/rejections/<fingerprint>.json")
     layout.add_argument("--json", action="store_true", help="print the report as JSON")
     layout.add_argument("--profile-out", help="write the resolved STTM profile JSON here")
     layout.add_argument("--answers", help="answers.yaml placing unresolved roles by hand: "
@@ -1338,9 +1380,22 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — a storage URI / auth problem, named
         print(f"{'FAIL':<15} outputs storage — {exc}")
         return 1
+    # M9: `generate` parsed --vdd / --profile / --iig-template /
+    # --playbook-template and then dropped them (the notebook run inside ACFC
+    # had to edit config.yaml to select acfc_prx, and its VDD never reached
+    # the gate). generate-all has none of these flags: getattr -> None.
+    vdd_contract = getattr(args, "vdd_contract", None)
+    try:
+        vdd_path = _contract_path(vdd_contract, config) if vdd_contract else None
+    except FileNotFoundError as exc:
+        print(f"{'FAIL':<15} {exc}")
+        return 1
     code = _run_pairs(
         pairs, config, only_feed=only_feed, dry_run=args.dry_run,
-        skip_tests=args.skip_tests, output_mode=args.output_mode
+        skip_tests=args.skip_tests, output_mode=args.output_mode, vdd_path=vdd_path,
+        conventions_profile=getattr(args, "conventions_profile", None),
+        iig_template=getattr(args, "iig_template", None),
+        playbook_template=getattr(args, "playbook_template", None),
     )
     push_outputs()
     return code

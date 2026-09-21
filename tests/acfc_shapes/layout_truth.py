@@ -15,17 +15,9 @@ from __future__ import annotations
 
 # fixture -> {"<sheet>/<layer>/<role>": column}
 STTM_CURATED: dict[str, dict[str, int]] = {
-    "pair_1_family_a.xlsx": {
-        "FEED_1_MAPPING/source/source_type": 5,          # "Format"
-        "FEED_1_MAPPING/stage/schema": 18,               # "Target Schema Name in DL"
-        "FEED_1_MAPPING/stage/table": 19,                # "Target Table Name in DL"
-        "FEED_1_MAPPING/stage/column": 20,               # "Target_Column_Name_in_DL"
-        "FEED_1_MAPPING/stage/target_type": 21,          # "Target Data Type in DL"
-        "FEED_1_MAPPING/standard/schema": 24,
-        "FEED_1_MAPPING/standard/table": 25,
-        "FEED_1_MAPPING/standard/column": 26,
-        "FEED_1_MAPPING/standard/target_type": 27,
-    },
+    # M9: the "… in DL" target headers and "Format" are synonyms now (the two
+    # ACFC captures, HANDOVER_GENIE.md / PAIR1_HEADERS.md): nothing is curated.
+    "pair_1_family_a.xlsx": {},
     "pair_8_family_a.xlsx": {
         "FEED_8_LAYOUT/source/field_name": 3,            # "Input File"
         "FEED_8_LAYOUT/source/description": 5,           # "Data Definition"
@@ -41,7 +33,6 @@ STTM_CURATED: dict[str, dict[str, int]] = {
     "pair_5_family_e.xlsx": {},
     "pair_7_family_e.xlsx": {
         "MAPPING_FEED_7/source/required": 3,             # "Mandatory or Situational"
-        "MAPPING_FEED_7/source/source_type": 6,          # "Format"
         "MAPPING_FEED_7/source/length": 7,               # "Size"
         "MAPPING_FEED_7/stage/column": 11,               # "Stage Table - Column Name"
         "MAPPING_FEED_7/stage/target_type": 12,          # "Stage Table - DataType"
@@ -90,7 +81,7 @@ ADVERSARIAL: dict[str, dict] = {
     },
     "adversarial_role_at_data_column.json": {
         "mutation": "data_column",
-        "reason_fragment": "header cell at column 30 is empty",
+        "reason_fragment": "header cell at column 40 is empty",
     },
     "adversarial_invented_sheet.json": {
         "mutation": "phantom_sheet",

@@ -138,6 +138,9 @@ export interface DemoStatus {
   // FRD fields taken from another document (or the person's choice) while
   // resolving the layout — shown as "Taken from other documents".
   layout_fills?: { field: string; title: string; value: string; source: string; cell: string }[];
+  // M9.1 "re-resolve layout": armed for the next run (one shot) — every cached
+  // layout profile is bypassed and the runtime cache entries are overwritten.
+  layout_refresh?: boolean;
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
@@ -586,11 +589,19 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
   demoStatus: () => request<DemoStatus>("/api/demo/status"),
-  layoutAnswers: (body: { answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean }) =>
+  layoutAnswers: (body: {
+    answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean; refresh?: boolean;
+  }) =>
     request<DemoStatus>("/api/demo/layout-answers", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+    }),
+  layoutRefresh: (enabled: boolean) =>
+    request<DemoStatus>("/api/demo/layout-refresh", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled }),
     }),
   layoutAdvice: () =>
     request<DemoStatus>("/api/demo/layout-advice", {

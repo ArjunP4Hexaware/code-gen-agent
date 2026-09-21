@@ -256,6 +256,9 @@ class DiscoveryConfig(BaseModel):
     roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
     # meta key -> label spellings (label:value rows above the band row).
     meta_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # M9.0: placeholders a meta VALUE cell writes for "nothing stated yet"
+    # ("TBD") — read as blank, so the fallback chain looks further.
+    meta_blank_values: list[str] = Field(default_factory=list)
     # canonical segment (Header/Detail/Trailer) -> spellings seen in Segment
     # columns, sheet names and in-sheet banner rows.
     segment_synonyms: dict[str, list[str]] = Field(default_factory=dict)
@@ -322,6 +325,12 @@ class FrdExtractorConfig(BaseModel):
     nested_table_header_words: list[str] = Field(default_factory=list)
     # M7: how much of a refused cell's text the contract keeps (logged only).
     structured_text_max_chars: int = Field(default=200, gt=0)
+    # M9.3: an inline LAYER BLOCK inside a target cell — a heading line
+    # "<layer marker> <heading word>:" ("Staging Layer:"; the markers are
+    # target_schema_markers) followed by "Label: value" lines. Heading words
+    # and the label spellings per slot (table / schema / catalog) are data.
+    layer_block_heading_words: list[str] = Field(default_factory=list)
+    layer_block_labels: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class VddExtractorConfig(BaseModel):
@@ -354,6 +363,11 @@ class ExtractorConfig(BaseModel):
     table_block_headers: list[str] = Field(min_length=4, max_length=4)
     recycle_header_prefix: str
     audit_source_markers: list[str] = Field(min_length=1)
+    # M9.2: target-column cell texts (normalized) by which an STTM says a
+    # source field is NOT mapped ("Do Not Map"). Such a field is left out of
+    # both layers and flagged field_unmapped:<field>, citing the cell. Empty =
+    # no marker is recognised (the row then fails loudly for its missing type).
+    unmapped_markers: list[str] = Field(default_factory=list)
     file_details_headers: ExtractorFileDetailsHeaders
     recycle_on_match: str
     recycle_on_no_match: str
@@ -906,6 +920,10 @@ class ConventionsConfig(BaseModel):
     # profile's own default_catalog wins): pairs whose FRD / STTM state no
     # catalog resolve to it with provenance `config_default`. Empty = none.
     default_catalog: dict[str, str] = Field(default_factory=dict)
+    # M9.2: the LAST link of the SCHEMA chain (layer -> schema): STTM target
+    # band -> FRD 'Target Catalog and Schema' -> here, each with provenance;
+    # none of the three = the extractor's hard stop. Empty = none.
+    default_schema: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _profile_exists(self) -> ConventionsConfig:

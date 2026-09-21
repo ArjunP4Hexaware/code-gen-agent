@@ -98,6 +98,10 @@ class DemoRunner:
         # FRD fields taken from another document / the person's choice while
         # resolving the layout: [{field, title, value, source, cell}].
         self.layout_fills: list[dict] = []
+        # M9.1 "re-resolve layout": the next layout resolution bypasses every
+        # cached profile and overwrites the runtime entries (one shot — set
+        # before a run, or from the needs_layout dialog).
+        self.layout_refresh: bool = False
         self._layout_event = threading.Event()
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
@@ -518,6 +522,7 @@ class DemoRunner:
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,
             "layout_fills": list(self.layout_fills),
+            "layout_refresh": self.layout_refresh,
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
             # M8.1: input roots whose last listing failed (label -> API message).
@@ -551,13 +556,22 @@ class DemoRunner:
         return self.layout_advice
 
     def answer_layout(self, answers: dict | None, *, proceed: bool = False,
-                      cancel: bool = False) -> None:
+                      cancel: bool = False, refresh: bool = False) -> None:
         """Deliver the human's role placements to the waiting run (or tell
-        it to proceed with empties / to stop)."""
+        it to proceed with empties / to stop). ``refresh`` (M9.1) re-resolves
+        the layout past every cached profile instead."""
         if self.state != "needs_layout":
             raise LiveRunInProgress("no live run is waiting for layout answers")
-        self._layout_answers = {"answers": answers or {}, "proceed": proceed, "cancel": cancel}
+        self._layout_answers = {"answers": answers or {}, "proceed": proceed, "cancel": cancel,
+                                "refresh": refresh}
         self._layout_event.set()
+
+    def set_layout_refresh(self, enabled: bool) -> None:
+        """Arm / disarm "re-resolve layout" for the NEXT run (one shot)."""
+        if self.state in ("running", "needs_layout"):
+            raise LiveRunInProgress("a live run is in progress — re-resolve from its layout "
+                                    "dialog, or wait for it to finish")
+        self.layout_refresh = bool(enabled)
 
     def _resolve_layout(self, workbook_path: Path, frd_path: Path, config,
                         vdd_path: Path | None = None):
@@ -571,10 +585,15 @@ class DemoRunner:
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
         runtime_cache = ui_stores.layout_cache_dir(config)
         answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+        refresh, self.layout_refresh = self.layout_refresh, False        # one shot
         while True:
+            if refresh:
+                self._stage("re-resolve layout", "cached layout profiles bypassed; the runtime "
+                                                 "entries are overwritten")
             result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                   answers=answers, runtime_cache_dir=runtime_cache,
-                                  base_dir=REPO_ROOT, vdd_path=vdd_path)
+                                  base_dir=REPO_ROOT, vdd_path=vdd_path, refresh=refresh)
+            refresh = False
             self.layout_report = result.report()
             self.layout_fills = list(result.gap_fills)
             if not result.questions:
@@ -593,6 +612,12 @@ class DemoRunner:
             self.layout_questions = []
             if reply.get("cancel"):
                 raise RuntimeError("layout resolution cancelled by the user")
+            if reply.get("refresh"):
+                # Start over past the caches: the answers given so far were
+                # answers to the OLD profile's questions.
+                answers = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+                refresh = True
+                continue
             merged = parse_answers(reply.get("answers") or {})
             answers = {"sttm": {**answers["sttm"], **merged["sttm"]},
                        "frd": {**answers["frd"], **merged["frd"]},

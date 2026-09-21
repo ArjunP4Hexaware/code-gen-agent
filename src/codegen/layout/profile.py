@@ -180,8 +180,11 @@ ROLE_DEFINITIONS: dict[Role, str] = {
 REQUIRED_ROLES: dict[Layer, tuple[Role, ...]] = {
     "source": (Role.FIELD_NAME,),
     "rules": (),
-    "stage": (Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
-    "standard": (Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
+    # M9.1: the schema is REQUIRED in both target bands (a profile without it
+    # extracted an empty schema inside ACFC and nothing asked); the catalog
+    # stays optional — the catalog chain ends in a config default.
+    "stage": (Role.SCHEMA, Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
+    "standard": (Role.SCHEMA, Role.TABLE, Role.COLUMN, Role.TARGET_TYPE),
     "files": (Role.FILE_PATTERN,),
     "fields": (Role.FIELD_NAME, Role.DATA_TYPE, Role.LENGTH),
 }
@@ -289,6 +292,20 @@ def confidence_key(sheet: str, layer: str, role: Role | str) -> str:
     return f"{sheet}/{layer}/{role.value if isinstance(role, Role) else role}"
 
 
+def missing_required_roles(profile: LayoutProfile) -> list[str]:
+    """``"<sheet>/<layer>/<role>"`` for every REQUIRED role a role-bearing
+    sheet's band does not place (M9.1). Independent of ``profile.unresolved``
+    — a cached or model-made profile can omit a role AND the note that it is
+    missing; such a profile is never cached and never trusted from a cache."""
+    missing: list[str] = []
+    for sheet in profile.role_sheets:
+        for band in sheet.bands:
+            for role in REQUIRED_ROLES.get(band.layer, ()):
+                if band.column(role) is None:
+                    missing.append(confidence_key(sheet.name, band.layer, role))
+    return missing
+
+
 __all__ = [
     "ROLE_BEARING_KINDS",
     "ROLE_DEFINITIONS",
@@ -304,4 +321,5 @@ __all__ = [
     "SheetProfile",
     "UnresolvedRole",
     "confidence_key",
+    "missing_required_roles",
 ]

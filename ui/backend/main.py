@@ -382,6 +382,7 @@ class LayoutAnswersRequest(BaseModel):
     answers: dict = {}
     proceed: bool = False
     cancel: bool = False
+    refresh: bool = False  # M9.1: re-resolve past every cached profile instead
 
 
 @app.post("/api/demo/layout-answers")
@@ -389,15 +390,35 @@ def layout_answers(req: LayoutAnswersRequest) -> dict:
     """The human's role placements for a run paused in ``needs_layout``
     (M2.5 §6): ``answers`` = ``{"sttm": {"<sheet>/<layer>/<role>": col},
     "frd": {"<field>": {table,row,col,…}}}``; ``proceed`` continues with the
-    remaining roles read as empty (gate-flagged); ``cancel`` stops the run."""
+    remaining roles read as empty (gate-flagged); ``cancel`` stops the run;
+    ``refresh`` re-resolves the layout past every cached profile (M9.1)."""
     from codegen.layout.resolve import parse_answers
 
     runner = _require_runner()
     try:
         parse_answers(req.answers)
-        runner.answer_layout(req.answers, proceed=req.proceed, cancel=req.cancel)
+        runner.answer_layout(req.answers, proceed=req.proceed, cancel=req.cancel,
+                             refresh=req.refresh)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return runner.status()
+
+
+class LayoutRefreshRequest(BaseModel):
+    enabled: bool = True
+
+
+@app.post("/api/demo/layout-refresh")
+def layout_refresh(req: LayoutRefreshRequest) -> dict:
+    """M9.1 "re-resolve layout": arm (or disarm) a one-shot bypass of every
+    cached layout profile for the NEXT run; its runtime cache entries are
+    overwritten by what the run resolves. 409 while a run is in progress
+    (its layout dialog has its own re-resolve action)."""
+    runner = _require_runner()
+    try:
+        runner.set_layout_refresh(req.enabled)
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
     return runner.status()

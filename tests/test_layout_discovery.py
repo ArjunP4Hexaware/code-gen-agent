@@ -42,16 +42,18 @@ TARGET_SEG = ["catalog", "column", "constraints", "field_description", "mandator
 #                       {layer -> resolved roles}, [unresolved "layer/role"])}
 EXPECTED: dict[str, tuple[str, dict]] = {
     "pair_1_family_a.xlsx": ("content", {
+        # M9: the real-shape sheet resolves FULLY by synonyms ("… in DL",
+        # "Format"); Detail counts the "Do Not Map" row — the reader keeps it,
+        # the contract builder leaves it out with a field_unmapped flag.
         "FEED_1_MAPPING": (
-            {"Header": 8, "Detail": 12, "Trailer": 3}, 0,
+            {"Header": 8, "Detail": 13, "Trailer": 3}, 3,
             {"source": ["description", "end", "field_name", "length", "ordinal", "required",
-                        "segment", "start"],
+                        "segment", "source_type", "start"],
              "rules": ["critical", "data_definition", "load_rule", "not_null", "pii",
                        "primary_key"],
-             "stage": ["catalog", "workspace"],
-             "standard": ["catalog", "workspace"]},
-            ["stage/table", "stage/column", "stage/target_type",
-             "standard/table", "standard/column", "standard/target_type"],
+             "stage": TARGET_FULL,
+             "standard": TARGET_FULL},
+            [],
         )}),
     "pair_8_family_a.xlsx": ("content", {
         "FEED_8_LAYOUT": (
@@ -106,7 +108,7 @@ EXPECTED: dict[str, tuple[str, dict]] = {
     "pair_7_family_e.xlsx": ("content", {
         "MAPPING_FEED_7": (
             {"-": 12}, 0,
-            {"source": ["comments", "description", "field_name", "ordinal", "pii"],
+            {"source": ["comments", "description", "field_name", "ordinal", "pii", "source_type"],
              "stage": ["schema", "table"],
              "standard": ["schema", "table", "target_type"],
              "rules": ["comments", "dq_mandatory", "recycle_flag"]},
@@ -364,7 +366,6 @@ def test_family_b_pair2_goes_through_the_legacy_strategy_with_provenance(config,
 
 
 @pytest.mark.parametrize("name,fragment", [
-    ("pair_1_family_a.xlsx", "stage band has no values for ['table', 'column', 'target_type']"),
     ("pair_8_family_a.xlsx", "no field rows could be read"),
     ("pair_7_family_e.xlsx", "stage band has no values for ['column', 'target_type']"),
 ])

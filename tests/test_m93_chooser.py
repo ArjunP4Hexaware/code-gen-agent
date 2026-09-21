@@ -257,7 +257,12 @@ def test_failed_download_leaves_the_sttm_unselected_with_the_reason(ws):
     assert runner.status()["selection_error"] is None and runner.selected_workbook is not None
 
 
-def test_a_failed_state_write_fails_the_selection_too(ws):
+def test_a_failed_state_write_warns_and_keeps_the_selection(ws):
+    """Recording the choice is a convenience (it survives a container restart);
+    a state folder the App cannot write is a deployment note, NOT a reason to
+    throw the person's choice away. v0.5.4 failed the selection here — on a
+    workspace whose state folder was read-only, choosing an STTM then did
+    nothing at all."""
     ws.pairs("pair_1")
     runner = ws.runner()
     upload = ws.fake.workspace.upload
@@ -268,10 +273,26 @@ def test_a_failed_state_write_fails_the_selection_too(ws):
         return upload(path, content, **kw)
 
     ws.fake.workspace.upload = refuse
-    with pytest.raises(SelectionFailed, match="recording the selection in the state role failed"):
-        runner.select_workbook("STTM_alpha.xlsx")
-    assert runner.selected_workbook is None
-    assert "state folder is read-only" in runner.status()["selection_error"]["message"]
+    local = runner.select_workbook("STTM_alpha.xlsx")
+    assert local.name == "STTM_alpha.xlsx" and runner.selection()["sttm"] == "STTM_alpha.xlsx"
+    assert runner.status()["selection_error"] is None
+    job = runner.job_view()
+    assert job["state"] == "done"
+    assert [s["state"] for s in job["steps"] if s["step"] == "record"] == ["warning"]
+    assert any("state folder is read-only" in w for w in job["warnings"]), job["warnings"]
+
+
+def test_a_pairing_that_raises_never_discards_the_chosen_sttm(ws, monkeypatch):
+    ws.pairs("pair_1")
+    runner = ws.runner()
+    monkeypatch.setattr(runner, "_plan_pair",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("pairing exploded")))
+    assert runner.select_workbook("STTM_alpha.xlsx").name == "STTM_alpha.xlsx"
+    assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": None, "vdd": None}
+    job = runner.job_view()
+    assert job["state"] == "done"
+    assert [s["state"] for s in job["steps"] if s["step"].startswith("pair")] == ["warning",
+                                                                                  "warning"]
 
 
 def _api(monkeypatch, ws):

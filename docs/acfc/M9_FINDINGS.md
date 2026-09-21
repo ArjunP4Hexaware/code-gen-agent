@@ -148,6 +148,26 @@ call that never return (POST answers in < 1 s, `/api/feeds` answers, the status
 shows the timed-out step), a parser that never answers (killed), upstream off
 by default and never called, one selection record, a Clear superseding a job.
 
+## 8. v0.5.6 — why the picker looked stuck
+
+From the App (2026-09-21): `STTM '<file>' was NOT selected — recording the
+selection in the state role failed: StorageError: write workspace:<state>/
+selection.json failed: Missing required permissions [Manage] on node with ID
+<id>`. The App's service principal held CAN_EDIT on the state folder; creating
+a NEW file in a Workspace directory requires CAN_MANAGE. Two changes:
+
+1. **Deployment:** state / outputs / inputs need **Can Manage**, not Can Edit
+   (`docs/ACFC_DEPLOY.md` §3).
+2. **Code:** recording the choice — and pairing it — are best-effort. A
+   failure is a `warning` on the selection job; the STTM stays selected and
+   the run proceeds. Only locating and reading the workbook can fail a
+   selection. Without the grant the agent works; the choice just does not
+   survive a container restart.
+
+Also: a stale `ui/frontend/dist` against a v0.5.5+ backend blanks the page
+(the old bundle expects `200 {workbooks}` and gets `202 {job}`); re-sync the
+bundle and check the asset hash the page names.
+
 ## 4. Open items
 
 1. **The two documents on the remote branch are not scrubbed** (client table /

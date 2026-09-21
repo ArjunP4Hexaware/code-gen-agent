@@ -709,10 +709,22 @@ class DemoRunner:
                 "(each step has a timeout) and choose again")
         self._job_seq += 1
         job = {"id": self._job_seq, "kind": kind, "name": name, "state": "running",
-               "steps": [], "error": None, "pairing": {}, "result": None}
+               "steps": [], "error": None, "pairing": {}, "result": None, "warnings": []}
         self.selection_job = job
         self._job_done.clear()
         return job
+
+    def _try_step(self, job: dict, step: str, work, timeout: float, fallback):
+        """A step that must NEVER discard the person's choice: pairing is an
+        assist and recording is a convenience — a failure is a ``warning`` on
+        the job (and a note the UI shows), not a failed selection. Only
+        locating and reading the document itself can fail a selection."""
+        try:
+            return self._step(job, step, work, timeout)
+        except Exception as exc:  # noqa: BLE001 — said on the step, never fatal
+            job["steps"][-1]["state"] = "warning"
+            job.setdefault("warnings", []).append(f"{step}: {exc}")
+            return fallback
 
     def _step(self, job: dict, step: str, work, timeout: float):
         """Run ONE step in its own thread and wait ``timeout`` for it. ``work``
@@ -761,7 +773,8 @@ class DemoRunner:
         job = self.selection_job
         if job is None:
             return None
-        return {**job, "steps": [dict(s) for s in job["steps"]]}
+        return {**job, "steps": [dict(s) for s in job["steps"]],
+                "warnings": list(job.get("warnings", []))}
 
     def wait_selection(self, timeout: float = 60.0) -> dict | None:
         """Block until the current selection job has finished (tests, the upload
@@ -818,19 +831,28 @@ class DemoRunner:
                 # Not a reason to refuse the person's choice (the run will say
                 # what is wrong with the file) — but said: it pairs by name only.
                 job["steps"][-1]["state"] = "warning"
+            # From here on the STTM IS the person's choice: pairing it and
+            # recording it are best-effort (a warning), never a reason to throw
+            # the choice away — the run refuses on its own if an input is
+            # missing, and a state role that cannot be written is a deployment
+            # note, not a failed selection.
             step = "pairing its FRD"
-            frd = self._step(job, "pair FRD", lambda d: self._plan_pair("frd", name, d), timeout)
-            job["pairing"]["frd"] = frd["outcome"]
+            frd = self._try_step(job, "pair FRD", lambda d: self._plan_pair("frd", name, d),
+                                 timeout, None)
+            if frd is not None:
+                job["pairing"]["frd"] = frd["outcome"]
             step = "pairing its VDD"
-            vdd = self._step(job, "pair VDD", lambda d: self._plan_pair("vdd", name, d), timeout)
-            job["pairing"]["vdd"] = vdd["outcome"]
+            vdd = self._try_step(job, "pair VDD", lambda d: self._plan_pair("vdd", name, d),
+                                 timeout, None)
+            if vdd is not None:
+                job["pairing"]["vdd"] = vdd["outcome"]
             step = "recording the selection in the state role"
             chosen = {"sttm": name,
-                      "frd": frd["decision"].chosen or (
+                      "frd": (frd["decision"].chosen if frd else None) or (
                           None if self.frd_auto_paired is not None else self.selection()["frd"]),
-                      "vdd": vdd["decision"].chosen or (
+                      "vdd": (vdd["decision"].chosen if vdd else None) or (
                           None if self.vdd_auto_paired is not None else self.selection()["vdd"])}
-            self._step(job, "record", lambda _d: self._persist_selection(chosen), timeout)
+            self._try_step(job, "record", lambda _d: self._persist_selection(chosen), timeout, None)
             with self._lock:                       # state mutation ONLY — no I/O in here
                 if self.selection_job is not job or job["state"] != "running":
                     return                           # superseded (a Clear): change nothing
@@ -839,8 +861,10 @@ class DemoRunner:
                                             "selected — the selection was not applied")
                 self.selected_workbook = local
                 self.last_pairing = {}
-                self._apply_pair("frd", frd)
-                self._apply_pair("vdd", vdd)
+                if frd is not None:
+                    self._apply_pair("frd", frd)
+                if vdd is not None:
+                    self._apply_pair("vdd", vdd)
                 self.selection_error = None
             self._finish_job(job)
         except BaseException as exc:  # noqa: BLE001 — a job thread must end in a visible state

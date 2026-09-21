@@ -426,6 +426,30 @@ carry `length='10,2'`. Summary: `docs/acfc/M9_FINDINGS.md` §6; tests:
   pair — the golden DDL has no such columns (acceptance stays byte-identical).
   **UNVERIFIED:** the VDD span of those fields (13 bytes in the variant).
 
+### v0.5.6-acfc (2026-09-21): a document stays chosen (picker fix)
+
+Reported from the ACFC App: choosing an STTM "doesn't reflect in an actual
+choice". The job's `record` step failed — the App's SP has **CAN_EDIT** on the
+state folder, and CREATING `selection.json` in a Workspace directory needs
+**CAN_MANAGE** (`Missing required permissions [Manage] on node with ID …`) —
+and v0.5.4 / v0.5.5 treated that as a failed selection.
+
+- `DemoRunner._try_step`: **pair FRD / pair VDD / record are best-effort** —
+  the step becomes `warning`, `job["warnings"]` carries the message, the STTM
+  stays selected. Only locate / download / a timed-out classify fail a
+  selection. `tests/test_m93_chooser.py::test_a_failed_state_write_warns_and_
+  keeps_the_selection` (was `…_fails_the_selection_too` — the v0.5.4 test
+  encoded the wrong rule) and `…_pairing_that_raises_never_discards_…`.
+- Frontend: the status is polled the whole time the chooser is open (never a
+  stale "none chosen"); the reason Generate is disabled is written next to it;
+  a failed selection also shows with the modal closed; a startup `restore` job
+  no longer disables the picker.
+- Deploy: `docs/ACFC_DEPLOY.md` §3 now says **Can Manage** on state / outputs /
+  inputs (Can Edit cannot create a file). **A stale `ui/frontend/dist` against
+  a v0.5.5+ backend blanks the page** (the old bundle expects `200
+  {workbooks}`, gets `202 {job}`) — verified locally by serving the v0.5.4
+  bundle against the new backend.
+
 ### v0.5.5-acfc (2026-09-21): the chooser can no longer hang the App (M9.3 addendum)
 
 From `docs/acfc/APP_CHOOSER_BUG.md` on `origin/acfc-runs` (UNSCRUBBED — real

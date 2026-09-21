@@ -350,17 +350,24 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   // the status; when it ends, refresh the lists. What is selected is read from
   // ONE place: status.selection (never the list rows' own flags).
   const selectionJob = status?.selection_job ?? null;
-  const selecting = selectionJob?.state === "running";
+  // A job the PERSON started. The startup `restore` job must never disable the
+  // chooser: choosing supersedes it, and a slow restore would otherwise lock
+  // the page for as long as its steps take.
+  const selecting = selectionJob?.state === "running" && selectionJob.kind !== "restore";
   const upstreamLoading = choosing && frdChoices?.upstream_state === "loading";
   const lastJobRef = useRef<string | null>(null);
+  // Poll the status while anything can still change what is selected — and the
+  // whole time the chooser is open, so the page can never sit on a stale status
+  // (a selection that ended while nothing was polling left Generate disabled
+  // with no visible reason).
   useEffect(() => {
-    if (!selecting && !upstreamLoading) return;
+    if (!choosing && !selecting && !upstreamLoading) return;
     const timer = setTimeout(() => {
       api.demoStatus().then(setStatus).catch(() => {});
       if (upstreamLoading) api.frdChoices().then(setFrdChoices).catch(() => {});
-    }, 700);
+    }, selecting ? 700 : 1500);
     return () => clearTimeout(timer);
-  }, [status, selecting, upstreamLoading, frdChoices]);
+  }, [status, choosing, selecting, upstreamLoading, frdChoices]);
   useEffect(() => {
     const key = selectionJob ? `${selectionJob.id}:${selectionJob.state}` : null;
     if (key === lastJobRef.current) return;
@@ -908,6 +915,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </p>
             ) : null}
 
+            {!choosing && !chosen.sttm && (status?.selection_error
+              || (selectionJob?.state === "failed"
+                  && selectionJob.error?.code !== "superseded")) ? (
+              // A selection that failed is readable with the chooser CLOSED too
+              // (it used to be rendered inside the modal only).
+              <div className="flag-hitl" style={{ padding: "8px 10px", margin: "6px 0" }}>
+                <strong>The STTM is not selected.</strong>{" "}
+                <span className="hint">
+                  {status?.selection_error?.message ?? selectionJob?.error?.message}
+                </span>{" "}
+                <button className="btn" onClick={openChooser}>Choose documents…</button>
+              </div>
+            ) : null}
             {liveAvailable === false ? (
               <div className="empty">
                 Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
@@ -936,6 +956,18 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {running ? "Live run in progress…" : "Generate from this STTM…"}
               </button>
             )}
+            {!running && liveAvailable !== false && (selecting || !chosen.sttm
+              || outputParts.size === 0) ? (
+              // Say why the button is dead — a title attribute is invisible
+              // until someone hovers it.
+              <span className="hint" style={{ marginLeft: 10 }}>
+                {selecting
+                  ? `selecting ${selectionJob?.name ?? "the documents"}…`
+                  : !chosen.sttm
+                    ? "choose an STTM workbook first (Choose documents…)"
+                    : "choose at least one output"}
+              </span>
+            ) : null}
             {status && !running ? (
               <label className="hint" style={{ display: "block", marginTop: 8 }}
                      title="The next run ignores every cached layout profile of these documents, resolves the layout again (synonyms, then the model, then you) and overwrites the cached entries.">
@@ -1485,6 +1517,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       : s.state === "warning" ? "(read by name only)"
                       : s.state === "timed_out" ? "(timed out)" : "(failed)"}
                   </span>
+                ))}
+                {(selectionJob.warnings ?? []).map((w, i) => (
+                  <div key={`w-${i}`} style={{ marginTop: 4 }}>
+                    ⚠ {w} — the document stays selected.
+                  </div>
                 ))}
               </div>
             ) : null}

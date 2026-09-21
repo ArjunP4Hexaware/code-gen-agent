@@ -200,6 +200,9 @@ export interface SelectionJob {
   steps: { step: string; state: "running" | "done" | "failed" | "timed_out" | "warning"; detail: string }[];
   error: { code: "not_found" | "timeout" | "failed" | "superseded"; message: string } | null;
   pairing: { frd?: PairingOutcome; vdd?: PairingOutcome };
+  // steps that did not succeed but never discard the choice (pairing, and
+  // recording it in the state role)
+  warnings?: string[];
 }
 
 export interface FrdChoicesResponse {

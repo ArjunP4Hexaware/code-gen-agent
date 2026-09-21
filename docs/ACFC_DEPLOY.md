@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.5-acfc)
+# Deploying CodeGen inside ACFC (v0.5.6-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -86,15 +86,23 @@ are pulled back when listed).
 2. Find the App's service principal: `databricks apps get codegen-agent`
    → `service_principal_name` / `service_principal_client_id`.
 3. Share the folders with it (folder → **Share** → add the service
-   principal): **Can Edit** on `codegen/state` and `codegen/outputs` (and on
+   principal): **Can Manage** on `codegen/state` and `codegen/outputs` (and on
    `codegen/inputs`, which the App's upload and fetch write to); **Can Read**
-   on the `codegen/pairs` folder, which is only listed and downloaded. CLI
-   equivalent, once per folder:
+   on the `codegen/pairs` folder, which is only listed and downloaded.
+
+   **Can Edit is not enough on a folder the App writes NEW files into**
+   (observed 2026-09-21 in the ACFC workspace): with CAN_EDIT the first write
+   of `selection.json` fails with `Missing required permissions [Manage] on
+   node with ID …`. CAN_EDIT covers changing objects that already exist;
+   CREATING one in a directory is a Manage operation. The state role writes
+   `selection.json`, `document_index.json`, `decisions.json` and the layout
+   cache; the outputs role writes a run's artefacts. CLI equivalent, once per
+   folder:
 
    ```bash
    databricks workspace get-status /Users/<user>/codegen/state     # -> object_id
    databricks workspace update-permissions directories <object_id> --json \
-     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_EDIT"}]}'
+     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_MANAGE"}]}'
    databricks workspace get-status /Users/<user>/codegen/pairs     # -> object_id
    databricks workspace update-permissions directories <object_id> --json \
      '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_READ"}]}'
@@ -252,7 +260,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.5 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.6 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -310,6 +318,27 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.6-acfc adds (a document stays chosen)
+
+- **Pairing and recording are best-effort.** Only locating and reading the
+  workbook can fail a selection. When the FRD / VDD pairing raises, or the
+  state role cannot be written, the step is a **warning** on the job and the
+  STTM STAYS SELECTED. v0.5.4 / v0.5.5 failed the whole selection there: in
+  the ACFC workspace the App's SP had CAN_EDIT (not CAN_MANAGE) on the state
+  folder, `selection.json` could not be created, and choosing an STTM
+  therefore selected nothing at all — the picker looked stuck. Grant
+  **Can Manage** (§3) to have the choice survive a container restart; without
+  it the agent still runs, and says so on the job.
+- The page now polls the status the whole time the chooser is open, says in
+  plain text why Generate is disabled, and shows a failed selection with the
+  chooser CLOSED too (it used to be inside the modal only). A startup
+  `restore` job no longer disables the chooser.
+- **The UI bundle must match the backend.** The old bundle crashes (blank
+  page) against the 202-job response of v0.5.5+: if the App serves a stale
+  `ui/frontend/dist`, re-sync it — `databricks sync` honours a `.gitignore`
+  in the staged tree and silently skips `dist` (§"Deploying"). Check the
+  served page names the freshly built asset hash.
 
 ## What v0.5.5-acfc adds (the chooser can no longer hang the App)
 
@@ -370,7 +399,7 @@ which, and the App keeps answering.
   still listed, never retried on its own (only when its size / modified changes,
   or with **Retry**). Dictionaries are listed under the VDD heading, everything
   else under STTM; an unclassified workbook is badged, never hidden. The App's
-  service principal therefore needs **Can Edit** on the state folder (§3) — it
+  service principal therefore needs **Can Manage** on the state folder (§3) — it
   already did, for `decisions.json` and the layout cache.
 - **A selection succeeds or says why.** Choosing an STTM downloads it (bounded
   by `inputs.select_timeout_seconds`, 120), pairs it and records the choice in

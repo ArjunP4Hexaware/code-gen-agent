@@ -458,12 +458,18 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 f"{'/'.join(_CANONICAL_SEGMENTS)} vocabulary (extractor.discovery."
                 "segment_synonyms); the contract dialect cannot carry them")
 
+    _DNM = {"do not map", "dnm", "not mapped", "n/a", "na", "none"}
     fields: list[SttmField] = []
     for row in sheet.fields:
         field_name = _first(row, "source.field_name")
         assert field_name is not None
         stage_column = _first(row, "stage.column")
         stage_type = _first(row, "stage.target_type")
+        # "Do Not Map" / blank type → the STTM says skip this field.
+        if stage_column is not None and normalize(stage_column) in _DNM:
+            notes.append(f"sheet {name!r} row {row.row}: field {field_name!r} "
+                         f"stage column is {stage_column!r} — skipped")
+            continue
         if stage_column is None or stage_type is None:
             raise GenericExtractionError(
                 f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "

@@ -212,7 +212,7 @@ extractor:
       sub_domain: ["sub domain", "subdomain"]
     segment_synonyms:
       Header: ["header", "hdr", "hddr", "hr", "header record", "h"]
-      Detail: ["detail", "dtl", "det", "dr", "detail record", "d", "data"]
+      Detail: ["detail", "details", "dtl", "det", "dr", "detail record", "d", "data"]
       Trailer: ["trailer", "trl", "trlr", "tr", "trailer record", "t"]
     auxiliary_sheets:
       file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]

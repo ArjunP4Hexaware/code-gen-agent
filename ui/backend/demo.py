@@ -1149,7 +1149,14 @@ class DemoRunner:
                              "framework artefacts, RFC package, or All")
 
         job = self.selection_job
-        if job is not None and job["state"] == "running" and job["kind"] != "frd_upstream":
+        if job is not None and job["state"] == "running" and job["kind"] == "restore":
+            # The startup restore is not the person's act: starting a run
+            # supersedes it (as choosing a document does), so a slow workspace
+            # cannot refuse Generate for as long as the restore takes.
+            with self._lock:
+                if self.selection_job is job and job["state"] == "running":
+                    self._supersede(job, "a run was started before it finished")
+        elif job is not None and job["state"] == "running" and job["kind"] != "frd_upstream":
             # The documents are still being chosen: never the config default meanwhile.
             raise ValueError(f"{job['name']!r} is still being selected — wait for it to "
                              "finish before generating")

@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.7-acfc)
+# Deploying CodeGen inside ACFC (v0.5.8-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -260,7 +260,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.7 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.8 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -318,6 +318,19 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.8-acfc adds (Generate works right after a restart)
+
+Starting a run now supersedes the startup **restore** job instead of being
+refused by it ("'the recorded selection' is still being selected"). On a slow
+workspace that restore takes seconds per document, and it is not the person's
+act. Found by the new end-to-end test below, not on site.
+
+**A whole live run under remote roles is now tested**
+(`tests/test_remote_run_e2e.py`): inputs / state on a fake workspace, outputs
+on a fake volume, the real `_execute` — generate, list, push. Both v0.5.6 and
+v0.5.7 were App-only failures that a green suite missed because every other
+run test uses the default LOCAL roles; this one covers that shape.
 
 ## What v0.5.7-acfc adds (a run with a REMOTE outputs role finishes)
 

@@ -426,6 +426,21 @@ carry `length='10,2'`. Summary: `docs/acfc/M9_FINDINGS.md` §6; tests:
   pair — the golden DDL has no such columns (acceptance stays byte-identical).
   **UNVERIFIED:** the VDD span of those fields (13 bytes in the variant).
 
+### v0.5.8-acfc (2026-09-21): the remote-roles run is TESTED end to end
+
+`tests/test_remote_run_e2e.py` drives `DemoRunner`'s real `_execute` with
+inputs / state on a fake workspace and outputs on a fake volume (mock-locked
+Layer 2 AND layout): 3 feeds, files listed, 116 artefacts pushed. **Every
+other run test uses the default LOCAL roles** — which is why v0.5.6 and v0.5.7
+(both App-only) passed a green suite. Add to THIS test when touching the run
+path, not only to the local ones.
+
+It immediately found one more: `start_live` refused while the startup
+`restore` job ran ("'the recorded selection' is still being selected"), so on
+a remote state role Generate was dead for as long as the restore took. A run
+now SUPERSEDES a restore (as a person's document choice does); it still
+refuses while an STTM selection the person started is running.
+
 ### v0.5.7-acfc (2026-09-21): a remote outputs role no longer loses the run
 
 `storage.outputs` on a workspace root puts a run's working copy in the role's

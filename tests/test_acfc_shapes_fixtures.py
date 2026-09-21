@@ -211,13 +211,51 @@ def test_sttm_header_texts_are_verbatim(key):
 
 def test_pair1_meta_rows_labels_and_blanks():
     ws = _wb("sttm/pair_1_family_a.xlsx")["FEED_1_MAPPING"]
-    labels = [_row(ws, i)[0] for i in range(1, 13)]
+    # M9.0: the REAL sheet (HANDOVER_GENIE.md §2) — ten meta rows, no Load
+    # Strategy / Notes row; names / example / frequency read TBD, format .dat.
+    labels = [_row(ws, i)[0] for i in range(1, 11)]
     assert labels == ["File Names", "File Name Example", "Frequency", "File Format (text, csv)",
                       "File Delimiter", "Last Update Date", "Version", "LOB",
-                      "Target table Name Desc", "Feed Type", "Load Strategy", "Notes"]
-    blank = {i for i in range(1, 13) if _row(ws, i)[1] is None}
-    assert blank == {5, 6, 7, 10, 12}          # SHAPES_FOR_PORT §4, pair 1
-    assert _row(ws, 13) == [None] * 27          # r13 gap before the band row
+                      "Target table Name Desc", "Feed Type"]
+    values = [_row(ws, i)[1] for i in range(1, 11)]
+    assert values[:4] == ["TBD", "TBD", "TBD", ".dat"]
+    assert {i for i in range(1, 11) if values[i - 1] is None} == {5, 6, 7, 10}
+    assert values[7] and values[8]                                   # LOB, table desc
+    for gap in (11, 12, 13):
+        assert _row(ws, gap) == [None] * 30                          # nothing before the band row
+
+
+def test_pair1_band_and_header_rows_are_the_captured_geometry():
+    """M9.0 — rows 14 / 15 cell by cell as PAIR1_HEADERS.md §1 records them:
+    four merges, 27 header texts over 30 columns, J / Q / X empty."""
+    ws = _wb("sttm/pair_1_family_a.xlsx")["FEED_1_MAPPING"]
+    assert sorted(str(r) for r in ws.merged_cells.ranges) == [
+        "A14:I14", "K14:P14", "R14:W14", "Y14:AD14"]
+    band = {ws.cell(row=14, column=c).coordinate: ws.cell(row=14, column=c).value
+            for c in range(1, 31) if ws.cell(row=14, column=c).value is not None}
+    assert band == {"A14": "Source Data", "K14": "Data Rules and Primary Keys",
+                    "R14": "Staging Layer Table", "Y14": "Standard Layer Table"}
+    header = _row(ws, 15)
+    layer = ["Workspace", "Target Catalog", "Target Schema Name in DL",
+             "Target Table Name in DL", "Target_Column_Name_in_DL", "Target Data Type in DL"]
+    assert header == (["S.No", "Segment", "Field Name", "Required?", "Format", "Start", "Length",
+                       "End", "Description", None,
+                       "Data Definition", "PII", "Primary Key", "Critical Data", "Not NULL",
+                       "Load Rules", None] + layer + [None] + layer)
+    assert header[19] == header[26] == "Target Schema Name in DL"    # T / AA
+    assert header[20] == header[27] == "Target Table Name in DL"     # U / AB
+    rows = [r for r in ws.iter_rows(min_row=16, values_only=True) if any(c is not None for c in r)]
+    banners = [r[0] for r in rows if sum(c is not None for c in r) == 1]
+    assert banners == ["Header", "Details", "Trailer"]               # one per record block
+    data = [r for r in rows if sum(c is not None for c in r) > 1]
+    # Schema + table constants repeat on EVERY data row of both bands.
+    assert {(r[19], r[20]) for r in data} == {(pair1.STAGE_SCHEMA, pair1.TABLE)}
+    assert {(r[26], r[27]) for r in data} == {(pair1.STANDARD_SCHEMA, pair1.TABLE)}
+    assert all(r[9] is None and r[16] is None and r[23] is None for r in data)   # J, Q, X
+    unmapped = [r for r in data if r[21] == "Do Not Map"]
+    assert len(unmapped) == 1
+    assert unmapped[0][2] == "Reserved Group\n(01)" and unmapped[0][22] is None
+    assert unmapped[0][28] == "Do Not Map" and unmapped[0][29] is None
 
 
 def test_pair5_meta_rows_and_pair8_meta_rows():
@@ -300,10 +338,22 @@ def test_f1_pair1_blanks_and_values_match_the_document():
     assert values[("Descriptive Metadata", "Impact Details")] == ""
     for title in ("Administrative Metadata", "Data Quality", "Vendor Metadata"):
         assert values[(title, "Description")] == ""
-    assert values[("Structural Metadata", "Target Table Name")] == pair1.TABLE
+    # M9.0: the target cell is an inline layer block; no schema, no catalog.
+    assert values[("Structural Metadata", "Target Table Name")] == (
+        f"Staging Layer:\nTable: {pair1.TABLE}\nStandard Layer:\nTable: {pair1.TABLE}")
+    assert values[("Structural Metadata", "Target Catalog and Schema")] == ""
     assert values[("Structural Metadata", "Load Strategy STD (View)")] == "Append"
     assert values[("Vendor Metadata", "Vendor Abbreviation")] == "VND_P"
-    assert values[("Descriptive Metadata", "Object Name")] == pair1.FEED_NAME
+    # M9.0 (PAIR1_HEADERS.md §2): the label IS "Object Name"; its cell lists
+    # the files, one "<label>: <file name pattern>" line each; the Name row is
+    # a sentence about the requirement.
+    lines = values[("Descriptive Metadata", "Object Name")].split("\n")
+    assert [line.split(": ", 1)[1] for line in lines] == pair1.FILE_PATTERNS
+    assert all(": " in line for line in lines)
+    assert values[("Descriptive Metadata", "Name")].startswith(
+        "Descriptive Metadata for the ingestion of")
+    assert values[("Descriptive Metadata", "Tags/Keywords")] == (
+        f"Domain: {pair1.DOMAIN}\nSubdomain: {pair1.SUB_DOMAIN}")
 
 
 def test_f1_pair2_variant_blanks_match_the_document():
@@ -387,15 +437,17 @@ def test_pair1_sttm_columns_and_types_equal_the_aliased_golden_ddl():
     assert len(ddl_columns) == 2 * 24
     stage_block = ddl_columns[:24]
     ws = _wb("sttm/pair_1_family_a.xlsx")["FEED_1_MAPPING"]
-    rows = [r for r in ws.iter_rows(min_row=16, values_only=True) if any(c is not None for c in r)]
+    rows = [r for r in ws.iter_rows(min_row=16, values_only=True)
+            if sum(c is not None for c in r) > 1]                    # banner rows aside
+    rows = [r for r in rows if r[21] != "Do Not Map"]                # the unmapped field aside
     field_rows = [r for r in rows if r[2] != "NA"]
     audit_rows = [r for r in rows if r[2] == "NA"]
-    # Stage block: (Target_Column_Name_in_DL, Target Data Type in DL) at cols 20/21;
-    # standard block at cols 26/27 — identical to the DDL, distinct columns in order.
-    stage = (list(dict.fromkeys((r[19], r[20]) for r in field_rows))
-             + [(r[19], r[20]) for r in audit_rows])
-    standard = (list(dict.fromkeys((r[25], r[26]) for r in field_rows))
-                + [(r[25], r[26]) for r in audit_rows])
+    # Stage block: (Target_Column_Name_in_DL, Target Data Type in DL) at V / W;
+    # standard block at AC / AD — identical to the DDL, distinct columns in order.
+    stage = (list(dict.fromkeys((r[21], r[22]) for r in field_rows))
+             + [(r[21], r[22]) for r in audit_rows])
+    standard = (list(dict.fromkeys((r[28], r[29]) for r in field_rows))
+                + [(r[28], r[29]) for r in audit_rows])
     assert stage == stage_block == standard
     assert len(field_rows) == 23 and len(audit_rows) == 3
     assert "prx" not in ddl.lower() and "acfc" not in ddl.lower()
@@ -405,15 +457,15 @@ def test_pair1_sttm_columns_and_types_equal_the_aliased_golden_ddl():
 def test_pair1_vdd_frd_and_sttm_agree_on_fields_and_positions():
     ws = _wb("sttm/pair_1_family_a.xlsx")["FEED_1_MAPPING"]
     sttm = [(r[1], r[2], r[5], r[6]) for r in ws.iter_rows(min_row=16, values_only=True)
-            if r[2] not in (None, "NA")]
+            if r[2] not in (None, "NA") and r[21] != "Do Not Map"]
     v1 = _wb("vdd/pair_1_v1_segments.xlsx")["FEED_1 Fields"]
     vdd = [(r[9], r[1], r[3], r[5]) for r in v1.iter_rows(min_row=2, values_only=True)]
     canon = {"HDDR": "HDR", "DET": "DTL", "TRLR": "TRL"}
     assert [(canon[s], n, st, ln) for s, n, st, ln in sttm] == vdd
     sections = _sections(_docx_tables("frd/f1_pair_1.docx"))
     structural = {row[1]: row[2] for row in sections["Structural Metadata"][4:]}
-    assert structural["Target Table Name"] == pair1.TABLE
-    assert pair1.STAGE_SCHEMA in structural["Target Catalog and Schema"]
+    assert f"Table: {pair1.TABLE}" in structural["Target Table Name"].split("\n")
+    assert structural["Target Catalog and Schema"] == ""     # the STTM band states the schema
     descriptive = {row[1]: row[2] for row in sections["Descriptive Metadata"][4:]}
     for name in ("PROCESS_DATE", "PLAN_YEAR_START_DATE", "INDIVIDUAL_DEDUCTIBLE", "FAMILY_LIMIT"):
         assert name in descriptive["Solution Acceptance Criteria"]

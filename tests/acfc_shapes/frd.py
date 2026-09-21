@@ -96,10 +96,19 @@ def _common_tables(project: str, feed: str) -> tuple[list[str], list[str]]:
 
 
 def build_f1_pair1() -> bytes:
-    """F1 pair-1 variant: all canonical labels present; blanks exactly as §4
-    lists for pair 1 (Impact Details everywhere, Description on Admin/DQ/
-    Vendor, Traced/Related Requirements on Structural/Admin). Describes the
-    pair-1 golden columns (pair1.py)."""
+    """F1 pair-1 variant, in the shape the REAL pair-1 FRD has (M9.0; the
+    two ACFC captures on ``acfc-hotfix-1``: HANDOVER_GENIE.md §4 error 6 and
+    PAIR1_HEADERS.md §2). Structural Metadata: the ``Target Table Name`` cell
+    holds an inline layer block (``Staging Layer:`` / ``Table: …`` /
+    ``Standard Layer:`` / ``Table: …``) and the ``Target Catalog and Schema``
+    cell is blank — the document states no schema and no catalog.
+    Descriptive Metadata: the label IS ``Object Name``, but its cell names no
+    feed — it lists the inbound FILES, one ``<label>: <file name pattern>``
+    line each; the ``Name`` row is a sentence about the requirement, and
+    ``Tags/Keywords`` holds ``Domain: …`` / ``Subdomain: …`` lines. (NOT
+    modelled: the real ``Frequency`` cell is a compound schedule sentence —
+    open item.) Other blanks as §4 lists for pair 1. Values are synthetic /
+    the aliased golden's (pair1.py)."""
     feed = pair1.FEED_NAME
     stage = f"{pair1.STAGE_CATALOG}.{pair1.STAGE_SCHEMA}"
     standard = f"{pair1.STANDARD_CATALOG}.{pair1.STANDARD_SCHEMA}"
@@ -110,13 +119,14 @@ def build_f1_pair1() -> bytes:
     functional = (f"Ingest the {feed} fixed-width files from {pair1.VENDOR_NAME} into the stage "
                   f"table {stage}.{pair1.TABLE} and the standard table {standard}.{pair1.TABLE}.")
     sections = [
-        _section("Descriptive Metadata", feed, f"{feed} file ingestion", functional, DESCRIPTIVE, {
+        _section("Descriptive Metadata", pair1.FRD_REQUIREMENT_NAME, f"{feed} file ingestion",
+                 functional, DESCRIPTIVE, {
             "Data Source": pair1.VENDOR_NAME,
-            "Object Name": feed,
+            "Object Name": pair1.FRD_OBJECT_NAME_CELL,
             "Description": f"Accumulator balances exchanged with {pair1.VENDOR_NAME}",
             "Frequency": pair1.FREQUENCY,
             "LOBs": pair1.LOB,
-            "Tags/Keywords": "pharmacy; accumulator",
+            "Tags/Keywords": f"Domain: {pair1.DOMAIN}\nSubdomain: {pair1.SUB_DOMAIN}",
             "Government Program": "Medicaid",
             "Inbound Ingestion": "Yes",
             "SFG template (Y/N)": "Y",
@@ -132,8 +142,8 @@ def build_f1_pair1() -> bytes:
         }),
         _section("Structural Metadata", feed, f"{feed} structure", functional, STRUCTURAL_P1, {
             "Object/data Format": pair1.FILE_FORMAT,
-            "Target Catalog and Schema": f"STG: {stage}; STD: {standard}",
-            "Target Table Name": pair1.TABLE,
+            "Target Catalog and Schema": "",
+            "Target Table Name": pair1.FRD_TARGET_BLOCK,
             "Domain and Subdomain": f"{pair1.DOMAIN} / {pair1.SUB_DOMAIN}",
             "Load Strategy STG": "Append",
             "Load Strategy STD (View)": "Append",

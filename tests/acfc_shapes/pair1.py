@@ -79,6 +79,15 @@ SEGMENTS: dict[str, list[tuple[str, int, int]]] = {
     ],
 }
 
+# M9.0 (docs/acfc/HANDOVER_GENIE.md): every record block is introduced by a
+# banner row — the detail block's reads "Details" (plural) — and one detail
+# field's target column reads "Do Not Map" with no data type. The field name
+# carries the line break the real header cell has; the vocabulary is synthetic.
+SEGMENT_BANNERS = {"HDDR": "Header", "DET": "Details", "TRLR": "Trailer"}
+UNMAPPED_AFTER_SEGMENT = "DET"
+UNMAPPED_FIELD = ("Reserved Group\n(01)", 223, 10)     # name, start, length
+UNMAPPED_MARKER = "Do Not Map"
+
 # Golden DDL types, in golden column order (21 business columns).
 DDL_TYPES: dict[str, str] = {
     "SEGMENT_IDENTIFIER": "String", "FILE_TYPE": "String", "DATA_CATEGORY": "String",
@@ -165,6 +174,19 @@ FILE_PATTERNS = [alias(p) for p in (
     "F_ACCUM_*_TO_ACFC_*.csv", "F_ACCUM_*_FROM_ACFC_*.csv",
 )]
 FREQUENCY = "Daily"
+# M9.0 (PAIR1_HEADERS.md §2): the Descriptive "Name" row is a sentence about
+# the requirement, and the "Object Name" cell lists the inbound files — one
+# "<label>: <file name pattern>" line each — instead of naming the feed.
+FRD_REQUIREMENT_NAME = (f"Descriptive Metadata for the ingestion of {DOMAIN} {FEED_NAME} "
+                        f"Inbound files from {VENDOR_NAME} into Lake House")
+FRD_OBJECT_NAME_LABELS = ["LOB_A outbound", "LOB_A inbound", "LOB_B outbound", "LOB_B inbound"]
+FRD_OBJECT_NAME_CELL = "\n".join(
+    f"{label}: {pattern}" for label, pattern in zip(FRD_OBJECT_NAME_LABELS, FILE_PATTERNS,
+                                                    strict=True))
+# M9.0: the FRD's Structural Metadata "Target Table Name" cell, as the real
+# document writes it — an inline layer block, no schema, no catalog.
+FRD_TARGET_BLOCK = (f"Staging Layer:\nTable: {TABLE}\n"
+                    f"Standard Layer:\nTable: {TABLE}")
 LOB = "ALL"
 FILE_FORMAT = "Fixed Width Text"
 SOURCE_TYPE = "String"   # golden SRC_DATA_TYPE: every source column is String

@@ -33,8 +33,23 @@ def _version_sheet(wb, title, header, header_row, rows, merge_a2d2=False):
 
 
 def build_pair1():
-    """Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING.
-    Meta r1-r12, band r14 (4 merged groups), field headers r15 (27 cols)."""
+    """Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING — the REAL
+    sheet geometry (M9.0), transcribed from the two ACFC captures on the
+    ``acfc-hotfix-1`` branch: ``docs/acfc/HANDOVER_GENIE.md`` §2 (meta rows,
+    data-row constants) and ``docs/acfc/PAIR1_HEADERS.md`` §1 (rows 14-15,
+    cell by cell, and the four merges).
+
+    Meta r1-r10 with the recorded labels; file names / example / frequency
+    read ``TBD``, the format reads ``.dat``, the rest are empty. Band r14,
+    four merges: ``Source Data`` A14:I14, ``Data Rules and Primary Keys``
+    K14:P14, ``Staging Layer Table`` R14:W14, ``Standard Layer Table``
+    Y14:AD14. Header r15: nine source headers in A-I, six rules headers in
+    K-P, the six ``… in DL`` layer headers at R-W and again at Y-AD — 27
+    header texts over 30 columns; J, Q and X are EMPTY spacer columns in both
+    rows. Schema and table constants repeat on every data row; each record
+    block is introduced by a segment banner row (``Header`` / ``Details`` /
+    ``Trailer``) while the Segment column keeps the golden's own vocabulary;
+    one detail row's target column reads ``Do Not Map`` with no data type."""
     wb = new_workbook()
     _version_sheet(
         wb, "Version",
@@ -53,50 +68,79 @@ def build_pair1():
 
     ws = wb.create_sheet("FEED_1_MAPPING")
     meta = [
-        ["File Names", "; ".join(pair1.FILE_PATTERNS)],
-        ["File Name Example", pair1.FILE_PATTERNS[0].replace("*", "20260115", 1).replace("*", "0900")],
-        ["Frequency", pair1.FREQUENCY],
-        ["File Format (text, csv)", pair1.FILE_FORMAT],
+        ["File Names", "TBD"],
+        ["File Name Example", "TBD"],
+        ["Frequency", "TBD"],
+        ["File Format (text, csv)", ".dat"],
         ["File Delimiter", None],
         ["Last Update Date", None],
         ["Version", None],
         ["LOB", pair1.LOB],
         ["Target table Name Desc", f"Accumulator balances exchanged with {pair1.VENDOR_NAME}"],
         ["Feed Type", None],
-        ["Load Strategy", "Append"],
-        ["Notes", None],
     ]
     write_rows(ws, meta, start_row=1)
-    groups = [("Source Data", 9), ("Data Rules and Primary Keys", 6),
-              ("Staging Layer Table", 6), ("Standard Layer Table", 6)]
-    write_rows(ws, [band_row(groups)], start_row=14)
-    merge_bands(ws, 14, groups)
+    # (label, first column, last column) — 1-based, inclusive.
+    bands = [("Source Data", 1, 9), ("Data Rules and Primary Keys", 11, 16),
+             ("Staging Layer Table", 18, 23), ("Standard Layer Table", 25, 30)]
+    for label, first, last in bands:
+        ws.cell(row=14, column=first, value=label)
+        merge_span(ws, 14, first, last)
     layer_headers = ["Workspace", "Target Catalog", "Target Schema Name in DL",
                      "Target Table Name in DL", "Target_Column_Name_in_DL",
                      "Target Data Type in DL"]
-    header = (["S.No", "Segment", "Field Name", "Required?", "Format", "Start", "Length",
-               "End", "Description", "Data Definition", "PII", "Primary Key",
-               "Critical Data", "Not NULL", "Load Rules"] + layer_headers + layer_headers)
-    assert len(header) == 27
+    source_headers = ["S.No", "Segment", "Field Name", "Required?", "Format", "Start", "Length",
+                      "End", "Description"]
+    rules_headers = ["Data Definition", "PII", "Primary Key", "Critical Data", "Not NULL",
+                     "Load Rules"]
+    header = (source_headers + [None] + rules_headers + [None] + layer_headers + [None]
+              + layer_headers)
+    assert len([h for h in header if h]) == 27 and len(header) == 30
+    assert [i + 1 for i, h in enumerate(header) if h is None] == [10, 17, 24]      # J, Q, X
     write_rows(ws, [header], start_row=15)
-    rows = []
-    for sno, c in enumerate(pair1.columns(), start=1):
+
+    def targets(stage_column, stage_type, standard_column, standard_type):
+        return [None,
+                "DLK", pair1.STAGE_CATALOG, pair1.STAGE_SCHEMA, pair1.TABLE,
+                stage_column, stage_type, None,
+                "DLK", pair1.STANDARD_CATALOG, pair1.STANDARD_SCHEMA, pair1.TABLE,
+                standard_column, standard_type]
+
+    rows: list[list] = []
+    sno = 0
+    segment = None
+    for c in pair1.columns():
+        if c.segment != segment:
+            if segment == pair1.UNMAPPED_AFTER_SEGMENT:
+                sno += 1
+                rows.append(_pair1_unmapped_row(sno, targets))
+            segment = c.segment
+            rows.append([pair1.SEGMENT_BANNERS[segment]])
+        sno += 1
         rows.append([
             sno, c.segment, c.name, c.required, pair1.SOURCE_TYPE, c.start, c.length,
-            c.start + c.length - 1, c.description,
+            c.start + c.length - 1, c.description, None,
             c.description, "N", None, "N", "Y" if c.required == "Y" else "N", c.load_rule,
-            "DLK", pair1.STAGE_CATALOG, pair1.STAGE_SCHEMA, pair1.TABLE, c.name, c.dtype,
-            "DLK", pair1.STANDARD_CATALOG, pair1.STANDARD_SCHEMA, pair1.TABLE, c.name, c.dtype,
+            *targets(c.name, c.dtype, c.name, c.dtype),
         ])
     for name, dtype in pair1.AUDIT_COLUMNS:
         rows.append([
-            None, None, "NA", None, None, None, None, None, "Audit column",
+            None, None, "NA", None, None, None, None, None, "Audit column", None,
             None, None, None, None, None, None,
-            "DLK", pair1.STAGE_CATALOG, pair1.STAGE_SCHEMA, pair1.TABLE, name, dtype,
-            "DLK", pair1.STANDARD_CATALOG, pair1.STANDARD_SCHEMA, pair1.TABLE, name, dtype,
+            *targets(name, dtype, name, dtype),
         ])
     write_rows(ws, rows, start_row=16)
     return wb
+
+
+def _pair1_unmapped_row(sno: int, targets) -> list:
+    """The one source field the STTM marks ``Do Not Map`` (no data type) —
+    closes the detail block, after the last mapped detail field."""
+    name, start, length = pair1.UNMAPPED_FIELD
+    marker = pair1.UNMAPPED_MARKER
+    return [sno, pair1.UNMAPPED_AFTER_SEGMENT, name, "N", pair1.SOURCE_TYPE, start, length,
+            start + length - 1, "Reserved for future use", None, "Reserved for future use", "N",
+            None, "N", "N", None, *targets(marker, None, marker, None)]
 
 
 def build_pair8():

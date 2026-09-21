@@ -1,4 +1,7 @@
-# Load-pattern FAQ — Accumulators (the pair-1 ACFC shape fixture).
+# Load-pattern FAQ — the pair-1 ACFC shape fixture. Keyed by feed id: the
+# real-shape FRD (M9.0) names no feed — its Object Name cell lists the files —
+# so the layout stage names the feed after the STTM stage band
+# (vnd_p_accum_client); this file was accumulators.faq.yaml before M9.
 #
 # Every answer cites the document cell or the client artefact it rests on.
 # The record-type discriminators are the STTM's own words (the Segment
@@ -27,7 +30,7 @@ record_type_discriminators:
   detail: "10"
   trailer: "99"
   status: confirmed
-  # STTM FEED_1_MAPPING row 16, SEGMENT_IDENTIFIER Description:
+  # STTM FEED_1_MAPPING row 17 (the first Header field), SEGMENT_IDENTIFIER Description:
   # "Record segment marker: 00 header, 10 detail, 99 trailer"
 process_name:
   value: VND_P_ACCUMULATOR

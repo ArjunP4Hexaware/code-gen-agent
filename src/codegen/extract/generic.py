@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from openpyxl.utils import get_column_letter
+
 from codegen.config import Config, DiscoveryConfig
 from codegen.contracts.frd import FrdContract, FrdFeed
 from codegen.contracts.sttm import (
@@ -170,11 +172,17 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
 
     meta: dict[str, str] = {}
     meta_raw: list[tuple[str, str | None]] = []
+    blank = {normalize(b) for b in disc.meta_blank_values}
     for entry in sp.meta_rows:
         value = None
         if entry.value_col is not None:
             value = text(ws.cell(row=entry.row, column=entry.value_col).value)
         meta_raw.append((entry.label, value))
+        if value is not None and normalize(value) in blank:
+            # "TBD": a stated blank, not a value — the chain looks further.
+            diagnostics.append(f"sheet {sp.name!r} row {entry.row}: meta {entry.label!r} reads "
+                               f"{value!r} (a placeholder); read as blank")
+            continue
         if entry.key is not None and value is not None and entry.key not in meta:
             meta[entry.key] = value
 
@@ -197,6 +205,15 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
                 and source.col_start <= filled[0][0] <= source.col_end):
             current_segment_raw = filled[0][1]
             data.skipped.append(f"row {row_number}: segment banner {filled[0][1]!r}")
+            continue
+        # M9.0: a sheet with a Segment COLUMN may still introduce each record
+        # block with a banner row ("Details"). The column states the segment;
+        # the banner is structure, logged as such (not as a nameless field).
+        if (sp.segment_strategy == "column" and len(filled) == 1 and source is not None
+                and source.col_start <= filled[0][0] <= source.col_end
+                and normalize(filled[0][1]) in segments):
+            data.skipped.append(f"row {row_number}: segment banner {filled[0][1]!r} "
+                                "(the Segment column states the segment)")
             continue
         field_name = _cell(cells, field_col)
         stage_column = _cell(cells, stage_column_col)
@@ -275,6 +292,59 @@ def _dominant(values: list[str | None]) -> str | None:
         if value is not None:
             counts[value] = counts.get(value, 0) + 1
     return max(counts, key=counts.get) if counts else None
+
+
+def _band_constant(sheet: SheetData, key: str) -> tuple[str | None, str]:
+    """(value, provenance) of a band-level constant — schema, table, catalog.
+
+    A band constant is stated once per sheet: repeated on every data row, or
+    once in a merged cell whose anchor is the only non-empty cell (openpyxl
+    reads the rest of a merged range as None). Either way it is the FIRST
+    non-empty cell of the column, and the provenance names that cell. A
+    column that holds SEVERAL distinct values is not a constant (one table
+    per segment, pair 8): the dominant value stands for the sheet, as before,
+    and the provenance says so."""
+    layer, role = key.split(".")
+    band = sheet.profile.band(layer)  # type: ignore[arg-type]
+    col = band.column(role) if band is not None else None
+    stated = [(r.row, r.values.get(key)) for r in sheet.fields if r.values.get(key) is not None]
+    if col is None:
+        return None, f"{layer} {role} role is not placed on sheet {sheet.profile.name!r}"
+    if not stated:
+        return None, (f"{sheet.profile.name}!{get_column_letter(col)}: every data row of the "
+                      f"{layer} {role} column is empty")
+    distinct = list(dict.fromkeys(v for _r, v in stated))
+    if len(distinct) == 1:
+        row, value = stated[0]
+        return value, (f"{sheet.profile.name}!{get_column_letter(col)}{row} (first non-empty "
+                       f"cell of the {layer} {role} column; {len(stated)} row(s) state it)")
+    value = _dominant([v for _r, v in stated])
+    row = next(r for r, v in stated if v == value)
+    return value, (f"{sheet.profile.name}!{get_column_letter(col)}{row} (dominant of "
+                   f"{len(distinct)} values in the {layer} {role} column)")
+
+
+def _schema_chain(layer: str, band_value: str | None, band_provenance: str, frd_value: str | None,
+                  config: Config, sheet: str, notes: list[str], flags: list[str]) -> str | None:
+    """STTM target band -> FRD -> conventions.default_schema[layer]; every
+    link after the first is a provenance note AND a flag. None = no source."""
+    if band_value is not None:
+        notes.append(f"sheet {sheet!r}: {layer} schema {band_value!r} — {band_provenance}")
+        return band_value
+    default = config.conventions.default_schema.get(layer)
+    for value, source in ((frd_value, "FRD 'Target Catalog and Schema'"),
+                          (default, f"config_default (conventions.default_schema[{layer}])")):
+        if value:
+            flags.append(f"sttm_unstated:{layer}.schema source_used:{source}: {value!r} — "
+                         f"{band_provenance}")
+            notes.append(f"sheet {sheet!r}: {layer} schema not stated in the STTM "
+                         f"({band_provenance}); taken from {source}: {value!r}")
+            return value
+    return None
+
+
+def _unmapped_markers(config: Config) -> set[str]:
+    return {normalize(m) for m in config.extractor.unmapped_markers}
 
 
 def _canonical_file_name(name: str) -> str:
@@ -417,18 +487,37 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         raise GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
             "empty) — a contract needs stage table, column and data type per field")
-    stage_schema = _dominant([r.values.get("stage.schema") for r in sheet.fields])
-    stage_table = _dominant([r.values.get("stage.table") for r in sheet.fields])
-    stage_catalog = _dominant([r.values.get("stage.catalog") for r in sheet.fields])
-    if stage_schema is None or stage_table is None:
-        raise GenericExtractionError(f"sheet {name!r}: stage schema/table cells are empty")
+    flags: list[str] = []
+    stage_table, table_provenance = _band_constant(sheet, "stage.table")
+    stage_catalog, _ = _band_constant(sheet, "stage.catalog")
+    if stage_table is None:
+        raise GenericExtractionError(f"sheet {name!r}: stage table cells are empty — "
+                                     f"{table_provenance}")
+    notes.append(f"sheet {name!r}: stage table {stage_table!r} — {table_provenance}")
     feed = _match_feed(sheet, stage_table, frd, ir, notes)
     feed_id = config.feed_aliases.get(feed.feed_name) or normalize_feed_name(feed.feed_name)
+    # The schema chain (M9.2): STTM band -> FRD -> config default, then the
+    # hard stop — an empty schema never reaches a contract.
+    band_schema, schema_provenance = _band_constant(sheet, "stage.schema")
+    stage_schema = _schema_chain("stage", band_schema, schema_provenance,
+                                 feed.stage_target.schema_name, config, name, notes, flags)
+    if stage_schema is None:
+        raise GenericExtractionError(
+            f"sheet {name!r}: no source states the stage schema — {schema_provenance}; the FRD "
+            "'Target Catalog and Schema' is blank and conventions.default_schema.stage is unset. "
+            "Place the schema role (`codegen layout --answers`), or state it in the FRD / config")
 
-    has_standard = any(r.values.get("standard.column") for r in sheet.fields)
-    standard_schema = _dominant([r.values.get("standard.schema") for r in sheet.fields])
-    standard_table = _dominant([r.values.get("standard.table") for r in sheet.fields])
-    standard_catalog = _dominant([r.values.get("standard.catalog") for r in sheet.fields])
+    has_standard = any(
+        r.values.get("standard.column") for r in sheet.fields
+        if normalize(r.values.get("standard.column")) not in _unmapped_markers(config))
+    standard_table, _ = _band_constant(sheet, "standard.table")
+    standard_catalog, _ = _band_constant(sheet, "standard.catalog")
+    standard_schema = None
+    if has_standard:
+        band_schema, schema_provenance = _band_constant(sheet, "standard.schema")
+        standard_schema = _schema_chain("standard", band_schema, schema_provenance,
+                                        feed.standard_target.schema_name, config, name, notes,
+                                        flags)
 
     segmented = any(r.segment_raw is not None for r in sheet.fields)
     if segmented:
@@ -440,11 +529,24 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 "segment_synonyms); the contract dialect cannot carry them")
 
     fields: list[SttmField] = []
+    markers = _unmapped_markers(config)
+    stage_band = sp.band("stage")
+    stage_column_col = stage_band.column("column") if stage_band is not None else None
     for row in sheet.fields:
         field_name = _first(row, "source.field_name")
         assert field_name is not None
         stage_column = _first(row, "stage.column")
         stage_type = _first(row, "stage.target_type")
+        if stage_column is not None and normalize(stage_column) in markers:
+            # The STTM says this source field is not mapped: left out of both
+            # layers, flagged with the cell that says so (never a note only).
+            cell = f"{name}!{get_column_letter(stage_column_col or 1)}{row.row}"
+            label = " ".join(field_name.split())
+            flags.append(f"field_unmapped:{label} — STTM {cell} reads {stage_column!r}; the "
+                         "field is in neither the stage nor the standard table")
+            notes.append(f"sheet {name!r} row {row.row}: field {label!r} skipped — stage column "
+                         f"cell {cell} reads {stage_column!r}")
+            continue
         if stage_column is None or stage_type is None:
             raise GenericExtractionError(
                 f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
@@ -554,6 +656,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             fields=fields,
             meta_rows=dict(sheet.meta),
             source_table=_dominant([r.values.get("source.source_table") for r in sheet.fields]),
+            extraction_flags=flags,
         )
     except ValueError as exc:
         raise GenericExtractionError(

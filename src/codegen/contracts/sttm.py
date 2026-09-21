@@ -230,6 +230,12 @@ class SttmFeed(BaseModel):
     # M3: database-table sources name their source table (dominant value of
     # the source band's table column); None on file sources.
     source_table: str | None = None
+    # M9.2: what the extractor decided that a reviewer must see — a field the
+    # STTM marks "Do Not Map" (field_unmapped:<field>), a schema taken from
+    # the FRD / config because the band states none (sttm_unstated:…). Each
+    # cites its cell; the resolver carries them to the gate. Empty (and absent
+    # from the JSON) on every feed that raised none.
+    extraction_flags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:

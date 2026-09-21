@@ -1,5 +1,5 @@
 {
-  "fingerprint": "c045cc36b6641cdb0dcdaf3d727bbc166dbf5e1310f5ca1361332b3e46f4b4b7",
+  "fingerprint": "8d7fe6b47c5c485359c0f8b0c6bc8df4dd72d79fcef8d18349e1bba74709c0d1",
   "sheets": [
     {
       "name": "Version",
@@ -172,6 +172,20 @@
           "col": 1,
           "label": "Feed Type",
           "key": "feed_type",
+          "value_col": null
+        },
+        {
+          "row": 11,
+          "col": 1,
+          "label": "Load Strategy",
+          "key": "load_strategy",
+          "value_col": 2
+        },
+        {
+          "row": 12,
+          "col": 1,
+          "label": "Notes",
+          "key": "notes",
           "value_col": null
         }
       ],

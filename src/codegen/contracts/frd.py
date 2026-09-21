@@ -143,6 +143,9 @@ class StructuredValue(BaseModel):
     prefix_label: str | None = None
     headers: list[str] = Field(default_factory=list)
     rows: list[StructuredRow] = Field(default_factory=list)
+    # labelled_files (M9.1b): the value a block states under a feed-name label
+    # ("Object Name: …" line / "Name | …" row); None when it names no feed.
+    feed_name: str | None = None
 
 
 class FieldEvidence(BaseModel):

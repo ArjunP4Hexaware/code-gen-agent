@@ -174,15 +174,16 @@ FILE_PATTERNS = [alias(p) for p in (
     "F_ACCUM_*_TO_ACFC_*.csv", "F_ACCUM_*_FROM_ACFC_*.csv",
 )]
 FREQUENCY = "Daily"
-# M9.0 (PAIR1_HEADERS.md §2): the Descriptive "Name" row is a sentence about
-# the requirement, and the "Object Name" cell lists the inbound files — one
-# "<label>: <file name pattern>" line each — instead of naming the feed.
+# M9.0 / M9.1b: the Descriptive "Name" row is a sentence about the
+# requirement, and the "Object Name" cell lists the inbound files instead of
+# naming the feed — as STANZAS (PAIR1_REAL_RUN.md §1, the verified shape): a
+# "<line of business>:" line, then the file name pattern on the NEXT line.
 FRD_REQUIREMENT_NAME = (f"Descriptive Metadata for the ingestion of {DOMAIN} {FEED_NAME} "
                         f"Inbound files from {VENDOR_NAME} into Lake House")
 FRD_OBJECT_NAME_LABELS = ["LOB_A outbound", "LOB_A inbound", "LOB_B outbound", "LOB_B inbound"]
 FRD_OBJECT_NAME_CELL = "\n".join(
-    f"{label}: {pattern}" for label, pattern in zip(FRD_OBJECT_NAME_LABELS, FILE_PATTERNS,
-                                                    strict=True))
+    f"{label}:\n{pattern}" for label, pattern in zip(FRD_OBJECT_NAME_LABELS, FILE_PATTERNS,
+                                                     strict=True))
 # M9.0: the FRD's Structural Metadata "Target Table Name" cell, as the real
 # document writes it — an inline layer block, no schema, no catalog.
 FRD_TARGET_BLOCK = (f"Staging Layer:\nTable: {TABLE}\n"

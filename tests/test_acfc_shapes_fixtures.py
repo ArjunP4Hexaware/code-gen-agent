@@ -211,18 +211,18 @@ def test_sttm_header_texts_are_verbatim(key):
 
 def test_pair1_meta_rows_labels_and_blanks():
     ws = _wb("sttm/pair_1_family_a.xlsx")["FEED_1_MAPPING"]
-    # M9.0: the REAL sheet (HANDOVER_GENIE.md §2) — ten meta rows, no Load
-    # Strategy / Notes row; names / example / frequency read TBD, format .dat.
-    labels = [_row(ws, i)[0] for i in range(1, 11)]
+    # The REAL sheet (PAIR1_REAL_RUN.md §2b): twelve meta rows; names / example /
+    # frequency read TBD, format .dat, Load Strategy "Append" (no layer), Notes empty.
+    labels = [_row(ws, i)[0] for i in range(1, 13)]
     assert labels == ["File Names", "File Name Example", "Frequency", "File Format (text, csv)",
                       "File Delimiter", "Last Update Date", "Version", "LOB",
-                      "Target table Name Desc", "Feed Type"]
-    values = [_row(ws, i)[1] for i in range(1, 11)]
-    assert values[:4] == ["TBD", "TBD", "TBD", ".dat"]
-    assert {i for i in range(1, 11) if values[i - 1] is None} == {5, 6, 7, 10}
+                      "Target table Name Desc", "Feed Type", "Load Strategy", "Notes"]
+    values = [_row(ws, i)[1] for i in range(1, 13)]
+    assert values[:4] == ["TBD", "TBD", "TBD", ".dat"] and values[10] == "Append"
+    assert {i for i in range(1, 13) if values[i - 1] is None} == {5, 6, 7, 10, 12}
     assert values[7] and values[8]                                   # LOB, table desc
-    for gap in (11, 12, 13):
-        assert _row(ws, gap) == [None] * 30                          # nothing before the band row
+    assert _row(ws, 13) == [None] * 30                               # the gap before the band row
+    assert "FILE_DETAILS" not in ws.parent.sheetnames                # no File Details sheet
 
 
 def test_pair1_band_and_header_rows_are_the_captured_geometry():
@@ -344,12 +344,12 @@ def test_f1_pair1_blanks_and_values_match_the_document():
     assert values[("Structural Metadata", "Target Catalog and Schema")] == ""
     assert values[("Structural Metadata", "Load Strategy STD (View)")] == "Append"
     assert values[("Vendor Metadata", "Vendor Abbreviation")] == "VND_P"
-    # M9.0 (PAIR1_HEADERS.md §2): the label IS "Object Name"; its cell lists
-    # the files, one "<label>: <file name pattern>" line each; the Name row is
-    # a sentence about the requirement.
+    # The label IS "Object Name"; its cell lists the files as STANZAS
+    # (PAIR1_REAL_RUN.md §1, verified): a "<line of business>:" line, then the
+    # file name pattern on the next line. The Name row is a sentence.
     lines = values[("Descriptive Metadata", "Object Name")].split("\n")
-    assert [line.split(": ", 1)[1] for line in lines] == pair1.FILE_PATTERNS
-    assert all(": " in line for line in lines)
+    assert lines[1::2] == pair1.FILE_PATTERNS
+    assert all(line.endswith(":") and " " in line for line in lines[0::2])
     assert values[("Descriptive Metadata", "Name")].startswith(
         "Descriptive Metadata for the ingestion of")
     assert values[("Descriptive Metadata", "Tags/Keywords")] == (

@@ -8,6 +8,8 @@ pipeline module.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import re
 import subprocess
 import sys
@@ -36,6 +38,11 @@ class GateCheck(BaseModel):
     name: str
     passed: bool
     details: str
+    # M9.1b: the check could not be PERFORMED (the tool did not run) — not a
+    # finding about the generated code. Never a FAIL: the verdict carries a
+    # `check_not_run:<name>` flag instead ("PASS cannot be claimed"), like
+    # skipped tests. ``passed`` is True on such a check by construction.
+    not_run: bool = False
 
 
 def _generated_text_files(feed_dir: Path) -> list[Path]:
@@ -46,18 +53,47 @@ def _generated_text_files(feed_dir: Path) -> list[Path]:
 def _ruff_check(feed_dir: Path) -> GateCheck:
     # --no-cache: ruff would otherwise drop .ruff_cache/ inside out/<feed>/,
     # polluting the generated tree and breaking byte-stability of the output.
-    result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "--no-cache", str(feed_dir)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = (result.stdout + result.stderr).strip()
-    return GateCheck(
-        name="ruff",
-        passed=result.returncode == 0,
-        details=output if result.returncode != 0 else "ruff clean",
-    )
+    # JSON output (M9.1b) separates the two ways `ruff check` exits non-zero:
+    # it FOUND violations (a list of them on stdout — a finding, FAIL), or it
+    # could not run at all (no module / no binary in this environment, a
+    # config it rejects: no JSON — the code was NOT linted, which is a flag,
+    # not a verdict on the code). A run inside ACFC came back `ruff=FAIL` with
+    # nothing to tell the two apart.
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "--no-cache", "--output-format", "json",
+             str(feed_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return GateCheck(name="ruff", passed=True, not_run=True,
+                         details=f"ruff could not be started: {exc}")
+    try:
+        findings = json.loads(result.stdout) if result.stdout.strip() else None
+    except ValueError:
+        findings = None
+    if not isinstance(findings, list):
+        if result.returncode == 0:
+            return GateCheck(name="ruff", passed=True, details="ruff clean")
+        output = (result.stdout + result.stderr).strip()
+        return GateCheck(name="ruff", passed=True, not_run=True,
+                         details=f"ruff did not run (exit {result.returncode}): "
+                                 f"{output or 'no output'}")
+    if not findings:
+        return GateCheck(name="ruff", passed=True, details="ruff clean")
+    lines = []
+    for item in findings:
+        where = Path(str(item.get("filename") or ""))
+        with contextlib.suppress(ValueError):
+            where = where.resolve().relative_to(feed_dir.resolve())
+        location = item.get("location") or {}
+        lines.append(f"{where.as_posix()}:{location.get('row', '?')}:"
+                     f"{location.get('column', '?')}: {item.get('code') or 'syntax'} "
+                     f"{item.get('message', '')}".rstrip())
+    return GateCheck(name="ruff", passed=False,
+                     details=f"{len(findings)} finding(s)\n" + "\n".join(lines))
 
 
 def _debug_pattern_check(feed_dir: Path, patterns: list[str]) -> GateCheck:

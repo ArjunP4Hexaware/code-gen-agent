@@ -182,7 +182,7 @@ def _gate_section(gate: GateResult) -> list[str]:
         "|---|---|---|",
     ]
     for check in gate.checks:
-        result = "pass" if check.passed else "**FAIL**"
+        result = "NOT RUN" if check.not_run else "pass" if check.passed else "**FAIL**"
         lines.append(f"| {check.name} | {result} | {_cell(check.details)} |")
     lines.append("")
     if gate.flags:
@@ -218,9 +218,27 @@ def write_generation_report(
     return report_path
 
 
+_CONSOLE_DETAIL_LINES = 8
+
+
 def console_summary(spec: ResolvedFeedSpec, gate: GateResult) -> str:
-    checks = ", ".join(f"{check.name}={'ok' if check.passed else 'FAIL'}" for check in gate.checks)
-    return (
+    checks = ", ".join(
+        f"{check.name}={'not-run' if check.not_run else 'ok' if check.passed else 'FAIL'}"
+        for check in gate.checks)
+    summary = (
         f"{gate.verdict:<15} {spec.feed_id} — "
         f"{len(gate.flags)} flag(s); {checks if checks else 'no checks run'}"
     )
+    # M9.1b: a check that failed (or did not run) says WHY on the console — the
+    # first lines of its details; the report has the rest. The headline word is
+    # the gate verdict, and the exit code follows it (FAIL -> 1, else 0).
+    for check in gate.checks:
+        if check.passed and not check.not_run:
+            continue
+        label = "CHECK NOT RUN" if check.not_run else "CHECK FAILED"
+        shown = check.details.splitlines()[:_CONSOLE_DETAIL_LINES]
+        more = len(check.details.splitlines()) - len(shown)
+        summary += f"\n{label:<15} {check.name} — " + "\n                ".join(shown)
+        if more > 0:
+            summary += f"\n                … {more} more line(s) in the report"
+    return summary

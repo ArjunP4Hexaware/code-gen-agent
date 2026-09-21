@@ -506,23 +506,86 @@ def _per_file_blocks(text: str, labels: dict[str, str]) -> list:
     return [b for b in blocks if b.values]
 
 
-def _labelled_files(value: str) -> list | None:
-    """StructuredRows when EVERY non-empty line reads "<label>: <file name
-    pattern>" (two lines or more) — an Object Name cell that lists the feed's
-    files per line of business instead of naming the feed; else None."""
+def _block_pairs(value: str) -> list[tuple[str | None, str]]:
+    """(label, value) pairs of a multi-line block. Two spellings, freely
+    mixed: ``Label: value`` on one line, and the STANZA the real pair-1 cell
+    uses — a ``Label:`` line, then its value(s) on the following line(s). A
+    line under no label is a (None, value) pair."""
+    pairs: list[tuple[str | None, str]] = []
+    pending: str | None = None
+    for line in value.split("\n"):
+        text = line.strip()
+        if not text:
+            continue
+        label, sep, rest = text.partition(":")
+        if sep and label.strip() and not rest.strip():
+            pending = label.strip()                    # "Label:" — the value follows
+            continue
+        if sep and label.strip() and rest.strip() and not _FILE_LIKE_RE.search(label):
+            pairs.append((label.strip(), rest.strip()))
+            pending = None
+            continue
+        pairs.append((pending, text))
+    return pairs
+
+
+def _table_pairs(nested: list[list[str]], names: set[str]) -> list[tuple[str | None, str]] | None:
+    """(label, value) pairs of a nested label | value table: two columns, the
+    first holding labels (no header row), or a header row whose columns are
+    labels (each body cell a pair under its header). None for anything else
+    — a several-column table with one row per FILE keeps the M7 reading."""
+    rows = [[c.strip() for c in row] for row in nested if any(c.strip() for c in row)]
+    if not rows:
+        return None
+    header = [normalize_label(c.rstrip(":")) for c in rows[0]]
+    if len(rows) == 2 and all(h in names for h in header if h) and any(header):
+        # A header row of labels over ONE body row.
+        return [(rows[0][i].rstrip(":").strip(), cell) for i, cell in enumerate(rows[1]) if cell]
+    if all(len([c for c in row if c]) <= 2 and len(row) >= 2 for row in rows) and any(
+            normalize_label(row[0].rstrip(":")) in names for row in rows):
+        return [(row[0].rstrip(":").strip() or None, row[1]) for row in rows if row[1]]
+    return None
+
+
+def parse_object_name_block(value: str, nested: list[list[str]] | None,
+                            config: FrdExtractorConfig):
+    """``(feed name | None, StructuredRows of files)`` for an Object Name cell
+    that is a BLOCK — a nested label | value table or several lines — else
+    None. The feed name is the value under a ``feed_name`` label; a file is
+    the value under a ``file_name`` label, or any file-like value under
+    another label (the real cell labels each file with its line of
+    business). Nothing else in the block becomes a value."""
     from codegen.contracts.frd import StructuredRow
 
-    lines = [line.strip() for line in value.split("\n") if line.strip()]
-    if len(lines) < 2:
+    labels = config.object_name_labels
+    feed_labels = {normalize_label(s) for s in labels.get("feed_name", [])}
+    file_labels = {normalize_label(s) for s in labels.get("file_name", [])}
+    if nested:
+        pairs = _table_pairs(nested, feed_labels | file_labels)
+    elif "\n" in value:
+        pairs = _block_pairs(value)
+    else:
+        pairs = None
+    if not pairs:
         return None
-    rows = []
-    for line in lines:
-        label, sep, rest = line.partition(":")
-        if not sep or not label.strip() or not _FILE_LIKE_RE.search(rest.strip()) \
-                or " " in rest.strip():
-            return None
-        rows.append(StructuredRow(key=rest.strip(), values={"label": label.strip()}))
-    return rows
+    feed_name: str | None = None
+    files: list = []
+    for label, text in pairs:
+        key = normalize_label(label) if label else ""
+        single = "\n" not in text and len(text) <= _FEED_NAME_MAX
+        if key in feed_labels and single and not _FILE_LIKE_RE.search(text):
+            feed_name = feed_name or text
+        elif label and (key in file_labels or _FILE_LIKE_RE.search(text)) and " " not in text:
+            # Only a LABELLED value: a flattened table ("Vendor / FileName /
+            # VENDOR_A / x.csv", one cell per line) has no label to read by and
+            # keeps the M7 refusal.
+            files.append(StructuredRow(key=text, values={"label": label}))
+    if feed_name is None and not files:
+        return None
+    return feed_name, files
+
+
+_FEED_NAME_MAX = 80
 
 
 def parse_layer_blocks(value: str, config: FrdExtractorConfig) -> dict[str, dict[str, str]] | None:
@@ -570,15 +633,18 @@ def classify_cell(content: DocxContent, source: FrdFieldSource, field: str, valu
             "label": source.label,
             "text": _truncate(value, config.structured_text_max_chars)}
     nested = content.nested.get((source.table, source.row, source.value_col or source.col))
+    if field == "feed_name" and (nested or value):
+        # M9.1b: a BLOCK Object Name cell is read per line / row.
+        block = parse_object_name_block(value, nested, config)
+        if block is not None:
+            feed_name, files = block
+            return StructuredValue(kind="labelled_files", rows=files, feed_name=feed_name,
+                                   **base)
     if nested:
         headers, rows = _nested_rows(nested, config.nested_table_header_words)
         return StructuredValue(kind="nested_table", headers=headers, rows=rows, **base)
     if not value:
         return None
-    if field == "feed_name":
-        files = _labelled_files(value)
-        if files is not None:
-            return StructuredValue(kind="labelled_files", rows=files, **base)
     if field.endswith("_target.schema") and parse_layer_blocks(value, config):
         return None          # an inline layer block: parsed per layer by read_frd
     target = _pointer_target(value, config.pointer_phrases)
@@ -758,10 +824,19 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         file_name_patterns: list[str] = []
         if listed is not None and listed.kind == "labelled_files":
             file_name_patterns = [row.key for row in listed.rows]
-            flags.append(f"file_pattern_from_object_name:{prefix} — the FRD "
-                         f"{cell_of(f'{prefix}.feed_name')} cell lists {len(listed.rows)} "
-                         f"'<label>: <file>' line(s); taken as the file name patterns "
-                         f"{file_name_patterns}")
+            if file_name_patterns:
+                flags.append(f"file_pattern_from_object_name:{prefix} — the FRD "
+                             f"{cell_of(f'{prefix}.feed_name')} cell is a block listing "
+                             f"{len(listed.rows)} file(s) under "
+                             f"{[row.values.get('label') for row in listed.rows]}; taken as "
+                             f"the file name patterns {file_name_patterns}")
+            if listed.feed_name and not feed_name:
+                # The block's own "Object Name: …" / "Name | …" value — a
+                # parsed label value, never the raw block text.
+                feed_name = listed.feed_name
+                flags.append(f"frd_object_name_block:{prefix} — feed name {feed_name!r} read "
+                             f"from a labelled line / row of the "
+                             f"{cell_of(f'{prefix}.feed_name')} block")
         rules = []
         n = 0
         while f"{prefix}.validation_rules[{n}]" in profile.fields:
@@ -922,6 +997,7 @@ __all__ = [
     "is_unnamed_feed",
     "normalize_label",
     "parse_layer_blocks",
+    "parse_object_name_block",
     "read_docx",
     "read_frd",
 ]

@@ -39,8 +39,10 @@ def build_pair1():
     data-row constants) and ``docs/acfc/PAIR1_HEADERS.md`` §1 (rows 14-15,
     cell by cell, and the four merges).
 
-    Meta r1-r10 with the recorded labels; file names / example / frequency
-    read ``TBD``, the format reads ``.dat``, the rest are empty. Band r14,
+    Meta r1-r12 with the recorded labels (``PAIR1_REAL_RUN.md`` §2b adds
+    r11 ``Load Strategy`` = ``Append`` and r12 ``Notes``, empty — the first
+    capture stopped at r10); file names / example / frequency read ``TBD``,
+    the format reads ``.dat``, the rest are empty. Band r14,
     four merges: ``Source Data`` A14:I14, ``Data Rules and Primary Keys``
     K14:P14, ``Staging Layer Table`` R14:W14, ``Standard Layer Table``
     Y14:AD14. Header r15: nine source headers in A-I, six rules headers in
@@ -78,6 +80,8 @@ def build_pair1():
         ["LOB", pair1.LOB],
         ["Target table Name Desc", f"Accumulator balances exchanged with {pair1.VENDOR_NAME}"],
         ["Feed Type", None],
+        ["Load Strategy", "Append"],
+        ["Notes", None],
     ]
     write_rows(ws, meta, start_row=1)
     # (label, first column, last column) — 1-based, inclusive.

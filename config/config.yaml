@@ -336,6 +336,15 @@ extractor:
     # a heading "<target_schema_markers word> <heading word>:" then
     # "Label: value" lines, parsed per layer into the structured targets;
     # none of its lines is ever a table name.
+    # M9.1b (PAIR1_REAL_RUN.md §1): the Object Name cell as a BLOCK. The real
+    # pair-1 cell is three stanzas — a "<line of business>:" line, then the
+    # file name pattern on the next line; a nested label | value table reads
+    # the same way. `feed_name` labels name the feed, `file_name` labels (or a
+    # file-like value under any other label) give the file name patterns.
+    object_name_labels:
+      feed_name: ["Object Name", "Object", "Feed Name", "Feed", "Name"]
+      file_name: ["File Name", "File Names", "FileName", "File Name Pattern", "File Pattern",
+                  "File"]
     layer_block_heading_words: ["layer"]
     layer_block_labels:
       table: ["Table", "Table Name", "Target Table", "Target Table Name"]

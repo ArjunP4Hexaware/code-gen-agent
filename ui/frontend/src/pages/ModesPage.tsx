@@ -493,7 +493,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   };
   const hasPick = (q: LayoutQuestion) =>
-    q.kind === "choice" || q.kind === "layer"
+    q.kind === "choice" || q.kind === "layer" || q.kind === "text"
       ? gapPicks[q.key] !== undefined
       : q.document === "frd"
         ? frdPicks[q.key] !== undefined
@@ -1017,6 +1017,22 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                     </code>
                                   ))}
                                 </div>
+                              ) : null}
+                              {q.kind === "text" ? (
+                                // M9.1b: a value no document states (the file name
+                                // patterns) — typed, lands as source=user under gaps.
+                                <input
+                                  type="text"
+                                  style={{ width: "100%", marginTop: 4 }}
+                                  placeholder="pattern_1_*.txt; pattern_2_*.txt"
+                                  value={gapPicks[q.key]?.value ?? ""}
+                                  onChange={(e) => {
+                                    const next = { ...gapPicks };
+                                    if (e.target.value.trim()) next[q.key] = { value: e.target.value, source: "user" };
+                                    else delete next[q.key];
+                                    setGapPicks(next);
+                                  }}
+                                />
                               ) : null}
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
                                 {q.candidates.map((c) =>

@@ -200,7 +200,7 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
                 f"answers[{index}]: column {entry['column']!r} is neither a candidate header "
                 f"of sheet {entry['sheet']!r}, an index nor a column letter")
         out[document][matches[0].key] = column
-    open_keys = {q.key for q in questions if q.kind in ("choice", "layer")}
+    open_keys = {q.key for q in questions if q.kind in ("choice", "layer", "text")}
     for key, value in answers.gaps.items():
         if key in open_keys:
             out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),

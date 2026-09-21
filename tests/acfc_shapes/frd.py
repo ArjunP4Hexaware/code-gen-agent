@@ -103,8 +103,9 @@ def build_f1_pair1() -> bytes:
     ``Standard Layer:`` / ``Table: …``) and the ``Target Catalog and Schema``
     cell is blank — the document states no schema and no catalog.
     Descriptive Metadata: the label IS ``Object Name``, but its cell names no
-    feed — it lists the inbound FILES, one ``<label>: <file name pattern>``
-    line each; the ``Name`` row is a sentence about the requirement, and
+    feed — it lists the inbound FILES as stanzas, a ``<label>:`` line then the
+    file name pattern on the next line (PAIR1_REAL_RUN.md §1, the verified
+    shape); the ``Name`` row is a sentence about the requirement, and
     ``Tags/Keywords`` holds ``Domain: …`` / ``Subdomain: …`` lines. (NOT
     modelled: the real ``Frequency`` cell is a compound schedule sentence —
     open item.) Other blanks as §4 lists for pair 1. Values are synthetic /

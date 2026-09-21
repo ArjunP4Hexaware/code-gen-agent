@@ -622,13 +622,17 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         name_pattern = patterns[0]
         notes.append(f"feed {feed.feed_name!r}: the FRD names no file pattern; taken from the "
                      f"workbook ({name_pattern!r})")
-    if name_pattern is None:
-        if not feed.file_name_patterns:
-            raise GenericExtractionError(
-                f"feed {feed.feed_name!r}: neither the FRD nor the workbook names a file pattern")
+    if name_pattern is None and feed.file_name_patterns:
         name_pattern = feed.file_name_patterns[0]
         notes.append(f"feed {feed.feed_name!r}: file pattern taken from the FRD "
                      f"({name_pattern!r}); the workbook names none that matches")
+    elif name_pattern is None:
+        # M9.1b: not a hard stop any more. The chain FRD -> STTM meta rows /
+        # File Details -> VDD FILES sheet -> the `file_patterns` gap answer
+        # continues at resolve time; only `generate` stops when it ends empty.
+        notes.append(f"feed {feed.feed_name!r}: neither the FRD nor the workbook (meta rows "
+                     "'File Names' / 'File Name Example', File Details sheet) names a file "
+                     "pattern; left open for the VDD FILES sheet / the file_patterns answer")
     delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
         _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
     frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency

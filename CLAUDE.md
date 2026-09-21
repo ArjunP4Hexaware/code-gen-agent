@@ -354,6 +354,45 @@ workspace value in `config.yaml`, the notebook restructure).
   the flag list pinned by kind + count — `PAIR1_GATE_FLAG_KINDS`),
   `tests/test_m9_acfc_findings.py`, the CLI-chain test.
 
+### v0.5.2-acfc (2026-09-21, same day): the first REAL run of v0.5.1
+
+Run records on the remote branch **`acfc-runs`** (`docs/acfc/PAIR1_REAL_RUN.md`,
+`RUN_v051_pair1.md` — placeholders throughout; not merged, they are run
+notes). Scrubbed summary: `docs/acfc/M9_FINDINGS.md` §5. Tests:
+`tests/test_m91_pattern_chain_and_exit_codes.py`.
+
+- **The real Object Name cell is STANZAS** — a `<line of business>:` line, the
+  file pattern on the NEXT line. `frd_docx.parse_object_name_block`
+  (`extractor.frd.object_name_labels`): a multi-line block or a nested
+  label | value table is read per line / row — feed name from a feed-name
+  label's value (`StructuredValue.feed_name`, flag `frd_object_name_block`),
+  files from a `File Name`-type label or any file-like value under ANOTHER
+  label. A value under NO label (a flattened table) is never taken — the M7
+  refusal stands. The fixture is the stanza shape; labelled-lines and
+  two-row-table variants are tested as UNVERIFIED shapes. The real sheet also
+  HAS meta rows 11–12 (`Load Strategy` = `Append`, `Notes`) — fixture
+  corrected — and no File Details sheet.
+- **File-pattern chain:** FRD → STTM meta rows / File Details → VDD FILES
+  (`File Name Pattern`) → the `text` question `feeds[0].file_patterns`
+  (`gaps:`; a text box in the dialog). `SourceFile.name_pattern` may be None;
+  `extract-sttm` never hard-fails on it; the hard stop is in the contract
+  resolver (= `generate`). Who fills: the STTM link stays with the extractor /
+  resolver (`file_pattern_from_sttm`), the layout stage decides only VDD /
+  ask (`_FeedGapFiller._file_patterns`), the resolver repeats the VDD link
+  for the pure-CLI path. A contract whose FRD states patterns natively (CV,
+  SFMC) raises no flag — baselines unchanged.
+- **Two-pass CLI resolution continues (`prior=`)** instead of re-reading the
+  cache: `layout --refresh --answers` no longer prints `source=cache`, and an
+  answers file no longer costs a second model call.
+- **Gate:** `GateCheck.not_run` — a tool that did not run is `ruff=not-run` +
+  flag `check_not_run:ruff`, never FAIL (`_ruff_check` reads ruff's JSON output:
+  a list = findings → FAIL, no JSON = did not run). `console_summary` prints a
+  failed / not-run check's first lines. The exit code always followed the
+  verdict — the ACFC run's verdict WAS `FAIL` on ruff; the run note's "ruff on
+  the mock sketches" is unfounded (sketches live in `candidates.json`, never
+  linted — pinned by a test). **What ruff failed on inside ACFC is still
+  unknown; the next run's console will say.**
+
 ## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
 
 Driven by what Genie Code recorded inside the ACFC workspace

@@ -22,7 +22,10 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 class SourceFile(BaseModel):
     model_config = _MODEL_CONFIG
 
-    name_pattern: str
+    # None (M9.1b): neither the FRD nor the workbook names a file pattern at
+    # extract time — no longer a hard stop; the chain continues at resolve
+    # time (VDD FILES sheet, the `feeds[i].file_patterns` gap answer).
+    name_pattern: str | None
     format: str
     delimiter: str | None
     frequency: str | None

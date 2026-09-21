@@ -138,7 +138,7 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
         # Last resort: the delimiter the file extension implies (csv / psv / tsv).
         from codegen.extract.extractor import _extension_delimiter
 
-        for pattern in (*frd_feed.file_name_patterns, sttm_feed.source_file.name_pattern):
+        for pattern in (*frd_feed.file_name_patterns, sttm_feed.source_file.name_pattern or ""):
             implied = _extension_delimiter(pattern)
             if implied is not None:
                 break
@@ -491,10 +491,13 @@ def _resolve_one(
     # is a loud stop here, never a default — except the file pattern, which
     # the STTM's meta rows / FILE_DETAILS supply when the FRD names none
     # (M4), flagged as such.
+    # The file-pattern chain (M9.1b): FRD -> STTM meta rows / File Details ->
+    # VDD FILES sheet -> (the layout stage's `file_patterns` question, whose
+    # answer arrives as FRD patterns) -> the hard stop, here, at generate time.
     file_name_patterns = list(frd_feed.file_name_patterns)
     if not file_name_patterns:
-        sttm_patterns = [p.strip() for p in re.split(r"[;\n,]+", sttm_feed.source_file.name_pattern)
-                         if p.strip()]
+        sttm_patterns = [p.strip() for p in re.split(
+            r"[;\n,]+", sttm_feed.source_file.name_pattern or "") if p.strip()]
         meta_names = sttm_feed.meta_rows.get("file_names")
         if meta_names:
             sttm_patterns = [p.strip() for p in re.split(r"[;\n,]+", meta_names) if p.strip()]
@@ -504,8 +507,21 @@ def _resolve_one(
                 f"file_pattern_from_sttm: the FRD names no file pattern; the STTM states "
                 f"{sttm_patterns} (meta row 'File Names' / FILE_DETAILS)")
         else:
-            errors.append("FRD names no file pattern (docx-extracted contract with no file "
-                          "pattern label) and the STTM states none either")
+            vdd_patterns = [(f.pattern.strip(), f.row) for f in (getattr(vdd, "files", []) or [])
+                            if f.pattern and f.pattern.strip()]
+            if vdd_patterns:
+                file_name_patterns = list(dict.fromkeys(p for p, _row in vdd_patterns))
+                provenance_flags.append(
+                    f"file_pattern_from_vdd: the FRD and the STTM name no file pattern; the VDD "
+                    f"FILES sheet states {file_name_patterns} (File Name Pattern, row(s) "
+                    f"{sorted({row for _p, row in vdd_patterns})})")
+            else:
+                errors.append(
+                    "no source names a file pattern: the FRD states none, the STTM meta rows "
+                    "'File Names' / 'File Name Example' and its File Details sheet are blank, "
+                    "and no VDD FILES sheet was given (or its File Name Pattern column is "
+                    "empty) — answer `feeds[0].file_patterns` in the layout dialog or under "
+                    "`gaps:` in the answers file, or pass the VDD (`generate --vdd`)")
     # Hard stops that remain: fields every source is silent on and the
     # generator cannot proceed without (a reader needs the format; a writer
     # needs the stage strategy). Domain / standard strategy are blank-and-flag.

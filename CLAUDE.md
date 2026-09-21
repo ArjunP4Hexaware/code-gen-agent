@@ -426,6 +426,26 @@ carry `length='10,2'`. Summary: `docs/acfc/M9_FINDINGS.md` §6; tests:
   pair — the golden DDL has no such columns (acceptance stays byte-identical).
   **UNVERIFIED:** the VDD span of those fields (13 bytes in the variant).
 
+### v0.5.7-acfc (2026-09-21): a remote outputs role no longer loses the run
+
+`storage.outputs` on a workspace root puts a run's working copy in the role's
+temp dir (`/tmp/codegen_storage/outputs_<id>/…`). `GenerationStore._generate_
+feed` made every written file repo-relative, so `relative_to` raised `'…' is
+not in the subpath of '/app/python/source_code'` per feed and the App said
+**"live run produced no feeds"** though generation had succeeded. Local runs
+never hit it: `outputs` defaults to `out/` INSIDE the checkout.
+
+- `ui/backend/service.py::display_path` — repo-relative inside the checkout,
+  absolute outside, never an exception. The frontend locates `/<feed_slug>/`
+  in the string, so both forms work (`FeedDetailPage` CodeTab).
+- `_workbook_dirs` hardened the same way (an absolute `demo.workbook`).
+- `tests/test_remote_outputs_paths.py`: the unit rule + a real feed generated
+  into a root outside the repo (reproduces the exact ACFC message when the fix
+  is reverted).
+- Rule of thumb for this class: **nothing may assume a run lives under
+  REPO_ROOT** — with the M8.1 roles it often does not. `relative_to` on a
+  path that came from a role store needs a fallback.
+
 ### v0.5.6-acfc (2026-09-21): a document stays chosen (picker fix)
 
 Reported from the ACFC App: choosing an STTM "doesn't reflect in an actual

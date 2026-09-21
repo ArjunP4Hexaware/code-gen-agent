@@ -563,8 +563,12 @@ class DemoRunner:
         (where ``sharepoint-fetch --dest`` and the UI picker deliver files).
         """
         configured = REPO_ROOT / self._store.config.demo.workbook
+        try:                      # an absolute demo.workbook is outside the repo
+            label = configured.parent.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            label = configured.parent.as_posix()
         return (
-            (configured.parent.relative_to(REPO_ROOT).as_posix(), configured.parent),
+            (label, configured.parent),
             ("inputs/sharepoint", REPO_ROOT / "inputs" / "sharepoint"),
             # Where `codegen databricks-fetch` and the UI's volume fetch land
             # documents — same treatment as the SharePoint inbox.

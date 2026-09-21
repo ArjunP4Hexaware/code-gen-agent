@@ -78,6 +78,23 @@ class NothingToGenerateError(RuntimeError):
     """Raised when a generate is requested but config lists no contract pairs."""
 
 
+def display_path(path: Path) -> str:
+    """A generated file as the UI shows it: repo-relative when the run lives
+    under the checkout, the absolute path otherwise.
+
+    With a REMOTE outputs role (M8.1) a run's working copy is a temp directory
+    — ``/tmp/codegen_storage/outputs_<id>/…`` — which is NOT under REPO_ROOT,
+    and ``relative_to`` then raises ``'…' is not in the subpath of '…'``. That
+    killed every feed of a live run inside the ACFC App ("live run produced no
+    feeds"). The UI only needs the ``/<feed_slug>/`` segment, which both forms
+    carry.
+    """
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 class GenerationStore:
     """In-memory results of the latest run, plus persisted review decisions."""
 
@@ -346,7 +363,7 @@ class GenerationStore:
             outcomes=outcomes,
             candidates=candidates,
             gate=gate,
-            written_files=[p.relative_to(REPO_ROOT).as_posix() for p in written],
+            written_files=[display_path(p) for p in written],
             framework=framework_summary,
         )
 

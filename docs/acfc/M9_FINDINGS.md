@@ -168,6 +168,18 @@ Also: a stale `ui/frontend/dist` against a v0.5.5+ backend blanks the page
 (the old bundle expects `200 {workbooks}` and gets `202 {job}`); re-sync the
 bundle and check the asset hash the page names.
 
+## 9. v0.5.7 — "live run produced no feeds"
+
+From the App (2026-09-21), after the picker fix: generation succeeded, then
+every feed died on `ValueError: '/tmp/codegen_storage/outputs_<id>/demo_<ts>/
+<feed>/ddl/<x>.sql' is not in the subpath of '/app/python/source_code'`. The
+UI listed written files as repo-relative; a REMOTE outputs role keeps its
+working copy in a temp dir. Fixed in `ui/backend/service.py::display_path`
+(absolute when outside the checkout) with
+`tests/test_remote_outputs_paths.py`. The general rule: with storage roles a
+run need not live under the repo — every `relative_to` on a role-store path
+needs a fallback.
+
 ## 4. Open items
 
 1. **The two documents on the remote branch are not scrubbed** (client table /

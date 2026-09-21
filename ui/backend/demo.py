@@ -12,6 +12,8 @@ the default out/ tree and never the tracked replay fixtures.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import re
 import threading
 import time
@@ -20,7 +22,21 @@ from pathlib import Path
 
 from codegen.extract import extract_to_file
 from codegen.resolve.resolver import resolve_pair
-from ui.backend.service import REPO_ROOT, FailedRun, FeedRun, GenerationStore
+from ui.backend.docindex import INDEX_FILE, UNREADABLE, DocumentIndex, fetch_exclusive
+from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
+
+# State files under the default (local) state role — module constants so tests
+# can point them elsewhere, like service.DECISIONS_PATH.
+INDEX_PATH = STATE_DIR / INDEX_FILE
+SELECTION_FILE = "selection.json"
+SELECTION_PATH = STATE_DIR / SELECTION_FILE
+
+
+class SelectionFailed(RuntimeError):
+    """A chosen document could not be brought in (download / pairing /
+    recording the choice failed). The selection is NOT made and nothing falls
+    back to the config default: the message is the API response (4xx) and the
+    status' ``selection_error`` (M9.3)."""
 
 
 class LiveRunInProgress(RuntimeError):
@@ -144,6 +160,57 @@ class DemoRunner:
         self._catalogs: dict[str, tuple] = {}
         # M8.2: the last content-pairing decision per kind ("frd" / "vdd").
         self.pair_decisions: dict = {}
+        # M9.3: the last selection that FAILED — {kind, name, message}. While
+        # set (and no STTM is chosen) a run is refused — never a silent fall
+        # back to the config default; cleared by the next successful selection
+        # or a Clear.
+        self.selection_error: dict | None = None
+        # M9.3: what choosing the STTM paired (or asks), per kind — returned by
+        # the select call itself and kept on the status.
+        self.last_pairing: dict = {}
+        # M9.3: content verdicts (workbook kind, pairing facts) computed in the
+        # background, kept in the state role — the list endpoints never open a
+        # document (ui/backend/docindex.py).
+        self._index = DocumentIndex(
+            lambda: self._store.config, self._index_path,
+            lambda: self._push_state_file(INDEX_FILE), REPO_ROOT)
+        self._restore_selection()
+
+    def _index_path(self) -> Path:
+        from ui.backend import stores as ui_stores
+
+        return ui_stores.state_file(self._store.config, INDEX_FILE, INDEX_PATH)
+
+    def _push_state_file(self, name: str) -> None:
+        from ui.backend import stores as ui_stores
+
+        ui_stores.push_state(self._store.config, name)
+
+    def _fetch(self, doc) -> Path:
+        """A selection's download, bounded by ``inputs.select_timeout_seconds``
+        (a hung transfer is a StorageError, never a hung request)."""
+        from codegen.storage import StorageError
+
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+        box: dict = {}
+
+        def job() -> None:
+            try:
+                box["path"] = fetch_exclusive(doc)
+            except Exception as exc:  # noqa: BLE001 — re-raised on the request thread
+                box["error"] = exc
+
+        thread = threading.Thread(target=job, name=f"fetch:{doc.name}", daemon=True)
+        thread.start()
+        thread.join(timeout)
+        if thread.is_alive():
+            raise StorageError(f"downloading {doc.uri} did not finish within {timeout:g}s")
+        if "error" in box:
+            raise box["error"]
+        if not box["path"].is_file():
+            raise StorageError(f"downloading {doc.uri} left no file at {box['path']}")
+        self._index.record(doc, box["path"])
+        return box["path"]
 
     def effective_frd(self) -> Path:
         return self.selected_frd or (
@@ -190,7 +257,10 @@ class DemoRunner:
                     or canonical_document_name(doc.name).startswith("frd")):
                 continue
             # The working-copy path; a remote document is downloaded when the
-            # FRD is actually selected (``fetch_frd_candidate``).
+            # FRD is actually selected (``fetch_frd_candidate``). Listing queues
+            # its pairing facts for the background index — it never opens it.
+            if doc.name not in found:
+                self._index.lookup(doc)
             found.setdefault(doc.name, doc.local_path())
         return found
 
@@ -198,7 +268,7 @@ class DemoRunner:
         """The named local FRD candidate as a file on disk (downloaded first
         when it lives in a remote input root); None when no source has it."""
         doc = self._frd_catalog().find(name, (".contract.json", ".docx"))
-        return doc.fetch() if doc is not None else None
+        return self._fetch(doc) if doc is not None else None
 
     def auto_pair_frd(self, sttm_name: str) -> dict | None:
         """Select the FRD associated with the chosen STTM when one is present
@@ -226,25 +296,68 @@ class DemoRunner:
         explicit map, then what the documents say, the ticket number one
         signal among several). An undecided result is kept in
         ``pair_decisions`` and asked in the layout dialog when the run starts."""
+        from dataclasses import replace
+
         from codegen.pairing import pair_by_content
         from codegen.storage import StorageError
 
         catalog = self._frd_catalog() if kind == "frd" else self._workbook_catalog()
         suffixes = (".contract.json", ".docx") if kind == "frd" else (".xlsx",)
-        local: dict[str, Path] = {}
-        for name in candidates:
-            doc = catalog.find(name, suffixes)
-            try:
-                local[name] = doc.fetch() if doc is not None else candidates[name]
-            except StorageError:
-                continue                     # unreachable candidate: not a contender
         sttm_doc = self._workbook_catalog().find(sttm_name, (".xlsx",))
         sttm_path = (self.selected_workbook if self.selected_workbook is not None
                      and self.selected_workbook.name == sttm_name
-                     else sttm_doc.fetch() if sttm_doc is not None else Path(sttm_name))
-        decision = pair_by_content(kind, sttm_path, local, self._store.config, REPO_ROOT,
-                                   explicit_map=explicit_map)
+                     else self._fetch(sttm_doc) if sttm_doc is not None else Path(sttm_name))
+        docs = {name: catalog.find(name, suffixes) for name in candidates}
+        known = {}
+        if sttm_doc is not None and self._index.facts(sttm_doc) is not None:
+            known[sttm_name] = self._index.facts(sttm_doc)
+        # M9.3: the STTM's OWN folder first (…/pair_1/{FRD, STTM, VDD}); the
+        # other input roots only when that folder holds no candidate.
+        folder = sttm_doc.source if sttm_doc is not None else None
+        in_folder = [n for n, d in docs.items() if d is not None and d.source == folder]
+        scopes = ([("same_folder", in_folder)] if in_folder else []) + [("all", list(candidates))]
+        decision, scope = None, "all"
+        for scope, names in scopes:
+            local: dict[str, Path] = {}
+            for name in names:
+                doc = docs[name]
+                if doc is None:
+                    local[name] = candidates[name]
+                    continue
+                facts = self._index.facts(doc)
+                if facts is not None:                 # read already: no download, no open
+                    known[name] = facts
+                    local[name] = doc.local_path()
+                elif self._index.lookup(doc)["state"] == UNREADABLE:
+                    local[name] = doc.local_path()    # its NAME still speaks
+                else:
+                    try:
+                        local[name] = self._fetch(doc)
+                    except (StorageError, OSError):
+                        continue                      # unreachable candidate: not a contender
+            decision = pair_by_content(kind, sttm_path, local, self._store.config, REPO_ROOT,
+                                       explicit_map=explicit_map, known_facts=known)
+            nested = sttm_doc is not None and "/" in sttm_doc.rel
+            if (decision.chosen is None and scope == "same_folder" and nested
+                    and len(local) == 1 and not any(c.score > 0 for c in decision.candidates)):
+                # A pair folder holding exactly ONE candidate of the kind: the
+                # folder is the person's pairing. (Never applied to a flat inbox.)
+                (only,) = local
+                decision = replace(
+                    decision, chosen=only, rule="same_folder",
+                    reason=f"the only {kind.upper()} in the STTM's folder {folder!r} "
+                           f"(no content signal decides: {decision.reason})")
+            if decision.chosen is not None or decision.ambiguous:
+                break                        # decided, or a question among THESE candidates
+        assert decision is not None
         self.pair_decisions[kind] = decision
+        self.last_pairing[kind] = {
+            "chosen": decision.chosen, "rule": decision.rule, "reason": decision.reason,
+            "scope": scope, "folder": folder,
+            "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
+                           for c in decision.candidates],
+            "question": decision.question() if decision.ambiguous else None,
+        }
         if decision.chosen is None:
             return None
         return decision.chosen, decision.rule or "content"
@@ -298,9 +411,12 @@ class DemoRunner:
         """Select the Vendor Data Dictionary associated with the chosen STTM
         when one is present among the listed workbooks (config vdd_pairing_map
         -> shared ticket -> unique name stem); same override rules as the FRD."""
+        # M9.3: by CONTENT — a workbook the index knows as an STTM is never a
+        # dictionary candidate; one still classifying / unclassified /
+        # unreadable stays a candidate.
         candidates = {doc.name: doc.local_path()
                       for doc in self._workbook_catalog().documents((".xlsx",))
-                      if doc.name != sttm_name}
+                      if doc.name != sttm_name and self._index.lookup(doc)["state"] != "sttm"}
         match = self._pair("vdd", sttm_name, candidates,
                            self._store.config.demo.vdd_pairing_map)
         if match is None:
@@ -312,7 +428,7 @@ class DemoRunner:
         doc = self._workbook_catalog().find(vdd_name, (".xlsx",))
         if doc is None:
             return None
-        self.selected_vdd = doc.fetch()
+        self.selected_vdd = self._fetch(doc)
         self.vdd_auto_paired = {"vdd": vdd_name, "rule": rule}
         return self.vdd_auto_paired
 
@@ -474,27 +590,142 @@ class DemoRunner:
         Only an EXPLICIT pick counts as selected — before one, the UI shows
         "none chosen" and no row is badged, even though a run would fall
         back to the config default.
+
+        M9.3: listing METADATA only (name, source, size, modified) — bounded
+        time, no workbook is downloaded or opened here. ``kind`` is the
+        background index's verdict by content (sttm | vdd | unclassified),
+        ``classifying`` until it exists, ``unreadable`` (with the reason) for a
+        file that failed or timed out — listed all the same, never retried in a
+        loop.
         """
         effective = self.selected_workbook
-        return [{"name": doc.name, "source": doc.source,
-                 "selected": doc.local_path() == effective}
-                for doc in self._workbook_catalog().documents((".xlsx",))]
+        choices = []
+        for doc in self._workbook_catalog().documents((".xlsx",)):
+            verdict = self._index.lookup(doc)
+            choices.append({"name": doc.name, "source": doc.source, "size": doc.size,
+                            "modified": doc.modified,
+                            "selected": doc.local_path() == effective,
+                            "kind": verdict["state"], "kind_reason": verdict["reason"]})
+        return choices
+
+    def reclassify_workbook(self, name: str) -> None:
+        """A person asked for an ``unreadable`` workbook to be read again."""
+        doc = self._workbook_catalog().find(name, (".xlsx",))
+        if doc is None:
+            raise FileNotFoundError(f"no workbook named {name!r} in the input folders")
+        self._index.retry(doc)
+
+    # -- selection: succeed, or say why (M9.3) ---------------------------------
+
+    def _fail_selection(self, kind: str, name: str, exc: Exception, step: str) -> SelectionFailed:
+        message = (f"{kind.upper()} {name!r} was NOT selected — {step} failed: "
+                   f"{type(exc).__name__}: {exc}")
+        self.selection_error = {"kind": kind, "name": name, "message": message}
+        return SelectionFailed(message)
+
+    def _persist_selection(self) -> None:
+        """Record the chosen documents in the state role (a REMOTE one only: an
+        App container restart otherwise returns to 'none chosen' while the
+        person believes the pair is set). Raises on failure — the caller turns
+        that into a failed selection."""
+        from ui.backend import stores as ui_stores
+
+        if ui_stores.state_is_default(self._store.config):
+            return
+        path = ui_stores.state_file(self._store.config, SELECTION_FILE, SELECTION_PATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"sttm": self.selected_workbook.name if self.selected_workbook else None,
+                   "frd": self.selected_frd_label if self.selected_frd else None,
+                   "vdd": self.selected_vdd.name if self.selected_vdd else None}
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
+        ui_stores.push_state(self._store.config, SELECTION_FILE)
+
+    def _restore_selection(self) -> None:
+        """After a restart under a remote state role: bring the recorded pair
+        back, or say which document could not be (never the config default)."""
+        from ui.backend import stores as ui_stores
+
+        try:
+            if ui_stores.state_is_default(self._store.config):
+                return
+            path = ui_stores.state_file(self._store.config, SELECTION_FILE, SELECTION_PATH)
+            recorded = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — nothing recorded (or unreadable): none chosen
+            return
+        for kind, catalog, suffixes in (
+                ("sttm", self._workbook_catalog, (".xlsx",)),
+                ("frd", self._frd_catalog, (".contract.json", ".docx")),
+                ("vdd", self._workbook_catalog, (".xlsx",))):
+            name = recorded.get(kind)
+            if not name:
+                continue
+            try:
+                doc = catalog().find(name, suffixes)
+                if doc is None:
+                    raise FileNotFoundError(f"{name!r} is no longer in the input folders")
+                local = self._fetch(doc)
+            except Exception as exc:  # noqa: BLE001 — surfaced; the rest still restores
+                self._fail_selection(kind, name, exc, "restoring the recorded selection")
+                continue
+            if kind == "sttm":
+                self.selected_workbook = local
+            elif kind == "frd":
+                self.selected_frd, self.selected_frd_label = local, name
+            else:
+                self.selected_vdd = local
 
     def select_workbook(self, name: str) -> Path:
-        """Pick a workbook BY NAME from the scanned dirs — never a raw path."""
+        """Pick a workbook BY NAME from the scanned dirs — never a raw path.
+        Download → register → pair → record either all succeed, or the STTM
+        stays UNSELECTED with ``selection_error`` set (``SelectionFailed``)."""
+        from codegen.storage import StorageError
+
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
         doc = self._workbook_catalog().find(name, (".xlsx",))
-        if doc is not None:
-            self.selected_workbook = doc.fetch()
+        if doc is None:
+            raise FileNotFoundError(
+                f"no STTM workbook named {name!r} in "
+                + " or ".join(source.label for source in self._workbook_catalog().sources)
+            )
+        self.last_pairing = {}
+        step = f"downloading {doc.uri}"
+        try:
+            self.selected_workbook = self._fetch(doc)
+            step = "pairing its FRD / VDD"
             self.auto_pair_frd(name)
             self.auto_pair_vdd(name)
-            return self.selected_workbook
-        raise FileNotFoundError(
-            f"no STTM workbook named {name!r} in "
-            + " or ".join(source.label for source in self._workbook_catalog().sources)
-        )
+            step = "recording the selection in the state role"
+            self._persist_selection()
+        except (StorageError, OSError) as exc:
+            # Nothing half-selected, nothing from before, and NOT the config
+            # default: the person sees why and chooses again.
+            self.selected_workbook = None
+            self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
+            self.selected_vdd = self.vdd_auto_paired = None
+            self.pair_decisions = {}
+            raise self._fail_selection("sttm", name, exc, step) from exc
+        self.selection_error = None
+        return self.selected_workbook
+
+    def select_vdd_by_name(self, name: str) -> Path:
+        """M9.3: a VDD from ANY input root (the route used to look in the local
+        directories only — a dictionary in a workspace folder was a 404)."""
+        from codegen.storage import StorageError
+
+        doc = self._workbook_catalog().find(name, (".xlsx",))
+        if doc is None:
+            raise FileNotFoundError(f"no workbook named {name!r} in the input folders")
+        try:
+            local = self._fetch(doc)
+            self.select_vdd(local)
+            self._persist_selection()
+        except (StorageError, OSError) as exc:
+            raise self._fail_selection("vdd", name, exc, f"downloading {doc.uri}") from exc
+        if self.selection_error and self.selection_error.get("kind") == "vdd":
+            self.selection_error = None
+        return local
 
     def clear_workbook(self) -> None:
         """Back to 'none chosen' — the presenter's reset for the choose step."""
@@ -503,6 +734,8 @@ class DemoRunner:
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
         self.selected_workbook = None
         self.pair_decisions = {}
+        self.selection_error = None
+        self.last_pairing = {}
         if self.frd_auto_paired is not None:
             self.selected_frd = None
             self.selected_frd_label = None
@@ -510,6 +743,8 @@ class DemoRunner:
         if self.vdd_auto_paired is not None:
             self.selected_vdd = None
             self.vdd_auto_paired = None
+        with contextlib.suppress(Exception):
+            self._persist_selection()
 
     def status(self) -> dict:
         return {
@@ -523,6 +758,10 @@ class DemoRunner:
             "layout_advice": self.layout_advice,
             "layout_fills": list(self.layout_fills),
             "layout_refresh": self.layout_refresh,
+            # M9.3: the last FAILED selection ({kind, name, message}) and what
+            # choosing the STTM paired / asks, per kind.
+            "selection_error": self.selection_error,
+            "pairing": dict(self.last_pairing),
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
             # M8.1: input roots whose last listing failed (label -> API message).
@@ -637,6 +876,10 @@ class DemoRunner:
             raise ValueError("no output selected — choose at least one of notebook, "
                              "framework artefacts, RFC package, or All")
 
+        if self.selection_error is not None and self.selected_workbook is None:
+            # Never the config default in place of a document that failed to load.
+            raise ValueError(f"{self.selection_error['message']} — choose the STTM again (or "
+                             "Clear it) before generating")
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("a live demo run is already in progress")

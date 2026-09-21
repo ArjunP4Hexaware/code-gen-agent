@@ -35,8 +35,9 @@ from codegen.metadata_sheet import (
     workbook_bytes,
     workbook_filename,
 )
+from codegen.storage import StorageError
 from ui.backend import databricks_routes, sharepoint_routes
-from ui.backend.demo import DemoRunner, LiveRunInProgress
+from ui.backend.demo import DemoRunner, LiveRunInProgress, SelectionFailed
 from ui.backend.replay import (
     list_past_live_runs,
     list_replay_sets,
@@ -358,15 +359,18 @@ def select_vdd(req: VddSelectRequest) -> dict:
     runner = _require_runner()
     if "/" in req.name or "\\" in req.name or ".." in req.name:
         raise HTTPException(400, f"invalid workbook name {req.name!r}")
-    for _label, directory in runner._workbook_dirs():  # noqa: SLF001
-        candidate = directory / req.name
-        if candidate.is_file() and candidate.suffix.lower() == ".xlsx":
-            try:
-                runner.select_vdd(candidate)
-            except LiveRunInProgress as exc:
-                raise HTTPException(409, str(exc)) from exc
-            return {"selected": req.name}
-    raise HTTPException(404, f"no workbook named {req.name!r} in the input directories")
+    # M9.3: through the input catalog — the local directories AND the remote /
+    # extra input roots (a dictionary in a workspace pair folder used to be a
+    # 404); a failed download is a 424 with the reason, never a silent no-op.
+    try:
+        runner.select_vdd_by_name(req.name)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except SelectionFailed as exc:
+        raise HTTPException(424, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, f"{exc} (the input directories)") from exc
+    return {"selected": req.name}
 
 
 @app.delete("/api/demo/vdd")
@@ -605,6 +609,10 @@ def select_frd(req: FrdSelectRequest) -> dict:
         raise HTTPException(409, str(exc)) from exc
     except UpstreamContractError as exc:
         raise HTTPException(502, str(exc)) from exc
+    except (StorageError, OSError) as exc:
+        # M9.3: the FRD stays as it was; the reason is the response AND the status.
+        failed = runner._fail_selection("frd", req.id, exc, "downloading it")  # noqa: SLF001
+        raise HTTPException(424, str(failed)) from exc
 
 
 _UPLOAD_MAX_BYTES = 25 * 1024 * 1024  # same cap as the SharePoint import
@@ -802,10 +810,31 @@ class WorkbookSelectRequest(BaseModel):
 
 @app.post("/api/demo/workbook")
 def select_workbook(req: WorkbookSelectRequest) -> dict:
+    """Choose the STTM. M9.3: download → register → pair → record either all
+    succeed, or the response is a **424** carrying the reason (also kept on the
+    status as ``selection_error``) and the STTM stays UNSELECTED — never the
+    config default. The pairing of its FRD / VDD — same folder first, then the
+    other input roots — comes back in THIS response: ``pairing.frd`` /
+    ``pairing.vdd`` = {chosen, rule, reason, scope, candidates, question}."""
+    runner = _require_runner()
     try:
-        _require_runner().select_workbook(req.name)
+        runner.select_workbook(req.name)
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except SelectionFailed as exc:
+        raise HTTPException(424, str(exc)) from exc
+    return {"workbooks": runner.workbook_choices(), "selected": req.name,
+            "pairing": dict(runner.last_pairing), "selection_error": None}
+
+
+@app.post("/api/demo/workbook/reclassify")
+def reclassify_workbook(req: WorkbookSelectRequest) -> dict:
+    """M9.3: read an ``unreadable`` workbook again (a person asked — the
+    background index never retries on its own)."""
+    try:
+        _require_runner().reclassify_workbook(req.name)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     return {"workbooks": _require_runner().workbook_choices()}

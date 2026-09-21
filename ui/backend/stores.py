@@ -65,6 +65,11 @@ def state_file(config, name: str, default: Path) -> Path:
     return store.local_path(name)
 
 
+def state_is_default(config) -> bool:
+    """True under the default (local, in-checkout) state role."""
+    return _is_default(get_stores(config).state, _DEFAULT_STATE)
+
+
 def push_state(config, name: str) -> None:
     store = get_stores(config).state
     if not _is_default(store, _DEFAULT_STATE):

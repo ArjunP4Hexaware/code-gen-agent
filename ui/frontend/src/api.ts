@@ -142,6 +142,10 @@ export interface DemoStatus {
   // M9.1 "re-resolve layout": armed for the next run (one shot) — every cached
   // layout profile is bypassed and the runtime cache entries are overwritten.
   layout_refresh?: boolean;
+  // M9.3: the last selection that FAILED (download / pairing / recording it) —
+  // the STTM stays unselected and a run is refused until it is chosen again.
+  selection_error?: { kind: string; name: string; message: string } | null;
+  pairing?: { frd?: PairingOutcome; vdd?: PairingOutcome };
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
@@ -191,10 +195,29 @@ export interface FrdChoicesResponse {
   no_contract: string[];
 }
 
+// M9.3: what choosing an STTM paired (or asks), per kind — returned by the
+// select call itself and kept on the status.
+export interface PairingOutcome {
+  chosen: string | null;
+  rule: string | null;
+  reason: string;
+  scope: "same_folder" | "all";
+  folder: string | null;
+  candidates: { name: string; score: number; signals: string }[];
+  question: LayoutQuestion | null;
+}
+
 export interface SttmWorkbook {
   name: string;
   source: string;
   selected: boolean;
+  // M9.3: listing metadata only — the list never opens a workbook. `kind` is
+  // the background index's verdict by CONTENT; "classifying" until it exists,
+  // "unreadable" (with the reason) for a file that failed or timed out.
+  size?: number | null;
+  modified?: number | null;
+  kind?: "sttm" | "vdd" | "unclassified" | "classifying" | "unreadable";
+  kind_reason?: string;
 }
 
 export interface InputDocumentScan {
@@ -508,8 +531,17 @@ export const api = {
     );
   },
   demoWorkbooks: () => request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbooks"),
+  reclassifyWorkbook: (name: string) =>
+    request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook/reclassify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
   selectWorkbook: (name: string) =>
-    request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", {
+    request<{
+      workbooks: SttmWorkbook[];
+      pairing?: { frd?: PairingOutcome; vdd?: PairingOutcome };
+    }>("/api/demo/workbook", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),

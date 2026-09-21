@@ -333,6 +333,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     [dbDocs, loadDbDocs],
   );
 
+  // M9.3: the list returns metadata at once; content verdicts arrive from the
+  // background index — poll while the chooser is open and any is pending.
+  useEffect(() => {
+    if (!choosing || !(workbooks ?? []).some((w) => w.kind === "classifying")) return;
+    const timer = setTimeout(() => {
+      api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [choosing, workbooks]);
+
   const chooseWorkbook = useCallback(async (name: string) => {
     setError(null);
     try {
@@ -344,7 +354,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       // or change the companion FRD before closing with Done.
       api.frdChoices().then(setFrdChoices).catch(() => {});
     } catch (e) {
+      // A failed selection leaves the STTM UNSELECTED (never the config
+      // default): show why, and refresh the status that now carries it.
       setError(e instanceof Error ? e.message : String(e));
+      api.demoStatus().then(setStatus).catch(() => {});
+      api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => {});
     }
   }, []);
 
@@ -1390,7 +1404,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : workbooks.length === 0 ? (
               <div className="empty">No .xlsx workbooks found in the input directories.</div>
             ) : (
-              workbooks.map((w) => (
+              // By CONTENT (M9.3): dictionaries are listed under the VDD heading;
+              // everything else here — an unclassified / unreadable workbook is
+              // badged, never hidden.
+              workbooks.filter((w) => w.kind !== "vdd").map((w) => (
                 <button
                   key={w.name}
                   className="btn chooser-row"
@@ -1399,20 +1416,61 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   <code className="chooser-name" title={w.name}>
                     {middleTruncate(w.name)}
                   </code>
-                  <span className="chooser-chip">
+                  <span className="chooser-chip" title={w.kind_reason ?? ""}>
                     {w.source}
+                    {w.kind && w.kind !== "sttm"
+                      ? ` · ${w.kind === "classifying" ? "classifying…" : w.kind}`
+                      : ""}
                     {w.selected ? " · selected" : ""}
                   </span>
+                  {w.kind === "unreadable" ? (
+                    <span
+                      className="chooser-chip"
+                      role="button"
+                      title={`${w.kind_reason ?? ""} — read it again`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        api.reclassifyWorkbook(w.name).then((r) => setWorkbooks(r.workbooks)).catch(() => {});
+                      }}
+                    >
+                      Retry
+                    </span>
+                  ) : null}
                 </button>
               ))
             )}
+            {status?.selection_error ? (
+              <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
+                <strong>Not selected.</strong>{" "}
+                <span className="hint">{status.selection_error.message}</span>
+              </div>
+            ) : null}
+            {(["frd", "vdd"] as const).map((kind) => {
+              const outcome = status?.pairing?.[kind];
+              if (!outcome || !status?.sttm_chosen) return null;
+              return (
+                <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
+                  <strong>{kind.toUpperCase()} pairing</strong>{" "}
+                  ({outcome.scope === "same_folder" ? `same folder ${outcome.folder ?? ""}` : "all input folders"}):{" "}
+                  {outcome.chosen ? (
+                    <>
+                      <code>{outcome.chosen}</code> — {outcome.rule}
+                    </>
+                  ) : outcome.question ? (
+                    <>asked when the run starts — {outcome.reason}</>
+                  ) : (
+                    <>none — {outcome.reason}</>
+                  )}
+                </p>
+              );
+            })}
             <p className="hint" style={{ margin: "14px 0 4px" }}>
               <strong>Vendor data dictionary (optional third input)</strong> — currently{" "}
               {status?.vdd_name ? <code>{status.vdd_name}</code> : "none"}. Cross-checked
               against the STTM (positions, types, segments); never a source of values.
             </p>
             <p style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {(workbooks ?? []).map((w) => (
+              {(workbooks ?? []).filter((w) => w.kind !== "sttm").map((w) => (
                 <button
                   key={`vdd-${w.name}`}
                   className={`btn${status?.vdd_name === w.name ? " active" : ""}`}
@@ -1421,6 +1479,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   onClick={() => chooseVdd(w.name)}
                 >
                   VDD: {middleTruncate(w.name, 32)}
+                  {w.kind && w.kind !== "vdd" ? ` (${w.kind === "classifying" ? "classifying…" : w.kind})` : ""}
                 </button>
               ))}
               <button className="btn" disabled={running || !status?.vdd_name} onClick={() => chooseVdd(null)}>

@@ -46,6 +46,15 @@ def decisions_path(monkeypatch, tmp_path):
     return path
 
 
+def _index_idle() -> None:
+    """M9.3: the chooser reads listed documents in a background task; wait for
+    it before deleting a file it may have open (a Windows sharing violation)."""
+    from ui.backend import main
+
+    if main.runner is not None:
+        main.runner._index.wait_idle(30)
+
+
 def _adopt_empty(store: GenerationStore, *, mode: str, label: str | None) -> None:
     store.adopt({}, [], mode=mode, label=label, out_root=store.out_root,
                 reports_root=store.reports_root)
@@ -476,6 +485,7 @@ def test_upload_sttm_workbook_lands_and_selects(client):
         assert mine and mine[0]["selected"] and mine[0]["source"] == "inputs/uploads"
     finally:
         client.delete("/api/demo/workbook")
+        _index_idle()
         (uploads / name).unlink(missing_ok=True)
 
 
@@ -511,6 +521,7 @@ def test_upload_frd_docx_lands_and_selects(client):
         assert "not an F1/F2 FRD document" in bogus.json()["detail"]
     finally:
         client.delete("/api/demo/frd")
+        _index_idle()
         (uploads / name).unlink(missing_ok=True)
 
 
@@ -536,6 +547,7 @@ def test_upload_frd_contract_lands_and_selects(client):
         assert choices["current"] == {"label": stored, "chosen": True}
     finally:
         client.delete("/api/demo/frd")
+        _index_idle()
         (uploads / stored).unlink(missing_ok=True)
 
 
@@ -672,6 +684,7 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
         client.delete("/api/demo/workbook")
         client.delete("/api/demo/frd")
         client.delete("/api/demo/vdd")
+        _index_idle()
         vdd.unlink(missing_ok=True)
 
 

@@ -90,7 +90,10 @@ section-prefix column and the label column), never a value cell.
    role, open or not (M9.1): it replaces a synonym / model / cache placement
    of that role, a role that held the answered column gives it up (a
    required one is asked again), and every displacement is a profile note.
-   The CLI prints them
+   The CLI resolves twice when an answers file is given — once to learn the
+   questions, once with the answers; the second pass CONTINUES from the first
+   (`prior=`): no cache read, no second model call, true role sources (a
+   `--refresh` used to come back `source=cache`). The CLI prints them
    (`codegen layout --require-complete` exits non-zero); the UI pauses the
    run in `needs_layout` and shows one dialog grouped by document; answers
    merge with `source: user`, confidence 1.0, and the completed profile is
@@ -161,7 +164,9 @@ answer. The runtime cache lives under `ui/backend/state/` (gitignored).
 - UI: `GET /api/demo/status` carries `layout_questions` and
   `layout_report` while `state == "needs_layout"`; `POST
   /api/demo/layout-answers {answers:{sttm:{"<sheet>/<layer>/<role>": col},
-  frd:{…}}, proceed, cancel, refresh}` resumes the run (`refresh` =
+  frd:{…}, gaps:{"feeds[0].file_patterns": {value}}}, proceed, cancel,
+  refresh}` resumes the run (question kinds: `role`, `choice`, `layer`, and
+  since v0.5.2 `text` — a value no document states, typed; `refresh` =
   re-resolve past the caches, the earlier answers dropped); `POST
   /api/demo/layout-refresh {enabled}` arms the same for the NEXT run (one
   shot; `layout_refresh` on the status; 409 while a run is in progress).

@@ -79,6 +79,23 @@ PASS_WITH_FLAGS with the flag list pinned by kind and count.
 | `d889c51` · `extract/generic.py` — `_DNM` skip set, a note | **Reworked** | The markers are config (`extractor.unmapped_markers`), and the skip is a gate FLAG citing the cell — a note alone is invisible to the reviewer. |
 | `bbb491d`, `8377954` · the two documents | **Not brought over** | They quote client identifiers; this file is their scrubbed record. |
 
+## 5. v0.5.2 — what the first real run of v0.5.1 showed
+
+Sources: `docs/acfc/PAIR1_REAL_RUN.md` and `docs/acfc/RUN_v051_pair1.md` on the
+remote branch `acfc-runs` (placeholders throughout; not merged — run records).
+
+| Finding | Change |
+| --- | --- |
+| The real Object Name cell is STANZAS — a `<line of business>:` line, then the file name pattern on the NEXT line (three of them). v0.5.1 only read `<label>: <file>` on one line, so the FRD yielded no pattern. | `parse_object_name_block`: a multi-line block or a nested label \| value table is read per line / row — feed name from a feed-name label's value, files from a `File Name`-type label or any file-like value under another label; a flattened table (no labels) keeps the M7 refusal. The fixture cell is the stanza shape now. Two further shapes (labelled lines, a two-row table) are supported and tested as UNVERIFIED. |
+| The mapping sheet HAS rows 11–12 (`Load Strategy` = `Append`, `Notes` empty); the first capture stopped at r10. No File Details sheet. | Fixture corrected (r1–r12). The layer-less `Append` raises no question while the FRD states both strategies. |
+| `extract-sttm` hard-failed: "neither the FRD nor the workbook names a file pattern" — the VDD FILES sheet held one (a `*`-prefixed glob), but `extract-sttm` never reads the VDD. | The chain FRD → STTM → VDD FILES → `feeds[0].file_patterns` question; `SourceFile.name_pattern` may be null at extract time; the hard stop remains only in `generate`. |
+| `layout --refresh --answers` printed `source=cache cache_hit=True` for STTM and FRD. | The answers pass continues from the refresh pass (`prior=`). |
+| `generate` exited 1 with `ruff=FAIL`; the run note read it as "ruff on the mock sketches". | Sketches are never linted (pinned by a test). The exit code already followed the verdict — the verdict WAS `FAIL`, on the ruff check. What ruff failed on is not recorded; the check now tells findings from "ruff did not run" (a flag, `check_not_run:ruff`, not a FAIL) and the console prints the failed check's first lines, so the next run says which it was. |
+
+Not changed, worth knowing: with `File Names` = `TBD` the STTM offers the VDD
+pairing no content signal (`codegen pair` asks for the VDD) — the FRD's Object
+Name files could serve as that signal.
+
 ## 4. Open items
 
 1. **The two documents on the remote branch are not scrubbed** (client table /

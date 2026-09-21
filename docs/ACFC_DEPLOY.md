@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.1-acfc)
+# Deploying CodeGen inside ACFC (v0.5.2-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -252,7 +252,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.1 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.2 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -310,6 +310,36 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.2-acfc adds (the first real v0.5.1 run)
+
+Record: `docs/acfc/M9_FINDINGS.md` §5.
+
+- **File patterns are a chain, not a hard stop in `extract-sttm`:** FRD (incl.
+  its Object Name block) → STTM meta rows `File Names` / `File Name Example` /
+  the File Details sheet → the VDD `FILES` sheet's `File Name Pattern` column →
+  the question **`feeds[0].file_patterns`** (layout dialog: a text box; answers
+  file: `gaps: {"feeds[0].file_patterns": {value: "a_*.txt; b_*.txt"}}`). Each
+  fill is flagged `file_pattern_from_<object_name|sttm|vdd|user>` with its
+  cell. Only `generate` stops, when the chain ends unanswered — pass the VDD to
+  `layout` (the notebook does) or to `generate --vdd`.
+- **Object Name as a block:** the real cell is stanzas — a `<line of
+  business>:` line, the file name pattern on the next line. Blocks (several
+  lines, or a nested label | value table) are read per line / row: feed name
+  from an `Object Name` / `Feed Name` / `Name` label, files from a `File
+  Name`-type label or any file-like value under another label
+  (`extractor.frd.object_name_labels`).
+- **`layout --refresh` reports who really placed each role.** Its second pass
+  (the answers file) used to re-read the entry the first pass had just written
+  and print `source=cache cache_hit=True`; it now continues from the first pass
+  — also no second model call.
+- **Exit code = gate verdict** (`PASS` / `PASS_WITH_FLAGS` → 0, `FAIL` → 1;
+  the console headline is the report's verdict). A failed check prints its
+  first lines (`CHECK FAILED ruff — …`). A check that could not RUN — `ruff`
+  missing or unusable in the environment — is `ruff=not-run` plus the flag
+  `check_not_run:ruff` (PASS cannot be claimed), never a FAIL: only findings
+  fail a feed. Layer-2 sketches are never linted (they live in
+  `candidates/candidates.json`).
 
 ## What v0.5.1-acfc adds (M9 — the 2026-09-21 pair-1 findings)
 

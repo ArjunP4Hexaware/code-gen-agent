@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.2-acfc)
+# Deploying CodeGen inside ACFC (v0.5.3-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -252,7 +252,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.2 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.3 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -310,6 +310,37 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.3-acfc adds (the fixed-width width chain)
+
+Record: `docs/acfc/M9_FINDINGS.md` §6. The real pair-1 sheet writes `10,2` in
+the Length cell of six Detail amount fields — a precision, not a byte width —
+and v0.5.2 stopped on it before the gate. A Length cell is a width only when it
+is an INTEGER; otherwise the width comes from the chain, each link flagged with
+its cells:
+
+1. STTM `End` − `Start` + 1, when both are integers — `width_from_sttm_span`;
+2. the VDD's `End Position` − `Start Position` + 1 for the same field (matched
+   by normalized field name + segment; its `Length` when it states no end) —
+   `width_from_vdd`. **Pass the VDD** (`layout --vdd`, `generate --vdd`; the
+   notebook does);
+3. the question **`feeds[0].fields[<field name>].width`** — a text box in the
+   dialog, or in the answers file (the CLI prints the full keys; the
+   `unresolved_headers.md` report withholds the field name):
+
+   ```yaml
+   gaps:
+     "feeds[0].fields[Amount (01)].width": {value: 13}
+   ```
+
+   `codegen extract-sttm --answers answers.yaml` carries the answers —
+   `width_from_user`.
+
+The `10,2` is kept as the field's precision (`Decimal(10,2)`,
+`length_is_precision:<field>`); **a width is never derived from a precision**.
+The fixed-width reader, the `ADLS_FIXED_WIDTH_HANDLER` `LEN` cell and the VDD
+cross-check all use the resolved width. A field no link resolves stops
+`generate` with a message naming its question.
 
 ## What v0.5.2-acfc adds (the first real v0.5.1 run)
 

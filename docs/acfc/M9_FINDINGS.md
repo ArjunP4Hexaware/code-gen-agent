@@ -96,6 +96,28 @@ Not changed, worth knowing: with `File Names` = `TBD` the STTM offers the VDD
 pairing no content signal (`codegen pair` asks for the VDD) — the FRD's Object
 Name files could serve as that signal.
 
+## 6. v0.5.3 — the fixed-width width chain
+
+Source: `docs/acfc/RUN_v052_pair1.md` on `acfc-runs`. With v0.5.2 the real pair
+got through layout (0 provider calls), extract-sttm (70 fields, six
+`field_unmapped`) and extract-vdd, then `generate` stopped BEFORE the gate:
+"fixed-width feed: field … has no start/length (start='220', length='10,2')" —
+six Detail amount fields, starts 220 / 246 / 272 / 298 / 324 / 350, whose Length
+cell reads `10,2`.
+
+| Rule | Where |
+| --- | --- |
+| A Length cell is a byte width only when it is an integer. `10,2` / `10.2` / `Decimal(10,2)` is a PRECISION: kept (`SttmField.source_precision`, flag `length_is_precision:<field>` citing the cell), never turned into a width — 10 digits with 2 decimals may occupy 10 to 13 bytes. | `codegen/resolve/widths.py` |
+| Chain: STTM integer length → STTM end − start + 1 (`width_from_sttm_span`) → VDD end − start + 1, matched by normalized field name + segment (`width_from_vdd`) → the question `feeds[i].fields[<name>].width` (`width_from_user`). | extractor (links 1–2), contract resolver (3–4), layout stage (asks) |
+| One resolved value, three consumers: the fixed-width template's positions, the `ADLS_FIXED_WIDTH_HANDLER` `LEN` cell (verbatim while the length is an integer), the VDD cross-check (STTM width vs VDD width). | `emit/context.py`, `metadata_template.py`, `gate/vdd_check.py` |
+| Unresolved = `generate` stops, naming the question; `extract-sttm` never stops on it. `Do Not Map` rows are never asked about. | |
+
+Fixture: the six fields are a test VARIANT of the pair-1 documents
+(`sttm.build_pair1(amounts=True)` / `vdd.build_vdd_pair1(amounts=True)`), not
+part of the tracked acceptance pair — the golden DDL has no such columns, and
+the acceptance stays byte-identical. **UNVERIFIED:** the VDD span of these
+fields (13 bytes in the variant) — capture the real dictionary's rows.
+
 ## 4. Open items
 
 1. **The two documents on the remote branch are not scrubbed** (client table /

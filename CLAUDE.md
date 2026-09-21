@@ -393,6 +393,39 @@ notes). Scrubbed summary: `docs/acfc/M9_FINDINGS.md` §5. Tests:
   linted — pinned by a test). **What ruff failed on inside ACFC is still
   unknown; the next run's console will say.**
 
+### v0.5.3-acfc (2026-09-21): the fixed-width WIDTH chain (M9.2)
+
+The real v0.5.2 run (`acfc-runs`: `RUN_v052_pair1.md`) got through layout and
+extraction (70 fields) and stopped BEFORE the gate: six Detail amount fields
+carry `length='10,2'`. Summary: `docs/acfc/M9_FINDINGS.md` §6; tests:
+`tests/test_m92_width_chain.py`; rules: `src/codegen/resolve/widths.py`.
+
+- **A Length cell is a byte width only when it is an INTEGER.** `10,2` /
+  `10.2` / `Decimal(10,2)` is a precision — kept (`SttmField.source_precision`,
+  flag `length_is_precision:<field>` citing the cell). **Never derive a width
+  from a precision** (10 digits + 2 decimals may occupy 10–13 bytes).
+- **Chain:** STTM integer length → STTM end−start+1 (`width_from_sttm_span`,
+  extractor) → VDD end−start+1 by normalized field name + segment
+  (`width_from_vdd`, contract resolver `_resolve_widths`; its Length when the
+  row states no end) → the `text` question `feeds[i].fields[<name>].width`
+  (layout stage `_width_questions`; the answer rides on the field as
+  `width_answer` via `extract_contract(width_answers=…)` / `extract-sttm
+  --answers` / the UI runner, and the resolver uses it only when the VDD states
+  nothing — `width_from_user`). `SttmField.byte_width` is the one value the
+  fixed-width template (`emit/context.py`), the `ADLS_FIXED_WIDTH_HANDLER`
+  `LEN` cell (verbatim while the length is an integer) and `vdd_check` read.
+  `source_width` is set ONLY when it is not the plain integer length, so every
+  existing contract JSON is unchanged. Unresolved = `TemplateGapError` at
+  generate naming the question; `Do Not Map` rows are never asked about.
+- `LayoutQuestion.key` is `sheet/layer/role` only for kind `role`; a width
+  question is document `sttm`, kind `text`. `unresolved_headers.md` withholds
+  the field name of a width question (a data cell) — the CLI prints the key.
+- **Fixture:** the six amount fields are a test VARIANT
+  (`sttm.build_pair1(amounts=True[, amount_end=True])`,
+  `vdd.build_vdd_pair1(amounts=True[, amount_spans=False])`), NOT the tracked
+  pair — the golden DDL has no such columns (acceptance stays byte-identical).
+  **UNVERIFIED:** the VDD span of those fields (13 bytes in the variant).
+
 ## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
 
 Driven by what Genie Code recorded inside the ACFC workspace

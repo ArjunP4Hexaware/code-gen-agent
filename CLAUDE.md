@@ -426,6 +426,56 @@ carry `length='10,2'`. Summary: `docs/acfc/M9_FINDINGS.md` §6; tests:
   pair — the golden DDL has no such columns (acceptance stays byte-identical).
   **UNVERIFIED:** the VDD span of those fields (13 bytes in the variant).
 
+### v0.5.4-acfc (2026-09-21): the document chooser on the workspace backend (M9.3)
+
+Tests: `tests/test_m93_chooser.py` (fake SDK client, a
+`frd_sttm_pairs/pair_1..3` tree, slow / raising downloads). Deploy notes:
+`docs/ACFC_DEPLOY.md` "What v0.5.4-acfc adds".
+
+- **The list endpoints never open a document.** `DemoRunner.workbook_choices`
+  returns listing METADATA (name, source, size, modified —
+  `StorageEntry.modified` / `InputDocument.modified` / `.version` are new) plus
+  the verdict of **`ui/backend/docindex.py::DocumentIndex`**: ONE background
+  worker, per document download → `codegen.layout.classify.classify_workbook`
+  (kind by CONTENT: `sttm` via `discover`, then `vdd` via `discover_vdd`, else
+  `unclassified` — STTM first, a Layout sheet can look like a field sheet) →
+  pairing facts (`pairing.document_facts` / `facts_to_dict`), each file in its
+  own daemon thread joined for `inputs.classify_timeout_seconds`. States:
+  `classifying` (transient) → `sttm | vdd | unclassified | frd | unreadable`
+  (persisted with the reason in the state role, `document_index.json`, keyed by
+  `uri#size:modified`). **`unreadable` is final** — no retry loop; only a new
+  size / modified or `POST /api/demo/workbook/reclassify` (the UI's Retry)
+  reads it again. `fetch_exclusive` (per-URI lock) is shared by the worker and
+  the request path: two writers of one working copy is a sharing violation on
+  Windows and surfaced as "unreachable candidate". Tests that delete a listed
+  file call `_index_idle()` first for the same reason.
+- **Selection = download → pair → record, or a named failure.**
+  `SelectionFailed` → HTTP **424** with the reason (STTM, VDD and FRD routes),
+  `status.selection_error {kind, name, message}`, the STTM left UNSELECTED
+  (previous pick and its pair dropped too), and `start_live` refuses while it
+  is set — never the config default in place of a document that failed.
+  Downloads on the request path are bounded (`_fetch`,
+  `inputs.select_timeout_seconds`). Under a NON-default state role the choice
+  is recorded (`selection.json`) and restored by a new runner (a container
+  restart); a recorded document that is gone is a `selection_error`. The
+  default local role records nothing (tests and the demo start at "none
+  chosen"). The VDD route goes through the catalog now
+  (`select_vdd_by_name`) — it used to scan the local directories only, so a
+  dictionary in a workspace folder was a 404.
+- **Pairing on select, same folder first** (`DemoRunner._pair`): candidates
+  whose `source` equals the STTM's (`…/pair_N`) are scored first, the rest only
+  when that folder holds none; indexed facts are used instead of opening
+  documents (`pair_by_content(known_facts=…)`). A NESTED folder holding exactly
+  one candidate with no positive score pairs by rule `same_folder` (never in a
+  flat inbox); ≥2 undecided = a question among them. `last_pairing` is returned
+  by `POST /api/demo/workbook` (`pairing.frd|vdd`) and kept on the status.
+  Quirk kept as found: `PairDecision.ambiguous` is True for a VDD decision
+  whose candidates all score 0 (`min_score` defaults to 0.0 on the
+  no-content branches) — `_pair` tests `score > 0` itself.
+- **Item 4 is OPEN:** `docs/acfc/APP_CHOOSER_BUG.md` had not appeared on
+  `origin/acfc-runs` when v0.5.4 shipped — read it and add the regression test
+  when it does.
+
 ## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
 
 Driven by what Genie Code recorded inside the ACFC workspace

@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.3-acfc)
+# Deploying CodeGen inside ACFC (v0.5.4-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -252,7 +252,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.3 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.4 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -310,6 +310,41 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.4-acfc adds (the document chooser on the workspace backend)
+
+- **The lists return at once.** `GET /api/demo/workbooks` (and the FRD list)
+  return listing METADATA only — name, folder, size, modified — and never
+  download or open a document. What needs a document's content is computed once
+  per file version by ONE background task (`ui/backend/docindex.py`) and kept in
+  the state role as `document_index.json`: a workbook's **kind by content**
+  (`sttm` — a band row with stage + standard labels / `MAPPING-` sheets; `vdd` —
+  a FILES / field-sheet header; else `unclassified`) and every document's
+  pairing facts. Until a verdict exists the row shows **classifying…**. A file
+  that cannot be downloaded or opened, or exceeds
+  `inputs.classify_timeout_seconds` (60), shows **unreadable** with the reason —
+  still listed, never retried on its own (only when its size / modified changes,
+  or with **Retry**). Dictionaries are listed under the VDD heading, everything
+  else under STTM; an unclassified workbook is badged, never hidden. The App's
+  service principal therefore needs **Can Edit** on the state folder (§3) — it
+  already did, for `decisions.json` and the layout cache.
+- **A selection succeeds or says why.** Choosing an STTM downloads it (bounded
+  by `inputs.select_timeout_seconds`, 120), pairs it and records the choice in
+  the state role (`selection.json` — restored after a container restart). If any
+  step fails the response is **HTTP 424 with the reason**, the chooser shows
+  "Not selected — …", the STTM stays unselected and **Generate is refused** —
+  never a silent fall back to the config default. The VDD route now finds a
+  dictionary in ANY input root (it used to look in the local directories only:
+  a VDD in a workspace pair folder answered 404).
+- **Pairing on select, same folder first.** With `…/frd_sttm_pairs/pair_N/`
+  folders the FRD / VDD candidates of the STTM's OWN folder are scored first;
+  the other input roots only when that folder holds none. A pair folder holding
+  exactly one candidate that no content signal decides (the real pair-1 STTM
+  states `TBD` for its files, so nothing points at its dictionary) pairs by rule
+  `same_folder`; two or more undecided candidates are a question among THEM. The
+  outcome comes back in the select response — `pairing.frd` / `pairing.vdd` =
+  `{chosen, rule, reason, scope, folder, candidates, question}` — and stays on the
+  status.
 
 ## What v0.5.3-acfc adds (the fixed-width width chain)
 

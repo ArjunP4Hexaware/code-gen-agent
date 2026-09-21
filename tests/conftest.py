@@ -107,8 +107,11 @@ LAYOUT_PROFILES = REPO / "fixtures" / "layout_profiles"
 
 @pytest.fixture(scope="session")
 def pair1_spec(pair1_config, tmp_path_factory):
-    """Pair 1 end to end the M4 way: mock layout, STTM + FRD(docx) + VDD
-    contracts, resolver takes file pattern + segments from the STTM."""
+    """Pair 1 end to end (M9.4): the real-shape fixtures resolve by synonyms
+    alone — the mock provider is offered and must never be called, no answers
+    file — then STTM + FRD(docx) + VDD contracts. The FRD's Object Name cell
+    lists the files (the patterns); the STTM supplies segments, schema and
+    catalog; the layout stage names the feed after the stage band."""
     config = pair1_config
     tmp = tmp_path_factory.mktemp("pair1_contracts")
     import json
@@ -121,15 +124,18 @@ def pair1_spec(pair1_config, tmp_path_factory):
     from codegen.layout.model import MockLayoutProvider
     from codegen.layout.resolve import resolve_pair as resolve_layout_pair
 
+    provider = MockLayoutProvider([LAYOUT_PROFILES / "mock", LAYOUT_PROFILES])
     pair = resolve_layout_pair(
         ACFC_SHAPES / "sttm" / "pair_1_family_a.xlsx",
-        ACFC_SHAPES / "frd" / "f1_pair_1.docx", config,
-        provider=MockLayoutProvider([LAYOUT_PROFILES / "mock", LAYOUT_PROFILES]),
-                        cache_dirs=[tmp / "cache"], generated_date="2026-01-01",
-                        vdd_path=ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx")
+        ACFC_SHAPES / "frd" / "f1_pair_1.docx", config, provider=provider,
+        cache_dirs=[tmp / "cache"], generated_date="2026-01-01",
+        vdd_path=ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx")
+    assert pair.provider_calls == 0 and provider.requests == [] and pair.questions == []
     frd_json = tmp / "frd.contract.json"
     frd_json.write_text(frd_to_json(pair.frd_contract), encoding="utf-8")
-    assert json.loads(frd_json.read_text(encoding="utf-8"))["feeds"][0]["file_name_patterns"] == []
+    frd_feed = json.loads(frd_json.read_text(encoding="utf-8"))["feeds"][0]
+    assert frd_feed["feed_name"] == "vnd_p_accum_client"       # named after the stage band
+    assert len(frd_feed["file_name_patterns"]) == 4            # the Object Name cell's lines
     sttm_json = tmp / "sttm.contract.json"
     contract = extract_contract(ACFC_SHAPES / "sttm" / "pair_1_family_a.xlsx", frd_json, config,
                                 generated_date="2026-01-01", layout=pair.sttm.profile)

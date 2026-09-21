@@ -9,8 +9,11 @@ tracked copy at fixtures/acfc_shapes/pair_1/golden/):
 * the IIG workbook matches the golden's sheet names, order, headers, column
   order and row counts, the cells the fixture universe determines match the
   golden's values, and every other cell is blank AND flagged (pinned list);
-* a docx FRD that names no file pattern / segments takes both from the STTM
-  with provenance flags;
+* M9.4: the pair is the REAL-shape fixture pair (M9.0) and needs no answers
+  file and no model call — the FRD's Object Name cell lists the files, its
+  target cell is an inline layer block without schema / catalog, the STTM
+  supplies segments, schema and catalog, one field is "Do Not Map"; every
+  such decision is a pinned provenance flag;
 * the default profile/template (``edo_sfmc`` / ``iig_v1``) is untouched —
   the CV / SFMC baselines are guarded by the notebook-mode snapshot and the
   Option B suite; here the default framework emit still writes the two
@@ -82,17 +85,56 @@ def _sheet_rows(sheet) -> tuple[list[str], list[list[str]]]:
 # -- resolver provenance -------------------------------------------------------- #
 
 
-def test_pair1_resolver_takes_pattern_and_segments_from_the_sttm_flagged(pair1_spec):
+# The provenance flags of the M9.0 pair, pinned (M9.4) — in the order the
+# resolver raises them: the FRD reader's, the STTM extractor's, the gap chain's,
+# then the resolver's own.
+PAIR1_PROVENANCE_KINDS = [
+    "frd_layer_block",                       # "Staging Layer:" / "Table: …" block, per layer
+    "file_pattern_from_object_name",         # Object Name lists "<label>: <file>" lines
+    "frd_feed_name_unstated",                # … so it names no feed
+    "frd_unstated:feeds[0].feed_name",       # the layout stage named it: the STTM stage band
+    "field_unmapped",                        # the "Do Not Map" row
+    "frd_unstated:stage_target.schema",      # FRD states no schema -> STTM band
+    "frd_unstated:standard_target.schema",
+    "frd_unstated:stage_target.catalog",     # … and no catalog -> STTM band
+    "frd_unstated:standard_target.catalog",
+    "segments_from_sttm",
+]
+
+
+def _kind(flag: str) -> str:
+    head = flag.split(" ")[0].rstrip(":")
+    return head if head.startswith("frd_unstated:") else head.split(":")[0]
+
+
+def test_pair1_resolver_provenance_flags_are_pinned_and_cite_their_cells(pair1_spec):
     assert pair1_spec.file_name_patterns == [
         "I_ACCUM_*_TO_CLIENT_*.csv", "I_ACCUM_*_FROM_CLIENT_*.csv",
         "F_ACCUM_*_TO_CLIENT_*.csv", "F_ACCUM_*_FROM_CLIENT_*.csv"]
     assert [s.segment for s in pair1_spec.segments] == ["Header", "Detail", "Trailer"]
     assert pair1_spec.delimiter == ""  # fixed width: no implied delimiter
-    kinds = sorted(f.split(":")[0] for f in pair1_spec.provenance_flags)
-    assert kinds == ["file_pattern_from_sttm", "segments_from_sttm"]
-    # Facts, not guesses: the flags quote where the values came from.
-    assert "meta row 'File Names'" in pair1_spec.provenance_flags[1]
-    assert "sheet 'FEED_1_MAPPING'" in pair1_spec.provenance_flags[0]
+    flags = pair1_spec.provenance_flags
+    assert [_kind(f) for f in flags] == PAIR1_PROVENANCE_KINDS
+    by_kind = {_kind(f): f for f in flags}
+    # Facts, not guesses: every flag quotes the cell it rests on.
+    assert "table 5 row 6 ('Target Table Name')" in by_kind["frd_layer_block"]
+    assert "stage table='vnd_p_accum_client'" in by_kind["frd_layer_block"]
+    assert "('Object Name')" in by_kind["file_pattern_from_object_name"]
+    assert "('Object Name') cell is a labelled_files value" in by_kind["frd_feed_name_unstated"]
+    assert "source_used:STTM stage band 'FEED_1_MAPPING': 'vnd_p_accum_client'" in by_kind[
+        "frd_unstated:feeds[0].feed_name"]
+    assert by_kind["field_unmapped"].startswith(
+        "field_unmapped:Reserved Group (01) — STTM FEED_1_MAPPING!V38 reads 'Do Not Map'")
+    assert by_kind["frd_unstated:stage_target.schema"].endswith(
+        "STTM FEED_1_MAPPING stage band (schema column): 'stg_vnd_p_accum'")
+    assert by_kind["frd_unstated:standard_target.catalog"].endswith(
+        "STTM FEED_1_MAPPING standard band (catalog column): 'pr_std_vnd_p'")
+    assert "sheet 'FEED_1_MAPPING'" in by_kind["segments_from_sttm"]
+    # The feed the FRD left unnamed is named after the STTM stage band.
+    assert pair1_spec.feed_id == pair1_spec.feed_name == "vnd_p_accum_client"
+    # The unmapped field is in no segment; 23 mapped rows over 21 columns.
+    assert sum(len(s.fields) for s in pair1_spec.segments) == 23
+    assert not any("Reserved" in f.source_column for s in pair1_spec.segments for f in s.fields)
     # Not-null / natural key are the DETAIL segment's, deduped.
     assert pair1_spec.natural_key_columns == ["SEGMENT_IDENTIFIER", "CARDHOLDER_ID", "PLAN_ID"]
 
@@ -126,11 +168,39 @@ def test_pair1_gate_flags_drag_fill_and_provenance(pair1_run):
         "drag_fill_suspect:stage — vnd_p_accum_client columns INDIVIDUAL_DEDUCTIBLE, "
         "FAMILY_DEDUCTIBLE, COPAY, COINSURANCE, INDIVIDUAL_LIMIT, FAMILY_LIMIT: "
         "Decimal(17,2) → Decimal(22,2)")
-    assert "(STTM rows 27–32)" in drag[0]
-    assert any(f.startswith("file_pattern_from_sttm:") for f in gate.flags)
+    assert "(STTM rows 29–34)" in drag[0]        # the banner rows shift the block by two
     assert any(f.startswith("segments_from_sttm:") for f in gate.flags)
     assert not any(f.startswith("ddl_file_name_from_slug") for f in gate.flags)
     assert not any(f.startswith("vdd_") for f in gate.flags)
+
+
+# The WHOLE gate flag list of the M9.4 acceptance run, by kind (count): the
+# provenance flags above + what the gate / framework emit add. Pinned so a new
+# flag class (or a lost one) on the real-shape pair is a deliberate change.
+PAIR1_GATE_FLAG_KINDS = {
+    **{kind: 1 for kind in PAIR1_PROVENANCE_KINDS},
+    "drag_fill_suspect": 1,
+    "iig_blank": 8,
+    "dml_unassigned": 10,
+    "dml_not_described": 5,
+    "dml_unconfirmed": 1,
+    "faq_unanswered": 6,
+    "load_mode_not_enforced": 1,
+    "Layer-2": 6,                  # "Layer-2 candidate pending engineer approval: …"
+    "rule": 1,                     # "rule classified flagged: …"
+    "generated": 1,                # "generated tests were skipped — PASS cannot be claimed"
+}
+
+
+@needs_golden
+def test_pair1_gate_flag_list_is_pinned(pair1_run):
+    gate, _ = pair1_run
+    assert gate.verdict == "PASS_WITH_FLAGS"
+    counts: dict[str, int] = {}
+    for flag in gate.flags:
+        counts[_kind(flag)] = counts.get(_kind(flag), 0) + 1
+    assert counts == PAIR1_GATE_FLAG_KINDS
+    assert not any(f.startswith(("layout_", "vdd_", "catalog_", "schema_")) for f in gate.flags)
 
 
 def test_drag_fill_needs_three_adjacent_steps(pair1_spec):
@@ -354,9 +424,9 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config
                               output_mode="framework")
     framework_dir = tmp_path / "out" / pair1_spec.feed_slug / "framework"
     names = sorted(p.name for p in framework_dir.iterdir())
-    assert names == ["ADDITION.md", "accumulators_stage_table_creation.txt",
-                     "accumulators_standard_table_creation.txt", "config_inserts.xlsx",
-                     "config_rows.xlsx"]          # no DML under the reference profile (M7)
+    assert names == ["ADDITION.md", "config_inserts.xlsx", "config_rows.xlsx",
+                     "vnd_p_accum_client_stage_table_creation.txt",
+                     "vnd_p_accum_client_standard_table_creation.txt"]   # no DML (M7)
     # iig_v1: the 7-tab reference layout, no blank-and-flag flags.
     assert not any(f.startswith("iig_blank:") for f in gate.flags)
     ours = load_workbook(framework_dir / "config_rows.xlsx")
@@ -372,7 +442,7 @@ def test_combined_ddl_without_feed_abbreviation_falls_back_to_the_slug_and_flags
     artefacts = emit_framework(pair1_spec, LoadPatternFaq(), [], pair1_config, tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     names = [p.name for p in artefacts.files]
-    assert "ACCUMULATORS_DDL.txt" in names
+    assert "VND_P_ACCUM_CLIENT_DDL.txt" in names
     assert any(f.startswith("ddl_file_name_from_slug:") for f in artefacts.flags)
     # No FAQ -> no process name / discriminators: those cells join the blank list.
     blank = blank_columns(artefacts.flags)["ADLS_FIXED_WIDTH_HANDLER"]

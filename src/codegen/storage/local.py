@@ -56,8 +56,10 @@ class LocalBackend(StorageBackend):
         entries = []
         for child in sorted(directory.iterdir(), key=lambda p: p.name):
             is_dir = child.is_dir()
+            stat = None if is_dir else child.stat()
             entries.append(StorageEntry(child.name, is_dir,
-                                        None if is_dir else child.stat().st_size))
+                                        None if stat is None else stat.st_size,
+                                        None if stat is None else stat.st_mtime_ns // 1_000_000))
         return entries
 
     def read_bytes(self, rel: str) -> bytes:

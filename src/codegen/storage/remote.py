@@ -168,7 +168,8 @@ class WorkspaceBackend(_SdkBackend):
                 continue
             is_dir = kind in ("DIRECTORY", "REPO")
             size = None if is_dir else getattr(obj, "size", None)
-            entries.append(StorageEntry(name, is_dir, size))
+            entries.append(StorageEntry(name, is_dir, size,
+                                        None if is_dir else getattr(obj, "modified_at", None)))
         return sorted(entries, key=lambda e: e.name)
 
     def read_bytes(self, rel: str) -> bytes:
@@ -217,7 +218,8 @@ class VolumeBackend(_SdkBackend):
         for item in listed:
             name = item.name or str(item.path or "").rstrip("/").rsplit("/", 1)[-1]
             is_dir = bool(item.is_directory)
-            entries.append(StorageEntry(name, is_dir, None if is_dir else item.file_size))
+            entries.append(StorageEntry(name, is_dir, None if is_dir else item.file_size,
+                                        None if is_dir else getattr(item, "last_modified", None)))
         return sorted(entries, key=lambda e: e.name)
 
     def read_bytes(self, rel: str) -> bytes:

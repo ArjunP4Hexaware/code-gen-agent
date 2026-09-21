@@ -1077,6 +1077,13 @@ inputs:
   extra_dirs: []
   scan_depth: 1
   listing_ttl_seconds: 30      # remote listings are API calls; the chooser polls
+  # M9.3: list endpoints return metadata only. Documents are downloaded,
+  # classified by content and their pairing facts read once, in a background
+  # task — per file within classify_timeout_seconds ("unreadable" beyond it,
+  # with the reason; never omitted, never retried in a loop). A selection's own
+  # downloads are bounded by select_timeout_seconds.
+  classify_timeout_seconds: 60
+  select_timeout_seconds: 120
   # Auto-pairing by content (codegen.pairing): for the chosen STTM every FRD /
   # VDD candidate is scored on what the documents SAY; the ticket number and
   # the file-name stem are two weak signals among several. Paired only when

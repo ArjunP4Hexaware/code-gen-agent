@@ -35,6 +35,13 @@ class InputDocument:
     store: RoleStore
     rel: str                # path inside the store
     size: int | None = None
+    modified: int | None = None     # epoch ms, when the backend lists it (M9.3)
+
+    @property
+    def version(self) -> str:
+        """Where the file lives + the listed size / modified — the identity a
+        cached verdict about its CONTENT is keyed by (no I/O)."""
+        return f"{self.uri}#{self.size}:{self.modified}"
 
     @property
     def uri(self) -> str:
@@ -79,7 +86,8 @@ class InputCatalog:
             documents.append(InputDocument(
                 name=rel.rsplit("/", 1)[-1],
                 source=f"{source.label}/{sub}" if sub else source.label,
-                store=source.store, rel=rel, size=entry.size))
+                store=source.store, rel=rel, size=entry.size,
+                modified=getattr(entry, "modified", None)))
         self._cache[index] = (time.monotonic(), documents)
         return documents
 

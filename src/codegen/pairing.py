@@ -107,6 +107,32 @@ class _Facts:
 _cache: dict[tuple, _Facts] = {}
 
 
+def facts_to_dict(facts: _Facts) -> dict:
+    """A document's pairing facts as JSON (M9.3: computed once in the UI's
+    background task and kept in the state role)."""
+    return {"texts": [list(t) for t in facts.texts], "tables": dict(facts.tables),
+            "schemas": dict(facts.schemas), "files": dict(facts.files),
+            "meta": {k: list(v) for k, v in facts.meta.items()},
+            "names": list(facts.names), "raw_tables": list(facts.raw_tables)}
+
+
+def facts_from_dict(data: dict) -> _Facts:
+    return _Facts(texts=[tuple(t) for t in data.get("texts", [])],
+                  tables=dict(data.get("tables", {})), schemas=dict(data.get("schemas", {})),
+                  files=dict(data.get("files", {})),
+                  meta={k: tuple(v) for k, v in data.get("meta", {}).items()},
+                  names=list(data.get("names", [])), raw_tables=list(data.get("raw_tables", [])))
+
+
+def document_facts(kind: str, path: Path, config: Config, base_dir: Path) -> _Facts:
+    """The pairing facts of one document: ``kind`` = sttm | frd | vdd."""
+    if kind == "sttm":
+        return sttm_facts(path, config, base_dir)
+    if kind == "frd":
+        return frd_facts(path, config, base_dir)
+    return vdd_facts(path, config, base_dir, ())
+
+
 _NAME_STEM_MIN = 4
 
 
@@ -327,10 +353,13 @@ def decide(kind: str, sttm_name: str, scored: list[PairCandidate], config: Confi
 
 
 def pair_by_content(kind: str, sttm_path: Path, candidates: dict[str, Path], config: Config,
-                    base_dir: Path, explicit_map: dict[str, str] | None = None) -> PairDecision:
+                    base_dir: Path, explicit_map: dict[str, str] | None = None,
+                    known_facts: dict[str, _Facts] | None = None) -> PairDecision:
     """Decide the ``kind`` ("frd" | "vdd") companion of ``sttm_path`` among
     ``candidates`` (name -> local path). A candidate that cannot be read
-    scores on its name alone — one unreadable file never blocks pairing."""
+    scores on its name alone — one unreadable file never blocks pairing.
+    ``known_facts`` (name -> facts already read, M9.3) are used instead of
+    opening the document; the STTM's own under its file name."""
     sttm_name = sttm_path.name
     names = [n for n in candidates if n != sttm_name]
     explicit = {document_stem(k): document_stem(v) for k, v in (explicit_map or {}).items()}
@@ -340,8 +369,9 @@ def pair_by_content(kind: str, sttm_path: Path, candidates: dict[str, Path], con
         return PairDecision(kind, sttm_name, by_stem[mapped], "pairing_map", (),
                             "explicit pairing_map entry")
     weights = config.inputs.pairing.weights
+    known_facts = known_facts or {}
     try:
-        sttm = sttm_facts(sttm_path, config, base_dir)
+        sttm = known_facts.get(sttm_name) or sttm_facts(sttm_path, config, base_dir)
     except Exception:  # noqa: BLE001 — an unreadable STTM still pairs by name
         sttm = _Facts()
     scored = []
@@ -349,9 +379,11 @@ def pair_by_content(kind: str, sttm_path: Path, candidates: dict[str, Path], con
         signals: list[PairSignal] = []
         try:
             if kind == "frd":
-                signals = score_frd(sttm, frd_facts(candidates[name], config, base_dir), weights)
+                signals = score_frd(sttm, known_facts.get(name) or frd_facts(
+                    candidates[name], config, base_dir), weights)
             else:
-                facts = vdd_facts(candidates[name], config, base_dir, tuple(sttm.raw_tables))
+                facts = known_facts.get(name) or vdd_facts(
+                    candidates[name], config, base_dir, tuple(sttm.raw_tables))
                 signals = score_vdd(sttm, facts, weights)
         except Exception:  # noqa: BLE001, S110 — name signals below still apply
             pass

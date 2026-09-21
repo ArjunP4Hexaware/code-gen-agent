@@ -857,6 +857,14 @@ class InputsConfig(BaseModel):
     # A remote root's listing is an API call and the chooser polls: reuse a
     # listing this long (an upload / fetch drops it at once).
     listing_ttl_seconds: float = Field(default=30.0, ge=0)
+    # M9.3: the chooser's list endpoints return listing metadata only; each
+    # document is downloaded, classified (sttm | vdd | unclassified) and its
+    # pairing facts read ONCE, in a background task, within this many seconds
+    # per file — a file that exceeds it (or fails to open) is listed as
+    # "unreadable" with the reason, never omitted and never retried in a loop.
+    classify_timeout_seconds: float = Field(default=60.0, gt=0)
+    # … and a selection's own downloads (the STTM, its pair) are bounded too.
+    select_timeout_seconds: float = Field(default=120.0, gt=0)
     pairing: PairingConfig = PairingConfig()
 
     @model_validator(mode="after")

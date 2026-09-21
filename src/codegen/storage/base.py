@@ -39,6 +39,10 @@ class StorageEntry:
     name: str
     is_dir: bool
     size: int | None = None
+    # M9.3: last-modified as the backend reports it (epoch milliseconds), when
+    # it does — listing metadata only, so a chooser can tell a changed file
+    # from a known one without opening it.
+    modified: int | None = None
 
 
 def clean_rel(rel: str) -> str:

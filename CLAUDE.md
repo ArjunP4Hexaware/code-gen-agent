@@ -294,6 +294,39 @@ cannot grant; four of ten pairs share one ticket; the real pair-1 STTM
 leaves six roles open under synonyms. Deploy doc: `docs/ACFC_DEPLOY.md`
 (rewritten around those facts — grants, env names, redeploy sequence).
 
+**State (2026-09-20): M8 is SHIPPED.** `staging` = `origin/staging`, tag
+`v0.5.0-acfc` on e74883b (the M8.6 commit), seven milestone commits
+3021fd0 … e74883b, then two doc commits (d7ec510 scrubbed evidence, 8a8e28b
+folder permissions: **Can Edit** on the state / outputs / inputs folders,
+**Can Read** on the pairs folder — `docs/ACFC_DEPLOY.md` §3). Working tree
+clean at 8a8e28b (this state block was added afterwards — commit it if
+`git status` still shows CLAUDE.md modified); the m7.1 stash, the `wt_old` worktree and the `m8-pending` side
+branch are gone (the `cg-snapbase` worktree belongs to another session —
+leave it). Verified at ship time: suite 574 passed / 27 skipped on Python
+3.10, 3.11 and 3.12; CV / SFMC baselines byte-identical to the M8.0
+re-base (deliberate, Soham-approved: TGT_ADLS_PATH slug + INSERT cell for
+the 4 feeds, two new passing checks in the 4 reports, CV sibling_type
+flags; `tests/snapshots/notebook_mode.json` = the two CV report hashes);
+pair-1 goldens untouched; ruff, tsc, scrub (every tracked file) clean; dist
+rebuilt. **Not yet proven — the next work:** (1) the `workspace:` /
+`volume:` backends and the live FMAPI layout provider have only run against
+fakes (`tests/storage_fakes.py`, a monkeypatched `chat`) — first real run is
+inside ACFC: pull `staging`, set the App env per `docs/ACFC_DEPLOY.md` §8,
+share the folders, redeploy (marker 0.5.0), then pair 1 with
+`CODEGEN_LAYOUT_PROVIDER=live` or an answers file; bring
+`unresolved_headers.md` home and add the header strings to the synonym
+tables in an overlay; (2) the M8.3 / M8.4 / M8.5 commits were split by path
+and not suite-run individually (M8.0, M8.1, M8.2 and the final tree were);
+(3) the Hexaware App `codegen-agent` (still 0.3.5, live) inherits the
+shipped mock lock at its next deploy — remove `CODEGEN_FORCE_MOCK_PROVIDER`
+from its `app.yaml` env to keep it live; (4) staging → main merge still
+waits for Soham's say-so. Decision on record: `layout.provider: live`
+deliberately bypasses the Layer-2 mock lock (own lock:
+`CODEGEN_FORCE_MOCK_LAYOUT=1`) — revisit only if Soham wants one lock.
+Shell gotcha from this session: long bash heredocs containing backticks /
+non-ASCII fail or mis-decode on this Windows box — write patch scripts to
+the scratchpad with the Write tool and run them as files.
+
 - **Storage (`src/codegen/storage/`, M8.1).** One interface (`list`,
   `read_bytes`, `write_bytes`, `exists`, `mkdir`), three backends by URI:
   `local:<dir>`, `workspace:/Workspace/Users/…` (Workspace API),

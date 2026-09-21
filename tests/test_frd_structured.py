@@ -67,9 +67,14 @@ def test_reader_refuses_every_shape_and_records_it():
                for v in contract.structured.values())
     # "Inbound" (a direction word) did not become the landing path.
     assert any("names no path" in a for a in contract.provenance.ambiguities)
-    # Pair 1 is untouched by all of this.
+    # Pair 1 refuses exactly one cell (M9.3): its Object Name lists the files.
     pair1, _ = extract_frd_contract(SHAPES / "frd" / "f1_pair_1.docx", config, generated_date=DATE)
-    assert pair1.structured == {}
+    assert {k: v.kind for k, v in pair1.structured.items()} == {
+        "feeds[0].feed_name": "labelled_files"}
+    # … and pair 2 (plain cells throughout) none at all.
+    pair2, _ = extract_frd_contract(SHAPES / "frd" / "f1_pair_2_variant.docx", config,
+                                    generated_date=DATE)
+    assert pair2.structured == {}
 
 
 def test_three_feeds_derive_each_with_its_own_values_and_provenance():

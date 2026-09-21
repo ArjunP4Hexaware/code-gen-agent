@@ -156,14 +156,14 @@ def test_perturbed_vdd_yields_exactly_the_five_flags_citing_cells(config, tmp_pa
                        "vdd_missing_in_sttm", "vdd_missing_in_vdd"]
     by_class = {f.split(" — ")[0]: f for f in flags}
     assert "VDD FEED_1 Fields!C11 (data_type 'Numeric')" in by_class["vdd_mismatch:type"]
-    assert "STTM FEED_1_MAPPING row 25 (type 'String')" in by_class["vdd_mismatch:type"]
+    assert "STTM FEED_1_MAPPING row 27 (type 'String')" in by_class["vdd_mismatch:type"]
     assert "(field 'CARDHOLDER_ID')" in by_class["vdd_mismatch:type"]
     assert "VDD FEED_1 Fields!F12 (length 17)" in by_class["vdd_mismatch:length"]
-    assert "STTM FEED_1_MAPPING row 26 (length '16')" in by_class["vdd_mismatch:length"]
+    assert "STTM FEED_1_MAPPING row 28 (length '16')" in by_class["vdd_mismatch:length"]
     assert "VDD FEED_1 Fields!D15 (start 70)" in by_class["vdd_mismatch:position"]
     assert "start 69 vs 70" in by_class["vdd_mismatch:position"]
     assert "(field 'COPAY')" in by_class["vdd_mismatch:position"]
-    assert "STTM FEED_1_MAPPING row 38 (field 'FILLER_3')" in by_class["vdd_missing_in_vdd"]
+    assert "STTM FEED_1_MAPPING row 42 (field 'FILLER_3')" in by_class["vdd_missing_in_vdd"]
     assert "VDD FEED_1 Fields!B24 (field 'EXTRA_FIELD')" in by_class["vdd_missing_in_sttm"]
     # 23 vs 23: no count summary flag.
     assert not any(f.startswith("vdd_field_count") for f in flags)
@@ -231,7 +231,7 @@ def test_vdd_files_sheet_joins_the_pair_cross_checks(config, no_cache, tmp_path)
                         provider=MockLayoutProvider([MOCK, PROFILES]), cache_dirs=no_cache,
                         vdd_path=VDD / "pair_1_v1_segments.xlsx", generated_date=DATE)
     assert pair.vdd is not None and pair.vdd.provider_calls == 0
-    assert pair.provider_calls == 1
+    assert pair.provider_calls == 0          # M9: the real-shape STTM resolves by synonyms
     fmt = next(c for c in pair.cross_checks if c.name == "file_format")
     assert fmt.status == "agree"
     freq = next(c for c in pair.cross_checks if c.name == "frequency")

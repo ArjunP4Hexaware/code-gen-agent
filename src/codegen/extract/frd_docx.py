@@ -506,6 +506,56 @@ def _per_file_blocks(text: str, labels: dict[str, str]) -> list:
     return [b for b in blocks if b.values]
 
 
+def _labelled_files(value: str) -> list | None:
+    """StructuredRows when EVERY non-empty line reads "<label>: <file name
+    pattern>" (two lines or more) — an Object Name cell that lists the feed's
+    files per line of business instead of naming the feed; else None."""
+    from codegen.contracts.frd import StructuredRow
+
+    lines = [line.strip() for line in value.split("\n") if line.strip()]
+    if len(lines) < 2:
+        return None
+    rows = []
+    for line in lines:
+        label, sep, rest = line.partition(":")
+        if not sep or not label.strip() or not _FILE_LIKE_RE.search(rest.strip()) \
+                or " " in rest.strip():
+            return None
+        rows.append(StructuredRow(key=rest.strip(), values={"label": label.strip()}))
+    return rows
+
+
+def parse_layer_blocks(value: str, config: FrdExtractorConfig) -> dict[str, dict[str, str]] | None:
+    """``{"stage": {"table": …, "schema": …}, "standard": {…}}`` for a cell
+    holding inline layer blocks (module docstring of the config knob); None
+    when the cell has no layer heading. Lines that are neither a heading nor
+    a known "Label: value" are ignored — never taken as a table name."""
+    words = {normalize_label(w) for w in config.layer_block_heading_words}
+    if not value or not words:
+        return None
+    markers = {normalize_label(m): layer for layer, spellings in
+               config.target_schema_markers.items() for m in spellings}
+    labels = {normalize_label(s): slot for slot, spellings in config.layer_block_labels.items()
+              for s in spellings}
+    blocks: dict[str, dict[str, str]] = {}
+    current: str | None = None
+    for line in value.split("\n"):
+        text = line.strip()
+        if not text:
+            continue
+        heading = normalize_label(text.rstrip(":")).split(" ")
+        if len(heading) == 2 and heading[0] in markers and heading[1] in words:
+            current = markers[heading[0]]
+            blocks.setdefault(current, {})
+            continue
+        pair = _PAIR_RE.match(text)
+        if pair and current is not None:
+            slot = labels.get(normalize_label(pair.group(1)))
+            if slot is not None and pair.group(2).strip():
+                blocks[current].setdefault(slot, pair.group(2).strip())
+    return blocks or None
+
+
 def classify_cell(content: DocxContent, source: FrdFieldSource, field: str, value: str,
                   config: FrdExtractorConfig, labels: dict[str, str],
                   own_keys: set[str]):
@@ -525,6 +575,12 @@ def classify_cell(content: DocxContent, source: FrdFieldSource, field: str, valu
         return StructuredValue(kind="nested_table", headers=headers, rows=rows, **base)
     if not value:
         return None
+    if field == "feed_name":
+        files = _labelled_files(value)
+        if files is not None:
+            return StructuredValue(kind="labelled_files", rows=files, **base)
+    if field.endswith("_target.schema") and parse_layer_blocks(value, config):
+        return None          # an inline layer block: parsed per layer by read_frd
     target = _pointer_target(value, config.pointer_phrases)
     if target is not None:
         return StructuredValue(kind="pointer", target=target, **base)
@@ -607,6 +663,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                       "label_prefixed": f" (label {refused.prefix_label!r} is not the field)",
                       "nested_table": f" ({len(refused.rows)} nested row(s))",
                       "per_file_blocks": f" ({len(refused.rows)} block(s))",
+                      "labelled_files": f" ({len(refused.rows)} '<label>: <file>' line(s))",
                       "multiline": ""}[refused.kind]
             ambiguities.append(f"frd_{refused.kind}:{clean}{detail} — table {source.table} "
                                f"row {source.row}; unstated, resolved from the other documents")
@@ -648,6 +705,12 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                 evidence[path] = evidence.pop(f"{path}#fallback")
         return value
 
+    def cell_of(path: str) -> str:
+        source = profile.fields.get(path)
+        return (f"table {source.table} row {source.row} ({source.label!r})" if source
+                else "no label cell")
+
+    flags: list[str] = []
     feeds: list[FrdFeed] = []
     for feed_index in range(max(profile.feed_count, 1)):
         prefix = f"feeds[{feed_index}]"
@@ -655,10 +718,50 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         source_system = get_with_fallback(f"{prefix}.source_system")
         domain_text = get(f"{prefix}.domain")
         domain_parts = _split(domain_text, frd_config.domain_separators)
-        (stage_catalog, stage_schema), (std_catalog, std_schema) = _parse_target_schema(
-            get(f"{prefix}.stage_target.schema"), frd_config)
-        tables = _split(get(f"{prefix}.stage_target.tables"), frd_config.list_separators)
+        schema_text = get(f"{prefix}.stage_target.schema")
+        tables_text = get(f"{prefix}.stage_target.tables")
         get(f"{prefix}.standard_target.tables")   # same cell; records its evidence
+        # M9.3: inline layer blocks ("Staging Layer:" / "Table: …") in either
+        # target cell are parsed per layer; no line of one is a table name.
+        blocks: dict[str, dict[str, str]] = {}
+        for path, cell_text in ((f"{prefix}.stage_target.schema", schema_text),
+                                (f"{prefix}.stage_target.tables", tables_text)):
+            parsed = parse_layer_blocks(cell_text, frd_config)
+            if not parsed:
+                continue
+            for layer, slots in parsed.items():
+                for slot, slot_value in slots.items():
+                    blocks.setdefault(layer, {}).setdefault(slot, slot_value)
+            stated = "; ".join(f"{layer} {slot}={v!r}" for layer, slots in parsed.items()
+                               for slot, v in slots.items())
+            flags.append(f"frd_layer_block:{path} — inline layer block in {cell_of(path)}: "
+                         f"{stated or 'no labelled value'}; read per layer, never as a table "
+                         "name")
+        if parse_layer_blocks(schema_text, frd_config):
+            schema_text = ""
+        (stage_catalog, stage_schema), (std_catalog, std_schema) = _parse_target_schema(
+            schema_text, frd_config)
+        if parse_layer_blocks(tables_text, frd_config):
+            tables = [blocks["stage"]["table"]] if blocks.get("stage", {}).get("table") else []
+            standard_tables = ([blocks["standard"]["table"]]
+                               if blocks.get("standard", {}).get("table") else [])
+        else:
+            tables = _split(tables_text, frd_config.list_separators)
+            standard_tables = list(tables) if std_schema or std_catalog else []
+        stage_schema = stage_schema or blocks.get("stage", {}).get("schema")
+        stage_catalog = stage_catalog or blocks.get("stage", {}).get("catalog")
+        std_schema = std_schema or blocks.get("standard", {}).get("schema")
+        std_catalog = std_catalog or blocks.get("standard", {}).get("catalog")
+        # M9.3: an Object Name cell that lists "<label>: <file>" lines names
+        # the feed's FILES, not the feed.
+        listed = structured.get(f"{prefix}.feed_name")
+        file_name_patterns: list[str] = []
+        if listed is not None and listed.kind == "labelled_files":
+            file_name_patterns = [row.key for row in listed.rows]
+            flags.append(f"file_pattern_from_object_name:{prefix} — the FRD "
+                         f"{cell_of(f'{prefix}.feed_name')} cell lists {len(listed.rows)} "
+                         f"'<label>: <file>' line(s); taken as the file name patterns "
+                         f"{file_name_patterns}")
         rules = []
         n = 0
         while f"{prefix}.validation_rules[{n}]" in profile.fields:
@@ -672,9 +775,9 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         std_strategy = _strategy(get(f"{prefix}.standard_target.load_strategy"),
                                  f"{prefix}.standard_target.load_strategy", ambiguities)
         feeds.append(FrdFeed(
-            feed_name=feed_name or f"{document_name} feed {feed_index + 1} (unnamed)",
+            feed_name=feed_name or unnamed_feed_name(document_name, feed_index),
             source_system=source_system or "unstated",
-            file_name_patterns=[],
+            file_name_patterns=file_name_patterns,
             file_format=get(f"{prefix}.file_format") or None,
             delimiter=None,
             record_segments=[],
@@ -687,8 +790,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),
             standard_target=TargetSpec(catalog=std_catalog, schema=std_schema,
-                                       tables=list(tables) if std_schema or std_catalog else [],
-                                       load_strategy=std_strategy),
+                                       tables=standard_tables, load_strategy=std_strategy),
             validation_rules=rules,
             recycle_rule=get(f"{prefix}.recycle_rule") or None,
             history_backfill=None,
@@ -699,6 +801,15 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         ))
         if not feed_name:
             ambiguities.append(f"{prefix}.feed_name: unsourced (no Object Name / Name label)")
+            # Never a silent default (M9.3): the placeholder name is flagged,
+            # with the cell that failed to name the feed.
+            why = (f"the {cell_of(f'{prefix}.feed_name')} cell is a {listed.kind} value, not a "
+                   "name" if listed is not None else
+                   f"no Object Name value ({cell_of(f'{prefix}.feed_name')}) and no usable "
+                   "Name row")
+            flags.append(f"frd_feed_name_unstated:{prefix} — {why}; placeholder "
+                         f"{unnamed_feed_name(document_name, feed_index)!r} until the layout "
+                         "stage names the feed after the STTM stage band")
         if not source_system:
             ambiguities.append(f"{prefix}.source_system: unsourced (no Data Source / Vendor "
                                "Name label)")
@@ -738,7 +849,20 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                 fingerprint=profile.fingerprint,
                                 unresolved=[f"{u.field}: {u.reason}" for u in profile.unresolved]),
         structured=structured,
+        extraction_flags=flags,
     )
+
+
+_UNNAMED_SUFFIX = "(unnamed)"
+
+
+def unnamed_feed_name(document_name: str, feed_index: int) -> str:
+    return f"{document_name} feed {feed_index + 1} {_UNNAMED_SUFFIX}"
+
+
+def is_unnamed_feed(feed_name: str) -> bool:
+    """True for the placeholder ``read_frd`` gives a feed no cell names."""
+    return feed_name.endswith(_UNNAMED_SUFFIX)
 
 
 def _strategy(value: str, path: str, ambiguities: list[str]):
@@ -795,7 +919,9 @@ __all__ = [
     "contract_to_json",
     "discover_frd",
     "extract_frd_contract",
+    "is_unnamed_feed",
     "normalize_label",
+    "parse_layer_blocks",
     "read_docx",
     "read_frd",
 ]

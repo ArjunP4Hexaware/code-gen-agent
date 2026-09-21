@@ -119,6 +119,26 @@ def same_value(a: str | None, b: str | None) -> bool:
     return bool(na) and bool(nb) and (na == nb or na in nb or nb in na)
 
 
+_BARE_EXTENSION_RE = re.compile(r"^\.?[A-Za-z0-9]{2,5}$")
+
+
+def is_extension_only(value: str | None) -> bool:
+    """True for a "file format" cell that names only a file EXTENSION
+    (".dat", ".txt") — it says how the file is named, not how it is laid
+    out."""
+    text = (value or "").strip()
+    return text.startswith(".") and bool(_BARE_EXTENSION_RE.match(text))
+
+
+def format_statements(statements: list[Statement]) -> list[Statement]:
+    """File-format statements worth comparing (M9.0): an extension-only cell
+    (the real pair-1 STTM reads ".dat") is set aside whenever another
+    document states a format — it cannot disagree with "Fixed Width". When it
+    is the ONLY statement it stays (the last resort, as before)."""
+    real = [s for s in statements if not is_extension_only(s.value)]
+    return real or statements
+
+
 def distinct(statements: list[Statement]) -> list[Statement]:
     """Statements with pairwise-different values (first spelling kept)."""
     out: list[Statement] = []
@@ -139,6 +159,8 @@ __all__ = [
     "canonical_strategy",
     "distinct",
     "fill_flag",
+    "format_statements",
+    "is_extension_only",
     "parse_load_strategy_text",
     "same_value",
     "strategy_from_faq",

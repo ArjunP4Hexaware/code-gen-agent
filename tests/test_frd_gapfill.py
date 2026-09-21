@@ -98,23 +98,27 @@ def _pair1_docx_without(missing: set[str], drop_labels: set[str] = frozenset()) 
 
 
 def _sttm_with_load_strategy(tmp: Path, text: str) -> tuple[Path, Path]:
-    """Pair-1 STTM with its 'Load Strategy' meta value replaced, plus a cache
-    dir holding the tracked layout profile re-keyed to the new fingerprint
-    (the meta value sits inside the fingerprinted header region)."""
+    """A pair-1 STTM whose meta rows STATE what the gap chain reads. The
+    tracked fixture is the real sheet (M9.0): file names / frequency read
+    ``TBD``, the format ``.dat``, and there is no 'Load Strategy' row — so the
+    variant writes the file names, the documented format and a 'Load Strategy'
+    row (r11) with ``text``. It resolves by synonyms (an empty cache dir)."""
     path = tmp / "pair_1_family_a.xlsx"
     shutil.copyfile(SHAPES / "sttm" / "pair_1_family_a.xlsx", path)
     wb = load_workbook(path)
     ws = wb["FEED_1_MAPPING"]
-    for row in ws.iter_rows(min_row=1, max_row=15):
-        if row[0].value == "Load Strategy":
-            row[1].value = text
+    stated = {"File Names": "; ".join(pair1.FILE_PATTERNS),
+              "File Format (text, csv)": pair1.FILE_FORMAT}
+    for row in ws.iter_rows(min_row=1, max_row=10):
+        if row[0].value in stated:
+            row[1].value = stated[row[0].value]
+    ws.cell(row=11, column=1, value="Load Strategy")
+    ws.cell(row=11, column=2, value=text)
     wb.save(path)
+    assert fingerprint(load_workbook(path)) != fingerprint(
+        load_workbook(SHAPES / "sttm" / "pair_1_family_a.xlsx"))
     cache = tmp / "profiles"
     cache.mkdir()
-    tracked = PROFILES / "sttm_pair_1_family_a.layout.json"
-    profile = json.loads(tracked.read_text(encoding="utf-8"))
-    profile["fingerprint"] = fingerprint(load_workbook(path))
-    (cache / "sttm_pair_1_variant.layout.json").write_text(json.dumps(profile), encoding="utf-8")
     return path, cache
 
 
@@ -194,9 +198,9 @@ def test_format_disagreement_pauses_with_both_candidates_and_user_choice_wins(tm
 
 
 def test_layerless_sttm_strategy_pauses_with_the_layer_question(tmp_path):
-    sttm = SHAPES / "sttm" / "pair_1_family_a.xlsx"   # meta 'Load Strategy' = "Append"
+    sttm, cache = _sttm_with_load_strategy(tmp_path, "Append")      # one value, no layer
     docx = _pair1_docx_without({"Load Strategy STG", "Load Strategy STD (View)"})
-    pair = _resolve(tmp_path, docx, sttm, PROFILES / "mock")
+    pair = _resolve(tmp_path, docx, sttm, cache)
     (question,) = pair.questions
     assert question.key == "feeds[0].load_strategy" and question.kind == "layer"
     assert [c["layer"] for c in question.candidates] == ["stage", "standard", "both"]
@@ -204,7 +208,7 @@ def test_layerless_sttm_strategy_pauses_with_the_layer_question(tmp_path):
     assert "without saying which layer" in question.reason
     answers = parse_answers({"gaps": {"feeds[0].load_strategy": {
         "value": "Append", "layer": "both", "source": "STTM"}}})
-    resolved = _resolve(tmp_path, docx, sttm, PROFILES / "mock", answers=answers)
+    resolved = _resolve(tmp_path, docx, sttm, cache, answers=answers)
     assert resolved.questions == []
     feed = resolved.frd_contract.feeds[0]
     assert (feed.stage_target.load_strategy, feed.standard_target.load_strategy) == (

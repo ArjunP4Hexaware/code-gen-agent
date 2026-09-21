@@ -127,7 +127,11 @@ class StructuredValue(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    kind: Literal["nested_table", "per_file_blocks", "pointer", "label_prefixed", "multiline"]
+    # M9.3 "labelled_files": every line of the cell is "<label>: <file name
+    # pattern>" — an Object Name cell that lists the feed's FILES instead of
+    # naming the feed (rows: key = the pattern, values = {"label": …}).
+    kind: Literal["nested_table", "per_file_blocks", "pointer", "label_prefixed", "multiline",
+                  "labelled_files"]
     table: int
     row: int
     col: int
@@ -228,3 +232,8 @@ class FrdContract(BaseModel):
     # M7: cells refused as scalar values (see StructuredValue), keyed by the
     # contract path they were read for. Default so older JSON loads unchanged.
     structured: dict[str, StructuredValue] = Field(default_factory=dict)
+    # M9.3: what the docx reader decided that a reviewer must see, each citing
+    # its table cell — frd_feed_name_unstated, frd_layer_block,
+    # file_pattern_from_object_name. The contract resolver carries them to the
+    # gate (the CLI path has no layout stage to do it). Absent when empty.
+    extraction_flags: list[str] = Field(default_factory=list)

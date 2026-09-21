@@ -58,7 +58,7 @@ def test_f1_pair1_fields_filled_and_empty(pair1):
     assert profile.unresolved == []
     (feed,) = contract.feeds
     filled = {
-        "feed_name": "Accumulators",
+        "feed_name": "f1_pair_1.docx feed 1 (unnamed)",    # M9.3: flagged placeholder
         "source_system": "VENDOR_A",
         "file_format": "Fixed Width Text",
         "frequency": "Daily",
@@ -74,12 +74,17 @@ def test_f1_pair1_fields_filled_and_empty(pair1):
     }
     for name, value in filled.items():
         assert getattr(feed, name) == value, name
-    assert feed.stage_target == TargetSpec(catalog="pr_dlk_vnd_p", schema="stg_vnd_p_accum",
+    # M9.3: the target cell is an inline layer block — one table per layer,
+    # never a raw line; the document states no schema and no catalog.
+    assert feed.stage_target == TargetSpec(catalog=None, schema=None,
                                            tables=["vnd_p_accum_client"], load_strategy="Append")
-    assert feed.standard_target == TargetSpec(catalog="pr_std_vnd_p", schema="accum",
+    assert feed.standard_target == TargetSpec(catalog=None, schema=None,
                                               tables=["vnd_p_accum_client"], load_strategy="Append")
-    # Empty by the document family: no label carries them (the STTM does).
-    assert feed.file_name_patterns == [] and feed.delimiter is None
+    # M9.3: the Object Name cell lists "<label>: <file>" lines — the patterns.
+    assert feed.file_name_patterns == [
+        "I_ACCUM_*_TO_CLIENT_*.csv", "I_ACCUM_*_FROM_CLIENT_*.csv",
+        "F_ACCUM_*_TO_CLIENT_*.csv", "F_ACCUM_*_FROM_CLIENT_*.csv"]
+    assert feed.delimiter is None
     assert feed.record_segments == [] and feed.load_windows_sla == []
     assert feed.history_backfill is None
     # Rules: the Functional Requirement, the acceptance criteria, the
@@ -142,6 +147,78 @@ def test_f1_pair1_every_sourced_field_has_provenance_with_label_seen(pair1):
     assert contract.layout.family == "F1" and contract.layout.fingerprint == profile.fingerprint
 
 
+def test_pair1_real_shape_cells_are_parsed_flagged_and_cited(pair1):
+    """M9.3 — the three real-shape cells of the pair-1 FRD: the inline layer
+    block, the file-list Object Name cell and the feed no cell names."""
+    contract, _profile = pair1
+    flags = {f.split(":")[0]: f for f in contract.extraction_flags}
+    assert list(flags) == ["frd_layer_block", "file_pattern_from_object_name",
+                           "frd_feed_name_unstated"]
+    assert "table 5 row 6 ('Target Table Name')" in flags["frd_layer_block"]
+    assert "stage table='vnd_p_accum_client'; standard table='vnd_p_accum_client'" \
+        in flags["frd_layer_block"]
+    assert "never as a table name" in flags["frd_layer_block"]
+    assert "table 4 row 5 ('Object Name')" in flags["file_pattern_from_object_name"]
+    assert "labelled_files value, not a name" in flags["frd_feed_name_unstated"]
+    # The refused Object Name cell is recorded, its lines kept per label.
+    refused = contract.structured["feeds[0].feed_name"]
+    assert refused.kind == "labelled_files" and refused.label == "Object Name"
+    assert [(r.values["label"], r.key) for r in refused.rows][0] == (
+        "LOB_A outbound", "I_ACCUM_*_TO_CLIENT_*.csv")
+    # Provenance: both tables cite the one cell they were read from.
+    evidence = contract.field_provenance
+    assert evidence["feeds[0].stage_target.tables"].label == "Target Table Name"
+    assert evidence["feeds[0].standard_target.tables"].label == "Target Table Name"
+    # No raw line of the block ever reaches a list.
+    (feed,) = contract.feeds
+    for tables in (feed.stage_target.tables, feed.standard_target.tables):
+        assert not any(":" in t or "Layer" in t for t in tables)
+
+
+def test_layer_block_parser_variants(config):
+    from codegen.extract.frd_docx import parse_layer_blocks
+
+    frd = config.extractor.frd
+    assert parse_layer_blocks("plain_table", frd) is None
+    assert parse_layer_blocks("STG: a.b; STD: c.d", frd) is None
+    assert parse_layer_blocks("Staging Layer:\nTable: t1\nStandard Layer:\nTable: t2", frd) == {
+        "stage": {"table": "t1"}, "standard": {"table": "t2"}}
+    full = parse_layer_blocks(
+        "stage layer\nCatalog : cat1\nSchema: s1\nTable Name: t1\nowner: someone\n"
+        "STD Layer:\nSchema Name: s2\nTarget Table: t2", frd)
+    assert full == {"stage": {"catalog": "cat1", "schema": "s1", "table": "t1"},
+                    "standard": {"schema": "s2", "table": "t2"}}
+    # A heading with nothing beneath it parses to an empty layer, never a table.
+    assert parse_layer_blocks("Staging Layer:", frd) == {"stage": {}}
+
+
+def test_unnamed_feed_is_a_flag_never_a_silent_default(config, tmp_path):
+    """A document whose Object Name row is absent (and whose Name row is
+    blank) still extracts — under a placeholder name AND a flag."""
+    from acfc_shapes import frd as frd_fixtures
+    from acfc_shapes.common import docx_bytes
+    from codegen.extract.frd_docx import is_unnamed_feed
+
+    sections = [
+        frd_fixtures._section("Descriptive Metadata", "", "d", "Ingest.",
+                              [lab for lab in frd_fixtures.DESCRIPTIVE if lab != "Object Name"],
+                              {"Data Source": "VENDOR_Z", "Frequency": "Daily", "LOBs": "ALL"}),
+        frd_fixtures._section("Structural Metadata", "", "s", "Ingest.",
+                              frd_fixtures.STRUCTURAL_P1,
+                              {"Object/data Format": "csv", "Target Table Name": "t1",
+                               "Target Catalog and Schema": "stg_z",
+                               "Domain and Subdomain": "D / S", "Load Strategy STG": "Append",
+                               "Load Strategy STD (View)": "Append"}),
+    ]
+    path = tmp_path / "unnamed.docx"
+    path.write_bytes(docx_bytes(sections))
+    contract, _ = extract_frd_contract(path, config, generated_date=DATE)
+    (feed,) = contract.feeds
+    assert is_unnamed_feed(feed.feed_name) and feed.feed_name.startswith("unnamed.docx feed 1")
+    (flag,) = [f for f in contract.extraction_flags if f.startswith("frd_feed_name_unstated")]
+    assert "no Object Name value" in flag and "no usable Name row" in flag
+
+
 def test_pair1_split_of_facts_between_frd_and_sttm_for_m4(pair1):
     """What M4 can take from the FRD (this extractor) and what it must take
     from the pair-1 STTM instead — pinned so M4 has no surprises."""
@@ -161,19 +238,21 @@ def test_pair1_split_of_facts_between_frd_and_sttm_for_m4(pair1):
                                   feed.standard_target.load_strategy),
     }
     assert from_frd == {
-        "feed_name": "Accumulators", "source_system": "VENDOR_A",
+        # M9: the real-shape FRD names no feed, no schema and no catalog —
+        # the STTM bands supply them (flagged by the resolver).
+        "feed_name": "f1_pair_1.docx feed 1 (unnamed)", "source_system": "VENDOR_A",
         "file_format": "Fixed Width Text", "frequency": "Daily", "lobs": ["ALL"],
         "domain": "Pharmacy", "sub_domain": "Accumulators",
         "landing_location": "/Pharmacy/Accumulators/",
-        "stage catalog.schema.table": "pr_dlk_vnd_p.stg_vnd_p_accum.vnd_p_accum_client",
-        "standard catalog.schema.table": "pr_std_vnd_p.accum.vnd_p_accum_client",
+        "stage catalog.schema.table": "None.None.vnd_p_accum_client",
+        "standard catalog.schema.table": "None.None.vnd_p_accum_client",
         "load strategy STG/STD": ("Append", "Append"),
     }
-    # From the STTM (fixtures/acfc_shapes/sttm/pair_1_family_a.xlsx), not the FRD:
-    from_sttm_only = {"file_name_patterns": feed.file_name_patterns,
-                      "delimiter": feed.delimiter, "record_segments": feed.record_segments}
-    assert from_sttm_only == {"file_name_patterns": [], "delimiter": None,
-                              "record_segments": []}
+    # From the STTM (fixtures/acfc_shapes/sttm/pair_1_family_a.xlsx), not the FRD
+    # (the file patterns ARE the FRD's since M9 — its Object Name cell lists them):
+    from_sttm_only = {"delimiter": feed.delimiter, "record_segments": feed.record_segments}
+    assert from_sttm_only == {"delimiter": None, "record_segments": []}
+    assert len(feed.file_name_patterns) == 4
 
 
 # ------------------------------------------------------------ F1 pair 2 variant
@@ -286,7 +365,8 @@ def test_output_is_byte_stable_and_cli_writes_contract_and_profile(config, tmp_p
                  "--generated-date", DATE]) == 0
     assert out.read_text(encoding="utf-8") == contract_to_json(first)
     reloaded = FrdContract.model_validate(json.loads(out.read_text(encoding="utf-8")))
-    assert reloaded.feeds[0].feed_name == "Accumulators"
+    assert reloaded.feeds[0].feed_name == "f1_pair_1.docx feed 1 (unnamed)"
+    assert reloaded.extraction_flags == first.extraction_flags != []
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     assert profile["family"] == "F1" and profile["source"] == "synonyms"
     assert "feeds[0].frequency" in profile["fields"]

@@ -80,6 +80,40 @@ def sha256_of_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def normalize_table_name(name: str) -> tuple[str, bool]:
+    """(comparison form, was qualified) of a table name as a document writes
+    it (M9.3): quotes / backticks / brackets dropped, case folded, and a
+    ``catalog.schema.table`` / ``schema.table`` spelling reduced to its last
+    part — Databricks identifiers are case-insensitive and one document may
+    qualify a name the other writes bare."""
+    parts = [p.strip().strip("`\"'[]").strip() for p in name.strip().split(".")]
+    parts = [p for p in parts if p]
+    return (parts[-1].lower() if parts else ""), len(parts) > 1
+
+
+def _table_in(table: str, stated: list[str], side: str, other: str,
+              flags: list[str]) -> bool:
+    """True when ``table`` is among ``stated`` by normalized name. A match
+    that is not literal is reported: which spelling differed and which side
+    was schema-qualified."""
+    if table in stated:
+        return True
+    wanted, table_qualified = normalize_table_name(table)
+    for candidate in stated:
+        name, candidate_qualified = normalize_table_name(candidate)
+        if name and name == wanted:
+            qualified = [label for label, q in ((side, table_qualified),
+                                                (other, candidate_qualified)) if q]
+            flag = (f"table_name_normalized: {side} {table!r} ↔ {other} {candidate!r} — matched "
+                    "ignoring case / quotes / qualification; "
+                    + (f"{' and '.join(qualified)} schema-qualified" if qualified
+                       else "neither side schema-qualified"))
+            if flag not in flags:
+                flags.append(flag)
+            return True
+    return False
+
+
 def _is_fixed_width(file_format: str | None, config: Config) -> bool:
     fmt = (file_format or "").lower()
     return any(token.lower() in fmt for token in config.extractor.vdd.fixed_width_tokens)
@@ -153,6 +187,7 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
         Statement,
         distinct,
         fill_flag,
+        format_statements,
         parse_load_strategy_text,
         strategy_from_faq,
     )
@@ -175,7 +210,7 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
         return distinct(out)
 
     if feed.file_format is None:
-        others = others_for("file_format", "format")
+        others = distinct(format_statements(others_for("file_format", "format")))
         if len(others) == 1:
             feed = feed.model_copy(update={"file_format": others[0].value})
             flags.append(fill_flag("file_format", others[0]))
@@ -195,6 +230,32 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
                                   f"{sheet} File Details / meta row 'frequency'")
             feed = feed.model_copy(update={"frequency": statement.value})
             flags.append(fill_flag("frequency", statement))
+    # M9.3: the STTM target band is authoritative for the schema; an FRD that
+    # states none takes it from there, flagged per layer.
+    for layer, ref in (("stage", sttm_feed.stage), ("standard", sttm_feed.standard)):
+        target = getattr(feed, f"{layer}_target")
+        if ref is None or target.schema_name is not None or not ref.schema_name:
+            continue
+        if layer == "standard" and not target.tables:
+            continue
+        statement = Statement(ref.schema_name, "STTM", f"{sheet} {layer} band (schema column)")
+        feed = feed.model_copy(update={f"{layer}_target": target.model_copy(
+            update={"schema_name": ref.schema_name})})
+        flags.append(fill_flag(f"{layer}_target.schema", statement))
+    # The catalog chain's second link (FRD label -> STTM band -> config
+    # default): the resolver carries whichever document states one. A
+    # segmented extraction already cites its standard catalog (provenance
+    # note), so only the flat / generic path is flagged here.
+    for layer, ref in (("stage", sttm_feed.stage), ("standard", sttm_feed.standard)):
+        target = getattr(feed, f"{layer}_target")
+        if ref is None or target.catalog is not None or not ref.catalog:
+            continue
+        if sttm_feed.segmented is not None or (layer == "standard" and not target.tables):
+            continue
+        statement = Statement(ref.catalog, "STTM", f"{sheet} {layer} band (catalog column)")
+        feed = feed.model_copy(update={f"{layer}_target": target.model_copy(
+            update={"catalog": ref.catalog})})
+        flags.append(fill_flag(f"{layer}_target.catalog", statement))
     parsed = parse_load_strategy_text(meta.get("load_strategy"),
                                       config.extractor.frd.target_schema_markers)
     cell = f"{sheet} meta row 'load_strategy'"
@@ -235,7 +296,9 @@ def _resolve_segments(
     catalog: str | None,
     errors: list[str],
     segment_names: list[str] | None = None,
+    flags: list[str] | None = None,
 ) -> list[SegmentSpec]:
+    flags = flags if flags is not None else []
     # M4: a docx-extracted FRD names no segments (the F1/F2 label families
     # have no slot for them); the STTM's Segment column is then the source,
     # recorded as a provenance flag by the caller.
@@ -256,7 +319,8 @@ def _resolve_segments(
     if not frd_feed.is_segmented and not (sttm_feed.is_segmented and segment_names):
         if sttm_feed.is_segmented:
             errors.append("STTM fields carry record_segment but the FRD declares no segments")
-        if sttm_feed.stage.table not in frd_feed.stage_target.tables:
+        if not _table_in(sttm_feed.stage.table, frd_feed.stage_target.tables, "STTM", "FRD",
+                         flags):
             errors.append(
                 f"STTM stage table '{sttm_feed.stage.table}' is not among FRD stage "
                 f"tables {frd_feed.stage_target.tables}"
@@ -287,7 +351,7 @@ def _resolve_segments(
             )
         seg_table = seg_fields[0].stage_table
         assert seg_table is not None  # guaranteed by SttmFeed validation
-        if seg_table not in frd_feed.stage_target.tables:
+        if not _table_in(seg_table, frd_feed.stage_target.tables, "STTM", "FRD", flags):
             errors.append(
                 f"segment '{segment_name}' stage table '{seg_table}' is not among FRD "
                 f"stage tables {frd_feed.stage_target.tables}"
@@ -402,7 +466,7 @@ def _resolve_one(
 ) -> ResolvedFeedSpec:
     errors: list[str] = []
     feed_id = sttm_feed.feed_id
-    catalog = frd_feed.stage_target.catalog
+    original_frd_feed = frd_feed
 
     # FRD gap chain (resolve/gapfill.py): a docx-extracted FRD that states no
     # file format / load strategy takes them from the STTM meta rows, the VDD
@@ -411,6 +475,7 @@ def _resolve_one(
     # here it covers the CLI path and anything the dialog left blank.
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd)
     errors.extend(gap_errors)
+    catalog = frd_feed.stage_target.catalog
 
     delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config)
     provenance_flags: list[str] = []
@@ -420,7 +485,8 @@ def _resolve_one(
         provenance_flags.append(
             f"segments_from_sttm: the FRD names no record segments; the STTM's Segment "
             f"column declares {segment_names} (sheet {sttm_feed.mapping_sheet!r})")
-    segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors, segment_names)
+    segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors, segment_names,
+                                 provenance_flags)
     # docx-extracted FRD contracts (M2) leave unsourced values null; each
     # is a loud stop here, never a default — except the file pattern, which
     # the STTM's meta rows / FILE_DETAILS supply when the FRD names none
@@ -513,7 +579,9 @@ def _resolve_one(
     accounted = {s.stage_table.table for s in segments}
     if resolved_recycle is not None:
         accounted.add(resolved_recycle.recycle_table.table)
-    unaccounted = [t for t in frd_feed.stage_target.tables if t not in accounted]
+    # (the same normalized comparison, the other way round — already reported)
+    unaccounted = [t for t in frd_feed.stage_target.tables
+                   if not _table_in(t, sorted(accounted), "FRD", "STTM", [])]
     if unaccounted:
         errors.append(
             f"FRD stage tables not mapped by any STTM field or recycle rule: {unaccounted}"
@@ -534,7 +602,8 @@ def _resolve_one(
             # STTM's standard target group (the FRD's Target Schema block
             # names stage targets only) — recorded as a cited provenance note
             # on the extraction, never inferred silently.
-        elif sttm_feed.standard.table not in frd_feed.standard_target.tables:
+        elif not _table_in(sttm_feed.standard.table, frd_feed.standard_target.tables, "STTM",
+                           "FRD", provenance_flags):
             errors.append(
                 f"STTM standard table '{sttm_feed.standard.table}' is not among FRD "
                 f"standard tables {frd_feed.standard_target.tables}"
@@ -596,8 +665,18 @@ def _resolve_one(
         # the FRD's rules state an AS-IS load (acceptance criterion 3 shape).
         load_as_is=any(_AS_IS_RE.search(r) for r in frd_feed.validation_rules),
         source_table=sttm_feed.source_table,
-        provenance_flags=[*gap_flags, *provenance_flags],
+        provenance_flags=list(dict.fromkeys([
+            *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
+            *gap_flags, *provenance_flags])),
     )
+
+
+def _frd_extraction_flags(frd: FrdContract, frd_feed: FrdFeed) -> list[str]:
+    """The docx reader's flags for THIS feed (they name ``feeds[i]``) plus the
+    document-level ones."""
+    index = next((i for i, f in enumerate(frd.feeds) if f is frd_feed), None)
+    return [f for f in frd.extraction_flags
+            if "feeds[" not in f or (index is not None and f"feeds[{index}]" in f)]
 
 
 def resolve_pair(frd_path: Path, sttm_path: Path, config: Config,

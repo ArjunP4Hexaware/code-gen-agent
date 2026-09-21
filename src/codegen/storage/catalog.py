@@ -8,11 +8,16 @@ for a local source that IS the file itself, so paths, selections and every
 existing comparison stay what they were.
 
 Listings of remote sources are cached for ``ttl_seconds`` — the chooser
-polls, and each remote listing is an API call.
+polls, and each remote listing is an API call. With ``timeout_seconds`` a
+remote listing is WAITED FOR that long at most: a root that does not answer is
+reported (``errors``) and its last known listing served, the call left to
+finish in the background — a caller (a request) never hangs on a listing, and a
+second caller joins the listing in flight instead of starting another.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,19 +67,56 @@ def local_source(label: str, directory: Path, depth: int = 0) -> InputSource:
 
 
 class InputCatalog:
-    def __init__(self, sources: list[InputSource], ttl_seconds: float = 0.0):
+    def __init__(self, sources: list[InputSource], ttl_seconds: float = 0.0,
+                 timeout_seconds: float | None = None):
         self.sources = list(sources)
         self._ttl = ttl_seconds
+        self._timeout = timeout_seconds
         self._cache: dict[int, tuple[float, list[InputDocument]]] = {}
+        self._walks: dict[int, tuple[threading.Thread, dict]] = {}
+        self._guard = threading.Lock()
         self.errors: dict[str, str] = {}     # label -> last listing failure (shown, not raised)
+
+    def _walk(self, index: int, source: InputSource):
+        """The backend listing; a remote one bounded by ``timeout_seconds``."""
+        if source.store.is_local or not self._timeout:
+            return source.store.backend.walk(source.folder, source.depth)
+        with self._guard:
+            flight = self._walks.get(index)
+            if flight is None or not flight[0].is_alive():
+                box: dict = {}
+
+                def call() -> None:
+                    try:
+                        box["found"] = source.store.backend.walk(source.folder, source.depth)
+                    except BaseException as exc:  # noqa: BLE001 — re-raised by the caller
+                        box["error"] = exc
+
+                flight = (threading.Thread(target=call, name=f"listing:{source.label}",
+                                           daemon=True), box)
+                self._walks[index] = flight
+                flight[0].start()
+        thread, box = flight
+        thread.join(self._timeout)
+        if thread.is_alive():
+            raise TimeoutError(f"listing {source.store.uri(source.folder)} did not answer "
+                               f"within {self._timeout:g}s")
+        if "error" in box:
+            raise box["error"]
+        return box["found"]
 
     def _listing(self, index: int, source: InputSource) -> list[InputDocument]:
         cached = self._cache.get(index)
         if cached and not source.store.is_local and time.monotonic() - cached[0] < self._ttl:
             return cached[1]
         try:
-            found = source.store.backend.walk(source.folder, source.depth)
+            found = self._walk(index, source)
             self.errors.pop(source.label, None)
+        except TimeoutError as exc:
+            # Say so, and keep serving what was last known (never an empty chooser
+            # because one call is slow); the next caller joins the call in flight.
+            self.errors[source.label] = str(exc)
+            return cached[1] if cached else []
         except StorageError as exc:
             # One unreachable root must not empty the chooser: say so, carry on.
             self.errors[source.label] = str(exc)

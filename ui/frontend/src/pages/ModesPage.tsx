@@ -287,11 +287,13 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const chooseFrd = useCallback(async (kind: "upstream" | "local", id: string) => {
     setError(null);
     try {
+      // local: selected on return; upstream: a job (the status is polled).
       await api.selectFrd(kind, id);
       setStatus(await api.demoStatus());
       api.frdChoices().then(setFrdChoices).catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      api.demoStatus().then(setStatus).catch(() => {});
     }
   }, []);
 
@@ -343,23 +345,44 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     return () => clearTimeout(timer);
   }, [choosing, workbooks]);
 
+  // M9.3 addendum: choosing a document is a background JOB (the POST answers at
+  // once). While it runs — or the upstream FRD list is still loading — poll
+  // the status; when it ends, refresh the lists. What is selected is read from
+  // ONE place: status.selection (never the list rows' own flags).
+  const selectionJob = status?.selection_job ?? null;
+  const selecting = selectionJob?.state === "running";
+  const upstreamLoading = choosing && frdChoices?.upstream_state === "loading";
+  const lastJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selecting && !upstreamLoading) return;
+    const timer = setTimeout(() => {
+      api.demoStatus().then(setStatus).catch(() => {});
+      if (upstreamLoading) api.frdChoices().then(setFrdChoices).catch(() => {});
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [status, selecting, upstreamLoading, frdChoices]);
+  useEffect(() => {
+    const key = selectionJob ? `${selectionJob.id}:${selectionJob.state}` : null;
+    if (key === lastJobRef.current) return;
+    lastJobRef.current = key;
+    if (!selectionJob || selectionJob.state === "running") return;
+    // Pairing (companion FRD / VDD) depends on the chosen STTM: refresh the
+    // lists the modal shows. The modal stays OPEN — the FRD picker lives right
+    // below, so the operator can confirm or change the pair before Done.
+    api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => {});
+    api.frdChoices().then(setFrdChoices).catch(() => {});
+  }, [selectionJob]);
+  const chosen = status?.selection ?? { sttm: null, frd: null, vdd: null };
+
   const chooseWorkbook = useCallback(async (name: string) => {
     setError(null);
     try {
-      const r = await api.selectWorkbook(name);
-      setWorkbooks(r.workbooks);
-      setStatus(await api.demoStatus());
-      // Pairing (companion FRD) depends on the chosen STTM. Keep the modal
-      // OPEN: the FRD picker lives right below, so the operator can confirm
-      // or change the companion FRD before closing with Done.
-      api.frdChoices().then(setFrdChoices).catch(() => {});
+      await api.selectWorkbook(name);
     } catch (e) {
-      // A failed selection leaves the STTM UNSELECTED (never the config
-      // default): show why, and refresh the status that now carries it.
+      // 409: a run or another selection is in progress.
       setError(e instanceof Error ? e.message : String(e));
-      api.demoStatus().then(setStatus).catch(() => {});
-      api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => {});
     }
+    api.demoStatus().then(setStatus).catch(() => {});
   }, []);
 
   // Presenter's reset: back to "none chosen" without a backend restart.
@@ -583,12 +606,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </button>
               <span>
                 STTM:{" "}
-                {status?.sttm_chosen ? (
-                  <code>{status.sttm_workbook}</code>
+                {chosen.sttm ? (
+                  <code>{chosen.sttm}</code>
+                ) : selecting ? (
+                  <em className="hint">selecting <code>{selectionJob?.name}</code>…</em>
                 ) : (
                   <em className="hint">none chosen</em>
                 )}{" "}
-                <button className="btn" disabled={running || !status?.sttm_chosen}
+                <button className="btn" disabled={running || (!chosen.sttm && !selecting)}
                         onClick={clearWorkbook} title="Back to none chosen">
                   Clear
                 </button>
@@ -619,7 +644,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </span>
               <span>
                 VDD:{" "}
-                {status?.vdd_name ? <code>{status.vdd_name}</code> : <em className="hint">none</em>}
+                {chosen.vdd ? <code>{chosen.vdd}</code> : <em className="hint">none</em>}
                 {status?.vdd_auto_paired ? (
                   <span
                     className="hint"
@@ -636,7 +661,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     )
                   </span>
                 ) : null}{" "}
-                <button className="btn" disabled={running || !status?.vdd_name}
+                <button className="btn" disabled={running || selecting || !chosen.vdd}
                         onClick={() => chooseVdd(null)} title="No vendor data dictionary">
                   Clear
                 </button>
@@ -894,10 +919,13 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <button
                 className="btn primary"
                 disabled={
-                  liveAvailable !== true || running || !status?.sttm_chosen || outputParts.size === 0
+                  liveAvailable !== true || running || selecting || !chosen.sttm
+                  || outputParts.size === 0
                 }
                 title={
-                  !status?.sttm_chosen
+                  selecting
+                    ? "The documents are still being selected"
+                    : !chosen.sttm
                     ? "Choose an STTM workbook first"
                     : outputParts.size === 0
                       ? "Choose at least one output"
@@ -1411,6 +1439,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 <button
                   key={w.name}
                   className="btn chooser-row"
+                  disabled={selecting || running}
                   onClick={() => chooseWorkbook(w.name)}
                 >
                   <code className="chooser-name" title={w.name}>
@@ -1421,7 +1450,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     {w.kind && w.kind !== "sttm"
                       ? ` · ${w.kind === "classifying" ? "classifying…" : w.kind}`
                       : ""}
-                    {w.selected ? " · selected" : ""}
+                    {w.name === chosen.sttm ? " · selected" : ""}
+                    {selecting && selectionJob?.name === w.name ? " · selecting…" : ""}
                   </span>
                   {w.kind === "unreadable" ? (
                     <span
@@ -1439,6 +1469,25 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))
             )}
+            {selectionJob && selectionJob.kind !== "frd_upstream"
+              && (selecting || selectionJob.state === "failed") ? (
+              <div className="hint" style={{ marginTop: 8 }}>
+                <strong>
+                  {selecting ? "Selecting" : "Selection ended"}{" "}
+                  <code>{selectionJob.name}</code>
+                </strong>
+                {" — "}
+                {selectionJob.steps.map((s, i) => (
+                  <span key={`${s.step}-${i}`} title={s.detail}>
+                    {i > 0 ? " → " : ""}
+                    {s.step}{" "}
+                    {s.state === "done" ? "✓" : s.state === "running" ? "…"
+                      : s.state === "warning" ? "(read by name only)"
+                      : s.state === "timed_out" ? "(timed out)" : "(failed)"}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {status?.selection_error ? (
               <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
                 <strong>Not selected.</strong>{" "}
@@ -1447,7 +1496,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : null}
             {(["frd", "vdd"] as const).map((kind) => {
               const outcome = status?.pairing?.[kind];
-              if (!outcome || !status?.sttm_chosen) return null;
+              if (!outcome || !chosen.sttm) return null;
               return (
                 <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
                   <strong>{kind.toUpperCase()} pairing</strong>{" "}
@@ -1461,20 +1510,23 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   ) : (
                     <>none — {outcome.reason}</>
                   )}
+                  {outcome.unread && outcome.unread.length > 0 ? (
+                    <> (not read, scored by name: {outcome.unread.join(", ")})</>
+                  ) : null}
                 </p>
               );
             })}
             <p className="hint" style={{ margin: "14px 0 4px" }}>
               <strong>Vendor data dictionary (optional third input)</strong> — currently{" "}
-              {status?.vdd_name ? <code>{status.vdd_name}</code> : "none"}. Cross-checked
+              {chosen.vdd ? <code>{chosen.vdd}</code> : "none"}. Cross-checked
               against the STTM (positions, types, segments); never a source of values.
             </p>
             <p style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {(workbooks ?? []).filter((w) => w.kind !== "sttm").map((w) => (
                 <button
                   key={`vdd-${w.name}`}
-                  className={`btn${status?.vdd_name === w.name ? " active" : ""}`}
-                  disabled={running}
+                  className={`btn${chosen.vdd === w.name ? " active" : ""}`}
+                  disabled={running || selecting}
                   title={`Use ${w.name} as the Vendor Data Dictionary`}
                   onClick={() => chooseVdd(w.name)}
                 >
@@ -1482,7 +1534,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   {w.kind && w.kind !== "vdd" ? ` (${w.kind === "classifying" ? "classifying…" : w.kind})` : ""}
                 </button>
               ))}
-              <button className="btn" disabled={running || !status?.vdd_name} onClick={() => chooseVdd(null)}>
+              <button className="btn" disabled={running || selecting || !chosen.vdd} onClick={() => chooseVdd(null)}>
                 No VDD
               </button>
             </p>
@@ -1608,6 +1660,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   Contracts come from the FRD→STTM agent; a document without a
                   contract is not selectable.
                 </p>
+                {frdChoices.upstream_state === "loading" ? (
+                  <div className="hint" style={{ fontSize: 11 }}>
+                    FRD→STTM agent table: loading in the background…
+                  </div>
+                ) : null}
                 {frdChoices.upstream_error ? (
                   <div className="hint" style={{ fontSize: 11 }}>
                     FRD→STTM agent table unavailable: {frdChoices.upstream_error}
@@ -1618,6 +1675,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     key={c.doc_id}
                     className="btn chooser-row"
                     title={c.doc_id}
+                    disabled={selecting}
                     onClick={() => chooseFrd("upstream", c.doc_id)}
                   >
                     <span className="chooser-main">
@@ -1668,7 +1726,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : null}
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => setChoosing(false)}>
-                {status?.sttm_chosen ? "Done" : "Cancel"}
+                {chosen.sttm ? "Done" : "Cancel"}
               </button>
             </div>
           </div>

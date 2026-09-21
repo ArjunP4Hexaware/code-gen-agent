@@ -426,6 +426,49 @@ carry `length='10,2'`. Summary: `docs/acfc/M9_FINDINGS.md` §6; tests:
   pair — the golden DDL has no such columns (acceptance stays byte-identical).
   **UNVERIFIED:** the VDD span of those fields (13 bytes in the variant).
 
+### v0.5.5-acfc (2026-09-21): the chooser can no longer hang the App (M9.3 addendum)
+
+From `docs/acfc/APP_CHOOSER_BUG.md` on `origin/acfc-runs` (UNSCRUBBED — real
+file names; never merge or copy it). Tests: `tests/test_m93_app_hang.py`;
+helper `tests/ui_select.py::select_sttm` (POST + poll) for tests that are not
+about the contract. Deploy notes: `docs/ACFC_DEPLOY.md` "What v0.5.5-acfc adds";
+finding: `docs/acfc/M9_FINDINGS.md` §7.
+
+- **`POST /api/demo/workbook` = 202 + a job** (`start_selection`); the outcome
+  is `status.selection_job` {id, kind sttm|restore|frd_upstream, state, steps
+  [{step, state done|running|failed|timed_out|warning, detail}], error {code
+  not_found|timeout|failed|superseded, message}, pairing}. Steps run via
+  `_step` (own thread, deadline); work functions COMPUTE only — `_plan_pair`
+  returns a plan, `_apply_pair` records it under `_lock` at the end — so a
+  given-up step changes nothing. One job at a time (409); a Clear or a new
+  choice supersedes a startup `restore` job; `start_live` refuses while a job
+  runs. `select_workbook(name)` = start + wait (tests / scripts). The upload
+  route starts a job too (`selected: false, job`). The startup restore of
+  `selection.json` is a background job (App start never waits for a download).
+- **Parsing happens in a child process**: `codegen.layout.docworker` (line
+  protocol, `{"ready": true}` handshake, config passed as the parent's
+  in-memory config JSON BY ALIAS — plain `model_dump_json` does not round-trip:
+  `schema_name` aliases). `docindex.ParserProcess` kills a late child;
+  `parser_for` pools ≤ 4 by (command, lane `background|request`).
+  `DocumentIndex.read_now` replaced `record`; an indexed `unreadable` is read
+  again when a person selects it; a `timed_out` parse fails the selection, a
+  plain unreadable is a `warning` step (pairs by name). Tests monkeypatch
+  `docindex.worker_command` for a child that never answers.
+- **`upstream.enabled: false`** (new section: `timeout_seconds`,
+  `refresh_seconds`): `frd-choices` reads `DemoRunner.upstream_snapshot()`
+  (`upstream_enabled`, `upstream_state`), the failed-run hint too; an upstream
+  FRD pick is 403 when off, a 202 job when on. `list_contracts` /
+  `materialize` are called ONLY from background threads.
+- **`InputCatalog(timeout_seconds=inputs.listing_timeout_seconds)`**: a remote
+  walk that does not answer → `errors[label]`, last known listing served, the
+  call in flight joined by the next caller.
+- **One selection record**: `DemoRunner.selection()` → `status.selection`, the
+  list's `selected` / `selected_as`, the status route's sttm/frd/vdd fields
+  (one snapshot per response); the frontend reads `status.selection` only.
+- Baseline gotcha: `baseline_gen.sh` needs WINDOWS-form output paths (`cygpath
+  -m`) — an MSYS `/c/...` path in `CODEGEN_STORAGE_OUTPUTS=local:` lands under
+  `C:\c\...`.
+
 ### v0.5.4-acfc (2026-09-21): the document chooser on the workspace backend (M9.3)
 
 Tests: `tests/test_m93_chooser.py` (fake SDK client, a
@@ -472,9 +515,9 @@ Tests: `tests/test_m93_chooser.py` (fake SDK client, a
   Quirk kept as found: `PairDecision.ambiguous` is True for a VDD decision
   whose candidates all score 0 (`min_score` defaults to 0.0 on the
   no-content branches) — `_pair` tests `score > 0` itself.
-- **Item 4 is OPEN:** `docs/acfc/APP_CHOOSER_BUG.md` had not appeared on
-  `origin/acfc-runs` when v0.5.4 shipped — read it and add the regression test
-  when it does.
+- Item 4 closed in v0.5.5 (above): the selection became a job, the index a
+  killable process — parts of this section (synchronous 424 on the STTM route,
+  `_pair`, `record`) are superseded there.
 
 ## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
 

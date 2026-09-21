@@ -1073,6 +1073,16 @@ storage:
 # root and its immediate subfolders (pair_1/ ... pair_N/). Env
 # CODEGEN_EXTRA_INPUT_DIRS (';'-separated) is appended. Real folder names
 # live in an overlay / the App's env, never here.
+# Upstream FRD contracts (the FRD→STTM agent's table, read through a SQL
+# Warehouse). OFF by default — standalone doctrine: the documents themselves
+# are the inputs. When off, nothing (the FRD list, a selection, a failed run's
+# hint) ever calls the warehouse. When on, the listing runs in a BACKGROUND task
+# with a hard timeout and no request ever waits for it.
+upstream:
+  enabled: false
+  timeout_seconds: 20
+  refresh_seconds: 300
+
 inputs:
   extra_dirs: []
   scan_depth: 1
@@ -1080,10 +1090,17 @@ inputs:
   # M9.3: list endpoints return metadata only. Documents are downloaded,
   # classified by content and their pairing facts read once, in a background
   # task — per file within classify_timeout_seconds ("unreadable" beyond it,
-  # with the reason; never omitted, never retried in a loop). A selection's own
-  # downloads are bounded by select_timeout_seconds.
+  # with the reason; never omitted, never retried in a loop).
+  # Documents are opened in a CHILD PROCESS (codegen.layout.docworker) that is
+  # killed when a file exceeds its budget; its start has its own budget.
+  # Choosing the STTM is a background job — locate, download, classify, pair
+  # FRD, pair VDD, record — and select_timeout_seconds bounds EACH step; a late
+  # step is a visible error on the status, never a hung request. A remote folder
+  # listing is waited for listing_timeout_seconds at most.
   classify_timeout_seconds: 60
   select_timeout_seconds: 120
+  listing_timeout_seconds: 30
+  parser_start_timeout_seconds: 60
   # Auto-pairing by content (codegen.pairing): for the chosen STTM every FRD /
   # VDD candidate is scored on what the documents SAY; the ticket number and
   # the file-name stem are two weak signals among several. Paired only when

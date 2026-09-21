@@ -5,17 +5,20 @@
   background task with a per-file timeout, kept in the state role — a slow or
   failing file is listed as ``unreadable`` with the reason, never omitted,
   never retried in a loop;
-* a selection either succeeds (download → pair → record) or is a 4xx carrying
-  the reason, the STTM stays UNSELECTED and a run is refused — never a silent
-  fall back to the config default;
+* a selection either succeeds (download → pair → record) or FAILS carrying the
+  reason, the STTM stays UNSELECTED and a run is refused — never a silent fall
+  back to the config default. Since the addendum the STTM selection is a JOB
+  (202 at once; the outcome is on the status — tests/test_m93_app_hang.py is
+  about that contract); a VDD / local FRD failure is still a 424;
 * choosing an STTM pairs its FRD / VDD from the SAME folder first
   (``frd_sttm_pairs/pair_N``), then the other input roots, and the result (or
-  the question) is in the same response.
+  the question) is the job's ``pairing``.
 """
 
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -30,6 +33,7 @@ from ui.backend.service import GenerationStore  # noqa: E402
 
 from codegen.storage import open_storage  # noqa: E402
 from storage_fakes import FakeWorkspaceClient  # noqa: E402
+from ui_select import select_sttm  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -52,15 +56,22 @@ UNCLASSIFIED = SHAPES / "pair_1" / "golden" / "RFC_ACCUMULATORS_IIG.xlsx"
 
 
 class _Workspace:
-    def __init__(self, monkeypatch, tmp_path, *, classify_timeout: float = 20.0):
+    def __init__(self, monkeypatch, tmp_path, *, classify_timeout: float = 20.0,
+                 select_timeout: float = 20.0):
         self.fake = FakeWorkspaceClient()
         self.fake.ws.dirs.update({f"{SHARED}/inputs", f"{SHARED}/state", PAIRS})
         self.slow: dict[str, float] = {}
         self.broken: dict[str, Exception] = {}
+        # name -> Event: the download BLOCKS until the event is set (never, in
+        # the test — the fixture sets it at teardown so no thread outlives it).
+        self.blocked: dict[str, threading.Event] = {}
         download = self.fake.workspace.download
 
         def guarded(path, **kw):
             name = path.rsplit("/", 1)[-1]
+            if name in self.blocked:
+                self.fake.ws.calls.append(("download", path))
+                self.blocked[name].wait()
             if name in self.slow:
                 self.fake.ws.calls.append(("download", path))
                 time.sleep(self.slow[name])
@@ -81,7 +92,8 @@ class _Workspace:
         config = self.store.config
         monkeypatch.setattr(self.store, "config", config.model_copy(update={
             "inputs": config.inputs.model_copy(update={
-                "classify_timeout_seconds": classify_timeout, "select_timeout_seconds": 20.0,
+                "classify_timeout_seconds": classify_timeout,
+                "select_timeout_seconds": select_timeout,
                 "listing_ttl_seconds": 0.0})}))
 
     def put(self, folder: str, name: str, source: Path | bytes) -> None:
@@ -103,11 +115,16 @@ class _Workspace:
     def runner(self) -> DemoRunner:
         return DemoRunner(self.store, work=lambda: None)
 
+    def release(self) -> None:
+        for event in self.blocked.values():
+            event.set()
+
 
 @pytest.fixture
 def ws(monkeypatch, tmp_path):
     workspace = _Workspace(monkeypatch, tmp_path)
     yield workspace
+    workspace.release()
     ui_stores.reset_stores()
 
 
@@ -267,21 +284,24 @@ def _api(monkeypatch, ws):
     return TestClient(main.app), main
 
 
-def test_api_select_failure_is_a_424_with_the_reason_and_the_status_shows_it(monkeypatch, ws):
+def test_api_select_failure_is_a_failed_job_with_the_reason_on_the_status(monkeypatch, ws):
     ws.pairs("pair_1")
     ws.broken["STTM_alpha.xlsx"] = RuntimeError("503 workspace files API unavailable")
     client, _main = _api(monkeypatch, ws)
-    response = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"})
-    assert response.status_code == 424
-    assert "503 workspace files API unavailable" in response.json()["detail"]
-    status = client.get("/api/demo/status").json()
-    assert status["sttm_chosen"] is False
+    status = select_sttm(client, "STTM_alpha.xlsx")
+    job = status["selection_job"]
+    assert job["state"] == "failed" and job["error"]["code"] == "failed"
+    assert "503 workspace files API unavailable" in job["error"]["message"]
+    assert [(s["step"], s["state"]) for s in job["steps"]] == [("locate", "done"),
+                                                              ("download", "failed")]
+    assert status["sttm_chosen"] is False and status["selection"]["sttm"] is None
     assert status["selection_error"]["name"] == "STTM_alpha.xlsx"
     assert "was NOT selected" in status["selection_error"]["message"]
     rows = client.get("/api/demo/workbooks").json()["workbooks"]
     assert rows and not any(r["selected"] for r in rows)
-    # A missing name stays a 404; a clear resets the error.
-    assert client.post("/api/demo/workbook", json={"name": "nope.xlsx"}).status_code == 404
+    # A missing name is a failed job saying so; a clear resets the error.
+    missing = select_sttm(client, "nope.xlsx")["selection_job"]
+    assert missing["state"] == "failed" and missing["error"]["code"] == "not_found"
     client.delete("/api/demo/workbook")
     assert client.get("/api/demo/status").json()["selection_error"] is None
 
@@ -308,12 +328,17 @@ def test_selection_is_recorded_in_the_state_role_and_restored_after_a_restart(ws
     assert recorded == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
                         "vdd": "VDD_charlie.xlsx"}
     restarted = ws.runner()                                     # a new container
+    # Restored by a background job: App start never waits for a download.
+    job = restarted.wait_selection(60)
+    assert job["kind"] == "restore" and job["state"] == "done", job
+    assert restarted.selection() == recorded
     assert restarted.selected_workbook.name == "STTM_alpha.xlsx"
     assert restarted.selected_frd_label == "FRD_bravo.docx"
     assert restarted.selected_vdd.name == "VDD_charlie.xlsx"
     # A recorded document that is gone is SAID, not replaced by the default.
     del ws.fake.ws.files[f"{PAIRS}/pair_1/STTM_alpha.xlsx"]
     broken = ws.runner()
+    assert broken.wait_selection(60)["state"] == "failed"
     assert broken.selected_workbook is None
     assert "no longer in the input folders" in broken.status()["selection_error"]["message"]
 
@@ -321,7 +346,7 @@ def test_selection_is_recorded_in_the_state_role_and_restored_after_a_restart(ws
 # ------------------------------------------------------------ 3. pairing on select
 
 
-def test_select_pairs_from_the_same_folder_first_and_answers_in_the_same_response(
+def test_select_pairs_from_the_same_folder_first_and_the_job_carries_the_outcome(
         monkeypatch, ws):
     ws.pairs()                                                  # pair_1 .. pair_3
     client, _main = _api(monkeypatch, ws)
@@ -329,11 +354,17 @@ def test_select_pairs_from_the_same_folder_first_and_answers_in_the_same_respons
             ("STTM_alpha.xlsx", "pair_1", "FRD_bravo.docx", "VDD_charlie.xlsx"),
             ("STTM_delta.xlsx", "pair_2", "FRD_echo.docx", "VDD_foxtrot.xlsx"),
             ("STTM_golf.xlsx", "pair_3", "FRD_hotel.docx", "VDD_india.xlsx")):
-        response = client.post("/api/demo/workbook", json={"name": sttm})
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["selected"] == sttm and body["selection_error"] is None
-        pairing = body["pairing"]
+        status = select_sttm(client, sttm)
+        job = status["selection_job"]
+        assert job["state"] == "done" and job["error"] is None, job
+        assert status["selection"] == {"sttm": sttm, "frd": frd, "vdd": vdd}
+        assert status["selection_error"] is None
+        # ONE record: the list's flag is the status' selection.
+        rows = client.get("/api/demo/workbooks").json()["workbooks"]
+        assert [r["name"] for r in rows if r["selected"]] == [sttm]
+        assert {r["name"]: r["selected_as"] for r in rows if r["selected_as"]} == {
+            sttm: "sttm", vdd: "vdd"}
+        pairing = job["pairing"]
         for kind, expected in (("frd", frd), ("vdd", vdd)):
             assert pairing[kind]["chosen"] == expected, (sttm, kind, pairing[kind])
             assert pairing[kind]["scope"] == "same_folder"
@@ -341,17 +372,15 @@ def test_select_pairs_from_the_same_folder_first_and_answers_in_the_same_respons
             # Only THIS folder's documents were ever candidates.
             assert {c["name"] for c in pairing[kind]["candidates"]} <= {expected}
             assert pairing[kind]["question"] is None
-        status = client.get("/api/demo/status").json()
         assert (status["frd_name"], status["vdd_name"]) == (frd, vdd)
         assert status["pairing"]["frd"]["chosen"] == frd
 
 
-def test_two_frds_in_the_folder_is_a_question_among_them_in_the_same_response(monkeypatch, ws):
+def test_two_frds_in_the_folder_is_a_question_among_them_on_the_job(monkeypatch, ws):
     ws.pairs("pair_1", "pair_2")
     ws.put("pair_1", "FRD_lima.docx", TREE["pair_1"]["FRD_bravo.docx"])     # a second copy
     client, _main = _api(monkeypatch, ws)
-    body = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"}).json()
-    frd = body["pairing"]["frd"]
+    frd = select_sttm(client, "STTM_alpha.xlsx")["selection_job"]["pairing"]["frd"]
     assert frd["chosen"] is None and frd["scope"] == "same_folder"
     assert frd["question"]["key"] == "pair.frd" and frd["question"]["kind"] == "choice"
     assert {c["value"] for c in frd["question"]["candidates"]} == {"FRD_bravo.docx",
@@ -365,8 +394,7 @@ def test_a_folder_without_candidates_falls_back_to_the_other_input_roots(monkeyp
     ws.put("pair_1", "STTM_alpha.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])  # the STTM alone
     ws.put("shared_docs", "FRD_bravo.docx", TREE["pair_1"]["FRD_bravo.docx"])
     client, _main = _api(monkeypatch, ws)
-    frd = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"}).json()[
-        "pairing"]["frd"]
+    frd = select_sttm(client, "STTM_alpha.xlsx")["selection_job"]["pairing"]["frd"]
     assert frd["scope"] == "all" and frd["chosen"] == "FRD_bravo.docx" and frd["rule"] == "content"
     assert {"FRD_bravo.docx", "FRD_echo.docx"} <= {c["name"] for c in frd["candidates"]}
 

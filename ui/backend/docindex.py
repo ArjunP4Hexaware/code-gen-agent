@@ -16,21 +16,164 @@ worker and kept in the state role (``document_index.json``):
   shows a new size / modified, or a person asks: ``retry``).
 
 Until its verdict exists a file's state is ``classifying``.
+
+**Documents are opened in a CHILD PROCESS** (``codegen.layout.docworker``,
+APP_CHOOSER_BUG): parsing a workbook is CPU- / memory-bound work of unknown
+size, a thread cannot be stopped, and a runaway parse inside the App starved
+every endpoint until a restart. ``ParserProcess`` answers one document at a
+time and is KILLED when a file exceeds its budget. Downloads stay in threads
+(a stuck socket idles; it does not starve anyone).
 """
 
 from __future__ import annotations
 
+import atexit
 import contextlib
+import hashlib
 import json
 import queue
+import subprocess
+import sys
+import tempfile
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 INDEX_FILE = "document_index.json"
 CLASSIFYING = "classifying"
 UNREADABLE = "unreadable"
-_SUFFIX_KIND = {".docx": "frd", ".json": "frd"}
+
+
+class ParserTimeout(TimeoutError):
+    """The parser process did not answer in time and was stopped."""
+
+
+def worker_command(config, base_dir: Path) -> list[str]:
+    """The child process's command line (tests replace it with one that hangs).
+    The config travels as the JSON of the parent's IN-MEMORY object (by alias —
+    that is what round-trips), in a temp file named by its hash."""
+    blob = config.model_dump_json(by_alias=True)
+    folder = Path(tempfile.gettempdir()) / "codegen-docworker"
+    path = folder / f"{hashlib.sha256(blob.encode('utf-8')).hexdigest()[:24]}.json"
+    if not path.is_file():
+        folder.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".{threading.get_ident()}.part")
+        tmp.write_text(blob, encoding="utf-8")
+        tmp.replace(path)
+    return [sys.executable, "-m", "codegen.layout.docworker", "--config-json", str(path),
+            "--base-dir", str(base_dir)]
+
+
+class ParserProcess:
+    """One ``codegen.layout.docworker`` child: a request line in, an answer
+    line out, killed (and restarted on the next request) when it is late. Its
+    START (interpreter + imports, ``{"ready": true}``) has its own budget."""
+
+    def __init__(self, command: list[str], cwd: Path, start_timeout: float = 60.0) -> None:
+        self._command = command
+        self._cwd = cwd
+        self.start_timeout = start_timeout
+        self._lock = threading.Lock()
+        self._proc: subprocess.Popen | None = None
+        self._lines: queue.Queue = queue.Queue()
+        self.kills = 0
+        self.used = time.monotonic()
+
+    def _start(self) -> subprocess.Popen:
+        proc = subprocess.Popen(  # noqa: S603 — our own interpreter, a fixed module
+            self._command, cwd=self._cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1)
+        lines: queue.Queue = queue.Queue()
+
+        def pump() -> None:
+            with contextlib.suppress(Exception):
+                for line in proc.stdout:                 # type: ignore[union-attr]
+                    lines.put(line)
+            lines.put(None)                              # EOF: the process is gone
+
+        threading.Thread(target=pump, name="document-parser-out", daemon=True).start()
+        self._proc, self._lines = proc, lines
+        try:
+            hello = lines.get(timeout=self.start_timeout)
+        except queue.Empty:
+            hello = None
+        if hello is None or not json.loads(hello).get("ready"):
+            self.stop()
+            raise RuntimeError("the document parser process did not start "
+                               f"(not ready within {self.start_timeout:g}s)")
+        return proc
+
+    def ensure(self) -> None:
+        """Start the child when it is not running (its own budget — a file's
+        time budget never pays for an interpreter start)."""
+        with self._lock:
+            if not self.alive:
+                self._start()
+
+    def parse(self, local: Path, name: str, timeout: float) -> dict:
+        with self._lock:
+            self.used = time.monotonic()
+            proc = self._proc if self.alive else self._start()
+            assert proc is not None
+            while not self._lines.empty():               # nothing stale answers THIS request
+                self._lines.get_nowait()
+            try:
+                proc.stdin.write(json.dumps({"path": str(local), "name": name}) + "\n")  # type: ignore[union-attr]
+                proc.stdin.flush()                                                       # type: ignore[union-attr]
+                line = self._lines.get(timeout=max(timeout, 0.05))
+            except queue.Empty:
+                self.stop()
+                raise ParserTimeout(f"the document was not read within {timeout:g}s — the "
+                                    "parser process was stopped") from None
+            except OSError as exc:
+                self.stop()
+                raise RuntimeError(f"the document parser could not be reached: {exc}") from exc
+            if line is None:
+                self.stop()
+                raise RuntimeError("the document parser exited while reading the document")
+            return json.loads(line)
+
+    def stop(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is not None and proc.poll() is None:
+            self.kills += 1
+            with contextlib.suppress(Exception):
+                proc.kill()
+                proc.wait(timeout=5)
+
+    @property
+    def alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+
+# One parser per (command, lane): every runner of a process shares them (a test
+# suite builds dozens of runners; an interpreter start costs a second or two).
+# Lanes: "background" (the index task) and "request" (a selection job) — a
+# selection never queues behind the background reader. At most ``_MAX_PARSERS``
+# children exist; the least recently used one is stopped for a new config.
+_parsers: dict[tuple, ParserProcess] = {}
+_parsers_guard = threading.Lock()
+_MAX_PARSERS = 4
+
+
+def parser_for(command: list[str], cwd: Path, lane: str,
+               start_timeout: float = 60.0) -> ParserProcess:
+    with _parsers_guard:
+        key = (tuple(command), str(cwd), lane)
+        if key not in _parsers:
+            while len(_parsers) >= _MAX_PARSERS:
+                oldest = min(_parsers, key=lambda k: _parsers[k].used)
+                _parsers.pop(oldest).stop()
+            _parsers[key] = ParserProcess(command, cwd, start_timeout)
+        _parsers[key].start_timeout = start_timeout
+        return _parsers[key]
+
+
+@atexit.register
+def _stop_parsers() -> None:
+    for parser in list(_parsers.values()):
+        parser.stop()
 
 
 _fetch_locks: dict[str, threading.Lock] = {}
@@ -51,6 +194,9 @@ class DocumentIndex:
     def __init__(self, get_config: Callable[[], object], state_path: Callable[[], Path],
                  push_state: Callable[[], None], base_dir: Path) -> None:
         self._get_config = get_config
+        # Documents the REQUEST path had to read itself (tests: a selection
+        # reads its own folder's documents, never the whole input tree).
+        self.request_parses: list[str] = []
         self._state_path = state_path
         self._push_state = push_state
         self._base_dir = base_dir
@@ -111,13 +257,36 @@ class DocumentIndex:
             self._load().pop(doc.version, None)
         self.lookup(doc)
 
-    def record(self, doc, local: Path) -> None:
-        """A document the request path has just downloaded anyway (a selection):
-        index it from the working copy so it is not read twice."""
+    def read_now(self, doc, local: Path, timeout: float) -> dict:
+        """A selection needs this document's verdict NOW: the indexed one, else
+        read through the (killable) parser within ``timeout`` and indexed. A
+        late parse is an ``unreadable`` entry (``timed_out``) — never a hung
+        request. An indexed ``unreadable`` is read AGAIN: a person chose the
+        file, and the earlier failure may have been the download's."""
         with self._lock:
-            known = doc.version in self._load()
-        if not known:
-            self._store(doc, self._read(doc, local))
+            entry = self._load().get(doc.version)
+        if entry is None or entry["state"] == UNREADABLE:
+            self.request_parses.append(doc.name)
+            entry = self._parse(doc, local, timeout, "request")
+            self._store(doc, entry)
+        return entry
+
+    def _parser(self, lane: str) -> ParserProcess:
+        config = self._get_config()
+        return parser_for(worker_command(config, self._base_dir), self._base_dir, lane,
+                          float(config.inputs.parser_start_timeout_seconds))
+
+    def ensure_parser(self, lane: str = "request") -> None:
+        """Start the lane's parser process when it is not running."""
+        self._parser(lane).ensure()
+
+    def _parse(self, doc, local: Path, timeout: float, lane: str) -> dict:
+        try:
+            return self._parser(lane).parse(local, doc.name, timeout)
+        except Exception as exc:  # noqa: BLE001 — every failure is a listed state
+            return {"state": UNREADABLE, "facts": None,
+                    "timed_out": isinstance(exc, ParserTimeout),
+                    "reason": str(exc) or type(exc).__name__}
 
     def wait_idle(self, timeout: float = 30.0) -> bool:
         """Tests: block until the queue is drained (True) or ``timeout``."""
@@ -151,47 +320,36 @@ class DocumentIndex:
                 self._queue.task_done()
 
     def _bounded(self, doc) -> dict:
-        """Download + read ONE document within the per-file timeout. The job
-        runs in its own daemon thread: a download that hangs is abandoned (its
-        result, should it ever arrive, is dropped), never waited for."""
+        """Download + read ONE document within the per-file timeout: the
+        download in a daemon thread (a hung transfer is abandoned, never waited
+        for), the read in the parser PROCESS (a runaway parse is killed)."""
         timeout = float(self._get_config().inputs.classify_timeout_seconds)
-        result: dict = {}
+        deadline = time.monotonic() + timeout
+        box: dict = {}
 
-        def job() -> None:
+        def download() -> None:
             try:
-                result.update(self._read(doc, fetch_exclusive(doc)))
+                box["path"] = fetch_exclusive(doc)
             except Exception as exc:  # noqa: BLE001 — every failure is a listed state
-                result.update({"state": UNREADABLE,
-                               "reason": f"{type(exc).__name__}: {str(exc).splitlines()[0][:300]}"
-                               if str(exc) else type(exc).__name__})
+                box["error"] = (f"{type(exc).__name__}: {str(exc).splitlines()[0][:300]}"
+                                if str(exc) else type(exc).__name__)
 
-        thread = threading.Thread(target=job, name=f"document-index:{doc.name}", daemon=True)
+        thread = threading.Thread(target=download, name=f"document-index:{doc.name}",
+                                  daemon=True)
         thread.start()
         thread.join(timeout)
         if thread.is_alive():
-            return {"state": UNREADABLE,
-                    "reason": f"not read within {timeout:g}s (download / open timed out); "
+            return {"state": UNREADABLE, "facts": None,
+                    "reason": f"not read within {timeout:g}s (the download timed out); "
                               "choose Retry to read it again"}
-        return dict(result)
-
-    def _read(self, doc, local: Path) -> dict:
-        from codegen.layout.classify import classify_workbook
-        from codegen.pairing import document_facts, facts_to_dict
-
-        config = self._get_config()
-        suffix = Path(doc.name).suffix.lower()
-        if suffix == ".xlsx":
-            verdict = classify_workbook(local, config.extractor)
-            if verdict.reason.startswith("could not be read"):
-                return {"state": UNREADABLE, "reason": verdict.reason}
-            state, reason = verdict.kind, verdict.reason
-        else:
-            state, reason = _SUFFIX_KIND.get(suffix, "unclassified"), "an FRD document / contract"
-        facts = None
-        if state in ("sttm", "vdd", "frd"):
-            with contextlib.suppress(Exception):      # facts are an optimisation, never a state
-                facts = facts_to_dict(document_facts(state, local, config, self._base_dir))
-        return {"state": state, "reason": reason, "facts": facts}
+        if "error" in box:
+            return {"state": UNREADABLE, "facts": None, "reason": box["error"]}
+        try:
+            self.ensure_parser("background")            # its own budget, not this file's
+        except Exception as exc:  # noqa: BLE001 — every failure is a listed state
+            return {"state": UNREADABLE, "facts": None, "reason": str(exc)}
+        return self._parse(doc, box["path"], max(deadline - time.monotonic(), 0.05),
+                           "background")
 
     def _store(self, doc, entry: dict) -> None:
         with self._lock:

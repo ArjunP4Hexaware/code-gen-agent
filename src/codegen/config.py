@@ -844,6 +844,22 @@ class PairingConfig(BaseModel):
         return self
 
 
+class UpstreamConfig(BaseModel):
+    """The upstream FRD→STTM agent's contract table (a SQL Warehouse read).
+    OFF by default — the standalone doctrine: the agent runs from the documents
+    themselves. Inside ACFC the App's service principal has no warehouse
+    permission, and a lookup on a request path is a way to hang the App
+    (docs/acfc/APP_CHOOSER_BUG.md). When ``enabled`` the listing runs in a
+    background task with a hard timeout and is never awaited by a request."""
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = False
+    timeout_seconds: float = Field(default=20.0, gt=0)
+    # A listing (or its failure) is reused this long before the next refresh.
+    refresh_seconds: float = Field(default=300.0, ge=0)
+
+
 class InputsConfig(BaseModel):
     """Input discovery (M8.2): extra read-only roots scanned for documents
     (the root and its immediate subfolders — depth 1) next to the inboxes
@@ -862,6 +878,12 @@ class InputsConfig(BaseModel):
     # pairing facts read ONCE, in a background task, within this many seconds
     # per file — a file that exceeds it (or fails to open) is listed as
     # "unreadable" with the reason, never omitted and never retried in a loop.
+    # A remote folder listing is waited for this long at most (M9.3 addendum): a
+    # root that does not answer is reported and its last known listing served.
+    listing_timeout_seconds: float = Field(default=30.0, gt=0)
+    # The document parser is a child process (codegen.layout.docworker); its
+    # START (interpreter + imports) has its own budget, apart from a file's.
+    parser_start_timeout_seconds: float = Field(default=60.0, gt=0)
     classify_timeout_seconds: float = Field(default=60.0, gt=0)
     # … and a selection's own downloads (the STTM, its pair) are bounded too.
     select_timeout_seconds: float = Field(default=120.0, gt=0)
@@ -1239,6 +1261,7 @@ class Config(BaseModel):
     # Optional (M8): storage backends per role + extra input roots.
     storage: StorageConfig = StorageConfig()
     inputs: InputsConfig = InputsConfig()
+    upstream: UpstreamConfig = UpstreamConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

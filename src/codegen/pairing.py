@@ -124,6 +124,13 @@ def facts_from_dict(data: dict) -> _Facts:
                   names=list(data.get("names", [])), raw_tables=list(data.get("raw_tables", [])))
 
 
+def empty_facts() -> _Facts:
+    """The facts of a document that was NOT read (unreadable, or not read within
+    its time budget): passed as ``known_facts`` it scores on its name alone and
+    ``pair_by_content`` never opens it."""
+    return _Facts()
+
+
 def document_facts(kind: str, path: Path, config: Config, base_dir: Path) -> _Facts:
     """The pairing facts of one document: ``kind`` = sttm | frd | vdd."""
     if kind == "sttm":

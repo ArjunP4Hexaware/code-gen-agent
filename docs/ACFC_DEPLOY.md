@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.4-acfc)
+# Deploying CodeGen inside ACFC (v0.5.5-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -252,7 +252,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.4 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.5 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -310,6 +310,50 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.5-acfc adds (the chooser can no longer hang the App)
+
+The site record (`docs/acfc/APP_CHOOSER_BUG.md` on the run-records branch):
+choosing the pair-1 STTM ran into the client's 180 s read timeout, and after it
+EVERY endpoint timed out until the App was restarted. v0.5.5 removes each way a
+request could wait on I/O or a runaway parse:
+
+- **Choosing the STTM is a background job.** `POST /api/demo/workbook` answers
+  **202 with the job** at once. The job runs locate → download → start parser →
+  classify → pair FRD → pair VDD → record, each step bounded by
+  `inputs.select_timeout_seconds` (120; the parser start by
+  `inputs.parser_start_timeout_seconds`, 60). `GET /api/demo/status` carries it
+  as `selection_job` — state `running | done | failed`, every step with its
+  state (`timed_out` for a late one), `error {code: not_found | timeout | failed
+  | superseded, message}` and the pairing outcome. The chooser shows the steps
+  as they happen and, on failure, "Not selected — …". Nothing is selected until
+  every step has succeeded; a Clear supersedes a running job; Generate waits
+  while one runs. The lock guards state mutation only — no I/O under it.
+- **Documents are opened in a child process** (`codegen.layout.docworker`), one
+  for the background index and one for selections. A file that is not read
+  within its budget gets the process **killed** (a thread can only be
+  abandoned; an abandoned parse of a sheet that declares a million rows kept
+  the App's process busy). The child is restarted on the next request. Pairing
+  never opens a document in the App's own process: a candidate that is
+  unreadable or not read in time scores on its NAME (listed as "not read" in the
+  pairing outcome).
+- **Upstream FRD contracts are OFF** (`upstream.enabled: false`, new). The FRD
+  list, a selection and a failed run's hint never touch the SQL Warehouse. The
+  App's service principal has no warehouse permission inside ACFC anyway — it
+  was the `upstream_error` on the FRD list. When enabled, the listing refreshes
+  in the background with a hard timeout (`upstream.timeout_seconds`, 20) and the
+  FRD list shows "loading" meanwhile; an upstream FRD choice is a job too (202).
+- **Remote folder listings are bounded** (`inputs.listing_timeout_seconds`, 30):
+  a root that does not answer is reported under `input_errors` and its last
+  known listing served.
+- **One record of what is selected.** `status.selection = {sttm, frd, vdd}`; the
+  workbook list's `selected` (and the new `selected_as`) and the status' STTM /
+  FRD / VDD fields are all derived from it — on site the list said "selected"
+  while the chooser said otherwise.
+
+No new permission. After the redeploy (marker 0.5.5): open the chooser, choose
+pair 1's STTM — the steps appear under the list; if a step times out it says
+which, and the App keeps answering.
 
 ## What v0.5.4-acfc adds (the document chooser on the workspace backend)
 

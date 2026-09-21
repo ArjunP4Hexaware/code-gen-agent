@@ -118,6 +118,36 @@ part of the tracked acceptance pair — the golden DDL has no such columns, and
 the acceptance stays byte-identical. **UNVERIFIED:** the VDD span of these
 fields (13 bytes in the variant) — capture the real dictionary's rows.
 
+## 7. v0.5.5 — the App hang (APP_CHOOSER_BUG)
+
+Source: `docs/acfc/APP_CHOOSER_BUG.md` on `acfc-runs` (a pre-0.5.4 build; it
+quotes real file names, so it is NOT copied here). Recorded: both list
+endpoints answered; the FRD list carried an upstream warehouse-permission
+error; `POST /api/demo/workbook` for the pair-1 STTM hit the client's 180 s
+timeout; afterwards every endpoint timed out (`/api/demo/status`, `/api/feeds`)
+until a restart, with the App still reported RUNNING and no logs obtainable.
+
+What the code shows: the request did not hold the runner lock across I/O, and
+it did not call the warehouse. It did, on that build, auto-pair the VDD by
+downloading and parsing EVERY other workbook of the input folders in the App's
+own process — client sheets that declare ~1,048,000-row dimensions among them.
+v0.5.4 moved that to a background thread, which can only be abandoned, not
+stopped. The fix covers the doc's hypotheses and the finding alike:
+
+| Rule | Where |
+| --- | --- |
+| The STTM selection is a JOB: 202 at once; locate / download / start parser / classify / pair FRD / pair VDD / record each bounded; the outcome on `status.selection_job`; nothing selected until all succeeded. | `ui/backend/demo.py` (`start_selection`, `_run_selection`, `_step`) |
+| Documents are parsed in a killable child process; late = killed and restarted. | `codegen/layout/docworker.py`, `ui/backend/docindex.py` (`ParserProcess`) |
+| Pairing never opens a document in-process: indexed facts, else the parser within the step's budget, else the name alone. | `DemoRunner._plan_pair`, `pairing.empty_facts` |
+| Upstream (warehouse) lookups off by default; on = background refresh with a hard timeout, never awaited by a request. | `upstream:` config, `DemoRunner.upstream_snapshot` |
+| Remote listings bounded; the last known listing served. | `storage/catalog.py` |
+| One selection record for the list and the status. | `DemoRunner.selection()` |
+
+Regression tests: `tests/test_m93_app_hang.py` — a download and an upstream
+call that never return (POST answers in < 1 s, `/api/feeds` answers, the status
+shows the timed-out step), a parser that never answers (killed), upstream off
+by default and never called, one selection record, a Clear superseding a job.
+
 ## 4. Open items
 
 1. **The two documents on the remote branch are not scrubbed** (client table /

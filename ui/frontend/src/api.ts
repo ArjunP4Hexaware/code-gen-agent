@@ -146,6 +146,10 @@ export interface DemoStatus {
   // the STTM stays unselected and a run is refused until it is chosen again.
   selection_error?: { kind: string; name: string; message: string } | null;
   pairing?: { frd?: PairingOutcome; vdd?: PairingOutcome };
+  // M9.3 addendum: THE record of what is selected (names; null = not chosen) —
+  // the one source the chooser reads — and the selection job in flight / last.
+  selection?: { sttm: string | null; frd: string | null; vdd: string | null };
+  selection_job?: SelectionJob | null;
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
@@ -186,11 +190,27 @@ export interface FrdChoice {
   suggested: boolean;
 }
 
+// M9.3 addendum: choosing a document is a background job — each step has a
+// timeout; a late step is "timed_out" and the job "failed" with the reason.
+export interface SelectionJob {
+  id: number;
+  kind: "sttm" | "restore" | "frd_upstream";
+  name: string;
+  state: "running" | "done" | "failed";
+  steps: { step: string; state: "running" | "done" | "failed" | "timed_out" | "warning"; detail: string }[];
+  error: { code: "not_found" | "timeout" | "failed" | "superseded"; message: string } | null;
+  pairing: { frd?: PairingOutcome; vdd?: PairingOutcome };
+}
+
 export interface FrdChoicesResponse {
   sttm: string;
   current: { label: string; chosen: boolean };
   upstream: FrdChoice[];
   upstream_error: string | null;
+  // upstream contract lookups are OFF by default; on, they refresh in the
+  // background ("loading") and this list never waits for them.
+  upstream_enabled?: boolean;
+  upstream_state?: "disabled" | "loading" | "ready" | "failed";
   local: string[];
   no_contract: string[];
 }
@@ -205,12 +225,17 @@ export interface PairingOutcome {
   folder: string | null;
   candidates: { name: string; score: number; signals: string }[];
   question: LayoutQuestion | null;
+  // candidates scored on their NAME alone (unreadable / not read in time)
+  unread?: string[];
 }
 
 export interface SttmWorkbook {
   name: string;
   source: string;
+  // derived from the same record as DemoStatus.selection (display only — the
+  // chooser reads the status)
   selected: boolean;
+  selected_as?: "sttm" | "vdd" | null;
   // M9.3: listing metadata only — the list never opens a workbook. `kind` is
   // the background index's verdict by CONTENT; "classifying" until it exists,
   // "unreadable" (with the reason) for a file that failed or timed out.
@@ -537,11 +562,9 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     }),
+  // 202 + the job at once; progress and outcome are on /api/demo/status.
   selectWorkbook: (name: string) =>
-    request<{
-      workbooks: SttmWorkbook[];
-      pairing?: { frd?: PairingOutcome; vdd?: PairingOutcome };
-    }>("/api/demo/workbook", {
+    request<{ job: SelectionJob }>("/api/demo/workbook", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
@@ -549,8 +572,9 @@ export const api = {
   clearWorkbook: () =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
   frdChoices: () => request<FrdChoicesResponse>("/api/demo/frd-choices"),
+  // local: selected on return; upstream: 202 + a job (like the STTM).
   selectFrd: (kind: "upstream" | "local", id: string) =>
-    request<{ selected: string; feeds: unknown }>("/api/demo/frd", {
+    request<{ selected?: string; feeds?: unknown; job?: SelectionJob }>("/api/demo/frd", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind, id }),

@@ -39,6 +39,20 @@ class SelectionFailed(RuntimeError):
     status' ``selection_error`` (M9.3)."""
 
 
+class SelectionInProgress(RuntimeError):
+    """One document selection at a time — another one is still running."""
+
+
+class StepTimeout(TimeoutError):
+    """One step of a selection did not finish within its budget."""
+
+
+# A step's own work is bounded by its deadline (a download thread that is
+# abandoned, a parser process that is killed); the job waits this much longer
+# for the step to come back before it gives the step up.
+_STEP_GRACE_SECONDS = 2.0
+
+
 class LiveRunInProgress(RuntimeError):
     """A live run is already in flight (surface as HTTP 409)."""
 
@@ -168,13 +182,26 @@ class DemoRunner:
         # M9.3: what choosing the STTM paired (or asks), per kind — returned by
         # the select call itself and kept on the status.
         self.last_pairing: dict = {}
+        # M9.3 addendum (APP_CHOOSER_BUG): choosing the STTM is a JOB — locate,
+        # download, classify, pair, record, each step in its own thread with a
+        # timeout. The POST returns the job at once, the status reports it, and
+        # nothing is selected until every step has succeeded. ``_lock`` guards
+        # state mutation only; no I/O ever happens under it.
+        self.selection_job: dict | None = None
+        self._job_seq = 0
+        self._job_done = threading.Event()
+        self._job_done.set()
+        # Upstream contract listing (upstream.enabled only): refreshed in a
+        # background task with a hard timeout; request paths read this snapshot.
+        self._upstream: dict = {"state": "idle", "rows": [], "error": None, "at": 0.0}
+        self._upstream_seq = 0
         # M9.3: content verdicts (workbook kind, pairing facts) computed in the
         # background, kept in the state role — the list endpoints never open a
         # document (ui/backend/docindex.py).
         self._index = DocumentIndex(
             lambda: self._store.config, self._index_path,
             lambda: self._push_state_file(INDEX_FILE), REPO_ROOT)
-        self._restore_selection()
+        self._start_restore()
 
     def _index_path(self) -> Path:
         from ui.backend import stores as ui_stores
@@ -186,12 +213,13 @@ class DemoRunner:
 
         ui_stores.push_state(self._store.config, name)
 
-    def _fetch(self, doc) -> Path:
+    def _fetch(self, doc, timeout: float | None = None) -> Path:
         """A selection's download, bounded by ``inputs.select_timeout_seconds``
         (a hung transfer is a StorageError, never a hung request)."""
         from codegen.storage import StorageError
 
-        timeout = float(self._store.config.inputs.select_timeout_seconds)
+        if timeout is None:
+            timeout = float(self._store.config.inputs.select_timeout_seconds)
         box: dict = {}
 
         def job() -> None:
@@ -204,12 +232,13 @@ class DemoRunner:
         thread.start()
         thread.join(timeout)
         if thread.is_alive():
-            raise StorageError(f"downloading {doc.uri} did not finish within {timeout:g}s")
+            # An OSError like any failed download (callers catch those), and a
+            # TIMEOUT on the selection job.
+            raise StepTimeout(f"downloading {doc.uri} did not finish within {timeout:g}s")
         if "error" in box:
             raise box["error"]
         if not box["path"].is_file():
             raise StorageError(f"downloading {doc.uri} left no file at {box['path']}")
-        self._index.record(doc, box["path"])
         return box["path"]
 
     def effective_frd(self) -> Path:
@@ -275,42 +304,45 @@ class DemoRunner:
         (config pairing map -> shared ticket -> unique name stem). A manual
         FRD choice is replaced only when a pair is found; a stale automatic
         pair from a previous STTM is cleared."""
-        candidates = self.local_frd_candidates()
-        match = self._pair("frd", sttm_name, candidates,
-                           self._store.config.demo.pairing_map)
-        if match is None:
-            if self.frd_auto_paired is not None:
-                self.selected_frd = None
-                self.selected_frd_label = None
-                self.frd_auto_paired = None
-            return None
-        frd_name, rule = match
-        self.selected_frd = self.fetch_frd_candidate(frd_name) or candidates[frd_name]
-        self.selected_frd_label = frd_name
-        self.frd_auto_paired = {"frd": frd_name, "rule": rule}
+        self._apply_pair("frd", self._plan_pair("frd", sttm_name))
         return self.frd_auto_paired
 
-    def _pair(self, kind: str, sttm_name: str, candidates: dict[str, Path],
-              explicit_map: dict[str, str]) -> tuple[str, str] | None:
-        """(document, rule) for the chosen STTM — by CONTENT (codegen.pairing:
-        explicit map, then what the documents say, the ticket number one
-        signal among several). An undecided result is kept in
-        ``pair_decisions`` and asked in the layout dialog when the run starts."""
+    def _plan_pair(self, kind: str, sttm_name: str, deadline: float | None = None) -> dict:
+        """The ``kind`` ("frd" | "vdd") companion of the chosen STTM — by
+        CONTENT (codegen.pairing: explicit map, then what the documents say, the
+        ticket number one signal among several). COMPUTES only — a plan
+        ``_apply_pair`` records — so a step that is given up cannot change the
+        selection later. No document is opened in this process: facts come from
+        the index, else from the (killable) parser while the step's budget
+        lasts; a candidate that is unreadable or not read in time scores on its
+        name alone (``unread``)."""
         from dataclasses import replace
 
-        from codegen.pairing import pair_by_content
+        from codegen.pairing import empty_facts, pair_by_content
         from codegen.storage import StorageError
 
-        catalog = self._frd_catalog() if kind == "frd" else self._workbook_catalog()
-        suffixes = (".contract.json", ".docx") if kind == "frd" else (".xlsx",)
+        config = self._store.config
+        if deadline is None:
+            deadline = time.monotonic() + float(config.inputs.select_timeout_seconds)
+        if kind == "frd":
+            candidates = self.local_frd_candidates()
+            explicit_map = config.demo.pairing_map
+            catalog, suffixes = self._frd_catalog(), (".contract.json", ".docx")
+        else:
+            # By CONTENT — a workbook the index knows as an STTM is never a
+            # dictionary candidate; one still classifying / unclassified /
+            # unreadable stays a candidate.
+            candidates = {doc.name: doc.local_path()
+                          for doc in self._workbook_catalog().documents((".xlsx",))
+                          if doc.name != sttm_name and self._index.lookup(doc)["state"] != "sttm"}
+            explicit_map = config.demo.vdd_pairing_map
+            catalog, suffixes = self._workbook_catalog(), (".xlsx",)
         sttm_doc = self._workbook_catalog().find(sttm_name, (".xlsx",))
-        sttm_path = (self.selected_workbook if self.selected_workbook is not None
-                     and self.selected_workbook.name == sttm_name
-                     else self._fetch(sttm_doc) if sttm_doc is not None else Path(sttm_name))
+        sttm_path = sttm_doc.local_path() if sttm_doc is not None else Path(sttm_name)
         docs = {name: catalog.find(name, suffixes) for name in candidates}
-        known = {}
-        if sttm_doc is not None and self._index.facts(sttm_doc) is not None:
-            known[sttm_name] = self._index.facts(sttm_doc)
+        sttm_facts = self._index.facts(sttm_doc) if sttm_doc is not None else None
+        known = {sttm_name: sttm_facts if sttm_facts is not None else empty_facts()}
+        unread: list[str] = []
         # M9.3: the STTM's OWN folder first (…/pair_1/{FRD, STTM, VDD}); the
         # other input roots only when that folder holds no candidate.
         folder = sttm_doc.source if sttm_doc is not None else None
@@ -321,21 +353,25 @@ class DemoRunner:
             local: dict[str, Path] = {}
             for name in names:
                 doc = docs[name]
-                if doc is None:
-                    local[name] = candidates[name]
+                local[name] = doc.local_path() if doc is not None else candidates[name]
+                if name in known:
                     continue
-                facts = self._index.facts(doc)
-                if facts is not None:                 # read already: no download, no open
-                    known[name] = facts
-                    local[name] = doc.local_path()
-                elif self._index.lookup(doc)["state"] == UNREADABLE:
-                    local[name] = doc.local_path()    # its NAME still speaks
-                else:
-                    try:
-                        local[name] = self._fetch(doc)
-                    except (StorageError, OSError):
-                        continue                      # unreachable candidate: not a contender
-            decision = pair_by_content(kind, sttm_path, local, self._store.config, REPO_ROOT,
+                facts = self._index.facts(doc) if doc is not None else None
+                if facts is None and doc is not None \
+                        and self._index.lookup(doc)["state"] != UNREADABLE:
+                    left = deadline - time.monotonic()
+                    if left > 0:
+                        try:
+                            self._index.read_now(doc, self._fetch(doc, left),
+                                                 max(deadline - time.monotonic(), 0.05))
+                        except (StorageError, OSError):
+                            del local[name]           # unreachable candidate: not a contender
+                            continue
+                        facts = self._index.facts(doc)
+                if facts is None:
+                    unread.append(name)               # its NAME still speaks
+                known[name] = facts if facts is not None else empty_facts()
+            decision = pair_by_content(kind, sttm_path, local, config, REPO_ROOT,
                                        explicit_map=explicit_map, known_facts=known)
             nested = sttm_doc is not None and "/" in sttm_doc.rel
             if (decision.chosen is None and scope == "same_folder" and nested
@@ -350,17 +386,43 @@ class DemoRunner:
             if decision.chosen is not None or decision.ambiguous:
                 break                        # decided, or a question among THESE candidates
         assert decision is not None
-        self.pair_decisions[kind] = decision
-        self.last_pairing[kind] = {
+        outcome = {
             "chosen": decision.chosen, "rule": decision.rule, "reason": decision.reason,
             "scope": scope, "folder": folder,
             "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
                            for c in decision.candidates],
             "question": decision.question() if decision.ambiguous else None,
+            # Candidates scored on their NAME alone (unreadable / not read in time).
+            "unread": sorted(set(unread) & {c.name for c in decision.candidates}),
         }
-        if decision.chosen is None:
-            return None
-        return decision.chosen, decision.rule or "content"
+        path = None
+        if decision.chosen is not None:
+            doc = docs.get(decision.chosen)
+            path = (self._fetch(doc, max(deadline - time.monotonic(), 0.05))
+                    if doc is not None else candidates[decision.chosen])
+        return {"decision": decision, "outcome": outcome, "path": path}
+
+    def _apply_pair(self, kind: str, plan: dict) -> None:
+        """Record a pairing plan: a manual choice is replaced only when a pair
+        was found; a stale automatic pair from a previous STTM is cleared."""
+        decision = plan["decision"]
+        self.pair_decisions[kind] = decision
+        self.last_pairing[kind] = plan["outcome"]
+        rule = decision.rule or "content"
+        if kind == "frd":
+            if decision.chosen is None:
+                if self.frd_auto_paired is not None:
+                    self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
+                return
+            self.selected_frd, self.selected_frd_label = plan["path"], decision.chosen
+            self.frd_auto_paired = {"frd": decision.chosen, "rule": rule}
+        else:
+            if decision.chosen is None:
+                if self.vdd_auto_paired is not None:
+                    self.selected_vdd = self.vdd_auto_paired = None
+                return
+            self.selected_vdd = plan["path"]
+            self.vdd_auto_paired = {"vdd": decision.chosen, "rule": rule}
 
     def _ask_pairing(self) -> None:
         """Run start: an undecided pairing becomes a question in the layout
@@ -411,25 +473,7 @@ class DemoRunner:
         """Select the Vendor Data Dictionary associated with the chosen STTM
         when one is present among the listed workbooks (config vdd_pairing_map
         -> shared ticket -> unique name stem); same override rules as the FRD."""
-        # M9.3: by CONTENT — a workbook the index knows as an STTM is never a
-        # dictionary candidate; one still classifying / unclassified /
-        # unreadable stays a candidate.
-        candidates = {doc.name: doc.local_path()
-                      for doc in self._workbook_catalog().documents((".xlsx",))
-                      if doc.name != sttm_name and self._index.lookup(doc)["state"] != "sttm"}
-        match = self._pair("vdd", sttm_name, candidates,
-                           self._store.config.demo.vdd_pairing_map)
-        if match is None:
-            if self.vdd_auto_paired is not None:
-                self.selected_vdd = None
-                self.vdd_auto_paired = None
-            return None
-        vdd_name, rule = match
-        doc = self._workbook_catalog().find(vdd_name, (".xlsx",))
-        if doc is None:
-            return None
-        self.selected_vdd = self._fetch(doc)
-        self.vdd_auto_paired = {"vdd": vdd_name, "rule": rule}
+        self._apply_pair("vdd", self._plan_pair("vdd", sttm_name))
         return self.vdd_auto_paired
 
     @property
@@ -556,8 +600,9 @@ class DemoRunner:
         cached = self._catalogs.get(key)
         if cached is None or cached[0] is not self._store.config:
             config = self._store.config
-            cached = (config, InputCatalog(self._input_sources(first),
-                                           ttl_seconds=config.inputs.listing_ttl_seconds))
+            cached = (config, InputCatalog(
+                self._input_sources(first), ttl_seconds=config.inputs.listing_ttl_seconds,
+                timeout_seconds=config.inputs.listing_timeout_seconds))
             self._catalogs[key] = cached
         return cached[1]
 
@@ -598,13 +643,16 @@ class DemoRunner:
         file that failed or timed out — listed all the same, never retried in a
         loop.
         """
-        effective = self.selected_workbook
+        chosen = self.selection()
         choices = []
         for doc in self._workbook_catalog().documents((".xlsx",)):
             verdict = self._index.lookup(doc)
             choices.append({"name": doc.name, "source": doc.source, "size": doc.size,
                             "modified": doc.modified,
-                            "selected": doc.local_path() == effective,
+                            # The SAME record the status reports (``selection``).
+                            "selected": doc.name == chosen["sttm"],
+                            "selected_as": next((k for k in ("sttm", "vdd")
+                                                 if chosen[k] == doc.name), None),
                             "kind": verdict["state"], "kind_reason": verdict["reason"]})
         return choices
 
@@ -623,7 +671,16 @@ class DemoRunner:
         self.selection_error = {"kind": kind, "name": name, "message": message}
         return SelectionFailed(message)
 
-    def _persist_selection(self) -> None:
+    def selection(self) -> dict:
+        """THE record of what is selected — the status, the workbook list's
+        ``selected`` flag and ``selection.json`` all read it (on site the list
+        and the chooser disagreed: two derivations of one fact). Names, or None
+        = not chosen."""
+        return {"sttm": self.selected_workbook.name if self.selected_workbook else None,
+                "frd": self.selected_frd_label if self.selected_frd else None,
+                "vdd": self.selected_vdd.name if self.selected_vdd else None}
+
+    def _persist_selection(self, payload: dict | None = None) -> None:
         """Record the chosen documents in the state role (a REMOTE one only: an
         App container restart otherwise returns to 'none chosen' while the
         person believes the pair is set). Raises on failure — the caller turns
@@ -634,23 +691,211 @@ class DemoRunner:
             return
         path = ui_stores.state_file(self._store.config, SELECTION_FILE, SELECTION_PATH)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"sttm": self.selected_workbook.name if self.selected_workbook else None,
-                   "frd": self.selected_frd_label if self.selected_frd else None,
-                   "vdd": self.selected_vdd.name if self.selected_vdd else None}
+        payload = payload if payload is not None else self.selection()
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
         ui_stores.push_state(self._store.config, SELECTION_FILE)
 
-    def _restore_selection(self) -> None:
+    # -- the selection job (M9.3 addendum) ------------------------------------------
+
+    def _new_job(self, kind: str, name: str) -> dict:
+        """Under ``_lock``: register the one running job. A person's choice
+        supersedes a startup RESTORE still in flight (its results are dropped)."""
+        current = self.selection_job
+        if current is not None and current["state"] == "running" and current["kind"] == "restore":
+            self._supersede(current, "superseded by a new selection")
+        elif current is not None and current["state"] == "running":
+            raise SelectionInProgress(
+                f"{self.selection_job['name']!r} is still being selected — wait for it "
+                "(each step has a timeout) and choose again")
+        self._job_seq += 1
+        job = {"id": self._job_seq, "kind": kind, "name": name, "state": "running",
+               "steps": [], "error": None, "pairing": {}, "result": None}
+        self.selection_job = job
+        self._job_done.clear()
+        return job
+
+    def _step(self, job: dict, step: str, work, timeout: float):
+        """Run ONE step in its own thread and wait ``timeout`` for it. ``work``
+        takes the step's deadline (time.monotonic) and returns a value — it must
+        not change the runner: a step that is given up keeps running nowhere
+        that matters. Late = ``StepTimeout``, shown on the job."""
+        entry = {"step": step, "state": "running", "detail": ""}
+        job["steps"].append(entry)
+        deadline = time.monotonic() + timeout
+        box: dict = {}
+
+        def run() -> None:
+            try:
+                box["value"] = work(deadline)
+            except BaseException as exc:  # noqa: BLE001 — re-raised on the job thread
+                box["error"] = exc
+
+        thread = threading.Thread(target=run, name=f"select:{step}", daemon=True)
+        thread.start()
+        thread.join(timeout + _STEP_GRACE_SECONDS)
+        if thread.is_alive():
+            entry.update(state="timed_out", detail=f"no answer within {timeout:g}s")
+            raise StepTimeout(f"no answer within {timeout:g}s")
+        if "error" in box:
+            late = isinstance(box["error"], StepTimeout)
+            entry.update(state="timed_out" if late else "failed",
+                         detail=f"{type(box['error']).__name__}: {box['error']}")
+            raise box["error"]
+        entry["state"] = "done"
+        return box["value"]
+
+    def _supersede(self, job: dict, why: str) -> None:
+        """Under ``_lock``: the job's results will be dropped (its steps are
+        bounded; it ends on its own and changes nothing)."""
+        job["state"], job["error"] = "failed", {"code": "superseded", "message": why}
+        self._job_done.set()
+
+    def _finish_job(self, job: dict, error: dict | None = None) -> None:
+        if self.selection_job is not job:
+            return                                  # superseded: a newer job owns the status
+        job["error"] = error
+        job["state"] = "failed" if error else "done"
+        self._job_done.set()
+
+    def job_view(self) -> dict | None:
+        job = self.selection_job
+        if job is None:
+            return None
+        return {**job, "steps": [dict(s) for s in job["steps"]]}
+
+    def wait_selection(self, timeout: float = 60.0) -> dict | None:
+        """Block until the current selection job has finished (tests, the upload
+        route's own bounded wait). Returns the job."""
+        self._job_done.wait(timeout)
+        return self.job_view()
+
+    def start_selection(self, name: str) -> dict:
+        """Choose the STTM: returns the JOB at once. Progress, the pairing and
+        any failure are on the status (``selection_job``)."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
+            job = self._new_job("sttm", name)
+        threading.Thread(target=self._run_selection, args=(job,),
+                         name=f"select:{name}", daemon=True).start()
+        return self.job_view() or job
+
+    def _run_selection(self, job: dict) -> None:
+        name = job["name"]
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+        step = "locating it in the input folders"
+        try:
+            doc = self._step(job, "locate",
+                             lambda _d: self._workbook_catalog().find(name, (".xlsx",)), timeout)
+            if doc is None:
+                sources = " or ".join(s.label for s in self._workbook_catalog().sources)
+                self._finish_job(job, {"code": "not_found",
+                                       "message": f"no STTM workbook named {name!r} in {sources}"})
+                return
+            step = f"downloading {doc.uri}"
+            local = self._step(job, "download", lambda _d: self._fetch(doc, timeout), timeout)
+            step = "starting the document parser"
+            try:
+                self._step(job, "start parser", lambda _d: self._index.ensure_parser("request"),
+                           float(self._store.config.inputs.parser_start_timeout_seconds))
+            except Exception:  # noqa: BLE001 — said on the step; the choice still stands
+                # No parser (an environment that cannot start a child process):
+                # the documents go unread — pairing falls back to names and the
+                # folder — rather than every selection being refused.
+                job["steps"][-1]["state"] = "warning"
+            step = "reading the workbook"
+            verdict = self._step(
+                job, "classify",
+                lambda d: self._index.read_now(doc, local, max(d - time.monotonic(), 0.05)),
+                timeout)
+            job["steps"][-1]["detail"] = f"{verdict['state']}: {verdict.get('reason', '')}"
+            if verdict.get("timed_out"):
+                # A workbook the parser cannot read within the budget would hang
+                # the RUN too (which reads it in-process): refuse it, visibly.
+                job["steps"][-1]["state"] = "timed_out"
+                raise StepTimeout(verdict["reason"])
+            if verdict["state"] == UNREADABLE:
+                # Not a reason to refuse the person's choice (the run will say
+                # what is wrong with the file) — but said: it pairs by name only.
+                job["steps"][-1]["state"] = "warning"
+            step = "pairing its FRD"
+            frd = self._step(job, "pair FRD", lambda d: self._plan_pair("frd", name, d), timeout)
+            job["pairing"]["frd"] = frd["outcome"]
+            step = "pairing its VDD"
+            vdd = self._step(job, "pair VDD", lambda d: self._plan_pair("vdd", name, d), timeout)
+            job["pairing"]["vdd"] = vdd["outcome"]
+            step = "recording the selection in the state role"
+            chosen = {"sttm": name,
+                      "frd": frd["decision"].chosen or (
+                          None if self.frd_auto_paired is not None else self.selection()["frd"]),
+                      "vdd": vdd["decision"].chosen or (
+                          None if self.vdd_auto_paired is not None else self.selection()["vdd"])}
+            self._step(job, "record", lambda _d: self._persist_selection(chosen), timeout)
+            with self._lock:                       # state mutation ONLY — no I/O in here
+                if self.selection_job is not job or job["state"] != "running":
+                    return                           # superseded (a Clear): change nothing
+                if self.state == "running":
+                    raise LiveRunInProgress("a live run started while the STTM was being "
+                                            "selected — the selection was not applied")
+                self.selected_workbook = local
+                self.last_pairing = {}
+                self._apply_pair("frd", frd)
+                self._apply_pair("vdd", vdd)
+                self.selection_error = None
+            self._finish_job(job)
+        except BaseException as exc:  # noqa: BLE001 — a job thread must end in a visible state
+            # Nothing half-selected, nothing from before, and NOT the config
+            # default: the person sees why and chooses again.
+            with self._lock:
+                if self.selection_job is not job or job["state"] != "running":
+                    return                           # superseded: the status is not ours
+                self.selected_workbook = None
+                self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
+                self.selected_vdd = self.vdd_auto_paired = None
+                self.pair_decisions = {}
+                self.last_pairing = {}
+                failed = self._fail_selection("sttm", name, exc, step)
+            self._finish_job(job, {
+                "code": "timeout" if isinstance(exc, StepTimeout) else "failed",
+                "message": str(failed)})
+
+    def _start_restore(self) -> None:
         """After a restart under a remote state role: bring the recorded pair
-        back, or say which document could not be (never the config default)."""
+        back IN THE BACKGROUND (a job like any selection — App start never waits
+        for a download), or say which document could not be."""
         from ui.backend import stores as ui_stores
 
         try:
             if ui_stores.state_is_default(self._store.config):
                 return
+        except Exception:  # noqa: BLE001 — no usable state role: nothing to restore
+            return
+        with self._lock:
+            job = self._new_job("restore", "the recorded selection")
+        threading.Thread(target=self._run_restore, args=(job,), name="select:restore",
+                         daemon=True).start()
+
+    def _run_restore(self, job: dict) -> None:
+        try:
+            self._restore_selection(job)
+            self._finish_job(job, None if self.selection_error is None else {
+                "code": "failed", "message": self.selection_error["message"]})
+        except BaseException as exc:  # noqa: BLE001 — visible, never a dead thread
+            self._finish_job(job, {"code": "failed", "message": f"{type(exc).__name__}: {exc}"})
+
+    def _restore_selection(self, job: dict) -> None:
+        from ui.backend import stores as ui_stores
+
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+
+        def read(_deadline):
             path = ui_stores.state_file(self._store.config, SELECTION_FILE, SELECTION_PATH)
-            recorded = json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
+
+        try:
+            recorded = self._step(job, "read selection.json", read, timeout)
         except Exception:  # noqa: BLE001 — nothing recorded (or unreadable): none chosen
+            job["steps"][-1].update(state="done", detail="nothing recorded")
             return
         for kind, catalog, suffixes in (
                 ("sttm", self._workbook_catalog, (".xlsx",)),
@@ -659,54 +904,43 @@ class DemoRunner:
             name = recorded.get(kind)
             if not name:
                 continue
-            try:
+            def locate(_deadline, name=name, catalog=catalog, suffixes=suffixes):
                 doc = catalog().find(name, suffixes)
                 if doc is None:
                     raise FileNotFoundError(f"{name!r} is no longer in the input folders")
-                local = self._fetch(doc)
+                return self._fetch(doc, timeout)
+
+            try:
+                local = self._step(job, f"restore {kind}", locate, timeout)
             except Exception as exc:  # noqa: BLE001 — surfaced; the rest still restores
-                self._fail_selection(kind, name, exc, "restoring the recorded selection")
+                if self.selection_job is job:
+                    self._fail_selection(kind, name, exc, "restoring the recorded selection")
                 continue
-            if kind == "sttm":
-                self.selected_workbook = local
-            elif kind == "frd":
-                self.selected_frd, self.selected_frd_label = local, name
-            else:
-                self.selected_vdd = local
+            with self._lock:
+                if self.selection_job is not job:
+                    return                              # the person chose meanwhile
+                if kind == "sttm":
+                    self.selected_workbook = local
+                elif kind == "frd":
+                    self.selected_frd, self.selected_frd_label = local, name
+                else:
+                    self.selected_vdd = local
 
     def select_workbook(self, name: str) -> Path:
-        """Pick a workbook BY NAME from the scanned dirs — never a raw path.
-        Download → register → pair → record either all succeed, or the STTM
-        stays UNSELECTED with ``selection_error`` set (``SelectionFailed``)."""
-        from codegen.storage import StorageError
-
-        with self._lock:
-            if self.state == "running":
-                raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
-        doc = self._workbook_catalog().find(name, (".xlsx",))
-        if doc is None:
-            raise FileNotFoundError(
-                f"no STTM workbook named {name!r} in "
-                + " or ".join(source.label for source in self._workbook_catalog().sources)
-            )
-        self.last_pairing = {}
-        step = f"downloading {doc.uri}"
-        try:
-            self.selected_workbook = self._fetch(doc)
-            step = "pairing its FRD / VDD"
-            self.auto_pair_frd(name)
-            self.auto_pair_vdd(name)
-            step = "recording the selection in the state role"
-            self._persist_selection()
-        except (StorageError, OSError) as exc:
-            # Nothing half-selected, nothing from before, and NOT the config
-            # default: the person sees why and chooses again.
-            self.selected_workbook = None
-            self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
-            self.selected_vdd = self.vdd_auto_paired = None
-            self.pair_decisions = {}
-            raise self._fail_selection("sttm", name, exc, step) from exc
-        self.selection_error = None
+        """``start_selection`` and WAIT for the job — for callers that are not a
+        request (tests, scripts). Every step is bounded, so this returns; a
+        failed job is ``SelectionFailed`` (``FileNotFoundError`` for an unknown
+        name), the STTM left UNSELECTED with ``selection_error`` set."""
+        started = self.start_selection(name)
+        self._job_done.wait()
+        job = self.selection_job
+        if job is None or job["id"] != started["id"]:
+            raise SelectionFailed(f"the selection of {name!r} was superseded")
+        if job["error"] is not None:
+            if job["error"]["code"] == "not_found":
+                raise FileNotFoundError(job["error"]["message"])
+            raise SelectionFailed(job["error"]["message"])
+        assert self.selected_workbook is not None
         return self.selected_workbook
 
     def select_vdd_by_name(self, name: str) -> Path:
@@ -728,10 +962,14 @@ class DemoRunner:
         return local
 
     def clear_workbook(self) -> None:
-        """Back to 'none chosen' — the presenter's reset for the choose step."""
+        """Back to 'none chosen' — the presenter's reset for the choose step. A
+        selection still running is superseded (it will change nothing)."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
+            job = self.selection_job
+            if job is not None and job["state"] == "running":
+                self._supersede(job, "cleared while it was running")
         self.selected_workbook = None
         self.pair_decisions = {}
         self.selection_error = None
@@ -762,6 +1000,12 @@ class DemoRunner:
             # choosing the STTM paired / asks, per kind.
             "selection_error": self.selection_error,
             "pairing": dict(self.last_pairing),
+            # M9.3 addendum: THE record of what is selected (names; None = not
+            # chosen) and the selection job — {id, kind, name, state: running |
+            # done | failed, steps: [{step, state, detail}], error: {code,
+            # message}, pairing}.
+            "selection": self.selection(),
+            "selection_job": self.job_view(),
             "frd_auto_paired": self.frd_auto_paired,
             "vdd_auto_paired": self.vdd_auto_paired,
             # M8.1: input roots whose last listing failed (label -> API message).
@@ -876,6 +1120,11 @@ class DemoRunner:
             raise ValueError("no output selected — choose at least one of notebook, "
                              "framework artefacts, RFC package, or All")
 
+        job = self.selection_job
+        if job is not None and job["state"] == "running" and job["kind"] != "frd_upstream":
+            # The documents are still being chosen: never the config default meanwhile.
+            raise ValueError(f"{job['name']!r} is still being selected — wait for it to "
+                             "finish before generating")
         if self.selection_error is not None and self.selected_workbook is None:
             # Never the config default in place of a document that failed to load.
             raise ValueError(f"{self.selection_error['message']} — choose the STTM again (or "
@@ -897,18 +1146,109 @@ class DemoRunner:
             self.error = f"{type(exc).__name__}: {exc}"
             self.state = "failed"
 
+    def upstream_snapshot(self) -> dict:
+        """The upstream contract listing as last read — NEVER a call: with
+        ``upstream.enabled`` a stale snapshot starts a background refresh (hard
+        timeout ``upstream.timeout_seconds``) and this returns what is known
+        now; disabled (the default, standalone doctrine) nothing is ever
+        called. {enabled, state: disabled | loading | ready | failed, rows,
+        error}."""
+        cfg = self._store.config.upstream
+        if not cfg.enabled:
+            return {"enabled": False, "state": "disabled", "rows": [], "error": None}
+        with self._lock:
+            snap = self._upstream
+            stale = snap["state"] == "idle" or (
+                snap["state"] != "loading"
+                and time.monotonic() - snap["at"] >= cfg.refresh_seconds)
+            if stale:
+                self._upstream_seq += 1
+                snap = self._upstream = {**snap, "state": "loading"}
+                threading.Thread(target=self._refresh_upstream,
+                                 args=(self._upstream_seq, float(cfg.timeout_seconds)),
+                                 name="upstream-contracts", daemon=True).start()
+        return {"enabled": True, "state": snap["state"], "rows": list(snap["rows"]),
+                "error": snap["error"]}
+
+    def _refresh_upstream(self, seq: int, timeout: float) -> None:
+        box: dict = {}
+
+        def call() -> None:
+            try:
+                from codegen import upstream_contracts
+
+                box["rows"] = upstream_contracts.list_contracts(self._store.config)
+            except Exception as exc:  # noqa: BLE001 — the chooser stays usable offline
+                box["error"] = (str(exc).splitlines() or [type(exc).__name__])[0][:160]
+
+        thread = threading.Thread(target=call, name="upstream-contracts-call", daemon=True)
+        thread.start()
+        thread.join(timeout)
+        if thread.is_alive():
+            box = {"error": f"the FRD→STTM contract table did not answer within {timeout:g}s "
+                            "(the query was given up)"}
+        with self._lock:
+            if seq != self._upstream_seq:
+                return                                  # a newer refresh owns the snapshot
+            self._upstream = {"state": "failed" if "error" in box else "ready",
+                              "rows": box.get("rows", []), "error": box.get("error"),
+                              "at": time.monotonic()}
+
+    def start_upstream_frd(self, doc_id: str) -> dict:
+        """Select an UPSTREAM contract (a warehouse read): a job, never awaited
+        by the request. Refused while ``upstream.enabled`` is false."""
+        cfg = self._store.config.upstream
+        if not cfg.enabled:
+            raise PermissionError(
+                "upstream contract lookups are off (upstream.enabled: false) — choose an FRD "
+                "document from the input folders")
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress("cannot change the FRD while a live run is in progress")
+            job = self._new_job("frd_upstream", doc_id)
+
+        def run() -> None:
+            def read(_deadline):
+                from codegen import upstream_contracts
+
+                return upstream_contracts.materialize(self._store.config, doc_id, REPO_ROOT)
+
+            try:
+                path, contract, meta = self._step(job, "read the contract", read,
+                                                  float(cfg.timeout_seconds))
+                self.select_frd(path, doc_id)
+                job["result"] = {
+                    "selected": doc_id, "kind": "upstream", "audited_at": meta["audited_at"],
+                    "feeds": [{
+                        "feed_name": f.feed_name,
+                        "stage": f"{f.stage_target.schema_name}."
+                                 f"{','.join(f.stage_target.tables)}",
+                        "standard": (f"{f.standard_target.schema_name}."
+                                     f"{','.join(f.standard_target.tables)}"
+                                     if f.standard_target.tables else None),
+                    } for f in contract.feeds]}
+                self._finish_job(job)
+            except BaseException as exc:  # noqa: BLE001 — visible, never a dead thread
+                failed = self._fail_selection("frd", doc_id, exc, "reading the upstream contract")
+                self._finish_job(job, {
+                    "code": "timeout" if isinstance(exc, StepTimeout) else "failed",
+                    "message": str(failed)})
+
+        threading.Thread(target=run, name=f"select:upstream:{doc_id}", daemon=True).start()
+        return self.job_view() or job
+
     def _attach_pairing_hint(self, exc: Exception, workbook_path: Path,
                              frd_label: str) -> None:
         """On a feed-match failure, name the FRD the run used and — when
         the pairing helpers know a companion — offer it. Information only;
-        choosing remains the human's act, and there is no auto-retry."""
+        choosing remains the human's act, and there is no auto-retry. Reads the
+        upstream SNAPSHOT only (nothing when ``upstream.enabled`` is false)."""
         if "matches 0 FRD feeds" not in str(exc):
             return
         try:
             from codegen.demo_sources import pair_sttm_with_frd, suggest_pairs
-            from codegen.upstream_contracts import list_contracts
 
-            doc_ids = [row["doc_id"] for row in list_contracts(self._store.config)]
+            doc_ids = [row["doc_id"] for row in self.upstream_snapshot()["rows"]]
             explicit = pair_sttm_with_frd(
                 [workbook_path.name], doc_ids,
                 explicit_map=self._store.config.demo.pairing_map,

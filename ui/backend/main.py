@@ -37,7 +37,12 @@ from codegen.metadata_sheet import (
 )
 from codegen.storage import StorageError
 from ui.backend import databricks_routes, sharepoint_routes
-from ui.backend.demo import DemoRunner, LiveRunInProgress, SelectionFailed
+from ui.backend.demo import (
+    DemoRunner,
+    LiveRunInProgress,
+    SelectionFailed,
+    SelectionInProgress,
+)
 from ui.backend.replay import (
     list_past_live_runs,
     list_replay_sets,
@@ -457,8 +462,12 @@ def layout_advice(req: LayoutAdviceRequest) -> dict:
 @app.get("/api/demo/status")
 def demo_status() -> dict:
     demo = _require_store().config.demo
+    runner_status = _require_runner().status()
+    # ONE snapshot of the selection record for every field below (M9.3
+    # addendum: the list's ``selected`` and the chooser disagreed on site).
+    chosen = runner_status["selection"]
     return {
-        **_require_runner().status(),
+        **runner_status,
         "mode": _require_store().mode,
         "label": _require_store().label,
         "estimates": {
@@ -470,11 +479,10 @@ def demo_status() -> dict:
         # the "choose an STTM" step is legible in the UI before firing.
         # sttm_chosen distinguishes an operator's explicit pick from the
         # config-default fallback, so the UI can demand the choice up front.
-        "sttm_workbook": _require_runner().effective_workbook().name,
-        "sttm_chosen": _require_runner().selected_workbook is not None,
+        "sttm_workbook": chosen["sttm"] or Path(demo.workbook).name,
+        "sttm_chosen": chosen["sttm"] is not None,
         # M3: the optional Vendor Data Dictionary (third input), file name only.
-        "vdd_name": (_require_runner().selected_vdd.name
-                     if _require_runner().selected_vdd is not None else None),
+        "vdd_name": chosen["vdd"],
         # Output mode a run would use (Option A notebook / Option B
         # framework / both) — the runner's override or the config default.
         # The generator mode the Output selection maps onto (None while
@@ -494,18 +502,16 @@ def demo_status() -> dict:
         # The FRD side of the pair. frd_warning: the STTM is an explicit
         # non-golden pick while the FRD is still the pinned demo golden —
         # a feed-match failure is likely; the human decides, no auto-fix.
-        "frd_name": (_require_runner().selected_frd_label
-                     or _require_store().config.demo.frd),
-        "frd_chosen": _require_runner().selected_frd is not None,
+        "frd_name": chosen["frd"] or _require_store().config.demo.frd,
+        "frd_chosen": chosen["frd"] is not None,
         # Set when choosing the STTM selected its associated FRD automatically
         # ({frd, rule: pairing_map | ticket | name_stem}); None for a manual pick.
         "frd_auto_paired": _require_runner().frd_auto_paired,
         "vdd_auto_paired": _require_runner().vdd_auto_paired,
         "frd_warning": (
-            _require_runner().selected_workbook is not None
-            and _require_runner().selected_workbook.name
-            != Path(_require_store().config.demo.workbook).name
-            and _require_runner().selected_frd is None
+            chosen["sttm"] is not None
+            and chosen["sttm"] != Path(_require_store().config.demo.workbook).name
+            and chosen["frd"] is None
         ),
         "error_hint": _require_runner().error_hint,
     }
@@ -513,31 +519,25 @@ def demo_status() -> dict:
 
 @app.get("/api/demo/frd-choices")
 def frd_choices() -> dict:
-    """FRD options for the chooser: upstream contracts (FRD→STTM agent's
-    table, with audit stamps and pairing vs the current STTM) and local
-    FRDs — contract JSONs AND FRD .docx documents (standalone doctrine,
-    2026-09-18: a .docx is extracted by ``codegen.extract.frd_docx`` when
-    the run starts). ``no_contract`` is kept for API compatibility and is
-    always empty now. Upstream unreachable → that section absent with a
-    reason, everything else still renders."""
-    from codegen.demo_sources import (
-        canonical_document_name,
-        document_stem,
-        pair_sttm_with_frd,
-        suggest_pairs,
-    )
-    from codegen.upstream_contracts import list_contracts
+    """FRD options for the chooser: local FRDs — contract JSONs AND FRD .docx
+    documents (standalone doctrine, 2026-09-18: a .docx is extracted by
+    ``codegen.extract.frd_docx`` when the run starts) — and, ONLY with
+    ``upstream.enabled``, the upstream contracts (FRD→STTM agent's table).
+
+    M9.3 addendum: this request NEVER calls the warehouse. Upstream rows are the
+    runner's snapshot, refreshed in a background task with a hard timeout
+    (``upstream_state``: disabled | loading | ready | failed — the chooser
+    polls while it is ``loading``). ``no_contract`` is kept for API
+    compatibility and is always empty."""
+    from codegen.demo_sources import pair_sttm_with_frd, suggest_pairs
 
     store = _require_store()
     runner = _require_runner()
     sttm_name = runner.effective_workbook().name
 
     upstream_rows: list[dict] = []
-    upstream_error: str | None = None
-    try:
-        contracts = list_contracts(store.config)
-    except Exception as exc:  # noqa: BLE001 — chooser stays usable offline
-        contracts, upstream_error = [], str(exc).splitlines()[0][:160]
+    snapshot = runner.upstream_snapshot()
+    contracts, upstream_error = snapshot["rows"], snapshot["error"]
     doc_ids = [row["doc_id"] for row in contracts]
     paired = pair_sttm_with_frd([sttm_name], doc_ids,
                                 explicit_map=store.config.demo.pairing_map)
@@ -551,7 +551,6 @@ def frd_choices() -> dict:
         })
 
     local = sorted(runner.local_frd_candidates())
-    del canonical_document_name, document_stem
     orphans: list[str] = []
 
     return {
@@ -562,6 +561,8 @@ def frd_choices() -> dict:
         },
         "upstream": upstream_rows,
         "upstream_error": upstream_error,
+        "upstream_enabled": snapshot["enabled"],
+        "upstream_state": snapshot["state"],
         "local": local,
         "no_contract": orphans,
     }
@@ -573,25 +574,19 @@ class FrdSelectRequest(BaseModel):
 
 
 @app.post("/api/demo/frd")
-def select_frd(req: FrdSelectRequest) -> dict:
-    from codegen.upstream_contracts import UpstreamContractError, materialize
-
-    store = _require_store()
+def select_frd(req: FrdSelectRequest, response: Response) -> dict:
     runner = _require_runner()
     try:
         if req.kind == "upstream":
-            path, contract, meta = materialize(store.config, req.id, REPO_ROOT)
-            runner.select_frd(path, req.id)
-            feeds = [{
-                "feed_name": f.feed_name,
-                "stage": f"{f.stage_target.schema_name}."
-                         f"{','.join(f.stage_target.tables)}",
-                "standard": (f"{f.standard_target.schema_name}."
-                             f"{','.join(f.standard_target.tables)}"
-                             if f.standard_target.tables else None),
-            } for f in contract.feeds]
-            return {"selected": req.id, "kind": "upstream",
-                    "audited_at": meta["audited_at"], "feeds": feeds}
+            # A warehouse read: never awaited here. 202 + the job; the outcome
+            # ({selected, audited_at, feeds} or the error) is the status'
+            # ``selection_job``. Refused (403) while upstream.enabled is false.
+            try:
+                job = runner.start_upstream_frd(req.id)
+            except PermissionError as exc:
+                raise HTTPException(403, str(exc)) from exc
+            response.status_code = 202
+            return {"job": job, "kind": "upstream"}
         if req.kind == "local":
             # A local FRD is a .contract.json or an FRD .docx (extracted by
             # the runner when the run starts — standalone doctrine).
@@ -605,10 +600,8 @@ def select_frd(req: FrdSelectRequest) -> dict:
                 return {"selected": req.id, "kind": "local", "feeds": None}
             raise HTTPException(404, f"no local contract named {req.id!r}")
         raise HTTPException(400, f"unknown kind {req.kind!r}")
-    except LiveRunInProgress as exc:
+    except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
-    except UpstreamContractError as exc:
-        raise HTTPException(502, str(exc)) from exc
     except (StorageError, OSError) as exc:
         # M9.3: the FRD stays as it was; the reason is the response AND the status.
         failed = runner._fail_selection("frd", req.id, exc, "downloading it")  # noqa: SLF001
@@ -698,10 +691,11 @@ async def upload_demo_document(
 
     try:
         if kind == "sttm":
-            runner.select_workbook(name)
-        else:
-            runner.select_frd(dest, name)
-    except LiveRunInProgress as exc:
+            # A job, like any STTM choice: selected once the status' job is done.
+            job = runner.start_selection(name)
+            return {"stored": name, "kind": kind, "selected": False, "job": job}
+        runner.select_frd(dest, name)
+    except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"stored": name, "kind": kind, "selected": True}
 
@@ -808,25 +802,25 @@ class WorkbookSelectRequest(BaseModel):
     name: str
 
 
-@app.post("/api/demo/workbook")
+@app.post("/api/demo/workbook", status_code=202)
 def select_workbook(req: WorkbookSelectRequest) -> dict:
-    """Choose the STTM. M9.3: download → register → pair → record either all
-    succeed, or the response is a **424** carrying the reason (also kept on the
-    status as ``selection_error``) and the STTM stays UNSELECTED — never the
-    config default. The pairing of its FRD / VDD — same folder first, then the
-    other input roots — comes back in THIS response: ``pairing.frd`` /
-    ``pairing.vdd`` = {chosen, rule, reason, scope, candidates, question}."""
+    """Choose the STTM — **202 + a job, at once** (M9.3 addendum,
+    APP_CHOOSER_BUG: this request used to download, parse and pair before it
+    answered, and hung the App). Locate → download → classify → pair FRD → pair
+    VDD → record run in a background job, each step with a timeout; nothing is
+    selected until all have succeeded. ``GET /api/demo/status`` carries the job
+    (``selection_job``: state running | done | failed, the steps, ``error``
+    {code: not_found | timeout | failed, message}, ``pairing.frd`` /
+    ``pairing.vdd`` = {chosen, rule, reason, scope, candidates, question}) and
+    the one record of what is selected (``selection``). A failed job leaves the
+    STTM UNSELECTED (``selection_error``) — never the config default. 409 while
+    a run or another selection is in progress."""
     runner = _require_runner()
     try:
-        runner.select_workbook(req.name)
-    except LiveRunInProgress as exc:
+        job = runner.start_selection(req.name)
+    except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except SelectionFailed as exc:
-        raise HTTPException(424, str(exc)) from exc
-    return {"workbooks": runner.workbook_choices(), "selected": req.name,
-            "pairing": dict(runner.last_pairing), "selection_error": None}
+    return {"job": job}
 
 
 @app.post("/api/demo/workbook/reclassify")

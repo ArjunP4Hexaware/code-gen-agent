@@ -26,6 +26,8 @@ from ui.backend.replay import (  # noqa: E402
 )
 from ui.backend.service import GenerationStore  # noqa: E402
 
+from ui_select import select_sttm  # noqa: E402
+
 REPLAY_SET = "live_e2e_20260807"
 # The tracked replay set was removed from the repo 2026-08-22 (no client
 # documents, raw or derived, in the repository); the two tests that read it
@@ -53,6 +55,17 @@ def _index_idle() -> None:
 
     if main.runner is not None:
         main.runner._index.wait_idle(30)
+
+
+def _job_done(client, job_id: int, timeout: float = 90.0) -> dict:
+    """Poll the status until selection job ``job_id`` has finished."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = client.get("/api/demo/status").json()["selection_job"]
+        if job and job["id"] == job_id and job["state"] != "running":
+            return job
+        time.sleep(0.05)
+    raise AssertionError(f"selection job {job_id} did not finish")
 
 
 def _adopt_empty(store: GenerationStore, *, mode: str, label: str | None) -> None:
@@ -479,7 +492,11 @@ def test_upload_sttm_workbook_lands_and_selects(client):
             files={"file": (name, buf.getvalue(), "application/octet-stream")},
         )
         assert r.status_code == 201
-        assert r.json() == {"stored": name, "kind": "sttm", "selected": True}
+        body = r.json()
+        # Stored at once; SELECTED by the job (M9.3 addendum) — poll the status.
+        assert (body["stored"], body["kind"], body["selected"]) == (name, "sttm", False)
+        job = _job_done(client, body["job"]["id"])
+        assert job["state"] == "done", job
         rows = client.get("/api/demo/workbooks").json()["workbooks"]
         mine = [w for w in rows if w["name"] == name]
         assert mine and mine[0]["selected"] and mine[0]["source"] == "inputs/uploads"
@@ -625,9 +642,8 @@ def test_choosing_an_sttm_auto_pairs_its_frd(client):
     if not (REPO / "fixtures" / "workbooks" / "demo_sttm_cv_golden.xlsx").is_file():
         pytest.skip("CV golden workbook not restored")
     try:
-        r = client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
-        assert r.status_code == 200
-        status = client.get("/api/demo/status").json()
+        status = select_sttm(client, "demo_sttm_cv_golden.xlsx")
+        assert status["selection_job"]["state"] == "done", status["selection_job"]
         assert status["frd_chosen"] is True
         assert status["frd_name"] == "FRD_demo_cv_golden.contract.json"
         assert status["frd_auto_paired"] == {"frd": "FRD_demo_cv_golden.contract.json",
@@ -642,8 +658,7 @@ def test_choosing_an_sttm_auto_pairs_its_frd(client):
         assert r.status_code == 200
         assert client.get("/api/demo/status").json()["frd_auto_paired"] is None
         # Re-choosing the STTM pairs again; clearing the STTM clears the pair.
-        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
-        assert client.get("/api/demo/status").json()["frd_auto_paired"] is not None
+        assert select_sttm(client, "demo_sttm_cv_golden.xlsx")["frd_auto_paired"] is not None
         client.delete("/api/demo/workbook")
         status = client.get("/api/demo/status").json()
         assert status["frd_chosen"] is False and status["frd_auto_paired"] is None
@@ -669,14 +684,13 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
     Workbook().save(buf)
     vdd.write_bytes(buf.getvalue())
     try:
-        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
-        status = client.get("/api/demo/status").json()
+        status = select_sttm(client, "demo_sttm_cv_golden.xlsx")
         assert status["vdd_name"] == "VDD_demo_cv_golden.xlsx"
         assert status["vdd_auto_paired"] == {"vdd": "VDD_demo_cv_golden.xlsx",
                                              "rule": "name_stem"}
         client.post("/api/demo/vdd", json={"name": "VDD_demo_cv_golden.xlsx"})
         assert client.get("/api/demo/status").json()["vdd_auto_paired"] is None
-        client.post("/api/demo/workbook", json={"name": "demo_sttm_cv_golden.xlsx"})
+        select_sttm(client, "demo_sttm_cv_golden.xlsx")
         client.delete("/api/demo/workbook")
         status = client.get("/api/demo/status").json()
         assert status["vdd_name"] is None and status["vdd_auto_paired"] is None

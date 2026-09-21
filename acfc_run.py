@@ -35,6 +35,13 @@ dbutils.widgets.text("state", "workspace:/Workspace/Users/<you>/codegen/state", 
 dbutils.widgets.text("answers", "", "answers.yaml inside the pair folder (optional)")  # noqa: F821
 dbutils.widgets.dropdown("layout_provider", "mock", ["mock", "live"], "Layout recognizer")  # noqa: F821
 dbutils.widgets.dropdown("layer2", "mock", ["mock", "live"], "Layer 2 (reasoning)")  # noqa: F821
+dbutils.widgets.dropdown("refresh_layout", "no", ["no", "yes"],  # noqa: F821
+                         "Re-resolve layout (ignore + overwrite cached profiles)")
+# Output conventions are run arguments, never an edit of config/config.yaml
+# (blank = whatever the config / overlay selects).
+dbutils.widgets.text("conventions_profile", "acfc_prx", "Conventions profile")  # noqa: F821
+dbutils.widgets.text("iig_template", "iig_v2", "IIG template")  # noqa: F821
+dbutils.widgets.text("playbook_template", "main_single", "Playbook template")  # noqa: F821
 
 PAIR_URI = dbutils.widgets.get("pair_folder")  # noqa: F821
 os.environ["CODEGEN_STORAGE_OUTPUTS"] = dbutils.widgets.get("outputs")  # noqa: F821
@@ -45,6 +52,12 @@ if dbutils.widgets.get("layer2") == "mock":  # noqa: F821
 else:
     os.environ.pop("CODEGEN_FORCE_MOCK_PROVIDER", None)
 ANSWERS_NAME = dbutils.widgets.get("answers").strip()  # noqa: F821
+REFRESH_LAYOUT = dbutils.widgets.get("refresh_layout") == "yes"  # noqa: F821
+CONVENTIONS = [arg for flag, widget in (("--profile", "conventions_profile"),
+                                        ("--iig-template", "iig_template"),
+                                        ("--playbook-template", "playbook_template"))
+               if dbutils.widgets.get(widget).strip()  # noqa: F821
+               for arg in (flag, dbutils.widgets.get(widget).strip())]  # noqa: F821
 
 # COMMAND ----------
 
@@ -101,10 +114,18 @@ work.mkdir(parents=True, exist_ok=True)
 
 # 2. Layout: cache -> synonyms -> (live recognizer) -> answers file. Whatever
 #    stays open is written to unresolved_headers.md — structural labels only.
+#    The FRD contract is written HERE, as the pair resolved it (M9): a feed the
+#    FRD leaves unnamed is named after the STTM stage band and the gaps are
+#    filled from the STTM / VDD — a separate extract-frd knows none of that.
+#    REFRESH_LAYOUT re-resolves past every cached profile and overwrites it.
+frd_contract = work / "frd.contract.json"
 layout_rc = run("layout", "layout", "--workbook", str(sttm), "--frd", str(frd),
                 *(["--vdd", str(vdd)] if vdd else []), *answers,
+                *(["--refresh"] if REFRESH_LAYOUT else []),
                 "--report-unresolved", str(work / "unresolved_headers.md"),
-                "--profile-out", str(work / "sttm.layout.json"), "--require-complete")
+                "--profile-out", str(work / "sttm.layout.json"),
+                *(["--frd-contract-out", str(frd_contract)]
+                  if frd.suffix.lower() == ".docx" else []), "--require-complete")
 
 # COMMAND ----------
 
@@ -114,10 +135,7 @@ if layout_rc != 0:
     raise SystemExit("layout incomplete: place the roles above in an answers.yaml "
                      "(docs/ACFC_DEPLOY.md §6), put it in the pair folder and re-run")
 
-frd_contract = work / "frd.contract.json"
-if frd.suffix.lower() == ".docx":
-    run("extract-frd", "extract-frd", "--docx", str(frd), "--out", str(frd_contract))
-else:
+if frd.suffix.lower() != ".docx":
     frd_contract = frd
 run("extract-sttm", "extract-sttm", "--workbook", str(sttm), "--frd-contract",
     str(frd_contract), "--out", str(work / "sttm.contract.json"),
@@ -127,7 +145,8 @@ if vdd is not None:
     run("extract-vdd", "extract-vdd", "--vdd", str(vdd), "--out", str(work / "vdd.contract.json"))
     vdd_args = ["--vdd", str(work / "vdd.contract.json")]
 run("generate", "generate", "--frd-contract", str(frd_contract), "--sttm-contract",
-    str(work / "sttm.contract.json"), *vdd_args, "--output-mode", "rfc", "--skip-tests",
+    str(work / "sttm.contract.json"), *vdd_args, *CONVENTIONS, "--output-mode", "rfc",
+    "--skip-tests",
     *(["--dry-run"] if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER") else []))
 
 # COMMAND ----------

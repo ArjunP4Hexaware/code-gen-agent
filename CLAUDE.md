@@ -277,6 +277,83 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
+## M9 (2026-09-21, v0.5.1-acfc): the first real pair-1 run inside ACFC, landed properly
+
+The first ACFC run of pair 1 (2026-09-21) failed in six places; a Genie Code
+session hot-fixed three of them on the remote branch **`acfc-hotfix-1` —
+never merge it** (its `config.yaml` carries a user's workspace paths, the
+workspace catalogs and `layout.provider: live`; its two documents,
+`HANDOVER_GENIE.md` / `PAIR1_HEADERS.md`, quote client table / file / LOB
+names). `docs/acfc/M9_FINDINGS.md` is the SCRUBBED record: what the two
+captures establish, what M9 changed, and the hotfix triaged commit by commit
+(kept: the `… in dl` + `details` synonyms; reworked: `_band_constant`, the
+rejection log, the Do-Not-Map skip; dropped: the empty-schema tolerance, every
+workspace value in `config.yaml`, the notebook restructure).
+
+- **Pair-1 fixtures are REAL-SHAPE now (M9.0).** STTM: meta r1–r10 (`TBD` /
+  `.dat` / blanks, no Load Strategy row), bands A14:I14 · K14:P14 · R14:W14 ·
+  Y14:AD14, 27 headers over 30 columns (J / Q / X empty), schema + table on
+  every data row, `Header` / `Details` / `Trailer` banner rows (the Segment
+  column keeps HDDR/DET/TRLR — the golden IIG's SEGMENT cell), one `Do Not
+  Map` row. FRD: `Target Table Name` = an inline layer block, `Target Catalog
+  and Schema` blank, `Object Name` = `<label>: <file>` lines (names no feed),
+  `Name` = a sentence. The feed is therefore named after the STTM stage band:
+  feed id / slug **`vnd_p_accum_client`** (was `accumulators`; the FAQ fixture
+  was renamed to match). Tests that need a sheet the synonyms leave open use
+  `tests/pre_m9_vocabulary.py` (the tables minus the M9 synonyms — also the
+  exact state of the failed ACFC run); the documented-shape FRD lives on as
+  `test_frd_gapfill._pair1_docx_without`.
+- **Resolver (M9.1).** `schema` is REQUIRED in both target bands (catalog
+  optional); a missing required role is ALWAYS a question
+  (`_list_missing_required`). Answers may set ANY role and win over synonyms /
+  model / cache (`_merge_columns(override=True)`; the displaced role gives the
+  column up; `apply_answers(…, documents=…)` infers the band from the header
+  text, then from the role's current band). Runtime cache entries carry
+  `vocabulary` = `vocabulary_hash(config)` (the whole `extractor:` section +
+  roles + required roles) — another / no key = stale; a profile lacking a
+  required role is never trusted (either cache) and never written; `refresh`
+  (`codegen layout --refresh`, UI "Re-resolve layout" = `POST
+  /api/demo/layout-refresh` + `layout-answers {refresh}`, notebook widget)
+  bypasses and overwrites, tombstoning (`invalidated`) when incomplete —
+  the storage roles have no delete. Model-answer rejections are written in
+  full to `<runtime cache>/rejections/<fp>.json` (invented keys masked `<key>`,
+  no input value). The REPO cache (`fixtures/layout_profiles/`) stays plain
+  profiles — it doubles as the mock's answers (extra=forbid) and is
+  test-pinned to a fresh build. **Any `extractor:` edit changes the hash** —
+  expected; nothing tracked embeds it.
+- **Extractor (M9.2).** `_band_constant` = first non-empty cell when the
+  column holds ONE value (else the dominant, as before — pair 8 has a table
+  per segment), provenance in the contract notes. Schema chain: STTM band →
+  FRD → `conventions.default_schema[layer]` → HARD STOP (an empty schema
+  never reaches a contract). `extractor.unmapped_markers` → the field is left
+  out, flag `field_unmapped:<field>` citing the cell.
+  `extractor.discovery.meta_blank_values` (`TBD`) read as blank; an
+  extension-only format cell (`.dat`) never disagrees with a stated format
+  (`gapfill.format_statements`). `SttmFeed.extraction_flags` /
+  `FrdContract.extraction_flags` (absent from the JSON when empty — baselines
+  untouched) carry extractor decisions to the gate via the resolver.
+- **FRD reader + matcher (M9.3).** `parse_layer_blocks`
+  (`extractor.frd.layer_block_heading_words` / `layer_block_labels`);
+  StructuredValue kind `labelled_files`; `frd_feed_name_unstated`;
+  `split_frd_feeds_by_sttm` names an unnamed / garbled single-sheet feed even
+  when the FRD names the STTM's table; `codegen layout --frd-contract-out`
+  writes the PAIR-resolved contract (use it instead of `extract-frd` on the
+  CLI path — `acfc_run.py` does); `normalize_table_name` + flag
+  `table_name_normalized`; FRD schema / catalog unstated → STTM bands, flagged
+  `frd_unstated:<layer>_target.schema|catalog` (the brief wrote
+  `<layer>.schema`; the repo's contract-path convention was kept).
+- **Found on the way:** `codegen generate` parsed `--vdd` / `--profile` /
+  `--iig-template` / `--playbook-template` and DROPPED them (since M4) — fixed.
+- **Beyond the brief, decided in-session:** `"format"` is a `source_type`
+  synonym (the real header at E15; without it source types read `unstated`
+  and nothing asks); a feed named after the STTM is `unchecked`, not a
+  `layout_crosscheck:feed_name` disagreement. **Open:** the real `Frequency`
+  cell is a compound sentence (not modelled); the real `Format` values are
+  unknown; whether `origin/acfc-hotfix-1` stays (unscrubbed) is Soham's call.
+- Acceptance: `tests/test_m4_acceptance.py` (DDL byte-identical, IIG as M4,
+  the flag list pinned by kind + count — `PAIR1_GATE_FLAG_KINDS`),
+  `tests/test_m9_acfc_findings.py`, the CLI-chain test.
+
 ## M8 (2026-09-18, v0.5.0-acfc): retrofit for the ACFC runtime
 
 Driven by what Genie Code recorded inside the ACFC workspace
@@ -540,7 +617,10 @@ pair whose structure (columns, types, fixed-width positions, audit rows)
 is the scrubbed + aliased client golden. **Families A, C and E may
 legitimately leave roles unresolved under synonyms alone — that is pinned
 as expected in `tests/acfc_shapes/layout_truth.py`; do not widen the
-synonym tables to force them.** The client STTM reader for non-`MAPPING-`
+synonym tables to force them.** (M9 exception: pair 1's `… in DL` headers and
+`Format` became synonyms because the REAL sheet was captured with them — a
+header seen in a client document is evidence; a header invented to close a
+fixture gap is not. Pairs 7, 8 and 10 still need the model.) The client STTM reader for non-`MAPPING-`
 workbooks is `extract/generic.py` (content-driven: band row with stage +
 standard tokens, header beneath, meta rows, auxiliary sheets by signature,
 segments from a Segment column or banner rows).

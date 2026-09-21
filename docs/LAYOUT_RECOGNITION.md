@@ -45,7 +45,17 @@ section-prefix column and the label column), never a value cell.
 1. **Cache** — `layout.cache_dirs` (repo, `fixtures/layout_profiles/`) then
    the runtime cache (`layout.runtime_cache_dir`), keyed by fingerprint; for
    a pair, the pair fingerprint (`sha256(sttm_fp:frd_fp)`) first. Hit →
-   `source: cache`, zero model calls.
+   `source: cache`, zero model calls. **M9.1:** a RUNTIME entry is also keyed
+   by the **vocabulary hash** (`vocabulary_hash`: the whole `extractor:`
+   section — synonym tables, band tokens, thresholds — plus the role
+   vocabulary and the required roles); an entry written under other tables,
+   or before M9 (no key), is stale and ignored. A cached profile that lacks a
+   REQUIRED role is never trusted, from either cache — it is re-resolved and
+   the report says why — and such a profile is never written. **Refresh**
+   (`codegen layout --refresh`, the UI's "Re-resolve layout") bypasses every
+   cache and OVERWRITES the runtime entries: a complete result replaces them
+   (even a synonyms-only one), an incomplete one tombstones them
+   (`"invalidated": true` — the storage roles have no delete).
 2. **Synonyms** — the deterministic discovery (`discover.py`, three
    strategies: `mapping_prefix`, `segmented_family`, `content`;
    `frd_docx.discover_frd` for documents). Every required role resolved →
@@ -60,15 +70,27 @@ section-prefix column and the label column), never a value cell.
    `extractor.discovery.validate`) — header row exists and every claimed
    role column has a non-empty header cell; band spans carry their layer
    token and do not overlap; stage/standard bands resolve at least table +
-   column; one role per column; content plausibility under the header
+   column (the REQUIRED roles are schema, table, column and data type in both
+   target bands since M9.1 — the catalog stays optional, its chain ends in a
+   config default); one role per column; content plausibility under the header
    (length/start/end ≥ 80 % integer-like, source/target types ≥ 80 %
    type-token-like, yes/no roles ≥ 80 % Y/N-like or blank, field name
    ≥ 90 % non-empty); meta-row labels match the claimed key's synonyms and
    the value sits to the right; auxiliary kinds carry their header
    signature. A failed check drops that claim to unresolved with a reason
-   that reaches the report and the gate.
+   that reaches the report and the gate. The report line of a model answer
+   that fails the SCHEMA keeps one line ("10 validation errors …"); the full
+   list — type, location, message per error, plus every validator rejection
+   — is written to `<runtime cache>/rejections/<fingerprint>.json` (M9.1).
+   A location key outside the profile schema / role vocabulary is written
+   `<key>` and no input value is kept: nothing the model invented is stored.
 5. **User** — what remains comes back as questions (document, sheet, layer,
-   role, the header row rendered, candidate columns). The CLI prints them
+   role, the header row rendered, candidate columns); a missing REQUIRED role
+   is always among them, whoever produced the profile. An answer may set ANY
+   role, open or not (M9.1): it replaces a synonym / model / cache placement
+   of that role, a role that held the answered column gives it up (a
+   required one is asked again), and every displacement is a profile note.
+   The CLI prints them
    (`codegen layout --require-complete` exits non-zero); the UI pauses the
    run in `needs_layout` and shows one dialog grouped by document; answers
    merge with `source: user`, confidence 1.0, and the completed profile is
@@ -129,12 +151,19 @@ answer. The runtime cache lives under `ui/backend/state/` (gitignored).
 ## Surfaces
 
 - CLI: `codegen layout --workbook X [--frd Y] [--vdd Z] [--dry-run]
-  [--no-cache] [--json] [--profile-out P] [--require-complete]`;
+  [--no-cache] [--refresh] [--json] [--profile-out P]
+  [--frd-contract-out C] [--answers A] [--require-complete]` —
+  `--frd-contract-out` writes the FRD contract AS THE PAIR RESOLVED IT (a
+  feed the FRD leaves unnamed is named after the STTM stage band, gaps
+  filled, every such decision in its `extraction_flags`);
   `codegen extract-sttm --layout <profile.json> [--require-complete]`;
   `codegen extract-frd --profile <out.json>`.
 - UI: `GET /api/demo/status` carries `layout_questions` and
   `layout_report` while `state == "needs_layout"`; `POST
   /api/demo/layout-answers {answers:{sttm:{"<sheet>/<layer>/<role>": col},
-  frd:{…}}, proceed, cancel}` resumes the run.
+  frd:{…}}, proceed, cancel, refresh}` resumes the run (`refresh` =
+  re-resolve past the caches, the earlier answers dropped); `POST
+  /api/demo/layout-refresh {enabled}` arms the same for the NEXT run (one
+  shot; `layout_refresh` on the status; 409 while a run is in progress).
 - Report: per document the source per role, validator rejections with
   reasons, provider call count; per pair the cross-checks that fired.

@@ -1,4 +1,4 @@
-# Deploying CodeGen inside ACFC (v0.5.0-acfc)
+# Deploying CodeGen inside ACFC (v0.5.1-acfc)
 
 How to stand the agent up in ACFC's own Databricks workspace, written around
 what the workspace itself proved (recorded by Genie Code on 2026-09-18 in
@@ -172,11 +172,12 @@ answers:
     layer: stage                       # needed when the role is open in two bands
     role: table
     column: "Target Table Name in DL"  # header text (compared normalized)
-  - {sheet: "FEED_1_MAPPING", layer: stage,    role: column,      column: 20}
-  - {sheet: "FEED_1_MAPPING", layer: stage,    role: target_type, column: U}
+  - {sheet: "FEED_1_MAPPING", layer: stage,    role: schema,      column: T}
+  - {sheet: "FEED_1_MAPPING", layer: stage,    role: column,      column: 22}
+  - {sheet: "FEED_1_MAPPING", layer: stage,    role: target_type, column: W}
   - {sheet: "FEED_1_MAPPING", layer: standard, role: table,       column: "Target Table Name in DL"}
-  - {sheet: "FEED_1_MAPPING", layer: standard, role: column,      column: 26}
-  - {sheet: "FEED_1_MAPPING", layer: standard, role: target_type, column: AA}
+  - {sheet: "FEED_1_MAPPING", layer: standard, role: column,      column: 29}
+  - {sheet: "FEED_1_MAPPING", layer: standard, role: target_type, column: AD}
 gaps:                                   # choice / layer questions, by question key
   "feeds[0].file_format": {value: "Fixed Width"}
 pairing:                                # an undecided content pairing (§7)
@@ -189,12 +190,23 @@ codegen extract-sttm --workbook STTM.xlsx --frd-contract frd.contract.json \
                      --answers answers.yaml --out sttm.contract.json
 ```
 
-Answers address OPEN questions only, land with `source=user` through the same
-merge and validation as the dialog's answers, and an entry that matches no
-open question is reported (`NOTE …`), never applied elsewhere. In the UI the
-same questions appear in the layout dialog (state `needs_layout`): choose,
-**Continue**; **Proceed with unresolved** reads the remaining roles as empty
-and gate-flags them.
+An answer may set ANY role, open or not (v0.5.1): it lands with `source=user`
+through the same merge and validation as the dialog's answers, and where it
+conflicts with a synonym / model / cached placement the answer wins (`NOTE …
+overrides column N (synonyms) with column M`). An entry that names no sheet /
+band of the document is reported, never applied elsewhere. The schema is a
+REQUIRED role in both target bands, so a profile without it always asks. In
+the UI the same questions appear in the layout dialog (state `needs_layout`):
+choose, **Continue**; **Proceed with unresolved** reads the remaining roles as
+empty and gate-flags them; **Re-resolve layout** starts over past the caches.
+
+**A cached profile that is wrong** (the 2026-09-21 run was stuck on one that
+lacked the schema): nothing needs deleting. A runtime entry made under other
+synonym tables, or one that lacks a required role, is ignored and re-resolved
+on its own; to force it, `codegen layout … --refresh` (the notebook's
+`refresh_layout` widget, the UI's "Re-resolve layout" checkbox) bypasses every
+cache and overwrites the entries. When a model answer is rejected the full
+reasons are in `<state>/layout_profiles/rejections/<fingerprint>.json`.
 
 ## 7. Pairing by content
 
@@ -240,7 +252,7 @@ Redeploy sequence, every time `src/` or `ui/` changes:
 
 1. Pull `staging` in the Git folder.
 2. Check `requirements.txt`'s `codegen-version-marker` differs from the
-   deployed one (it moves with the `pyproject.toml` version — 0.5.0 now). The
+   deployed one (it moves with the `pyproject.toml` version — 0.5.1 now). The
    Apps runtime caches the installed environment keyed on that file; an
    unchanged marker serves stale code.
 3. `databricks apps deploy codegen-agent --source-code-path /Workspace/<path-to-the-git-folder>`
@@ -262,6 +274,12 @@ serverless notebook with the same storage URIs as widgets: it downloads the
 pair folder by API, pairs by content, resolves the layout with the answers
 file (writing `unresolved_headers.md` and stopping when roles stay open),
 extracts, generates in `rfc` mode and pushes the outputs to the outputs role.
+Since v0.5.1 the FRD contract is the one the LAYOUT step writes
+(`--frd-contract-out`: the pair-resolved contract — a feed the FRD leaves
+unnamed is named after the STTM stage band), the conventions profile / IIG /
+playbook templates are widgets passed to `generate` (never an edit of
+`config.yaml`; `generate` used to drop `--profile` / `--vdd` silently), and
+`refresh_layout` re-resolves past the cached profiles.
 Use it when the App is stopped or its service principal has no access yet —
 the notebook runs as the user, whose own folders need no sharing.
 
@@ -292,6 +310,24 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What v0.5.1-acfc adds (M9 — the 2026-09-21 pair-1 findings)
+
+Full record: `docs/acfc/M9_FINDINGS.md`. In one list: the "… in DL" header
+family, `Format` and the `Details` segment spelling are synonyms; the schema
+is a required role (always asked); answers may set any role; the runtime
+profile cache is keyed by the synonym tables, never trusts or stores a profile
+without a required role, and has `--refresh`; model-answer rejections are
+logged in full; band constants (schema / table / catalog) are read with their
+cell as provenance and an unstated schema falls back FRD → config
+(`conventions.default_schema`) before the hard stop; `Do Not Map` rows are left
+out and flagged `field_unmapped:<field>`; `TBD` meta values are blanks; an FRD
+target cell written as an inline layer block (`Staging Layer:` / `Table: …`)
+is parsed per layer; an Object Name cell that lists `<label>: <file>` lines
+gives the file patterns and the feed is named after the STTM stage band
+(`frd_feed_name_unstated`); the contract matcher compares normalized table
+names; `codegen generate` honours `--vdd` / `--profile` / `--iig-template` /
+`--playbook-template`.
 
 ## What v0.5.0-acfc adds (M7.1 + M8)
 

@@ -106,7 +106,9 @@ class LayoutQuestion:
 
     @property
     def key(self) -> str:
-        if self.document == "sttm":
+        # A role question of a workbook is keyed by where the role sits; every
+        # other kind (choice / layer / text) carries its own key in ``role``.
+        if self.document in ("sttm", "vdd") and self.kind == "role":
             return f"{self.sheet}/{self.layer}/{self.role}"
         return self.role
 
@@ -175,6 +177,9 @@ class PairResolution:
     # [{field, title, value, source, cell}] — shown as "Taken from other
     # documents"; each one also a frd_unstated flag.
     gap_fills: list[dict] = field(default_factory=list)
+    # M9.2: the person's feeds[i].fields[<name>].width answers, parsed —
+    # {feed index: {normalized field name: width}}; handed to extract-sttm.
+    width_answers: dict = field(default_factory=dict)
 
     @property
     def documents(self) -> list[DocumentResolution]:
@@ -1267,9 +1272,21 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         if frd_doc is not None:
             frd_doc.questions = [q for q in frd_doc.questions
                                  if q.role not in gap.handled] + split_questions + gap.questions
+    # M9.2: a positional field whose length is not an integer ("10,2" — a
+    # precision), with no STTM end and no VDD span, needs its byte width from
+    # the person: one text question per field, answered under `gaps`.
+    from codegen.resolve.widths import parse_width_answers
+
+    width_answers = parse_width_answers(answers.get("gaps"))
+    if isinstance(sttm_doc.profile, LayoutProfile):
+        sttm_doc.questions = [
+            *sttm_doc.questions,
+            *_width_questions(sttm_doc.profile, workbook, vdd_path if has_vdd else None,
+                              vdd_doc, frd_contract, width_answers, config)]
     pair = PairResolution(sttm=sttm_doc, frd=frd_doc, frd_contract=frd_contract,
                           pair_fingerprint=pair_fp, pair_cache_hit=pair_hit, vdd=vdd_doc,
-                          gap_fills=list(gap.fills) if gap else [])
+                          gap_fills=list(gap.fills) if gap else [],
+                          width_answers=width_answers)
     pair.flags.extend(split_flags)
     if gap is not None:
         pair.flags.extend(gap.flags)
@@ -1303,6 +1320,70 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         elif refresh and pair.questions:
             _invalidate_runtime(caches, f"pair_{pair_fp}.json", "pair_fingerprint", pair_fp)
     return pair
+
+
+def _width_questions(profile: LayoutProfile, workbook, vdd_path, vdd_doc, frd_contract,
+                     width_answers: dict, config: Config) -> list[LayoutQuestion]:
+    """The last link of the width chain (codegen.resolve.widths), asked: every
+    positional field (integer start) whose STTM length is not an integer, whose
+    STTM end is missing, and for which the VDD states no span either."""
+    from codegen.extract.generic import read_workbook
+    from codegen.resolve.widths import as_integer, normalize_field_name, sttm_width, width_key
+
+    if profile.strategy != "content" or any(
+            u.role in ("field_name", "start") for u in profile.unresolved):
+        return []
+    try:
+        ir = read_workbook(discovery_for(profile, workbook), "", config)
+    except Exception:  # noqa: BLE001 — an unreadable sheet is the extractor's error to raise
+        return []
+    vdd_fields: list = []
+    if vdd_path is not None and vdd_doc is not None and not vdd_doc.profile.unresolved:
+        try:
+            from codegen.extract.vdd import extract_vdd_contract
+
+            vdd_fields = list(extract_vdd_contract(
+                Path(vdd_path), config, layout=vdd_doc.profile,  # type: ignore[arg-type]
+                generated_date="1970-01-01")[0].fields)
+        except Exception:  # noqa: BLE001 — no VDD facts: the question is asked instead
+            vdd_fields = []
+    markers = {normalize(m) for m in config.extractor.unmapped_markers}
+    feeds = len(frd_contract.feeds) if frd_contract is not None else 1
+    questions: list[LayoutQuestion] = []
+    for sheet_index, sheet in enumerate(ir.sheets):
+        feed_index = sheet_index if feeds == len(ir.sheets) else 0
+        segmented = any(r.segment for r in sheet.fields) and any(f.segment for f in vdd_fields)
+        source = sheet.profile.band("source")
+        for row in sheet.fields:
+            name = row.values.get("source.field_name") or ""
+            length = row.values.get("source.length") or row.values.get("source.field_length")
+            start, end = row.values.get("source.start"), row.values.get("source.end")
+            if normalize(row.values.get("stage.column")) in markers:
+                continue                      # "Do Not Map": in no table, needs no width
+            if as_integer(start) is None or sttm_width(length, start, end)[0] is not None:
+                continue
+            key = normalize_field_name(name)
+            if any(normalize_field_name(v.name) == key
+                   and (not segmented or (v.segment_canonical or v.segment) == row.segment)
+                   and ((v.start is not None and v.end is not None) or v.length)
+                   for v in vdd_fields):
+                continue                      # the VDD states the span: the resolver takes it
+            if key in width_answers.get(feed_index, {}):
+                continue
+            col = source.column("length") or source.column("field_length") if source else None
+            cell = (f"{sheet.profile.name}!{get_column_letter(col)}{row.row}" if col
+                    else f"{sheet.profile.name} row {row.row}")
+            label = " ".join(name.split())
+            questions.append(LayoutQuestion(
+                document="sttm", sheet=sheet.profile.name, layer="source",
+                role=width_key(feed_index, name), kind="text",
+                reason=f"{cell} reads {length!r} — not an integer byte width (a precision is "
+                       "never a width); the STTM states no end for the field and the VDD no "
+                       "start / end",
+                title=f"Byte width of {label}",
+                hint="How many bytes the field occupies in the fixed-width record (an "
+                     "integer), as the vendor's layout states it."))
+    return questions
 
 
 @dataclass
@@ -1918,6 +1999,9 @@ def parse_answers(raw: dict) -> dict:
             raise ValueError(f"bad gap answer {key!r}: layer must be stage | standard | both")
         out["gaps"][str(key)] = {"value": choice["value"], "layer": choice.get("layer"),
                                  "source": str(choice.get("source") or "user")}
+    from codegen.resolve.widths import parse_width_answers
+
+    parse_width_answers(out["gaps"])      # a width answer must be a positive integer
     return out
 
 

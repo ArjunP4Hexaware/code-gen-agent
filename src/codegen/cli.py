@@ -327,6 +327,13 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         if not workbook_path.is_file():
             raise FileNotFoundError(f"workbook not found: {workbook_path}")
         layout = None
+        width_answers = None
+        if getattr(args, "answers", None):
+            # M9.2: feeds[i].fields[<name>].width answers (gaps) ride on the fields.
+            from codegen.layout.answers import load_answers
+            from codegen.resolve.widths import parse_width_answers
+
+            width_answers = parse_width_answers(load_answers(Path(args.answers)).gaps)
         if getattr(args, "layout", None):
             from codegen.layout.profile import LayoutProfile
 
@@ -343,6 +350,7 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             generated_date=args.generated_date,
             layout=layout,
             require_complete=bool(getattr(args, "require_complete", False)),
+            width_answers=width_answers,
         )
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
         print(f"{'FAIL':<15} extract-sttm — {exc}")

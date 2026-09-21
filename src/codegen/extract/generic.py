@@ -445,12 +445,14 @@ def _recycle(sheet: SheetData, config: Config, disc: DiscoveryConfig) -> Recycle
 
 def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
                            contract_name: str | None = None,
-                           generated_date: str) -> SttmContract:
+                           generated_date: str,
+                           width_answers: dict[int, dict[str, int]] | None = None
+                           ) -> SttmContract:
     disc = config.extractor.discovery
     notes: list[str] = []
     feeds: list[SttmFeed] = []
     for sheet in ir.sheets:
-        feeds.append(_build_feed(sheet, ir, frd, config, disc, notes))
+        feeds.append(_build_feed(sheet, ir, frd, config, disc, notes, width_answers or {}))
     return SttmContract(
         contract_name=contract_name or f"STTM mapping contract extracted from {ir.workbook_name}",
         generated_from_workbook=ir.workbook_name,
@@ -470,9 +472,45 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     )
 
 
+def _width_facts(row: FieldRow, field_name: str, sp: SheetProfile, flags: list[str]
+                 ) -> tuple[int | None, str | None]:
+    """(source_width, source_precision) for one field row — the STTM links of
+    the width chain (codegen.resolve.widths), flagged with their cells. The
+    width is returned only when it is NOT the plain integer length."""
+    from codegen.resolve.widths import as_integer, as_precision, sttm_width
+
+    length = _first(row, "source.length", "source.field_length")
+    start, end = _first(row, "source.start"), _first(row, "source.end")
+    if as_integer(start) is None or as_integer(length) is not None:
+        return None, None            # not positional, or the length IS the width
+    source = sp.band("source")
+    label = " ".join(field_name.split())
+
+    def cell(*roles: str) -> str:
+        col = next((source.column(r) for r in roles if source and source.column(r)), None)
+        return f"{sp.name}!{get_column_letter(col)}{row.row}" if col else f"{sp.name} row {row.row}"
+
+    precision = as_precision(length)
+    if precision is not None:
+        flags.append(f"length_is_precision:{label} — STTM {cell('length', 'field_length')} reads "
+                     f"{length!r}: a precision, kept as the source type precision "
+                     f"{precision}; it is not a byte width and none is derived from it")
+    elif length is not None:
+        flags.append(f"length_not_a_width:{label} — STTM {cell('length', 'field_length')} reads "
+                     f"{length!r}, which is not an integer byte width")
+    width, link = sttm_width(length, start, end)
+    if link == "sttm_span":
+        flags.append(f"width_from_sttm_span:{label} — STTM {cell('start')} / {cell('end')}: "
+                     f"end {end} - start {start} + 1 = {width}")
+        return width, precision
+    return None, precision
+
+
 def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Config,
-                disc: DiscoveryConfig, notes: list[str]) -> SttmFeed:
+                disc: DiscoveryConfig, notes: list[str],
+                width_answers: dict[int, dict[str, int]] | None = None) -> SttmFeed:
     from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+    from codegen.resolve.widths import normalize_field_name
 
     sp = sheet.profile
     name = sp.name
@@ -567,6 +605,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                                   _first(row, "stage.transformation"),
                                   _first(row, "source.business_rule")) if v]
         value_spec = "; ".join(rule_parts) if rule_parts else _first(row, "source.comments")
+        source_width, source_precision = _width_facts(row, field_name, sp, flags)
+        answered = (width_answers or {}).get(frd.feeds.index(feed), {}).get(
+            normalize_field_name(field_name))
         fields.append(SttmField(
             source_column=field_name,
             description=_first(row, "source.description", "rules.data_definition",
@@ -584,6 +625,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             source_length=_first(row, "source.length", "source.field_length"),
             source_start=_first(row, "source.start"),
             source_end=_first(row, "source.end"),
+            source_width=source_width,
+            source_precision=source_precision,
+            width_answer=answered,
             record_segment=row.segment if segmented else None,  # type: ignore[arg-type]
             record_segment_label=row.segment_raw if segmented else None,
             stage_table=(_first(row, "stage.table") or stage_table) if segmented else None,
@@ -670,10 +714,12 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
 
 def extract_generic_contract(found: Discovery, workbook_path: Path, frd: FrdContract,
                              config: Config, *, contract_name: str | None,
-                             generated_date: str) -> SttmContract:
+                             generated_date: str,
+                             width_answers: dict[int, dict[str, int]] | None = None
+                             ) -> SttmContract:
     ir = read_workbook(found, workbook_path.name, config)
     return build_generic_contract(ir, frd, config, contract_name=contract_name,
-                                  generated_date=generated_date)
+                                  generated_date=generated_date, width_answers=width_answers)
 
 
 __all__ = [

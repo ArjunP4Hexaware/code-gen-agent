@@ -277,11 +277,16 @@ def _stg_std(tab, feed, config, spec, faq, tpl) -> list[dict]:
 
 def _segment_positions(segment: SegmentSpec) -> tuple[list[str], list[str], list[str]] | None:
     cols, lens, starts = [], [], []
+    from codegen.resolve.widths import as_integer
+
     for f in segment.fields:
-        if f.source_start is None or f.source_length is None:
+        # M9.2: LEN is the RESOLVED byte width — the STTM length verbatim while
+        # it is an integer, else what the width chain resolved; never "10,2".
+        if f.source_start is None or f.byte_width is None:
             return None
         cols.append(f.stage_column)
-        lens.append(f.source_length.strip())
+        lens.append(f.source_length.strip() if as_integer(f.source_length) is not None
+                    else str(f.byte_width))
         starts.append(f.source_start.strip())
     return cols, lens, starts
 

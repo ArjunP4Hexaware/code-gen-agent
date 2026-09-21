@@ -32,8 +32,12 @@ def _version_sheet(wb, title, header, header_row, rows, merge_a2d2=False):
 # --------------------------------------------------------------- Family A ---
 
 
-def build_pair1():
-    """Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING — the REAL
+def build_pair1(amounts: bool = False, amount_end: bool = False):
+    """``amounts`` (M9.2, a test VARIANT — not the tracked fixture): six more
+    Detail fields whose Length cell reads ``10,2`` (pair1.AMOUNT_FIELDS), with
+    no End cell unless ``amount_end``.
+
+    Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING — the REAL
     sheet geometry (M9.0), transcribed from the two ACFC captures on the
     ``acfc-hotfix-1`` branch: ``docs/acfc/HANDOVER_GENIE.md`` §2 (meta rows,
     data-row constants) and ``docs/acfc/PAIR1_HEADERS.md`` §1 (rows 14-15,
@@ -118,6 +122,13 @@ def build_pair1():
             if segment == pair1.UNMAPPED_AFTER_SEGMENT:
                 sno += 1
                 rows.append(_pair1_unmapped_row(sno, targets))
+                for name, column, start in (pair1.AMOUNT_FIELDS if amounts else []):
+                    sno += 1
+                    end = start + pair1.AMOUNT_VDD_WIDTH - 1 if amount_end else None
+                    rows.append([sno, segment, name, "N", pair1.SOURCE_TYPE, start,
+                                 pair1.AMOUNT_LENGTH_CELL, end, "Accumulated amount", None,
+                                 "Accumulated amount", "N", None, "N", "N", "Load as is",
+                                 *targets(column, pair1.AMOUNT_TYPE, column, pair1.AMOUNT_TYPE)])
             segment = c.segment
             rows.append([pair1.SEGMENT_BANNERS[segment]])
         sno += 1

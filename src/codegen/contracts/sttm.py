@@ -206,6 +206,24 @@ class SttmField(BaseModel):
     source_length: str | None = None
     source_start: str | None = None
     source_end: str | None = None
+    # M9.2 (codegen.resolve.widths): the fixed-width BYTE width when it is not
+    # simply the integer ``source_length`` — the STTM span end-start+1, the
+    # VDD's span, or the person's answer (each flagged with its cell). None =
+    # ``source_length`` is the width (an integer), or nothing resolved one yet.
+    source_width: int | None = None
+    # A non-integer length ("10,2") is a precision, kept as such — never a width.
+    source_precision: str | None = None
+    # The person's answer to feeds[i].fields[<name>].width, carried by the
+    # extractor; the resolver uses it only when the VDD states no span.
+    width_answer: int | None = None
+
+    @property
+    def byte_width(self) -> int | None:
+        """The resolved fixed-width byte width, or None."""
+        from codegen.resolve.widths import as_integer
+
+        return self.source_width if self.source_width is not None else as_integer(
+            self.source_length)
 
 
 class SttmFeed(BaseModel):

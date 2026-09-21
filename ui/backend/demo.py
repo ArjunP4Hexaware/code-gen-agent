@@ -789,7 +789,9 @@ class DemoRunner:
         try:
             extract_to_file(workbook_path, frd_path, contract_path, config,
                             layout=resolution.sttm.profile,
-                            skip_stage_tables=sorted(skip_tables))
+                            skip_stage_tables=sorted(skip_tables),
+                            # M9.2: the dialog's byte-width answers ride on the fields.
+                            width_answers=getattr(resolution, "width_answers", None) or None)
         except Exception as exc:
             self._attach_pairing_hint(exc, workbook_path, frd_label)
             raise

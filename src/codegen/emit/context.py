@@ -321,12 +321,20 @@ def _segment_context(
     if fixed_width:
         for f in segment.fields:
             start = _as_int(f.source_start)
-            length = _as_int(f.source_length)
+            # M9.2: the RESOLVED byte width (codegen.resolve.widths) — an integer
+            # STTM length, else the STTM span, the VDD span or the person's
+            # answer. A precision ("10,2") is never a width.
+            length = f.byte_width
             if start is None or length is None:
+                from codegen.resolve.widths import width_key
+
                 raise TemplateGapError(
                     f"fixed-width feed: field {f.source_column!r} in segment "
-                    f"'{segment.segment}' has no start/length in the STTM source band "
-                    f"(start={f.source_start!r}, length={f.source_length!r})")
+                    f"'{segment.segment}' has no start / byte width "
+                    f"(start={f.source_start!r}, length={f.source_length!r}, "
+                    f"end={f.source_end!r}): the STTM length is not an integer, the STTM "
+                    "states no end, and the VDD has no start / end for this field — answer "
+                    f"`{width_key(0, f.source_column)}` (gaps) or pass the VDD")
             positions.append((f.source_column, start, length))
     not_null_stage = [
         f.stage_column for f in segment.fields if f.stage_column in set(spec.not_null_columns)

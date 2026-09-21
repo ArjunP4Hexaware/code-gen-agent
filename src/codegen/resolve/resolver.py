@@ -114,6 +114,58 @@ def _table_in(table: str, stated: list[str], side: str, other: str,
     return False
 
 
+def _resolve_widths(sttm_feed: SttmFeed, vdd, feed_index: int, flags: list[str]) -> SttmFeed:
+    """Links 3-4 of the width chain (codegen.resolve.widths) for every
+    positional field the STTM left without a byte width: the VDD's span for
+    the same field (normalized name, and segment when both documents are
+    segmented), then the person's answer. Flagged with the cells; a field no
+    link resolves stays open — the fixed-width template stops on it, naming
+    the question to answer."""
+    from codegen.resolve.widths import as_integer, normalize_field_name, width_key
+
+    vdd_fields = list(getattr(vdd, "fields", []) or [])
+    by_segment = sttm_feed.is_segmented and any(f.segment for f in vdd_fields)
+    index: dict[tuple, list] = {}
+    for vf in vdd_fields:
+        key = ((vf.segment_canonical or vf.segment) if by_segment else None,
+               normalize_field_name(vf.name))
+        index.setdefault(key, []).append(vf)
+
+    def vdd_width(vf) -> tuple[int | None, str]:
+        if vf.start is not None and vf.end is not None and vf.end >= vf.start:
+            cells = " / ".join(vf.cells[a].a1 for a in ("start", "end") if a in vf.cells)
+            return vf.end - vf.start + 1, f"VDD {cells or vf.sheet}: end {vf.end} - start " \
+                                          f"{vf.start} + 1"
+        if vf.length is not None and vf.length > 0:
+            cell = vf.cells["length"].a1 if "length" in vf.cells else vf.sheet
+            return vf.length, f"VDD {cell}: Length {vf.length} (the row states no end)"
+        return None, ""
+
+    fields = []
+    for f in sttm_feed.fields:
+        if f.byte_width is not None or as_integer(f.source_start) is None:
+            fields.append(f)
+            continue
+        label = " ".join(f.source_column.split())
+        key = (f.record_segment if by_segment else None, normalize_field_name(f.source_column))
+        stated = {w: cite for w, cite in (vdd_width(vf) for vf in index.get(key, []))
+                  if w is not None}
+        if len(stated) == 1:
+            (width, cite), = stated.items()
+            flags.append(f"width_from_vdd:{label} — {cite} = {width} (matched by field name"
+                         f"{' + segment ' + repr(f.record_segment) if by_segment else ''})")
+            fields.append(f.model_copy(update={"source_width": width}))
+        elif f.width_answer is not None:
+            flags.append(f"width_from_user:{label} — no document states the width (STTM length "
+                         f"{f.source_length!r}, no STTM end, "
+                         f"{'VDD rows disagree' if stated else 'no VDD span'}); the person "
+                         f"answered {width_key(feed_index, f.source_column)} = {f.width_answer}")
+            fields.append(f.model_copy(update={"source_width": f.width_answer}))
+        else:
+            fields.append(f)
+    return sttm_feed.model_copy(update={"fields": fields})
+
+
 def _is_fixed_width(file_format: str | None, config: Config) -> bool:
     fmt = (file_format or "").lower()
     return any(token.lower() in fmt for token in config.extractor.vdd.fixed_width_tokens)
@@ -476,6 +528,10 @@ def _resolve_one(
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd)
     errors.extend(gap_errors)
     catalog = frd_feed.stage_target.catalog
+    width_flags: list[str] = []
+    sttm_feed = _resolve_widths(
+        sttm_feed, vdd, next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0),
+        width_flags)
 
     delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config)
     provenance_flags: list[str] = []
@@ -683,7 +739,7 @@ def _resolve_one(
         source_table=sttm_feed.source_table,
         provenance_flags=list(dict.fromkeys([
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
-            *gap_flags, *provenance_flags])),
+            *width_flags, *gap_flags, *provenance_flags])),
     )
 
 

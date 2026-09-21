@@ -28,7 +28,10 @@ V3_HEADER = ["Position", "Field Name", "Data Type", "Length", "Required", "PHI/P
              "Description"]
 
 
-def build_vdd_pair1():
+def build_vdd_pair1(amounts: bool = False, amount_spans: bool = True):
+    """``amounts`` (M9.2, a test VARIANT): rows for pair1.AMOUNT_FIELDS, 13
+    bytes wide (UNVERIFIED) — without Start / End / Length when
+    ``amount_spans`` is False (a dictionary that names the fields only)."""
     wb = new_workbook()
     ws = wb.create_sheet("FILES")
     write_rows(ws, [FILES_HEADER])
@@ -43,6 +46,13 @@ def build_vdd_pair1():
         rows.append([position, c.name, pair1.SOURCE_TYPE, c.start, c.start + c.length - 1, c.length,
                      "Y" if c.required == "Y" else None, None, None,
                      pair1.VDD_SEGMENT[c.segment], c.description])
+    for name, _column, start in (pair1.AMOUNT_FIELDS if amounts else []):
+        width = pair1.AMOUNT_VDD_WIDTH
+        rows.append([len(rows) + 1, " ".join(name.split()).upper(), pair1.SOURCE_TYPE,
+                     start if amount_spans else None,
+                     start + width - 1 if amount_spans else None,
+                     width if amount_spans else None, None, None, None,
+                     pair1.VDD_SEGMENT["DET"], "Accumulated amount"])
     write_rows(ws, rows, start_row=2)
     return wb
 

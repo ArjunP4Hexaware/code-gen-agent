@@ -130,12 +130,19 @@ def vdd_cross_check(spec: ResolvedFeedSpec, config: Config) -> tuple[list[str], 
                          f"{_sttm_cite(field, 'type', field.source_datatype)} vs "
                          f"{_vdd_cite(vdd_field, 'data_type', vdd_field.data_type)} "
                          f"(field {field.source_column!r})")
-        sttm_length = _as_int(field.source_length)
-        if sttm_length is not None and vdd_field.length is not None \
-                and sttm_length != vdd_field.length:
+        # M9.2: the STTM's RESOLVED byte width against the VDD's (its Length,
+        # else its span) — a precision ("10,2") is never compared as a width.
+        sttm_length = field.byte_width
+        vdd_length = vdd_field.length
+        vdd_attr = "length"
+        if vdd_length is None and vdd_field.start is not None and vdd_field.end is not None:
+            vdd_length, vdd_attr = vdd_field.end - vdd_field.start + 1, "end"
+        if sttm_length is not None and vdd_length is not None and sttm_length != vdd_length:
+            shown = (field.source_length if _as_int(field.source_length) is not None
+                     else f"{sttm_length} (resolved width)")
             flags.append(f"vdd_mismatch:length — "
-                         f"{_sttm_cite(field, 'length', field.source_length)} vs "
-                         f"{_vdd_cite(vdd_field, 'length', vdd_field.length)} "
+                         f"{_sttm_cite(field, 'length', shown)} vs "
+                         f"{_vdd_cite(vdd_field, vdd_attr, vdd_length)} "
                          f"(field {field.source_column!r})")
         sttm_start, sttm_end = _as_int(field.source_start), _as_int(field.source_end)
         differences = []

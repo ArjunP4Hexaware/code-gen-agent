@@ -88,6 +88,19 @@ UNMAPPED_AFTER_SEGMENT = "DET"
 UNMAPPED_FIELD = ("Reserved Group\n(01)", 223, 10)     # name, start, length
 UNMAPPED_MARKER = "Do Not Map"
 
+# M9.2 (acfc-runs: RUN_v052_pair1.md): six Detail amount fields whose Length
+# cell reads "10,2" — a precision, not a byte width — at starts 220, 246, …,
+# with no End. They are a VARIANT of the pair-1 documents (sttm.build_pair1
+# (amounts=True) / vdd.build_vdd_pair1(amounts=True)), never part of the tracked
+# acceptance pair: the golden DDL has no such columns. UNVERIFIED: the VDD's
+# span for these fields (13 bytes here) has not been captured from the real
+# dictionary yet.
+AMOUNT_FIELDS = [(f"Amount\n({n:02d})", f"AMOUNT_{n:02d}", 220 + 26 * (n - 1))
+                 for n in range(1, 7)]                     # source name, column, start
+AMOUNT_LENGTH_CELL = "10,2"
+AMOUNT_TYPE = "Decimal(10,2)"
+AMOUNT_VDD_WIDTH = 13                                       # UNVERIFIED (see above)
+
 # Golden DDL types, in golden column order (21 business columns).
 DDL_TYPES: dict[str, str] = {
     "SEGMENT_IDENTIFIER": "String", "FILE_TYPE": "String", "DATA_CATEGORY": "String",

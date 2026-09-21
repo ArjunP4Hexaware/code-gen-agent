@@ -73,6 +73,11 @@ def load_answers(path: Path) -> AnswersFile:
             raise AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
                                    "(FRD cells are placed with `gaps` / in the dialog)")
     gaps = raw.get("gaps") or {}
+    for value in gaps.values():
+        # `{value: 13}` (a byte width) is YAML's integer: read as its text.
+        stated = value.get("value") if isinstance(value, dict) else None
+        if isinstance(stated, int) and not isinstance(stated, bool):
+            value["value"] = str(stated)
     for key, value in gaps.items():
         if not isinstance(value, dict) or not isinstance(value.get("value"), str):
             raise AnswersFileError(f"{path}: gaps[{key!r}] must be {{value: <text>, layer?}}")
@@ -200,9 +205,13 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
                 f"answers[{index}]: column {entry['column']!r} is neither a candidate header "
                 f"of sheet {entry['sheet']!r}, an index nor a column letter")
         out[document][matches[0].key] = column
+    from codegen.resolve.widths import WIDTH_KEY_RE
+
     open_keys = {q.key for q in questions if q.kind in ("choice", "layer", "text")}
     for key, value in answers.gaps.items():
-        if key in open_keys:
+        # A byte-width answer (M9.2) always travels: on a later pass the
+        # question is no longer open BECAUSE it was answered.
+        if key in open_keys or WIDTH_KEY_RE.match(key):
             out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
                                 "source": "user"}
         else:
@@ -224,12 +233,22 @@ def unresolved_report(questions: list, names: dict[str, str]) -> str:
         document = names.get(question.document, question.document)
         lines.append(f"## {question.document.upper()} · {document}")
         lines.append("")
-        lines.append(f"- question key: `{question.key}`")
+        key = question.key
+        by_field_name = question.kind == "text" and ".fields[" in key
+        if by_field_name:
+            # A width question is keyed by the FIELD NAME — a data cell, which
+            # this file never carries. The CLI output / the dialog show the key.
+            key = key.split(".fields[")[0] + ".fields[<field name>].width"
+        lines.append(f"- question key: `{key}`")
         if question.sheet is not None:
             lines.append(f"- sheet (as written): `{question.sheet}`")
         if question.layer:
             lines.append(f"- layer / band: `{question.layer}`")
-        lines.append(f"- role: `{question.role}` — {question.title or question.reason}")
+        if by_field_name:
+            lines.append("- role: the byte width of one fixed-width field whose Length cell "
+                         "is not an integer (field name and cell value withheld)")
+        else:
+            lines.append(f"- role: `{question.role}` — {question.title or question.reason}")
         if question.kind != "role":
             # choice / layer questions carry document VALUES: name the question only.
             lines.append(f"- kind: `{question.kind}` — answer under `gaps:` with the question key")

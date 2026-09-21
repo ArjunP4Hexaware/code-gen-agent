@@ -77,8 +77,12 @@ def extract_contract(
     layout: LayoutProfile | None = None,
     require_complete: bool = False,
     skip_stage_tables: Collection[str] = (),
+    width_answers: dict[int, dict[str, int]] | None = None,
 ) -> SttmContract:
-    """``skip_stage_tables``: mapping sheets (by stage table) to leave out of
+    """``width_answers`` (M9.2): the person's ``feeds[i].fields[<name>].width``
+    answers (``codegen.resolve.widths.parse_width_answers``), carried on the
+    fields for the resolver's width chain; content-driven path only.
+    ``skip_stage_tables``: mapping sheets (by stage table) to leave out of
     the contract — the runner passes the tables of FRD feeds it has already
     set aside as failed (a feed the person left without a file), so the
     remaining feeds still extract. Classic MAPPING- path only; the default
@@ -123,6 +127,7 @@ def extract_contract(
             return extract_generic_contract(
                 found, workbook_path, frd, config, contract_name=contract_name,
                 generated_date=generated_date or datetime.date.today().isoformat(),
+                width_answers=width_answers,
             )
         except GenericExtractionError as exc:
             raise ExtractionError(str(exc)) from exc
@@ -383,6 +388,7 @@ def extract_to_file(
     layout: LayoutProfile | None = None,
     require_complete: bool = False,
     skip_stage_tables: Collection[str] = (),
+    width_answers: dict[int, dict[str, int]] | None = None,
 ) -> SttmContract:
     contract = extract_contract(
         workbook_path,
@@ -393,6 +399,7 @@ def extract_to_file(
         layout=layout,
         require_complete=require_complete,
         skip_stage_tables=skip_stage_tables,
+        width_answers=width_answers,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")

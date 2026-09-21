@@ -277,6 +277,79 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
+## Where this stands (2026-09-21, end of session) — READ FIRST
+
+`staging` = `origin/staging` = **3a5b85d**, tag **v0.5.8-acfc**, working tree
+clean. Eight tags shipped today: v0.5.1 … v0.5.8 (each has its own subsection
+below, newest first under M9). `main` is untouched at 4c35c61 (v0.4.1).
+
+**The App version marker is 0.5.8** (`pyproject.toml` + the
+`codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
+Apps runtime serves a cached env).
+
+**Verified at 3a5b85d:** suite **684 passed / 27 skipped on Python 3.10, 3.11
+and 3.12**, ruff clean, tsc clean, `ui/frontend/dist` rebuilt and committed, `scripts/scrub_check.py` over
+every tracked + untracked file 0 hits, CV / SFMC baselines byte-identical
+(193 files, HEAD-worktree vs working tree, `CODEGEN_NOTIFICATION_EMAILS`
+pinned). v0.5.7 / v0.5.8 touch `ui/` + tests + docs only — `src/`, `config/`
+and the frontend bundle are untouched there, so the baselines cannot have
+moved.
+
+**Deploying into ACFC (both matter — either one alone looks like a hung UI):**
+1. The App SP needs **Can Manage** (NOT Can Edit) on state / outputs / inputs
+   — Can Edit cannot CREATE a file (`docs/ACFC_DEPLOY.md` §3).
+2. `ui/frontend/dist` must be synced. A stale bundle against a v0.5.5+ backend
+   **blanks the page** (it expects `200 {workbooks}`, gets `202 {job}`);
+   `databricks sync` silently skips `dist` when the staged tree still carries
+   a `.gitignore`. Check the served page names the current asset hash.
+
+**`main` is NOT a usable fallback** (asked and checked this session): it is
+v0.4.1, 42 commits behind, with no `src/codegen/storage/`, no `acfc_run.py`,
+no `pairing.py`, no `resolve/widths.py` — it cannot read the workspace pair
+folders at all. The real fallback for a workspace where the App misbehaves is
+**`acfc_run.py`** in a notebook (it runs as the USER, so the SP permission gap
+cannot bite it); it drives the same CLI commands the suite covers, but has
+never had a real end-to-end run inside ACFC.
+
+**Genie Code coordination (open):** `origin/acfc-runs` (b7bed44) and
+`origin/acfc-hotfix-1` (8377954) hold **docs only** — 4 run records, 840
+lines, zero code — and are UNSCRUBBED (real client file names): never merge
+or copy them. Genie rebased locally on 2026-09-21 but **had not pushed** as of
+the end of this session; nothing new exists on the remote. A diff of its fixes
+against v0.5.8 is still owed — ask it to push its branch, or
+`databricks workspace export-dir <app path> <dir>` and diff that tree.
+**Hazard:** edits made directly in the App's workspace tree are wiped by the
+next `databricks sync` from `staging`, and a rebase that resolved conflicts in
+`ui/backend/demo.py` / `service.py` in its favour would silently drop the
+v0.5.6 – v0.5.8 fixes.
+
+**The lesson that cost three releases today** (memory:
+`app-only-remote-role-failures`): every run test used the DEFAULT LOCAL
+storage roles, so three App-only failures passed a green suite. When touching
+the run or chooser path, extend **`tests/test_remote_run_e2e.py`** (fake
+workspace + fake volume, the real `_execute`, Layer 2 AND layout mock-locked),
+not only the local tests. Never `relative_to(REPO_ROOT)` on a path that came
+from a role store. A step that is an assist (pairing, recording a choice) must
+never discard the person's choice.
+
+**Working habits that this box / repo require** (learned the hard way):
+long bash heredocs with backticks or non-ASCII mis-decode here — write patch
+scripts to the scratchpad with the Write tool and apply them with a CRLF-aware
+exact-replace helper that asserts each anchor occurs exactly once. Baselines:
+`git worktree add --detach <scratch>/wt_head HEAD`, generate CV + SFMC in mode
+`all` from BOTH trees into separate dirs, compare sha256 listings, and pin
+`CODEGEN_NOTIFICATION_EMAILS` for both runs (the checkout's `.env` otherwise
+fakes a 16-file diff) — and pass WINDOWS-form paths to
+`CODEGEN_STORAGE_OUTPUTS=local:` (an MSYS `/c/...` path lands under `C:\c\...`).
+A test that can reach a live path MUST pin the provider: FMAPI resolves from
+workspace auth with no env secret.
+
+**Still open / not proven:** the first real ACFC run of v0.5.8; what ruff
+failed on inside ACFC (v0.5.1 — the console now prints the detail); the real
+VDD span of the six amount fields; the real `Frequency` / `Format` cell
+values; whether `origin/acfc-hotfix-1` stays (unscrubbed — Soham's call);
+staging → main merge (Soham's say-so).
+
 ## M9 (2026-09-21, v0.5.1-acfc): the first real pair-1 run inside ACFC, landed properly
 
 The first ACFC run of pair 1 (2026-09-21) failed in six places; a Genie Code

@@ -92,6 +92,12 @@ def compute_verdict(
             flags.append(f"Layer-2 candidate pending engineer approval: {candidate.rule_text!r}")
     if tests_skipped:
         flags.append("generated tests were skipped — PASS cannot be claimed")
+    for check in checks:
+        if check.not_run:
+            # The tool did not run here: nothing was found AND nothing was
+            # checked — a human's call, never a FAIL (M9.1b).
+            flags.append(f"check_not_run:{check.name} — {check.details.splitlines()[0]}; the "
+                         "generated code was NOT checked — PASS cannot be claimed")
 
     if any(not check.passed for check in checks):
         verdict: Verdict = "FAIL"

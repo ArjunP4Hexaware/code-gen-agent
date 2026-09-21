@@ -255,6 +255,35 @@ def _save_runtime(payload: dict, runtime_cache_dir: Path | None, name: str) -> P
     return path
 
 
+def _log_layout_rejection(fp: str, document: str, exc: ValidationError,
+                          model_response: dict, config: Config) -> None:
+    """Persist model-response validation errors to <state>/layout_rejections/
+    so they can be diagnosed offline.  Only reason strings are stored — no
+    data cells from the workbook."""
+    try:
+        state_uri = (os.environ.get("CODEGEN_STORAGE_STATE") or "").strip()
+        if not state_uri:
+            return
+        from codegen.storage import open_backend, default_client_factory
+        be = open_backend(state_uri, base_dir=Path("."),
+                          client_factory=default_client_factory(config))
+        payload = {
+            "fingerprint": fp,
+            "document": document,
+            "error_count": exc.error_count(),
+            "errors": [
+                {"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]}
+                for e in exc.errors()
+            ],
+        }
+        content = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+        target = f"layout_rejections/{fp}.json"
+        be.mkdir("layout_rejections")
+        be.write_bytes(target, content.encode())
+    except Exception:  # noqa: BLE001 — best-effort logging, must not block layout
+        pass
+
+
 def _as_cache(profile: LayoutProfile) -> LayoutProfile:
     keys = [confidence_key(s.name, b.layer, r) for s in profile.sheets for b in s.bands
             for r in b.roles]
@@ -415,6 +444,8 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             rejections.append(Rejection(document, None, None, None,
                                         f"model response failed schema validation: "
                                         f"{str(exc).splitlines()[0]}"))
+            # Log the full validation errors for offline diagnosis.
+            _log_layout_rejection(digest, document, exc, answer, config)
         else:
             # Every claim in the answer — sheets, header/band rows, spans,
             # roles — is validated against the workbook FIRST; only the

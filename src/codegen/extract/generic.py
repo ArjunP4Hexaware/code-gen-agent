@@ -277,6 +277,20 @@ def _dominant(values: list[str | None]) -> str | None:
     return max(counts, key=counts.get) if counts else None
 
 
+def _band_constant(values: list[str | None]) -> str | None:
+    """Forward-fill: return the first non-empty value in the band column.
+
+    Band-level constants (schema, table, catalog) are typically the same in
+    every data row, or stated once in a merged cell whose anchor is the first
+    row.  Forward-fill semantics guarantee the anchor value wins even when
+    openpyxl returns None for non-anchor rows of a merged range.
+    """
+    for v in values:
+        if v is not None:
+            return v
+    return None
+
+
 def _canonical_file_name(name: str) -> str:
     return name.strip().lower().replace("ccyy", "yyyy")
 
@@ -417,18 +431,23 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         raise GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
             "empty) — a contract needs stage table, column and data type per field")
-    stage_schema = _dominant([r.values.get("stage.schema") for r in sheet.fields])
-    stage_table = _dominant([r.values.get("stage.table") for r in sheet.fields])
-    stage_catalog = _dominant([r.values.get("stage.catalog") for r in sheet.fields])
-    if stage_schema is None or stage_table is None:
-        raise GenericExtractionError(f"sheet {name!r}: stage schema/table cells are empty")
+    stage_schema = _band_constant([r.values.get("stage.schema") for r in sheet.fields])
+    stage_table = _band_constant([r.values.get("stage.table") for r in sheet.fields])
+    stage_catalog = _band_constant([r.values.get("stage.catalog") for r in sheet.fields])
+    if stage_table is None:
+        raise GenericExtractionError(
+            f"sheet {name!r}: stage table cells are empty "
+            "(role unresolved or every data row blank)")
+    if stage_schema is None:
+        notes.append(f"sheet {name!r}: stage schema not stated in the STTM "
+                     "(role unresolved or cells blank); resolver takes it from the FRD")
     feed = _match_feed(sheet, stage_table, frd, ir, notes)
     feed_id = config.feed_aliases.get(feed.feed_name) or normalize_feed_name(feed.feed_name)
 
     has_standard = any(r.values.get("standard.column") for r in sheet.fields)
-    standard_schema = _dominant([r.values.get("standard.schema") for r in sheet.fields])
-    standard_table = _dominant([r.values.get("standard.table") for r in sheet.fields])
-    standard_catalog = _dominant([r.values.get("standard.catalog") for r in sheet.fields])
+    standard_schema = _band_constant([r.values.get("standard.schema") for r in sheet.fields])
+    standard_table = _band_constant([r.values.get("standard.table") for r in sheet.fields])
+    standard_catalog = _band_constant([r.values.get("standard.catalog") for r in sheet.fields])
 
     segmented = any(r.segment_raw is not None for r in sheet.fields)
     if segmented:
@@ -540,7 +559,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             mapping_sheet=name,
             source_file=SourceFile(name_pattern=name_pattern, format=feed.file_format,
                                    delimiter=delimiter, frequency=frequency),
-            stage=TableRef(schema=stage_schema, table=stage_table, catalog=stage_catalog),
+            stage=TableRef(schema=stage_schema or "", table=stage_table, catalog=stage_catalog),
             standard=(TableRef(schema=standard_schema or "", table=standard_table or "",
                                catalog=standard_catalog) if has_standard else None),
             load_rules=LoadRules(

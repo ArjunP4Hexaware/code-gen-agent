@@ -179,10 +179,10 @@ extractor:
       target:
         workspace: ["workspace"]
         catalog: ["catalog", "target catalog"]
-        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "stage schema", "standard schema", "schemaname"]
-        table: ["tablename", "table name", "target table", "target table name in lakehouse", "stage table name", "standard table name"]
-        column: ["columnname", "column name", "target column", "target column name in lakehouse", "stage column name", "standard column name"]
-        target_type: ["datatype", "data type", "target data type in lakehouse", "stage datatype", "standard data type"]
+        schema: ["schema", "schema name", "target schema", "target schema name in lakehouse", "target schema name in dl", "stage schema", "standard schema", "schemaname"]
+        table: ["tablename", "table name", "target table", "target table name in lakehouse", "target table name in dl", "stage table name", "standard table name"]
+        column: ["columnname", "column name", "target column", "target column name in lakehouse", "target column name in dl", "stage column name", "standard column name"]
+        target_type: ["datatype", "data type", "target data type in lakehouse", "target data type in dl", "stage datatype", "standard data type"]
         mandatory_column: ["mandatory column", "mandatory"]
         primary_key: ["primary key"]
         constraints: ["constraints"]
@@ -435,14 +435,12 @@ demo:
   # Explicit STTM->FRD pairing (canonical stems: lowercase, upload prefix
   # and " (n)" copy suffix stripped, no extension). Checked before ticket-
   # number pairing; the token heuristic only ever SUGGESTS in the UI.
-  pairing_map:
-    "sttm-medicare expansion-mids-social determine": "frd_medicare expansion-mids - socially determined"
+  pairing_map: {}
   # Same idea for the Vendor Data Dictionary (chosen automatically with the
   # STTM when present): canonical STTM stem -> VDD stem. Ships the pair-1
   # fixture names; a shared ticket number or a matching document name pairs
   # without an entry here.
-  vdd_pairing_map:
-    "pair_1_family_a": "pair_1_v1_segments"
+  vdd_pairing_map: {}
 
   # "Source files this run will read" panel. The landing-root template
   # encodes the client's CONVENTION (real FRD, Structural Metadata → ADLS
@@ -657,10 +655,10 @@ databricks:
   # seam reads (uploaded 2026-08-27). The demo shell block's placeholders
   # live separately under demo.databricks_paths — no landing volume exists
   # in the workspace yet (Option A decision).
-  catalog: soham_workspace
-  schema: codegen_agent
-  frd_volume: frd_raw
-  sttm_volume: sttm_raw
+  catalog: d1_dlk
+  schema: codegen
+  frd_volume: codegen_inputs
+  sttm_volume: codegen_workbooks_in
   # B1 (discovery 2026-08-27, docs/DATABRICKS_DISCOVERY.md):
   # "Serverless Starter Warehouse", serverless PRO, auto-stop 10 min.
   # EXPLAIN is the ONLY statement shape this seam sends — and an EXPLAIN
@@ -679,7 +677,7 @@ databricks:
   # CLI / the UI's publish panel). The panel lets the user pick any
   # catalog.schema.volume, but code refuses anything outside
   # WRITABLE_PREFIX — publishing never touches client schemas.
-  output_volume: generated
+  output_volume: codegen_outputs
   # SELECT-only table-read allowlist (read_table_rows renders the statement
   # itself; callers never pass SQL). Reads wake the serverless warehouse —
   # DBU spend from the shared pool. FRD contracts come from the upstream
@@ -705,8 +703,8 @@ layout:
   # row), same validator. dry-run and CODEGEN_FORCE_MOCK_LAYOUT=1 still force
   # the mock. Env CODEGEN_LAYOUT_PROVIDER / CODEGEN_LAYOUT_ENDPOINT win. The
   # App's service principal needs CAN_QUERY on it (docs/ACFC_DEPLOY.md §4).
-  provider: auto
-  endpoint: null
+  provider: live
+  endpoint: databricks-claude-opus-5
   max_tokens: 8192
   max_attempts: 2
   model_confidence: 0.8
@@ -742,12 +740,12 @@ conventions:
   # the golden opens with a blank line, has a lone-space line before the
   # standard block's USING clause, and ends WITHOUT a trailing newline.
   # CLI: codegen generate --profile <name>.
-  profile: edo_sfmc
+  profile: acfc_prx
   # M7.1: the last fallback of the catalog chain (FRD label -> STTM band ->
   # here) for every profile; a pair whose documents state no catalog
   # resolves to it with provenance `config_default`. Per environment in an
   # overlay, e.g. {stage: d1_dlk, standard: d1_dlk}. Empty = none configured.
-  default_catalog: {}
+  default_catalog: {stage: d1_dlk, standard: d1_std}  # vendor-specific catalogs (d1_dlk_<vendor>, d1_std_<vendor>) exist; an STTM stating its own catalog overrides this
   profiles:
     edo_sfmc:
       ddl_layout: two_files
@@ -788,7 +786,7 @@ metadata:
   # constants / template rows below — framework vocabulary the golden shows
   # constant across rows, badged synthetic with this citation — or is left
   # blank and flagged (iig_blank:<TAB>.<HEADER>). CLI: --iig-template.
-  template: iig_v1
+  template: iig_v2
   # M7 §5: CLAIM_TYPE_ID default for ADLS→Delta rows — null keeps the
   # goldens' blank; "NA" writes the walkthrough's alternative (§7).
   claim_type_id_default: null
@@ -953,7 +951,7 @@ playbook:
   # header pattern). Task rows come ONLY from `tasks` below, per
   # conventions profile ("default" otherwise); RFC#s from the run input.
   # CLI: generate --output-mode rfc --playbook-template <name>.
-  template: sfmc_7sheet
+  template: main_single
   templates:
     sfmc_7sheet:
       kind: sfmc_7sheet
@@ -1026,9 +1024,9 @@ playbook:
 # CODEGEN_STORAGE_STATE / CODEGEN_STORAGE_OUTPUTS win over these. Workspace-
 # specific URIs belong in an overlay or the App's env, not in this file.
 storage:
-  inputs: "local:./inputs"              # inboxes: sharepoint/ databricks/ uploads/
-  state: "local:./ui/backend/state"     # decisions.json, layout_profiles/
-  outputs: null                         # null = output.dir (local), as before M8
+  inputs: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/frd_sttm_pairs"
+  state: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen-state"
+  outputs: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen-outputs"
   scratch_dir: null                     # working copies of remote roles; null = system temp
 
 # M8.2: extra read-only input roots (storage URIs), scanned at depth 1 — the
@@ -1036,7 +1034,7 @@ storage:
 # CODEGEN_EXTRA_INPUT_DIRS (';'-separated) is appended. Real folder names
 # live in an overlay / the App's env, never here.
 inputs:
-  extra_dirs: []
+  extra_dirs: ["workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/frd_sttm_pairs"]
   scan_depth: 1
   listing_ttl_seconds: 30      # remote listings are API calls; the chooser polls
   # Auto-pairing by content (codegen.pairing): for the chosen STTM every FRD /

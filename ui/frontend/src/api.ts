@@ -109,7 +109,8 @@ export interface LayoutQuestion {
     cell?: string;
     layer?: "stage" | "standard" | "both";
   }[];
-  kind?: "role" | "choice" | "layer";
+  // "text" (M9.1b): a value no document states — typed by the person (gaps).
+  kind?: "role" | "choice" | "layer" | "text";
   // Plain-language help: what is asked, where it usually sits, the
   // pre-selected candidate index (or null).
   title?: string;

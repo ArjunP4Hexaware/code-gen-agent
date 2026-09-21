@@ -398,7 +398,7 @@ def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
     if answers["sttm"]:
         doc, _wb = resolve_workbook(workbook, config, provider=None,
                                     runtime_cache_dir=runtime_cache,
-                                    answers=answers["sttm"])
+                                    answers=answers["sttm"], prior=doc)
         print(f"{'ANSWERS':<15} {len(answers['sttm'])} answer(s) applied from "
               f"{answers_path} (source=user)")
         push_cache()
@@ -497,10 +497,10 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         print(f"{'FAIL':<15} layout — state storage: {exc}")
         return 1
 
-    def resolve(answers: dict | None, refresh: bool = False):
+    def resolve(answers: dict | None, refresh: bool = False, prior=None):
         return resolve_pair(workbook, frd, config, vdd_path=vdd, provider=provider,
                             runtime_cache_dir=runtime_cache, use_cache=not args.no_cache,
-                            answers=answers, refresh=refresh)
+                            answers=answers, refresh=refresh, prior=prior)
 
     result = resolve(None, refresh=args.refresh)
     names = {"sttm": workbook.name, "frd": frd.name if frd else "", "vdd": vdd.name if vdd else ""}
@@ -523,7 +523,10 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             print(f"{'NOTE':<15} {note}")
         placed = sum(len(answers[k]) for k in ("sttm", "vdd", "gaps"))
         if placed:
-            result = resolve(answers)
+            # The second pass CONTINUES from the first (M9.1b): no cache read —
+            # after --refresh the first pass has just written the entry, and
+            # re-reading it reported source=cache — and no second model call.
+            result = resolve(answers, refresh=args.refresh, prior=result)
             print(f"{'ANSWERS':<15} {placed} answer(s) applied from {args.answers} (source=user)")
     try:
         push_cache()

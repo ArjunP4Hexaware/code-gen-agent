@@ -508,12 +508,20 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                      answers: dict[str, int] | None = None, base_dir: Path | None = None,
                      use_cache: bool = True, document: str = "sttm",
                      sttm_tables: list[str] | None = None,
-                     refresh: bool = False) -> tuple[DocumentResolution, object]:
+                     refresh: bool = False,
+                     prior: DocumentResolution | None = None
+                     ) -> tuple[DocumentResolution, object]:
     """Resolve a workbook's layout — an STTM (``document="sttm"``) or a Vendor
     Data Dictionary (``document="vdd"``, discovered by ``discover_vdd`` and
     narrowed to ``sttm_tables``); the rest of the path is identical.
     ``refresh`` (M9.1) bypasses every cache and OVERWRITES the runtime entry:
-    a complete result replaces it, an incomplete one tombstones it."""
+    a complete result replaces it, an incomplete one tombstones it.
+    ``prior`` (M9.1b) is this document's resolution from an earlier pass of
+    the SAME invocation (the CLI resolves once to learn the questions, then
+    again with the answers file): the second pass continues from it — no
+    cache read, no second model call, every role keeps the source that really
+    placed it (a refresh used to come back ``source=cache``: it re-read the
+    entry its own first pass had just written)."""
     base = base_dir if base_dir is not None else Path(".")
     caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
     workbook = load_workbook(path, data_only=True)
@@ -521,6 +529,30 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     rejections: list[Rejection] = []
     schema_errors: list[dict] = []
     calls = 0
+
+    if (prior is not None and isinstance(prior.profile, LayoutProfile)
+            and prior.fingerprint == digest):
+        profile = prior.profile
+        rejections = list(prior.rejections)
+        if answers:
+            profile = _merge_columns(profile, answers, "user", 1.0, override=True)
+            profile = profile.model_copy(update={"source": "user"})
+            profile, user_rejections = validate_profile(
+                profile, workbook, config.extractor, check_sources={"user"}, document=document)
+            rejections += user_rejections
+        profile = _list_missing_required(profile)
+        doc = DocumentResolution(document, profile, rejections=rejections,
+                                 provider_calls=prior.provider_calls,
+                                 cache_hit=prior.cache_hit, fingerprint=digest)
+        doc.questions = _questions_for(profile, workbook, document)
+        if not profile.unresolved:
+            if caches.runtime is not None and (refresh or prior.provider_calls or answers):
+                _save_runtime({**profile.model_dump(mode="json"),
+                               "vocabulary": caches.vocabulary}, caches.runtime,
+                              f"{digest}.json")
+        elif refresh:
+            _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
+        return doc, workbook
 
     cached = _load_cached(digest, caches) if use_cache and not refresh else None
     if cached is not None:
@@ -755,7 +787,9 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
                 cache_dirs: list[Path] | None = None, runtime_cache_dir: Path | None = None,
                 answers: dict[str, dict] | None = None, base_dir: Path | None = None,
                 use_cache: bool = True,
-                refresh: bool = False) -> tuple[DocumentResolution, object]:
+                refresh: bool = False,
+                prior: DocumentResolution | None = None
+                ) -> tuple[DocumentResolution, object]:
     from codegen.extract.frd_docx import discover_frd, read_docx
 
     base = base_dir if base_dir is not None else Path(".")
@@ -765,6 +799,29 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
     rejections: list[Rejection] = []
     schema_errors: list[dict] = []
     calls = 0
+
+    if (prior is not None and isinstance(prior.profile, FrdLayoutProfile)
+            and prior.fingerprint == digest):
+        # Same invocation, second pass (see resolve_workbook): continue from it.
+        profile = prior.profile
+        rejections = list(prior.rejections)
+        if answers:
+            profile = _merge_frd(profile, answers, "user", 1.0)
+            profile = profile.model_copy(update={"source": "user"})
+            profile, user_rejections = _validate_frd(profile, content, config, {"user"})
+            rejections += user_rejections
+        doc = DocumentResolution("frd", profile, rejections=rejections,
+                                 provider_calls=prior.provider_calls,
+                                 cache_hit=prior.cache_hit, fingerprint=digest)
+        doc.questions = _frd_questions(profile, content, config)
+        if not profile.unresolved:
+            if caches.runtime is not None and (refresh or prior.provider_calls or answers):
+                _save_runtime({**profile.model_dump(mode="json"),
+                               "vocabulary": caches.vocabulary}, caches.runtime,
+                              f"{digest}.json")
+        elif refresh:
+            _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
+        return doc, content
 
     cached = _load_cached(digest, caches) if use_cache and not refresh else None
     if cached is not None:
@@ -951,7 +1008,7 @@ def _vdd_facts(vdd_profile: LayoutProfile | None, workbook) -> dict[str, list[tu
             continue
         ws = workbook[sp.name]
         wanted = {Role.FORMAT: "file_format", Role.DELIMITER: "delimiter",
-                  Role.CADENCE: "frequency"}
+                  Role.CADENCE: "frequency", Role.FILE_PATTERN: "file_patterns"}
         for row_index, row in enumerate(ws.iter_rows(min_row=sp.header_row + 1, values_only=True),
                                         start=sp.header_row + 1):
             for role, key in wanted.items():
@@ -1087,10 +1144,13 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                  answers: dict | None = None, cache_dirs: list[Path] | None = None,
                  runtime_cache_dir: Path | None = None, base_dir: Path | None = None,
                  use_cache: bool = True, generated_date: str | None = None,
-                 refresh: bool = False) -> PairResolution:
+                 refresh: bool = False,
+                 prior: PairResolution | None = None) -> PairResolution:
     """Resolve the pair; ``answers`` = ``{"sttm": {key: col}, "frd": {field: {…}}}``.
     ``refresh`` re-resolves every document past the caches and overwrites the
-    runtime entries (the pair entry included)."""
+    runtime entries (the pair entry included). ``prior`` = this pair's
+    resolution from an earlier pass of the same invocation: each document
+    continues from it (no cache read, no second model call, true sources)."""
     answers = answers or {}
     base = base_dir if base_dir is not None else Path(".")
     caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
@@ -1113,7 +1173,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         vdd_fp = fingerprint(load_workbook(vdd_path, data_only=True)) if has_vdd else ""
         pair_fp = hashlib.sha256(f"{sttm_fp}:{frd_fp}:{vdd_fp}".encode()).hexdigest()
         cached = (_load_cached(pair_fp, caches, prefix="pair_")
-                  if use_cache and not refresh else None)
+                  if use_cache and not refresh and prior is None else None)
         if cached is not None and not answers:
             try:
                 profile = _as_cache(LayoutProfile.model_validate(cached["sttm"]))
@@ -1141,19 +1201,20 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         sttm_doc, workbook = resolve_workbook(
             sttm_path, config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("sttm"), base_dir=base,
-            use_cache=use_cache, refresh=refresh)
+            use_cache=use_cache, refresh=refresh, prior=prior.sttm if prior else None)
     if frd_is_docx and frd_doc is None:
         frd_doc, content = resolve_frd(
             frd_path, config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("frd"), base_dir=base,
-            use_cache=use_cache, refresh=refresh)
+            use_cache=use_cache, refresh=refresh, prior=prior.frd if prior else None)
     if has_vdd and vdd_doc is None:
         assert isinstance(sttm_doc.profile, LayoutProfile)
         vdd_doc, vdd_workbook = resolve_workbook(
             Path(vdd_path), config, provider=provider, cache_dirs=cache_dirs,
             runtime_cache_dir=runtime_cache_dir, answers=answers.get("vdd"), base_dir=base,
             use_cache=use_cache, document="vdd",
-            sttm_tables=_sttm_tables(sttm_doc.profile, workbook), refresh=refresh)
+            sttm_tables=_sttm_tables(sttm_doc.profile, workbook), refresh=refresh,
+            prior=prior.vdd if prior else None)
 
     frd_contract: FrdContract | None = None
     if frd_path is not None:
@@ -1230,7 +1291,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             vdd_workbook=vdd_workbook)
         _apply_cross_checks(pair, pair.cross_checks, config)
     if pair_fp and caches.runtime is not None and not pair_hit:
-        if not pair.questions and (refresh or pair.provider_calls or answers):
+        if not pair.questions and (refresh or pair.provider_calls or answers
+                                   or (prior is not None and not prior.pair_cache_hit)):
             _save_runtime({
                 "pair_fingerprint": pair_fp,
                 "vocabulary": caches.vocabulary,
@@ -1325,6 +1387,8 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
         return contract, [], []
     feed = contract.feeds[0]
     refused = contract.structured.get("feeds[0].feed_name")
+    if refused is not None and refused.feed_name:
+        refused = None      # M9.1b: the block itself names the feed (a labelled line / row)
     garbled_name = ("\n" in feed.feed_name or len(feed.feed_name) > 80
                     or refused is not None or is_unnamed_feed(feed.feed_name))
     name_reason = (f"the FRD's Object Name cell is a {refused.kind} value, not a name"
@@ -1632,6 +1696,50 @@ class _FeedGapFiller:
     def handled(self, dotted: str) -> bool:
         return self.prefix + dotted in self.result.handled
 
+    def _file_patterns(self) -> None:
+        key = self.prefix + "file_patterns"
+        if self.feed.file_name_patterns:
+            return
+        chosen = self.gaps.get(key)
+        if chosen is not None:
+            patterns = [p.strip() for p in re.split(r"[;\n,]+", chosen["value"]) if p.strip()]
+            if patterns:
+                self.patched = _feed_set(self.patched, "file_name_patterns", patterns)
+                self.result.fills.append({"field": key, "title": "File name patterns",
+                                          "value": "; ".join(patterns), "source": "user",
+                                          "cell": "layout dialog / answers file"})
+                self.result.flags.append(f"file_pattern_from_user:{key} — the FRD, the STTM "
+                                         f"and the VDD name no file pattern; the person "
+                                         f"stated {patterns}")
+                self.result.handled.add(key)
+                return
+        sttm_states = bool(self.meta.get("file_names") or self.meta.get("file_name_example")
+                           or self.file_rows)
+        if sttm_states:
+            return          # the STTM states them: taken (and flagged) downstream
+        stated = list(dict.fromkeys(self.vdd.get("file_patterns", [])))
+        if stated:
+            patterns = list(dict.fromkeys(v for v, _cell in stated))
+            cells = ", ".join(cell for _v, cell in stated)
+            self.patched = _feed_set(self.patched, "file_name_patterns", patterns)
+            self.result.fills.append({"field": key, "title": "File name patterns",
+                                      "value": "; ".join(patterns), "source": "VDD",
+                                      "cell": cells})
+            self.result.flags.append(f"file_pattern_from_vdd:{key} — the FRD and the STTM name "
+                                     f"no file pattern; the VDD FILES sheet states {patterns} "
+                                     f"({cells})")
+            self.result.handled.add(key)
+            return
+        self.result.questions.append(LayoutQuestion(
+            document="frd", sheet=None, layer=None, role=key, kind="text",
+            reason="no document names a file pattern: the FRD states none, the STTM meta rows "
+                   "'File Names' / 'File Name Example' and its File Details sheet are blank, "
+                   "and no VDD FILES sheet states one",
+            header=[], candidates=[], title="File name patterns",
+            hint="Type the file name pattern(s) this feed arrives as, separated by ';' "
+                 "(wildcards and date placeholders as the vendor writes them)."))
+        self.result.handled.add(key)
+
     # -- the chain ----------------------------------------------------------------
     def run(self):
         from codegen.faq import load_faq
@@ -1661,6 +1769,11 @@ class _FeedGapFiller:
             elif dotted in _GAP_FIELDS:
                 self.record_fill(dotted, statement)
             # feeds[i].file_name_patterns answers are consumed by the split step.
+
+        # a'. file patterns (M9.1b): FRD -> STTM meta rows / File Details (the
+        # extractor + contract resolver take those, flagged file_pattern_from_
+        # sttm) -> VDD FILES sheet -> ask. Only the last two are decided here.
+        self._file_patterns()
 
         # b. file format / delimiter: STTM meta row, then VDD FILES.
         for dotted in ("file_format", "delimiter"):

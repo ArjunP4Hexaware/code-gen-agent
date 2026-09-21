@@ -331,6 +331,12 @@ class FrdExtractorConfig(BaseModel):
     # and the label spellings per slot (table / schema / catalog) are data.
     layer_block_heading_words: list[str] = Field(default_factory=list)
     layer_block_labels: dict[str, list[str]] = Field(default_factory=dict)
+    # M9.1b: an Object Name cell that is a BLOCK (several lines, or a nested
+    # label | value table) is read per line / row: a value under a
+    # `feed_name` label names the feed, a value under a `file_name` label —
+    # or any file-like value under another label (a line of business) — is a
+    # file name pattern. Raw block text never lands in a scalar.
+    object_name_labels: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class VddExtractorConfig(BaseModel):

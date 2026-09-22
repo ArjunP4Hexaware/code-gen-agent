@@ -151,6 +151,9 @@ export interface DemoStatus {
   // M2.5: the questions a paused run (state "needs_layout") waits on, and
   // the layout report (sources per role, rejections, cross-checks).
   layout_questions?: LayoutQuestion[];
+  // M11: questions a "Proceed with unresolved" left open. They outlive
+  // the dialog: the report lists them and each is a gate flag.
+  layout_skipped?: LayoutQuestion[];
   layout_report?: Record<string, unknown> | null;
   layout_advice?: {
     provider: string;

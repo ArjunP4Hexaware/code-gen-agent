@@ -169,6 +169,15 @@ def extract_vdd_contract(path: Path, config: Config, *, sttm_tables: list[str] |
                          layout: LayoutProfile | None = None, generated_date: str | None = None,
                          contract_name: str | None = None) -> tuple[VddContract, LayoutProfile]:
     from codegen.layout.discover import discover_vdd
+
+    # M11: the cheap read-only size question first — a workbook over the cap
+    # is refused with its cell count, never a scan that runs for minutes.
+    from codegen.layout.size import WorkbookTooLarge, check_workbook_size
+
+    try:
+        check_workbook_size(path, config.inputs.max_workbook_cells)
+    except WorkbookTooLarge as exc:
+        raise VddExtractionError(f"{path.name}: {exc}") from exc
     from codegen.layout.resolve import discovery_for
 
     if layout is not None:

@@ -35,7 +35,13 @@ from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
 from codegen.faq import faq_for_spec
-from codegen.gate import compute_verdict, natural_key_check, run_generated_tests, run_preflight
+from codegen.gate import (
+    audit_type_check,
+    compute_verdict,
+    natural_key_check,
+    run_generated_tests,
+    run_preflight,
+)
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
@@ -77,6 +83,7 @@ def _generate_feed(
     iig_template: str | None = None,
     playbook_template: str | None = None,
     env=None,
+    layout_skipped: list[dict] | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -99,7 +106,10 @@ def _generate_feed(
     # framework emit for every profile.
     # (de-duplicated: the UI passes the layout stage's flags, and the FRD
     # contract the layout stage wrote carries the same ones — M9.3)
-    extra_flags = [*dict.fromkeys([*(extra_flags or []), *spec.provenance_flags]),
+    from codegen.report.generation_report import layout_skipped_flags
+
+    extra_flags = [*dict.fromkeys([*(extra_flags or []), *layout_skipped_flags(layout_skipped),
+                                   *spec.provenance_flags]),
                    *drag_fill_flags(spec),
                    *sibling_type_flags(spec, config), *vdd_flags]
     # Segmented-extraction review items (assumption/conflict cards) ride the
@@ -194,6 +204,9 @@ def _generate_feed(
         # M10.1: only when a key column exists in no segment — a passing check
         # here would move every baseline report.
         checks = [*checks, natural_key_check(context)]
+    audit_types = audit_type_check(spec, config.conventions.get(conventions_profile))
+    if not audit_types.passed:
+        checks = [*checks, audit_types]      # M11: only when it fails (as above)
 
     gate = compute_verdict(
         spec.feed_id,
@@ -214,6 +227,7 @@ def _generate_feed(
         reports_dir,
         out_root,
         inputs_summary=context["provenance"]["inputs"],
+        layout_skipped=layout_skipped,
     )
     if framework_artefacts is not None:
         # Appended AFTER the standard report so report/ stays untouched and

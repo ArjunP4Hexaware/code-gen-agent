@@ -125,6 +125,10 @@ class DemoRunner:
         # unresolved roles, ``layout_questions`` holds the question list
         # (grouped by document in the UI) and ``_layout_answers`` the reply.
         self.layout_questions: list[dict] = []
+        # M11: the questions a "Proceed with unresolved" left open. They
+        # OUTLIVE the dialog — the status keeps showing them, the report
+        # lists them and each is a gate flag.
+        self.layout_skipped: list[dict] = []
         self.layout_report: dict | None = None
         # Model advice for the pending questions (POST /api/demo/layout-advice):
         # {"provider": name, "advice": {key: {index, rationale}}}; reset when the
@@ -1025,6 +1029,7 @@ class DemoRunner:
             "last_run_label": self.last_run_label,
             "set_aside": list(self.set_aside),
             "layout_questions": list(self.layout_questions),
+            "layout_skipped": list(self.layout_skipped),
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,
             "layout_fills": list(self.layout_fills),
@@ -1145,6 +1150,18 @@ class DemoRunner:
                                       base_dir=REPO_ROOT, vdd_path=vdd_path)
                 self.layout_report = result.report()
                 self.layout_fills = list(result.gap_fills)
+                # M11: proceeding past a question does not make it go away. The
+                # questions still open are kept on the runner (the status keeps
+                # showing them after the dialog closes), staged, and carried
+                # into the run so the report and the gate name every one of
+                # them. Before this they were erased and the run walked into
+                # "the stage band has no values for [...]" with no trace.
+                self.layout_skipped = [q.as_dict() for q in result.questions]
+                if self.layout_skipped:
+                    keys = ", ".join(q["key"] for q in self.layout_skipped)
+                    self._stage("layout questions skipped",
+                                f"{len(self.layout_skipped)} left unanswered: {keys} — "
+                                "read as empty; the report and the gate list them")
                 ui_stores.push_layout_cache(config)
                 return result
 
@@ -1316,6 +1333,7 @@ class DemoRunner:
 
     def _execute(self) -> None:
         config = self._store.config
+        self.layout_skipped = []       # M11: this run's own record
         label = f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         from ui.backend import stores as ui_stores
 

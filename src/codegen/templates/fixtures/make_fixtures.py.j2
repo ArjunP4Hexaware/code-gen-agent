@@ -10,9 +10,16 @@ script. No randomness: identical runs produce identical bytes.
 
 from __future__ import annotations
 
+{% if spreadsheet %}
+import datetime
+{% endif %}
 from pathlib import Path
 
 DELIMITER = {{ delimiter | tojson }}
+{% if spreadsheet %}
+SHEET_NAME = {{ (sheet_name or "Sheet1") | tojson }}
+FIXED_TIMESTAMP = datetime.datetime(2000, 1, 1)   # byte-stable workbooks
+{% endif %}
 OUT_DIR = Path(__file__).resolve().parent.parent / "data" / "incoming"
 
 SAMPLE_ROW: dict[str, str] = {
@@ -97,6 +104,28 @@ def _write(name: str, rows: list[dict[str, str]], trailer_count: int | None = No
 {% endif %}
     path = OUT_DIR / name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {path}")
+{% elif spreadsheet %}
+def _write(name: str, rows: list[dict[str, str]], drop_last_column: bool = False) -> None:
+    """Write the sample as a WORKBOOK (the source format), byte-stable: the
+    document properties openpyxl would stamp with the current time are
+    pinned, so identical runs produce identical bytes."""
+    from openpyxl import Workbook
+
+    columns = list(rows[0])
+    if drop_last_column:
+        columns = columns[:-1]
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = SHEET_NAME
+    sheet.append(columns)
+    for row in rows:
+        sheet.append([row[c] for c in columns])
+    workbook.properties.creator = ""
+    workbook.properties.created = FIXED_TIMESTAMP
+    workbook.properties.modified = FIXED_TIMESTAMP
+    path = OUT_DIR / name
+    workbook.save(path)
     print(f"wrote {path}")
 {% else %}
 def _write(name: str, rows: list[dict[str, str]], drop_last_column: bool = False) -> None:

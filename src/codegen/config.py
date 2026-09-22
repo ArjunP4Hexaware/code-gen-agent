@@ -146,6 +146,22 @@ class ExtractorFileDetailsHeaders(BaseModel):
     frequency: list[str]
 
 
+class FileDetailsAnnotationConfig(BaseModel):
+    """M11: how a FILE_DETAILS row is recognised as an ANNOTATION (a legend,
+    a note to the reader) rather than a file. Such a row — and a row with no
+    file name — is skipped and logged, never a parse error (the v0.6.2 ACFC
+    run died on a legend row). Empty defaults = nothing is recognised, i.e.
+    exactly the pre-M11 behaviour."""
+
+    model_config = _MODEL_CONFIG
+
+    # A vendor cell whose text contains one of these (case-insensitive).
+    phrases: list[str] = Field(default_factory=list)
+    # A vendor cell whose FONT is italic (legends are set in italic). Only
+    # consulted when the reader can see the cell's style.
+    italic: bool = False
+
+
 # Logical source-block columns the workbook parser must be able to resolve.
 _REQUIRED_HEADER_KEYS = {
     "source_column",
@@ -382,6 +398,11 @@ class ExtractorConfig(BaseModel):
     # no marker is recognised (the row then fails loudly for its missing type).
     unmapped_markers: list[str] = Field(default_factory=list)
     file_details_headers: ExtractorFileDetailsHeaders
+    file_details_annotation: FileDetailsAnnotationConfig = FileDetailsAnnotationConfig()
+    # M11: format words / extensions that mean the source files are
+    # SPREADSHEETS (.xlsx / .xls): no delimiter, no byte positions, a sheet.
+    # Empty = nothing is a spreadsheet, i.e. the pre-M11 behaviour.
+    spreadsheet_tokens: list[str] = Field(default_factory=list)
     recycle_on_match: str
     recycle_on_no_match: str
     # Segmented (CAQH-style) family knobs — all defaulted, so a config
@@ -892,6 +913,10 @@ class InputsConfig(BaseModel):
     # START (interpreter + imports) has its own budget, apart from a file's.
     parser_start_timeout_seconds: float = Field(default=60.0, gt=0)
     classify_timeout_seconds: float = Field(default=60.0, gt=0)
+    # M11: a workbook declaring more cells than this is `unreadable` with the
+    # count and the cap, decided read-only BEFORE any scan — a 140k-cell STTM
+    # used to run the parser past its budget and be killed. 0 = no cap.
+    max_workbook_cells: int = Field(default=250_000, ge=0)
     # … and a selection's own downloads (the STTM, its pair) are bounded too.
     select_timeout_seconds: float = Field(default=120.0, gt=0)
     pairing: PairingConfig = PairingConfig()
@@ -951,6 +976,12 @@ class ConventionsProfileConfig(BaseModel):
     # SFMC two-file DDL are compared byte for byte with client goldens; the
     # target system is labelled in ADDITION.md / MANIFEST.md instead.
     target_system_header: bool = False
+    # M11: audit columns may only be String / Timestamp under this profile
+    # (the reference layout's own rule). A declared type outside those is
+    # then the gate check `audit_types` = FAIL naming the column; with the
+    # knob off the type is emitted as the STTM declares it, flagged
+    # audit_type_nonstandard. True keeps the pre-M11 restriction.
+    audit_types_restricted: bool = True
     # M10: when the environment probe found a table, adjust its DDL to what
     # exists (identical -> a comment, no CREATE; different -> ALTER TABLE ADD
     # COLUMNS + a REVIEW block; never DROP, never CREATE OR REPLACE over an

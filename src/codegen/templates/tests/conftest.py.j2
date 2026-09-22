@@ -22,6 +22,9 @@ os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 RUN_TS = datetime(2026, 1, 15, 9, 0, 0)
 EXAMPLE_FILE_NAME = {{ example_file_name | tojson }}
 DELIMITER = {{ delimiter | tojson }}
+{% if spreadsheet %}
+SHEET_NAME = {{ (sheet_name or "Sheet1") | tojson }}
+{% endif %}
 
 
 @pytest.fixture(scope="session")
@@ -184,6 +187,22 @@ def write_source_file(
     columns = [c for c in rows[0] if c != drop_column]
     if extra_column:
         columns = [*columns, extra_column]
+{% if spreadsheet %}
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = SHEET_NAME
+    sheet.append(columns)
+    for row in rows:
+        values = [row[c] for c in row if c != drop_column]
+        if extra_column:
+            values = [*values, "extra"]
+        sheet.append(values)
+    path = Path(directory) / file_name
+    workbook.save(path)
+    return str(path)
+{% else %}
     lines = [DELIMITER.join(columns)]
     for row in rows:
         values = [row[c] for c in row if c != drop_column]
@@ -193,6 +212,7 @@ def write_source_file(
     path = Path(directory) / file_name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return str(path)
+{% endif %}
 {% endif %}
 {% if recycle %}
 

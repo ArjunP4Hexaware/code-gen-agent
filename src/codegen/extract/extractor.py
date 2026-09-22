@@ -92,6 +92,14 @@ def extract_contract(
     # then copies cell values through it. Strategy order keeps the two
     # legacy paths first, so their output is byte-identical to before.
     # M2.5: a resolved profile (cache / model / user) may be supplied
+    # M11: the cheap read-only size question first — a workbook over the cap
+    # is refused with its cell count, never a scan that runs for minutes.
+    from codegen.layout.size import WorkbookTooLarge, check_workbook_size
+
+    try:
+        check_workbook_size(workbook_path, config.inputs.max_workbook_cells)
+    except WorkbookTooLarge as exc:
+        raise ExtractionError(f"{workbook_path.name}: {exc}") from exc
     # instead — the reader then never discovers, it only copies through it.
     if layout is not None:
         from openpyxl import load_workbook
@@ -248,7 +256,14 @@ def _extension_delimiter(file_name: str | None) -> str | None:
     return _EXTENSION_DELIMITERS.get(match.group(1).lower()) if match else None
 
 
-def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None) -> str:
+def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None,
+                       config: Config | None = None) -> str:
+    if config is not None:
+        from codegen.formats import is_spreadsheet
+
+        if is_spreadsheet(feed.file_format, config,
+                          [*feed.file_name_patterns, file_name or ""]):
+            return ""                      # M11: a spreadsheet has no delimiter
     if feed.delimiter:
         return feed.delimiter
     implied = _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
@@ -341,7 +356,7 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             source_file=SourceFile(
                 name_pattern=file_details.file_name,
                 format=frd_feed.file_format,
-                delimiter=_resolve_delimiter(frd_feed, file_details.file_name),
+                delimiter=_resolve_delimiter(frd_feed, file_details.file_name, config),
                 frequency=file_details.frequency,
             ),
             stage=TableRef(schema=sheet.stage_schema, table=sheet.stage_table),
@@ -361,6 +376,10 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             ],
             field_count=len(fields),
             fields=fields,
+            # M11: FILE_DETAILS rows skipped as annotations / nameless, one
+            # reason each — workbook-level, carried on every feed of it.
+            extraction_flags=[f"file_details_row_skipped:{reason}"
+                              for reason in ir.skipped_file_details],
         )
     except ValueError as exc:  # pydantic ValidationError is a ValueError
         raise ExtractionError(

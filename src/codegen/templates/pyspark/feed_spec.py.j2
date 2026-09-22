@@ -20,6 +20,13 @@ LOBS = {{ pylist(lobs) }}
 
 {{ file_format | pyconst("FILE_FORMAT") }}
 DELIMITER = {{ delimiter | tojson }}
+{% if spreadsheet %}
+# Spreadsheet source (.xlsx / .xls): no delimiter, no byte positions. The
+# sheet the data sits on — None means the workbook's FIRST sheet, which the
+# gate flags (sheet_name_unstated) because no document stated one.
+SPREADSHEET = True
+SHEET_NAME: str | None = {{ sheet_name | py }}
+{% endif %}
 FILE_NAME_PATTERNS = {{ pylist(file_name_patterns) }}
 _FILE_NAME_REGEXES = [
 {% for rx in file_regexes %}

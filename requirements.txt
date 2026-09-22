@@ -7,5 +7,5 @@
 # this file's content — a deploy that changes src/ WITHOUT changing this
 # file can serve stale code. Bump the marker below (and the pyproject
 # version) whenever src/ changes.
-# codegen-version-marker: 0.6.2
+# codegen-version-marker: 0.7.0
 .[ui,databricks]

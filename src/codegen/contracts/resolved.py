@@ -101,6 +101,9 @@ class ResolvedFeedSpec(BaseModel):
     file_name_patterns: list[str] = Field(min_length=1)
     file_format: str
     delimiter: str
+    # M11: set only for a spreadsheet source; None = the reader takes the
+    # workbook's FIRST sheet (flagged sheet_name_unstated).
+    sheet_name: str | None = None
     landing_location: str | None
 
     # Segments: exactly one entry ("Detail") for flat feeds

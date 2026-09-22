@@ -195,6 +195,9 @@ class FrdFeed(BaseModel):
     # None only on docx-extracted contracts whose document states no format.
     file_format: str | None
     delimiter: str | None
+    # M11: the worksheet an inbound spreadsheet's data sits on. Defaulted, so
+    # every contract written before M11 loads and re-serializes unchanged.
+    sheet_name: str | None = None
     record_segments: list[RecordSegment]
     frequency: str | None
     load_windows_sla: list[str]

@@ -319,6 +319,32 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.7.0-acfc adds (M11 — the six causes of the all-pairs run)
+
+The first all-pairs run of v0.6.2 (2026-09-22) passed 1 of 10. Six of the
+nine failures were the agent refusing to read a document it could have read,
+or hiding what it skipped. Each is now a flag or a named check, never a
+crash. (The three FRD documents that match neither the F1 nor the F2 family
+are NOT in this release — they wait for the round-2 shape capture.)
+
+| Was | Now |
+| --- | --- |
+| `WorkbookParseError: FILE_DETAILS row 6: Vendor and FileName must both be present` — a LEGEND row ("… DataType = … Confirm before use.") | A FILE_DETAILS row whose vendor cell is an annotation (`extractor.file_details_annotation.phrases`, or an italic cell) or that names no file is SKIPPED and logged — flag `file_details_row_skipped:<sheet> row N: <reason>`. A sheet of nothing but annotations still fails loudly. |
+| `ExtractionError: segment spelling(s) ['NA'] are outside the Header/Detail/Trailer vocabulary` | `extractor.discovery.segment_synonyms` gained a **`none`** class (`NA`, `N/A`, `-`, `none`, …): a Segment column holding only these means ONE record type, and the sheet extracts unsegmented — flag `segments_none:<sheet>`. A spelling that is neither a segment nor a `none` value is still loud, and now names the `none` class in its message. The `none` spellings are never a banner row and never a segment sheet name. |
+| `ExtractionError: audit column 'DELETE_FLAG' has datatype 'tinyint'; expected one of ['string','timestamp']` | The declared type is carried VERBATIM and flagged `audit_type_nonstandard:<column>`. Whether it is acceptable is a deployment question, decided per profile: `conventions.profiles.<p>.audit_types_restricted` (true for `edo_sfmc`, **false for `acfc_prx`**). Restricted, it is the gate check **`audit_types` = FAIL** naming the column — never a refusal to read the STTM. The Delta scalar types (`tinyint`, `smallint`, `binary`, …) now map in the DDL; an unknown type is still a loud `TemplateGapError`. |
+| `ContractMismatchError: format '.xlsx' has no implied delimiter` | **An .xlsx / .xls source is a first-class format** (`extractor.spreadsheet_tokens`): no delimiter (`""`), no byte positions, a SHEET instead. The generated reader reads the sheet with pandas + openpyxl (no cluster library); `feed_spec.py` carries `SPREADSHEET = True` and `SHEET_NAME`; the fixture writer and the generated tests write a WORKBOOK. The sheet name comes from the FRD, then the STTM meta row (`Sheet Name` / `Tab Name` / `Worksheet`), else it is a layout question (`feeds[i].sheet_name`); unanswered, the reader takes the FIRST sheet and the gate says so (`sheet_name_unstated`). **The trap this closes:** `delimiter == ""` used to MEAN fixed width in the emitter and the IIG, so an xlsx feed would have rendered as positional — `codegen.formats` now keeps the three kinds apart, and `ADLS_FIXED_WIDTH_HANDLER` stays empty for a spreadsheet. A spreadsheet that also declares record segments is flagged `spreadsheet_segmented:`. |
+| `StepTimeout: the document was not read within 120s — the parser process was killed` (a 140k-cell workbook) | The cheap question is asked FIRST, read-only, from each sheet's declared dimension (or, for a writer that declares none, estimated from the sheet XML's size in the zip — the message then says "about"): over `inputs.max_workbook_cells` (**250,000**) the document is `unreadable: <n> cells, > cap <c> (largest sheets: …)`. A verdict with a reason, in the chooser and in the CLI, instead of a killed child. 0 = no cap. |
+| "Layout: 6 questions (proceeded unresolved)" — then an extraction error naming roles nobody had seen | A **Proceed with unresolved** no longer erases the questions. They stay on the status (`layout_skipped`, shown in the UI after the dialog closes), are staged in the run log, become gate flags `layout_question_skipped:<key>`, and get their own report section, **Layout questions left unanswered**. The CLI / notebook path was already correct (`--require-complete` refuses). |
+
+Version marker 0.7.0. CV / SFMC baselines byte-identical (193 files); the
+pair-1 acceptance goldens are unchanged.
+
+**Still open:** pairs 8, 9 and 10 fail with `FrdDocxError: no metadata section
+table (F1) and no Solution Requirement table (F2) found`. That needs the
+round-2 shape capture (`SHAPES_ROUND2.md`) before the detector is extended —
+guessing at a third family from an error message is exactly what this repo
+does not do. It lands as v0.7.1.
+
 ## What v0.6.2-acfc adds (M10.2 — location URIs)
 
 A landing value with a storage scheme — `abfss://`, `abfs://`, `wasbs://`,

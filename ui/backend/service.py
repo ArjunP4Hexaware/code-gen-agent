@@ -27,7 +27,13 @@ from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
 from codegen.faq import faq_for_spec
-from codegen.gate import compute_verdict, natural_key_check, run_generated_tests, run_preflight
+from codegen.gate import (
+    audit_type_check,
+    compute_verdict,
+    natural_key_check,
+    run_generated_tests,
+    run_preflight,
+)
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
@@ -203,14 +209,17 @@ class GenerationStore:
         iig_template: str | None = None,
         playbook_template: str | None = None,
         env=None,
+        layout_skipped: list[dict] | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
         from codegen.gate.derivations import sibling_type_flags
         from codegen.gate.drag_fill import drag_fill_flags
         from codegen.gate.vdd_check import vdd_cross_check
+        from codegen.report.generation_report import layout_skipped_flags
 
         vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
-        extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
+        extra_flags = [*(extra_flags or []), *layout_skipped_flags(layout_skipped),
+                       *spec.provenance_flags, *drag_fill_flags(spec),
                        *sibling_type_flags(spec, self.config), *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
@@ -321,6 +330,9 @@ class GenerationStore:
             checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
         if context["natural_key_missing"]:
             checks = [*checks, natural_key_check(context)]   # M10.1 (mirrors cli)
+        audit_types = audit_type_check(spec, self.config.conventions.get(conventions_profile))
+        if not audit_types.passed:
+            checks = [*checks, audit_types]                  # M11 (mirrors cli)
         if not tests_skipped:
             checks = [
                 *checks,
@@ -346,6 +358,7 @@ class GenerationStore:
             reports_dir,
             out_root,
             inputs_summary=context["provenance"]["inputs"],
+            layout_skipped=layout_skipped,
         )
         framework_summary = None
         environment_summary = None

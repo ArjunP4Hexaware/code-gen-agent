@@ -994,6 +994,23 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   ) : null}
                   {status.state === "failed" && "Last live run FAILED — nothing was published."}
                 </div>
+                {status.layout_skipped?.length ? (
+                  <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
+                    <strong>
+                      {status.layout_skipped.length} layout question(s) left unanswered.
+                    </strong>{" "}
+                    <span className="hint">
+                      Read as empty. Every one is a gate flag and is listed in the report.
+                    </span>
+                    <ul className="hint" style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
+                      {status.layout_skipped.map((q) => (
+                        <li key={q.key}>
+                          <code>{q.key}</code>: {q.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {status.state === "failed" && status.error ? (
                   <div className="error-banner" style={{ marginTop: 8 }}>
                     {status.error}

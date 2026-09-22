@@ -41,7 +41,13 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
-from codegen.layout.discover import Discovery, normalize, text
+from codegen.layout.discover import (
+    NONE_SEGMENT,
+    Discovery,
+    none_segment_spellings,
+    normalize,
+    text,
+)
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
 
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
@@ -154,8 +160,22 @@ def _last_version(ws, sp: SheetProfile) -> str | None:
 
 
 def _segment_lookup(disc: DiscoveryConfig) -> dict[str, str]:
+    """Spelling -> canonical segment. The ``none`` class is left OUT: its
+    spellings resolve to no segment (see ``_none_segments``)."""
     return {normalize(s): canonical for canonical, spellings in disc.segment_synonyms.items()
-            for s in spellings}
+            if canonical != NONE_SEGMENT for s in spellings}
+
+
+def _none_segments(sheet: SheetData, disc: DiscoveryConfig) -> list[str]:
+    """M11: the spellings this sheet uses that mean "single record type"
+    (config ``extractor.discovery.segment_synonyms.none``: NA, N/A, -). A
+    sheet whose Segment column holds ONLY these is extracted unsegmented —
+    the v0.6.2 ACFC run died on `segment spelling(s) ['NA']`."""
+    none_values = none_segment_spellings(disc)
+    used = {r.segment_raw for r in sheet.fields if r.segment_raw is not None}
+    if not used or not all(normalize(v) in none_values for v in used):
+        return []
+    return sorted(used)
 
 
 def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Config,
@@ -558,13 +578,26 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                                         flags)
 
     segmented = any(r.segment_raw is not None for r in sheet.fields)
-    if segmented:
+    none_spellings = _none_segments(sheet, config.extractor.discovery)
+    if none_spellings:
+        # Every Segment cell says "not segmented": one record type, extracted
+        # flat, and the sheet's own spelling is on the record.
+        segmented = False
+        flags.append(f"segments_none:{name}: the Segment column reads "
+                     f"{', '.join(repr(v) for v in none_spellings)} — a single record type "
+                     "(extractor.discovery.segment_synonyms.none); extracted unsegmented")
+        notes.append(f"sheet {name!r}: segment column reads "
+                     f"{', '.join(repr(v) for v in none_spellings)} — single record type")
+    elif segmented:
         unknown = sorted({r.segment_raw for r in sheet.fields if r.segment is None} - {None})
         if unknown:
             raise GenericExtractionError(
                 f"sheet {name!r}: segment spelling(s) {unknown} are outside the "
                 f"{'/'.join(_CANONICAL_SEGMENTS)} vocabulary (extractor.discovery."
-                "segment_synonyms); the contract dialect cannot carry them")
+                "segment_synonyms) and none of them means 'single record type' "
+                "(the `none` class: "
+                f"{sorted(none_segment_spellings(config.extractor.discovery)) or 'unset'}); "
+                "the contract dialect cannot carry them")
 
     fields: list[SttmField] = []
     markers = _unmapped_markers(config)
@@ -643,9 +676,16 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     for entry in sheet.audit:
         datatype = _AUDIT_DATATYPES.get(normalize(entry.datatype_raw))
         if datatype is None:
-            raise GenericExtractionError(
-                f"sheet {name!r} row {entry.row}: audit column {entry.column!r} has datatype "
-                f"{entry.datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}")
+            # M11: a type outside String / Timestamp is the client's word,
+            # carried verbatim and flagged — not a reason to refuse the STTM.
+            datatype = (entry.datatype_raw or "").strip()
+            if not datatype:
+                raise GenericExtractionError(
+                    f"sheet {name!r} row {entry.row}: audit column {entry.column!r} states no "
+                    "datatype (the cell is empty)")
+            flags.append(f"audit_type_nonstandard:{entry.column} — the STTM declares "
+                         f"{datatype!r} (sheet {name!r} row {entry.row}); "
+                         f"{sorted(_AUDIT_DATATYPES.values())} are the standard audit types")
         if entry.column not in seen:
             seen.add(entry.column)
             audit.append(AuditColumn(column=entry.column, datatype=datatype))  # type: ignore[arg-type]
@@ -677,8 +717,16 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         notes.append(f"feed {feed.feed_name!r}: neither the FRD nor the workbook (meta rows "
                      "'File Names' / 'File Name Example', File Details sheet) names a file "
                      "pattern; left open for the VDD FILES sheet / the file_patterns answer")
-    delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
-        _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
+    from codegen.formats import is_spreadsheet
+
+    spreadsheet = is_spreadsheet(feed.file_format, config,
+                                 [*feed.file_name_patterns, *patterns])
+    delimiter = "" if spreadsheet else (
+        feed.delimiter or sheet.meta.get("delimiter")
+        or _FORMAT_DELIMITERS.get((feed.file_format or "").lower()))
+    # M11: which worksheet an inbound spreadsheet's data sits on (STTM
+    # meta row); unstated, the layout stage asks and the gate flags it.
+    sheet_name = sheet.meta.get("sheet_name") if spreadsheet else None
     frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
     source_system = (details or {}).get("vendor") or sheet.meta.get("file_generator") \
         or feed.source_system
@@ -689,7 +737,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             source_system=source_system,
             mapping_sheet=name,
             source_file=SourceFile(name_pattern=name_pattern, format=feed.file_format,
-                                   delimiter=delimiter, frequency=frequency),
+                                   delimiter=delimiter, frequency=frequency,
+                                   sheet_name=sheet_name),
             stage=TableRef(schema=stage_schema, table=stage_table, catalog=stage_catalog),
             standard=(TableRef(schema=standard_schema or "", table=standard_table or "",
                                catalog=standard_catalog) if has_standard else None),

@@ -49,6 +49,16 @@ _SQL_TYPES = {
     "double": "DOUBLE",
     "float": "FLOAT",
     "boolean": "BOOLEAN",
+    # M11: the rest of the Delta scalar types, so a type a client STTM
+    # DECLARES (a tinyint audit flag) transcribes instead of stopping the
+    # run. Anything still unknown remains a loud TemplateGapError.
+    "tinyint": "TINYINT",
+    "byte": "TINYINT",
+    "smallint": "SMALLINT",
+    "short": "SMALLINT",
+    "long": "BIGINT",
+    "binary": "BINARY",
+    "timestamp_ntz": "TIMESTAMP_NTZ",
 }
 _DECIMAL_RE = re.compile(r"^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
 
@@ -421,9 +431,13 @@ def build_context(
     # No file read here — callers load the FAQ (codegen.faq.faq_for_spec) so
     # rendering stays a pure function of its arguments. None → all defaults.
     faq = faq if faq is not None else LoadPatternFaq()
-    fixed_width = spec.delimiter == "" or any(
-        token.lower() in (spec.file_format or "").lower()
-        for token in config.extractor.vdd.fixed_width_tokens)
+    # M11: `delimiter == ""` alone no longer means fixed width — a
+    # spreadsheet has no delimiter either (codegen.formats keeps them apart).
+    from codegen.formats import is_fixed_width, is_spreadsheet
+
+    spreadsheet = is_spreadsheet(spec.file_format, config, spec.file_name_patterns)
+    fixed_width = is_fixed_width(spec.file_format, config, spec.delimiter,
+                                 spec.file_name_patterns)
     segments = [_segment_context(s, spec, config, faq, fixed_width) for s in spec.segments]
     detail = next(s for s in segments if s["is_detail"])
     # DDL tables: segments sharing one stage table render as one table.
@@ -625,6 +639,10 @@ def build_context(
         # M4: fixed-width source (positions from the STTM source band) and
         # the segments-in-one-table shape. Both False on every existing feed.
         "fixed_width": fixed_width,
+        # M11: an .xlsx / .xls source — read by sheet, not by delimiter or
+        # position. `sheet_name` None = the workbook's first sheet.
+        "spreadsheet": spreadsheet,
+        "sheet_name": spec.sheet_name,
         "shared_stage_table": shared_stage_table,
         "stage_tables": stage_tables,
         # Derived record identification (segmented extraction); None on flat

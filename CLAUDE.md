@@ -279,14 +279,50 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## Where this stands (2026-09-22) — READ FIRST
 
-`staging` = `origin/staging` = **v0.6.2-acfc** (M10.2), on top of
-**v0.6.1-acfc** (152ea10, M10.1), **v0.6.0-acfc** (cdda58f, M10) and
-**v0.5.9-acfc** (6b33f0d). All tags are on the remote. `main` is untouched
-at 4c35c61 (v0.4.1).
+`staging` = `origin/staging` = **v0.7.0-acfc** (M11), on top of
+**v0.6.2-acfc** (435e4a5, M10.2), **v0.6.1-acfc** (152ea10, M10.1),
+**v0.6.0-acfc** (cdda58f, M10) and **v0.5.9-acfc** (6b33f0d). All tags are on
+the remote. `main` is untouched at 4c35c61 (v0.4.1).
 
-**The App version marker is 0.6.2** (`pyproject.toml` + the
+**The App version marker is 0.7.0** (`pyproject.toml` + the
 `codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
 Apps runtime serves a cached env).
+
+**M11 (v0.7.0-acfc): the six causes of the v0.6.2 all-pairs run** (1 of 10
+passed; record `docs/acfc/RUN_v062_all_pairs.md` on `origin/acfc-runs` —
+UNSCRUBBED, never merge or copy it. Scrubbed account: `docs/ACFC_DEPLOY.md`
+"What v0.7.0-acfc adds"; tests `tests/test_m11_all_pairs.py`, 29). In short:
+(1) a FILE_DETAILS annotation / nameless row is skipped and flagged
+(`extractor.file_details_annotation`), never a parse error; (2) a `none`
+class in `segment_synonyms` (NA, N/A, -) means one record type — extracted
+unsegmented, flag `segments_none:` (the class is never a banner or a segment
+sheet name: `discover.segment_spellings` excludes it); (3) an audit type
+outside String/Timestamp is carried verbatim + flagged, and the restriction
+became the profile knob `audit_types_restricted` (edo_sfmc true, acfc_prx
+false) enforced by the gate check `audit_types`; (4) **.xlsx/.xls is a
+first-class inbound format** — `codegen/formats.py` is the ONE definition of
+delimited | fixed_width | spreadsheet, because `delimiter == ""` used to
+mean fixed width in `emit/context.py` and `metadata_template.py` and would
+have rendered an xlsx feed positionally; the reader reads a sheet (pandas +
+openpyxl), `feed_spec` carries `SHEET_NAME`, the fixture/test writers write
+a workbook, the sheet name is FRD → STTM meta row → question
+(`feeds[i].sheet_name`), unanswered = first sheet + flag
+`sheet_name_unstated`; (5) `inputs.max_workbook_cells` (250k) is checked
+READ-ONLY before any scan (`codegen/layout/size.py`; estimated from the zip
+when a writer declares no dimension) so a heavy workbook is `unreadable`
+with its count, not a killed parser — the full load stays elsewhere because
+the fingerprint hashes merged-cell ranges, which read-only mode does not
+expose; (6) **Proceed with unresolved no longer erases the questions** —
+`DemoRunner.layout_skipped` outlives the dialog (status + UI banner), each
+is a gate flag `layout_question_skipped:` and the report gains a **Layout
+questions left unanswered** section. Verified: 764 passed / 27 skipped on
+3.10 / 3.11 / 3.12, ruff + tsc clean, dist rebuilt, scrub 0, CV / SFMC
+baselines 193 files byte-identical, pair-1 acceptance unchanged.
+
+**M11 item 7 is NOT in v0.7.0:** pairs 8/9/10 fail `FrdDocxError: no F1/F2
+table`. It waits for the round-2 capture (`SHAPES_ROUND2.md`, not yet on
+`origin/acfc-runs`) — the detector is extended from documented structure,
+never guessed from an error. Ships as v0.7.1.
 
 **M10.2 (v0.6.2-acfc): location URIs.** A landing value with a storage
 scheme (`gate/derivations.py::LOCATION_SCHEMES` — abfss, abfs, wasbs, wasb,

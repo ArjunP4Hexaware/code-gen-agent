@@ -193,6 +193,37 @@ def _gate_section(gate: GateResult) -> list[str]:
     return lines
 
 
+def _layout_section(skipped: list[dict] | None) -> list[str]:
+    """M11: the layout questions the run was told to proceed past. Empty for
+    a run that answered them all (and for every run before M11), so existing
+    reports are byte-identical. Structural labels only — a question's
+    candidates are header texts, never data cells."""
+    if not skipped:
+        return []
+    lines = [
+        "## Layout questions left unanswered",
+        "",
+        f"{len(skipped)} question(s) were skipped (Proceed with unresolved): the role(s) "
+        "below were read as EMPTY. Each is a gate flag too.",
+        "",
+        "| Question | Document | Reason |",
+        "| --- | --- | --- |",
+    ]
+    for question in skipped:
+        title = question.get("title") or question.get("key") or "?"
+        lines.append(f"| `{_cell(question.get('key', ''))}` — {_cell(title)} "
+                     f"| {_cell(question.get('document', ''))} "
+                     f"| {_cell(question.get('reason', ''))} |")
+    lines.append("")
+    return lines
+
+
+def layout_skipped_flags(skipped: list[dict] | None) -> list[str]:
+    """One gate flag per skipped question (never a FAIL — a flag)."""
+    return [f"layout_question_skipped:{q.get('key', '?')} — {q.get('reason', '')}"
+            for q in (skipped or [])]
+
+
 def write_generation_report(
     spec: ResolvedFeedSpec,
     written_files: list[Path],
@@ -202,10 +233,12 @@ def write_generation_report(
     reports_dir: Path,
     out_root: Path,
     inputs_summary: dict | None = None,
+    layout_skipped: list[dict] | None = None,
 ) -> Path:
     lines: list[str] = [f"# Generation report — {spec.feed_id}", ""]
     lines += _contracts_section(spec)
     lines += _inputs_section(inputs_summary)
+    lines += _layout_section(layout_skipped)
     lines += _files_section(written_files, out_root)
     lines += _rules_section(outcomes)
     lines += _segmented_section(spec)

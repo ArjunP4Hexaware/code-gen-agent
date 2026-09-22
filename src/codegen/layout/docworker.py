@@ -35,10 +35,17 @@ def read_document(local: Path, name: str, config, base_dir: Path) -> dict:
     (``codegen.layout.classify``), and the pairing facts of an STTM / VDD /
     FRD (``codegen.pairing``)."""
     from codegen.layout.classify import classify_workbook
+    from codegen.layout.size import WorkbookTooLarge, check_workbook_size
     from codegen.pairing import document_facts, facts_to_dict
 
     suffix = Path(name).suffix.lower()
     if suffix == ".xlsx":
+        # M11: the cheap question first — a workbook over the cap is a
+        # verdict, not a parse that outlives its budget and is killed.
+        try:
+            check_workbook_size(local, config.inputs.max_workbook_cells)
+        except WorkbookTooLarge as exc:
+            return {"state": UNREADABLE, "reason": str(exc), "facts": None}
         verdict = classify_workbook(local, config.extractor)
         if verdict.reason.startswith("could not be read"):
             return {"state": UNREADABLE, "reason": verdict.reason, "facts": None}

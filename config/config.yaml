@@ -122,6 +122,19 @@ extractor:
     vendor: ["vendor"]
     file_name: ["filename", "file name"]
     frequency: ["frequency"]
+  # M11: FILE_DETAILS rows that are ANNOTATIONS, not files — a legend row
+  # ("Amber italic DataType = …; Confirm before use.") killed the v0.6.2
+  # run. Such a row, and any row with no file name, is skipped and logged
+  # (flag file_details_row_skipped:), never a parse error.
+  # M11: an inbound .xlsx / .xls is a first-class format — no delimiter, a
+  # SHEET instead (the v0.6.2 ACFC run died on "format '.xlsx' has no
+  # implied delimiter"). Matched against the FRD/STTM format cell, or against
+  # every file pattern's extension when the format cell is prose.
+  spreadsheet_tokens: ["xlsx", "xls", "excel", "spreadsheet"]
+  file_details_annotation:
+    phrases: ["datatype =", "data type =", "confirm before use", "legend",
+              "colour key", "color key", "the vendor gave neither"]
+    italic: true
   # RecycleSpec boilerplate emitted around the VERBATIM workbook validation
   # text (phrasing mirrors the existing MIDS contract fixture).
   recycle_on_match: "Process record into stage table"
@@ -202,6 +215,10 @@ extractor:
         dq_mandatory: ["mandatory fields include in dq check"]
         comments: ["comments", "comment"]
     meta_synonyms:
+      # M11: which worksheet an inbound spreadsheet's data sits on. No
+      # framework table has a column for it (METADATA_DB_SEMANTICS §11 q22),
+      # so it rides the contract and the generated reader only.
+      sheet_name: ["sheet name", "tab name", "worksheet", "worksheet name", "sheet"]
       file_names: ["file names", "file name", "file s", "files", "file name s"]
       file_name_example: ["file name example"]
       frequency: ["frequency", "file frequency"]
@@ -225,6 +242,10 @@ extractor:
       Header: ["header", "hdr", "hddr", "hr", "header record", "h"]
       Detail: ["detail", "details", "dtl", "det", "dr", "detail record", "d", "data"]
       Trailer: ["trailer", "trl", "trlr", "tr", "trailer record", "t"]
+      # M11: NOT a segment — a Segment column that reads these has a single
+      # record type, and the sheet is extracted unsegmented (flag
+      # segments_none). Never a banner row, never a segment sheet name.
+      none: ["na", "n/a", "n.a.", "-", "--", "none", "not applicable"]
     auxiliary_sheets:
       file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]
       table_details: [["table name", "table description"], ["name", "table description", "load strategy"]]
@@ -832,6 +853,10 @@ conventions:
       # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
       # the target system is labelled in ADDITION.md / MANIFEST.md instead.
       target_system_header: false
+      # M11: the client's STTMs declare audit types of their own (a tinyint
+      # DELETE_FLAG); accept them, flagged, instead of refusing the document.
+      # edo_sfmc keeps the String/Timestamp restriction (its default).
+      audit_types_restricted: false
       # M10: adjust the DDL to what the environment probe found (identical ->
       # comment, no CREATE; different -> ALTER TABLE ADD COLUMNS + a REVIEW
       # block; never DROP, never CREATE OR REPLACE over an existing table).
@@ -1159,6 +1184,10 @@ inputs:
   # step is a visible error on the status, never a hung request. A remote folder
   # listing is waited for listing_timeout_seconds at most.
   classify_timeout_seconds: 60
+  # M11: read-only cell-count cap, checked before any scan. Over it, the
+  # document reads "unreadable: <n> cells, > cap <c>" instead of costing the
+  # parser its whole budget. 0 = no cap.
+  max_workbook_cells: 250000
   select_timeout_seconds: 120
   listing_timeout_seconds: 30
   parser_start_timeout_seconds: 60

@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
-{% if is_segmented or fixed_width %}
+{% if (is_segmented or fixed_width) and not spreadsheet %}
 from pyspark.sql import functions as F
 {% endif %}
 
@@ -33,7 +33,30 @@ def check_file_name(path: str) -> str:
     return file_name
 
 
-{% if fixed_width %}
+{% if spreadsheet %}
+def read_source(spark: SparkSession, path: str) -> DataFrame:
+    """Read the spreadsheet's data sheet; every column arrives String.
+
+    A workbook has no delimiter and no byte positions: the sheet is the
+    record set and its first row is the header. Read with pandas + openpyxl
+    (the runtime carries both; no cluster library is required) and handed to
+    Spark as strings — the pipeline's own casts are the only conversion.
+    """
+    check_file_name(path)
+    import pandas
+
+    frame = pandas.read_excel(
+        path,
+        sheet_name={{ sheet_name | tojson if sheet_name else "0" }},
+        dtype=str,
+        keep_default_na=False,
+        engine="openpyxl",
+    )
+    frame.columns = [str(c).strip() for c in frame.columns]
+    if frame.empty:
+        return spark.createDataFrame([], ", ".join(f"`{c}` STRING" for c in frame.columns))
+    return spark.createDataFrame(frame.astype(str))
+{% elif fixed_width %}
 RAW_LINE_COLUMN = "value"
 
 

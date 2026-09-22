@@ -149,6 +149,29 @@ def _test_per_module_check(feed_dir: Path) -> GateCheck:
     )
 
 
+def audit_type_check(spec, profile) -> GateCheck:
+    """M11: audit columns whose declared type is outside String / Timestamp.
+    Under a profile that restricts them this is a FAIL naming each column;
+    otherwise the type is emitted as declared (flag audit_type_nonstandard).
+    """
+    standard = {"string", "timestamp"}
+    columns = [(a.column, a.datatype) for s in spec.segments
+               for a in (s.audit_columns or [])] or []
+    columns += [(a.column, a.datatype) for a in spec.audit_columns]
+    nonstandard = sorted({f"{c} ({t})" for c, t in columns if t.strip().lower() not in standard})
+    if nonstandard and getattr(profile, "audit_types_restricted", True):
+        return GateCheck(
+            name="audit_types", passed=False,
+            details=(f"audit column(s) {', '.join(nonstandard)} declare a type outside "
+                     "String / Timestamp, which this conventions profile restricts "
+                     "(conventions.profiles.<profile>.audit_types_restricted) — state a "
+                     "standard type in the STTM or select a profile that accepts it"))
+    return GateCheck(
+        name="audit_types", passed=True,
+        details=(f"audit column(s) {', '.join(nonstandard)} carry the type the STTM declares"
+                 if nonstandard else "every audit column is String / Timestamp"))
+
+
 def natural_key_check(context: dict) -> GateCheck:
     """M10.1: every natural-key column must be a stage column of SOME segment.
     A column no segment carries used to be a KeyError inside build_context

@@ -95,7 +95,8 @@ def _common_tables(project: str, feed: str) -> tuple[list[str], list[str]]:
     return leading, trailing
 
 
-def build_f1_pair1(landing: str | None = None) -> bytes:
+def build_f1_pair1(landing: str | None = None,
+                   object_format: str | None = None) -> bytes:
     """F1 pair-1 variant, in the shape the REAL pair-1 FRD has (M9.0; the
     two ACFC captures on ``acfc-hotfix-1``: HANDOVER_GENIE.md §4 error 6 and
     PAIR1_HEADERS.md §2). Structural Metadata: the ``Target Table Name`` cell
@@ -142,7 +143,8 @@ def build_f1_pair1(landing: str | None = None) -> bytes:
             "IS Owner": "SYN IS Owner",
         }),
         _section("Structural Metadata", feed, f"{feed} structure", functional, STRUCTURAL_P1, {
-            "Object/data Format": pair1.FILE_FORMAT,
+            # M11 variant (`object_format`): an .xlsx inbound format.
+            "Object/data Format": object_format or pair1.FILE_FORMAT,
             "Target Catalog and Schema": "",
             "Target Table Name": pair1.FRD_TARGET_BLOCK,
             "Domain and Subdomain": f"{pair1.DOMAIN} / {pair1.SUB_DOMAIN}",

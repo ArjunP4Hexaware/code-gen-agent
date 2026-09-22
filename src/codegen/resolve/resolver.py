@@ -167,12 +167,23 @@ def _resolve_widths(sttm_feed: SttmFeed, vdd, feed_index: int, flags: list[str])
 
 
 def _is_fixed_width(file_format: str | None, config: Config) -> bool:
-    fmt = (file_format or "").lower()
-    return any(token.lower() in fmt for token in config.extractor.vdd.fixed_width_tokens)
+    from codegen.formats import is_fixed_width
+
+    return is_fixed_width(file_format, config)
 
 
 def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str],
                        config: Config | None = None) -> str:
+    if config is not None:
+        from codegen.formats import is_spreadsheet
+
+        if is_spreadsheet(frd_feed.file_format, config,
+                          [*frd_feed.file_name_patterns,
+                           sttm_feed.source_file.name_pattern or ""]):
+            # M11: a spreadsheet has no delimiter, by definition — the same
+            # answer the fixed-width branch below gives, and for the same
+            # reason. `formats.is_fixed_width` keeps the two apart.
+            return ""
     explicit = [d for d in (sttm_feed.source_file.delimiter, frd_feed.delimiter) if d]
     if not explicit and config is not None and _is_fixed_width(frd_feed.file_format, config):
         # M3: a fixed-width file has no delimiter by definition (positions
@@ -707,6 +718,30 @@ def _resolve_one(
     if errors:
         raise ContractMismatchError(feed_id, errors)
 
+    # M11: a spreadsheet source reads ONE worksheet; unstated, the generated
+    # reader takes the first sheet and the gate flags it (never a silent pick).
+    sheet_name = frd_feed.sheet_name or sttm_feed.source_file.sheet_name
+    from codegen.formats import is_spreadsheet
+
+    if sheet_name is None and is_spreadsheet(frd_feed.file_format, config,
+                                             [*frd_feed.file_name_patterns,
+                                              sttm_feed.source_file.name_pattern or ""]):
+        provenance_flags.append(
+            "sheet_name_unstated: the source files are spreadsheets and no document names "
+            "the worksheet (FRD, STTM meta row 'Sheet Name', VDD) — the generated reader "
+            "takes the workbook's FIRST sheet; answer feeds[i].sheet_name to state it")
+    if segments and len(segments) > 1 and is_spreadsheet(
+            frd_feed.file_format, config,
+            [*frd_feed.file_name_patterns, sttm_feed.source_file.name_pattern or ""]):
+        # A workbook carrying Header/Detail/Trailer RECORDS is a shape no
+        # document has shown: the reader reads one sheet, and the generated
+        # sample-file writer still lays records out line by line. Said out
+        # loud rather than assumed either way.
+        provenance_flags.append(
+            "spreadsheet_segmented: the source is a spreadsheet AND the STTM declares record "
+            f"segments {[s.segment for s in segments]} — the generated reader reads ONE sheet "
+            "and the sample-file writer lays records out per line; confirm the real layout "
+            "before using the generated fixtures")
     natural_key = _stage_columns(sttm_feed, sttm_feed.load_rules.not_null_columns, feed_id)
     not_null = natural_key
     phi = _stage_columns(sttm_feed, sttm_feed.load_rules.phi_columns, feed_id)
@@ -721,6 +756,7 @@ def _resolve_one(
         sub_domain=frd_feed.sub_domain,
         file_name_patterns=file_name_patterns,
         file_format=frd_feed.file_format,
+        sheet_name=sheet_name,
         delimiter=delimiter,
         landing_location=frd_feed.landing_location,
         segments=segments,

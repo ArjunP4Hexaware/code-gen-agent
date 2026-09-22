@@ -28,6 +28,9 @@ class SourceFile(BaseModel):
     name_pattern: str | None
     format: str
     delimiter: str | None
+    # M11: the worksheet an inbound spreadsheet's data sits on (STTM meta row
+    # "Sheet Name"). Defaulted — older contracts are unchanged.
+    sheet_name: str | None = None
     frequency: str | None
 
 
@@ -65,10 +68,19 @@ class LoadRules(BaseModel):
 
 
 class AuditColumn(BaseModel):
+    """M11: ``datatype`` is the type the STTM DECLARES. ``String`` and
+    ``Timestamp`` are canonical (any spelling of them normalises to these, so
+    every existing contract is byte-identical); another declared type — a
+    client's ``tinyint`` DELETE_FLAG — is carried VERBATIM and flagged
+    ``audit_type_nonstandard``. Whether it is acceptable is a deployment
+    question, decided per conventions profile by the gate check
+    ``audit_types`` (``conventions.profiles.<p>.audit_types_restricted``),
+    never by refusing to read the document."""
+
     model_config = _MODEL_CONFIG
 
     column: str
-    datatype: Literal["String", "Timestamp"]
+    datatype: str
 
 
 # ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------

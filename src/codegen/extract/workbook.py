@@ -161,6 +161,9 @@ class WorkbookIR:
     sheets: tuple[SheetIR, ...]
     # M1: the layout profile the sheets were read through.
     profile: LayoutProfile | None = None
+    # M11: FILE_DETAILS rows skipped as annotations / without a file name,
+    # one reason each — carried to the contract as extraction flags.
+    skipped_file_details: tuple[str, ...] = ()
 
 
 def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
@@ -196,13 +199,15 @@ def workbook_ir(found: Discovery, name: str, config: ExtractorConfig) -> Workboo
     """The flat IR read through a ``mapping_prefix`` profile."""
     workbook = found.workbook
     profile = found.profile
+    file_details, skipped = _parse_file_details(workbook, config, name)
     return WorkbookIR(
         workbook_name=name,
         version=_parse_version_history(workbook, config, name),
-        file_details=_parse_file_details(workbook, config, name),
+        file_details=file_details,
         sheets=tuple(_parse_mapping_sheet(workbook[s.name], config, s)
                      for s in profile.mapping_sheets),
         profile=profile,
+        skipped_file_details=skipped,
     )
 
 
@@ -261,6 +266,22 @@ def _reject_segmented_family(workbook, config: ExtractorConfig, name: str) -> No
 # ------------------------------------------------------------- metadata sheets
 
 
+def is_annotation(text: str | None, italic: bool, config: ExtractorConfig) -> bool:
+    """M11: a FILE_DETAILS vendor cell that is a note to the reader, not a
+    vendor — by phrase (config ``extractor.file_details_annotation.phrases``)
+    or by italic font when the reader can see it."""
+    annotation = config.file_details_annotation
+    if italic and annotation.italic:
+        return True
+    lowered = (text or "").lower()
+    return any(phrase.lower() in lowered for phrase in annotation.phrases if phrase)
+
+
+def _is_italic(cell) -> bool:
+    font = getattr(cell, "font", None)
+    return bool(getattr(font, "italic", False))
+
+
 def _parse_file_details(workbook, config: ExtractorConfig, name: str) -> tuple[FileDetailsRow, ...]:
     sheet_name = config.file_details_sheet
     if sheet_name not in workbook.sheetnames:
@@ -285,21 +306,41 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str) -> tuple[F
     freq_col = _find("frequency", fd_headers.frequency)
 
     rows: list[FileDetailsRow] = []
-    for row_number, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        vendor, file_name = _text(row[vendor_col]), _text(row[file_col])
+    skipped: list[str] = []
+    for row_number, row in enumerate(ws.iter_rows(min_row=2), start=2):
+        cells = list(row)
+        vendor = _text(cells[vendor_col].value) if vendor_col < len(cells) else None
+        file_name = _text(cells[file_col].value) if file_col < len(cells) else None
         if vendor is None and file_name is None:
             continue
-        if vendor is None or file_name is None:
+        # M11: a legend / note row, or a row that names no file, is SKIPPED
+        # with its reason — never a parse error (the v0.6.2 ACFC run).
+        if vendor is not None and is_annotation(
+                vendor, _is_italic(cells[vendor_col]), config):
+            skipped.append(f"{sheet_name} row {row_number}: annotation, not a file "
+                           f"(vendor cell reads {_truncate_cell(vendor)!r})")
+            continue
+        if file_name is None:
+            skipped.append(f"{sheet_name} row {row_number}: no file name "
+                           f"(vendor={_truncate_cell(vendor)!r})")
+            continue
+        if vendor is None:
             raise WorkbookParseError(
                 f"{sheet_name} row {row_number}: Vendor and FileName must both be present "
                 f"(got vendor={vendor!r}, file_name={file_name!r})"
             )
-        rows.append(
-            FileDetailsRow(vendor=vendor, file_name=file_name, frequency=_text(row[freq_col]))
-        )
+        frequency = _text(cells[freq_col].value) if freq_col < len(cells) else None
+        rows.append(FileDetailsRow(vendor=vendor, file_name=file_name, frequency=frequency))
     if not rows:
-        raise WorkbookParseError(f"{sheet_name}: no data rows")
-    return tuple(rows)
+        raise WorkbookParseError(
+            f"{sheet_name}: no data rows"
+            + (f" ({len(skipped)} row(s) skipped: {'; '.join(skipped[:3])})" if skipped else ""))
+    return tuple(rows), tuple(skipped)
+
+
+def _truncate_cell(text: str | None, limit: int = 60) -> str:
+    value = " ".join((text or "").split())
+    return value if len(value) <= limit else value[:limit] + "…"
 
 
 def _parse_version_history(workbook, config: ExtractorConfig, name: str) -> str:
@@ -653,10 +694,14 @@ def _parse_audit_row(
     raw_datatype = _text(row[stage_cols["datatype"]]) or ""
     datatype = _AUDIT_DATATYPES.get(_norm(raw_datatype))
     if datatype is None:
-        raise WorkbookParseError(
-            f"{ws.title} row {row_number}: audit column {column!r} has datatype "
-            f"{raw_datatype!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
-        )
+        # M11: the type the STTM declares is carried verbatim; the gate check
+        # `audit_types` decides whether the profile accepts it.
+        datatype = raw_datatype.strip()
+        if not datatype:
+            raise WorkbookParseError(
+                f"{ws.title} row {row_number}: audit column {column!r} states no datatype "
+                "(the cell is empty)"
+            )
     return AuditRow(column=column, datatype=datatype)
 
 

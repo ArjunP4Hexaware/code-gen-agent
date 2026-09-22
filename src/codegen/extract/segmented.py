@@ -386,10 +386,13 @@ def extract_segmented_contract(
             )
         datatype = _AUDIT_DATATYPES.get(_norm(datatype_raw))
         if datatype is None:
-            raise WorkbookParseError(
-                f"{ws.title} row {seg_row.row_number}: audit column {column!r} has "
-                f"datatype {datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
-            )
+            # M11: carried verbatim, flagged by the gate (audit_types).
+            datatype = (datatype_raw or "").strip()
+            if not datatype:
+                raise WorkbookParseError(
+                    f"{ws.title} row {seg_row.row_number}: audit column {column!r} states "
+                    "no datatype (the cell is empty)"
+                )
         audit_by_segment.setdefault(current_segment, []).append((column, datatype))
 
     if "Detail" not in fields_by_segment:
@@ -540,8 +543,12 @@ def extract_segmented_contract(
         )
 
     file_pattern = _match_file_pattern(facts["files"], frd_feed, workbook_path.name)
-    delimiter = frd_feed.delimiter or _metadata_delimiter(facts) or \
-        _FORMAT_DELIMITERS.get(frd_feed.file_format.lower())
+    from codegen.formats import is_spreadsheet
+
+    delimiter = "" if is_spreadsheet(frd_feed.file_format, config,
+                                     frd_feed.file_name_patterns) else (
+        frd_feed.delimiter or _metadata_delimiter(facts)
+        or _FORMAT_DELIMITERS.get(frd_feed.file_format.lower()))
     if delimiter is None:
         raise ExtractionError(
             f"feed {frd_feed.feed_name!r}: no delimiter in the FRD, the metadata "

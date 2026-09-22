@@ -1396,7 +1396,7 @@ class GapFillResult:
 
 
 _GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strategy",
-               "standard_target.load_strategy")
+               "standard_target.load_strategy", "sheet_name")
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
 
 
@@ -1821,6 +1821,52 @@ class _FeedGapFiller:
                  "(wildcards and date placeholders as the vendor writes them)."))
         self.result.handled.add(key)
 
+    def _sheet_name(self) -> None:
+        """M11: an inbound SPREADSHEET needs the worksheet its data sits on.
+        FRD -> STTM meta row ("Sheet Name") -> VDD -> ask. Unanswered, the
+        reader takes the workbook's FIRST sheet and the gate says so — the
+        agent never silently picks one."""
+        from codegen.formats import is_spreadsheet
+
+        key = self.prefix + "sheet_name"
+        stated_files = self.meta.get("file_names") or ()
+        if isinstance(stated_files, str):
+            stated_files = stated_files.split(";")
+        patterns = [*(self.feed.file_name_patterns or []), *stated_files]
+        if not is_spreadsheet(self.feed.file_format, self.config, patterns):
+            return
+        if self.feed.sheet_name:
+            return
+        chosen = self.gaps.get(key)
+        if chosen is not None and str(chosen["value"]).strip():
+            value = str(chosen["value"]).strip()
+            self.patched = _feed_set(self.patched, "sheet_name", value)
+            self.result.fills.append({"field": key, "title": "Sheet name",
+                                      "value": value, "source": "user",
+                                      "cell": "layout dialog / answers file"})
+            self.result.flags.append(f"sheet_name_from_user:{key} — no document names the "
+                                     f"worksheet; the person stated {value!r}")
+            self.result.handled.add(key)
+            return
+        stated = self.meta.get("sheet_name")
+        if stated:
+            self.patched = _feed_set(self.patched, "sheet_name", stated)
+            self.result.fills.append({"field": key, "title": "Sheet name", "value": stated,
+                                      "source": "STTM", "cell": "meta row 'Sheet Name'"})
+            self.result.flags.append(f"sheet_name_from_sttm:{key} — the FRD names no "
+                                     f"worksheet; the STTM meta row states {stated!r}")
+            self.result.handled.add(key)
+            return
+        self.result.questions.append(LayoutQuestion(
+            document="frd", sheet=None, layer=None, role=key, kind="text",
+            reason="the source files are spreadsheets and no document names the worksheet "
+                   "their data sits on (the FRD, the STTM meta row 'Sheet Name' and the VDD "
+                   "are all silent)",
+            header=[], candidates=[], title="Sheet name",
+            hint="Type the worksheet name the data sits on. Left unanswered, the generated "
+                 "reader takes the workbook's FIRST sheet and the gate flags it."))
+        self.result.handled.add(key)
+
     # -- the chain ----------------------------------------------------------------
     def run(self):
         from codegen.faq import load_faq
@@ -1855,6 +1901,7 @@ class _FeedGapFiller:
         # extractor + contract resolver take those, flagged file_pattern_from_
         # sttm) -> VDD FILES sheet -> ask. Only the last two are decided here.
         self._file_patterns()
+        self._sheet_name()          # M11: the worksheet of a spreadsheet source
 
         # b. file format / delimiter: STTM meta row, then VDD FILES.
         for dotted in ("file_format", "delimiter"):

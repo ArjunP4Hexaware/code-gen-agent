@@ -654,12 +654,29 @@ def _meta_rows(rows_above: list[list], disc: DiscoveryConfig, sheet: str,
     return out
 
 
+# M11: the segment_synonyms key that means "this sheet has a single record
+# type" — a spelling class, never a segment.
+NONE_SEGMENT = "none"
+
+
+def segment_spellings(disc: DiscoveryConfig) -> set[str]:
+    """Every spelling of a REAL segment. The M11 ``none`` class (NA, N/A, -)
+    means "single record type" and is deliberately not one: a lone "NA" cell
+    is not a banner row, and a sheet named "NA" spells no segment."""
+    return {normalize(s) for canonical, values in disc.segment_synonyms.items()
+            if canonical != NONE_SEGMENT for s in values}
+
+
+def none_segment_spellings(disc: DiscoveryConfig) -> set[str]:
+    return {normalize(s) for s in disc.segment_synonyms.get(NONE_SEGMENT, ())}
+
+
 def _has_banner_rows(ws, header_row: int, bands: list[BandProfile],
                      disc: DiscoveryConfig) -> bool:
     source = next((b for b in bands if b.layer == "source"), None)
     if source is None:
         return False
-    spellings = {normalize(s) for values in disc.segment_synonyms.values() for s in values}
+    spellings = segment_spellings(disc)
     for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
         filled = [(i + 1, text(c)) for i, c in enumerate(row) if text(c) is not None]
         if len(filled) != 1:
@@ -675,7 +692,7 @@ def _apply_sheet_segments(sheets: list[SheetProfile], disc: DiscoveryConfig) -> 
     mapping = [s for s in sheets if s.kind == "mapping"]
     if len(mapping) < 2:
         return sheets
-    spellings = {normalize(s) for values in disc.segment_synonyms.values() for s in values}
+    spellings = segment_spellings(disc)
     if all(normalize(s.name) in spellings or normalize(s.name).split(" ")[-1] in spellings
            for s in mapping):
         return [s.model_copy(update={"segment_strategy": "sheet"}) if s.kind == "mapping"

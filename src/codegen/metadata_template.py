@@ -327,10 +327,12 @@ def _segment_positions(segment: SegmentSpec) -> tuple[list[str], list[str], list
 
 
 def _fixed_width_handler(tab, feed, config, spec, faq, tpl) -> list[dict]:
-    if spec is None or not spec.is_segmented or not (
-            spec.delimiter == "" or any(
-                token.lower() in (spec.file_format or "").lower()
-                for token in config.extractor.vdd.fixed_width_tokens)):
+    # M11: `delimiter == ""` alone is not fixed width — a spreadsheet source
+    # has no delimiter either and carries no byte positions to put here.
+    from codegen.formats import is_fixed_width
+
+    if spec is None or not spec.is_segmented or not is_fixed_width(
+            spec.file_format, config, spec.delimiter, spec.file_name_patterns):
         return []
     audit = ",".join(c for c, _t in _audit(spec, tpl))
     declared = getattr(faq, "record_type_discriminators", None) if faq is not None else None

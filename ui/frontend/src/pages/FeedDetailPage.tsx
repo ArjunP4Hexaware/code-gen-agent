@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
   api,
+  downloadHref,
   type Candidate,
   type Decision,
   type FeedDetail,
@@ -10,6 +11,7 @@ import {
 import { ClassBadge } from "../components/ClassBadge";
 import { lobLabel } from "../lobs";
 import { CodeView } from "../components/CodeView";
+import { DownloadButton } from "../components/DownloadButton";
 import { NotebookView } from "../components/NotebookView";
 import { VerdictChip } from "../components/VerdictChip";
 
@@ -510,14 +512,11 @@ function NotebookTab({ slug }: { slug: string }) {
         <span className="hint">
           the whole pipeline as one runnable Databricks notebook — the module files stay canonical
         </span>
-        <a
-          className="btn"
-          style={{ marginLeft: "auto" }}
-          href={`/api/feeds/${slug}/download?path=${encodeURIComponent(`${slug}.ipynb`)}`}
-          download
-        >
-          Download .ipynb
-        </a>
+        <DownloadButton
+          href={downloadHref(slug, `${slug}.ipynb`)}
+          label="Download .ipynb"
+          title={`Download ${slug}.ipynb — the whole pipeline as one notebook`}
+        />
       </div>
       <div className="panel-body">
         <NotebookView content={content} />
@@ -566,8 +565,20 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
     dirs.set(dir, [...(dirs.get(dir) ?? []), f]);
   }
 
+  const hasNotebook = feed.written_files.some((f) => f.endsWith(".ipynb"));
+
   return (
     <div className="panel">
+      <div className="code-toolbar">
+        <span className="hint">{files.length} file(s)</span>
+        {hasNotebook ? (
+          <DownloadButton
+            href={downloadHref(feed.feed_slug, `${feed.feed_slug}.ipynb`)}
+            label="Download .ipynb"
+            title={`Download ${feed.feed_slug}.ipynb — the whole pipeline as one notebook`}
+          />
+        ) : null}
+      </div>
       <div className="code-layout">
         <div className="file-tree">
           {[...dirs.entries()].map(([dir, paths]) => (
@@ -586,7 +597,11 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
           ))}
         </div>
         {selected ? (
-          <CodeView path={selected} content={content} />
+          <CodeView
+            path={selected}
+            content={content}
+            downloadHref={downloadHref(feed.feed_slug, selected)}
+          />
         ) : (
           <div className="empty" style={{ flex: 1 }}>
             Select a file

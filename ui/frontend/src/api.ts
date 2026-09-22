@@ -539,6 +539,10 @@ export interface LiveAvailability {
   transport?: Layer2Transport | null;
 }
 
+/** A generated file of a feed as an attachment (contained to the feed dir). */
+export const downloadHref = (slug: string, path: string) =>
+  `/api/feeds/${slug}/download?path=${encodeURIComponent(path)}`;
+
 export const api = {
   feeds: () => request<FeedsResponse>("/api/feeds"),
   feed: (slug: string) => request<FeedDetail>(`/api/feeds/${slug}`),

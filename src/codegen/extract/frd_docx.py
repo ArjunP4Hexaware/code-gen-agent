@@ -423,6 +423,27 @@ def _value(content: DocxContent, source: FrdFieldSource, config: FrdExtractorCon
     return text
 
 
+# ------------------------------------------ M10.1: label-prefixed path values
+
+_PATH_LABEL_FIELDS = {"landing_location"}
+
+
+def strip_value_label(text: str, prefixes: list[str]) -> tuple[str, str | None]:
+    """``"/Path : abfss://…"`` -> ``("abfss://…", "Path")``: a path cell that
+    starts with a configured label token (a leading slash before it allowed),
+    optional spaces and ':' loses the label. (remainder, label) — the label
+    is None when nothing was stripped. Case-insensitive; the longest label
+    wins ("ADLS Path" before "Path")."""
+    if not text or not prefixes:
+        return text, None
+    for label in sorted(prefixes, key=len, reverse=True):
+        match = re.match(r"^\s*/?\s*(" + re.escape(label) + r")\s*:\s*(.*)$", text,
+                         flags=re.IGNORECASE | re.S)
+        if match and match.group(2).strip():
+            return match.group(2).strip(), match.group(1).strip()
+    return text, None
+
+
 # ---------------------------------------------------- M7: refused cell shapes
 
 _HEADING_LINE_RE = re.compile(r"^\s*([^=:\n]{2,80}?):\s*$")
@@ -714,11 +735,15 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         if source is None:
             return ""
         value = _value(content, source, frd_config)
-        evidence[path] = FieldEvidence(
-            table=source.table, row=source.row, col=source.col, label=source.label,
-            section=source.section, inline_label=source.inline_label, source=profile.source)
         clean = path.split("#", 1)[0]
         field = clean.split(".", 1)[1] if "." in clean else clean
+        stripped_label = None
+        if field in _PATH_LABEL_FIELDS:
+            value, stripped_label = strip_value_label(value, frd_config.value_label_prefixes)
+        evidence[path] = FieldEvidence(
+            table=source.table, row=source.row, col=source.col, label=source.label,
+            section=source.section, inline_label=source.inline_label, source=profile.source,
+            stripped_label=stripped_label)
         own = {k for k, v in {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.items() if v == field}
         if field == "domain":
             own |= {"domain_subdomain", "domain"}

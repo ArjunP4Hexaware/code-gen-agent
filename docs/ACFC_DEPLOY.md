@@ -319,6 +319,39 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.6.1-acfc adds (M10.1 — the two v0.6.0 real-run bugs)
+
+From the first ACFC run of v0.6.0 (pair 1, 2026-09-22):
+
+1. **`KeyError` on a trailer stage column in the natural key.** The sheet
+   names its record-type field the same in every segment; the resolver's
+   source-name → stage-column map let the LAST segment win, so the detail
+   MERGE was keyed on the trailer's stage column, and the emitter (which
+   resolved the key against the Detail segment only) crashed. Now: a shared
+   source name maps to the **Detail** segment's stage column
+   (`resolve/resolver.py::_stage_columns`); `build_context` resolves the key
+   against **every** segment (`natural_key_segments` in the context); a key
+   column that exists in no segment is the gate check
+   **`natural_key_columns` = FAIL** naming it and the segments searched —
+   never a crash. The check is added only when it fails, so no baseline
+   report moves. Variant fixture: `sttm.build_pair1(trailer_key=True)`;
+   `tests/test_m101_real_run_bugs.py` drives it through the CLI and through
+   the App runner (`DemoRunner._execute`, chooser and all).
+2. **`/Path : <storage>/<landing>/…` in the FRD's ADLS Location cell.** The
+   derivations check FAILed every path that embedded the label. The FRD
+   reader now strips a leading label token (`extractor.frd.value_label_
+   prefixes`: Path, ADLS Path, Location, ADLS Location, Landing Path; a
+   leading slash before the label, spaces around the colon, any case) and
+   records it as `stripped_label` in the field's evidence; the remainder
+   goes through the existing path validation unchanged — so a URI where a
+   folder path is expected still FAILs, as it should. Variant fixture:
+   `frd.build_f1_pair1(landing="/Path : …")`.
+3. **`ruff=NOT RUN` in the notebook fallback.** `acfc_run.py`'s install
+   cell is now `.[ui,databricks]` — `[ui]` carries ruff. `check_not_run`
+   stays the fallback.
+
+Version marker 0.6.1. CV / SFMC baselines byte-identical (193 files).
+
 ## What v0.6.0-acfc adds (M10 — the environment probe, read-only)
 
 Before this the artefacts assumed an empty target: every table a `CREATE OR

@@ -462,7 +462,17 @@ def _resolve_segments(
 
 
 def _stage_columns(sttm_feed: SttmFeed, source_columns: list[str], feed: str) -> list[str]:
-    by_source = {f.source_column: f.stage_column for f in sttm_feed.fields}
+    """Source column names -> stage columns. M10.1: a source NAME shared by
+    several segments (a record-type field in Header, Detail and Trailer) maps
+    to the DETAIL segment's stage column — the rule columns are the detail
+    table's. A plain dict let the last segment win, and the v0.6.0 ACFC run
+    keyed its detail MERGE on a trailer stage column (then crashed on it)."""
+    by_source: dict[str, str] = {}
+    for field in sttm_feed.fields:
+        if field.record_segment in (None, "Detail"):
+            by_source[field.source_column] = field.stage_column        # the detail wins
+        else:
+            by_source.setdefault(field.source_column, field.stage_column)
     missing = [c for c in source_columns if c not in by_source]
     if missing:
         raise ContractMismatchError(feed, [f"columns not present in STTM fields: {missing}"])

@@ -163,6 +163,9 @@ class FieldEvidence(BaseModel):
     section: str | None = None
     inline_label: str | None = None
     source: Literal["synonyms", "model", "user", "cache"]
+    # M10.1: the label token stripped from the front of a path cell
+    # ("/Path : …" -> "Path"); None when the cell was the bare value.
+    stripped_label: str | None = None
 
 
 class FrdLayoutSummary(BaseModel):

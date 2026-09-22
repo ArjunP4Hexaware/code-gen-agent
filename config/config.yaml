@@ -312,6 +312,9 @@ extractor:
     # M7 (2026-09-18): a cell that POINTS at another document is unstated
     # (flag frd_pointer:<field> -> <target named>) and resolved through the
     # fallback chain (STTM File Details / meta rows, VDD FILES). Case-insensitive.
+    # M10.1: label tokens a path cell may start with ("/Path : <storage>/…",
+    # the v0.6.0 ACFC FRD) — stripped, recorded in the field's evidence.
+    value_label_prefixes: ["Path", "ADLS Path", "Location", "ADLS Location", "Landing Path"]
     pointer_phrases: ["refer to", "see the", "attached in the appendix", "per the mapping document",
                       "mentioned in the mapping document", "provided in the mapping document",
                       "included in the mapping document"]

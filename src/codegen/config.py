@@ -337,6 +337,13 @@ class FrdExtractorConfig(BaseModel):
     # or any file-like value under another label (a line of business) — is a
     # file name pattern. Raw block text never lands in a scalar.
     object_name_labels: dict[str, list[str]] = Field(default_factory=dict)
+    # M10.1: a PATH cell whose text starts with one of these label tokens,
+    # optional spaces and ':' ("/Path : <storage>/<landing>/…" — the v0.6.0
+    # ACFC FRD) has the label stripped and recorded in the field's evidence
+    # (`stripped_label`); the remainder is the value and goes through the
+    # existing path validation. A leading slash before the label is covered.
+    # Case-insensitive. Applies to landing_location only.
+    value_label_prefixes: list[str] = Field(default_factory=list)
 
 
 class VddExtractorConfig(BaseModel):

@@ -32,10 +32,15 @@ def _version_sheet(wb, title, header, header_row, rows, merge_a2d2=False):
 # --------------------------------------------------------------- Family A ---
 
 
-def build_pair1(amounts: bool = False, amount_end: bool = False):
+def build_pair1(amounts: bool = False, amount_end: bool = False, trailer_key: bool = False):
     """``amounts`` (M9.2, a test VARIANT — not the tracked fixture): six more
     Detail fields whose Length cell reads ``10,2`` (pair1.AMOUNT_FIELDS), with
-    no End cell unless ``amount_end``.
+    no End cell unless ``amount_end``. ``trailer_key`` (M10.1, a VARIANT):
+    the Detail's record-type row is ``Not NULL = Y`` (it joins the natural
+    key) and the Trailer's row of the SAME source name maps to a
+    trailer-specific stage column (pair1.TRAILER_KEY_STAGE) — the v0.6.0
+    ACFC sheet's shape, on which the resolver keyed the detail MERGE on the
+    trailer's stage column and the emitter crashed (KeyError).
 
     Pair 1 (Family A): Version | LOB_CROSSWALK | FEED_1_MAPPING — the REAL
     sheet geometry (M9.0), transcribed from the two ACFC captures on the
@@ -132,11 +137,15 @@ def build_pair1(amounts: bool = False, amount_end: bool = False):
             segment = c.segment
             rows.append([pair1.SEGMENT_BANNERS[segment]])
         sno += 1
+        record_type = trailer_key and c.name == pair1.TRAILER_KEY_SOURCE
+        not_null = "Y" if c.required == "Y" or (record_type and c.segment == "DET") else "N"
+        stage_name = (pair1.TRAILER_KEY_STAGE if record_type and c.segment == "TRLR"
+                      else c.name)
         rows.append([
             sno, c.segment, c.name, c.required, pair1.SOURCE_TYPE, c.start, c.length,
             c.start + c.length - 1, c.description, None,
-            c.description, "N", None, "N", "Y" if c.required == "Y" else "N", c.load_rule,
-            *targets(c.name, c.dtype, c.name, c.dtype),
+            c.description, "N", None, "N", not_null, c.load_rule,
+            *targets(stage_name, c.dtype, stage_name, c.dtype),
         ])
     for name, dtype in pair1.AUDIT_COLUMNS:
         rows.append([

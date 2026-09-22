@@ -149,6 +149,27 @@ def _test_per_module_check(feed_dir: Path) -> GateCheck:
     )
 
 
+def natural_key_check(context: dict) -> GateCheck:
+    """M10.1: every natural-key column must be a stage column of SOME segment.
+    A column no segment carries used to be a KeyError inside build_context
+    (the v0.6.0 ACFC run, a trailer record-type column in the key); it is a
+    FAIL that names the column and the segments that were searched."""
+    missing = list(context.get("natural_key_missing") or [])
+    segments = [s.get("name") for s in context.get("segments") or []]
+    if missing:
+        return GateCheck(
+            name="natural_key_columns", passed=False,
+            details=(f"natural key column(s) {', '.join(missing)} exist in no segment "
+                     f"(searched: {', '.join(str(s) for s in segments) or 'the feed'}); "
+                     "the STTM's key must name stage columns the mapping defines"))
+    placed = context.get("natural_key_segments") or {}
+    return GateCheck(
+        name="natural_key_columns", passed=True,
+        details=("every natural key column is a stage column of a segment: "
+                 + ", ".join(f"{c} ({seg})" for c, seg in placed.items())
+                 if placed else "the feed declares no natural key"))
+
+
 def run_preflight(feed_dir: Path, config: Config) -> list[GateCheck]:
     """Run the enabled pre-flight checks over ``out/<feed_slug>/``."""
     checks: list[GateCheck] = []

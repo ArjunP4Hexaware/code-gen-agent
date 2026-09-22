@@ -277,18 +277,37 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
-## Where this stands (2026-09-21, later session) — READ FIRST
+## Where this stands (2026-09-22) — READ FIRST
 
-`staging` (local) = **v0.5.9-acfc** (6b33f0d) + the **M10 commit** on top;
-`origin/staging` is still **3a5b85d** (v0.5.8-acfc) — v0.5.9 and M10 are NOT
-pushed and M10 is NOT tagged: Soham asked to see the baseline diff and the
-artefact samples first (shown; both are in the M10 section below). Next
-step on his go: `git tag v0.6.0-acfc`, push `staging` + tags. `main` is
-untouched at 4c35c61 (v0.4.1).
+`staging` = `origin/staging` = **v0.6.1-acfc** (M10.1, see below), on top of
+**v0.6.0-acfc** (cdda58f, M10) and **v0.5.9-acfc** (6b33f0d). All three tags
+are on the remote. `main` is untouched at 4c35c61 (v0.4.1).
 
-**The App version marker is 0.6.0** (`pyproject.toml` + the
+**The App version marker is 0.6.1** (`pyproject.toml` + the
 `codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
 Apps runtime serves a cached env).
+
+**M10.1 (v0.6.1-acfc):** the two bugs of the first real v0.6.0 run
+(`docs/acfc/RUN_v060_pair1.md` on `origin/acfc-runs` — UNSCRUBBED, never
+merge or copy it; the scrubbed account is `docs/ACFC_DEPLOY.md` "What
+v0.6.1-acfc adds"). (1) A source field NAME shared across segments (the
+record-type column) let the resolver key the detail MERGE on the TRAILER's
+stage column, and `build_context` crashed on it — `_stage_columns` now
+prefers the Detail segment, `build_context` resolves the key against every
+segment (`natural_key_segments` / `natural_key_missing` in the context) and
+a column no segment carries is the gate check `natural_key_columns` = FAIL
+(added only when it fails, so baseline reports do not move). (2) An ADLS
+Location cell reading `/Path : <storage>/…` — `extractor.frd.
+value_label_prefixes` strips the label, `FieldEvidence.stripped_label`
+records it, the remainder still goes through the path rules (a URI where a
+folder path is expected still FAILs — that is the check working). (3)
+`acfc_run.py` installs `.[ui,databricks]` so ruff runs in the notebook.
+Fixture variants: `sttm.build_pair1(trailer_key=True)` (pair1.
+TRAILER_KEY_SOURCE / TRAILER_KEY_STAGE), `frd.build_f1_pair1(landing=…)`;
+tests `tests/test_m101_real_run_bugs.py` (incl. the App runner end to end
+on the variant). Verified: 722 passed / 27 skipped on 3.10 / 3.11 / 3.12,
+ruff clean, scrub 0 hits, CV / SFMC baselines 193 files byte-identical vs
+v0.6.0; no frontend change (dist untouched).
 
 **v0.5.9-acfc (this session, committed 6b33f0d):** the App never reaches a
 foreign workspace — `databricks.catalog / schema / frd_volume / sttm_volume`

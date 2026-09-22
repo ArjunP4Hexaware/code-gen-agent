@@ -95,7 +95,7 @@ def _common_tables(project: str, feed: str) -> tuple[list[str], list[str]]:
     return leading, trailing
 
 
-def build_f1_pair1() -> bytes:
+def build_f1_pair1(landing: str | None = None) -> bytes:
     """F1 pair-1 variant, in the shape the REAL pair-1 FRD has (M9.0; the
     two ACFC captures on ``acfc-hotfix-1``: HANDOVER_GENIE.md §4 error 6 and
     PAIR1_HEADERS.md §2). Structural Metadata: the ``Target Table Name`` cell
@@ -151,7 +151,10 @@ def build_f1_pair1() -> bytes:
             "Load Strategy Consumption (EDH, BSL)": "N/A",
             "Archive Schedule": "Archive after load; retain 7 years",
             "Source Data Dictionary": f"{feed} VDD (VENDOR_A layout v2)",
-            "ADLS Location": f"/{pair1.DOMAIN}/{pair1.SUB_DOMAIN}/",
+            # M10.1 variant (`landing`): the v0.6.0 ACFC cell read
+            # "/Path : <storage>/<landing>/..." - a label token before the path.
+            "ADLS Location": (landing if landing is not None
+                              else f"/{pair1.DOMAIN}/{pair1.SUB_DOMAIN}/"),
             "Inbound File Folder Path": f"inbound\\{pair1.DOMAIN.lower()}\\{pair1.SUB_DOMAIN.lower()}",
         }),
         _section("Administrative Metadata", feed, "", functional, ADMINISTRATIVE, {

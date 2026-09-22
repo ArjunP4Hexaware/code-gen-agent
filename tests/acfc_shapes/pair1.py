@@ -84,6 +84,12 @@ SEGMENTS: dict[str, list[tuple[str, int, int]]] = {
 # field's target column reads "Do Not Map" with no data type. The field name
 # carries the line break the real header cell has; the vocabulary is synthetic.
 SEGMENT_BANNERS = {"HDDR": "Header", "DET": "Details", "TRLR": "Trailer"}
+# M10.1 variant (sttm.build_pair1(trailer_key=True)) — the shape that crashed
+# the v0.6.0 ACFC run: the record-type SOURCE field is named the same in every
+# segment, the Detail's row is Not NULL (it joins the natural key) and the
+# Trailer's row maps it to a trailer-specific STAGE column.
+TRAILER_KEY_SOURCE = "SEGMENT_IDENTIFIER"
+TRAILER_KEY_STAGE = "SEGMENT_IDENTIFIER_TRLR"
 UNMAPPED_AFTER_SEGMENT = "DET"
 UNMAPPED_FIELD = ("Reserved Group\n(01)", 223, 10)     # name, start, length
 UNMAPPED_MARKER = "Do Not Map"

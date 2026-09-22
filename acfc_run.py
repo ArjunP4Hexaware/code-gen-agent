@@ -13,7 +13,10 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -e ".[databricks]"
+# MAGIC %pip install -q -e ".[ui,databricks]"
+# MAGIC # M10.1: [ui] carries ruff — the gate's ruff check runs `python -m ruff`
+# MAGIC # and the v0.6.0 run reported it "NOT RUN" (`No module named ruff` on
+# MAGIC # serverless). check_not_run stays the fallback if the install is trimmed.
 
 # COMMAND ----------
 

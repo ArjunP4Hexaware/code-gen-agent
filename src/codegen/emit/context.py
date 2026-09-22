@@ -440,9 +440,21 @@ def build_context(
             if trailer_count_stage_column is not None:
                 trailer_count_source_column = config.segments.trailer_count_column
 
-    detail_fields_by_stage = {f.stage_column: f.source_column for f in spec.detail_segment.fields}
+    # M10.1: the natural key is resolved against the fields of ALL segments
+    # (the Detail segment first, so it wins a name shared across segments) —
+    # a segmented feed may key on the trailer's record-type column. A key
+    # column that exists in no segment is a gate FAIL naming it (the
+    # `natural_key_columns` check), never a KeyError (v0.6.0 ACFC run).
+    fields_by_stage: dict[str, tuple[str, str]] = {}
+    for segment in (spec.detail_segment, *[s for s in spec.segments
+                                            if s is not spec.detail_segment]):
+        for f in segment.fields:
+            fields_by_stage.setdefault(f.stage_column, (f.source_column, segment.segment))
+    natural_key_missing = [c for c in spec.natural_key_columns if c not in fields_by_stage]
+    natural_key_segments = {c: fields_by_stage[c][1] for c in spec.natural_key_columns
+                            if c in fields_by_stage}
     detail_natural_key_source_columns = [
-        detail_fields_by_stage[stage_column] for stage_column in spec.natural_key_columns
+        fields_by_stage[c][0] for c in spec.natural_key_columns if c in fields_by_stage
     ]
 
     def _standard_type(datatype: str) -> str:
@@ -644,6 +656,10 @@ def build_context(
         "trailer_count_stage_column": trailer_count_stage_column,
         "trailer_count_source_column": trailer_count_source_column,
         "detail_natural_key_source_columns": detail_natural_key_source_columns,
+        # M10.1: stage column -> the segment that carries it; the columns no
+        # segment carries (a gate FAIL, see gate.preflight.natural_key_check).
+        "natural_key_segments": natural_key_segments,
+        "natural_key_missing": natural_key_missing,
         # Key column the generated tests probe with: the first natural-key
         # source when keys exist (flat feeds — byte-identical), else the
         # recycle key (a no-keys feed can still exercise the reference path),

@@ -35,7 +35,7 @@ from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
 from codegen.faq import faq_for_spec
-from codegen.gate import compute_verdict, run_generated_tests, run_preflight
+from codegen.gate import compute_verdict, natural_key_check, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
@@ -190,6 +190,10 @@ def _generate_feed(
         checks = [*checks, vdd_check]
     if framework_artefacts is not None:
         checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
+    if context["natural_key_missing"]:
+        # M10.1: only when a key column exists in no segment — a passing check
+        # here would move every baseline report.
+        checks = [*checks, natural_key_check(context)]
 
     gate = compute_verdict(
         spec.feed_id,

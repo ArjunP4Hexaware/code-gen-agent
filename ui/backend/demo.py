@@ -335,6 +335,11 @@ class DemoRunner:
         sttm_facts = self._index.facts(sttm_doc) if sttm_doc is not None else None
         known = {sttm_name: sttm_facts if sttm_facts is not None else empty_facts()}
         unread: list[str] = []
+        # A workbook whose verdict -- once read, here or by the background index
+        # meanwhile -- is "sttm" is never a dictionary: dropped in every scope
+        # (a copy of the chosen STTM in the pair folder would otherwise score
+        # a perfect content match and be chosen as the VDD).
+        not_a_vdd: set[str] = set()
         # M9.3: the STTM's OWN folder first (…/pair_1/{FRD, STTM, VDD}); the
         # other input roots only when that folder holds no candidate.
         folder = sttm_doc.source if sttm_doc is not None else None
@@ -344,22 +349,29 @@ class DemoRunner:
         for scope, names in scopes:
             local: dict[str, Path] = {}
             for name in names:
+                if name in not_a_vdd:
+                    continue
                 doc = docs[name]
                 local[name] = doc.local_path() if doc is not None else candidates[name]
                 if name in known:
                     continue
                 facts = self._index.facts(doc) if doc is not None else None
-                if facts is None and doc is not None \
-                        and self._index.lookup(doc)["state"] != UNREADABLE:
+                state = self._index.lookup(doc)["state"] if doc is not None else None
+                if facts is None and doc is not None and state != UNREADABLE:
                     left = deadline - time.monotonic()
                     if left > 0:
                         try:
-                            self._index.read_now(doc, self._fetch(doc, left),
-                                                 max(deadline - time.monotonic(), 0.05))
+                            state = self._index.read_now(
+                                doc, self._fetch(doc, left),
+                                max(deadline - time.monotonic(), 0.05))["state"]
                         except (StorageError, OSError):
                             del local[name]           # unreachable candidate: not a contender
                             continue
                         facts = self._index.facts(doc)
+                if kind == "vdd" and state == "sttm":
+                    not_a_vdd.add(name)               # it reads as a mapping workbook
+                    del local[name]
+                    continue
                 if facts is None:
                     unread.append(name)               # its NAME still speaks
                 known[name] = facts if facts is not None else empty_facts()

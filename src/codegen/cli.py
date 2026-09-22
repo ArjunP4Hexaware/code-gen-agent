@@ -403,6 +403,7 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     with `pairing:` in the answers file."""
     from codegen.demo_sources import canonical_document_name
     from codegen.layout.answers import AnswersFileError, load_answers
+    from codegen.layout.classify import classify_workbook
     from codegen.pairing import pair_by_content
 
     sttm = Path(args.sttm)
@@ -415,8 +416,11 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     frds = {p.name: p for p in files
             if p.name.lower().endswith((".docx", ".contract.json"))
             and (p.suffix.lower() != ".docx" or canonical_document_name(p.name).startswith("frd"))}
+    # A dictionary candidate by CONTENT too: a workbook that reads as a
+    # mapping workbook (e.g. a copy of the STTM itself) is never a VDD.
     vdds = {p.name: p for p in files if p.suffix.lower() == ".xlsx"
-            and not canonical_document_name(p.name).startswith("sttm")}
+            and not canonical_document_name(p.name).startswith("sttm")
+            and classify_workbook(p, config.extractor).kind != "sttm"}
     try:
         chosen = (load_answers(Path(args.answers)).pairing.get(sttm.name, {})
                   if args.answers else {})

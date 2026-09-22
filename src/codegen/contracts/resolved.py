@@ -101,6 +101,9 @@ class ResolvedFeedSpec(BaseModel):
     file_name_patterns: list[str] = Field(min_length=1)
     file_format: str
     delimiter: str
+    # M11 item 13: "rdbms" for a database source (the DML then writes a
+    # REVIEW block for the file-source tables); None = a file source.
+    source_kind: str | None = None
     # M11: set only for a spreadsheet source; None = the reader takes the
     # workbook's FIRST sheet (flagged sheet_name_unstated).
     sheet_name: str | None = None

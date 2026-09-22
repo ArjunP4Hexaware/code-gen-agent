@@ -24,7 +24,12 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 # "unrecognized" (M11 item 7): no F1 / F2 structure was found. Never a hard
 # stop — the profile maps no field, every required field is unresolved, and
 # the fallback chain + the layout questions fill the contract.
-FrdFamily = Literal["F1", "F2", "unrecognized"]
+# "F3" (M11 item 9, SHAPES_ROUND2 §1.2/§1.3): topic-organized requirements —
+# Solution Requirement tables none of which names a metadata section. It is
+# RECOGNIZED and CLASSIFIED only (requirement / NFR / boilerplate / domain
+# tables); a Domain / SubDomain table is read; everything else comes from the
+# fallback chain, or from the layout model when live (through the validator).
+FrdFamily = Literal["F1", "F2", "F3", "unrecognized"]
 ProfileSource = Literal["synonyms", "model", "user", "cache"]
 
 

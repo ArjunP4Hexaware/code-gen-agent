@@ -109,10 +109,11 @@ EXPECTED: dict[str, tuple[str, dict]] = {
         "MAPPING_FEED_7": (
             {"-": 12}, 0,
             {"source": ["comments", "description", "field_name", "ordinal", "pii", "source_type"],
-             "stage": ["schema", "table"],
-             "standard": ["schema", "table", "target_type"],
+             # M11 item 10: the layer-prefixed headers resolve (SHAPES_ROUND2 §2.1)
+             "stage": ["column", "schema", "table", "target_type"],
+             "standard": ["column", "schema", "table", "target_type"],
              "rules": ["comments", "dq_mandatory", "recycle_flag"]},
-            ["stage/column", "stage/target_type", "standard/column"],
+            [],
         )}),
     "pair_9_family_e.xlsx": ("content", {
         "MAPPING_FEED_9": (
@@ -367,12 +368,31 @@ def test_family_b_pair2_goes_through_the_legacy_strategy_with_provenance(config,
 
 @pytest.mark.parametrize("name,fragment", [
     ("pair_8_family_a.xlsx", "no field rows could be read"),
-    ("pair_7_family_e.xlsx", "stage band has no values for ['column', 'target_type']"),
+    # pair 7 used to be the example here; since v0.7.2 its layer-prefixed
+    # headers resolve — a variant with unrecognisable stage headers stands in.
+    ("pair_7_unrecognisable_stage.xlsx", "stage band has no values for ['column', 'target_type']"),
 ])
 def test_unresolved_layouts_refuse_contract_emission_loudly(name, fragment, config, tmp_path):
     frd = _write_frd(tmp_path, _frd("Any feed", ["*.txt"], ["t"], ["t"]))
+    source = STTM / name if (STTM / name).exists() else unrecognisable_stage_pair7(tmp_path)
     with pytest.raises(ExtractionError, match=fragment.replace("[", r"\[").replace("]", r"\]")):
-        extract_contract(STTM / name, frd, config, generated_date=GENERATED_DATE)
+        extract_contract(source, frd, config, generated_date=GENERATED_DATE)
+
+
+def unrecognisable_stage_pair7(tmp_path):
+    """Pair 7 with its stage column / type headers renamed to texts no
+    synonym, prefix or remainder resolves — the unresolved-stage shape."""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(STTM / "pair_7_family_e.xlsx")
+    ws = workbook["MAPPING_FEED_7"]
+    for col in range(1, ws.max_column + 1):
+        value = str(ws.cell(row=1, column=col).value or "")
+        if value in ("Stage Table - Column Name", "Stage Table - DataType"):
+            ws.cell(row=1, column=col).value = "Stage Zqx " + str(col)
+    path = tmp_path / "pair_7_unrecognisable_stage.xlsx"
+    workbook.save(path)
+    return path
 
 
 def test_legacy_flat_api_names_the_content_path(config):

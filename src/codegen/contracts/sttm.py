@@ -269,6 +269,10 @@ class SttmFeed(BaseModel):
     # cites its cell; the resolver carries them to the gate. Empty (and absent
     # from the JSON) on every feed that raised none.
     extraction_flags: list[str] = Field(default_factory=list)
+    # M11 item 13: "rdbms" when the STTM's source band describes a DATABASE
+    # table (server / catalog / schema / table roles), not a file. Absent
+    # (None) for every file feed — existing contracts are unchanged.
+    source_kind: str | None = None
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:

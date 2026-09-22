@@ -757,6 +757,7 @@ def _resolve_one(
         file_name_patterns=file_name_patterns,
         file_format=frd_feed.file_format,
         sheet_name=sheet_name,
+        source_kind=sttm_feed.source_kind,
         delimiter=delimiter,
         landing_location=frd_feed.landing_location,
         segments=segments,

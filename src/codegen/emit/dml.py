@@ -166,7 +166,7 @@ def _variables(faq: LoadPatternFaq, config: Config, spec: ResolvedFeedSpec, env:
 
 def _preflight(config: Config, tables_present: set[str],
                env_present: frozenset[str] = frozenset(),
-               env_assertions: tuple[str, ...] = ()) -> list[str]:
+               env_assertions: tuple[str, ...] = (), rdbms: bool = False) -> list[str]:
     """``env_present`` (M10): tabs where the environment probe FOUND a row of
     this feed. There the "id must be unused" assertion would refuse the very
     state the probe reported — the id is in use BY that row — so it gives way
@@ -191,7 +191,8 @@ def _preflight(config: Config, tables_present: set[str],
                 "WHERE [PIPELINE_ID] = @PIPELINE_ID) RAISERROR('PIPELINE_ID %d is already used "
                 "(unique per process)', 16, 1, @PIPELINE_ID);")
     group_tables = [t for t in ("FILE_ADLS_INGESTION_DETAILS", "ADLS_DELTA_INGESTION_DETAILS",
-                                "STGDELTA_STDDELTA_INGESTION_DET") if t in tables_present]
+                                "STGDELTA_STDDELTA_INGESTION_DET") if t in tables_present
+                    and not (rdbms and t in dml.file_source_tables)]
     if group_tables:
         lines.append("IF @GROUP_ID IS NULL RAISERROR('GROUP_ID is not assigned', 16, 1);")
         for t in group_tables:
@@ -206,6 +207,18 @@ def _preflight(config: Config, tables_present: set[str],
         lines.append("-- EXPECTED STATE (environment probe): this script was written against "
                      "what the probe found; it refuses to run if the metadata DB has changed")
         lines.extend(env_assertions)
+    if rdbms:
+        # M11 item 13: the FILE connection (host + root path) does not apply —
+        # the source connection is an RDBMS connection (§4, not described).
+        lines.append("-- REVIEW connection: the source is an RDBMS table; the FILE connection "
+                     f"lookup does not apply and the RDBMS connection table ({_SEMANTICS} §4) "
+                     "is not described — @SRC_CONNECTION_ID must be ASSIGNED by hand")
+        if env_assertions:
+            lines.append("-- EXPECTED STATE (environment probe): this script was written "
+                         "against what the probe found; it refuses to run if the metadata DB "
+                         "has changed")
+            lines.extend(env_assertions)
+        return lines
     lines += [
         "-- connection lookup (table / column identifiers as spoken in the walkthrough — "
         "confirm: dml_unconfirmed:connection_table)",
@@ -436,7 +449,18 @@ def _env_inserts(payload: dict, config: Config, result: EnvProbeResult) -> _EnvA
                         present_tabs=frozenset(present), flags=flags)
 
 
-def _inserts(payload: dict, config: Config, flags: list[str]) -> tuple[list[str], dict[str, int]]:
+def _rdbms_review(tab: str, rows: int) -> list[str]:
+    return [
+        f"-- REVIEW {tab}: the source is an RDBMS table (source_kind=rdbms), not a file —",
+        f"--   this table describes a FILE source; its {rows} row(s) are not written. The",
+        "--   framework's RDBMS connection table (§4) and RDBMS -> ADLS ingestion table (§6)",
+        "--   are not described by the walkthrough, so no statement is generated for them",
+        f"--   ({_SEMANTICS} §4, §6). Write these rows by hand once they are described.",
+    ]
+
+
+def _inserts(payload: dict, config: Config, flags: list[str],
+             rdbms: bool = False) -> tuple[list[str], dict[str, int]]:
     dml = config.dml
     tables = payload.get("tabs", {})
     order = ([t for t in dml.table_order if t in tables]
@@ -458,13 +482,22 @@ def _inserts(payload: dict, config: Config, flags: list[str]) -> tuple[list[str]
             flags.append(f"dml_not_described:{tab} — written from the IIG cells under the §1 "
                          f"conventions only ({_SEMANTICS} §8)")
         headers = list(tables[tab]["headers"])
+        counts[tab] = len(rows)
+        if rdbms and tab in dml.file_source_tables:
+            # M11 item 13: the rows are ACCOUNTED FOR (the count stays the
+            # IIG's) but not written — a REVIEW block says why.
+            lines.extend(_rdbms_review(tab, len(rows)))
+            flags.append(f"dml_rdbms_review:{tab} — {len(rows)} row(s) describe a file source; "
+                         "the feed's source is an RDBMS table, so a REVIEW block is written "
+                         f"instead ({_SEMANTICS} §4, §6 not described)")
+            lines.append(f"SELECT {_literal(tab)} AS table_name, 0 AS rows_inserted;  -- REVIEW")
+            continue
         for row in rows:
             values = [_cell_sql(h, row["values"].get(h), row["badges"].get(h, {}).get("badge", "?"),
                                 tab, config, flags, multiline) for h in headers]
             lines.append(f"INSERT INTO {_table(dml.schema, table)} "
                          f"({', '.join(_ident(h) for h in headers)}) VALUES ({', '.join(values)});")
         lines.append(f"SELECT {_literal(tab)} AS table_name, @@ROWCOUNT AS rows_inserted;")
-        counts[tab] = len(rows)
     return lines, counts
 
 
@@ -577,7 +610,8 @@ def emit_dml(spec: ResolvedFeedSpec, faq: LoadPatternFaq, payload: dict, config:
                  f"{dml.connection_table.host_column}, {dml.connection_table.root_column}) are "
                  f"as spoken in the walkthrough, not printed; confirm before running "
                  f"({_SEMANTICS} §3)")
-    inserts, row_counts = _inserts(payload, config, flags)
+    rdbms = getattr(spec, "source_kind", None) == "rdbms"
+    inserts, row_counts = _inserts(payload, config, flags, rdbms=rdbms)
     adjusted: _EnvAdjusted | None = None
     if env_probe is not None and probed_environment in dml.environments and any(
             o.kind == "config_row" and o.state in ("identical", "different")
@@ -607,9 +641,10 @@ def emit_dml(spec: ResolvedFeedSpec, faq: LoadPatternFaq, payload: dict, config:
             "-- VARIABLES (this block is the only part that differs per environment)",
             *var_lines,
             "",
-            *(_preflight(config, set(row_counts), adjusted.present_tabs, adjusted.assertions)
+            *(_preflight(config, set(row_counts), adjusted.present_tabs, adjusted.assertions,
+                         rdbms=rdbms)
               if adjusted is not None and env == probed_environment
-              else _preflight(config, set(row_counts))),
+              else _preflight(config, set(row_counts), rdbms=rdbms)),
             *(adjusted.lines if adjusted is not None and env == probed_environment
               else inserts),
             "",

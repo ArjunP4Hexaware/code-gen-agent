@@ -319,6 +319,56 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.7.2-acfc adds (M11 addendum items 10, 8, 12, 13, 9 — from SHAPES_ROUND2)
+
+- **Item 10 — layer-prefixed headers (pair 7).** A mapping sheet with NO band
+  row whose headers carry the layer in their text ("Stage Table - Column
+  Name", "Standard Data Type", "Stage Schema") now resolves: when the full
+  header matches no role, the layer token is stripped, then a leading
+  "Table", and the remainder resolves through the base role synonyms; a
+  trailing-group header with a qualifier ("Recycle Flag ( Enabled for 7
+  Days)") resolves by its synonym prefix. Only on a miss — every header that
+  resolved before is untouched. Pair 7 resolves with ZERO questions and no
+  model call (its tracked layout profile regenerated: key ORDER only — the
+  synonyms land exactly on the columns the curated truth placed by hand).
+- **Item 8 — F2 detection (pair 8).** "Solution Requirement" is found in ANY
+  row-0 cell (the real tables merge it across B–D after a leading column),
+  sub-IDs and trailing titles allowed; the row-4 LABEL cell names the
+  section wherever the leading column pushes it. Both plausible Word
+  structures of that leading column read exactly like the round-1 fixture.
+- **Item 12 — a blank band label (pair 5).** A band row that names one target
+  layer and leaves the other merged group's label BLANK takes that group's
+  layer from the headers beneath it (a layer prefix, or two target-role
+  headers after a stage group = standard) — both for detection and for the
+  bands. A meta **NOTE** row is recorded but never a value source (its
+  `"|"` is prose, not a delimiter).
+- **Item 13 — pair 6.** A column whose VALUES are In Scope / Out of scope
+  (`extractor.scope_in_values` / `scope_out_values`) filters the rows — one
+  grouped flag `rows_out_of_scope:`. A Load Rules cell reading "Audit Column…"
+  (`extractor.audit_load_rule_markers`) marks an audit row even when it names
+  its column in ONE layer only (flag `audit_column_one_layer:`); headed
+  columns BETWEEN two band groups (Load Rules, between source and stage) are
+  the data-rules group. A type cell carrying a format —
+  `timestamp(YYYY-MM-DD HH:MM:SS)` — is the type plus the format (flag
+  `type_format:`; a precision like `decimal(10,2)` stays). A source band
+  with server / catalog / schema / table roles marks the feed
+  `source_kind=rdbms` (flag `source_kind_rdbms:`): the DDL is generated; the
+  DML writes a REVIEW block for the file-source tables (`dml.file_source_
+  tables`) and skips the file-connection lookup — the RDBMS connection /
+  ingestion tables (§4, §6) are not described. And an audit column no rule
+  populates (`DELETE_FLAG`, `REGION_NAME`) is no longer a hard stop: the
+  generated pipeline writes it as a typed NULL, flagged
+  `audit_column_unpopulated:`.
+- **Item 9 — F3 (pairs 9 and 10).** Topic-organized requirement documents
+  are recognized and classified (requirement / NFR / boilerplate / domain
+  tables, `extractor.frd.table_classes`), flagged `frd_family_f3:`; a 2-column
+  Domain / SubDomain table is read; everything else comes from the chain or
+  a typed question; a live layout model may map fields through the
+  validator (the mock declines, recorded as a rejection).
+
+Version marker 0.7.2. CV / SFMC baselines byte-identical (193 files); the
+pair-1 acceptance goldens unchanged.
+
 ## What v0.7.1-acfc adds (M11 addendum items 7 and 11 — from SHAPES_ROUND2)
 
 The round-2 shape capture (`docs/acfc/SHAPES_ROUND2.md` on `origin/acfc-runs`,

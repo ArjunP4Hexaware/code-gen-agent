@@ -33,9 +33,12 @@ PROFILES = REPO / "fixtures" / "layout_profiles"
 MOCK = PROFILES / "mock"
 
 # M9: pair 1 (the real-shape sheet) resolves by synonyms alone.
+# M11 item 10 (v0.7.2): pair 7's layer-prefixed headers resolve by synonyms —
+# the real header row is SHAPES_ROUND2 §2.1.
 FULL_BY_SYNONYMS = ["pair_1_family_a.xlsx", "pair_2_family_b.xlsx", "pair_4_family_d.xlsx",
-                    "pair_6_family_d.xlsx", "pair_5_family_e.xlsx", "pair_9_family_e.xlsx"]
-NEEDS_MODEL = ["pair_8_family_a.xlsx", "pair_7_family_e.xlsx", "pair_10_family_e.xlsx"]
+                    "pair_6_family_d.xlsx", "pair_5_family_e.xlsx", "pair_9_family_e.xlsx",
+                    "pair_7_family_e.xlsx"]
+NEEDS_MODEL = ["pair_8_family_a.xlsx", "pair_10_family_e.xlsx"]
 
 
 @pytest.fixture()
@@ -214,9 +217,12 @@ def test_swapped_spans_and_wrong_header_row_leave_specific_roles_unresolved(pre_
 def test_unresolved_roles_extract_empty_and_flag_the_gate(config, no_cache, tmp_path):
     from codegen.gate.verdict import compute_verdict
 
-    # No provider: pair 7 keeps stage/column + type unresolved under synonyms.
-    doc, _ = resolve_workbook(STTM / "pair_7_family_e.xlsx", config, provider=None,
-                              cache_dirs=no_cache)
+    # No provider: a pair-7 variant whose stage column / type headers no
+    # synonym resolves (pair 7 itself resolves since v0.7.2).
+    from test_layout_discovery import unrecognisable_stage_pair7
+
+    variant = unrecognisable_stage_pair7(tmp_path)
+    doc, _ = resolve_workbook(variant, config, provider=None, cache_dirs=no_cache)
     assert not doc.complete and doc.questions
     question = next(q for q in doc.questions if q.role == "column" and q.layer == "stage")
     assert question.candidates and all("col" in c for c in question.candidates)
@@ -232,11 +238,10 @@ def test_unresolved_roles_extract_empty_and_flag_the_gate(config, no_cache, tmp_
                              "record_segments": []})
     frd.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(Exception, match="stage band has no values"):
-        extract_contract(STTM / "pair_7_family_e.xlsx", frd, config, generated_date="2026-01-01",
+        extract_contract(variant, frd, config, generated_date="2026-01-01",
                          layout=doc.profile)
     # … while a run still completes: the gate carries the layout flags.
-    pair = resolve_pair(STTM / "pair_7_family_e.xlsx", None, config, provider=None,
-                        cache_dirs=no_cache)
+    pair = resolve_pair(variant, None, config, provider=None, cache_dirs=no_cache)
     assert any(f.startswith("layout_unresolved:sttm MAPPING_FEED_7/stage/column")
                for f in pair.flags)
     gate = compute_verdict("feed_7", [], [], [], True, extra_flags=pair.flags)

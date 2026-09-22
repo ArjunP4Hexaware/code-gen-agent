@@ -464,8 +464,16 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
     field_tokens = disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])
     for index, row in enumerate(rows):
         cells = [normalize(c) for c in row]
-        if not (_has_token(cells, disc.band_tokens.get("stage", []))
-                and _has_token(cells, disc.band_tokens.get("standard", []))):
+        has_stage = _has_token(cells, disc.band_tokens.get("stage", []))
+        has_standard = _has_token(cells, disc.band_tokens.get("standard", []))
+        if has_stage != has_standard and index + 1 < len(rows) and _blank_group_layer(
+                ws, row, rows[index + 1], index + 1, disc,
+                "standard" if has_stage else "stage"):
+            # M11 item 12 (SHAPES_ROUND2 §4.1): the band row names one target
+            # layer and leaves the other group's label BLANK — its headers
+            # say which layer it is.
+            has_stage = has_standard = True
+        if not (has_stage and has_standard):
             continue
         below = rows[index + 1] if index + 1 < len(rows) else []
         below_cells = [normalize(c) for c in below]
@@ -489,7 +497,8 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
     header = rows[header_index]
     last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
     if band_index is not None:
-        bands = _bands_from_band_row(ws, rows[band_index], band_index + 1, last_col, disc)
+        bands = _bands_from_band_row(ws, rows[band_index], band_index + 1, last_col, disc,
+                                     header=header)
     else:
         bands = _bands_from_header_prefixes(header, last_col, disc)
     notes: list[str] = []
@@ -537,11 +546,54 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
                         segment_strategy=strategy, segment_column=segment_column, notes=notes)
 
 
+def _layer_from_headers(headers: list, disc: DiscoveryConfig,
+                        targets_before: bool) -> str | None:
+    """M11 item 12: the layer of a band-row group whose LABEL is blank, read
+    from the header texts beneath it. A layer prefix on the headers decides
+    ("Standard Column Name"); else a group whose headers resolve at least two
+    target roles is the next target layer (standard after a stage group);
+    else nothing — the caller keeps its own default."""
+    values = [normalize(h) for h in headers if normalize(h)]
+    counts = {layer: sum(1 for v in values
+                         if any(v == normalize(t) or v.startswith(normalize(t) + " ")
+                                for t in disc.band_tokens.get(layer, [])))
+              for layer in ("stage", "standard")}
+    if any(counts.values()):
+        return max(counts, key=lambda layer: counts[layer])
+    target = {normalize(s) for spellings in disc.roles.get("target", {}).values()
+              for s in spellings}
+    if sum(1 for v in values if v in target) >= 2:
+        return "standard" if targets_before else "stage"
+    return None
+
+
+def _blank_group_layer(ws, band_row: list, header: list, band_row_number: int,
+                       disc: DiscoveryConfig, wanted: str) -> bool:
+    """True when the band row carries a merged group with a BLANK label whose
+    headers read as the ``wanted`` target layer."""
+    labelled = {i + 1 for i, c in enumerate(band_row) if text(c) is not None}
+    for merge in getattr(ws, "merged_cells", None) and ws.merged_cells.ranges or []:
+        if merge.min_row != band_row_number or merge.max_row != band_row_number:
+            continue
+        if merge.min_col in labelled:
+            continue
+        cells = header[merge.min_col - 1: merge.max_col]
+        if _layer_from_headers(cells, disc, targets_before=wanted == "standard") == wanted:
+            return True
+    return False
+
+
 def _bands_from_band_row(ws, band_row: list, band_row_number: int, last_col: int,
-                         disc: DiscoveryConfig) -> list[BandProfile]:
+                         disc: DiscoveryConfig, header: list | None = None) -> list[BandProfile]:
     labels = [(i + 1, text(c)) for i, c in enumerate(band_row) if text(c) is not None]
     merged = {r.min_col: r.max_col for r in ws.merged_cells.ranges
               if r.min_row == band_row_number and r.max_row == band_row_number}
+    # M11 item 12: merged groups with NO label (SHAPES_ROUND2 §4.1: W10:AG10
+    # blank, the standard layer implied). They bound the labelled groups
+    # before them and take their layer from the headers beneath.
+    labelled_cols = {col for col, _ in labels}
+    blank_groups = sorted((start, end) for start, end in merged.items()
+                          if start not in labelled_cols)
     bands: list[BandProfile] = []
     for position, (col, label) in enumerate(labels):
         if col in merged:
@@ -550,10 +602,34 @@ def _bands_from_band_row(ws, band_row: list, band_row_number: int, last_col: int
             end = labels[position + 1][0] - 1
         else:
             end = max(last_col, col)
+        following_blank = [start for start, _end in blank_groups if start > col]
+        if following_blank and col not in merged:
+            end = min(end, following_blank[0] - 1)
         layer = _band_layer(label, disc.band_tokens)
         if layer is None:
             layer = "source" if position == 0 else "rules"
         bands.append(BandProfile(layer=layer, col_start=col, col_end=end, label=label))
+    if header is not None:
+        # M11 item 13 (SHAPES_ROUND2 §4.2): headed columns BETWEEN two groups
+        # ("Load Rules" at J, between the source group B:I and the stage group
+        # L:Q) belong to no band — they are the data-rules group.
+        ordered = sorted(bands, key=lambda b: b.col_start)
+        for left, right in zip(ordered, ordered[1:], strict=False):
+            gap = [c for c in range(left.col_end + 1, right.col_start)
+                   if c - 1 < len(header) and text(header[c - 1]) is not None]
+            if gap:
+                bands.append(BandProfile(layer="rules", col_start=gap[0], col_end=gap[-1],
+                                         label=None))
+        for start, end in blank_groups:
+            if any(b.col_start <= start <= b.col_end for b in bands):
+                continue
+            targets_before = any(b.layer in ("stage", "standard") and b.col_end < start
+                                 for b in bands)
+            layer = _layer_from_headers(header[start - 1:end], disc, targets_before)
+            if layer is None:
+                continue
+            bands.append(BandProfile(layer=layer, col_start=start, col_end=end, label=None))
+        bands.sort(key=lambda b: b.col_start)
     covered_to = max((b.col_end for b in bands), default=0)
     if last_col > covered_to:
         bands.append(BandProfile(layer="rules", col_start=covered_to + 1, col_end=last_col,
@@ -614,6 +690,11 @@ def _resolve_band_roles(sheet: str, band: BandProfile, header: list, disc: Disco
         if not value:
             continue
         matches = [role for role, spellings in table.items() if value in spellings]
+        if not matches:
+            matches = _fallback_matches(value, band.layer, group, table, disc)
+            if len(matches) == 1:
+                diagnostics.append(f"sheet {sheet!r}: {band.layer} header {raw!r} (column "
+                                   f"{col}) resolved to {matches[0]!r} through its layer prefix")
         if len(matches) == 1:
             role = matches[0]
             if role in roles:
@@ -635,6 +716,46 @@ def _resolve_band_roles(sheet: str, band: BandProfile, header: list, disc: Disco
     return band.model_copy(update={"roles": roles})
 
 
+def _strip_words(value: str, prefixes: list[str]) -> str | None:
+    """``value`` without a leading whole-word prefix, else None."""
+    for prefix in sorted((normalize(p) for p in prefixes if p), key=len, reverse=True):
+        if prefix and (value == prefix or value.startswith(prefix + " ")):
+            rest = value[len(prefix):].strip()
+            return rest or None
+    return None
+
+
+def _fallback_matches(value: str, layer: str, group: str, table: dict[str, set[str]],
+                      disc: DiscoveryConfig) -> list[str]:
+    """M11 item 10 (SHAPES_ROUND2 §2.1): with NO band row, the layer lives in
+    the header text itself — "Stage Table - Column Name", "Standard Data
+    Type". Tried only when the full text matches nothing: the layer token is
+    stripped, then a leading "table", and the remainder resolves through the
+    base role synonyms. A trailing-group header may carry a qualifier after
+    its synonym ("Recycle Flag ( Enabled for 7 Days)"): its unique synonym
+    PREFIX resolves it."""
+    candidates: list[str] = []
+    if layer in ("stage", "standard"):
+        rest = _strip_words(value, disc.band_tokens.get(layer, []))
+        if rest:
+            candidates.append(rest)
+            tail = _strip_words(rest, ["table"])
+            if tail:
+                candidates.append(tail)
+    for candidate in candidates:
+        matches = [role for role, spellings in table.items() if candidate in spellings]
+        if matches:
+            return matches
+    if group == "trailing":
+        return [role for role, spellings in table.items()
+                if any(value.startswith(s + " ") for s in spellings)]
+    return []
+
+
+# Meta keys whose rows are prose, never a value source (M11 item 12).
+NOTE_META_KEYS = {"notes"}
+
+
 def _meta_rows(rows_above: list[list], disc: DiscoveryConfig, sheet: str,
                diagnostics: list[str]) -> list[MetaRow]:
     synonyms = {normalize(s): key for key, spellings in disc.meta_synonyms.items()
@@ -647,6 +768,12 @@ def _meta_rows(rows_above: list[list], disc: DiscoveryConfig, sheet: str,
         label_col, label = cells[0]
         value_col = cells[1][0] if len(cells) > 1 else None
         key = synonyms.get(normalize(label))
+        if key in NOTE_META_KEYS:
+            # M11 item 12: a NOTE row is prose for the reader ("Fields Id to be
+            # separated by "|" delimiter …") — recorded, NEVER parsed for a
+            # value: no value column, so no reader can take one from it.
+            out.append(MetaRow(row=index, col=label_col, label=label, key=key, value_col=None))
+            continue
         if key is None:
             diagnostics.append(f"sheet {sheet!r} row {index}: meta label {label!r} unrecognised")
         out.append(MetaRow(row=index, col=label_col, label=label, key=key, value_col=value_col))

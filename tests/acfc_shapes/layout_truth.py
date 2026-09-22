@@ -34,9 +34,9 @@ STTM_CURATED: dict[str, dict[str, int]] = {
     "pair_7_family_e.xlsx": {
         "MAPPING_FEED_7/source/required": 3,             # "Mandatory or Situational"
         "MAPPING_FEED_7/source/length": 7,               # "Size"
-        "MAPPING_FEED_7/stage/column": 11,               # "Stage Table - Column Name"
-        "MAPPING_FEED_7/stage/target_type": 12,          # "Stage Table - DataType"
-        "MAPPING_FEED_7/standard/column": 15,            # "Standard Table - Column Name"
+        # M11 item 10 (v0.7.2): "Stage Table - Column Name" / "Stage Table -
+        # DataType" / "Standard Table - Column Name" now resolve through their
+        # LAYER PREFIX — evidence: the real pair-7 header row, SHAPES_ROUND2 §2.1.
     },
     "pair_9_family_e.xlsx": {
         "MAPPING_FEED_9/source/critical": 12,            # "Critical Data elements"

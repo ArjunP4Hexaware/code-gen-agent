@@ -173,13 +173,69 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     sr_prefix = normalize_label(config.solution_requirement_prefix)
     f1_tables = [(i, _section_key(t[0][0], sections)) for i, t in enumerate(tables)
                  if t and t[0] and _section_key(t[0][0], sections) is not None]
+    # v0.7.2 (SHAPES_ROUND2 §1): the real F2 tables put "Solution Requirement:
+    # N" in a cell MERGED across columns B-D, after a leading column — never
+    # in column 0. Any cell of row 0 may carry it; sub-IDs ("2.1") and a
+    # trailing title are allowed.
     sr_tables = [i for i, t in enumerate(tables)
-                 if t and t[0] and normalize_label(t[0][0]).startswith(sr_prefix)]
+                 if t and t[0] and _sr_title(t[0], sr_prefix) is not None]
     if f1_tables:
         return _discover_f1(tables, f1_tables, labels, digest, config)
     if sr_tables:
-        return _discover_f2(tables, sr_tables, sections, labels, digest, config)
+        profile = _discover_f2(tables, sr_tables, sections, labels, digest, config)
+        if profile.sections:
+            return profile
+        # Requirement tables, none naming a metadata section: the
+        # topic-organized family (M11 item 9).
+        return _discover_f3(tables, sr_tables, labels, digest, config)
     return _discover_unrecognized(tables, digest)
+
+
+def _table_class(rows: list[list[str]], classes: dict[str, list[str]],
+                 labels: dict[str, str]) -> str:
+    first = _first_cell(rows[0]) if rows and rows[0] else None
+    if first is None:
+        return "other"
+    head = normalize_label(first[1])
+    header_keys = {labels.get(normalize_label(c)) for c in rows[0] if c and c.strip()}
+    if len(rows) >= 2 and "domain" in header_keys and header_keys <= {"domain", "sub_domain"}:
+        return "domain"
+    for kind, prefixes in classes.items():
+        if any(head.startswith(normalize_label(p)) for p in prefixes):
+            return kind
+    return "other"
+
+
+def _discover_f3(tables, sr_tables, labels, digest, config) -> FrdLayoutProfile:
+    """M11 item 9 — F3, the topic-organized requirement document (SHAPES_
+    ROUND2 §1.2 / §1.3): recognized and CLASSIFIED only. The one table read
+    for a value is a Domain / SubDomain table (a header row over one value
+    row); every other field is unresolved here and comes from the fallback
+    chain, or from the layout model when live (through the validator)."""
+    classes = {kind: list(prefixes) for kind, prefixes in config.table_classes.items()}
+    kinds = [_table_class(rows, classes, labels) for rows in tables]
+    for index in sr_tables:
+        kinds[index] = "requirement"
+    fields: dict[str, FrdFieldSource] = {}
+    confidence: dict[str, float] = {}
+    domain_table = next((i for i, kind in enumerate(kinds) if kind == "domain"), None)
+    if domain_table is not None:
+        header = tables[domain_table][0]
+        for col, cell in enumerate(header):
+            key = labels.get(normalize_label(cell)) if cell else None
+            if key not in ("domain", "sub_domain"):
+                continue
+            path = f"feeds[0].{key}"
+            fields[path] = FrdFieldSource(table=domain_table, row=1, col=col, value_col=col,
+                                          label=cell, section=None, feed_index=0)
+            confidence[path] = 1.0
+    counts = {kind: kinds.count(kind) for kind in dict.fromkeys(kinds)}
+    notes = [f"F3 (topic-organized requirements): {len(tables)} table(s) — "
+             + ", ".join(f"{n} {kind}" for kind, n in counts.items())
+             + (f"; domain table {domain_table}" if domain_table is not None else "")]
+    profile = FrdLayoutProfile(fingerprint=digest, family="F3", source="synonyms",
+                               fields=fields, confidence=confidence, sections=[], notes=notes)
+    return _with_unresolved(profile, [], 1)
 
 
 def _discover_unrecognized(tables, digest) -> FrdLayoutProfile:
@@ -198,6 +254,36 @@ def _discover_unrecognized(tables, digest) -> FrdLayoutProfile:
         notes=[f"no metadata section table (F1) and no Solution Requirement table (F2): "
                f"{len(tables)} table(s); first row-0 headings: {headings}"])
     return _with_unresolved(profile, [], 1)
+
+
+def _sr_title(row: list[str], sr_prefix: str) -> str | None:
+    """The row-0 cell that opens a Solution Requirement table, whichever
+    column it sits in (the real F2 documents lead with a merged column)."""
+    return next((cell for cell in row
+                 if cell and normalize_label(cell).startswith(sr_prefix)), None)
+
+
+def _first_cell(row: list[str]) -> tuple[int, str] | None:
+    """(col, text) of a row's first non-empty cell — its LABEL cell, whatever
+    column a leading merged column pushes it into."""
+    return next(((col, cell) for col, cell in enumerate(row) if cell and cell.strip()), None)
+
+
+def _section_row(rows: list[list[str]], sections: dict[str, str],
+                 configured: int) -> tuple[int, int, str, str] | None:
+    """(row, label col, label text, section) — the documented F2 shape: the
+    LABEL cell of row ``configured`` (4) names the metadata section. Its
+    column follows the table's leading merged column (SHAPES_ROUND2 §1.1).
+    A table whose row-4 label names no section is not F2 (the topic-organized
+    shape is F3)."""
+    if configured >= len(rows):
+        return None
+    found = _first_cell(rows[configured])
+    if found is None:
+        return None
+    col, text = found
+    section = sections.get(normalize_label(text)) or _section_key(text, sections)
+    return (configured, col, text, section) if section is not None else None
 
 
 def _section_key(title: str, sections: dict[str, str]) -> str | None:
@@ -335,19 +421,20 @@ def _discover_f2(tables, sr_tables, sections, labels, digest, config) -> FrdLayo
     notes: list[str] = []
     rule_counts: dict[int, int] = {}
     feed_index = 0
+    sr_prefix = normalize_label(config.solution_requirement_prefix)
     for table_index in sr_tables:
         rows = tables[table_index]
-        title = rows[0][0]
-        section_row = config.solution_requirement_section_row
-        if section_row >= len(rows) or not rows[section_row]:
-            notes.append(f"table {table_index} ({title}): no row {section_row}; skipped")
+        title = _sr_title(rows[0], sr_prefix) or rows[0][0]
+        placed = _section_row(rows, sections, config.solution_requirement_section_row)
+        if placed is None:
+            notes.append(f"table {table_index} ({title}): the row-"
+                         f"{config.solution_requirement_section_row} label names no metadata "
+                         "section; skipped")
             continue
-        section_label = rows[section_row][0]
-        section = sections.get(normalize_label(section_label))
-        if section is None:
-            notes.append(f"table {table_index} ({title}): row-{section_row} label "
-                         f"{section_label!r} names no metadata section; skipped")
-            continue
+        section_row, section_col, section_label, section = placed
+        if section_col:
+            notes.append(f"table {table_index} ({title}): a leading merged column — the "
+                         f"labels sit in column {section_col}")
         refs.append(FrdSectionRef(table=table_index, section=section, title=section_label,
                                   feed_index=feed_index))
         for row_index, row in enumerate(rows[1:], start=1):
@@ -376,16 +463,18 @@ def _discover_f2(tables, sr_tables, sections, labels, digest, config) -> FrdLayo
             for path in _paths_for(key, feed_index, section, rule_counts):
                 fields.setdefault(path, source)
                 confidence[path] = 1.0
-        # Label: value pairs inside the row-4 text, read with the same synonyms.
-        text = rows[section_row][1] if len(rows[section_row]) > 1 else ""
+        # Label: value pairs inside the section-label row's text, read with
+        # the same synonyms. The text is the cell AFTER the label cell.
+        text_col = section_col + 1
+        text = rows[section_row][text_col] if len(rows[section_row]) > text_col else ""
         for inline_label, _value in _inline_pairs(text, config):
             key = labels.get(normalize_label(inline_label))
             if key is None:
                 notes.append(f"table {table_index} row {section_row}: inline label "
                              f"{inline_label!r} maps to no contract field")
                 continue
-            source = FrdFieldSource(table=table_index, row=section_row, col=0, value_col=1,
-                                    label=section_label, section=section,
+            source = FrdFieldSource(table=table_index, row=section_row, col=section_col,
+                                    value_col=text_col, label=section_label, section=section,
                                     inline_label=inline_label, feed_index=feed_index)
             for path in _paths_for(key, feed_index, section, rule_counts):
                 fields.setdefault(path, source)
@@ -904,7 +993,10 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             load_windows_sla=[],
             lobs=_split(get(f"{prefix}.lobs"), frd_config.list_separators),
             domain=domain_parts[0] if domain_parts else None,
-            sub_domain=domain_parts[1] if len(domain_parts) > 1 else None,
+            # A sub-domain stated in a cell of its own (the F3 Domain / SubDomain
+            # table, M11 item 9) wins over the split of a combined domain cell.
+            sub_domain=(get(f"{prefix}.sub_domain") if _own_cell(profile, prefix, "sub_domain")
+                        else None) or (domain_parts[1] if len(domain_parts) > 1 else None),
             landing_location=_landing(prefix) or None,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),
@@ -934,6 +1026,10 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                "Name label)")
     for item in profile.unresolved:
         ambiguities.append(f"{item.field}: {item.reason}")
+    if profile.family == "F3":
+        flags.append(f"frd_family_f3: {profile.notes[0] if profile.notes else ''} — "
+                     "recognized and classified only; the fields come from the fallback chain "
+                     "(STTM, VDD, config), the layout model when live, or a layout question")
     if profile.family == "unrecognized":
         # Structure, never content: the count and the headings are row-0
         # labels, the same material the fingerprint reads.
@@ -976,6 +1072,20 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         structured=structured,
         extraction_flags=flags,
     )
+
+
+def _own_cell(profile: FrdLayoutProfile, prefix: str, field: str) -> bool:
+    """True when ``field`` is read from a cell OTHER than the domain's — a
+    combined "Domain and Subdomain" cell maps both paths to one cell, and is
+    split instead (M11 item 9)."""
+    mine = profile.fields.get(f"{prefix}.{field}")
+    domain = profile.fields.get(f"{prefix}.domain")
+    if mine is None:
+        return False
+    if domain is None:
+        return True
+    return (mine.table, mine.row, mine.col, mine.inline_label) != (
+        domain.table, domain.row, domain.col, domain.inline_label)
 
 
 _UNNAMED_SUFFIX = "(unnamed)"

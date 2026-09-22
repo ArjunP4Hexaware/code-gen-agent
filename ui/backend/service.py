@@ -262,6 +262,11 @@ class GenerationStore:
             ],
             faq=faq,
         )
+        # M11 item 13 (mirrors cli): audit columns no rule populates.
+        extra_flags = [*extra_flags, *[
+            f"audit_column_unpopulated:{name} — the STTM declares this audit column "
+            f"({dtype}) and no rule populates it: the generated pipeline writes NULL until "
+            "a human supplies one" for name, dtype in context["unpopulated_audit"]]]
         # Option A/B branch — MIRRORS cli._generate_feed (its helpers are
         # reused directly so the two cannot drift).
         from codegen.cli import _emit_framework_only, _read_ddl_sources, _run_emit_framework

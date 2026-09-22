@@ -58,6 +58,24 @@ def is_fixed_width(file_format: str | None, config, delimiter: str | None = None
     return delimiter == ""
 
 
+_TYPE_FORMAT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z_ ]*?)\s*\((.+)\)\s*$")
+
+
+def split_type_format(raw: str | None) -> tuple[str, str | None]:
+    """M11 item 13 (SHAPES_ROUND2 §4.2): a type cell that carries a FORMAT —
+    ``timestamp(YYYY-MM-DD HH:MM:SS)`` — is (``timestamp``, the format). A
+    parenthesised PRECISION (``decimal(10,2)``, ``varchar(50)``) is part of
+    the type and stays."""
+    text = (raw or "").strip()
+    match = _TYPE_FORMAT_RE.match(text)
+    if match is None:
+        return text, None
+    inner = match.group(2).strip()
+    if re.fullmatch(r"[\d\s,]+", inner):
+        return text, None
+    return match.group(1).strip(), inner
+
+
 def file_kind(file_format: str | None, config, delimiter: str | None = None,
               file_patterns=()) -> str:
     if is_spreadsheet(file_format, config, file_patterns):

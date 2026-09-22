@@ -77,8 +77,8 @@
           "roles": {
             "schema": 13,
             "table": 14,
-            "target_type": 16,
-            "column": 15
+            "column": 15,
+            "target_type": 16
           },
           "label": null
         },
@@ -196,17 +196,17 @@
     "MAPPING_FEED_7/source/pii": 1.0,
     "MAPPING_FEED_7/stage/schema": 1.0,
     "MAPPING_FEED_7/stage/table": 1.0,
+    "MAPPING_FEED_7/stage/column": 1.0,
+    "MAPPING_FEED_7/stage/target_type": 1.0,
     "MAPPING_FEED_7/standard/schema": 1.0,
     "MAPPING_FEED_7/standard/table": 1.0,
+    "MAPPING_FEED_7/standard/column": 1.0,
     "MAPPING_FEED_7/standard/target_type": 1.0,
     "MAPPING_FEED_7/rules/dq_mandatory": 1.0,
     "MAPPING_FEED_7/rules/recycle_flag": 1.0,
     "MAPPING_FEED_7/rules/comments": 1.0,
     "MAPPING_FEED_7/source/required": 1.0,
-    "MAPPING_FEED_7/source/length": 1.0,
-    "MAPPING_FEED_7/stage/column": 1.0,
-    "MAPPING_FEED_7/stage/target_type": 1.0,
-    "MAPPING_FEED_7/standard/column": 1.0
+    "MAPPING_FEED_7/source/length": 1.0
   },
   "source": "cache",
   "role_sources": {},

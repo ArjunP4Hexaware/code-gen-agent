@@ -173,7 +173,7 @@
           "col": 1,
           "label": "NOTE",
           "key": "notes",
-          "value_col": 2
+          "value_col": null
         },
         {
           "row": 9,

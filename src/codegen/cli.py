@@ -137,6 +137,10 @@ def _generate_feed(
         ],
         faq=faq,
     )
+    unpopulated = [f"audit_column_unpopulated:{name} — the STTM declares this audit column "
+                   f"({dtype}) and no rule populates it: the generated pipeline writes NULL until "
+                   "a human supplies one" for name, dtype in context["unpopulated_audit"]]
+    extra_flags = [*extra_flags, *unpopulated]
     # Option A ("notebook") is today's path, byte for byte. Option B
     # ("framework") renders the SAME pipeline into a scratch tree so the
     # gate checks stay identical, but persists only ddl/ + framework/;

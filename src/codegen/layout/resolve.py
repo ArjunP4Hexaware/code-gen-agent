@@ -1274,7 +1274,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_doc.questions = [q for q in frd_doc.questions
                                  if q.role not in gap.handled
                                  and not _filled_on_contract(frd_contract, q.role)]
-            if frd_doc.profile is not None and frd_doc.profile.family == "unrecognized":
+            if frd_doc.profile is not None and frd_doc.profile.family in ("unrecognized",
+                                                                          "F3"):
                 frd_doc.questions = [_typed(q) for q in frd_doc.questions]
             frd_doc.questions = frd_doc.questions + split_questions + gap.questions
     # M9.2: a positional field whose length is not an integer ("10,2" — a
@@ -1449,8 +1450,8 @@ def _typed(question: LayoutQuestion) -> LayoutQuestion:
         return question
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=question.role, kind="text",
-        reason=f"{question.reason}; the FRD's structure was not recognized "
-               "(frd_family_unrecognized) and no other document states it",
+        reason=f"{question.reason}; the FRD states no such field in a structure the agent "
+               "reads (frd_family_unrecognized / frd_family_f3) and no other document states it",
         header=[], candidates=[], title=question.title or question.role,
         hint="Type the value. Separate several values (LOBs) with ';'.")
 

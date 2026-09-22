@@ -18,13 +18,8 @@ from typing import Any
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
-from codegen.emit.context import TemplateGapError
+from codegen.emit.context import KNOWN_AUDIT_COLUMNS as _KNOWN_AUDIT_COLUMNS  # noqa: F401
 from codegen.emit.notebook import build_notebook
-
-# The only audit columns the generated audit module knows how to populate.
-_KNOWN_AUDIT_COLUMNS = {
-    "LOB", "FILE_TYPE", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME",
-}
 
 
 def _py_literal(value: Any) -> str:
@@ -84,14 +79,10 @@ def _environment() -> Environment:
 
 
 def _check_gaps(context: dict[str, Any]) -> None:
-    unknown_audit = [
-        name for name, _dtype in context["audit_columns"] if name not in _KNOWN_AUDIT_COLUMNS
-    ]
-    if unknown_audit:
-        raise TemplateGapError(
-            f"no template populates audit column(s) {unknown_audit}; "
-            f"known: {sorted(_KNOWN_AUDIT_COLUMNS)}"
-        )
+    """M11 item 13: an audit column no rule populates is no longer a stop —
+    the audit module writes it as a typed NULL and the gate flags it
+    (``audit_column_unpopulated``, from ``context["unpopulated_audit"]``)."""
+    return None
 
 
 def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:

@@ -279,14 +279,39 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## Where this stands (2026-09-22) — READ FIRST
 
-`staging` = `origin/staging` = **v0.7.1-acfc** (M11 addendum items 7 + 11),
-on top of **v0.7.0-acfc** (392ac34, M11 items 1–6), **v0.6.2-acfc** (435e4a5),
-**v0.6.1-acfc** (152ea10), **v0.6.0-acfc** (cdda58f) and **v0.5.9-acfc**
-(6b33f0d). All tags are on the remote. `main` is untouched at 4c35c61.
+`staging` = `origin/staging` = **v0.7.2-acfc** (M11 addendum items 10, 8, 12,
+13, 9), on top of **v0.7.1-acfc** (35c48aa, items 7 + 11), **v0.7.0-acfc**
+(392ac34, items 1–6), **v0.6.2-acfc**, **v0.6.1-acfc**, **v0.6.0-acfc** and
+**v0.5.9-acfc**. All tags are on the remote. `main` is untouched at 4c35c61.
 
-**The App version marker is 0.7.1** (`pyproject.toml` + the
+**The App version marker is 0.7.2** (`pyproject.toml` + the
 `codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
 Apps runtime serves a cached env).
+
+**v0.7.2 (the rest of the M11 addendum).** FRD families are now **F1, F2, F3,
+unrecognized** (`layout/frd_profile.py::FrdFamily`): F2 = pair 8 (Solution
+Requirement tables, found in ANY row-0 cell; the row-4 LABEL cell names the
+section); F3 = pairs 9/10, topic-organized, recognized + classified only
+(`extract/frd_docx.py::_discover_f3`, `extractor.frd.table_classes`), its
+Domain/SubDomain table read (a separately-stated sub-domain now wins over a
+split — `_own_cell`); a document with requirement tables but no section label
+is F3, with none is unrecognized. Layout: `discover._fallback_matches` strips
+a layer prefix / leading "table" ONLY when the full header matches nothing
+(pair 7 → FULL_BY_SYNONYMS; its tracked profile regenerated, key order only);
+`_blank_group_layer` / `_layer_from_headers` give an unlabelled merged band
+group its layer from the headers (pair 5); headed gap columns between band
+groups are a rules band; NOTE meta rows carry `value_col=None`
+(`NOTE_META_KEYS`; pair 5's tracked profile regenerated for that one field).
+Extractor (`extract/generic.py`): value-found scope column (`_scope_column`),
+Load-Rules audit rows incl. one-layer ones, `formats.split_type_format`,
+`source_kind` (SttmFeed / ResolvedFeedSpec) → the DML's RDBMS REVIEW block
+(`emit/dml.py::_rdbms_review`, `dml.file_source_tables`). An audit column no
+rule populates is a typed NULL + `audit_column_unpopulated:` (the emitter's
+`_check_gaps` no longer raises; `context.KNOWN_AUDIT_COLUMNS`). Tests:
+`tests/test_m11_v072.py` (fixtures built in-test from SHAPES_ROUND2 §1.1–§1.3,
+§2.1, §4.1, §4.2); round-2 builders in `tests/acfc_shapes/frd.py`
+(`build_f2_round2_pair8`, `build_f3_pair9`, `build_f3_pair10`) and a `merged`
+cell helper in `common.py`. 788 passed / 27 skipped on 3.10 / 3.11 / 3.12.
 
 **M11 addendum (Soham, 2026-09-22, from `docs/acfc/SHAPES_ROUND2.md` on
 `origin/acfc-runs` — tokenised, but read it in place; never copy it).** It
@@ -304,9 +329,7 @@ matching no family is an empty-but-valid contract (`FrdFamily` gained
 questions are TYPED (`layout/resolve.py::_typed`; `_GAP_FIELDS` gained
 feed_name / source_system / domain / sub_domain / lobs) and a question the
 chain answered is dropped (`_filled_on_contract`). Tests
-`tests/test_m11_addendum.py`. **Parked for v0.7.2:** the F2 detection work
-(item 8) is a patch in the session scratchpad — column-agnostic "Solution
-Requirement" detection, merged-cell support in `tests/acfc_shapes/common.py`.
+`tests/test_m11_addendum.py`.
 
 **M11 (v0.7.0-acfc): the six causes of the v0.6.2 all-pairs run** (1 of 10
 passed; record `docs/acfc/RUN_v062_all_pairs.md` on `origin/acfc-runs` —

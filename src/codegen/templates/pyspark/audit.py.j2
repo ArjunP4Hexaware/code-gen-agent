@@ -53,4 +53,9 @@ def add_audit_columns(
 {% endif %}
         .withColumn(REC_CREATION_TIME_COLUMN, timestamp)
         .withColumn(REC_UPDATED_TIME_COLUMN, timestamp)
+{% for name, dtype in unpopulated_audit %}
+        # UNPOPULATED: the STTM declares this audit column and no rule fills it —
+        # NULL until a human supplies one (gate flag audit_column_unpopulated).
+        .withColumn({{ name | tojson }}, F.lit(None).cast({{ dtype | lower | tojson }}))
+{% endfor %}
     )

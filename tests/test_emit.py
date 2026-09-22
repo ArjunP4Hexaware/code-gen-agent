@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from codegen.emit.context import TemplateGapError, build_context
+from codegen.emit.context import build_context
 from codegen.emit.emitter import emit_feed
 
 
@@ -32,12 +30,18 @@ def test_render_twice_is_byte_identical(specs_by_id, config, tmp_path):
         assert path_a.read_bytes() == path_b.read_bytes(), path_a.name
 
 
-def test_unknown_audit_column_is_a_template_gap(specs_by_id, config, tmp_path):
+def test_an_unknown_audit_column_is_a_typed_null_never_a_stop(specs_by_id, config, tmp_path):
+    """M11 item 13 (replaces test_unknown_audit_column_is_a_template_gap): an
+    audit column no rule populates is written as a typed NULL, flagged by the
+    gate (audit_column_unpopulated) — it used to stop the run."""
     spec = specs_by_id["sd_community_risk"]
     context = _context(spec, config)
     context["audit_columns"] = [*context["audit_columns"], ("MYSTERY_COL", "STRING")]
-    with pytest.raises(TemplateGapError, match="MYSTERY_COL"):
-        emit_feed(context, tmp_path)
+    context["unpopulated_audit"] = [("MYSTERY_COL", "STRING")]
+    written = emit_feed(context, tmp_path)
+    audit = next(p for p in written if p.name == "audit.py").read_text(encoding="utf-8")
+    assert '.withColumn("MYSTERY_COL", F.lit(None).cast("string"))' in audit
+    assert "UNPOPULATED" in audit
 
 
 def test_flat_feed_emits_no_segments_module(specs_by_id, config, tmp_path):

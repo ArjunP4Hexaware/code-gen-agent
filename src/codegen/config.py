@@ -360,6 +360,10 @@ class FrdExtractorConfig(BaseModel):
     # existing path validation. A leading slash before the label is covered.
     # Case-insensitive. Applies to landing_location only.
     value_label_prefixes: list[str] = Field(default_factory=list)
+    # M11 item 9: how an F3 document's tables are CLASSIFIED — by the
+    # normalized text their first row-0 cell starts with. Anything that
+    # matches none is "other". Structure only; no value is read from them.
+    table_classes: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class VddExtractorConfig(BaseModel):
@@ -408,6 +412,14 @@ class ExtractorConfig(BaseModel):
     # formatted a million rows down (SHAPES_ROUND2 §3) otherwise makes every
     # scan create a cell per row. 0 = trust max_row (the pre-M11 behaviour).
     used_range_empty_rows: int = Field(default=500, ge=0)
+    # M11 item 13: a column whose values are these says which rows are in
+    # scope; out-of-scope rows are skipped with one grouped flag. Found by
+    # VALUE (the real header embeds a vendor name). Empty = no filtering.
+    scope_in_values: list[str] = Field(default_factory=list)
+    scope_out_values: list[str] = Field(default_factory=list)
+    # M11 item 13: a Load Rules cell starting with one of these marks an
+    # AUDIT row (even when it names a column in one layer only).
+    audit_load_rule_markers: list[str] = Field(default_factory=list)
     recycle_on_match: str
     recycle_on_no_match: str
     # Segmented (CAQH-style) family knobs — all defaulted, so a config
@@ -1260,6 +1272,11 @@ class DmlConfig(BaseModel):
     status_columns: list[str] = Field(
         default_factory=lambda: ["ACTIVE_FLAG", "ACTIVE_RULE_FLG",
                                  "ACTIVE_START_DATE", "ACTIVE_END_DATE"])
+    # M11 item 13: the IIG tabs that describe a FILE source. For a feed whose
+    # source is an RDBMS (source_kind=rdbms) their rows become a REVIEW block:
+    # the RDBMS connection / ingestion tables are not described (§4, §6).
+    file_source_tables: list[str] = Field(
+        default_factory=lambda: ["FILE_ADLS_INGESTION_DETAILS"])
     # A row that exists and differs gets a REVIEW block with a COMMENTED-OUT
     # UPDATE candidate: the walkthrough describes no update path for config
     # rows (METADATA_DB_SEMANTICS §11 q19). True turns the candidate live —

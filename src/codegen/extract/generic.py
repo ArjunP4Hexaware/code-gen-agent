@@ -21,7 +21,7 @@ Two stages:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from openpyxl.utils import get_column_letter
@@ -41,6 +41,7 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
+from codegen.formats import split_type_format
 from codegen.layout.discover import (
     NONE_SEGMENT,
     Discovery,
@@ -74,6 +75,8 @@ class AuditRow:
     column: str
     datatype_raw: str
     table: str | None
+    # M11 item 13: the ONE layer the row names its column in, when only one.
+    layer: str | None = None
 
 
 @dataclass
@@ -84,6 +87,9 @@ class SheetData:
     fields: list[FieldRow] = field(default_factory=list)
     audit: list[AuditRow] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    # M11 item 13: rows the scope column marks out of scope, and that column.
+    out_of_scope: list[int] = field(default_factory=list)
+    scope_column: int | None = None
 
     def rows_per_segment(self) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -159,6 +165,41 @@ def _last_version(ws, sp: SheetProfile) -> str | None:
     return versions[-1] if versions else None
 
 
+def _typed(raw: str, column: str, sheet: str, row: int, flags: list[str]) -> str:
+    """M11 item 13: a field type cell carrying a format -> its type, flagged."""
+    base, fmt = split_type_format(raw)
+    if fmt is not None:
+        flags.append(f"type_format:{column} — the STTM declares {raw!r} (sheet {sheet!r} row "
+                     f"{row}): type {base!r}, format {fmt!r}")
+        return base
+    return raw
+
+
+def _row_segment(cells: list, sp: SheetProfile, current: str | None) -> str | None:
+    if sp.segment_strategy == "column" and sp.segment_column is not None:
+        return _cell(cells, sp.segment_column) or current
+    return current
+
+
+def _scope_column(ws, header_row: int, config: Config) -> int | None:
+    """M11 item 13: the column whose data values are ALL In Scope / Out of
+    scope markers (config ``extractor.scope_in_values`` / ``scope_out_values``)
+    — found by value, since the real header embeds a vendor name. At least
+    two marked rows, or it is not a scope column."""
+    markers = {normalize(v) for v in (*config.extractor.scope_in_values,
+                                      *config.extractor.scope_out_values)}
+    if not markers:
+        return None
+    seen: dict[int, list[str]] = {}
+    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+        for col, value in enumerate(row, start=1):
+            if value is not None and str(value).strip():
+                seen.setdefault(col, []).append(normalize(value))
+    candidates = [col for col, values in seen.items()
+                  if len(values) >= 2 and all(v in markers for v in values)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _segment_lookup(disc: DiscoveryConfig) -> dict[str, str]:
     """Spelling -> canonical segment. The ``none`` class is left OUT: its
     spellings resolve to no segment (see ``_none_segments``)."""
@@ -207,6 +248,16 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
             meta[entry.key] = value
 
     data = SheetData(profile=sp, meta=meta, meta_raw=meta_raw)
+    data.scope_column = _scope_column(ws, header_row, config)
+    scope_out = {normalize(v) for v in config.extractor.scope_out_values}
+    audit_rule_markers = [normalize(m) for m in config.extractor.audit_load_rule_markers]
+    rules_band = next((b for b in sp.bands if b.layer == "rules"
+                       and b.column(Role.LOAD_RULE) is not None), None)
+    load_rule_col = (rules_band.column(Role.LOAD_RULE) if rules_band is not None
+                     else source.column(Role.LOAD_RULE) if source is not None else None)
+    standard = sp.band("standard")
+    standard_column_col = standard.column(Role.COLUMN) if standard is not None else None
+    standard_type_col = standard.column(Role.TARGET_TYPE) if standard is not None else None
     current_segment_raw: str | None = None
     if sp.segment_strategy == "banner" and sp.band_row is not None and source is not None:
         current_segment_raw = text(ws.cell(row=sp.band_row, column=source.col_start).value)
@@ -235,10 +286,37 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
             data.skipped.append(f"row {row_number}: segment banner {filled[0][1]!r} "
                                 "(the Segment column states the segment)")
             continue
+        if data.scope_column is not None and normalize(
+                _cell(cells, data.scope_column)) in scope_out:
+            data.out_of_scope.append(row_number)
+            continue
         field_name = _cell(cells, field_col)
         stage_column = _cell(cells, stage_column_col)
         source_values = [c for i, c in filled if source is not None
                          and source.col_start <= i <= source.col_end]
+        load_rule = normalize(_cell(cells, load_rule_col))
+        if audit_rule_markers and any(load_rule.startswith(m) for m in audit_rule_markers):
+            # M11 item 13: the Load Rules cell says AUDIT — whatever the source
+            # side reads, and even when only ONE layer names the column.
+            std_column = _cell(cells, standard_column_col)
+            column = stage_column or std_column
+            if column is None:
+                data.skipped.append(f"row {row_number}: audit row names no column; skipped")
+                continue
+            layer = None
+            if stage_column is None:
+                layer = "standard"
+            elif standard is not None and std_column is None:
+                layer = "stage"
+            data.audit.append(AuditRow(
+                sheet=sp.name, row=row_number,
+                segment=segments.get(normalize(segment_raw)) if (
+                    segment_raw := _row_segment(cells, sp, current_segment_raw)) else None,
+                column=column,
+                datatype_raw=(_cell(cells, stage_type_col) if stage_column is not None
+                              else _cell(cells, standard_type_col)) or "",
+                table=_cell(cells, stage_table_col), layer=layer))
+            continue
         if sp.segment_strategy == "column" and sp.segment_column is not None:
             # An audit row leaves its Segment cell empty: it belongs to the
             # segment block it sits in (the last stated segment).
@@ -622,6 +700,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             raise GenericExtractionError(
                 f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
                 f"column/data type (column={stage_column!r}, type={stage_type!r})")
+        stage_type = _typed(stage_type, stage_column, name, row.row, flags)
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values
         # (meant for yes/no columns) do not apply to it.
@@ -653,7 +732,10 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             stage_column=stage_column,
             stage_datatype=stage_type,
             standard_column=_first(row, "standard.column") if has_standard else None,
-            standard_datatype=_first(row, "standard.target_type") if has_standard else None,
+            standard_datatype=(_typed(_first(row, "standard.target_type"),
+                                      _first(row, "standard.column") or stage_column, name,
+                                      row.row, flags)
+                               if has_standard and _first(row, "standard.target_type") else None),
             value_spec=value_spec,
             source_length=_first(row, "source.length", "source.field_length"),
             source_start=_first(row, "source.start"),
@@ -674,6 +756,16 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     audit: list[AuditColumn] = []
     seen: set[str] = set()
     for entry in sheet.audit:
+        base, fmt = split_type_format(entry.datatype_raw)
+        if fmt is not None:
+            flags.append(f"type_format:{entry.column} — the STTM declares "
+                         f"{entry.datatype_raw!r} (sheet {name!r} row {entry.row}): type "
+                         f"{base!r}, format {fmt!r}")
+            entry = replace(entry, datatype_raw=base)
+        if entry.layer is not None:
+            flags.append(f"audit_column_one_layer:{entry.column} — the STTM names it in the "
+                         f"{entry.layer} layer only (sheet {name!r} row {entry.row}, Load Rules "
+                         "marks it an audit column); carried as a feed audit column")
         datatype = _AUDIT_DATATYPES.get(normalize(entry.datatype_raw))
         if datatype is None:
             # M11: a type outside String / Timestamp is the client's word,
@@ -695,6 +787,24 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             f"marker {config.extractor.audit_source_markers} with a stage column) — the "
             "contract requires at least one audit column; add them to the STTM")
 
+    if sheet.out_of_scope:
+        rows = sheet.out_of_scope
+        span = (f"rows {rows[0]}-{rows[-1]}" if len(rows) > 3 else
+                "rows " + ", ".join(str(r) for r in rows))
+        flags.append(f"rows_out_of_scope:{name} — {len(rows)} row(s) marked out of scope in "
+                     f"column {get_column_letter(sheet.scope_column or 1)} ({span}); skipped")
+    source_kind = None
+    source_band = sp.band("source")
+    if source_band is not None:
+        rdbms_roles = [r for r in ("server", "source_database", "source_schema", "source_table")
+                       if source_band.column(r) is not None]
+        if len(rdbms_roles) >= 2:
+            source_kind = "rdbms"
+            flags.append(f"source_kind_rdbms:{name} — the STTM's source band describes a "
+                         f"database table ({', '.join(rdbms_roles)} columns), not a file: the "
+                         "DDL is generated; the DML writes a REVIEW block for the file-source "
+                         "tables; the generated notebook pipeline reads FILES and does not "
+                         "apply")
     details = _file_details_row(feed, ir)
     patterns = _sheet_file_patterns(sheet, ir)
     frd_canonical = {_canonical_file_name(p): p for p in feed.file_name_patterns}
@@ -754,6 +864,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             meta_rows=dict(sheet.meta),
             source_table=_dominant([r.values.get("source.source_table") for r in sheet.fields]),
             extraction_flags=flags,
+            source_kind=source_kind,
         )
     except ValueError as exc:
         raise GenericExtractionError(

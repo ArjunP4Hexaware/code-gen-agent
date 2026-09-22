@@ -335,6 +335,22 @@ Delegated Entity               ✓ in 1,3,4,6; ∅ in 2,5,7
 | Functional Requirement | `Functional Requirement` (most), `Functional Requirement:` (with colon, pairs 8,9) |
 | Business Requirement | `Business Requirement` (most), `Business \nRequirement` (with newline, pairs 8,9,10) |
 
+> **Round 2 (M11, 2026-09-22 — `docs/acfc/SHAPES_ROUND2.md` §1, read in place on
+> `origin/acfc-runs`):** the three documents split into TWO families.
+> **F2** is pair 8: every Solution Requirement table leads with a MERGED
+> column, "Solution Requirement: N" sits in a cell merged across B–D, and the
+> LABEL cell of row 4 names the metadata section (the reader no longer
+> assumes column 0). **F3** is pairs 9 and 10 — *topic-organized
+> requirements*: Solution Requirement tables titled by function ("Source
+> system integration", "New Schemas creation …"; pair 10 sub-numbered
+> "2.1 … 2.4" with trailing titles, 11 rows), NONE of which names a metadata
+> section, plus many Non-Functional Requirement tables. F3 is recognized and
+> classified only (requirement / NFR / boilerplate / domain tables); pair
+> 10's 2-column Domain / SubDomain table is read; every other field comes
+> from the fallback chain (STTM bands, meta rows, File Details, VDD FILES,
+> config) or a typed layout question. A document matching NO family is an
+> empty-but-valid contract flagged `frd_family_unrecognized` — never a stop.
+
 ### FRD Family F2 (Pairs 8, 9, 10) — Solution Requirement Tables
 
 These FRDs embed metadata labels inside Solution Requirement tables rather than

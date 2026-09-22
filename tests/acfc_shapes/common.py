@@ -138,19 +138,43 @@ def table(rows: list[list]) -> str:
     is itself a list of rows renders as a NESTED table inside the cell (the
     way Word stores a table pasted into a metadata cell) followed by the
     empty paragraph Word requires after a nested table."""
-    width = max(len(r) for r in rows)
+    width = max(sum(_span(c) for c in r) for r in rows)
     grid = "".join('<w:gridCol w:w="2400"/>' for _ in range(width))
     body = []
     for row in rows:
-        cells = "".join(
-            f"<w:tc>{table(value)}<w:p/></w:tc>" if isinstance(value, list)
-            else f"<w:tc>{paragraph(value)}</w:tc>"
-            for value in row)
+        cells = "".join(_tc(value) for value in row)
         body.append(f"<w:tr>{cells}</w:tr>")
     return (
         '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr>'
         f"<w:tblGrid>{grid}</w:tblGrid>{''.join(body)}</w:tbl>"
     )
+
+
+def merged(text: str = "", span: int = 1, vmerge: str | None = None) -> dict:
+    """A MERGED table cell (v0.7.1, SHAPES_ROUND2 §1): ``span`` grid columns
+    wide (``<w:gridSpan>``), and/or part of a vertical merge (``<w:vMerge>``:
+    "restart" opens it, "continue" is a covered cell). Word stores such a cell
+    as ONE ``<w:tc>`` — which is exactly what the reader must cope with."""
+    return {"text": text, "span": span, "vmerge": vmerge}
+
+
+def _span(value) -> int:
+    return value.get("span", 1) if isinstance(value, dict) else 1
+
+
+def _tc(value) -> str:
+    if isinstance(value, list):
+        return f"<w:tc>{table(value)}<w:p/></w:tc>"
+    if isinstance(value, dict):
+        props = ""
+        if value.get("span", 1) > 1:
+            props += f'<w:gridSpan w:val="{value["span"]}"/>'
+        if value.get("vmerge") == "restart":
+            props += '<w:vMerge w:val="restart"/>'
+        elif value.get("vmerge") == "continue":
+            props += "<w:vMerge/>"
+        return f"<w:tc><w:tcPr>{props}</w:tcPr>{paragraph(value.get('text', ''))}</w:tc>"
+    return f"<w:tc>{paragraph(value)}</w:tc>"
 
 
 def docx_bytes(body_parts: list[str]) -> bytes:

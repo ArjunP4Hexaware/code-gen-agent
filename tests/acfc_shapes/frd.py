@@ -20,7 +20,7 @@ tables (10 rows x 4 cols) whose row 4 carries the metadata section label.
 from __future__ import annotations
 
 from . import pair1
-from .common import docx_bytes, paragraph, table
+from .common import docx_bytes, merged, paragraph, table
 
 # ---- F1 label sets (SHAPES_FOR_PORT §2, verbatim) ---------------------------
 
@@ -286,6 +286,7 @@ def build_f2_pair8() -> bytes:
     carries the embedded newline and Functional Requirement the trailing
     colon that §2 documents for this family."""
     feed = "FEED_8"
+    requirements = _f2_pair8_requirements(feed)
     parts = [
         paragraph(f"{feed} Functional Requirements", style="Heading1"),
         table([["Version", "Date", "Author", "Description"], ["1.0", "2026-02-05", "SYN Author", "Initial"]]),
@@ -293,7 +294,19 @@ def build_f2_pair8() -> bytes:
         paragraph(f"{feed} is a multi-segment flat file (HR/DR/TR/FT records) from VENDOR_H."),
         paragraph("2. Solution Requirements", style="Heading1"),
     ]
-    requirements = [
+    for number, (label, name, business, functional, text) in enumerate(requirements, start=1):
+        parts.append(paragraph(f"2.{number} {name}", style="Heading4"))
+        parts.append(_solution_requirement(number, name, business, functional, label, text))
+    parts.append(paragraph("3. Approvals", style="Heading1"))
+    parts.append(table([["Approver", "Role"], ["SYN Approver", "Data Governance"]]))
+    return docx_bytes(parts)
+
+
+def _f2_pair8_requirements(feed: str) -> list[tuple[str, str, str, str, str]]:
+    """The documented pair-8 requirement content (label, name, business,
+    functional, section text) — shared by the round-1 fixture and the
+    round-2 geometries, so the two can be compared value for value."""
+    return [
         ("Descriptive Metadata", f"Describe the {feed} feed",
          f"Catalog the {feed} feed.", "Register the feed in the data catalog.",
          "Data Source: VENDOR_H; Frequency: Weekly; LOBs: ALL; Object Name: FEED_8"),
@@ -318,11 +331,204 @@ def build_f2_pair8() -> bytes:
         ("Email", "Notifications", "Notify on completion.", "Send success and failure emails.",
          "Success and failure alerts to the production support distribution list"),
     ]
-    for number, (label, name, business, functional, text) in enumerate(requirements, start=1):
-        parts.append(paragraph(f"2.{number} {name}", style="Heading4"))
-        parts.append(_solution_requirement(number, name, business, functional, label, text))
-    parts.append(paragraph("3. Approvals", style="Heading1"))
-    parts.append(table([["Approver", "Role"], ["SYN Approver", "Data Governance"]]))
+
+
+# ---- F2, round 2 (SHAPES_ROUND2 §1 — the REAL pairs 8 / 9 / 10 geometry) ------
+#
+# The capture: every Solution Requirement table leads with a MERGED column;
+# "Solution Requirement: N" sits in a cell merged across columns B-D; rows
+# below are Name / Business Requirement / Functional Requirement / <section
+# label> / Impact Details / Solution Acceptance Criteria / Priority /
+# Source/Reference / Traced Requirements. What the leading column holds is
+# not stated, so both plausible Word structures are built: a VERTICAL merge
+# down the whole table ("vmerge"), or an empty lead cell in row 0 only
+# ("lead"). Pairs 9 and 10 are the topic-organized shape — F3 (M11 item 9),
+# built below from §1.2 / §1.3.
+
+
+def _round2_requirement(number: str, name: str, business: str, functional: str,
+                        section_label: str, section_text: str, geometry: str,
+                        extra_row: bool = False) -> str:
+    rows = [
+        ["Name", name],
+        ["Business \nRequirement", business],
+        ["Functional Requirement:", functional],
+        [section_label, section_text],
+        ["Impact Details", ""],
+        ["Solution Acceptance Criteria", f"{name} verified in QA."],
+        ["Priority", "High"],
+        ["Source/Reference", f"SYN-BR-{number}"],
+        ["Traced/Related Requirements", f"SYN-BR-{number}"],
+    ]
+    if extra_row:
+        rows.insert(0, ["Requirement Type", "Inbound File Data Ingestion"])
+    if geometry == "vmerge":
+        body = [[merged(vmerge="continue"), label, merged(text, span=2)] for label, text in rows]
+        head = [merged(vmerge="restart"), merged(f"Solution Requirement: {number}", span=3)]
+    else:                                                    # "lead"
+        body = [[label, merged(text, span=3)] for label, text in rows]
+        head = ["", merged(f"Solution Requirement: {number}", span=3)]
+    return table([head, *body])
+
+
+def _nfr_tables(count: int) -> list[str]:
+    titles = ["Data Management", "Data Migration", "Disaster Recovery Plan",
+              "Legal/ Regulatory Requirements", "System Interference",
+              "Supportability Requirement", "Performance Requirement", "Security Requirement",
+              "Software Quality Attributes", "Code Review", "Service Level Agreement",
+              "Data Access", "Email Notification"]
+    return [table([[merged(f"Non-Functional Requirement ID: {n}", span=2)],
+                   ["Name", titles[(n - 1) % len(titles)]], ["Description", "Not Applicable"]])
+            for n in range(1, count + 1)]
+
+
+def _boilerplate(feed: str) -> list[str]:
+    return [
+        paragraph("Revision History", style="Title"),
+        table([["Date", "Version", "Author(s)", "Description of Version/Changes"],
+               ["12/15/25", "1.0", "SYN Author", "Initial"]]),
+        paragraph("Intended Audience", style="Heading2"),
+        table([["Name", "Role", "Title", "Department"],
+               ["SYN Approver", "Approver", "Manager - IS", "EDO Management"]]),
+        paragraph("Definitions and Acronyms", style="Heading2"),
+        table([["Acronym", "Definition"], ["DL", "Data Lake"]]),
+        paragraph("Systems Overview", style="Heading2"),
+        table([["Name", "Description"],
+               ["System Overview", f"{feed} files processed via scheduling"],
+               ["Target", "DL2.0"]]),
+        paragraph(f"{feed} Functional Requirements", style="Heading1"),
+        table([["Functional Requirement #", "Functional Requirement Definition",
+                "Business Requirement #"],
+               ["1", f"Descriptive Metadata for the ingestion of {feed} into DL2.0", ""]]),
+    ]
+
+
+def _signoff() -> list[str]:
+    return [paragraph("Stakeholder Signoff", style="Heading1"),
+            table([["Approver Name", "Signature/Proof", "Date"], ["SYN Approver", "", ""]]),
+            paragraph("Reference Documents", style="Heading2"),
+            table([["Document Name", "Description", "Network Path"],
+                   ["SYN_MAPPING", "Mapping Document", "SharePoint URL"]])]
+
+
+def build_f2_round2_pair8(geometry: str = "vmerge") -> bytes:
+    """Pair 8 in the REAL round-2 geometry (SHAPES_ROUND2 §1.1): 14 tables —
+    revision history, audience, glossary, systems overview, requirement
+    index, SEVEN Solution Requirement tables (Descriptive, Structural,
+    Administrative, Technical, Data Quality, Vendor, Notification), sign-off,
+    references. The requirement content is round 1's documented pair-8
+    content; only the geometry is round 2's."""
+    feed = "FEED_8"
+    parts = _boilerplate(feed)
+    requirements = [r for r in _f2_pair8_requirements(feed)
+                    if r[0] != "Reject /Recycle Process"]
+    for number, (label, name, business, functional, text) in enumerate(
+            requirements, start=1):
+        parts.append(_round2_requirement(str(number), name, business, functional, label,
+                                         text, geometry))
+    return docx_bytes(parts + _signoff())
+
+
+def _f3_requirement(number: str, name: str, geometry: str = "vmerge",
+                    rows_total: int = 10, merged_name: bool = False) -> str:
+    """One topic-organized requirement table (SHAPES_ROUND2 §1.2 / §1.3):
+    the round-2 geometry, but its row-4 label names NO metadata section."""
+    body = [["Name", name], ["Business \nRequirement", f"{name}."],
+            ["Functional Requirement:", f"Deliver: {name}."],
+            ["Requirement Detail", "See the mapping document."],
+            ["Impact Details", ""], ["Solution Acceptance Criteria", f"{name} verified in QA."],
+            ["Priority", "High"], ["Source/Reference", "SYN-BR"],
+            ["Traced/Related Requirements", "SYN-BR"]]
+    while len(body) < rows_total - 1:
+        body.append(["Notes", ""])
+    if merged_name:                                   # §1.2 table 9: col B/C merged name
+        body[0] = ["Name", merged(name, span=2)]
+    head = [merged(vmerge="restart"), merged(f"Solution Requirement: {number}", span=3)]
+    rows = [[merged(vmerge="continue"), label, merged(text, span=2)
+             if not isinstance(text, dict) else text] for label, text in body]
+    return table([head, *rows])
+
+
+def _f3_front(feed: str, *, domain: bool) -> list[str]:
+    parts = [paragraph("Waterfall Lite", style="VerNo"),
+             paragraph("Revision History", style="Title"),
+             table([["Date", "Version", "Author(s)", "Description of Version/Changes"],
+                    ["12/23/2025", "1.0", "SYN Author", "Initial Version."]])]
+    if domain:                                        # §1.3 table 1 (pair 10 only)
+        parts += [paragraph("Purpose", style="Heading2"),
+                  table([["Domain", "SubDomain"], ["Care Management", "Assessments"]])]
+    parts += [paragraph("Intended Audience", style="Heading2"),
+              table([["Name", "Role", "Title", "Department"],
+                     ["SYN Reviewer", "Reviewer", "Director", "Data Products"]]),
+              paragraph("Definitions and Acronyms", style="Heading2"),
+              table([["Acronym", "Definition"], ["DL", "Data Lake"]]),
+              paragraph("Assumptions, Constraints & Dependencies", style="Heading2"),
+              table([["ID #", "Name", "Description", "ACD Type"],
+                     ["1", "Data Accessibility", f"{feed} data is accessible.", "Assumptions"]])]
+    return parts
+
+
+def _f3_back(nfr: int) -> list[str]:
+    return [paragraph("Business Rules", style="Heading2"),
+            table([[merged("Business Rule ID: 1", span=2)], ["Name", "NA"],
+                   ["Description", "NA"], ["Priority", "NA"], ["Source", "NA"]]),
+            *_nfr_tables(nfr),
+            paragraph("Stakeholder Signoff", style="Heading1"),
+            table([["Approver Name", "Date", "Signature/Proof", "Role"],
+                   ["SYN Approver", "", "", ""]]),
+            paragraph("Reference Documents", style="Heading2"),
+            table([["Document Name", "Description", "Network Path", "Attachment"],
+                   ["SYN_MAPPING", "Mapping Document", "SharePoint URL", ""]])]
+
+
+def build_f3_pair9() -> bytes:
+    """SHAPES_ROUND2 §1.2 (pair 9): boilerplate, NINE topic-organized
+    requirement tables each after a Heading 4 "Functional Requirement N – …"
+    (table 9 with a merged Name cell), a business rule, 12 NFR tables, two
+    empty template tables, sign-off, references. No metadata section label
+    and no domain table: every field comes from the chain."""
+    feed = "FEED_9"
+    topics = ["VENDOR_I Source system integration", "New Schemas creation in DL 2.0 Layers",
+              "New Tables creation in new HR Schema in DL 2.0",
+              "VENDOR_I data Extraction and ingestion into DL 2.0",
+              "HR Data Ingestion into Target - Data Lake 2.0",
+              "CM Automation – File Ingestion – Process Failure Alert",
+              "Administrative information for the HR data ingestion Process",
+              "Source to target metadata mapping (STTM)", "ETL Data Quality Rules"]
+    parts = _f3_front(feed, domain=False)
+    for number, topic in enumerate(topics, start=1):
+        parts.append(paragraph(f"Functional Requirement {number} – {topic}", style="Heading4"))
+        parts.append(_f3_requirement(str(number), topic, merged_name=number == 6))
+    back = _f3_back(12)
+    # §1.2 tables 26 / 27: empty template tables before the sign-off
+    parts += back[:-4] + [
+        paragraph("Technical Implementation", style="Heading1"),
+        table([["Component", "Description", "Schema", "Notes"], ["", "", "", ""]]),
+        paragraph("Business Rules & Data Transformation", style="Heading1"),
+        table([["Rule ID", "Rule Description", "Applicable Table/View", "Transformation Logic"],
+               ["", "", "", ""]]),
+    ] + back[-4:]
+    return docx_bytes(parts)
+
+
+def build_f3_pair10() -> bytes:
+    """SHAPES_ROUND2 §1.3 (pair 10): a Domain / SubDomain table (unique among
+    the F2/F3 documents), FOUR sub-numbered requirement tables with trailing
+    titles (2.1 … 2.4, outbound vs inbound), 11 rows each, a business rule,
+    13 NFR tables, sign-off, references."""
+    feed = "FEED_10"
+    requirements = [("2.1", "Automated Data Ingestion for Outbound FEED_10 Data"),
+                    ("2.2 – Inbound File Data Ingestion",
+                     "Automated Data Ingestion for Inbound FEED_10 Data"),
+                    ("2.3 - Outbound File Amendments",
+                     "Amend the Target schema for the Outbound table in DL."),
+                    ("2.4 – Inbound File Data Ingestion",
+                     "Automated Data Ingestion for Inbound FEED_10 Data (region B)")]
+    parts = _f3_front(feed, domain=True)
+    parts.append(paragraph("Solution Requirements", style="Heading2"))
+    for number, name in requirements:
+        parts.append(_f3_requirement(number, name, rows_total=11))
+    parts += _f3_back(13)
     return docx_bytes(parts)
 
 

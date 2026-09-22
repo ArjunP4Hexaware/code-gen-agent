@@ -60,6 +60,12 @@ _SQL_TYPES = {
     "binary": "BINARY",
     "timestamp_ntz": "TIMESTAMP_NTZ",
 }
+# The audit columns the generated audit module knows how to POPULATE. Any
+# other audit column the STTM declares is written as a typed NULL and flagged
+# audit_column_unpopulated (M11 item 13) — it used to stop the run.
+KNOWN_AUDIT_COLUMNS = {
+    "LOB", "FILE_TYPE", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME",
+}
 _DECIMAL_RE = re.compile(r"^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
 
 # Quartz cron for "Weekly <Day> <H> <AM|PM>" SLA phrases; anything else ships
@@ -663,6 +669,9 @@ def build_context(
         # True only when the contract declares a FILE_TYPE audit column
         # (segmented-extraction feeds); flat feeds render byte-identically.
         "has_file_type_audit": any(a.column == "FILE_TYPE" for a in spec.audit_columns),
+        # M11 item 13: (column, SQL type) of every audit column no rule fills.
+        "unpopulated_audit": [(a.column, sql_type(a.datatype)) for a in spec.audit_columns
+                              if a.column not in KNOWN_AUDIT_COLUMNS],
         "natural_key": spec.natural_key_columns,
         "phi_columns": spec.phi_columns,
         "errors_table": spec.errors_table.table,

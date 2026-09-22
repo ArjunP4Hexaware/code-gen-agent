@@ -136,6 +136,14 @@ extractor:
   # 336 rows killed the v0.6.2 parser). Rows with values beyond such a gap are
   # reported, never dropped silently. 0 = trust max_row.
   used_range_empty_rows: 500
+  # M11 item 13 (SHAPES_ROUND2 §4.2): a scope column (found by its VALUES —
+  # the real header embeds a vendor name) filters the mapping rows; rows
+  # marked out of scope are skipped with one grouped flag.
+  scope_in_values: ["in scope", "inscope"]
+  scope_out_values: ["out of scope", "out scope", "not in scope"]
+  # A Load Rules cell that starts with one of these marks an AUDIT row, even
+  # when the row names its column in one layer only.
+  audit_load_rule_markers: ["audit column"]
   file_details_annotation:
     phrases: ["datatype =", "data type =", "confirm before use", "legend",
               "colour key", "color key", "the vendor gave neither"]
@@ -341,6 +349,12 @@ extractor:
     # M10.1: label tokens a path cell may start with ("/Path : <storage>/…",
     # the v0.6.0 ACFC FRD) — stripped, recorded in the field's evidence.
     value_label_prefixes: ["Path", "ADLS Path", "Location", "ADLS Location", "Landing Path"]
+    # M11 item 9: F3 table classification by row-0 text (SHAPES_ROUND2 §1.2/§1.3).
+    table_classes:
+      requirement: ["solution requirement"]
+      nfr: ["non-functional requirement"]
+      boilerplate: ["date", "name", "acronym", "id #", "approver name", "document name",
+                    "business rule id", "component", "rule id", "functional requirement #"]
     pointer_phrases: ["refer to", "see the", "attached in the appendix", "per the mapping document",
                       "mentioned in the mapping document", "provided in the mapping document",
                       "included in the mapping document"]

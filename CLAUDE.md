@@ -55,7 +55,12 @@ src/codegen/        sharepoint.py (Microsoft Graph transport, stdlib-only),
                     storage/ (M8.1: local | workspace | volume backends, role
                     stores, input catalog — an EDGE, never imported by the
                     generation path), pairing.py (M8.2: pairing by content),
-                    layout/answers.py (M8.3: answers file + unresolved report)
+                    layout/answers.py (M8.3: answers file + unresolved report),
+                    env/ (M10: read-only environment probe + reconciler —
+                    emitters import only env.model), formats.py (M11: THE one
+                    delimited | fixed_width | spreadsheet definition),
+                    layout/extent.py + layout/size.py (M11: used-range trim,
+                    workbook cell cap)
 tests/              offline, no Spark needed; some SKIP when the fixtures they
                     drive on are absent (see "Fixtures & data rules"); the
                     demo-UI and SharePoint-route tests also skip when the [ui]
@@ -239,9 +244,10 @@ non-secret.
 ## Output modes (Option A / Option B, added 2026-08-27; `rfc` added 2026-09-18)
 
 `output.mode: notebook | framework | both | rfc | all` (CLI `--output-mode`;
-the UI shows three toggles — Notebook, Framework artefacts, RFC package —
-plus All, and maps the selection onto one mode: rfc implies framework,
-notebook+rfc = all). `rfc` = framework artefacts + the assembled deployment
+since v0.5.9 the UI offers only Notebook + Framework artefacts — the RFC
+toggle, the All button and the Playbook selector were removed on Soham's
+instruction; `rfc` / `all` stay in the backend for the CLI and for replaying
+past runs — do not re-add them to the UI). `rfc` = framework artefacts + the assembled deployment
 package; `all` = notebook tree + framework + package (see "Conventions
 profiles, IIG / playbook templates, the rfc package"). **Option A** ("notebook", the default) is today's output byte
 for byte — a fresh standalone pipeline, the ~10% case; guarded by
@@ -277,16 +283,115 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
-## Where this stands (2026-09-22) — READ FIRST
+## START HERE (state as of 2026-09-22) — READ FIRST
 
-`staging` = `origin/staging` = **v0.7.2-acfc** (M11 addendum items 10, 8, 12,
-13, 9), on top of **v0.7.1-acfc** (35c48aa, items 7 + 11), **v0.7.0-acfc**
-(392ac34, items 1–6), **v0.6.2-acfc**, **v0.6.1-acfc**, **v0.6.0-acfc** and
-**v0.5.9-acfc**. All tags are on the remote. `main` is untouched at 4c35c61.
+**Where the code is.** `staging` = `origin/staging` = **6b2d9ac**, tag
+**v0.7.2-acfc**, working tree clean. Every tag v0.4.0 … v0.7.2 is on the
+remote. `main` is untouched at **4c35c61 (v0.4.1)** — merge staging → main only
+on Soham's say-so. All development happens on `staging`.
 
-**The App version marker is 0.7.2** (`pyproject.toml` + the
-`codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
-Apps runtime serves a cached env).
+**App version marker = 0.7.2** (`pyproject.toml` + the `codegen-version-marker`
+comment in `requirements.txt` — bump BOTH whenever `src/` changes, or the Apps
+runtime serves a cached env). `ui/frontend/dist` is tracked; the bundle was last
+rebuilt at v0.7.0 (`index-JnGVbJrA.js`). Rebuild and commit it whenever
+`ui/frontend/src` changes.
+
+**Verified at 6b2d9ac:** 788 passed / 27 skipped on Python 3.10, 3.11 and 3.12
+(uv venvs); ruff clean; tsc clean; `scripts/scrub_check.py` 0 hits; CV / SFMC
+baselines 193 files byte-identical to every earlier tag; pair-1 acceptance
+goldens (`tests/test_m4_acceptance.py`) unchanged.
+
+**Release map** (newest first). Details are in "Release notes v0.5.9 – v0.7.2"
+below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
+
+| tag | commit | what |
+|---|---|---|
+| v0.7.2 | 6b2d9ac | M11 addendum items 10, 8, 12, 13, 9 (the SHAPES_ROUND2 shapes). Layer-prefixed headers (pair 7). F2 detected in any row-0 cell (pair 8). A blank band label; NOTE rows never parsed (pair 5). Scope column, Load-Rules audit rows, type+format, and `source_kind=rdbms` → a DML REVIEW block (pair 6). F3 topic-organised FRDs (pairs 9/10). |
+| v0.7.1 | 35c48aa | Item 7: an FRD matching no family is an empty-but-valid contract (`frd_family_unrecognized`), filled by the chain and typed questions. Item 11: sheets are trimmed to their USED range, and the cell cap is the backstop. |
+| v0.7.0 | 392ac34 | M11 items 1–6: FILE_DETAILS annotations skipped; the segment `none` class; the `audit_types_restricted` profile knob; .xlsx as an inbound format (`codegen/formats.py`); `inputs.max_workbook_cells`; skipped layout questions stay visible. |
+| v0.6.2 | 435e4a5 | M10.2: location URIs are validated as URIs and carried as written (badge `location_uri`). |
+| v0.6.1 | 152ea10 | M10.1: the natural key is resolved across segments; label-prefixed path values; the notebook installs `.[ui,databricks]`. |
+| v0.6.0 | cdda58f | M10: the read-only environment probe (`src/codegen/env/`) and DDL / DML reconciled to it. No live UPDATE — a REVIEW block plus a commented candidate; `dml.emit_updates: false`. |
+| v0.5.9 | 6b33f0d | The App never reaches a foreign workspace (`databricks:` catalog / schema / volumes ship BLANK). The RFC toggle, All button and Playbook selector are gone from the UI. Session socket guard in `tests/conftest.py`. |
+| v0.5.1–v0.5.8 | … 3a5b85d | M9: the first real pair-1 runs inside ACFC, plus the App-only chooser / storage-role fixes (sections further down). |
+
+**Deploying into ACFC** (every item has bitten once):
+1. The App SP needs **Can Manage** (NOT Can Edit) on the state / outputs /
+   inputs folders. Can Edit cannot CREATE a file (`docs/ACFC_DEPLOY.md` §3).
+2. Sync `ui/frontend/dist`. A stale bundle against a v0.5.5+ backend blanks the
+   page. `databricks sync` silently skips `dist` when the staged tree still
+   carries a `.gitignore`, so delete it from the staged tree, then check that
+   the served page names the current asset hash. Never use `--full`.
+3. Bump the version marker (above) or the App serves the old env.
+4. App env per `docs/ACFC_DEPLOY.md` §8. The environment probe is OFF unless
+   `CODEGEN_ENV_PROBE=1` plus a warehouse id / secret names are set. The ACFC SP
+   has no warehouse grant yet, so a first probe reads everything `unreadable`,
+   which is expected: it shows as a flag, not a failure.
+5. Fallback when the App misbehaves: **`acfc_run.py`** in a notebook. It runs as
+   the USER, so the SP permission gap cannot bite. `main` is NOT a fallback (it
+   predates storage roles and cannot read the pair folders).
+
+**Security / data rules that are easy to break:**
+- `origin/acfc-runs` (run records, SHAPES_ROUND2.md) and `origin/acfc-hotfix-1`
+  (Genie's hotfix) are **UNSCRUBBED** — real client file / table names. The
+  same goes for the LOCAL branch `genie-code`. Read them in place
+  (`git show origin/acfc-runs:<path>`); never merge them, copy them, or quote
+  real names into tracked files. Scrubbed accounts go in `docs/ACFC_DEPLOY.md`
+  / `docs/acfc/M9_FINDINGS.md`. Whether `acfc-hotfix-1` stays is Soham's call.
+- The ACFC Unity Catalog and metadata DB are reachable ONLY from inside ACFC.
+  Nothing here may call them. The probe's transports build clients only inside
+  a Databricks runtime from injected credentials, never a CLI profile. The local
+  DEFAULT profile is the Hexaware workspace: never pass it implicitly, and never
+  let a test reach it (the socket guard fails any non-loopback connection;
+  `DATABRICKS_CONFIG_FILE` points at a missing file).
+- A test that can reach a live path must pin the provider: FMAPI resolves from
+  workspace auth with no env secret.
+- `scripts/scrub_check.py` over every tracked file must stay at 0 hits.
+
+**Standing rules for every change:**
+- CV / SFMC baselines must stay byte-identical unless Soham approves a re-base.
+  The pair-1 golden DDL is byte-pinned.
+- A new gate check is added only when it FAILS, so baseline reports don't move.
+- A value not transcribed from an input is a bug. A header seen in a client
+  document may become a synonym; a header invented to close a fixture gap may
+  not. Extend a detector from documented structure (SHAPES docs, captures),
+  never from an error message.
+- When touching the run or chooser path, extend `tests/test_remote_run_e2e.py`
+  (remote roles), not only the local tests. Never `relative_to(REPO_ROOT)` on a
+  role-store path.
+- Ship checklist: suite on 3.10 / 3.11 / 3.12, ruff, tsc (if the frontend was
+  touched), dist rebuilt, scrub 0, baselines compared, version marker bumped,
+  a `docs/ACFC_DEPLOY.md` "What vX adds" section, and this block updated.
+  Commit, tag and push only when Soham says so.
+
+**Working habits this Windows box needs:**
+- Long bash heredocs with backticks, backslashes or non-ASCII (em-dash) get
+  mangled. Write patch scripts to the scratchpad with the Write tool and apply
+  them with a CRLF-aware exact-replace helper that asserts each anchor occurs
+  exactly once.
+- Baselines: `git worktree add --detach <scratch>/wt_head HEAD`, generate CV +
+  SFMC in mode `all` from BOTH trees into separate dirs, and compare sha256
+  listings. Pin `CODEGEN_NOTIFICATION_EMAILS` for both runs (the checkout's
+  `.env` otherwise fakes a 16-file diff), and pass WINDOWS-form paths to
+  `CODEGEN_STORAGE_OUTPUTS=local:` (an MSYS `/c/...` path lands under `C:\c\...`).
+- Tracked layout profiles are regenerated with `scripts/build_layout_profiles.py`,
+  never hand-edited. `PYTHONUTF8=1` for scripts that print non-ASCII.
+
+**Open / not proven** (nothing below has run for real):
+- The first real ACFC run of v0.6.x / v0.7.x: all ten pairs. The last real run
+  was v0.6.2 (1 of 10 passed); M11 addresses its six causes plus the round-2
+  shapes.
+- The environment probe has only run against fakes (`tests/env_fakes.py`).
+- Pair 9's real row-4 labels; pair 6's REGION_NAME "Hard code note" (today a
+  typed NULL + `audit_column_unpopulated:`).
+- The real VDD span of pair 1's six amount fields; the real `Frequency` /
+  `Format` cell values.
+- Framework-team questions in `docs/acfc/METADATA_DB_SEMANTICS.md` §11
+  (incl. 19: is there an UPDATE path for config rows; 20: the natural keys;
+  the RDBMS connection / ingestion tables §4 / §6 are undescribed).
+- The staging → main merge.
+
+## Release notes v0.5.9 – v0.7.2 (newest first)
 
 **v0.7.2 (the rest of the M11 addendum).** FRD families are now **F1, F2, F3,
 unrecognized** (`layout/frd_profile.py::FrdFamily`): F2 = pair 8 (Solution
@@ -362,11 +467,6 @@ questions left unanswered** section. Verified: 764 passed / 27 skipped on
 3.10 / 3.11 / 3.12, ruff + tsc clean, dist rebuilt, scrub 0, CV / SFMC
 baselines 193 files byte-identical, pair-1 acceptance unchanged.
 
-**M11 item 7 is NOT in v0.7.0:** pairs 8/9/10 fail `FrdDocxError: no F1/F2
-table`. It waits for the round-2 capture (`SHAPES_ROUND2.md`, not yet on
-`origin/acfc-runs`) — the detector is extended from documented structure,
-never guessed from an error. Ships as v0.7.1.
-
 **M10.2 (v0.6.2-acfc): location URIs.** A landing value with a storage
 scheme (`gate/derivations.py::LOCATION_SCHEMES` — abfss, abfs, wasbs, wasb,
 dbfs, s3, s3a, adl, gs) is validated by `uri_violations` (scheme, authority
@@ -407,7 +507,7 @@ on the variant). Verified: 722 passed / 27 skipped on 3.10 / 3.11 / 3.12,
 ruff clean, scrub 0 hits, CV / SFMC baselines 193 files byte-identical vs
 v0.6.0; no frontend change (dist untouched).
 
-**v0.5.9-acfc (this session, committed 6b33f0d):** the App never reaches a
+**v0.5.9-acfc (6b33f0d):** the App never reaches a
 foreign workspace — `databricks.catalog / schema / frd_volume / sttm_volume`
 ship BLANK (they named the build workspace's own document volumes; in ACFC
 the chooser listed a catalog that does not exist there and the Generate page
@@ -421,7 +521,7 @@ non-loopback connection fails the test that made it, and
 `DATABRICKS_CONFIG_FILE` points at a file that does not exist so the SDK can
 never find the operator's CLI profile.
 
-## M10 (2026-09-21, uncommitted-to-remote, to be v0.6.0-acfc): environment reconciliation
+### v0.6.0-acfc (M10, 2026-09-21, cdda58f): environment reconciliation
 
 Read-only probe of what already exists where the artefacts will be deployed,
 and DDL / DML adjusted to it. Brief + decisions: Soham's paste of
@@ -497,69 +597,6 @@ Deploy notes: `docs/ACFC_DEPLOY.md` "What v0.6.0-acfc adds".
   ambiguity, reported); `IF … UPDATE` without BEGIN/END does not parse under
   sqlglot tsql (the candidate is a comment today; a live one is a bare
   `UPDATE … WHERE key;` which parses).
-
-**Verified at 3a5b85d:** suite **684 passed / 27 skipped on Python 3.10, 3.11
-and 3.12**, ruff clean, tsc clean, `ui/frontend/dist` rebuilt and committed, `scripts/scrub_check.py` over
-every tracked + untracked file 0 hits, CV / SFMC baselines byte-identical
-(193 files, HEAD-worktree vs working tree, `CODEGEN_NOTIFICATION_EMAILS`
-pinned). v0.5.7 / v0.5.8 touch `ui/` + tests + docs only — `src/`, `config/`
-and the frontend bundle are untouched there, so the baselines cannot have
-moved.
-
-**Deploying into ACFC (both matter — either one alone looks like a hung UI):**
-1. The App SP needs **Can Manage** (NOT Can Edit) on state / outputs / inputs
-   — Can Edit cannot CREATE a file (`docs/ACFC_DEPLOY.md` §3).
-2. `ui/frontend/dist` must be synced. A stale bundle against a v0.5.5+ backend
-   **blanks the page** (it expects `200 {workbooks}`, gets `202 {job}`);
-   `databricks sync` silently skips `dist` when the staged tree still carries
-   a `.gitignore`. Check the served page names the current asset hash.
-
-**`main` is NOT a usable fallback** (asked and checked this session): it is
-v0.4.1, 42 commits behind, with no `src/codegen/storage/`, no `acfc_run.py`,
-no `pairing.py`, no `resolve/widths.py` — it cannot read the workspace pair
-folders at all. The real fallback for a workspace where the App misbehaves is
-**`acfc_run.py`** in a notebook (it runs as the USER, so the SP permission gap
-cannot bite it); it drives the same CLI commands the suite covers, but has
-never had a real end-to-end run inside ACFC.
-
-**Genie Code coordination (open):** `origin/acfc-runs` (b7bed44) and
-`origin/acfc-hotfix-1` (8377954) hold **docs only** — 4 run records, 840
-lines, zero code — and are UNSCRUBBED (real client file names): never merge
-or copy them. Genie rebased locally on 2026-09-21 but **had not pushed** as of
-the end of this session; nothing new exists on the remote. A diff of its fixes
-against v0.5.8 is still owed — ask it to push its branch, or
-`databricks workspace export-dir <app path> <dir>` and diff that tree.
-**Hazard:** edits made directly in the App's workspace tree are wiped by the
-next `databricks sync` from `staging`, and a rebase that resolved conflicts in
-`ui/backend/demo.py` / `service.py` in its favour would silently drop the
-v0.5.6 – v0.5.8 fixes.
-
-**The lesson that cost three releases today** (memory:
-`app-only-remote-role-failures`): every run test used the DEFAULT LOCAL
-storage roles, so three App-only failures passed a green suite. When touching
-the run or chooser path, extend **`tests/test_remote_run_e2e.py`** (fake
-workspace + fake volume, the real `_execute`, Layer 2 AND layout mock-locked),
-not only the local tests. Never `relative_to(REPO_ROOT)` on a path that came
-from a role store. A step that is an assist (pairing, recording a choice) must
-never discard the person's choice.
-
-**Working habits that this box / repo require** (learned the hard way):
-long bash heredocs with backticks or non-ASCII mis-decode here — write patch
-scripts to the scratchpad with the Write tool and apply them with a CRLF-aware
-exact-replace helper that asserts each anchor occurs exactly once. Baselines:
-`git worktree add --detach <scratch>/wt_head HEAD`, generate CV + SFMC in mode
-`all` from BOTH trees into separate dirs, compare sha256 listings, and pin
-`CODEGEN_NOTIFICATION_EMAILS` for both runs (the checkout's `.env` otherwise
-fakes a 16-file diff) — and pass WINDOWS-form paths to
-`CODEGEN_STORAGE_OUTPUTS=local:` (an MSYS `/c/...` path lands under `C:\c\...`).
-A test that can reach a live path MUST pin the provider: FMAPI resolves from
-workspace auth with no env secret.
-
-**Still open / not proven:** the first real ACFC run of v0.5.8; what ruff
-failed on inside ACFC (v0.5.1 — the console now prints the detail); the real
-VDD span of the six amount fields; the real `Frequency` / `Format` cell
-values; whether `origin/acfc-hotfix-1` stays (unscrubbed — Soham's call);
-staging → main merge (Soham's say-so).
 
 ## M9 (2026-09-21, v0.5.1-acfc): the first real pair-1 run inside ACFC, landed properly
 
@@ -1309,7 +1346,12 @@ e.g. MIDS) is complete and replays with an empty candidate list.
 READ-ONLY (list + download), same edge doctrine: fetch documents to local
 disk (`codegen databricks-fetch` → `inputs/databricks/`, also the UI's
 per-file Fetch in the STTM chooser), then generation proceeds from disk.
-The client's raw documents live in `soham_workspace.codegen_agent.frd_raw`
+**Since v0.5.9 the tracked `databricks:` catalog / schema / frd_volume /
+sttm_volume ship BLANK** (the seam is off by default; the code stays): they
+named the Hexaware build workspace's volumes, and inside ACFC the App tried to
+list them. Set them only by env / overlay for the Hexaware App. The
+serving endpoint no longer depends on them (`config_for(require=…)`). The
+Hexaware-side raw documents lived in `soham_workspace.codegen_agent.frd_raw`
 / `.sttm_raw` (uploaded 2026-08-27, un-anonymized, on explicit user
 instruction — Databricks volumes are allowed to hold client documents;
 this REPO still is not). Non-secret knobs in `config/config.yaml`

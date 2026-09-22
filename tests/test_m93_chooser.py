@@ -282,6 +282,46 @@ def test_a_failed_state_write_warns_and_keeps_the_selection(ws):
     assert any("state folder is read-only" in w for w in job["warnings"]), job["warnings"]
 
 
+def test_a_slow_state_write_never_holds_the_chosen_sttm_back(ws):
+    """Reported from ACFC (direct upload): the FRD and VDD showed as paired,
+    then the STTM's name took 2-3 more minutes to appear and Generate stayed
+    disabled. The job's last step RECORDED the choice (selection.json, a
+    Workspace API write) BEFORE applying it, with a 120 s budget. Now the
+    choice is applied and the job done first; the write happens behind it."""
+    import threading
+    import time
+
+    ws.pairs("pair_1")
+    runner = ws.runner()
+    upload = ws.fake.workspace.upload
+    release = threading.Event()
+    written: list[dict] = []
+
+    def slow(path, content, **kw):
+        if path.endswith("/selection.json"):
+            release.wait(30)                     # the state role not answering
+            data = content.read()
+            written.append(json.loads(data))
+            return upload(path, __import__("io").BytesIO(data), **kw)
+        return upload(path, content, **kw)
+
+    ws.fake.workspace.upload = slow
+    started = time.monotonic()
+    runner.start_selection("STTM_alpha.xlsx")
+    job = runner.wait_selection(20)
+    took = time.monotonic() - started
+    assert job["state"] == "done" and took < 10, (took, job)
+    assert runner.selection()["sttm"] == "STTM_alpha.xlsx"          # shown, Generate-able
+    assert runner.status()["selection"]["frd"] == "FRD_bravo.docx"
+    assert not written and not runner.wait_recorded(0.1)           # still being written
+    # A second choice while the first write hangs: the NEWEST one is recorded.
+    runner.clear_workbook()
+    release.set()
+    assert runner.wait_recorded(20)
+    assert written[-1]["sttm"] is None, written
+    assert json.loads(ws.fake.ws.files[f"{SHARED}/state/selection.json"])["sttm"] is None
+
+
 def test_a_pairing_that_raises_never_discards_the_chosen_sttm(ws, monkeypatch):
     ws.pairs("pair_1")
     runner = ws.runner()

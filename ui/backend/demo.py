@@ -12,7 +12,6 @@ the default out/ tree and never the tracked replay fixtures.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
 import threading
@@ -116,6 +115,16 @@ class DemoRunner:
         self._layout_providers: list = []
         # "Clear past runs" in progress: a run must not start into it.
         self._clearing = False
+        # Recording the selection (selection.json in the state role) happens
+        # OFF the selection path: one background writer, the newest payload
+        # wins. It used to be the job's last step, BEFORE the choice was
+        # applied — a slow state-role write (Workspace API) kept the STTM
+        # unselected, and Generate disabled, for up to the step budget.
+        self._record_lock = threading.Lock()
+        self._record_pending: tuple[dict, dict | None] | None = None
+        self._record_busy = False
+        self._record_idle = threading.Event()
+        self._record_idle.set()
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
         self.error: str | None = None
@@ -679,6 +688,62 @@ class DemoRunner:
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
         ui_stores.push_state(self._store.config, SELECTION_FILE)
 
+    def _record_later(self, payload: dict | None = None, job: dict | None = None) -> None:
+        """Record ``payload`` (default: the selection now) in the state role in
+        the background; never blocks the caller. A failure or a timeout is a
+        ``record`` warning on ``job`` — the choice stands either way."""
+        from ui.backend import stores as ui_stores
+
+        if ui_stores.state_is_default(self._store.config):
+            return                                 # the default role records nothing
+        payload = dict(payload if payload is not None else self.selection())
+        with self._record_lock:
+            self._record_pending = (payload, job)
+            if self._record_busy:
+                return                             # the running writer picks it up
+            self._record_busy = True
+            self._record_idle.clear()
+        threading.Thread(target=self._record_loop, name="record-selection",
+                         daemon=True).start()
+
+    def _record_loop(self) -> None:
+        timeout = float(self._store.config.inputs.select_timeout_seconds)
+        while True:
+            with self._record_lock:
+                item, self._record_pending = self._record_pending, None
+                if item is None:
+                    self._record_busy = False
+                    self._record_idle.set()
+                    return
+            payload, job = item
+            box: dict = {}
+
+            def write(payload=payload, box=box) -> None:
+                try:
+                    self._persist_selection(payload)
+                except BaseException as exc:  # noqa: BLE001 — reported on the job
+                    box["error"] = exc
+
+            writer = threading.Thread(target=write, name="record-selection-write", daemon=True)
+            writer.start()
+            writer.join(timeout)
+            if writer.is_alive():
+                problem = (f"no answer from the state role within {timeout:g}s — the choice "
+                           "stands, but is not remembered across an App restart")
+            elif "error" in box:
+                problem = f"{type(box['error']).__name__}: {box['error']}"
+            else:
+                problem = None
+            if job is not None:
+                job["steps"].append({"step": "record", "state": "warning" if problem else "done",
+                                     "detail": problem or ""})
+                if problem:
+                    job.setdefault("warnings", []).append(f"record: {problem}")
+
+    def wait_recorded(self, timeout: float = 60.0) -> bool:
+        """Tests / scripts: block until the background recorder is idle."""
+        return self._record_idle.wait(timeout)
+
     # -- the selection job (M9.3 addendum) ------------------------------------------
 
     def _new_job(self, kind: str, name: str) -> dict:
@@ -830,13 +895,11 @@ class DemoRunner:
                                  timeout, None)
             if vdd is not None:
                 job["pairing"]["vdd"] = vdd["outcome"]
-            step = "recording the selection in the state role"
             chosen = {"sttm": name,
                       "frd": (frd["decision"].chosen if frd else None) or (
                           None if self.frd_auto_paired is not None else self.selection()["frd"]),
                       "vdd": (vdd["decision"].chosen if vdd else None) or (
                           None if self.vdd_auto_paired is not None else self.selection()["vdd"])}
-            self._try_step(job, "record", lambda _d: self._persist_selection(chosen), timeout, None)
             with self._lock:                       # state mutation ONLY — no I/O in here
                 if self.selection_job is not job or job["state"] != "running":
                     return                           # superseded (a Clear): change nothing
@@ -851,6 +914,9 @@ class DemoRunner:
                     self._apply_pair("vdd", vdd)
                 self.selection_error = None
             self._finish_job(job)
+            # AFTER the choice is applied and the job done (Generate enabled):
+            # remembering it across a restart is a background write.
+            self._record_later(chosen, job)
         except BaseException as exc:  # noqa: BLE001 — a job thread must end in a visible state
             # Nothing half-selected, nothing from before, and NOT the config
             # default: the person sees why and chooses again.
@@ -941,6 +1007,7 @@ class DemoRunner:
         name), the STTM left UNSELECTED with ``selection_error`` set."""
         started = self.start_selection(name)
         self._job_done.wait()
+        self.wait_recorded(float(self._store.config.inputs.select_timeout_seconds) + 5)
         job = self.selection_job
         if job is None or job["id"] != started["id"]:
             raise SelectionFailed(f"the selection of {name!r} was superseded")
@@ -962,7 +1029,7 @@ class DemoRunner:
         try:
             local = self._fetch(doc)
             self.select_vdd(local)
-            self._persist_selection()
+            self._record_later()
         except (StorageError, OSError) as exc:
             raise self._fail_selection("vdd", name, exc, f"downloading {doc.uri}") from exc
         if self.selection_error and self.selection_error.get("kind") == "vdd":
@@ -989,8 +1056,7 @@ class DemoRunner:
         if self.vdd_auto_paired is not None:
             self.selected_vdd = None
             self.vdd_auto_paired = None
-        with contextlib.suppress(Exception):
-            self._persist_selection()
+        self._record_later()
 
     def status(self) -> dict:
         return {

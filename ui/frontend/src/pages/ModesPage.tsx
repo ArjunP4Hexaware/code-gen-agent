@@ -562,9 +562,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         <div className="panel">
           <div className="panel-head">
             <h2>Generate a Pipeline</h2>
-            {liveProvider === "mock (locked)" ? (
-              <span className="mode-badge">MOCK — provider locked</span>
-            ) : transport?.kind === "databricks_fmapi" ? (
+            {transport?.kind === "databricks_fmapi" ? (
               <span className="mode-badge mode-live" title={transport.label}>
                 LIVE · Databricks FM endpoint
               </span>
@@ -577,7 +575,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             )}
           </div>
           <div className="panel-body">
-            {transport ? (
+            {transport && transport.kind !== "mock_locked" ? (
               <p className="hint" style={{ marginTop: 0 }}>
                 <strong>Model transport:</strong>{" "}
                 {transport.kind === "mock_locked"
@@ -851,7 +849,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 [
                   ["notebook", "Notebook"],
                   ["framework", "Framework artefacts"],
-                  ["rfc", "RFC package"],
                 ] as const
               ).map(([part, label]) => (
                 <button
@@ -859,26 +856,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   className={`btn sheet-tab${outputParts.has(part) ? " active" : ""}`}
                   disabled={running}
                   title={
-                    part === "rfc"
-                      ? "The RFC deployment package (includes the framework artefacts it is built from)"
-                      : part === "framework"
-                        ? "DDL scripts + config rows + inserts for the existing ingestion framework"
-                        : "A fresh standalone PySpark pipeline"
-                  }
+                     part === "framework"
+                       ? "DDL scripts + config rows + inserts for the existing ingestion framework"
+                       : "A fresh standalone PySpark pipeline"
+                   }
                   onClick={() => toggleOutputPart(part)}
                 >
                   {label}
                 </button>
               ))}
-              <button
-                className={`btn sheet-tab${outputParts.has("all") ? " active" : ""}`}
-                disabled={running}
-                title="Everything: notebook + framework artefacts + RFC package"
-                onClick={() => toggleOutputPart("all")}
-              >
-                All
-              </button>
-              {outputParts.size === 0 ? (
+{outputParts.size === 0 ? (
                 <span className="hint" style={{ alignSelf: "center" }}>
                   choose at least one output
                 </span>
@@ -1777,13 +1764,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             <p>
               Input: <code>{status?.sttm_workbook ?? "the configured STTM workbook"}</code>
             </p>
-            {liveProvider === "mock (locked)" ? (
-              <p>
-                This deployment is <strong>locked to the mock provider</strong> — the run
-                makes <strong>zero model calls</strong> (deterministic mock candidates).
-              </p>
-            ) : (
-              <p>
+            <p>
                 {transport?.kind === "databricks_fmapi" ? (
                   <>
                     This makes real, billed Claude calls through the Databricks Foundation
@@ -1796,7 +1777,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 <strong>~{est?.calls ?? 3} calls · ≈ ${(est?.cost_usd ?? 0.1).toFixed(2)} · ~
                 {est?.seconds ?? 20}s</strong>
               </p>
-            )}
             <p className="hint">
               Output is isolated to its own run directory; the tracked replay fixtures and
               default output are never touched.

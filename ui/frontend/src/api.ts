@@ -52,8 +52,24 @@ export interface FrameworkSummary {
   flagged_blank_columns: string[];
 }
 
-export type OutputMode = "notebook" | "framework" | "both" | "rfc" | "all";
-export type OutputPart = "notebook" | "framework" | "rfc" | "all";
+// The outputs a run can produce — exactly these (GET /api/demo/output-options).
+export type OutputPart = "notebook" | "framework";
+
+// What a run actually did with a model, per stage (codegen.reasoning.usage).
+// ``label`` is the one user-facing wording; render it, never compose one.
+export interface StageUsage {
+  stage: "layout" | "layer2" | string;
+  provider: string;
+  endpoint: string | null;
+  model: string | null;
+  calls: number;
+  requests: number;
+  failed: number;
+  mock_reason: string | null;
+  recorded_provider: string | null;
+  label: string;
+  forced_mock: boolean;
+}
 
 export interface GenerationOptionGroup {
   options: string[];
@@ -74,6 +90,7 @@ export interface FeedsResponse {
   failures: { label: string; error: string }[];
   mode: RunMode;
   label: string | null;
+  model_usage?: StageUsage[];
 }
 
 export interface ReplaySet {
@@ -134,6 +151,7 @@ export interface DemoStatus {
   layout_report?: Record<string, unknown> | null;
   layout_advice?: {
     provider: string;
+    usage?: StageUsage;
     advice: Record<string, { index: number | null; rationale: string }>;
   } | null;
   // FRD fields taken from another document (or the person's choice) while
@@ -156,8 +174,13 @@ export interface DemoStatus {
   estimates: { calls: number; cost_usd: number; seconds: number };
   sttm_workbook?: string;
   sttm_chosen?: boolean;
-  output_mode?: OutputMode | null;
+  output_mode?: OutputPart[] | null;
   output_parts?: OutputPart[];
+  // Retired output values (both / rfc / all) met in config or saved state,
+  // each mapped to Notebook + Framework artefacts and announced once.
+  output_notices?: string[];
+  // The current / last run's per-stage model record.
+  model_usage?: StageUsage[];
   conventions_profile?: string;
   iig_template?: string;
   playbook_template?: string;
@@ -583,12 +606,7 @@ export const api = {
       body: JSON.stringify({ kind, id }),
     }),
   clearFrd: () => request<{ selected: null }>("/api/demo/frd", { method: "DELETE" }),
-  setOutputMode: (mode: OutputMode | null) =>
-    request<DemoStatus>("/api/demo/output-mode", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode }),
-    }),
+  outputOptions: () => request<OutputPart[]>("/api/demo/output-options"),
   setOutputParts: (parts: OutputPart[]) =>
     request<DemoStatus>("/api/demo/output-parts", {
       method: "POST",

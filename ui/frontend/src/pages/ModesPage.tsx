@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ModelUsageList } from "../components/ModelUsage";
+import { OutputSelector } from "../components/OutputSelector";
 import type { LayoutQuestion } from "../api";
 import {
   api,
@@ -74,6 +76,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const navigate = useNavigate();
   const [liveAvailable, setLiveAvailable] = useState<boolean | null>(null);
   const [liveProvider, setLiveProvider] = useState<string | null>(null);
+  // The outputs a run can produce, from the backend (exactly two).
+  const [outputOptions, setOutputOptions] = useState<OutputPart[]>([]);
   // Why live is unavailable, from the backend — provider-specific, never a
   // hardwired "no ANTHROPIC_API_KEY" (wrong on the FMAPI-backed App).
   const [liveReason, setLiveReason] = useState<string | null>(null);
@@ -113,6 +117,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setLiveReason(e instanceof Error ? e.message : String(e));
     });
     api.demoStatus().then(setStatus).catch(() => setStatus(null));
+    api.outputOptions().then(setOutputOptions).catch((e) => {
+      setError(e instanceof Error ? e.message : String(e));
+    });
     // The source-files panel and the request-time checks render on load —
     // live reads on the backend, nothing is cached to disk.
     api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
@@ -204,8 +211,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.frdChoices().then(setFrdChoices).catch(() => setFrdChoices(null));
   }, [loadDbDocs]);
 
-  // Output as independent toggles (backend: output_parts). "all" is its own
-  // state; the three others are free, including none — Generate then waits.
+  // Output as independent toggles (backend: output_parts): Notebook and
+  // Framework artefacts, any subset including none — Generate then waits.
   const outputParts = new Set<OutputPart>(status?.output_parts ?? ["notebook"]);
   const setOutputParts = async (parts: OutputPart[]) => {
     try {
@@ -215,12 +222,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     }
   };
   const toggleOutputPart = (part: OutputPart) => {
-    if (part === "all") {
-      setOutputParts(outputParts.has("all") ? [] : ["all"]);
-      return;
-    }
-    // Leaving "All" for a single part starts from just that part.
-    const next = new Set<OutputPart>(outputParts.has("all") ? [] : outputParts);
+    const next = new Set<OutputPart>(outputParts);
     if (next.has(part)) next.delete(part);
     else next.add(part);
     setOutputParts([...next]);
@@ -562,34 +564,20 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         <div className="panel">
           <div className="panel-head">
             <h2>Generate a Pipeline</h2>
-            {liveProvider === "mock (locked)" ? (
-              <span className="mode-badge">MOCK — provider locked</span>
-            ) : transport?.kind === "databricks_fmapi" ? (
-              <span className="mode-badge mode-live" title={transport.label}>
-                LIVE · Databricks FM endpoint
+            {transport ? (
+              <span
+                className={`mode-badge${transport.kind === "databricks_fmapi"
+                  || transport.kind === "anthropic" ? " mode-live" : ""}`}
+                title={`Detected by ${transport.detected_by}`}
+              >
+                {transport.label}
               </span>
-            ) : transport?.kind === "anthropic" ? (
-              <span className="mode-badge mode-live" title={transport.label}>
-                LIVE · Anthropic API
-              </span>
-            ) : (
-              <span className="mode-badge mode-live">LIVE</span>
-            )}
+            ) : null}
           </div>
           <div className="panel-body">
             {transport ? (
               <p className="hint" style={{ marginTop: 0 }}>
-                <strong>Model transport:</strong>{" "}
-                {transport.kind === "mock_locked"
-                  ? "mock provider (locked) — a run makes zero model calls."
-                  : transport.kind === "databricks_fmapi"
-                    ? <>
-                        Databricks Foundation Model serving endpoint{" "}
-                        <code>{transport.endpoint ?? "unconfigured"}</code> ({transport.model}).
-                      </>
-                    : transport.kind === "anthropic"
-                      ? <>Anthropic API ({transport.model}).</>
-                      : <>none resolvable — runs use the mock provider.</>}{" "}
+                <strong>A run will use:</strong> {transport.label}.{" "}
                 <span className="hint">
                   Detected by {transport.detected_by}
                   {transport.runtime === "databricks_app"
@@ -847,43 +835,23 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
 
             <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
             <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {(
-                [
-                  ["notebook", "Notebook"],
-                  ["framework", "Framework artefacts"],
-                  ["rfc", "RFC package"],
-                ] as const
-              ).map(([part, label]) => (
-                <button
-                  key={part}
-                  className={`btn sheet-tab${outputParts.has(part) ? " active" : ""}`}
-                  disabled={running}
-                  title={
-                    part === "rfc"
-                      ? "The RFC deployment package (includes the framework artefacts it is built from)"
-                      : part === "framework"
-                        ? "DDL scripts + config rows + inserts for the existing ingestion framework"
-                        : "A fresh standalone PySpark pipeline"
-                  }
-                  onClick={() => toggleOutputPart(part)}
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                className={`btn sheet-tab${outputParts.has("all") ? " active" : ""}`}
+              <OutputSelector
+                options={outputOptions}
+                selected={outputParts}
                 disabled={running}
-                title="Everything: notebook + framework artefacts + RFC package"
-                onClick={() => toggleOutputPart("all")}
-              >
-                All
-              </button>
+                onToggle={toggleOutputPart}
+              />
               {outputParts.size === 0 ? (
                 <span className="hint" style={{ alignSelf: "center" }}>
                   choose at least one output
                 </span>
               ) : null}
             </p>
+            {(status?.output_notices ?? []).map((notice) => (
+              <p key={notice} className="hint" style={{ margin: "2px 0" }}>
+                {notice}
+              </p>
+            ))}
             {genOptions ? (
               <p style={{ margin: "6px 0 4px", display: "flex", gap: 14, flexWrap: "wrap" }}>
                 {(
@@ -1076,7 +1044,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                               {status.layout_advice?.advice[q.key] ? (
                                 <div className="flag-hitl" style={{ padding: "4px 8px", marginTop: 4, fontSize: 12 }}>
                                   <strong>Model advice</strong>{" "}
-                                  <span className="hint">({status.layout_advice.provider})</span>:{" "}
+                                  <span className="hint">
+                                    ({status.layout_advice.usage?.label ?? status.layout_advice.provider})
+                                  </span>:{" "}
                                   {status.layout_advice.advice[q.key].rationale}
                                   {status.layout_advice.advice[q.key].index === null
                                     ? " — no candidate picked."
@@ -1252,7 +1222,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                         ) : transport?.kind === "anthropic" ? (
                           " to the Anthropic API, billed"
                         ) : (
-                          " to the mock provider (offline heuristics, no cost)"
+                          <> — {transport?.label ?? "no transport resolved"}; offline heuristics, no cost</>
                         )}
                         . It sees only the question texts, header strips and candidate labels — no
                         document rows. Its advice is a pre-selection; you still confirm with Continue.
@@ -1281,6 +1251,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     </li>
                   ))}
                 </ul>
+                <ModelUsageList usage={status.model_usage} />
                 {status.state === "done" ? (
                   <button
                     className="btn primary"
@@ -1777,10 +1748,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             <p>
               Input: <code>{status?.sttm_workbook ?? "the configured STTM workbook"}</code>
             </p>
-            {liveProvider === "mock (locked)" ? (
+            {transport && transport.kind !== "databricks_fmapi" && transport.kind !== "anthropic" ? (
               <p>
-                This deployment is <strong>locked to the mock provider</strong> — the run
-                makes <strong>zero model calls</strong> (deterministic mock candidates).
+                This run will use <strong>{transport.label}</strong>: no model is called and
+                the Layer-2 candidates are deterministic stand-ins. The run's own record says
+                what actually happened when it finishes.
               </p>
             ) : (
               <p>

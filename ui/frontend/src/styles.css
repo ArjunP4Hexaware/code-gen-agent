@@ -1066,3 +1066,13 @@ table.data tr:last-child td { border-bottom: none; }
   overflow-wrap: anywhere;
 }
 .shell-cmd { margin-top: 4px; }
+
+/* Per-stage model usage of a run (components/ModelUsage.tsx). */
+.model-usage {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.model-usage-mock {
+  color: var(--warn, #9a6700);
+}

@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
+import { usageSummary } from "./components/ModelUsage";
 import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
 import { FeedDetailPage } from "./pages/FeedDetailPage";
 import { ModesPage } from "./pages/ModesPage";
 
+// What kind of result set is loaded. WHICH provider produced it is never
+// written here: it renders from the run's own record (data.model_usage).
 const MODE_COPY = {
-  mock: "MOCK — deterministic stand-in provider, zero network",
-  // Candidate cards name their actual provider (a mock-locked deployment
-  // labels its Layer-2 cards "provider: mock").
-  live: "LIVE — generated now; each candidate card names its provider",
+  mock: "GENERATED — dry-run from the configured contracts",
+  live: "LIVE RUN — generated now",
   replay: "REPLAY — recorded live run",
 } as const;
 
@@ -61,7 +62,11 @@ export function App() {
           <div className="product">CodeGen · Data Engineer Agent</div>
           <div className="org">Contracts → Databricks pipelines</div>
           {data ? (
-            <span className={`mode-badge mode-${data.mode}`} title={MODE_COPY[data.mode]}>
+            <span
+              className={`mode-badge mode-${data.mode}`}
+              title={[MODE_COPY[data.mode], usageSummary(data.model_usage)]
+                .filter(Boolean).join(" · ")}
+            >
               {data.mode.toUpperCase()}
               {data.label ? ` · ${data.label}` : ""}
             </span>
@@ -105,6 +110,9 @@ export function App() {
         {data && data.mode !== "mock" ? (
           <div className={`mode-banner ${data.mode}`}>
             {MODE_COPY[data.mode]}
+            {data.model_usage && data.model_usage.length ? (
+              <> · {usageSummary(data.model_usage)}</>
+            ) : null}
             {data.label ? (
               <>
                 {" · "}
@@ -125,12 +133,13 @@ export function App() {
                     (<code>{data.label}</code>)
                   </>
                 ) : null}{" "}
-                with a fresh <strong>mock</strong> run. You can reload them afterwards from
+                with a fresh <strong>dry-run</strong> generate (a dry-run never calls a model).
+                You can reload them afterwards from
                 the Run modes page.
               </p>
               <div className="decision-row" style={{ marginTop: 14 }}>
                 <button className="btn primary" onClick={doGenerateAll}>
-                  Continue — run mock
+                  Continue — dry-run generate
                 </button>
                 <button className="btn" onClick={() => setConfirmGenerate(false)}>
                   Cancel

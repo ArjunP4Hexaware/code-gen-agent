@@ -168,7 +168,7 @@ export function Dashboard({
                   (<code>{data.label}</code>)
                 </>
               ) : (
-                <> (mock state)</>
+                <> (the dry-run generate)</>
               )}
               . Candidates return to <strong>pending engineer approval</strong>. Decisions made
               under other runs are untouched.

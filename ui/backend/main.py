@@ -812,7 +812,8 @@ def select_generation_options(req: GenerationOptionsRequest) -> dict:
 
 @app.get("/api/feeds/{slug}/download")
 def download_generated_file(slug: str, path: str) -> Response:
-    """Binary download (framework workbooks / inserts) with containment."""
+    """Binary download (framework workbooks / inserts, the assembled
+    notebook) with containment."""
     if slug not in _require_store().runs:
         raise HTTPException(404, f"no generated feed named {slug!r}")
     try:
@@ -825,6 +826,7 @@ def download_generated_file(slug: str, path: str) -> Response:
     media = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         if name.endswith(".xlsx")
+        else "application/x-ipynb+json" if name.endswith(".ipynb")
         else "text/plain; charset=utf-8"
     )
     return Response(

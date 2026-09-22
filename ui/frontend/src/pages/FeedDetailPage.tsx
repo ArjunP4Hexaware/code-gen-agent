@@ -510,6 +510,14 @@ function NotebookTab({ slug }: { slug: string }) {
         <span className="hint">
           the whole pipeline as one runnable Databricks notebook — the module files stay canonical
         </span>
+        <a
+          className="btn"
+          style={{ marginLeft: "auto" }}
+          href={`/api/feeds/${slug}/download?path=${encodeURIComponent(`${slug}.ipynb`)}`}
+          download
+        >
+          Download .ipynb
+        </a>
       </div>
       <div className="panel-body">
         <NotebookView content={content} />

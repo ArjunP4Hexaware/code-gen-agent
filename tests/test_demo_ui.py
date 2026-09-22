@@ -295,7 +295,7 @@ def test_live_available_is_boolean_only(client, monkeypatch):
     payload = client.get("/api/demo/live-available").json()
     assert (payload["available"], payload["provider"], payload["reason"]) == (
         True, "anthropic", "")
-    assert payload["transport"]["label"].startswith("Anthropic API (")
+    assert "Anthropic API" in payload["transport"]["label"]
     assert "test-key-never-echoed" not in repr(payload)
 
 
@@ -330,7 +330,7 @@ def test_databricks_runtime_forces_the_foundation_model_endpoint(client, monkeyp
     assert transport["detected_by"] == "DATABRICKS_APP_PORT"
     assert transport["configured"] == "anthropic" and transport["overridden"] is True
     assert "inside Databricks the Foundation Model endpoint is used" in transport["reason"]
-    assert transport["label"].startswith("Databricks Foundation Model endpoint ")
+    assert transport["label"].startswith("Claude ") and transport["endpoint"] in transport["label"]
 
 
 @needs_replay_set
@@ -703,16 +703,18 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
 
 
 def test_output_parts_are_independent_and_empty_refuses_a_run(client, monkeypatch):
-    """The Output toggles are a real multi-select: any subset, none allowed
-    (run-live then 400), All its own state; the generator mode is derived."""
+    """The Output toggles are a real multi-select over exactly Notebook and
+    Framework artefacts: any subset, none allowed (run-live then 400); a
+    retired part (rfc / all) maps to both with a notice, never an error."""
     try:
         r = client.post("/api/demo/output-parts", json={"parts": ["notebook", "rfc"]})
         assert r.status_code == 200
-        assert r.json()["output_parts"] == ["notebook", "rfc"] and r.json()["output_mode"] == "all"
+        assert r.json()["output_parts"] == ["notebook", "framework"] == r.json()["output_mode"]
+        assert any("'rfc'" in n for n in r.json()["output_notices"])
         r = client.post("/api/demo/output-parts", json={"parts": ["all"]})
-        assert r.json()["output_parts"] == ["all"] and r.json()["output_mode"] == "all"
+        assert r.status_code == 200 and r.json()["output_parts"] == ["notebook", "framework"]
         r = client.post("/api/demo/output-parts", json={"parts": ["framework"]})
-        assert r.json()["output_mode"] == "framework"
+        assert r.json()["output_mode"] == ["framework"]
         r = client.post("/api/demo/output-parts", json={"parts": []})
         assert r.status_code == 200
         assert r.json()["output_parts"] == [] and r.json()["output_mode"] is None

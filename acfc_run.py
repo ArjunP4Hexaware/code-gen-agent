@@ -145,7 +145,7 @@ if vdd is not None:
     run("extract-vdd", "extract-vdd", "--vdd", str(vdd), "--out", str(work / "vdd.contract.json"))
     vdd_args = ["--vdd", str(work / "vdd.contract.json")]
 run("generate", "generate", "--frd-contract", str(frd_contract), "--sttm-contract",
-    str(work / "sttm.contract.json"), *vdd_args, *CONVENTIONS, "--output-mode", "rfc",
+    str(work / "sttm.contract.json"), *vdd_args, *CONVENTIONS, "--output-mode", "framework",
     "--skip-tests",
     *(["--dry-run"] if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER") else []))
 

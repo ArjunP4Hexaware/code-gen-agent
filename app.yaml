@@ -23,15 +23,19 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
-# SHIPPED DEFAULT (M8.5, 2026-09-18): Layer 2 is MOCK-LOCKED. A fresh deploy
-# makes zero model calls until the App's service principal is known to hold
-# CAN_QUERY on the serving endpoint (docs/ACFC_DEPLOY.md §4 — declare the
-# endpoint as the App resource `llm-endpoint`, or grant it by CLI). Remove the
-# variable and redeploy to run live Layer 2 via Databricks FMAPI
-# (reasoning.provider: databricks_fmapi -> databricks.serving_endpoint). The
-# UI's own gates stay either way: an explicit STTM choice, the cost
-# confirmation and mock-on-dry-run. History: the Hexaware App ran unlocked
-# from 0.3.4 (2026-09-01) on the strength of that declared resource.
+# SHIPPED DEFAULT: LIVE. Layer 2 runs through Databricks FMAPI
+# (reasoning.provider: databricks_fmapi -> databricks.serving_endpoint); the
+# App's service principal needs CAN_QUERY on that endpoint (docs/ACFC_DEPLOY.md
+# §4 — declare it as the App resource `llm-endpoint`, or grant it by CLI).
+# The mock lock is still available: add
+#     env:
+#       - name: CODEGEN_FORCE_MOCK_PROVIDER
+#         value: "1"
+# and redeploy. The UI then says "Mock provider (reason:
+# CODEGEN_FORCE_MOCK_PROVIDER)" — every provider label renders from what the
+# run actually did (codegen.reasoning.usage), never from this file. The UI's
+# own gates stay either way: an explicit STTM choice, the cost confirmation
+# and mock-on-dry-run.
 #
 # The layout recognizer has its OWN switch: CODEGEN_LAYOUT_PROVIDER=live lets
 # it query the endpoint while Layer 2 stays locked (header regions and table
@@ -47,6 +51,3 @@ command: ["python", "-m", "ui.backend.main"]
 #   CODEGEN_STORAGE_OUTPUTS    workspace:/Workspace/Users/<user>/codegen/outputs
 #   CODEGEN_CONFIG_OVERLAYS    <acfc.overlay.yaml>
 #   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>
-env:
-  - name: CODEGEN_FORCE_MOCK_PROVIDER
-    value: "1"

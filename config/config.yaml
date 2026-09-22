@@ -27,11 +27,11 @@ output:
   dir: out
   reports_dir: reports
   # Option A ("notebook" — today's output, a fresh standalone pipeline, the
-  # ~10% case) | Option B ("framework" — DDL scripts + config rows + insert
-  # statements for the existing ingestion framework, the ~90% case) | both.
-  # rfc (M5): framework artefacts + the assembled RFC<number>_<Feed>/
-  # deployment package (rfc: / playbook: sections below).
-  # CLI --output-mode and the UI selector override per run.
+  # ~10% case) and / or Option B ("framework" — DDL scripts + config rows +
+  # insert statements for the existing ingestion framework, the ~90% case);
+  # a list for both: [notebook, framework]. The retired values both / rfc /
+  # all map to [notebook, framework] with a one-time notice.
+  # CLI --output-mode (repeatable) and the UI selector override per run.
   mode: notebook
 
 framework:

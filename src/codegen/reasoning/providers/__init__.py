@@ -29,7 +29,7 @@ def build_provider(config: Config, dry_run: bool) -> Provider:
     from codegen.reasoning.providers.mock import MockProvider
 
     if dry_run:
-        return MockProvider()
+        return MockProvider(reason="dry-run")
 
     # ONE decision for the transport (codegen.reasoning.transport): the mock
     # lock, the Databricks runtime (Foundation Model endpoint required —
@@ -40,7 +40,7 @@ def build_provider(config: Config, dry_run: bool) -> Provider:
     transport = resolve_transport(config)
     if transport.kind == "databricks_fmapi":
         if not transport.config_resolves:
-            return MockProvider()
+            return MockProvider(reason=f"endpoint unreachable — {transport.reason}")
         from codegen.reasoning.providers.databricks_provider import (
             DatabricksFmapiProvider,
         )
@@ -51,4 +51,12 @@ def build_provider(config: Config, dry_run: bool) -> Provider:
         from codegen.reasoning.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(config)
-    return MockProvider()
+    return MockProvider(reason=mock_reason(transport))
+
+
+def mock_reason(transport) -> str:
+    """Why the resolved transport means a mock: the lock env var by name, or
+    the unreachable transport's own reason."""
+    if transport.kind == "mock_locked":
+        return transport.detected_by          # CODEGEN_FORCE_MOCK_PROVIDER
+    return f"endpoint unreachable — {transport.reason or transport.label}"

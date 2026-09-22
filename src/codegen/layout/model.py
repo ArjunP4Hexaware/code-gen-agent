@@ -179,11 +179,15 @@ class MockLayoutProvider:
     request body it receives, so tests can assert what a model would see."""
 
     name = "mock"
+    calls = 0   # a mock never sends a model call (codegen.reasoning.usage)
 
-    def __init__(self, dirs: list[Path], override: Path | None = None) -> None:
+    def __init__(self, dirs: list[Path], override: Path | None = None,
+                 reason: str | None = None) -> None:
         self.dirs = [Path(d) for d in dirs]
         self.override = override
         self.requests: list[dict] = []
+        # Why the mock answered (build_layout_provider sets it); "test" otherwise.
+        self.mock_reason = reason or "test"
 
     def complete_layout(self, request: dict) -> dict:
         self.requests.append(request)
@@ -240,6 +244,10 @@ class FmapiLayoutProvider:
         self._max_tokens = config.layout.max_tokens
         self._max_attempts = config.layout.max_attempts
         self.requests: list[dict] = []
+        # What the run record reads (codegen.reasoning.usage).
+        self.endpoint = self._endpoint
+        self.model = config.reasoning.model
+        self.calls = 0
 
     def complete_layout(self, request: dict) -> dict:
         from codegen.databricks import chat
@@ -249,6 +257,7 @@ class FmapiLayoutProvider:
         user_prompt = "Layout request (the only material):\n" + json.dumps(request, indent=2)
         errors: list[str] = []
         for _ in range(self._max_attempts):
+            self.calls += 1
             text = chat(self._cfg, messages=[{"role": "system", "content": _SYSTEM_PROMPT},
                                              {"role": "user", "content": user_prompt}],
                         endpoint=self._endpoint, max_tokens=self._max_tokens)
@@ -269,6 +278,7 @@ class FmapiLayoutProvider:
         user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
         errors: list[str] = []
         for _ in range(self._max_attempts):
+            self.calls += 1
             text = chat(self._cfg, messages=[{"role": "system", "content": _ADVICE_SYSTEM_PROMPT},
                                              {"role": "user", "content": user_prompt}],
                         endpoint=self._endpoint, max_tokens=self._max_tokens)
@@ -290,6 +300,9 @@ class AnthropicLayoutProvider:
         self._max_tokens = config.layout.max_tokens
         self._max_attempts = config.layout.max_attempts
         self.requests: list[dict] = []
+        self.model = self._model
+        self.endpoint: str | None = None
+        self.calls = 0
 
     def complete_layout(self, request: dict) -> dict:
         import anthropic
@@ -301,6 +314,7 @@ class AnthropicLayoutProvider:
         user_prompt = "Layout request (the only material):\n" + json.dumps(request, indent=2)
         errors: list[str] = []
         for _ in range(self._max_attempts):
+            self.calls += 1
             message = client.messages.create(
                 model=self._model, max_tokens=self._max_tokens, system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}])
@@ -325,6 +339,7 @@ class AnthropicLayoutProvider:
         user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
         errors: list[str] = []
         for _ in range(self._max_attempts):
+            self.calls += 1
             message = client.messages.create(
                 model=self._model, max_tokens=self._max_tokens, system=_ADVICE_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}])
@@ -351,8 +366,14 @@ def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None =
     posture = os.environ.get("CODEGEN_LAYOUT_PROVIDER", "").strip() or config.layout.provider
     if posture not in ("auto", "mock", "live"):
         raise ValueError(f"CODEGEN_LAYOUT_PROVIDER={posture!r}: expected auto | mock | live")
-    if dry_run or posture == "mock" or os.environ.get("CODEGEN_FORCE_MOCK_LAYOUT"):
-        return MockLayoutProvider(mock_dirs)
+    if dry_run:
+        return MockLayoutProvider(mock_dirs, reason="dry-run")
+    if os.environ.get("CODEGEN_FORCE_MOCK_LAYOUT"):
+        return MockLayoutProvider(mock_dirs, reason="CODEGEN_FORCE_MOCK_LAYOUT")
+    if posture == "mock":
+        return MockLayoutProvider(mock_dirs, reason=(
+            "CODEGEN_LAYOUT_PROVIDER=mock" if os.environ.get("CODEGEN_LAYOUT_PROVIDER", "").strip()
+            else "layout.provider: mock"))
     if posture == "live":
         # M8.3: an explicit opt-in of its own. The request is the same
         # fingerprint material (header regions / table labels, never a data
@@ -364,13 +385,15 @@ def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None =
     # Same transport decision as Layer 2 (codegen.reasoning.transport):
     # mock lock, Databricks runtime -> Foundation Model endpoint, else config.
     transport = resolve_transport(config)
+    from codegen.reasoning.providers import mock_reason
+
     if transport.kind == "databricks_fmapi":
         if not transport.config_resolves:
-            return MockLayoutProvider(mock_dirs)
+            return MockLayoutProvider(mock_dirs, reason=mock_reason(transport))
         return FmapiLayoutProvider(config)  # empty endpoint -> its named error
     if transport.kind == "anthropic":
         return AnthropicLayoutProvider(config)
-    return MockLayoutProvider(mock_dirs)
+    return MockLayoutProvider(mock_dirs, reason=mock_reason(transport))
 
 
 __all__ = [

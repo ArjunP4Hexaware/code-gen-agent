@@ -6,7 +6,7 @@ serving endpoint** (``databricks.serving_endpoint``, a Claude Opus 5
 endpoint) — a transport, not a vendor change. This module is the ONE place
 that decides:
 
-* ``mock_locked``   — ``CODEGEN_FORCE_MOCK_PROVIDER`` is set: zero model calls.
+* ``mock_locked``   — ``CODEGEN_FORCE_MOCK_PROVIDER`` is set: the mock answers.
 * ``databricks_fmapi`` — configured, OR the process runs inside Databricks
   (an Apps runtime injects ``DATABRICKS_APP_PORT`` / ``DATABRICKS_HOST``; a
   cluster sets ``DATABRICKS_RUNTIME_VERSION``). Inside Databricks the
@@ -18,7 +18,9 @@ that decides:
 
 Both provider builders (Layer 2 reasoning, layout recognizer) and the UI's
 ``/api/demo/live-available`` read this, so the code path and what the
-screen says can never disagree.
+screen says can never disagree. ``label`` is what a run WOULD use, in the
+same words as the per-run record (``codegen.reasoning.usage``), minus the
+call count — what a run actually did is that record, not this.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 from codegen.config import Config
+from codegen.reasoning.usage import model_display_name
 
 Runtime = Literal["databricks_app", "databricks", "local"]
 Kind = Literal["mock_locked", "databricks_fmapi", "anthropic", "mock"]
@@ -99,8 +102,8 @@ def _fmapi(config: Config, configured: str, runtime: Runtime, detected_by: str,
     if overridden:
         problems.append(f"config reasoning.provider is {configured!r}; inside Databricks the "
                         "Foundation Model endpoint is used instead")
-    label = (f"Databricks Foundation Model endpoint {endpoint} ({model})" if endpoint
-             else "Databricks Foundation Model endpoint (unconfigured)")
+    label = (f"{model_display_name(model)} ({endpoint})" if endpoint
+             else f"{model_display_name(model)} (serving endpoint unconfigured)")
     return Layer2Transport(kind="databricks_fmapi", configured=configured, runtime=runtime,
                            detected_by=detected_by, endpoint=endpoint, model=model,
                            available=endpoint is not None, reason="; ".join(problems),
@@ -116,7 +119,7 @@ def resolve_transport(config: Config, env=None) -> Layer2Transport:
         return Layer2Transport(kind="mock_locked", configured=configured, runtime=runtime,
                                detected_by="CODEGEN_FORCE_MOCK_PROVIDER", endpoint=None,
                                model=model, available=True, reason="",
-                               label="mock provider (locked) — zero model calls")
+                               label="Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)")
     if runtime != "local":
         # Inside Databricks the endpoint is the transport, whatever the yaml says.
         return _fmapi(config, configured, runtime, marker,
@@ -128,10 +131,12 @@ def resolve_transport(config: Config, env=None) -> Layer2Transport:
                                detected_by="config reasoning.provider", endpoint=None,
                                model=model, available=False,
                                reason="no ANTHROPIC_API_KEY in the backend env",
-                               label="Anthropic API (no key — mock)")
+                               label="Mock provider (reason: endpoint unreachable — no "
+                                     "ANTHROPIC_API_KEY in the backend env)")
     return Layer2Transport(kind="anthropic", configured=configured, runtime=runtime,
                            detected_by="config reasoning.provider", endpoint=None, model=model,
-                           available=True, reason="", label=f"Anthropic API ({model})")
+                           available=True, reason="",
+                           label=f"{model_display_name(model)} (Anthropic API, {model})")
 
 
 __all__ = ["Layer2Transport", "detect_runtime", "resolve_transport"]

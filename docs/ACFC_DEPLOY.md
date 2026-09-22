@@ -147,7 +147,7 @@ on that table and `CAN_USE` on the SQL warehouse.
 
 | Switch | Values | Effect |
 | --- | --- | --- |
-| `CODEGEN_FORCE_MOCK_PROVIDER=1` (App env; **set in the shipped `app.yaml`**) | set / unset | Layer 2 (rule reasoning) is mock-locked. Remove it and redeploy once `CAN_QUERY` is in place. |
+| `CODEGEN_FORCE_MOCK_PROVIDER=1` (App env; **not** in the shipped `app.yaml` — the App ships live) | set / unset | Layer 2 (rule reasoning) is mock-locked; the UI, API and report then say `Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)`. Set it only while `CAN_QUERY` (§4) is missing. |
 | `layout.provider` / `CODEGEN_LAYOUT_PROVIDER` | `auto` (default: live only when Layer 2 is live) · `mock` · `live` | `live`: the layout recognizer queries `layout.endpoint` / `CODEGEN_LAYOUT_ENDPOINT` (else `databricks.serving_endpoint`) **even while Layer 2 stays mock-locked**. Needs `CAN_QUERY` (§4). |
 | `CODEGEN_FORCE_MOCK_LAYOUT=1` | set / unset | locks the recognizer to mock regardless of the above. |
 
@@ -238,12 +238,12 @@ still apply.
 
 First deploy — **Compute → Apps → Create app → Custom** → name `codegen-agent`
 → source code path: the Git folder of `staging` → Resources: the serving
-endpoint (§4) → Create. The shipped `app.yaml` sets the command and
-`CODEGEN_FORCE_MOCK_PROVIDER=1`; add the workspace values as App env:
+endpoint (§4) → Create. The shipped `app.yaml` sets the command and runs
+Layer 2 live (no mock lock); add the workspace values as App env:
 
 ```yaml
 env:
-  - {name: CODEGEN_FORCE_MOCK_PROVIDER, value: "1"}          # remove once CAN_QUERY is in place
+  # - {name: CODEGEN_FORCE_MOCK_PROVIDER, value: "1"}        # only while CAN_QUERY is missing
   - {name: CODEGEN_EXTRA_INPUT_DIRS, value: "workspace:/Workspace/Users/<user>/codegen/pairs"}
   - {name: CODEGEN_STORAGE_INPUTS,   value: "workspace:/Workspace/Users/<user>/codegen/inputs"}
   - {name: CODEGEN_STORAGE_STATE,    value: "workspace:/Workspace/Users/<user>/codegen/state"}

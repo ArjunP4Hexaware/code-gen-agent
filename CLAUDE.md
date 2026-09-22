@@ -236,14 +236,18 @@ before touching `sharepoint.py`, the publish flow, or the UI routes. No
 secrets in the repo; the `sharepoint:` config section is optional and
 non-secret.
 
-## Output modes (Option A / Option B, added 2026-08-27; `rfc` added 2026-09-18)
+## Output modes (Option A / Option B, added 2026-08-27)
 
-`output.mode: notebook | framework | both | rfc | all` (CLI `--output-mode`;
-the UI shows three toggles — Notebook, Framework artefacts, RFC package —
-plus All, and maps the selection onto one mode: rfc implies framework,
-notebook+rfc = all). `rfc` = framework artefacts + the assembled deployment
-package; `all` = notebook tree + framework + package (see "Conventions
-profiles, IIG / playbook templates, the rfc package"). **Option A** ("notebook", the default) is today's output byte
+The outputs are EXACTLY Notebook and Framework artefacts
+(`src/codegen/output_modes.py` is the one vocabulary): `output.mode:
+notebook | framework | [notebook, framework]`, CLI `--output-mode`
+(repeatable, choices notebook / framework), UI two toggles rendered from
+`GET /api/demo/output-options`. The RFC package / All options were removed
+(2026-09-22); a config, saved selection or past run that still says `both`,
+`rfc` or `all` maps to notebook + framework with a one-time notice
+(`output_notices` on the status), never an error. `codegen/emit/rfc.py` is
+kept but no output option reaches it (its tests drive it directly).
+**Option A** ("notebook", the default) is today's output byte
 for byte — a fresh standalone pipeline, the ~10% case; guarded by
 `tests/snapshots/notebook_mode.json` (sha256 per emitted file for the CV
 pair — regenerate deliberately, never casually). **Option B**
@@ -693,10 +697,12 @@ the scratchpad with the Write tool and run them as files.
   (`requires-python >=3.10`, ruff `py310`; `StrEnum` has a 3.10 fallback in
   `layout/profile.py`, `datetime.UTC` is gone) — run the suite on all three
   with uv venvs before shipping.
-- **Shipped `app.yaml` is mock-locked again (M8.5)**
-  (`CODEGEN_FORCE_MOCK_PROVIDER=1`): a fresh deploy makes no model call
-  until CAN_QUERY is confirmed. The Hexaware App's next deploy inherits the
-  lock — remove the env entry there to keep it live. `acfc_run.py` (repo
+- **Shipped `app.yaml` is LIVE (2026-09-22; was mock-locked in M8.5)**:
+  `CODEGEN_FORCE_MOCK_PROVIDER` is no longer in the file; set it as App env
+  to lock. Every provider label (UI, API, report, CLI) renders from the
+  run's own record, `codegen.reasoning.usage.StageUsage` (per stage: layout
+  recognizer, Layer 2 — provider, endpoint, call count, mock reason), never
+  from static copy. `acfc_run.py` (repo
   root) is the scrubbed notebook fallback: widgets for storage URIs, pair →
   layout (answers) → extract → generate → push.
 - **main is at 4c35c61 (v0.4.1-acfc)** — none of M7 / M8; merge staging →

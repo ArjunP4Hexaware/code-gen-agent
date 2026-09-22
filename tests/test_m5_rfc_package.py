@@ -1,4 +1,9 @@
-"""M5 — the `rfc` output mode: RFC deployment packages.
+"""M5 — RFC deployment packages (``codegen.emit.rfc``).
+
+The RFC package is no longer an OUTPUT OPTION (outputs are exactly Notebook
+and Framework artefacts — ``codegen.output_modes``; a retired ``rfc`` /
+``all`` maps to both, tested at the end). The emitter itself is kept, and
+these tests drive it directly from a framework-mode run's artefacts:
 
 * pair 1 under ``acfc_prx`` + ``iig_v2`` + ``main_single`` writes the
   documented PRX package file set (RFC_PACKAGE_SHAPES §1) with the
@@ -29,7 +34,7 @@ from openpyxl import load_workbook
 from codegen import cli
 from codegen.config import load_config
 from codegen.emit.rfc import emit_rfc_package
-from codegen.faq import FaqAnswer, LoadPatternFaq
+from codegen.faq import FaqAnswer, LoadPatternFaq, faq_for_spec
 from codegen.resolve.resolver import resolve_pair as resolve_contracts
 from test_m4_acceptance import GOLDEN_DDL, _scoped, needs_golden
 
@@ -109,22 +114,47 @@ def _manifest_files(package: Path) -> list[str]:
     return re.findall(r"^\| `([^`]+)` \|", text, flags=re.MULTILINE)
 
 
+def _framework_then_package(spec, config, **options):
+    """A framework-mode run, then the RFC package emitter over ITS framework
+    artefacts (what the retired ``rfc`` mode did in one step). Returns the
+    run's gate and the flags the package would have added to it."""
+    captured = {}
+    original = cli._run_emit_framework
+
+    def spy(*args, **kwargs):
+        captured["framework"] = original(*args, **kwargs)
+        return captured["framework"]
+
+    cli._run_emit_framework = spy
+    try:
+        gate = cli._generate_feed(spec, config, dry_run=True, skip_tests=True,
+                                  output_mode="framework",
+                                  conventions_profile=options.get("conventions_profile"),
+                                  iig_template=options.get("iig_template"))
+    finally:
+        cli._run_emit_framework = original
+    package = emit_rfc_package(spec, faq_for_spec(spec, config), config,
+                               Path(config.output.dir), captured["framework"],
+                               flags_so_far=list(gate.flags), base_dir=None, **options)
+    return gate, [*gate.flags, *package.flags]
+
+
 # -- pair 1: the PRX package ------------------------------------------------------ #
 
 
 @pytest.fixture(scope="module")
 def pair1_rfc(pair1_config, pair1_spec, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_rfc")
-    gate = cli._generate_feed(pair1_spec, _scoped(pair1_config, tmp), dry_run=True,
-                              skip_tests=True, output_mode="rfc",
-                              conventions_profile="acfc_prx", iig_template="iig_v2",
-                              playbook_template="main_single")
-    return gate, tmp, _package_dir(tmp, pair1_spec.feed_slug)
+    gate, flags = _framework_then_package(pair1_spec, _scoped(pair1_config, tmp),
+                                          conventions_profile="acfc_prx",
+                                          iig_template="iig_v2",
+                                          playbook_template="main_single")
+    return gate, flags, tmp, _package_dir(tmp, pair1_spec.feed_slug)
 
 
 @needs_golden
 def test_pair1_prx_package_file_set_and_names(pair1_rfc, pair1_spec):
-    gate, tmp, package = pair1_rfc
+    gate, _flags, tmp, package = pair1_rfc
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert package.name == "RFC######_ACCUM"
     assert sorted(p.name for p in package.iterdir()) == sorted([
@@ -144,7 +174,7 @@ def test_pair1_prx_package_file_set_and_names(pair1_rfc, pair1_spec):
 
 @needs_golden
 def test_pair1_single_sheet_playbook(pair1_rfc, pair1_config):
-    gate, _tmp, package = pair1_rfc
+    _gate, flags, _tmp, package = pair1_rfc
     wb = load_workbook(package / "RFC######_ACCUM_Deployment_Playbook.xlsx")
     assert wb.sheetnames == ["Main"]
     assert [c.value or "" for c in wb["Main"][1]] == MAIN_HEADERS
@@ -163,16 +193,16 @@ def test_pair1_single_sheet_playbook(pair1_rfc, pair1_config):
     assert "ACCUM_IIG.xlsx" in rows[1][col["Detail"]]
     for header in MAIN_BLANK:
         assert all(r[col[header]] == "" for r in rows), header
-    blank = sorted(f for f in gate.flags if f.startswith("playbook_blank:"))
+    blank = sorted(f for f in flags if f.startswith("playbook_blank:"))
     assert blank == sorted(f"playbook_blank:Main.{h}" for h in MAIN_BLANK)
-    assert any(f.startswith("rfc_number_unanswered:") for f in gate.flags)
-    assert not any(f.startswith("rfc_feed_name_from_slug") for f in gate.flags)
-    assert not any(f.startswith("file_log_") for f in gate.flags)
+    assert any(f.startswith("rfc_number_unanswered:") for f in flags)
+    assert not any(f.startswith("rfc_feed_name_from_slug") for f in flags)
+    assert not any(f.startswith("file_log_") for f in flags)
 
 
 @needs_golden
 def test_pair1_manifest_lists_every_file_and_the_out_of_scope_documents(pair1_rfc):
-    _gate, _tmp, package = pair1_rfc
+    _gate, _flags, _tmp, package = pair1_rfc
     listed = _manifest_files(package)
     written = sorted(p.name for p in package.iterdir() if p.name != "MANIFEST.md")
     assert sorted(listed) == written
@@ -217,14 +247,14 @@ def sfmc_rfc(config, tmp_path_factory):
     scoped = _scoped(config, tmp).model_copy(update={
         "rfc": config.rfc.model_copy(update={"file_log_information": True})})
     (spec,) = resolve_contracts(SFMC_FRD, SFMC_STTM, scoped)
-    gate = cli._generate_feed(spec, scoped, dry_run=True, skip_tests=True, output_mode="rfc")
-    return gate, tmp, spec, _package_dir(tmp, spec.feed_slug)
+    _gate, flags = _framework_then_package(spec, scoped)
+    return flags, tmp, spec, _package_dir(tmp, spec.feed_slug)
 
 
 @needs_sfmc
 @needs_reference
 def test_sfmc_ingestion_a_package_file_set(sfmc_rfc, config):
-    gate, tmp, spec, package = sfmc_rfc
+    flags, tmp, spec, package = sfmc_rfc
     token = "SFMC_EMAIL_CAMPAIGN_TRACKING"
     assert package.name == f"RFC######_{token}"
     assert sorted(p.name for p in package.iterdir()) == sorted([
@@ -241,14 +271,14 @@ def test_sfmc_ingestion_a_package_file_set(sfmc_rfc, config):
         config.demo.metadata_sheet.tabs)
     assert sorted(_manifest_files(package)) == sorted(
         p.name for p in package.iterdir() if p.name != "MANIFEST.md")
-    assert any(f.startswith("rfc_feed_name_from_slug:") for f in gate.flags)
-    assert any(f.startswith("rfc_number_unanswered:") for f in gate.flags)
+    assert any(f.startswith("rfc_feed_name_from_slug:") for f in flags)
+    assert any(f.startswith("rfc_number_unanswered:") for f in flags)
 
 
 @needs_sfmc
 @needs_reference
 def test_sfmc_playbook_matches_the_reference_template_and_is_blank_and_flag(sfmc_rfc, config):
-    gate, _tmp, _spec, package = sfmc_rfc
+    flags, _tmp, _spec, package = sfmc_rfc
     ours = load_workbook(next(package.glob("*_Deployment_Playbook.xlsx")))
     reference = load_workbook(REFERENCE_PLAYBOOK)
     assert ours.sheetnames == reference.sheetnames
@@ -278,14 +308,14 @@ def test_sfmc_playbook_matches_the_reference_template_and_is_blank_and_flag(sfmc
         t.task for t in tasks.post_production]
     assert {r[3] for r in task_rows} == {"RFC######"}
     assert all(all(v in (None, "") for v in r[4:]) for r in task_rows)
-    blank = sorted(f for f in gate.flags if f.startswith("playbook_blank:"))
+    blank = sorted(f for f in flags if f.startswith("playbook_blank:"))
     assert blank == sorted(f"playbook_blank:{sheet}.{h}"
                            for sheet, headers in SFMC_BLANK.items() for h in headers)
 
 
 @needs_sfmc
 def test_sfmc_file_log_information_is_the_documented_t_sql_shape(sfmc_rfc, config):
-    gate, _tmp, _spec, package = sfmc_rfc
+    flags, _tmp, _spec, package = sfmc_rfc
     text = (package / "FILE_LOG_INFORMATION.txt").read_text(encoding="utf-8")
     lines = text.splitlines()
     assert lines[0] == "CREATE TABLE [dbo].[FILE_LOG_INFORMATION]("
@@ -296,14 +326,14 @@ def test_sfmc_file_log_information_is_the_documented_t_sql_shape(sfmc_rfc, confi
     assert body[-1] == "  [UPDATED_DATE] [datetime] NOT NULL"
     assert all(line.endswith(",") for line in body[:-1])
     assert "[CREATED_BY] [varchar](<length>) NOT NULL" in text
-    assert any(f.startswith("file_log_placeholder_unstated:") for f in gate.flags)
+    assert any(f.startswith("file_log_placeholder_unstated:") for f in flags)
 
 
 # -- config: mode, overlays, shipped vocabulary ------------------------------------- #
 
 
-def test_rfc_mode_and_playbook_knobs_exist(config):
-    assert config.output.mode == "notebook"
+def test_playbook_knobs_exist(config):
+    assert config.output.mode == ["notebook"]
     assert config.playbook.template == "sfmc_7sheet"
     assert sorted(config.playbook.templates) == ["main_single", "sfmc_7sheet"]
     assert config.playbook.templates["main_single"].headers == MAIN_HEADERS
@@ -348,7 +378,7 @@ def test_shipped_config_has_no_client_shaped_template_rows(config, pair1_config)
     assert len(overlaid["DATABRICKS_NOTEBOOK_DETAILS"]) == 3
 
 
-def test_ui_runner_accepts_the_rfc_mode():
+def test_ui_runner_maps_retired_modes_to_notebook_and_framework():
     pytest.importorskip("httpx")
     from ui.backend.demo import DemoRunner
 
@@ -358,17 +388,14 @@ def test_ui_runner_accepts_the_rfc_mode():
     runner._lock = threading.Lock()
     runner.state = "idle"
     runner.output_parts = None
-    runner.select_output_mode("rfc")
-    assert runner.output_mode == "rfc" and runner.output_parts == ["rfc"]
-    runner.select_output_mode("all")
-    assert runner.output_mode == "all" and runner.output_parts == ["all"]
-    # Independent parts map onto one mode; empty = no mode (run refused).
+    # A retired mode is never an error: it selects both outputs.
+    for retired in ("rfc", "all", "both"):
+        runner.select_output_mode(retired)
+        assert runner.output_parts == ["notebook", "framework"] == runner.output_mode
     runner.select_output_parts(["notebook", "rfc"])
-    assert runner.output_mode == "all"
-    runner.select_output_parts(["framework", "rfc"])
-    assert runner.output_mode == "rfc"
-    runner.select_output_parts(["notebook", "framework"])
-    assert runner.output_mode == "both"
+    assert runner.output_parts == ["notebook", "framework"]
+    runner.select_output_parts(["framework"])
+    assert runner.output_mode == ["framework"]
     runner.select_output_parts([])
     assert runner.output_mode is None
     with pytest.raises(ValueError):
@@ -378,20 +405,17 @@ def test_ui_runner_accepts_the_rfc_mode():
 
 
 @needs_golden
-def test_all_mode_writes_notebook_framework_and_rfc(pair1_config, pair1_spec, tmp_path):
-    """`all` = the notebook tree + framework artefacts + the RFC package,
-    the same package `rfc` mode writes."""
+def test_retired_all_mode_writes_notebook_and_framework_without_a_package(
+        pair1_config, pair1_spec, tmp_path):
+    """A caller still passing the retired `all` gets Notebook + Framework
+    artefacts — no RFC package — and never an error."""
     scoped = _scoped(pair1_config, tmp_path)
     gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
                               output_mode="all", conventions_profile="acfc_prx",
-                              iig_template="iig_v2", playbook_template="main_single")
+                              iig_template="iig_v2")
     feed_dir = tmp_path / "out" / pair1_spec.feed_slug
     assert (feed_dir / "pipeline").is_dir() and (feed_dir / "framework").is_dir()
-    package = _package_dir(tmp_path, pair1_spec.feed_slug)
-    assert sorted(p.name for p in package.iterdir()) == sorted([
-        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
-        "RFC######_ACCUM_Deployment_Playbook.xlsx"])
-    assert (package / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
+    assert not any(p.name.startswith("RFC") for p in feed_dir.iterdir())
     assert gate.verdict == "PASS_WITH_FLAGS"
-    assert any(f.startswith("playbook_blank:") for f in gate.flags)
+    assert not any(f.startswith("playbook_blank:") for f in gate.flags)
 

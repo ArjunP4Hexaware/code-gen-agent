@@ -297,7 +297,8 @@ def test_cli_layout_refresh_with_an_answers_file_never_reports_source_cache(tmp_
     assert "'synonyms': 25" in sttm_line                     # every other role: who placed it
     frd_line = next(line for line in out.splitlines() if line.startswith("FRD "))
     assert "source=synonyms" in frd_line and "'cache': 0" in frd_line
-    assert "PROVIDER        mock, 0 call(s)" in out
+    # Nothing was put to a model: the label says so (codegen.reasoning.usage).
+    assert "MODEL USAGE     layout: Resolved from the documents (no model call needed)" in out
     # The refresh DID write the entries: a plain run afterwards is a cache hit —
     # and only then is `source=cache` the truth.
     assert cli.main(argv[:-3] + ["--require-complete"]) == 0

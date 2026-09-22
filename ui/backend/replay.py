@@ -90,7 +90,7 @@ def _rebuild_state(
     label: str,
     out_root,
     reports_root,
-    output_mode: str | None = None,
+    output_mode: str | list[str] | None = None,
 ) -> None:
     """Deterministic pipeline re-run with recorded candidates injected.
 
@@ -250,6 +250,8 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
     run_frd = run_dir / "frd.contract.json"
     meta_path = run_dir / "run_meta.json"
     output_mode = None
+    from codegen.output_modes import output_parts
+
     if meta_path.is_file():
         try:
             output_mode = json.loads(meta_path.read_text(encoding="utf-8")).get(
@@ -257,15 +259,18 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
             )
         except ValueError:
             output_mode = None
+    if output_mode is not None:
+        # A run recorded under a retired mode (both / rfc / all) replays as
+        # Notebook + Framework artefacts, with a one-time notice.
+        output_mode = output_parts(output_mode, source=f"run_meta.json of {name}")
     if output_mode is None and run.feeds:
         first = run_dir / run.feeds[0]
         has_framework = (first / "framework").is_dir()
         has_pipeline = (first / "pipeline").is_dir()
         has_rfc = any(p.is_dir() and p.name.startswith("RFC") for p in first.iterdir())
-        output_mode = ("all" if has_rfc and has_pipeline
-                       else "rfc" if has_rfc
-                       else "both" if has_framework and has_pipeline
-                       else "framework" if has_framework else "notebook")
+        inferred = (["rfc"] if has_rfc
+                    else ["notebook"] * has_pipeline + ["framework"] * has_framework)
+        output_mode = output_parts(inferred or ["notebook"], source=f"past run {name}")
     _rebuild_state(
         store,
         _resolve_demo_specs(

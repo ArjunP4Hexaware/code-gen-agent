@@ -13,6 +13,7 @@ from pathlib import Path
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.gate.verdict import GateResult
 from codegen.reasoning.engine import RuleCandidate
+from codegen.reasoning.usage import StageUsage, report_lines
 from codegen.rules.compiler import RuleOutcome
 
 
@@ -202,6 +203,7 @@ def write_generation_report(
     reports_dir: Path,
     out_root: Path,
     inputs_summary: dict | None = None,
+    model_usage: list[StageUsage] | None = None,
 ) -> Path:
     lines: list[str] = [f"# Generation report — {spec.feed_id}", ""]
     lines += _contracts_section(spec)
@@ -210,6 +212,9 @@ def write_generation_report(
     lines += _rules_section(outcomes)
     lines += _segmented_section(spec)
     lines += _candidates_section(candidates)
+    # What the run actually did with a model, per stage (codegen.reasoning.usage).
+    if model_usage:
+        lines += report_lines(model_usage)
     lines += _gate_section(gate)
 
     reports_dir.mkdir(parents=True, exist_ok=True)

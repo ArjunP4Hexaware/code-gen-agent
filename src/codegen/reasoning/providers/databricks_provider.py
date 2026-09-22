@@ -44,6 +44,10 @@ class DatabricksFmapiProvider:
             )
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
+        # What the run record reads (codegen.reasoning.usage).
+        self.endpoint = self._endpoint
+        self.model = config.reasoning.model
+        self.calls = 0
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         import json as json_module
@@ -55,6 +59,7 @@ class DatabricksFmapiProvider:
         )
         errors: list[str] = []
         for _ in range(self._max_attempts):
+            self.calls += 1
             text = chat(
                 self._cfg,
                 messages=[

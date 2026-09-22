@@ -71,11 +71,12 @@ def _generate_feed(
     *,
     dry_run: bool,
     skip_tests: bool,
-    output_mode: str | None = None,
+    output_mode: str | list[str] | None = None,
     extra_flags: list[str] | None = None,
     conventions_profile: str | None = None,
     iig_template: str | None = None,
     playbook_template: str | None = None,
+    layout_usage=None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -84,6 +85,10 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    from codegen.reasoning.usage import layer2_usage
+
+    model_usage = [*([layout_usage] if layout_usage is not None else []),
+                   layer2_usage(provider, candidates)]
     # M3: STTM-vs-VDD cross-check — one flag per mismatch citing both cells;
     # a fixed-width FRD with no VDD positions is a failed gate check.
     # M4: resolver provenance flags (facts taken from the STTM because the
@@ -129,11 +134,13 @@ def _generate_feed(
     # Option A ("notebook") is today's path, byte for byte. Option B
     # ("framework") renders the SAME pipeline into a scratch tree so the
     # gate checks stay identical, but persists only ddl/ + framework/;
-    # "both" persists everything. MIRRORED in service._generate_feed.
-    effective_mode = output_mode or config.output.mode
+    # Notebook + Framework persists everything. MIRRORED in
+    # service._generate_feed. (codegen.output_modes: the two outputs.)
+    from codegen.output_modes import output_parts
+
+    parts = output_parts(output_mode or config.output.mode, source="generate")
     framework_artefacts = None
-    rfc_artefacts = None
-    if effective_mode in ("framework", "rfc"):
+    if parts == ["framework"]:
         written, checks, tests_skipped, ddl_sources = _emit_framework_only(
             context, spec, config, feed_dir, skip_tests
         )
@@ -142,42 +149,18 @@ def _generate_feed(
             conventions_profile=conventions_profile, iig_template=iig_template,
         )
         written = [*written, *framework_artefacts.files]
-        if effective_mode == "rfc":
-            # M5: the RFC deployment package, assembled from the framework
-            # artefacts + config/FAQ; its blank-and-flag list joins the gate.
-            from codegen.emit.rfc import emit_rfc_package
-
-            rfc_artefacts = emit_rfc_package(
-                spec, faq, config, out_root, framework_artefacts,
-                flags_so_far=[*extra_flags, *framework_artefacts.flags],
-                conventions_profile=conventions_profile, iig_template=iig_template,
-                playbook_template=playbook_template, base_dir=None,
-            )
-            written = [*written, *rfc_artefacts.files]
     else:
         written = emit_feed(context, out_root)
         checks = None  # computed below, exactly as before
-        if effective_mode in ("both", "all"):
+        if "framework" in parts:
             ddl_sources = _read_ddl_sources(feed_dir)
             framework_artefacts = _run_emit_framework(
                 spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
                 conventions_profile=conventions_profile, iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
-            if effective_mode == "all":
-                from codegen.emit.rfc import emit_rfc_package
-
-                rfc_artefacts = emit_rfc_package(
-                    spec, faq, config, out_root, framework_artefacts,
-                    flags_so_far=[*extra_flags, *framework_artefacts.flags],
-                    conventions_profile=conventions_profile, iig_template=iig_template,
-                    playbook_template=playbook_template, base_dir=None,
-                )
-                written = [*written, *rfc_artefacts.files]
     if framework_artefacts is not None:
         extra_flags = [*extra_flags, *framework_artefacts.flags]
-    if rfc_artefacts is not None:
-        extra_flags = [*extra_flags, *rfc_artefacts.flags]
     _write_candidates_artifact(candidates, feed_dir)
 
     if checks is None:
@@ -209,6 +192,7 @@ def _generate_feed(
         reports_dir,
         out_root,
         inputs_summary=context["provenance"]["inputs"],
+        model_usage=model_usage,
     )
     if framework_artefacts is not None:
         # Appended AFTER the standard report so report/ stays untouched and
@@ -218,11 +202,9 @@ def _generate_feed(
         with open(reports_dir / f"{spec.feed_slug}.md", "a",
                   encoding="utf-8", newline="\n") as handle:
             handle.write(report_section(framework_artefacts))
-            if rfc_artefacts is not None:
-                from codegen.emit.rfc import report_section as rfc_report_section
-
-                handle.write(rfc_report_section(rfc_artefacts))
     print(console_summary(spec, gate))
+    for usage in model_usage:
+        print(f"{'MODEL USAGE':<15} {usage.stage}: {usage.label}")
     return gate
 
 
@@ -282,7 +264,7 @@ def _run_pairs(
     only_feed: str | None,
     dry_run: bool,
     skip_tests: bool,
-    output_mode: str | None = None,
+    output_mode: str | list[str] | None = None,
     vdd_path: Path | None = None,
     conventions_profile: str | None = None,
     iig_template: str | None = None,
@@ -567,7 +549,9 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                   f"source={profile.role_sources.get(key, profile.source)}")
         for check in report["cross_checks"]:
             print(f"{'CROSSCHECK':<15} {check}")
-        print(f"{'PROVIDER':<15} {provider.name}, {report['provider_calls']} call(s)")
+        from codegen.reasoning.usage import layout_usage
+
+        print(f"{'MODEL USAGE':<15} layout: {layout_usage(provider).label}")
     if args.profile_out:
         Path(args.profile_out).write_text(
             result.sttm.profile.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -1040,13 +1024,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     common.add_argument(
         "--output-mode",
-        choices=["notebook", "framework", "both", "rfc", "all"],
+        choices=["notebook", "framework"],
+        action="append",
         default=None,
-        help="override output.mode: notebook (Option A, default), framework "
-        "(Option B: DDL scripts + config rows + inserts for the existing "
-        "ingestion framework), both (notebook + framework), rfc (framework "
-        "artefacts + the assembled RFC<number>_<Feed>/ deployment package), "
-        "or all (notebook + framework + rfc)",
+        help="override output.mode; repeat for both: notebook (Option A, a "
+        "standalone PySpark pipeline) and/or framework (Option B: DDL scripts + "
+        "config rows + inserts for the existing ingestion framework)",
     )
 
     generate = subparsers.add_parser(
@@ -1066,8 +1049,8 @@ def main(argv: list[str] | None = None) -> int:
                           help="IIG workbook template version (iig_v1 = demo.metadata_sheet, "
                                "or a key of config metadata.templates)")
     generate.add_argument("--playbook-template", dest="playbook_template", default=None,
-                          help="rfc mode: deployment playbook template (a key of config "
-                               "playbook.templates; default playbook.template)")
+                          help="retired with the RFC package output: accepted, has no "
+                               "effect (outputs are notebook and / or framework)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 

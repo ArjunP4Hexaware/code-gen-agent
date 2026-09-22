@@ -21,6 +21,8 @@ from datetime import datetime
 from pathlib import Path
 
 from codegen.extract import extract_to_file
+from codegen.output_modes import OUTPUT_OPTIONS, output_parts
+from codegen.output_modes import notices as output_notices
 from codegen.resolve.resolver import resolve_pair
 from ui.backend.docindex import INDEX_FILE, UNREADABLE, DocumentIndex, fetch_exclusive
 from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
@@ -57,37 +59,11 @@ class LiveRunInProgress(RuntimeError):
     """A live run is already in flight (surface as HTTP 409)."""
 
 
-# Output selection as independent PARTS (what the UI toggles) mapped onto
-# the generator's single mode. "all" is its own part — selecting it is not
-# the same UI state as ticking the three others, even though it generates
-# the same set. An rfc part always carries the framework artefacts it is
-# built from (the generator writes them either way).
-OUTPUT_PARTS = ("notebook", "framework", "rfc", "all")
-_MODE_TO_PARTS = {
-    "notebook": ["notebook"],
-    "framework": ["framework"],
-    "both": ["notebook", "framework"],
-    "rfc": ["rfc"],
-    "all": ["all"],
-}
-
-
-def parts_for_mode(mode: str) -> list[str]:
-    return list(_MODE_TO_PARTS[mode])
-
-
-def mode_for_parts(parts: list[str]) -> str | None:
-    """None when nothing is selected (a run is refused)."""
-    chosen = set(parts)
-    if not chosen:
-        return None
-    if "all" in chosen or ("notebook" in chosen and "rfc" in chosen):
-        return "all"
-    if "rfc" in chosen:
-        return "rfc"
-    if "notebook" in chosen and "framework" in chosen:
-        return "both"
-    return "framework" if "framework" in chosen else "notebook"
+# Output selection as independent PARTS (what the UI toggles): exactly
+# Notebook and Framework artefacts (codegen.output_modes). A retired value
+# (both / rfc / all) from a saved state maps to both parts with a one-time
+# notice, never an error.
+OUTPUT_PARTS = OUTPUT_OPTIONS
 
 
 def feeds_left_without_a_file(questions, contract) -> list[tuple[int, object]]:
@@ -133,6 +109,11 @@ class DemoRunner:
         # before a run, or from the needs_layout dialog).
         self.layout_refresh: bool = False
         self._layout_event = threading.Event()
+        # What the current / last run did with a model, per stage (list of
+        # codegen.reasoning.usage.StageUsage.as_dict — each carries its label).
+        # Built from the providers the run actually used, never from config.
+        self.model_usage: list[dict] = []
+        self._layout_providers: list = []
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
         self.error: str | None = None
@@ -477,18 +458,18 @@ class DemoRunner:
         return self.vdd_auto_paired
 
     @property
-    def output_mode(self) -> str | None:
-        """The generator mode the selected parts map onto; None = config
+    def output_mode(self) -> list[str] | None:
+        """The selected parts as the generator takes them; None = config
         default when nothing was selected, also None when the selection is
         empty (callers refuse a run in that case)."""
-        if self.output_parts is None:
+        if not self.output_parts:
             return None
-        return mode_for_parts(self.output_parts)
+        return list(self.output_parts)
 
     def effective_output_parts(self) -> list[str]:
         if self.output_parts is not None:
             return list(self.output_parts)
-        return parts_for_mode(self._store.config.output.mode)
+        return output_parts(self._store.config.output.mode, source="config output.mode")
 
     def select_output_mode(self, mode: str | None) -> None:
         """Compatibility entry: a single mode selects its parts."""
@@ -497,9 +478,9 @@ class DemoRunner:
                 raise LiveRunInProgress(
                     "cannot change the output mode while a live run is in progress"
                 )
-        if mode is not None and mode not in _MODE_TO_PARTS:
-            raise ValueError(f"unknown output mode {mode!r}")
-        self.output_parts = None if mode is None else parts_for_mode(mode)
+        # A retired mode maps (with a notice); an unknown one is a ValueError.
+        self.output_parts = (None if mode is None
+                             else output_parts(mode, source="output-mode request"))
 
     def select_output_parts(self, parts: list[str] | None) -> None:
         """The UI's toggles: any subset of OUTPUT_PARTS, empty allowed
@@ -512,10 +493,7 @@ class DemoRunner:
         if parts is None:
             self.output_parts = None
             return
-        unknown = [p for p in parts if p not in OUTPUT_PARTS]
-        if unknown:
-            raise ValueError(f"unknown output part(s) {unknown!r}; expected {OUTPUT_PARTS}")
-        self.output_parts = list(dict.fromkeys(parts))
+        self.output_parts = output_parts(parts, source="output-parts request")
 
     def select_generation_options(self, *, conventions_profile: str | None = None,
                                   iig_template: str | None = None,
@@ -1045,6 +1023,10 @@ class DemoRunner:
                                       for c in d.candidates]}
                 for kind, d in self.pair_decisions.items() if d.ambiguous},
             "output_parts": self.effective_output_parts(),
+            # Retired output values met in config / saved state / requests,
+            # each announced once (codegen.output_modes).
+            "output_notices": output_notices(),
+            "model_usage": list(self.model_usage),
         }
 
     def advise_layout(self, *, dry_run: bool = False) -> dict:
@@ -1060,9 +1042,14 @@ class DemoRunner:
 
         if self.state != "needs_layout" or not self.layout_questions:
             raise LiveRunInProgress("no live run is waiting for layout answers")
+        from codegen.reasoning.usage import layout_usage
+
         provider = build_layout_provider(self._store.config, dry_run=dry_run, base_dir=REPO_ROOT)
+        # The advice call belongs to this run's layout stage record.
+        self._layout_providers.append(provider)
         response = provider.advise_layout(build_advice_request(self.layout_questions))
         self.layout_advice = {"provider": provider.name,
+                              "usage": layout_usage(provider).as_dict(),
                               "advice": validate_advice(response, self.layout_questions)}
         return self.layout_advice
 
@@ -1094,6 +1081,7 @@ class DemoRunner:
         from ui.backend import stores as ui_stores
 
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
+        self._layout_providers.append(provider)
         runtime_cache = ui_stores.layout_cache_dir(config)
         answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
         refresh, self.layout_refresh = self.layout_refresh, False        # one shot
@@ -1145,8 +1133,8 @@ class DemoRunner:
 
     def start_live(self) -> None:
         if self.output_parts == []:
-            raise ValueError("no output selected — choose at least one of notebook, "
-                             "framework artefacts, RFC package, or All")
+            raise ValueError("no output selected — choose Notebook, Framework artefacts, "
+                             "or both")
 
         job = self.selection_job
         if job is not None and job["state"] == "running" and job["kind"] == "restore":
@@ -1170,6 +1158,8 @@ class DemoRunner:
             self.state = "running"
             self.stages = []
             self.error = None
+            self.model_usage = []
+            self._layout_providers = []
         thread = threading.Thread(target=self._run, name="live-demo-run", daemon=True)
         thread.start()
 
@@ -1344,6 +1334,12 @@ class DemoRunner:
         self._stage("resolving layout", f"{workbook_path.name} (+ {frd_label})")
         resolution = self._resolve_layout(workbook_path, frd_path, config,
                                           vdd_path=self.selected_vdd)
+        from codegen.reasoning.usage import layout_usage as _layout_usage
+        from codegen.reasoning.usage import run_usage
+
+        layout_usage = _layout_usage(*self._layout_providers)
+        self.model_usage = [layout_usage.as_dict()]
+        self._stage("layout recognizer", layout_usage.label)
         from codegen.extract.frd_docx import contract_to_json
 
         # A feed the person left without a file (Proceed unresolved on its
@@ -1381,7 +1377,8 @@ class DemoRunner:
             json_module.dumps({
                 "frd_label": frd_label,
                 "sttm_workbook": workbook_path.name,
-                "output_mode": self.output_mode or config.output.mode,
+                "output_mode": self.output_mode or output_parts(
+                    config.output.mode, source="config output.mode"),
                 "conventions_profile": self.conventions_profile or config.conventions.profile,
                 "iig_template": self.iig_template or config.metadata.template,
                 "playbook_template": self.playbook_template or config.playbook.template,
@@ -1434,6 +1431,7 @@ class DemoRunner:
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template,
                     playbook_template=self.playbook_template,
+                    layout_usage=layout_usage,
                 )
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
@@ -1441,6 +1439,9 @@ class DemoRunner:
             details = "; ".join(f"{f.label}: {f.error}" for f in failures) or "no feeds resolved"
             raise RuntimeError(f"live run produced no feeds — {details}")
 
+        self.model_usage = run_usage([r.model_usage or [] for r in runs.values()], layout_usage)
+        self._stage("model usage", "; ".join(f"{u['stage']}: {u['label']}"
+                                             for u in self.model_usage))
         self.set_aside = [f.model_dump() for f in pre_failures]
         sent = ui_stores.push_run(config, label)
         if sent:
@@ -1454,5 +1455,6 @@ class DemoRunner:
             label=label,
             out_root=run_root,
             reports_root=reports_root,
+            layout_usage=layout_usage,
         )
         self.last_run_label = label

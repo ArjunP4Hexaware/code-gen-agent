@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -61,13 +61,23 @@ class OutputConfig(BaseModel):
 
     dir: str
     reports_dir: str
-    # Option A ("notebook", the default — today's output exactly), Option B
-    # ("framework": DDL scripts + config rows + insert statements for the
-    # existing ingestion framework, no notebook/module tree), or "both".
-    # "rfc" (M5): framework artefacts + the assembled RFC deployment package
-    # (out/<slug>/RFC<number>_<Feed>/), see RfcConfig / PlaybookConfig.
-    # "all" = notebook tree + framework artefacts + the RFC package.
-    mode: Literal["notebook", "framework", "both", "rfc", "all"] = "notebook"
+    # The outputs a run produces (codegen.output_modes): "notebook" (Option
+    # A, the default — today's output exactly) and / or "framework" (Option
+    # B: DDL scripts + config rows + insert statements for the existing
+    # ingestion framework). A string or a list; stored as the list of parts.
+    # The retired "both" / "rfc" / "all" map to both parts with a one-time
+    # notice, never an error.
+    mode: list[Literal["notebook", "framework"]] = ["notebook"]
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value):
+        from codegen.output_modes import output_parts
+
+        parts = output_parts(value, source="config output.mode")
+        if not parts:
+            raise ValueError("output.mode names no output; expected notebook and / or framework")
+        return parts
 
 
 class FrameworkConfig(BaseModel):

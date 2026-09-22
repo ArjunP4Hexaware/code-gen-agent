@@ -172,6 +172,7 @@ def list_feeds() -> dict:
             "failures": [{"label": "startup", "error": f"pipeline unavailable — {startup_error}"}],
             "mode": "mock",
             "label": None,
+            "model_usage": [],
         }
     decisions = store.load_decisions()
     return {
@@ -179,6 +180,8 @@ def list_feeds() -> dict:
         "failures": [f.model_dump() for f in store.failures],
         "mode": store.mode,
         "label": store.label,
+        # Per stage, what the served run did with a model (label included).
+        "model_usage": store.model_usage,
     }
 
 
@@ -483,13 +486,11 @@ def demo_status() -> dict:
         "sttm_chosen": chosen["sttm"] is not None,
         # M3: the optional Vendor Data Dictionary (third input), file name only.
         "vdd_name": chosen["vdd"],
-        # Output mode a run would use (Option A notebook / Option B
-        # framework / both) — the runner's override or the config default.
-        # The generator mode the Output selection maps onto (None while
-        # nothing is selected) and the selection itself (the UI's toggles).
+        # The outputs a run would produce (notebook and / or framework) —
+        # None while nothing is selected — and the selection itself.
         "output_mode": (
             _require_runner().output_mode if _require_runner().output_parts is not None
-            else _require_store().config.output.mode
+            else _require_runner().effective_output_parts()
         ),
         "output_parts": _require_runner().effective_output_parts(),
         # M4/M5 generation options a run would use (override or config default).
@@ -709,8 +710,18 @@ def clear_frd() -> dict:
     return {"selected": None}
 
 
+@app.get("/api/demo/output-options")
+def output_options() -> list[str]:
+    """The outputs a run can produce — exactly these (codegen.output_modes)."""
+    from codegen.output_modes import OUTPUT_OPTIONS
+
+    return list(OUTPUT_OPTIONS)
+
+
 class OutputModeRequest(BaseModel):
-    mode: str | None = None  # notebook | framework | both | rfc | all; null = config default
+    # notebook | framework; a retired value (both / rfc / all) maps to both
+    # outputs with a one-time notice. null = config default
+    mode: str | None = None
 
 
 @app.post("/api/demo/output-mode")
@@ -725,8 +736,8 @@ def select_output_mode(req: OutputModeRequest) -> dict:
 
 
 class OutputPartsRequest(BaseModel):
-    # any subset of notebook | framework | rfc | all; [] = nothing selected
-    # (a run is refused); null = the config default
+    # any subset of notebook | framework; [] = nothing selected (a run is
+    # refused); null = the config default
     parts: list[str] | None = None
 
 

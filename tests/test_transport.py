@@ -42,7 +42,8 @@ def test_local_anthropic_without_key_is_mock_with_remedy(config, monkeypatch):
 def test_local_anthropic_with_key(config):
     t = resolve_transport(_with_provider(config, "anthropic"), env={"ANTHROPIC_API_KEY": "k"})
     assert (t.kind, t.available, t.provider_name) == ("anthropic", True, "anthropic")
-    assert t.label.startswith("Anthropic API (") and config.reasoning.model in t.label
+    assert t.label.startswith("Claude ") and "Anthropic API" in t.label
+    assert config.reasoning.model in t.label
     assert t.reason == ""
 
 
@@ -74,7 +75,7 @@ def test_databricks_runtime_without_endpoint_is_unavailable_with_remedy(config, 
     t = resolve_transport(cfg, env={"DATABRICKS_HOST": "https://x"})
     assert (t.kind, t.available, t.endpoint) == ("databricks_fmapi", False, None)
     assert "databricks.serving_endpoint is not configured" in t.reason
-    assert t.label.endswith("(unconfigured)") and t.config_resolves
+    assert t.label.endswith("(serving endpoint unconfigured)") and t.config_resolves
     # The config resolves but names no endpoint: both builders raise the
     # provider's named error rather than silently degrading.
     import pytest
@@ -93,6 +94,7 @@ def test_mock_lock_beats_everything(config):
            "ANTHROPIC_API_KEY": "k"}
     t = resolve_transport(_with_provider(config, "databricks_fmapi"), env=env)
     assert (t.kind, t.available, t.provider_name) == ("mock_locked", True, "mock (locked)")
+    assert t.label == "Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)"
     assert t.runtime == "databricks_app" and t.detected_by == "CODEGEN_FORCE_MOCK_PROVIDER"
 
 

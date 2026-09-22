@@ -90,6 +90,10 @@ class AnthropicProvider:
 
         self._client = anthropic.Anthropic()
         self._model = config.reasoning.model
+        # What the run record reads (codegen.reasoning.usage).
+        self.model = self._model
+        self.endpoint: str | None = None
+        self.calls = 0
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
 
@@ -101,6 +105,7 @@ class AnthropicProvider:
         for _ in range(self._max_attempts):
             # No sampling params: claude-opus-4-8 rejects temperature/top_p/top_k
             # with a 400 (removed on Opus 4.7+) — proven by the first live run.
+            self.calls += 1
             message = self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,

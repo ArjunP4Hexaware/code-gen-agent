@@ -488,8 +488,8 @@ def test_cli_chain_layout_contract_out_then_generate_matches_the_golden(tmp_path
                      "--generated-date", DATE]) == 0
     capsys.readouterr()
     assert cli.main(["generate", "--frd-contract", str(frd), "--sttm-contract", str(sttm),
-                     "--vdd", str(vdd_json), "--output-mode", "rfc", "--profile", "acfc_prx",
-                     "--iig-template", "iig_v2", "--playbook-template", "main_single",
+                     "--vdd", str(vdd_json), "--output-mode", "framework",
+                     "--profile", "acfc_prx", "--iig-template", "iig_v2",
                      "--skip-tests", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "PASS_WITH_FLAGS vnd_p_accum_client" in out
@@ -497,5 +497,3 @@ def test_cli_chain_layout_contract_out_then_generate_matches_the_golden(tmp_path
     golden = (SHAPES / "pair_1" / "golden" / "ACCUM_DDL.txt").read_bytes()
     feed_dir = tmp_path / "out" / "vnd_p_accum_client"
     assert (feed_dir / "framework" / "ACCUM_DDL.txt").read_bytes() == golden
-    (package,) = [p for p in feed_dir.iterdir() if p.name.startswith("RFC")]
-    assert (package / "ACCUM_DDL.txt").read_bytes() == golden

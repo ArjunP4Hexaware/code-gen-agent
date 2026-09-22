@@ -13,6 +13,12 @@ from codegen.reasoning.schema import CandidateResponse, ContextPack
 
 class MockProvider:
     name = "mock"
+    calls = 0   # a mock never sends a model call (codegen.reasoning.usage)
+
+    def __init__(self, reason: str | None = None) -> None:
+        # Why the mock answered: a lock env var, an unreachable endpoint,
+        # dry-run — set by build_provider; "test" when constructed directly.
+        self.mock_reason = reason or "test"
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         sketch = (

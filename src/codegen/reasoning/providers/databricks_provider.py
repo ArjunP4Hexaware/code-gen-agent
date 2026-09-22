@@ -33,7 +33,8 @@ class DatabricksFmapiProvider:
     def __init__(self, config: Config) -> None:
         from codegen.databricks import config_for
 
-        self._cfg = config_for(config.databricks)  # raises loudly if unset
+        # The endpoint needs no document volume (those ship blank).
+        self._cfg = config_for(config.databricks, require=())
         self._endpoint = self._cfg.serving_endpoint
         if not self._endpoint:
             from codegen.databricks import DatabricksConfigError

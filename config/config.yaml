@@ -687,14 +687,18 @@ databricks:
   # unconfigured: the UI hides the panel, the CLI fails loudly naming the
   # remedy, and everything else is unaffected.
   profile: DEFAULT
-  # NOTE: catalog/schema here address the REAL document volumes the fetch
-  # seam reads (uploaded 2026-08-27). The demo shell block's placeholders
-  # live separately under demo.databricks_paths — no landing volume exists
-  # in the workspace yet (Option A decision).
-  catalog: soham_workspace
-  schema: codegen_agent
-  frd_volume: frd_raw
-  sttm_volume: sttm_raw
+  # The document volumes (catalog / schema / frd_volume / sttm_volume) ship
+  # BLANK: they named the Hexaware build workspace's own volumes, which do
+  # not exist inside ACFC — the App listed and fetched from them there.
+  # Blank = the seam is off: the chooser shows no Databricks section and
+  # nothing is listed or fetched. To use it on a machine that HAS such
+  # volumes, set DATABRICKS_CATALOG / DATABRICKS_SCHEMA /
+  # DATABRICKS_FRD_VOLUME / DATABRICKS_STTM_VOLUME in that environment.
+  # The serving endpoint below does not depend on them.
+  catalog: ""
+  schema: ""
+  frd_volume: ""
+  sttm_volume: ""
   # B1 (discovery 2026-08-27, docs/DATABRICKS_DISCOVERY.md):
   # "Serverless Starter Warehouse", serverless PRO, auto-stop 10 min.
   # EXPLAIN is the ONLY statement shape this seam sends — and an EXPLAIN

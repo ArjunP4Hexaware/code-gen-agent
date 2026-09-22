@@ -55,9 +55,13 @@ def test_selected_when_configured_and_not_dry_run(config):
     assert provider.name == "databricks_fmapi"
 
 
-def test_unresolvable_workspace_config_degrades_to_mock(config):
-    broken = _fmapi_config(config, catalog="", schema_name="")
-    assert build_provider(broken, dry_run=False).name == "mock"
+def test_blank_document_volumes_never_drop_layer2_to_mock(config):
+    """The volumes ship blank (the App must not read the build workspace's
+    document volumes); the endpoint does not depend on them — before
+    config_for(require=...) blank volumes silently made Layer 2 a mock."""
+    no_volumes = _fmapi_config(config, catalog="", schema_name="", frd_volume="",
+                               sttm_volume="")
+    assert build_provider(no_volumes, dry_run=False).name == "databricks_fmapi"
 
 
 def test_tracked_config_selects_fmapi(config, monkeypatch):

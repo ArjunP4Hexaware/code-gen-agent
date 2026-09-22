@@ -227,7 +227,7 @@ class FmapiLayoutProvider:
         from codegen.databricks import DatabricksConfigError, config_for
 
         try:
-            self._cfg = config_for(config.databricks)
+            self._cfg = config_for(config.databricks, require=())
         except DatabricksConfigError:
             # The recognizer needs auth + an endpoint, not the document volumes:
             # a workspace config without them still resolves a client.

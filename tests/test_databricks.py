@@ -47,9 +47,29 @@ def test_partial_config_names_the_missing_knobs():
         db.config_for(_settings(sttm_volume=""), env={})
 
 
-def test_tracked_config_section_resolves(config):
-    cfg = db.config_for(config.databricks, env={})
-    assert cfg.frd_volume == "frd_raw" and cfg.sttm_volume == "sttm_raw"
+def test_tracked_config_ships_the_document_volumes_off(config):
+    """The volumes named the Hexaware build workspace's own document volumes;
+    inside ACFC the App listed / fetched from them. They ship blank: the
+    volumes seam is off, the model endpoint still resolves."""
+    with pytest.raises(db.DatabricksConfigError, match="not configured"):
+        db.config_for(config.databricks, env={})
+    cfg = db.config_for(config.databricks, env={}, require=())
+    assert cfg.serving_endpoint == "databricks-claude-opus-5"
+    # A machine that HAS such volumes opts in through its environment.
+    opted = db.config_for(config.databricks, env=VOLUMES_ENV)
+    assert (opted.catalog, opted.frd_volume) == ("soham_workspace", "frd_raw")
+
+
+# The Hexaware desktop's volumes, set as env (the opt-in the tracked config
+# no longer carries).
+VOLUMES_ENV = {"DATABRICKS_CATALOG": "soham_workspace", "DATABRICKS_SCHEMA": "codegen_agent",
+               "DATABRICKS_FRD_VOLUME": "frd_raw", "DATABRICKS_STTM_VOLUME": "sttm_raw"}
+
+
+@pytest.fixture()
+def volumes_env(monkeypatch):
+    for name, value in VOLUMES_ENV.items():
+        monkeypatch.setenv(name, value)
 
 
 class _StubFiles:
@@ -352,6 +372,12 @@ def client():
 
 
 def test_documents_route_unconfigured_is_503(client, monkeypatch):
+    for name in VOLUMES_ENV:
+        monkeypatch.delenv(name, raising=False)
+    # As shipped: the chooser's Databricks section is absent (503), and no
+    # workspace client is ever built for it.
+    monkeypatch.setattr(db, "_client", lambda _cfg: pytest.fail("a client was built"))
+    assert client.get("/api/databricks/documents").status_code == 503
     store = ui_main._require_store()
     from codegen.config import DatabricksSettings
 
@@ -364,7 +390,7 @@ def test_documents_route_unconfigured_is_503(client, monkeypatch):
     assert "not configured" in response.json()["detail"]
 
 
-def test_documents_route_workspace_refusal_is_502_with_message(client, monkeypatch):
+def test_documents_route_workspace_refusal_is_502_with_message(client, volumes_env, monkeypatch):
     # A refused/unauthenticated workspace is NOT "unconfigured": the UI shows
     # the message (and a Retry) instead of hiding the section.
     def refuse(_cfg):
@@ -378,7 +404,8 @@ def test_documents_route_workspace_refusal_is_502_with_message(client, monkeypat
     assert "refresh token is invalid" in response.json()["detail"]
 
 
-def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, tmp_path):
+def test_documents_and_fetch_routes_with_stubbed_transport(client, volumes_env, monkeypatch,
+                                                           tmp_path):
     monkeypatch.setattr(
         databricks_routes, "list_documents",
         lambda cfg: {"frd": [], "sttm": [{"name": "map.xlsx", "size": 5,
@@ -409,7 +436,7 @@ def test_documents_and_fetch_routes_with_stubbed_transport(client, monkeypatch, 
     assert response.status_code == 400
 
 
-def test_documents_route_dedupe_states_and_pairing(client, monkeypatch, tmp_path):
+def test_documents_route_dedupe_states_and_pairing(client, volumes_env, monkeypatch, tmp_path):
     """fetched (same size) / differs (size mismatch) / fetchable, matched via
     the shared canonical name (upload prefix + copy suffix + case); the
     1005034 pair is annotated, the unpaired STTM is not."""
@@ -538,7 +565,7 @@ def test_ensure_volume_generalizes_to_output_volume():
     assert client.created[0]["name"] == "generated"
 
 
-def test_publish_target_route_reports_defaults(client, monkeypatch):
+def test_publish_target_route_reports_defaults(client, volumes_env, monkeypatch):
     payload = client.get("/api/databricks/publish-target").json()
     assert payload["available"] is True
     assert payload["writable_prefix"] == "soham_workspace.codegen_agent."
@@ -552,7 +579,7 @@ def test_publish_route_requires_confirm(client):
     assert "confirm" in response.json()["detail"]
 
 
-def test_publish_route_with_stubbed_transport(client, monkeypatch, tmp_path):
+def test_publish_route_with_stubbed_transport(client, volumes_env, monkeypatch, tmp_path):
     store = ui_main._require_store()
     (tmp_path / "reports").mkdir()
     (tmp_path / "cv_feed").mkdir()

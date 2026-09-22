@@ -34,7 +34,8 @@ class UpstreamContractError(RuntimeError):
 def _cfg(config: Config):
     from codegen.databricks import config_for
 
-    return config_for(config.databricks)
+    # A table read needs the workspace + warehouse, not the document volumes.
+    return config_for(config.databricks, require=())
 
 
 def list_contracts(config: Config) -> list[dict]:

@@ -1027,6 +1027,16 @@ e.g. MIDS) is complete and replays with an empty candidate list.
 
 ## Databricks volumes seam (added 2026-08-27)
 
+**OFF as shipped (2026-09-22):** `databricks.catalog / schema / frd_volume /
+sttm_volume` are BLANK in the tracked config — they named the Hexaware build
+workspace's own volumes, and inside ACFC the App listed / fetched FRDs and
+STTMs from them. Blank = no Databricks section in the chooser, nothing
+listed or fetched (and the publish panel unavailable). A desktop that has
+the volumes opts in via `DATABRICKS_CATALOG / _SCHEMA / _FRD_VOLUME /
+_STTM_VOLUME`. `config_for(require=...)`: the serving endpoint, the layout
+recognizer and the upstream table reader pass `require=()`, so blank volumes
+never drop live Layer 2 to mock.
+
 `src/codegen/databricks.py` — the UC-volumes twin of the SharePoint seam,
 READ-ONLY (list + download), same edge doctrine: fetch documents to local
 disk (`codegen databricks-fetch` → `inputs/databricks/`, also the UI's

@@ -90,7 +90,8 @@ def _fmapi(config: Config, configured: str, runtime: Runtime, detected_by: str,
     problems: list[str] = []
     config_resolves = True
     try:
-        endpoint = config_for(config.databricks).serving_endpoint or None
+        # The endpoint needs no document volume (those ship blank).
+        endpoint = config_for(config.databricks, require=()).serving_endpoint or None
         if endpoint is None:
             problems.append(
                 "inside Databricks the Layer-2 transport is the Foundation Model serving "

@@ -285,33 +285,31 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## START HERE (state as of 2026-09-22) — READ FIRST
 
-**Where the code is.** `staging` = `origin/staging`, tag **v0.7.3-acfc** on
-**efd0efe**, working tree clean. Every tag v0.4.0 … v0.7.3 is on the
+**Where the code is.** `staging` = `origin/staging`, tag **v0.7.4-acfc** on
+**51bf143**, working tree clean. Every tag v0.4.0 … v0.7.4 is on the
 remote. `main` is untouched at **4c35c61 (v0.4.1)** — merge staging → main only
 on Soham's say-so. All development happens on `staging`.
 
-**App version marker = 0.7.3** (`pyproject.toml` + the `codegen-version-marker`
+**App version marker = 0.7.4** (`pyproject.toml` + the `codegen-version-marker`
 comment in `requirements.txt` — bump BOTH whenever `src/` changes, or the Apps
 runtime serves a cached env). `ui/frontend/dist` is tracked; the bundle was last
 rebuilt at v0.7.0 (`index-JnGVbJrA.js`). Rebuild and commit it whenever
 `ui/frontend/src` changes.
 
-**Verified at efd0efe:** 807 passed / 27 skipped on Python 3.10, 3.11 and 3.12
-(uv venvs); ruff clean (`src/ tests/ ui/backend/`); tsc clean; CV / SFMC
-baselines 193 files byte-identical to v0.7.2 (and so to every earlier tag);
-pair-1 acceptance goldens (`tests/test_m4_acceptance.py`) unchanged.
-`scripts/scrub_check.py` over every tracked file: **2 hits, both pre-existing
-since M10.2 (435e4a5)** — the `real_adls_host` pattern matches the synthetic
-one-letter URI examples in `gate/derivations.py` (a docstring) and
-`tests/test_m101_real_run_bugs.py`. Not client data; the earlier "0 hits"
-claims did not include those files. Fixing it (an allowlist, or example hosts
-the pattern cannot match) is Soham's call.
+**Verified at 51bf143:** 807 passed / 27 skipped on Python 3.10, 3.11 and 3.12
+(uv venvs, ruff 0.16.x); ruff clean (`src/ tests/ ui/backend/`); tsc clean; CV /
+SFMC baselines 193 files byte-identical to v0.7.3 (and so to every earlier
+tag); pair-1 acceptance goldens (`tests/test_m4_acceptance.py`) unchanged;
+`scripts/scrub_check.py` over EVERY tracked file (`git ls-files`): 0 hits.
+Synthetic storage URIs in code / tests use hosts under `example.invalid` — a
+`*.dfs.core.windows.net` example trips the `real_adls_host` pattern.
 
 **Release map** (newest first). Details are in "Release notes v0.5.9 – v0.7.3"
 below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
 
 | tag | commit | what |
 |---|---|---|
+| v0.7.4 | 51bf143 | Housekeeping: ruff pinned `>=0.16,<0.17` in `[dev]` and `[ui]` (the App's requirements inherit it); synthetic URI hosts moved to `example.invalid`, scrub 0 over every tracked file. |
 | v0.7.3 | efd0efe | M12 (from RUN_v072_details): the layout model's answer is validated against a provenance-free RESPONSE schema (`layout/response.py`), provenance stamped by us; the gate's ruff is pinned (`lint_rules.py`, `--isolated`, EXE002 ignored) and the runner's unused noqa is gone; the parser child is probed once and documents parse in-process when it cannot start (`parser_mode`); a VDD tie is a question. |
 | v0.7.2 | 6b2d9ac | M11 addendum items 10, 8, 12, 13, 9 (the SHAPES_ROUND2 shapes). Layer-prefixed headers (pair 7). F2 detected in any row-0 cell (pair 8). A blank band label; NOTE rows never parsed (pair 5). Scope column, Load-Rules audit rows, type+format, and `source_kind=rdbms` → a DML REVIEW block (pair 6). F3 topic-organised FRDs (pairs 9/10). |
 | v0.7.1 | 35c48aa | Item 7: an FRD matching no family is an empty-but-valid contract (`frd_family_unrecognized`), filled by the chain and typed questions. Item 11: sheets are trimmed to their USED range, and the cell cap is the backstop. |
@@ -367,7 +365,7 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   (remote roles), not only the local tests. Never `relative_to(REPO_ROOT)` on a
   role-store path.
 - Ship checklist: suite on 3.10 / 3.11 / 3.12, ruff, tsc (if the frontend was
-  touched), dist rebuilt, scrub 0, baselines compared, version marker bumped,
+  touched), dist rebuilt, scrub 0 (over `git ls-files`), baselines compared, version marker bumped,
   a `docs/ACFC_DEPLOY.md` "What vX adds" section, and this block updated.
   Commit, tag and push only when Soham says so.
 
@@ -381,6 +379,9 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   listings. Pin `CODEGEN_NOTIFICATION_EMAILS` for both runs (the checkout's
   `.env` otherwise fakes a 16-file diff), and pass WINDOWS-form paths to
   `CODEGEN_STORAGE_OUTPUTS=local:` (an MSYS `/c/...` path lands under `C:\c\...`).
+- ruff is pinned to `>=0.16,<0.17` (`[dev]`, `[ui]`): the gate's verdict
+  depends on the ruff version. Move the pin deliberately, with a full suite +
+  baseline run.
 - Tracked layout profiles are regenerated with `scripts/build_layout_profiles.py`,
   never hand-edited. `PYTHONUTF8=1` for scripts that print non-ASCII.
 
@@ -392,7 +393,6 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   the v0.7.2 gate's ruff FAIL actually listed was not captured: in framework
   mode the gate lints the scratch pipeline tree, not the runner notebooks the
   record's manual ruff run covered — the next run's gate details will say.
-  `ruff` is still `>=0.5` (no upper bound).
 - The environment probe has only run against fakes (`tests/env_fakes.py`).
 - Pair 9's real row-4 labels; pair 6's REGION_NAME "Hard code note" (today a
   typed NULL + `audit_column_unpopulated:`).

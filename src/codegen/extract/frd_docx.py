@@ -738,12 +738,16 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         clean = path.split("#", 1)[0]
         field = clean.split(".", 1)[1] if "." in clean else clean
         stripped_label = None
+        value_kind = None
         if field in _PATH_LABEL_FIELDS:
             value, stripped_label = strip_value_label(value, frd_config.value_label_prefixes)
+            from codegen.gate.derivations import location_scheme
+
+            value_kind = "location_uri" if location_scheme(value) else None
         evidence[path] = FieldEvidence(
             table=source.table, row=source.row, col=source.col, label=source.label,
             section=source.section, inline_label=source.inline_label, source=profile.source,
-            stripped_label=stripped_label)
+            stripped_label=stripped_label, value_kind=value_kind)
         own = {k for k, v in {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.items() if v == field}
         if field == "domain":
             own |= {"domain_subdomain", "domain"}

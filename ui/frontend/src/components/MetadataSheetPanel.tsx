@@ -13,6 +13,7 @@ const BADGE_LABELS: Record<ProvenanceBadge, string> = {
   from_frd: "from FRD",
   from_faq: "from FAQ",
   from_standards: "from standards",
+  location_uri: "from FRD (location URI)",
   synthetic: "SYNTHETIC",
   needs_template: "NEEDS CLIENT TEMPLATE",
 };

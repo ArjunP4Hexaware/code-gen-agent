@@ -166,6 +166,10 @@ class FieldEvidence(BaseModel):
     # M10.1: the label token stripped from the front of a path cell
     # ("/Path : …" -> "Path"); None when the cell was the bare value.
     stripped_label: str | None = None
+    # M10.2: "location_uri" when the value carries a storage scheme
+    # (abfss:// …) — validated as a URI, never as a folder path. None = a
+    # folder path (the only kind before M10.2).
+    value_kind: Literal["location_uri"] | None = None
 
 
 class FrdLayoutSummary(BaseModel):

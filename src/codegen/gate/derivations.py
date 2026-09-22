@@ -38,6 +38,65 @@ from codegen.gate.preflight import GateCheck
 
 _PATH_SEPARATORS = re.compile(r"[\\/]+")
 _TRAILING_PUNCT = ".,;:"
+# M10.2: a value with one of these schemes is a LOCATION URI, not a folder
+# path — validated as a URI (scheme, authority, no whitespace, its path
+# segments by the folder rules) and carried through unchanged.
+LOCATION_SCHEMES = ("abfss", "abfs", "wasbs", "wasb", "dbfs", "s3", "s3a", "adl", "gs")
+_SCHEME_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+.-]*):/")
+
+
+def location_scheme(value: str | None) -> str | None:
+    """``abfss`` for ``abfss://c@a.dfs.core.windows.net/x``, ``dbfs`` for
+    ``dbfs:/mnt/x``; None for a folder path (or an unknown scheme, which the
+    folder rules then reject — ``https://`` is not a storage location)."""
+    match = _SCHEME_RE.match(value or "")
+    scheme = match.group(1).lower() if match else None
+    return scheme if scheme in LOCATION_SCHEMES else None
+
+
+def split_location(value: str) -> tuple[str, str, str]:
+    """(scheme, authority, path) of a location URI. ``dbfs:/mnt/x`` has no
+    authority: ('dbfs', '', '/mnt/x')."""
+    text = value.strip()
+    scheme, _, rest = text.partition(":")
+    if rest.startswith("//"):
+        authority, _, tail = rest[2:].partition("/")
+        return scheme.lower(), authority, "/" + tail if tail or rest[2:].endswith("/") else ""
+    return scheme.lower(), "", rest
+
+
+def uri_violations(value: str, cap: int) -> list[str]:
+    """The location-URI rule: scheme + authority (except dbfs:/), no line
+    break / whitespace, length cap, and every path segment by the folder
+    rules (no empty segment, none ending in punctuation)."""
+    problems: list[str] = []
+    if "\n" in value or "\r" in value:
+        problems.append("line break")
+    if re.search(r"\s", value):
+        problems.append("whitespace")
+    if len(value) > cap:
+        problems.append(f"length {len(value)} > {cap}")
+    scheme, authority, path = split_location(value)
+    if scheme != "dbfs" and not authority:
+        problems.append(f"no authority after {scheme}://")
+    if authority and authority[-1] in _TRAILING_PUNCT:
+        problems.append(f"authority {authority!r} ends in punctuation")
+    inner = path.strip("/")
+    for segment in inner.split("/") if inner else []:
+        if segment == "":
+            problems.append("empty segment")
+        elif segment[-1] in _TRAILING_PUNCT:
+            problems.append(f"segment {segment!r} ends in punctuation")
+    return problems
+
+
+def join_location(uri: str, *parts: str | None) -> str:
+    """A location URI + relative segments: the URI's own text is kept, the
+    parts are normalized like ``join_path`` and appended with one separator
+    each. The scheme / authority are never re-spelt."""
+    base = uri.strip().rstrip("/")
+    tail = join_path(*parts)
+    return f"{base}/{tail}" if tail else base + "/"
 _LITERAL_RE = re.compile(r"(COMMENT|LOCATION)\s+'((?:[^']|'')*)'", re.IGNORECASE)
 _TBLPROP_RE = re.compile(r"'((?:[^']|'')*)'\s*=\s*'((?:[^']|'')*)'")
 
@@ -128,6 +187,7 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
     cfg = config.gate.derivations
     pattern = re.compile(cfg.name_pattern)
     problems: list[str] = []
+    uris = 0
     for tab_name, tab in payload.get("tabs", {}).items():
         for row_index, row in enumerate(tab.get("rows", []), start=2):
             for header, value in row.get("values", {}).items():
@@ -149,11 +209,21 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                     if len(value) > cap:
                         problems.append(f"{where}: length {len(value)} > {cap}")
                 elif _is_path_column(header, cfg):
-                    for problem in path_violations(value, cfg.path_max_length):
-                        problems.append(f"{where}: {problem} in {_truncate(value)!r}")
-    return GateCheck(name="derivations", passed=not problems,
-                     details="; ".join(problems) if problems
-                     else "every derived name and path is single-line and within its cap")
+                    # M10.2: which rule applied is part of the finding.
+                    if location_scheme(value):
+                        uris += 1
+                        for problem in uri_violations(value, cfg.path_max_length):
+                            problems.append(f"{where}: {problem} in {_truncate(value)!r} "
+                                            "(location URI rule)")
+                    else:
+                        for problem in path_violations(value, cfg.path_max_length):
+                            problems.append(f"{where}: {problem} in {_truncate(value)!r}")
+    if problems:
+        return GateCheck(name="derivations", passed=False, details="; ".join(problems))
+    details = "every derived name and path is single-line and within its cap"
+    if uris:
+        details += f"; {uris} location URI cell(s) checked by the location URI rule"
+    return GateCheck(name="derivations", passed=True, details=details)
 
 
 # ---------------------------------------------------------- SQL literals ---
@@ -168,7 +238,9 @@ def literal_violations(literal: str, *, is_path: bool, cfg: DerivationsConfig) -
     if literal.replace("''", "").count("'"):
         problems.append("unbalanced quote")
     if is_path:
-        problems.extend(path_violations(literal, cfg.path_max_length))
+        problems.extend(uri_violations(literal, cfg.path_max_length)
+                        if location_scheme(literal)
+                        else path_violations(literal, cfg.path_max_length))
     return problems
 
 

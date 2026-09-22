@@ -255,3 +255,123 @@ def test_the_derivations_check_passes_and_the_iig_dml_carry_the_bare_path(pair1_
              for c in row if c is not None]
     assert any(BARE_LANDING.rstrip("/") in c for c in cells)
     assert not any("Path :" in c or c.startswith("/Path") for c in cells)
+
+
+# --------------------------------------------- M10.2: location URIs
+
+
+URI_STORAGE = "abfss://syn-container@synstorage.dfs.core.windows.net"
+URI_LANDING = f"{URI_STORAGE}/{pair1.DOMAIN}/{pair1.SUB_DOMAIN}/"
+LABELLED_URI_LANDING = f"/Path : {URI_LANDING}"
+
+
+@pytest.mark.parametrize("value, scheme", [
+    ("abfss://c@a.dfs.core.windows.net/x", "abfss"),
+    ("wasbs://c@a.blob.core.windows.net/x/", "wasbs"),
+    ("dbfs:/mnt/landing/x", "dbfs"),
+    ("s3://bucket/key", "s3"),
+    ("adl://account.azuredatalakestore.net/x", "adl"),
+    ("/synstorage/mftlanding/x/", None),
+    ("https://example.invalid/x", None),                 # not a storage location
+    ("C:\\landing\\x", None),
+])
+def test_location_scheme(value, scheme):
+    from codegen.gate.derivations import location_scheme
+
+    assert location_scheme(value) == scheme
+
+
+def test_the_location_uri_rule(config):
+    from codegen.gate.derivations import path_violations, uri_violations
+
+    cap = config.gate.derivations.path_max_length
+    assert uri_violations(URI_LANDING, cap) == []
+    assert uri_violations("dbfs:/mnt/landing/x/", cap) == []
+    # the folder rule would reject the same value: that was the M10.1 FAIL
+    assert path_violations(URI_LANDING, cap)
+    assert uri_violations("abfss:///x", cap) == ["no authority after abfss://"]
+    assert "whitespace" in uri_violations("abfss://c@a/x y", cap)
+    assert "line break" in uri_violations("abfss://c@a/x\ny", cap)
+    assert "empty segment" in uri_violations("abfss://c@a/x//y", cap)
+    assert "segment 'y.' ends in punctuation" in uri_violations("abfss://c@a/x/y./z", cap)
+    assert "authority 'c@a.' ends in punctuation" in uri_violations("abfss://c@a./x", cap)
+
+
+def test_join_location_appends_inside_the_uri():
+    from codegen.gate.derivations import join_location
+
+    assert join_location("abfss://c@a/dom/sub/", "Archive/") == "abfss://c@a/dom/sub/Archive"
+    assert join_location("abfss://c@a/dom/sub", "/Archive", "") == "abfss://c@a/dom/sub/Archive"
+    assert join_location("abfss://c@a/dom/sub/", "Processed/", "t") == \
+        "abfss://c@a/dom/sub/Processed/t"
+    assert join_location("abfss://c@a/dom/sub/") == "abfss://c@a/dom/sub/"
+
+
+def _uri_run(pair1_config, tmp_path, landing: str):
+    frd = tmp_path / "frd_uri.docx"
+    frd.write_bytes(frd_fixtures.build_f1_pair1(landing=landing))
+    sttm = SHAPES / "sttm" / "pair_1_family_a.xlsx"
+    pair, spec = _spec(tmp_path, pair1_config, sttm, frd)
+    gate = cli._generate_feed(spec, _scoped(pair1_config, tmp_path), dry_run=True,
+                              skip_tests=True, output_mode="framework",
+                              conventions_profile="acfc_prx", iig_template="iig_v2")
+    return pair, spec, gate, tmp_path / "out" / spec.feed_slug / "framework"
+
+
+def test_an_abfss_landing_is_a_location_uri_end_to_end(pair1_config, tmp_path):
+    from openpyxl import load_workbook
+
+    pair, spec, gate, framework = _uri_run(pair1_config, tmp_path, LABELLED_URI_LANDING)
+    feed = pair.frd_contract.feeds[0]
+    assert feed.landing_location == URI_LANDING                 # label stripped, URI kept
+    evidence = pair.frd_contract.field_provenance["feeds[0].landing_location"]
+    assert (evidence.stripped_label, evidence.value_kind) == ("Path", "location_uri")
+    assert spec.landing_location == URI_LANDING
+    derivations = next(c for c in gate.checks if c.name == "derivations")
+    assert derivations.passed, derivations.details
+    assert "location URI cell(s) checked by the location URI rule" in derivations.details
+    assert next(c for c in gate.checks if c.name == "sql_literals").passed
+    assert gate.verdict != "FAIL", [c for c in gate.checks if not c.passed]
+    # the IIG carries the URI as written; a shape's segments go INSIDE its path
+    rows = load_workbook(framework / "config_rows.xlsx", read_only=True)
+    cells = {(ws.title, i, j): str(c)
+             for ws in rows.worksheets for i, row in enumerate(ws.iter_rows(values_only=True))
+             for j, c in enumerate(row) if c is not None}
+    values = list(cells.values())
+    assert any(v == URI_LANDING for v in values)                              # TGT_ADLS_PATH
+    assert any(v == URI_LANDING + "Archive/" for v in values)                 # {landing}Archive/
+    assert any(v == URI_LANDING + "Archive/" for v in values)                 # /Archive{landing}
+    assert any(v == URI_LANDING + "Processed/" for v in values)               # {landing}Processed/
+    assert not any(v.startswith(("/abfss", "/Archive/abfss", "abfss:/syn")) for v in values)
+    assert all("://" not in v or v.count("://") == 1 for v in values)
+    # provenance: the from-FRD cell is badged location_uri; the shape note is a flag
+    provenance = rows["_provenance"] if "_provenance" in rows.sheetnames else None
+    assert provenance is not None
+    labels = {str(r[3]) for r in provenance.iter_rows(min_row=2, values_only=True)}
+    assert "from FRD (location URI)" in labels
+    assert any(f.startswith("iig_path_shape_on_uri:") and "/Archive{landing}" in f
+               for f in gate.flags)
+    # ...and the DML carries the URI, not a re-rooted path
+    q1 = (framework / "config_inserts_q1.sql").read_text(encoding="utf-8")
+    assert URI_LANDING in q1 and "/abfss" not in q1
+
+
+def test_the_folder_path_variant_is_untouched_by_the_uri_rule(pair1_config, tmp_path):
+    _pair, spec, gate, framework = _uri_run(pair1_config, tmp_path, LABELLED_LANDING)
+    assert spec.landing_location == BARE_LANDING
+    derivations = next(c for c in gate.checks if c.name == "derivations")
+    assert derivations.passed
+    assert "location URI" not in derivations.details                 # folder rule only
+    assert not any(f.startswith("iig_path_shape_on_uri:") for f in gate.flags)
+    evidence = _pair.frd_contract.field_provenance["feeds[0].landing_location"]
+    assert evidence.value_kind is None
+    assert "value_kind" not in frd_to_json(_pair.frd_contract)
+
+
+def test_a_bad_uri_still_fails_under_the_uri_rule(pair1_config, tmp_path):
+    _pair, _spec_, gate, _fw = _uri_run(pair1_config, tmp_path,
+                                        f"{URI_STORAGE}/{pair1.DOMAIN}/{pair1.SUB_DOMAIN}./")
+    derivations = next(c for c in gate.checks if c.name == "derivations")
+    assert not derivations.passed
+    assert "ends in punctuation" in derivations.details and "(location URI rule)" in \
+        derivations.details

@@ -279,13 +279,32 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## Where this stands (2026-09-22) — READ FIRST
 
-`staging` = `origin/staging` = **v0.6.1-acfc** (M10.1, see below), on top of
-**v0.6.0-acfc** (cdda58f, M10) and **v0.5.9-acfc** (6b33f0d). All three tags
-are on the remote. `main` is untouched at 4c35c61 (v0.4.1).
+`staging` = `origin/staging` = **v0.6.2-acfc** (M10.2), on top of
+**v0.6.1-acfc** (152ea10, M10.1), **v0.6.0-acfc** (cdda58f, M10) and
+**v0.5.9-acfc** (6b33f0d). All tags are on the remote. `main` is untouched
+at 4c35c61 (v0.4.1).
 
-**The App version marker is 0.6.1** (`pyproject.toml` + the
+**The App version marker is 0.6.2** (`pyproject.toml` + the
 `codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
 Apps runtime serves a cached env).
+
+**M10.2 (v0.6.2-acfc): location URIs.** A landing value with a storage
+scheme (`gate/derivations.py::LOCATION_SCHEMES` — abfss, abfs, wasbs, wasb,
+dbfs, s3, s3a, adl, gs) is validated by `uri_violations` (scheme, authority
+except dbfs:/, no whitespace, cap, path segments by the folder rules), never
+by the folder rules; the derivations check names the rule per finding and
+counts URI cells when it passes (that sentence appears only when a URI
+exists, so baseline reports do not move). `metadata_template._landing`
+keeps a URI as written; path shapes append inside the URI via
+`join_location` (a prefixing shape like `/Archive{landing}` flags
+`iig_path_shape_on_uri:`, collected by `metadata_template.shape_flags` from
+a `note` on the cell's badge entry); badge `location_uri` (DERIVED_BADGES,
+xlsx fill, `BADGE_LABELS`, the TS `ProvenanceBadge` + panel label);
+`FieldEvidence.value_kind = "location_uri"`. `metadata_sheet._landing_cells`
+(iig_v1) reads container = the authority before `@`. Tests at the end of
+`tests/test_m101_real_run_bugs.py` (both pair-1 variants pass; a bad URI
+still FAILs). 735 passed / 27 skipped on 3.10 / 3.11 / 3.12; baselines 193
+files byte-identical vs v0.6.1; dist rebuilt.
 
 **M10.1 (v0.6.1-acfc):** the two bugs of the first real v0.6.0 run
 (`docs/acfc/RUN_v060_pair1.md` on `origin/acfc-runs` — UNSCRUBBED, never

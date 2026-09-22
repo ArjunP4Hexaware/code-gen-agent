@@ -55,6 +55,9 @@ BADGE_LABELS = {
     # Engineering standards (three-input model, input #2) — e.g. the EDO
     # WF_/NB_ naming patterns and the prod-support alert DL.
     "from_standards": "from standards",
+    # M10.2: the FRD's ADLS Location carried a storage scheme — a location
+    # URI, validated as one, never re-rooted as a folder path.
+    "location_uri": "from FRD (location URI)",
     "synthetic": "SYNTHETIC",
     "needs_template": "NEEDS CLIENT TEMPLATE",
 }
@@ -62,7 +65,7 @@ BADGE_LABELS = {
 # Badges that count as "derived" in coverage (everything traceable to an
 # input document/answer, as opposed to synthetic stand-ins or blanks).
 DERIVED_BADGES = ("from_sttm", "from_sttm_unmapped", "from_frd", "from_faq",
-                  "from_standards")
+                  "from_standards", "location_uri")
 
 _ALWAYS_BLANK_TOOLTIP = (
     "assigned by the ACFC framework / manual by client instruction — "
@@ -302,8 +305,21 @@ def _standards_name_cell(config: Config, feed: FrdFeed, slug: str, faq,
 
 def _landing_cells(feed: FrdFeed, config: Config) -> tuple[dict, dict]:
     """(SRC_CONTAINER_NAME, SRC_ADLS_PATH) from the FRD landing convention."""
+    from codegen.gate.derivations import location_scheme, split_location
+
     landing = feed_source_files(feed, config)["landing_root"]
-    value = str(landing["value"]).replace("\\", "/").strip("/")
+    raw = str(landing["value"])
+    scheme = location_scheme(raw)
+    if scheme and not landing["synthetic"]:
+        # M10.2: a location URI — the container is the authority's user part
+        # (abfss://<container>@<account>…) or the authority itself; the path
+        # is the URI's own path. Badge location_uri, nothing re-spelt.
+        _s, authority, path = split_location(raw)
+        container = authority.split("@", 1)[0] if "@" in authority else authority
+        tooltip = f"location URI ({scheme}://) from the FRD ADLS Location"
+        return (_cell(container, "location_uri", tooltip),
+                _cell(path or "/", "location_uri", tooltip))
+    value = raw.replace("\\", "/").strip("/")
     container, _, rest = value.partition("/")
     badge = "synthetic" if landing["synthetic"] else "from_frd"
     tooltip = _LANDING_TOOLTIP if landing["synthetic"] else None
@@ -874,6 +890,7 @@ _BADGE_FILLS = {
     "from_frd": "DDEBF7",            # light blue
     "from_faq": "E4DFEC",            # light purple — engineer-answered input
     "from_standards": "CCECE6",      # light teal — EDO standards input
+    "location_uri": "DDEBF7",        # light blue — from the FRD, as a location URI (M10.2)
     "synthetic": "FFE699",           # amber
     "needs_template": "D9D9D9",      # grey
 }

@@ -319,6 +319,37 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.6.2-acfc adds (M10.2 — location URIs)
+
+A landing value with a storage scheme — `abfss://`, `abfs://`, `wasbs://`,
+`wasb://`, `dbfs:/`, `s3://`, `s3a://`, `adl://`, `gs://` — is a **location
+URI**, not a folder path. v0.6.1 pushed it through the folder rules
+(`/abfss:/…`, "segment 'abfss:' ends in punctuation"). Now:
+
+- **Validated as a URI** (`gate/derivations.py::uri_violations`): scheme,
+  an authority (except `dbfs:/`), no whitespace or line break, the length
+  cap, and every path segment by the existing folder rules. The derivations
+  check names the rule in each finding ("(location URI rule)") and, when it
+  passes, how many cells the URI rule covered. `https://` is not a storage
+  location and still fails the folder rules.
+- **Carried through as written.** The IIG's from-FRD cell holds the URI
+  verbatim, badged **`location_uri`** (light blue like from-FRD; the
+  provenance sheet says "from FRD (location URI)"); a template path shape
+  appends its segments INSIDE the URI's path (`{landing}Archive/` →
+  `abfss://…/dom/sub/Archive/`). A shape that PREFIXES the landing
+  (`/Archive{landing}`) cannot prefix a URI: its segments follow the URI and
+  the cell is flagged `iig_path_shape_on_uri:<TAB>.<HEADER>`. The FRD
+  contract records `value_kind: location_uri` on the field's evidence (absent
+  for a folder path — existing contracts unchanged). The iig_v1 layout's
+  container / path cells read the URI's authority (the container before `@`)
+  and its path.
+- The label strip of v0.6.1 composes with it: `/Path : abfss://…` → the URI.
+
+Fixture variants: `frd.build_f1_pair1(landing="/Path : abfss://…")` and the
+folder-path one; both pass the derivations check; a URI whose segment ends in
+punctuation still FAILs under the URI rule. Version marker 0.6.2; CV / SFMC
+baselines byte-identical (193 files).
+
 ## What v0.6.1-acfc adds (M10.1 — the two v0.6.0 real-run bugs)
 
 From the first ACFC run of v0.6.0 (pair 1, 2026-09-22):

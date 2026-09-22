@@ -398,6 +398,7 @@ export type ProvenanceBadge =
   | "from_frd"
   | "from_faq"
   | "from_standards"
+  | "location_uri"
   | "synthetic"
   | "needs_template";
 

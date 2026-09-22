@@ -580,9 +580,10 @@ def emit_framework(
     )
     payload = _filter_payload_for_feed(payload, spec.feed_slug)
     if template_cfg is not None:
-        from codegen.metadata_template import blank_flags
+        from codegen.metadata_template import blank_flags, shape_flags
 
         flags.extend(blank_flags(payload))
+        flags.extend(shape_flags(payload))
     banner = _provenance_banner_rows(spec, faq, config,
                                      _faq_sha(spec, config, base_dir))
 

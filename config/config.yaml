@@ -131,6 +131,11 @@ extractor:
   # implied delimiter"). Matched against the FRD/STTM format cell, or against
   # every file pattern's extension when the format cell is prose.
   spreadsheet_tokens: ["xlsx", "xls", "excel", "spreadsheet"]
+  # M11 item 11: read a document sheet up to its USED range — stop after this
+  # many consecutive empty rows (a sheet formatted to row 1,048,538 holding
+  # 336 rows killed the v0.6.2 parser). Rows with values beyond such a gap are
+  # reported, never dropped silently. 0 = trust max_row.
+  used_range_empty_rows: 500
   file_details_annotation:
     phrases: ["datatype =", "data type =", "confirm before use", "legend",
               "colour key", "color key", "the vendor gave neither"]

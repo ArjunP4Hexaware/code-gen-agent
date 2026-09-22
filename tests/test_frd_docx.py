@@ -18,7 +18,6 @@ import pytest
 from codegen.cli import main
 from codegen.contracts.frd import FrdContract, TargetSpec
 from codegen.extract.frd_docx import (
-    FrdDocxError,
     contract_to_json,
     discover_frd,
     extract_frd_contract,
@@ -384,15 +383,30 @@ def test_fingerprint_is_over_labels_not_values(config):
     assert frd_fingerprint(tables) != baseline
 
 
-def test_unrecognised_document_is_loud(config, tmp_path):
+def test_unrecognised_document_never_blocks_and_is_flagged(config, tmp_path):
+    """M11 item 7 (replaces `test_unrecognised_document_is_loud`): a document
+    matching no FRD family is an EMPTY-BUT-VALID contract, flagged
+    frd_family_unrecognized with the table count and first headings — never
+    a hard stop. The fallback chain and the layout questions fill it."""
+    import json
+
     from acfc_shapes.common import docx_bytes, table
 
     path = tmp_path / "notes.docx"
     path.write_bytes(docx_bytes([table([["Term", "Definition"], ["STG", "Stage"]])]))
-    with pytest.raises(FrdDocxError, match="no metadata section table"):
-        discover_frd(read_docx(path), config.extractor.frd)
+    profile = discover_frd(read_docx(path), config.extractor.frd)
+    assert profile.family == "unrecognized" and profile.fields == {}
+    assert "1 table(s)" in profile.notes[0] and "Term | Definition" in profile.notes[0]
+    required = {u.field for u in profile.unresolved}
+    assert {"feeds[0].file_format", "feeds[0].stage_target.tables"} <= required
+    out = tmp_path / "x.json"
     assert main(["extract-frd", "--config", str(CONFIG), "--docx", str(path),
-                 "--out", str(tmp_path / "x.json")]) == 1
+                 "--out", str(out)]) == 0
+    contract = json.loads(out.read_text(encoding="utf-8"))
+    assert len(contract["feeds"]) == 1
+    assert contract["feeds"][0]["file_format"] is None
+    assert any(f.startswith("frd_family_unrecognized:") and "Term | Definition" in f
+               for f in contract["extraction_flags"])
 
 
 def test_upstream_contract_shape_still_loads_and_docx_nulls_are_allowed():

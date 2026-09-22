@@ -43,13 +43,13 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from pydantic import ValidationError
 
 from codegen.config import Config
 from codegen.contracts.frd import FrdContract
 from codegen.layout.discover import Discovery, discover, discover_vdd, normalize, text
+from codegen.layout.extent import load_document
 from codegen.layout.fingerprint import fingerprint, render_region, sheet_region
 from codegen.layout.frd_profile import (
     FrdFieldSource,
@@ -529,7 +529,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     entry its own first pass had just written)."""
     base = base_dir if base_dir is not None else Path(".")
     caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
-    workbook = load_workbook(path, data_only=True)
+    workbook = load_document(path, config.extractor.used_range_empty_rows)
     digest = fingerprint(workbook)
     rejections: list[Rejection] = []
     schema_errors: list[dict] = []
@@ -1168,14 +1168,15 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
     sttm_doc = frd_doc = vdd_doc = None
     workbook = content = vdd_workbook = None
     if frd_path is not None:
-        sttm_fp = fingerprint(load_workbook(sttm_path, data_only=True))
+        sttm_fp = fingerprint(load_document(sttm_path, config.extractor.used_range_empty_rows))
         if frd_is_docx:
             from codegen.extract.frd_docx import read_docx
 
             frd_fp = frd_fingerprint(read_docx(frd_path).tables)
         else:
             frd_fp = hashlib.sha256(Path(frd_path).read_bytes()).hexdigest()
-        vdd_fp = fingerprint(load_workbook(vdd_path, data_only=True)) if has_vdd else ""
+        vdd_fp = (fingerprint(load_document(vdd_path, config.extractor.used_range_empty_rows))
+                  if has_vdd else "")
         pair_fp = hashlib.sha256(f"{sttm_fp}:{frd_fp}:{vdd_fp}".encode()).hexdigest()
         cached = (_load_cached(pair_fp, caches, prefix="pair_")
                   if use_cache and not refresh and prior is None else None)
@@ -1184,7 +1185,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                 profile = _as_cache(LayoutProfile.model_validate(cached["sttm"]))
                 if _stale_reason(profile) is not None:
                     raise KeyError("stale pair entry: a required role is missing")
-                workbook = load_workbook(sttm_path, data_only=True)
+                workbook = load_document(sttm_path, config.extractor.used_range_empty_rows)
                 sttm_doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=sttm_fp)
                 if cached.get("frd") is not None:
                     frd_profile = FrdLayoutProfile.model_validate(cached["frd"])
@@ -1194,7 +1195,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                     frd_doc = DocumentResolution("frd", frd_profile, cache_hit=True,
                                                  fingerprint=frd_fp)
                 if cached.get("vdd") is not None and has_vdd:
-                    vdd_workbook = load_workbook(vdd_path, data_only=True)
+                    vdd_workbook = load_document(vdd_path, config.extractor.used_range_empty_rows)
                     vdd_doc = DocumentResolution(
                         "vdd", _as_cache(LayoutProfile.model_validate(cached["vdd"])),
                         cache_hit=True, fingerprint=vdd_fp)
@@ -1271,7 +1272,11 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                 dict.fromkeys([*frd_contract.extraction_flags, *carried]))})
         if frd_doc is not None:
             frd_doc.questions = [q for q in frd_doc.questions
-                                 if q.role not in gap.handled] + split_questions + gap.questions
+                                 if q.role not in gap.handled
+                                 and not _filled_on_contract(frd_contract, q.role)]
+            if frd_doc.profile is not None and frd_doc.profile.family == "unrecognized":
+                frd_doc.questions = [_typed(q) for q in frd_doc.questions]
+            frd_doc.questions = frd_doc.questions + split_questions + gap.questions
     # M9.2: a positional field whose length is not an integer ("10,2" — a
     # precision), with no STTM end and no VDD span, needs its byte width from
     # the person: one text question per field, answered under `gaps`.
@@ -1396,7 +1401,12 @@ class GapFillResult:
 
 
 _GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strategy",
-               "standard_target.load_strategy", "sheet_name")
+               "standard_target.load_strategy", "sheet_name",
+               # M11 item 7: an FRD whose family is not recognized has no cell to
+               # point at — its required fields are answered by TYPING the value.
+               "feed_name", "source_system", "domain", "sub_domain", "lobs")
+# Gap fields that are lists on the contract: a typed answer is split.
+_GAP_LIST_FIELDS = {"lobs"}
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
 
 
@@ -1405,6 +1415,44 @@ def _feed_get(feed, dotted: str):
     for part in dotted.split("."):
         obj = getattr(obj, part if part != "schema" else "schema_name", None)
     return obj
+
+
+_ROLE_PATH = re.compile(r"^feeds\[(\d+)\]\.(.+)$")
+
+
+def _filled_on_contract(contract, role: str) -> bool:
+    """True when the (patched) FRD contract already holds a value for the
+    field an FRD role question asks about — the chain answered it (the feed
+    named after the STTM stage band, a table from the band …)."""
+    from codegen.extract.frd_docx import is_unnamed_feed
+
+    match = _ROLE_PATH.match(role or "")
+    if contract is None or match is None or int(match.group(1)) >= len(contract.feeds):
+        return False
+    value = contract.feeds[int(match.group(1))]
+    for part in match.group(2).split("."):
+        value = getattr(value, part, None)
+        if value is None:
+            return False
+    if part == "feed_name" and isinstance(value, str) and is_unnamed_feed(value):
+        return False
+    if isinstance(value, str) and value.strip().lower() == "unstated":
+        return False                   # read_frd's placeholder, never a value
+    return bool(value)
+
+
+def _typed(question: LayoutQuestion) -> LayoutQuestion:
+    """M11 item 7: a role question about an FRD whose family was not
+    recognized has no cell to offer — ask for the VALUE instead (a `text`
+    question, answered under `gaps` with the same key)."""
+    if question.document != "frd" or question.kind != "role" or question.candidates:
+        return question
+    return LayoutQuestion(
+        document="frd", sheet=None, layer=None, role=question.role, kind="text",
+        reason=f"{question.reason}; the FRD's structure was not recognized "
+               "(frd_family_unrecognized) and no other document states it",
+        header=[], candidates=[], title=question.title or question.role,
+        hint="Type the value. Separate several values (LOBs) with ';'.")
 
 
 def _feed_set(feed, dotted: str, value):
@@ -1757,7 +1805,10 @@ class _FeedGapFiller:
         from codegen.resolve.gapfill import fill_flag
 
         key = self.prefix + dotted
-        self.patched = _feed_set(self.patched, dotted, statement.value)
+        value = statement.value
+        if dotted in _GAP_LIST_FIELDS and isinstance(value, str):
+            value = [part.strip() for part in re.split(r"[;,\n]+", value) if part.strip()]
+        self.patched = _feed_set(self.patched, dotted, value)
         self.result.fills.append({"field": key, "title": self._title(key),
                                   "value": statement.value, "source": statement.source,
                                   "cell": statement.cell})

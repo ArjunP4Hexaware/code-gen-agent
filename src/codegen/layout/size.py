@@ -1,104 +1,88 @@
-"""How big a workbook is, without reading it (M11).
+"""How big a workbook REALLY is, before reading it (M11 items 5 and 11).
 
-A real 140k-cell STTM made the document parser child run past its budget and
-be killed: the App only learnt "the document was not read within 120s". The
-discovery and classification scans are what cost the time — several of them
-walk every row of every sheet — so the cheap question has to be asked FIRST:
+The primary fix for heavy workbooks is the used range
+(``codegen.layout.extent``): a sheet formatted a million rows down holding
+336 rows is read as 336 rows. This module is the BACKSTOP behind it — a
+workbook whose used cells exceed ``inputs.max_workbook_cells`` is
+``unreadable`` with the count and the cap, a verdict instead of a parse that
+outlives its budget.
 
-    how many cells does this workbook declare?
+It must measure the used range too, never the declared one: the v0.6.2 pair-3
+STTM declares ``1,048,538 x 34`` = 35.6M cells and holds about 11k (SHAPES_
+ROUND2 §3) — refusing it on the declaration would turn a readable document
+into a permanent "unreadable". So:
 
-``read_only=True`` answers it from each sheet's ``<dimension>`` tag without
-materialising a single row (the full load stays where it is: the fingerprint
-hashes merged-cell ranges, which read-only mode does not expose). Over the
-cap, the document is ``unreadable`` WITH the count and the cap in the reason
-— a verdict, not a killed process.
-
-The declared dimension is a hint, not a promise: some writers declare the
-whole 1,048,576-row sheet. ``_sheet_cells`` therefore ignores a dimension
-whose row count is the sheet maximum and falls back to the column count.
+* read-only, each sheet's declared ``<dimension>`` first — when the whole
+  workbook declares no more than the cap, that is the answer (cheap: no row
+  is materialised);
+* otherwise the sheets are STREAMED read-only and counted up to their used
+  range (the last row with a value before ``stop_after`` consecutive empty
+  rows, the same rule the loader applies) — a bloated sheet stops early.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-# openpyxl's own sheet limits — a dimension claiming these states nothing.
-_MAX_ROWS = 1_048_576
-_MAX_COLUMNS = 16_384
-
 
 class WorkbookTooLarge(RuntimeError):
-    """The workbook declares more cells than the configured cap."""
+    """The workbook's USED cells exceed the configured cap."""
 
 
-def _sheet_cells(ws) -> int:
-    rows = ws.max_row or 0
-    columns = ws.max_column or 0
-    if rows >= _MAX_ROWS or columns >= _MAX_COLUMNS:
-        # A writer that declares the whole grid tells us nothing about the
-        # data; count the columns only, so such a file is never refused on a
-        # declaration alone.
-        return columns if columns < _MAX_COLUMNS else 0
-    return rows * columns
+def _declared_cells(ws) -> int:
+    return (ws.max_row or 0) * (ws.max_column or 0)
 
 
-# A cell of a shared-string sheet costs roughly this many bytes of sheet XML
-# (`<c r="A1" t="s"><v>12</v></c>` and friends). Only used when a workbook
-# declares no usable dimension, and then the message says "about".
-_BYTES_PER_CELL = 40
+def _used_cells(ws, stop_after: int) -> int:
+    """Rows up to the used range x the widest valued column in it."""
+    last_row = 0
+    widest = 0
+    empty_run = 0
+    for index, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        valued = [i for i, v in enumerate(row, start=1) if v is not None and v != ""]
+        if valued:
+            last_row = index
+            widest = max(widest, valued[-1])
+            empty_run = 0
+        else:
+            empty_run += 1
+            if stop_after > 0 and last_row and empty_run >= stop_after:
+                break
+    return last_row * widest
 
 
-def workbook_cells(path: Path) -> tuple[int, dict[str, int], bool]:
-    """(total cells, per-sheet counts, estimated?).
-
-    Read from each sheet's declared ``<dimension>``. A writer that declares
-    none (openpyxl's own write-only mode, some exporters) leaves nothing to
-    count, so the total is then ESTIMATED from the uncompressed size of the
-    sheet XML in the zip — read from the zip directory, nothing decompressed.
-    """
+def workbook_cells(path: Path, stop_after: int = 500,
+                   max_cells: int = 0) -> tuple[int, dict[str, int], bool]:
+    """(total cells, per-sheet counts, streamed?). The declared dimensions
+    when they fit under ``max_cells``; the streamed used range otherwise."""
     from openpyxl import load_workbook
 
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
-        per_sheet = {ws.title: _sheet_cells(ws) for ws in workbook.worksheets}
+        declared = {ws.title: _declared_cells(ws) for ws in workbook.worksheets}
+        if max_cells > 0 and sum(declared.values()) <= max_cells and all(declared.values()):
+            return sum(declared.values()), declared, False
+        used = {ws.title: _used_cells(ws, stop_after) for ws in workbook.worksheets}
     finally:
         workbook.close()
-    total = sum(per_sheet.values())
-    if total:
-        return total, per_sheet, False
-    estimated = _estimate_from_zip(path)
-    return sum(estimated.values()), estimated, True
+    return sum(used.values()), used, True
 
 
-def _estimate_from_zip(path: Path) -> dict[str, int]:
-    """Per-sheet cell ESTIMATE from the zip directory's uncompressed sizes."""
-    import zipfile
-
-    try:
-        with zipfile.ZipFile(path) as archive:
-            return {
-                info.filename.rsplit("/", 1)[-1]: info.file_size // _BYTES_PER_CELL
-                for info in archive.infolist()
-                if info.filename.startswith("xl/worksheets/") and info.filename.endswith(".xml")
-            }
-    except Exception:  # noqa: BLE001 — not this function's verdict to give
-        return {}
-
-
-def check_workbook_size(path: Path, max_cells: int) -> None:
-    """Raise ``WorkbookTooLarge`` when the workbook is over the cap. A cap of
-    0 (or less) is off. A workbook that cannot even be opened read-only is
-    left alone — the reader that follows reports that in its own words."""
+def check_workbook_size(path: Path, max_cells: int, stop_after: int = 500) -> None:
+    """Raise ``WorkbookTooLarge`` when the workbook's USED cells exceed the
+    cap. A cap of 0 (or less) is off. A workbook that cannot even be opened
+    read-only is left alone — the reader that follows reports that in its
+    own words."""
     if max_cells <= 0:
         return
     try:
-        total, per_sheet, estimated = workbook_cells(Path(path))
+        total, per_sheet, _streamed = workbook_cells(Path(path), stop_after, max_cells)
     except Exception:  # noqa: BLE001 — not this function's verdict to give
         return
     if total > max_cells:
         biggest = sorted(per_sheet.items(), key=lambda kv: -kv[1])[:3]
         detail = ", ".join(f"{name} {cells:,}" for name, cells in biggest if cells)
         raise WorkbookTooLarge(
-            f"unreadable: {'about ' if estimated else ''}{total:,} cells, > cap {max_cells:,} "
+            f"unreadable: {total:,} used cells, > cap {max_cells:,} "
             f"(inputs.max_workbook_cells; largest sheets: {detail}) — the document was not "
             "read. Raise the cap for this workspace, or split the workbook.")

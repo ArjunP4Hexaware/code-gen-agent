@@ -21,7 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
-FrdFamily = Literal["F1", "F2"]
+# "unrecognized" (M11 item 7): no F1 / F2 structure was found. Never a hard
+# stop — the profile maps no field, every required field is unresolved, and
+# the fallback chain + the layout questions fill the contract.
+FrdFamily = Literal["F1", "F2", "unrecognized"]
 ProfileSource = Literal["synonyms", "model", "user", "cache"]
 
 

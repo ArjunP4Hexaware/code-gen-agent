@@ -403,6 +403,11 @@ class ExtractorConfig(BaseModel):
     # SPREADSHEETS (.xlsx / .xls): no delimiter, no byte positions, a sheet.
     # Empty = nothing is a spreadsheet, i.e. the pre-M11 behaviour.
     spreadsheet_tokens: list[str] = Field(default_factory=list)
+    # M11 item 11: a document worksheet is read up to its USED range — the
+    # last row with a value before this many consecutive empty rows. A sheet
+    # formatted a million rows down (SHAPES_ROUND2 §3) otherwise makes every
+    # scan create a cell per row. 0 = trust max_row (the pre-M11 behaviour).
+    used_range_empty_rows: int = Field(default=500, ge=0)
     recycle_on_match: str
     recycle_on_no_match: str
     # Segmented (CAQH-style) family knobs — all defaulted, so a config

@@ -332,16 +332,15 @@ def _big_workbook(path: Path, rows: int, columns: int) -> None:
 
 def test_a_workbook_over_the_cap_is_a_verdict_not_a_killed_parse(config, tmp_path):
     big = tmp_path / "big.xlsx"
-    _big_workbook(big, rows=2000, columns=100)          # 200k cells
-    total, per_sheet, estimated = workbook_cells(big)
-    assert total >= 200_000 and sum(per_sheet.values()) == total
-    # openpyxl's write-only mode declares no dimension: the count is then an
-    # estimate from the sheet XML's size, and the message says "about".
-    assert estimated
+    _big_workbook(big, rows=2600, columns=100)          # 260k used cells > the 250k cap
+    total, per_sheet, streamed = workbook_cells(big, 500, config.inputs.max_workbook_cells)
+    # write-only mode declares no dimension, so the sheet is streamed and its
+    # USED range counted exactly (v0.7.1: never an estimate, never a claim)
+    assert streamed and total == 260_000 and per_sheet["BIG"] == total
     with pytest.raises(WorkbookTooLarge) as excinfo:
         check_workbook_size(big, config.inputs.max_workbook_cells)
     message = str(excinfo.value)
-    assert "unreadable:" in message and "cells, > cap" in message
+    assert "unreadable:" in message and "used cells, > cap" in message
     check_workbook_size(big, 0)                          # 0 = no cap
     check_workbook_size(big, 10_000_000)
 
@@ -356,7 +355,7 @@ def test_the_worker_returns_unreadable_with_the_count(config, tmp_path):
     from codegen.layout.docworker import read_document
 
     big = tmp_path / "big.xlsx"
-    _big_workbook(big, rows=2000, columns=100)
+    _big_workbook(big, rows=2600, columns=100)
     verdict = read_document(big, "big.xlsx", config, REPO)
     assert verdict["state"] == "unreadable"
     assert "cells, > cap" in verdict["reason"] and verdict["facts"] is None

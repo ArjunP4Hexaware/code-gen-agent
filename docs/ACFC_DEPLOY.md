@@ -319,6 +319,49 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.7.1-acfc adds (M11 addendum items 7 and 11 — from SHAPES_ROUND2)
+
+The round-2 shape capture (`docs/acfc/SHAPES_ROUND2.md` on `origin/acfc-runs`,
+tokenised) changed two conclusions of v0.7.0:
+
+**Item 11 — the real used range (pair 3).** Pair 3 is NOT a 140k-cell
+workbook: its STTM sheet holds about 336 rows but carries formatting down to
+row 1,048,538, so openpyxl reports `max_row = 1,048,538`, and every
+`iter_rows` scan in normal mode CREATES a cell per row — 34 columns x a
+million rows. That, not the data, ran the parser past its budget. Every
+document workbook is now opened through `codegen.layout.extent.load_document`,
+which trims each sheet to its USED range (the last valued row before
+`extractor.used_range_empty_rows` = 500 consecutive empty rows); openpyxl
+derives `max_row` from the cells it holds, so all ~20 scans are bounded with
+no change at the call sites. Measured on the pair-1 fixture with one formatted
+cell at row 1,000,000: **151 s without the used range, 0.1 s with it**, and the
+extracted contract is byte-identical to the clean fixture's. Rows WITH values
+beyond such a gap are counted and reported, never dropped silently. A sheet
+with only a few formatted empty rows keeps its exact `max_row` (it is layout
+fingerprint input — no cached profile moves).
+
+The v0.7.0 cell cap is now the BACKSTOP and measures the used range too:
+v0.7.0 would have refused pair 3 on its declaration ("35,650,292 cells");
+v0.7.1 streams the sheet read-only, counts the ~11k cells it holds, and reads
+it. A workbook that really is over `inputs.max_workbook_cells` is still
+`unreadable: <n> used cells, > cap <c>`.
+
+**Item 7 — the FRD family never blocks (pairs 8/9/10).** A document with no
+F1 metadata table and no Solution Requirement table no longer stops the run
+(`FrdDocxError: no metadata section table (F1) and no Solution Requirement
+table (F2) found`). It yields an empty-but-valid contract flagged
+`frd_family_unrecognized` (with the table count and the first row-0
+headings); the fallback chain fills what it can — the STTM bands name the
+feed, its tables and schemas; the VDD states the format and file patterns;
+config defaults follow — and what is left becomes a question. Because such
+a document has no cell to point at, its questions are TYPED-value questions
+(`feeds[i].source_system`, `.lobs`, `.domain`, … answered under `gaps:`; LOBs
+split on `;`), and a question the chain already answered is not asked.
+`codegen extract-frd` exits 0 on such a document. (Recognising the real
+pair-8 F2 geometry and the pairs 9/10 "F3" shape is v0.7.2.)
+
+Version marker 0.7.1. CV / SFMC baselines byte-identical (193 files).
+
 ## What v0.7.0-acfc adds (M11 — the six causes of the all-pairs run)
 
 The first all-pairs run of v0.6.2 (2026-09-22) passed 1 of 10. Six of the

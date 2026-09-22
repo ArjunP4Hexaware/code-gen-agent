@@ -43,7 +43,8 @@ def read_document(local: Path, name: str, config, base_dir: Path) -> dict:
         # M11: the cheap question first — a workbook over the cap is a
         # verdict, not a parse that outlives its budget and is killed.
         try:
-            check_workbook_size(local, config.inputs.max_workbook_cells)
+            check_workbook_size(local, config.inputs.max_workbook_cells,
+                                config.extractor.used_range_empty_rows)
         except WorkbookTooLarge as exc:
             return {"state": UNREADABLE, "reason": str(exc), "facts": None}
         verdict = classify_workbook(local, config.extractor)

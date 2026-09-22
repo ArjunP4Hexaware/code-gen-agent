@@ -179,10 +179,25 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
         return _discover_f1(tables, f1_tables, labels, digest, config)
     if sr_tables:
         return _discover_f2(tables, sr_tables, sections, labels, digest, config)
-    raise FrdDocxError(
-        "no metadata section table (F1) and no Solution Requirement table (F2) found; "
-        f"table titles seen: {[t[0][0][:40] for t in tables if t and t[0]][:12]}"
-    )
+    return _discover_unrecognized(tables, digest)
+
+
+def _discover_unrecognized(tables, digest) -> FrdLayoutProfile:
+    """M11 item 7: the FRD family NEVER blocks a run. A document matching no
+    known family yields a profile that maps no field — one feed, every
+    required field unresolved — so ``read_frd`` returns an empty-but-valid
+    contract flagged ``frd_family_unrecognized``, the fallback chain (STTM
+    bands, meta rows, File Details, VDD FILES, config defaults) fills what it
+    can, the layout model may map fields when live (through the validator),
+    and whatever is left becomes a question. The note records what WAS
+    there: the table count and the first row-0 headings."""
+    headings = [" | ".join(c for c in t[0] if c)[:60] for t in tables if t and t[0]][:8]
+    profile = FrdLayoutProfile(
+        fingerprint=digest, family="unrecognized", source="synonyms", fields={},
+        confidence={}, sections=[],
+        notes=[f"no metadata section table (F1) and no Solution Requirement table (F2): "
+               f"{len(tables)} table(s); first row-0 headings: {headings}"])
+    return _with_unresolved(profile, [], 1)
 
 
 def _section_key(title: str, sections: dict[str, str]) -> str | None:
@@ -919,6 +934,12 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                "Name label)")
     for item in profile.unresolved:
         ambiguities.append(f"{item.field}: {item.reason}")
+    if profile.family == "unrecognized":
+        # Structure, never content: the count and the headings are row-0
+        # labels, the same material the fingerprint reads.
+        flags.append(f"frd_family_unrecognized: {profile.notes[0] if profile.notes else ''} "
+                     "— the document matched neither the F1 nor the F2 family; every field "
+                     "comes from the fallback chain (STTM, VDD, config) or a layout question")
 
     project_name = next((text for index, text in content.paragraphs if index == 0),
                         Path(document_name).stem)

@@ -97,16 +97,17 @@ def extract_contract(
     from codegen.layout.size import WorkbookTooLarge, check_workbook_size
 
     try:
-        check_workbook_size(workbook_path, config.inputs.max_workbook_cells)
+        check_workbook_size(workbook_path, config.inputs.max_workbook_cells,
+                            config.extractor.used_range_empty_rows)
     except WorkbookTooLarge as exc:
         raise ExtractionError(f"{workbook_path.name}: {exc}") from exc
     # instead — the reader then never discovers, it only copies through it.
     if layout is not None:
-        from openpyxl import load_workbook
-
+        from codegen.layout.extent import load_document
         from codegen.layout.resolve import discovery_for
 
-        found = discovery_for(layout, load_workbook(workbook_path, data_only=True))
+        found = discovery_for(layout, load_document(
+            workbook_path, config.extractor.used_range_empty_rows))
     else:
         try:
             found = discover(workbook_path, config.extractor)

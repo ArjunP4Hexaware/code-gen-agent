@@ -279,14 +279,34 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## Where this stands (2026-09-22) — READ FIRST
 
-`staging` = `origin/staging` = **v0.7.0-acfc** (M11), on top of
-**v0.6.2-acfc** (435e4a5, M10.2), **v0.6.1-acfc** (152ea10, M10.1),
-**v0.6.0-acfc** (cdda58f, M10) and **v0.5.9-acfc** (6b33f0d). All tags are on
-the remote. `main` is untouched at 4c35c61 (v0.4.1).
+`staging` = `origin/staging` = **v0.7.1-acfc** (M11 addendum items 7 + 11),
+on top of **v0.7.0-acfc** (392ac34, M11 items 1–6), **v0.6.2-acfc** (435e4a5),
+**v0.6.1-acfc** (152ea10), **v0.6.0-acfc** (cdda58f) and **v0.5.9-acfc**
+(6b33f0d). All tags are on the remote. `main` is untouched at 4c35c61.
 
-**The App version marker is 0.7.0** (`pyproject.toml` + the
+**The App version marker is 0.7.1** (`pyproject.toml` + the
 `codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
 Apps runtime serves a cached env).
+
+**M11 addendum (Soham, 2026-09-22, from `docs/acfc/SHAPES_ROUND2.md` on
+`origin/acfc-runs` — tokenised, but read it in place; never copy it).** It
+replaced the original item 7 with items 7–13, ordered 7, 11, 10, 8, 12, 13, 9;
+the brief asked for v0.7.0 after 7 + 11, but v0.7.0 was already published
+(items 1–6), so **7 + 11 shipped as v0.7.1 and 10, 8, 12, 13, 9 go to
+v0.7.2**. v0.7.1: (11) `codegen/layout/extent.py::load_document` trims every
+document sheet to its USED range (`extractor.used_range_empty_rows`, 500) —
+a sheet formatted to row 1,048,538 made every normal-mode `iter_rows` CREATE a
+cell per row (pair 3; 151 s → 0.1 s on the bloated pair-1 fixture); the cap
+(`layout/size.py`) became the backstop and measures the used range, streamed
+read-only (v0.7.0 would have refused pair 3 on its declaration); (7) an FRD
+matching no family is an empty-but-valid contract (`FrdFamily` gained
+`unrecognized`), flag `frd_family_unrecognized`, filled by the chain; its
+questions are TYPED (`layout/resolve.py::_typed`; `_GAP_FIELDS` gained
+feed_name / source_system / domain / sub_domain / lobs) and a question the
+chain answered is dropped (`_filled_on_contract`). Tests
+`tests/test_m11_addendum.py`. **Parked for v0.7.2:** the F2 detection work
+(item 8) is a patch in the session scratchpad — column-agnostic "Solution
+Requirement" detection, merged-cell support in `tests/acfc_shapes/common.py`.
 
 **M11 (v0.7.0-acfc): the six causes of the v0.6.2 all-pairs run** (1 of 10
 passed; record `docs/acfc/RUN_v062_all_pairs.md` on `origin/acfc-runs` —

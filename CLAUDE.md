@@ -285,27 +285,34 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## START HERE (state as of 2026-09-22) — READ FIRST
 
-**Where the code is.** `staging` = `origin/staging` = **6b2d9ac**, tag
-**v0.7.2-acfc**, working tree clean. Every tag v0.4.0 … v0.7.2 is on the
+**Where the code is.** `staging` = `origin/staging`, tag **v0.7.3-acfc** on
+**efd0efe**, working tree clean. Every tag v0.4.0 … v0.7.3 is on the
 remote. `main` is untouched at **4c35c61 (v0.4.1)** — merge staging → main only
 on Soham's say-so. All development happens on `staging`.
 
-**App version marker = 0.7.2** (`pyproject.toml` + the `codegen-version-marker`
+**App version marker = 0.7.3** (`pyproject.toml` + the `codegen-version-marker`
 comment in `requirements.txt` — bump BOTH whenever `src/` changes, or the Apps
 runtime serves a cached env). `ui/frontend/dist` is tracked; the bundle was last
 rebuilt at v0.7.0 (`index-JnGVbJrA.js`). Rebuild and commit it whenever
 `ui/frontend/src` changes.
 
-**Verified at 6b2d9ac:** 788 passed / 27 skipped on Python 3.10, 3.11 and 3.12
-(uv venvs); ruff clean; tsc clean; `scripts/scrub_check.py` 0 hits; CV / SFMC
-baselines 193 files byte-identical to every earlier tag; pair-1 acceptance
-goldens (`tests/test_m4_acceptance.py`) unchanged.
+**Verified at efd0efe:** 807 passed / 27 skipped on Python 3.10, 3.11 and 3.12
+(uv venvs); ruff clean (`src/ tests/ ui/backend/`); tsc clean; CV / SFMC
+baselines 193 files byte-identical to v0.7.2 (and so to every earlier tag);
+pair-1 acceptance goldens (`tests/test_m4_acceptance.py`) unchanged.
+`scripts/scrub_check.py` over every tracked file: **2 hits, both pre-existing
+since M10.2 (435e4a5)** — the `real_adls_host` pattern matches the synthetic
+one-letter URI examples in `gate/derivations.py` (a docstring) and
+`tests/test_m101_real_run_bugs.py`. Not client data; the earlier "0 hits"
+claims did not include those files. Fixing it (an allowlist, or example hosts
+the pattern cannot match) is Soham's call.
 
-**Release map** (newest first). Details are in "Release notes v0.5.9 – v0.7.2"
+**Release map** (newest first). Details are in "Release notes v0.5.9 – v0.7.3"
 below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
 
 | tag | commit | what |
 |---|---|---|
+| v0.7.3 | efd0efe | M12 (from RUN_v072_details): the layout model's answer is validated against a provenance-free RESPONSE schema (`layout/response.py`), provenance stamped by us; the gate's ruff is pinned (`lint_rules.py`, `--isolated`, EXE002 ignored) and the runner's unused noqa is gone; the parser child is probed once and documents parse in-process when it cannot start (`parser_mode`); a VDD tie is a question. |
 | v0.7.2 | 6b2d9ac | M11 addendum items 10, 8, 12, 13, 9 (the SHAPES_ROUND2 shapes). Layer-prefixed headers (pair 7). F2 detected in any row-0 cell (pair 8). A blank band label; NOTE rows never parsed (pair 5). Scope column, Load-Rules audit rows, type+format, and `source_kind=rdbms` → a DML REVIEW block (pair 6). F3 topic-organised FRDs (pairs 9/10). |
 | v0.7.1 | 35c48aa | Item 7: an FRD matching no family is an empty-but-valid contract (`frd_family_unrecognized`), filled by the chain and typed questions. Item 11: sheets are trimmed to their USED range, and the cell cap is the backstop. |
 | v0.7.0 | 392ac34 | M11 items 1–6: FILE_DETAILS annotations skipped; the segment `none` class; the `audit_types_restricted` profile knob; .xlsx as an inbound format (`codegen/formats.py`); `inputs.max_workbook_cells`; skipped layout questions stay visible. |
@@ -378,9 +385,14 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   never hand-edited. `PYTHONUTF8=1` for scripts that print non-ASCII.
 
 **Open / not proven** (nothing below has run for real):
-- The first real ACFC run of v0.6.x / v0.7.x: all ten pairs. The last real run
-  was v0.6.2 (1 of 10 passed); M11 addresses its six causes plus the round-2
-  shapes.
+- The next real ACFC run (v0.7.3): all ten pairs. The v0.7.2 run's records are
+  `RUN_v072_all_pairs.md` / `RUN_v072_details.md` on `origin/acfc-runs`; M12
+  addresses the four causes read out of them. Whether the five pairs' model
+  placements now pass the VALIDATOR is unproven (they never reached it). What
+  the v0.7.2 gate's ruff FAIL actually listed was not captured: in framework
+  mode the gate lints the scratch pipeline tree, not the runner notebooks the
+  record's manual ruff run covered — the next run's gate details will say.
+  `ruff` is still `>=0.5` (no upper bound).
 - The environment probe has only run against fakes (`tests/env_fakes.py`).
 - Pair 9's real row-4 labels; pair 6's REGION_NAME "Hard code note" (today a
   typed NULL + `audit_column_unpopulated:`).
@@ -391,7 +403,30 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   the RDBMS connection / ingestion tables §4 / §6 are undescribed).
 - The staging → main merge.
 
-## Release notes v0.5.9 – v0.7.2 (newest first)
+## Release notes v0.5.9 – v0.7.3 (newest first)
+
+**v0.7.3 (M12, from `docs/acfc/RUN_v072_details.md` on `origin/acfc-runs` —
+UNSCRUBBED, read in place).** (1) `codegen/layout/response.py`: `LayoutResponse`
+/ `FrdLayoutResponse` carry placement only (extra="ignore");
+`layout_profile_from_response` / `frd_profile_from_response` stamp
+`source="model"`, per-role / per-field `"model"`, the document's own
+fingerprint, strategy `"model"`, the DISCOVERED family; the request's
+`partial_profile` is `layout_partial` / `frd_partial` and it carries
+`response_schema`. The rejection log now reads "… for LayoutResponse"; an
+invented key only reaches it as a role name (masked `<key>`). (2)
+`codegen/lint_rules.py` is the one rule set: the emitted `ruff.toml` renders
+from it (byte-identical) and `gate.preflight._ruff_check` passes
+`ruff_config_args()` (`--isolated` + `--config` overrides, `lint.ignore =
+["EXE002"]`); `emitter._LINE_LENGTH` reads it. ruff otherwise falls back to
+the config of the process's CWD when none sits above the tree. (3)
+`ui/backend/docindex.py`: `_modes` (one probe per (command, cwd) per process,
+`inputs.parser_probe_seconds` = 10), `ParserStartError`, `_parse_inprocess`
+(per-lane lock, abandoned-but-held on timeout), `_demote`; `DemoRunner` calls
+`start_probe()` at init and the status carries `parser_mode`. (4)
+`PairDecision.ambiguous`: a VDD tie at a positive score asks. Tests:
+`tests/test_m12.py` (19); `test_m9_acfc_findings`'s rejection-log test moved
+its invented key into `roles`. 807 passed / 27 skipped on 3.10 / 3.11 / 3.12.
+
 
 **v0.7.2 (the rest of the M11 addendum).** FRD families are now **F1, F2, F3,
 unrecognized** (`layout/frd_profile.py::FrdFamily`): F2 = pair 8 (Solution

@@ -285,22 +285,28 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## START HERE (state as of 2026-09-22) — READ FIRST
 
-**Where the code is.** `staging` = `origin/staging`, tag **v0.8.0-acfc** on
-**6c2dab3**, working tree clean. Every tag v0.4.0 … v0.8.0 is on the
+**Where the code is.** `staging` = `origin/staging`, tag **v0.8.1-acfc** on
+**10aa9d9**, working tree clean. Every tag v0.4.0 … v0.8.1 is on the
 remote. `main` is untouched at **4c35c61 (v0.4.1)** — merge staging → main only
 on Soham's say-so. All development happens on `staging`.
 
-**App version marker = 0.8.0** (`pyproject.toml` + the `codegen-version-marker`
+**App version marker = 0.8.1** (`pyproject.toml` + the `codegen-version-marker`
 comment in `requirements.txt` — bump BOTH whenever `src/` changes, or the Apps
 runtime serves a cached env). `ui/frontend/dist` is tracked; the bundle was last
-rebuilt at v0.7.0 (`index-JnGVbJrA.js`). Rebuild and commit it whenever
+rebuilt at v0.8.1 (`index-B80Mab_s.js`). Rebuild and commit it whenever
 `ui/frontend/src` changes.
 
-**Verified at 6c2dab3:** 830 passed / 27 skipped on Python 3.10, 3.11 and 3.12
+**Verified at 10aa9d9:** 855 passed / 27 skipped on Python 3.10, 3.11 and 3.12
 (uv venvs, ruff 0.16.x); ruff clean (`src/ tests/ ui/backend/`); tsc clean; CV /
-SFMC baselines 193 files byte-identical to v0.7.4 (and so to every earlier
+SFMC baselines 193 files byte-identical to v0.8.0 (and so to every earlier
 tag); pair-1 acceptance goldens (`tests/test_m4_acceptance.py`) unchanged;
-`scripts/scrub_check.py` over EVERY tracked file (`git ls-files`): 0 hits.
+`scripts/scrub_check.py` over EVERY tracked file (`git ls-files`): 0 hits on the
+generic + harvested layers. The LOCAL layer (M14: gitignored
+`docs/acfc/denylist_local.txt`, raw terms tokenized out of `acfc-runs` run
+records) additionally hits three generic words (two LOB words, one claim
+type) in tracked files — incl. a real client document name in
+`demo.pairing_map` / `tests/test_frd_pairing.py` (MIDS, pre-existing): open,
+Soham's call.
 Synthetic storage URIs in code / tests use hosts under `example.invalid` — a
 `*.dfs.core.windows.net` example trips the `real_adls_host` pattern.
 
@@ -309,6 +315,7 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
 
 | tag | commit | what |
 |---|---|---|
+| v0.8.1 | 10aa9d9 | M14 question quality: candidates normalized by `value_vocabulary` before a disagreement is declared (`gapfill.reconcile`; transport phrases / date schedules dropped, vague cadences yield); F2/F3 content questions are TEXT with the document's sentences as evidence; `feeds[*]` asked once with per-feed override; role candidates always (letter + header); flags de-duplicated `(×n)`; the verdict line names failed checks; scrub_check local denylist layer. |
 | v0.8.0 | 6c2dab3 | M13 probe snapshots: `codegen probe` asks AS THE USER through the `spark` seam (`env/spark_seam.py`: information_schema / DESCRIBE TABLE EXTENDED, JDBC + dbutils.secrets) and writes a snapshot with raw observations; `generate --probe-snapshot` and the App (`env.probe.snapshots`, <state>/probes/<feed>.json) REPLAY them through the classifier against current expectations; `env_snapshot_stale` / `_missing`; report headline NOT STARTED / PARTIAL / COMPLETE / UNKNOWN; acfc_run.py probe cell. |
 | v0.7.4 | 51bf143 | Housekeeping: ruff pinned `>=0.16,<0.17` in `[dev]` and `[ui]` (the App's requirements inherit it); synthetic URI hosts moved to `example.invalid`, scrub 0 over every tracked file. |
 | v0.7.3 | efd0efe | M12 (from RUN_v072_details): the layout model's answer is validated against a provenance-free RESPONSE schema (`layout/response.py`), provenance stamped by us; the gate's ruff is pinned (`lint_rules.py`, `--isolated`, EXE002 ignored) and the runner's unused noqa is gone; the parser child is probed once and documents parse in-process when it cannot start (`parser_mode`); a VDD tie is a question. |

@@ -3,7 +3,7 @@ name = "codegen-data-engineer-agent"
 # Bump on every Apps redeploy that changes src/ — the Apps pip install
 # reuses its cached wheel for an unchanged version, silently deploying
 # stale code against fresh config (bitten 2026-08-28).
-version = "0.7.3"
+version = "0.7.4"
 description = "Generates Databricks ingestion pipelines (PySpark + Delta) from approved machine-readable contracts"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,7 +17,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.5",
+    # v0.7.4: pinned to ONE minor range — a new ruff release can add rules
+    # inside the selected families and flip the gate on unchanged code
+    # (codegen/lint_rules.py pins the rule SET; this pins the rules' meaning).
+    # Move it deliberately, with a full suite + baseline run.
+    "ruff>=0.16,<0.17",
     # M7: validates the emitted T-SQL DML (tsql dialect); the emitter degrades
     # to a structural check when it is absent.
     "sqlglot>=25",
@@ -40,7 +44,8 @@ ui = [
     # The gate's ruff check runs `python -m ruff` at generation time (also
     # from the UI's live runs), so a plain .[ui] install must carry it —
     # without it every feed verdicts FAIL (STANDUP_NOTES 2026-09-16).
-    "ruff>=0.5",
+    # Same pin as [dev] (see there).
+    "ruff>=0.16,<0.17",
     # FastAPI's multipart form handling — the from-device upload route
     # (POST /api/demo/upload) refuses to register without it.
     "python-multipart",

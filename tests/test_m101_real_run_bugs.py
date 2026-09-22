@@ -196,8 +196,8 @@ def test_the_app_runner_completes_on_the_trailer_key_variant(monkeypatch, tmp_pa
 
 
 @pytest.mark.parametrize("cell, remainder, label", [
-    ("/Path : abfss://c@s.dfs.core.windows.net/dom/sub/",
-     "abfss://c@s.dfs.core.windows.net/dom/sub/", "Path"),
+    ("/Path : abfss://c@s.example.invalid/dom/sub/",
+     "abfss://c@s.example.invalid/dom/sub/", "Path"),
     ("Path: /dom/sub/", "/dom/sub/", "Path"),
     ("ADLS Location :  /dom/sub", "/dom/sub", "ADLS Location"),
     ("adls path:/x/y", "/x/y", "adls path"),
@@ -260,14 +260,14 @@ def test_the_derivations_check_passes_and_the_iig_dml_carry_the_bare_path(pair1_
 # --------------------------------------------- M10.2: location URIs
 
 
-URI_STORAGE = "abfss://syn-container@synstorage.dfs.core.windows.net"
+URI_STORAGE = "abfss://syn-container@synstorage.example.invalid"
 URI_LANDING = f"{URI_STORAGE}/{pair1.DOMAIN}/{pair1.SUB_DOMAIN}/"
 LABELLED_URI_LANDING = f"/Path : {URI_LANDING}"
 
 
 @pytest.mark.parametrize("value, scheme", [
-    ("abfss://c@a.dfs.core.windows.net/x", "abfss"),
-    ("wasbs://c@a.blob.core.windows.net/x/", "wasbs"),
+    ("abfss://c@a.example.invalid/x", "abfss"),
+    ("wasbs://c@a.example.invalid/x/", "wasbs"),
     ("dbfs:/mnt/landing/x", "dbfs"),
     ("s3://bucket/key", "s3"),
     ("adl://account.azuredatalakestore.net/x", "adl"),

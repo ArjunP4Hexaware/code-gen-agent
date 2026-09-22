@@ -319,6 +319,23 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.7.4-acfc adds (housekeeping)
+
+- **ruff is pinned to one minor range, `>=0.16,<0.17`**, in both extras that
+  install it (`[dev]`, `[ui]`); the App's `requirements.txt` installs
+  `.[ui,databricks]` and so carries the pin. v0.7.3 pinned the rule SET the
+  gate selects; this pins what those rules mean — a new ruff release can no
+  longer add rules inside E / F / I / UP / B / SIM and flip the gate on
+  unchanged code. Moving it is a deliberate change with a full suite and
+  baseline run. (The generator emits no requirements file of its own.)
+- **`scripts/scrub_check.py` is 0 over every tracked file.** The synthetic
+  storage-URI examples in `gate/derivations.py` and
+  `tests/test_m101_real_run_bugs.py` now use hosts under `example.invalid`
+  (RFC 2606 — never a real ADLS / blob host) instead of `*.dfs.core.windows.net`
+  / `*.blob.core.windows.net`, which the `real_adls_host` pattern flagged.
+
+Version marker 0.7.4. CV / SFMC baselines byte-identical (193 files).
+
 ## What v0.7.3-acfc adds (M12 — four causes read out of the v0.7.2 all-pairs run)
 
 - **Item 1 — a layout model's answer is judged on its PLACEMENT only.** In
@@ -349,9 +366,8 @@ framework team listed in `CLAUDE.md`.
   the runner notebooks; the RUF100 / EXE002 lines in the run record came
   from a manual ruff over `framework/`. The gate's own findings list for
   that run was not captured — the gate details carry every finding (M9.1b),
-  so the next run shows what, if anything, remains. `ruff` itself is still
-  `>=0.5` (unpinned upper bound): a newer ruff can add rules inside the
-  selected families.
+  so the next run shows what, if anything, remains. (v0.7.4 pins ruff
+  itself to `>=0.16,<0.17`.)
 - **Item 3 — a parser that cannot start no longer holds a selection.**
   Whether the document parser child can start is asked ONCE per process at
   App start, in the background, within `inputs.parser_probe_seconds` (10 s).

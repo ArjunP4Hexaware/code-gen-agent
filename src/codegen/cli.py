@@ -454,10 +454,10 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     return 1 if undecided else 0
 
 
-def load_workbook_for_answers(path: Path):
-    from openpyxl import load_workbook
+def load_workbook_for_answers(path: Path, stop_after: int):
+    from codegen.layout.extent import load_document
 
-    return load_workbook(path, data_only=True)
+    return load_document(path, stop_after)
 
 
 def _layout(args: argparse.Namespace, config: Config) -> int:
@@ -505,9 +505,12 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         # M9.1: applied even when nothing is open — an answer may override a
         # synonym / model / cached placement.
         try:
-            documents = {"sttm": (result.sttm.profile, load_workbook_for_answers(workbook))}
+            stop_after = config.extractor.used_range_empty_rows
+            documents = {"sttm": (result.sttm.profile,
+                                  load_workbook_for_answers(workbook, stop_after))}
             if vdd is not None and result.vdd is not None:
-                documents["vdd"] = (result.vdd.profile, load_workbook_for_answers(vdd))
+                documents["vdd"] = (result.vdd.profile,
+                                    load_workbook_for_answers(vdd, stop_after))
             answers, notes = apply_answers(load_answers(Path(args.answers)), result.questions,
                                            names, documents=documents)
         except (AnswersFileError, OSError) as exc:

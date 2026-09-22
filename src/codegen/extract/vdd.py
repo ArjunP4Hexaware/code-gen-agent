@@ -172,9 +172,9 @@ def extract_vdd_contract(path: Path, config: Config, *, sttm_tables: list[str] |
     from codegen.layout.resolve import discovery_for
 
     if layout is not None:
-        from openpyxl import load_workbook
+        from codegen.layout.extent import load_document
 
-        found = discovery_for(layout, load_workbook(path, data_only=True))
+        found = discovery_for(layout, load_document(path, config.extractor.used_range_empty_rows))
     else:
         found = discover_vdd(path, config.extractor, sttm_tables=sttm_tables)
     import datetime

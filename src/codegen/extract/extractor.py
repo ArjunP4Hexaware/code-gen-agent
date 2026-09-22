@@ -94,11 +94,11 @@ def extract_contract(
     # M2.5: a resolved profile (cache / model / user) may be supplied
     # instead — the reader then never discovers, it only copies through it.
     if layout is not None:
-        from openpyxl import load_workbook
-
+        from codegen.layout.extent import load_document
         from codegen.layout.resolve import discovery_for
 
-        found = discovery_for(layout, load_workbook(workbook_path, data_only=True))
+        found = discovery_for(layout, load_document(
+            workbook_path, config.extractor.used_range_empty_rows))
     else:
         try:
             found = discover(workbook_path, config.extractor)

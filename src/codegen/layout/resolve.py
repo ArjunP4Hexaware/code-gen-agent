@@ -43,13 +43,13 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from pydantic import ValidationError
 
 from codegen.config import Config
 from codegen.contracts.frd import FrdContract
 from codegen.layout.discover import Discovery, discover, discover_vdd, normalize, text
+from codegen.layout.extent import load_document
 from codegen.layout.fingerprint import fingerprint, render_region, sheet_region
 from codegen.layout.frd_profile import (
     FrdFieldSource,
@@ -529,7 +529,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     entry its own first pass had just written)."""
     base = base_dir if base_dir is not None else Path(".")
     caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
-    workbook = load_workbook(path, data_only=True)
+    workbook = load_document(path, config.extractor.used_range_empty_rows)
     digest = fingerprint(workbook)
     rejections: list[Rejection] = []
     schema_errors: list[dict] = []
@@ -1168,14 +1168,15 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
     sttm_doc = frd_doc = vdd_doc = None
     workbook = content = vdd_workbook = None
     if frd_path is not None:
-        sttm_fp = fingerprint(load_workbook(sttm_path, data_only=True))
+        sttm_fp = fingerprint(load_document(sttm_path, config.extractor.used_range_empty_rows))
         if frd_is_docx:
             from codegen.extract.frd_docx import read_docx
 
             frd_fp = frd_fingerprint(read_docx(frd_path).tables)
         else:
             frd_fp = hashlib.sha256(Path(frd_path).read_bytes()).hexdigest()
-        vdd_fp = fingerprint(load_workbook(vdd_path, data_only=True)) if has_vdd else ""
+        vdd_fp = (fingerprint(load_document(vdd_path, config.extractor.used_range_empty_rows))
+                  if has_vdd else "")
         pair_fp = hashlib.sha256(f"{sttm_fp}:{frd_fp}:{vdd_fp}".encode()).hexdigest()
         cached = (_load_cached(pair_fp, caches, prefix="pair_")
                   if use_cache and not refresh and prior is None else None)
@@ -1184,7 +1185,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                 profile = _as_cache(LayoutProfile.model_validate(cached["sttm"]))
                 if _stale_reason(profile) is not None:
                     raise KeyError("stale pair entry: a required role is missing")
-                workbook = load_workbook(sttm_path, data_only=True)
+                workbook = load_document(sttm_path, config.extractor.used_range_empty_rows)
                 sttm_doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=sttm_fp)
                 if cached.get("frd") is not None:
                     frd_profile = FrdLayoutProfile.model_validate(cached["frd"])
@@ -1194,7 +1195,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                     frd_doc = DocumentResolution("frd", frd_profile, cache_hit=True,
                                                  fingerprint=frd_fp)
                 if cached.get("vdd") is not None and has_vdd:
-                    vdd_workbook = load_workbook(vdd_path, data_only=True)
+                    vdd_workbook = load_document(vdd_path, config.extractor.used_range_empty_rows)
                     vdd_doc = DocumentResolution(
                         "vdd", _as_cache(LayoutProfile.model_validate(cached["vdd"])),
                         cache_hit=True, fingerprint=vdd_fp)

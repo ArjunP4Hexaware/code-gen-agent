@@ -125,6 +125,11 @@ extractor:
   # RecycleSpec boilerplate emitted around the VERBATIM workbook validation
   # text (phrasing mirrors the existing MIDS contract fixture).
   recycle_on_match: "Process record into stage table"
+  # Read a document sheet up to its USED range: stop after this many
+  # consecutive empty rows (a sheet formatted down to row 1,048,538 made
+  # every scan create a cell per row). Rows with values beyond such a gap
+  # are counted in the load's trim report, never read. 0 = trust max_row.
+  used_range_empty_rows: 500
   recycle_on_no_match: "Load record to Recycle Table with recycle flag enabled for {window_days} days; retry on subsequent runs"
 
   # ---- content-driven layout discovery (M1, 2026-09-18) ----------------

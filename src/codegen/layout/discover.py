@@ -31,9 +31,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openpyxl import load_workbook
-
 from codegen.config import DiscoveryConfig, ExtractorConfig
+from codegen.layout.extent import load_document
 from codegen.layout.fingerprint import fingerprint
 from codegen.layout.profile import (
     REQUIRED_ROLES,
@@ -94,7 +93,7 @@ def discover_vdd(path: Path, config: ExtractorConfig,
     from ``field_roles``), segments by a Segment column. One-sheet-per-table
     dictionaries are narrowed to the sheets whose names match the STTM's
     table names (normalized); everything else is logged and ignored."""
-    workbook = load_workbook(path, data_only=True)
+    workbook = load_document(path, config.used_range_empty_rows)
     digest = fingerprint(workbook)
     vcfg = config.vdd
     diagnostics: list[str] = []
@@ -207,7 +206,7 @@ def _resolve_flat_roles(sheet: str, layer: str, header: list, synonyms: dict[str
 
 
 def discover(path: Path, config: ExtractorConfig) -> Discovery:
-    workbook = load_workbook(path, data_only=True)
+    workbook = load_document(path, config.used_range_empty_rows)
     digest = fingerprint(workbook)
     diagnostics: list[str] = []
     for strategy in (_mapping_prefix, _segmented_family, _content):

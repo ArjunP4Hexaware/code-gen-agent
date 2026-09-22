@@ -59,11 +59,12 @@ class FakeWorkspaceClient:
         self._ws_root, self._vol_root = workspace_root, volume_root
         self.workspace = SimpleNamespace(
             list=self._ws_list, download=self._ws_download, upload=self._ws_upload,
-            mkdirs=self._ws_mkdirs, get_status=self._ws_status)
+            mkdirs=self._ws_mkdirs, get_status=self._ws_status, delete=self._ws_delete)
         self.files = SimpleNamespace(
             list_directory_contents=self._fs_list, download=self._fs_download,
             upload=self._fs_upload, create_directory=self._fs_mkdir,
-            get_metadata=self._fs_meta, get_directory_metadata=self._fs_dir_meta)
+            get_metadata=self._fs_meta, get_directory_metadata=self._fs_dir_meta,
+            delete=self._fs_delete, delete_directory=self._fs_delete_dir)
 
     # -- Workspace API ------------------------------------------------------
     def _ws_list(self, path):
@@ -98,6 +99,19 @@ class FakeWorkspaceClient:
             raise NotFound(f"Path ({path}) doesn't exist.")
         return SimpleNamespace(path=path)
 
+    def _ws_delete(self, path, recursive=False):
+        self.ws.calls.append(("delete", path))
+        if path == self._ws_root or not path.startswith(self._ws_root + "/"):
+            raise PermissionDenied(f"[Errno 13] Permission denied: {path!r}")
+        if path not in self.ws.dirs and path not in self.ws.files:
+            raise NotFound(f"Path ({path}) doesn't exist.")
+        below = path + "/"
+        if not recursive and any(p.startswith(below) for p in (*self.ws.dirs, *self.ws.files)):
+            raise PermissionDenied(f"directory {path} is not empty")
+        self.ws.files = {f: d for f, d in self.ws.files.items()
+                         if f != path and not f.startswith(below)}
+        self.ws.dirs = {d for d in self.ws.dirs if d != path and not d.startswith(below)}
+
     # -- Files API ------------------------------------------------------------
     def _fs_list(self, path):
         self.vol.calls.append(("list", path))
@@ -127,6 +141,24 @@ class FakeWorkspaceClient:
         self.vol.calls.append(("get_metadata", path))
         if path not in self.vol.files:
             raise NotFound(f"{path} not found")
+
+    def _fs_delete(self, path):
+        self.vol.calls.append(("delete", path))
+        if path not in self.vol.files:
+            raise NotFound(f"{path} not found")
+        del self.vol.files[path]
+
+    def _fs_delete_dir(self, path):
+        # The Files API deletes EMPTY directories only.
+        self.vol.calls.append(("delete_directory", path))
+        if path == self._vol_root or not path.startswith(self._vol_root + "/"):
+            raise PermissionDenied(f"[Errno 13] Permission denied: {path!r}")
+        if path not in self.vol.dirs:
+            raise NotFound(f"{path} not found")
+        below = path + "/"
+        if any(p.startswith(below) for p in (*self.vol.dirs, *self.vol.files)):
+            raise PermissionDenied(f"directory {path} is not empty")
+        self.vol.dirs.discard(path)
 
     def _fs_dir_meta(self, path):
         self.vol.calls.append(("get_directory_metadata", path))

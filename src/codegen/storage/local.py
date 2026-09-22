@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from codegen.storage.base import (
@@ -77,6 +78,13 @@ class LocalBackend(StorageBackend):
 
     def exists(self, rel: str = "") -> bool:
         return self.local_path(rel).exists()
+
+    def _delete_tree(self, rel: str) -> None:
+        path = self.local_path(rel)
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
 
     def mkdir(self, rel: str) -> None:
         rel = clean_rel(rel)

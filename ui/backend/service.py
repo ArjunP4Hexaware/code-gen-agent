@@ -149,6 +149,22 @@ class GenerationStore:
             self.reports_root = reports_root
             self.has_run = True
 
+    def forget_runs(self, labels: list[str]) -> bool:
+        """The served run's folder was deleted: serve nothing rather than a
+        run whose files are gone. True when the loaded run was among them."""
+        with self._lock:
+            if self.label is None or self.label not in labels:
+                return False
+            self.runs = {}
+            self.failures = []
+            self.mode = "mock"
+            self.label = None
+            self.layout_usage = None
+            self.out_root = REPO_ROOT / self.config.output.dir
+            self.reports_root = REPO_ROOT / self.config.output.reports_dir
+            self.has_run = False
+            return True
+
     # -- generation ---------------------------------------------------------
 
     def generate(

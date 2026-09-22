@@ -607,6 +607,14 @@ export const api = {
     }),
   clearFrd: () => request<{ selected: null }>("/api/demo/frd", { method: "DELETE" }),
   outputOptions: () => request<OutputPart[]>("/api/demo/output-options"),
+  // Past run folders (demo_<timestamp>) in the outputs role, and deleting them.
+  pastRuns: () => request<{ runs: string[] }>("/api/demo/runs"),
+  clearRuns: () =>
+    request<{ deleted: string[]; unloaded_current: boolean }>("/api/demo/runs/clear", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    }),
   setOutputParts: (parts: OutputPart[]) =>
     request<DemoStatus>("/api/demo/output-parts", {
       method: "POST",

@@ -710,6 +710,37 @@ def clear_frd() -> dict:
     return {"selected": None}
 
 
+@app.get("/api/demo/runs")
+def past_runs() -> dict:
+    """The run folders "Clear past runs" would delete (names only)."""
+    from ui.backend import stores
+
+    try:
+        return {"runs": stores.run_labels(_require_store().config)}
+    except Exception as exc:  # noqa: BLE001 — a remote listing error is a 502, not a 500
+        raise HTTPException(502, f"could not list the outputs role: {exc}") from exc
+
+
+class ClearRunsRequest(BaseModel):
+    confirm: bool = False   # deletion is permanent
+
+
+@app.post("/api/demo/runs/clear")
+def clear_past_runs(req: ClearRunsRequest) -> dict:
+    """Delete every past run folder (demo_<timestamp>) in the outputs role —
+    the remote copy too. Needs confirm: true; refused while a run is in
+    progress. Nothing else in the outputs role is touched."""
+    if not req.confirm:
+        raise HTTPException(400, "clearing runs deletes them permanently — send confirm: true")
+    try:
+        result = _require_runner().clear_runs()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"clearing runs failed: {exc}") from exc
+    return result
+
+
 @app.get("/api/demo/output-options")
 def output_options() -> list[str]:
     """The outputs a run can produce — exactly these (codegen.output_modes)."""

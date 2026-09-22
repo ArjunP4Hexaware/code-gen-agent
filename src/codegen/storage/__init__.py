@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -161,6 +162,16 @@ class RoleStore:
         """Send one working-copy file up (no-op for a local backend)."""
         if not self.is_local:
             self.backend.write_bytes(rel, self.local_path(rel).read_bytes())
+
+    def delete_tree(self, rel: str) -> None:
+        """Remove ``rel`` from the backend AND the working copy (never the root)."""
+        self.backend.delete_tree(rel)
+        if not self.is_local:
+            target = self.local_path(rel)
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
 
     def push_tree(self, rel: str = "") -> list[str]:
         """Send every file under the working directory's ``rel`` up; the list

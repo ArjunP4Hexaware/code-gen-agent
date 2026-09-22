@@ -11,6 +11,7 @@ path is the role's local working copy and the helper moves the bytes.
 from __future__ import annotations
 
 import contextlib
+import re
 from pathlib import Path
 
 from codegen.storage import RoleStore, StorageNotFound, StorageSet, open_storage
@@ -101,6 +102,34 @@ def push_run(config, label: str) -> list[str]:
 
 def pull_run(config, label: str) -> Path:
     return get_stores(config).outputs.fetch_tree(label)
+
+
+# A run folder, and nothing else: the live runner names them
+# demo_<YYYYMMDD>_<HHMMSS> (DemoRunner._execute). Clearing runs deletes only
+# names of exactly this shape — never the outputs root, never a sibling
+# (handoff/, a feed directory, anything a person put there).
+RUN_FOLDER = re.compile(r"demo_\d{8}_\d{6}")
+
+
+def run_labels(config) -> list[str]:
+    """Every run folder the outputs role holds — its local working copy and,
+    for a remote role, the remote listing — newest first. Listing only."""
+    store = get_stores(config).outputs
+    names = set()
+    if store.workdir.is_dir():
+        names.update(p.name for p in store.workdir.iterdir() if p.is_dir())
+    if not store.is_local:
+        names.update(e.name for e in store.list("") if e.is_dir)
+    return sorted((n for n in names if RUN_FOLDER.fullmatch(n)), reverse=True)
+
+
+def clear_runs(config) -> list[str]:
+    """Delete every run folder (remote copy and working copy); the labels deleted."""
+    store = get_stores(config).outputs
+    labels = run_labels(config)
+    for label in labels:
+        store.delete_tree(label)
+    return labels
 
 
 def remote_run_labels(config, prefix: str = "demo_") -> list[str]:

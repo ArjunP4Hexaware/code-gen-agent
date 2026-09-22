@@ -78,6 +78,33 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [liveProvider, setLiveProvider] = useState<string | null>(null);
   // The outputs a run can produce, from the backend (exactly two).
   const [outputOptions, setOutputOptions] = useState<OutputPart[]>([]);
+  // "Clear past runs": the folders it would delete (null = dialog closed),
+  // in flight, and what the last clear did.
+  const [clearList, setClearList] = useState<string[] | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearNote, setClearNote] = useState<string | null>(null);
+  const openClearRuns = async () => {
+    setClearNote(null);
+    try {
+      setClearList((await api.pastRuns()).runs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const confirmClearRuns = async () => {
+    setClearing(true);
+    try {
+      const result = await api.clearRuns();
+      setClearNote(`Deleted ${result.deleted.length} past run(s).`);
+      setClearList(null);
+      setStatus(await api.demoStatus());
+      if (result.unloaded_current) await onFeedsChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClearing(false);
+    }
+  };
   // Why live is unavailable, from the backend — provider-specific, never a
   // hardwired "no ANTHROPIC_API_KEY" (wrong on the FMAPI-backed App).
   const [liveReason, setLiveReason] = useState<string | null>(null);
@@ -923,7 +950,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               >
                 {running ? "Live run in progress…" : "Generate from this STTM…"}
               </button>
-            )}
+            )}{" "}
+            <button
+              className="btn"
+              disabled={running || clearing}
+              title="Delete every past run folder (demo_<timestamp>) in the outputs location"
+              onClick={openClearRuns}
+            >
+              Clear past runs…
+            </button>
+            {clearNote ? <span className="hint"> {clearNote}</span> : null}
             {!running && liveAvailable !== false && (selecting || !chosen.sttm
               || outputParts.size === 0) ? (
               // Say why the button is dead — a title attribute is invisible
@@ -1735,6 +1771,40 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => setChoosing(false)}>
                 {chosen.sttm ? "Done" : "Cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {clearList !== null ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h2>Clear past runs?</h2>
+            {clearList.length === 0 ? (
+              <p>There are no past runs to clear.</p>
+            ) : (
+              <>
+                <p>
+                  This permanently deletes <strong>{clearList.length}</strong> run folder(s)
+                  from the outputs location — the stored copy too. It cannot be undone.
+                  Nothing else there is touched.
+                </p>
+                <ul className="hint" style={{ maxHeight: 160, overflow: "auto" }}>
+                  {clearList.map((name) => (
+                    <li key={name}><code>{name}</code></li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <div className="decision-row" style={{ marginTop: 14 }}>
+              {clearList.length > 0 ? (
+                <button className="btn primary" disabled={clearing} onClick={confirmClearRuns}>
+                  {clearing ? "Deleting…" : `Delete ${clearList.length} run(s)`}
+                </button>
+              ) : null}
+              <button className="btn" disabled={clearing} onClick={() => setClearList(null)}>
+                {clearList.length > 0 ? "Cancel" : "Close"}
               </button>
             </div>
           </div>

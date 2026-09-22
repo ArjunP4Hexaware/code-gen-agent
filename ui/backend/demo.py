@@ -114,6 +114,8 @@ class DemoRunner:
         # Built from the providers the run actually used, never from config.
         self.model_usage: list[dict] = []
         self._layout_providers: list = []
+        # "Clear past runs" in progress: a run must not start into it.
+        self._clearing = False
         self._layout_answers: dict | None = None
         self.stages: list[dict] = []
         self.error: str | None = None
@@ -1155,6 +1157,8 @@ class DemoRunner:
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("a live demo run is already in progress")
+            if self._clearing:
+                raise LiveRunInProgress("past runs are being cleared — generate when it finishes")
             self.state = "running"
             self.stages = []
             self.error = None
@@ -1162,6 +1166,33 @@ class DemoRunner:
             self._layout_providers = []
         thread = threading.Thread(target=self._run, name="live-demo-run", daemon=True)
         thread.start()
+
+    def clear_runs(self) -> dict:
+        """Delete every past run folder in the outputs role (a remote role's
+        copy too). Refused while a run is in progress — it writes into one."""
+        from ui.backend import stores as ui_stores
+
+        with self._lock:                       # state mutation ONLY — no I/O in here
+            if self.state in ("running", "needs_layout"):
+                raise LiveRunInProgress("a live run is in progress — clear runs after it "
+                                        "finishes")
+            if self._clearing:
+                raise LiveRunInProgress("past runs are already being cleared")
+            self._clearing = True              # start_live refuses meanwhile
+        try:
+            deleted = ui_stores.clear_runs(self._store.config)
+        finally:
+            with self._lock:
+                self._clearing = False
+        unloaded = self._store.forget_runs(deleted)
+        with self._lock:
+            if self.last_run_label in deleted and self.state in ("done", "failed", "idle"):
+                self.last_run_label = None
+                self.state = "idle"
+                self.stages = []
+                self.error = None
+                self.model_usage = []
+        return {"deleted": deleted, "unloaded_current": unloaded}
 
     def _run(self) -> None:
         try:

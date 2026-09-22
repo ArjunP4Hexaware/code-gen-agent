@@ -98,6 +98,17 @@ class StorageBackend(ABC):
         """Create the directory and its missing ancestors below the root.
         ``mkdir('')`` never creates anything: the root must already exist."""
 
+    def delete_tree(self, rel: str) -> None:
+        """Remove a file or a directory (recursively) BELOW the root; a path
+        that does not exist is a no-op. The root itself is never deleted."""
+        rel = clean_rel(rel)
+        if not rel:
+            raise StorageError(f"delete_tree refuses the root {self.uri()}")
+        self._delete_tree(rel)
+
+    def _delete_tree(self, rel: str) -> None:  # pragma: no cover - per backend
+        raise StorageError(f"{self.scheme}: backends do not support delete")
+
     # -- helpers shared by every backend ---------------------------------
 
     def walk(self, rel: str = "", depth: int | None = None) -> list[tuple[str, StorageEntry]]:

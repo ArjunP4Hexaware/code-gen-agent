@@ -196,6 +196,13 @@ class WorkspaceBackend(_SdkBackend):
     def _mkdirs(self, path: str) -> None:
         self.client.workspace.mkdirs(path[len(self._root_prefix):])
 
+    def _delete_tree(self, rel: str) -> None:
+        try:
+            self.client.workspace.delete(self._api(rel), recursive=True)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_not_found(exc):
+                raise self._fail("delete", rel, exc) from exc
+
 
 class VolumeBackend(_SdkBackend):
     """Unity Catalog volumes via the Files API (``/api/2.0/fs``) — never the
@@ -244,3 +251,35 @@ class VolumeBackend(_SdkBackend):
 
     def _mkdirs(self, path: str) -> None:
         self.client.files.create_directory(path)
+
+    def _delete_tree(self, rel: str) -> None:
+        # The Files API deletes a directory only when it is empty: files
+        # first, then the directories, deepest first.
+        try:
+            if self._is_file(rel):
+                self.client.files.delete(self._abs(rel))
+                return
+            for child, _entry in self.walk(rel):
+                self.client.files.delete(self._abs(child))
+            dirs = [rel]
+            pending = [rel]
+            while pending:
+                current = pending.pop()
+                for entry in self.list(current):
+                    if entry.is_dir:
+                        dirs.append(f"{current}/{entry.name}")
+                        pending.append(f"{current}/{entry.name}")
+            for directory in sorted(dirs, key=lambda d: d.count("/"), reverse=True):
+                self.client.files.delete_directory(self._abs(directory))
+        except Exception as exc:  # noqa: BLE001
+            if not _is_not_found(exc):
+                raise self._fail("delete", rel, exc) from exc
+
+    def _is_file(self, rel: str) -> bool:
+        try:
+            self.client.files.get_metadata(self._abs(rel))
+            return True
+        except Exception as exc:  # noqa: BLE001
+            if _is_not_found(exc):
+                return False
+            raise

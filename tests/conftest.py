@@ -44,6 +44,74 @@ def _strip_machine_local_env():
         os.environ.pop(name, None)
     yield
 
+
+# --------------------------------------------------------------------------- #
+# Socket guard (M10). The suite is offline BY CONSTRUCTION, not by luck: any
+# outbound connection attempt fails the test that made it. This box resolves
+# Databricks auth from a CLI profile with no env secret, so an unpinned live
+# path (the FMAPI lesson of 2026-08-28; the M10 environment probe) would
+# otherwise reach a REAL workspace — and the wrong one. Loopback stays open:
+# asyncio's self-pipe on Windows and in-process servers connect to 127.0.0.1.
+# --------------------------------------------------------------------------- #
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", ""}
+
+
+class OutboundConnectionAttempted(AssertionError):
+    """A test tried to open a non-loopback connection."""
+
+
+def _is_loopback(address) -> bool:
+    if not isinstance(address, tuple) or not address:
+        return True  # AF_UNIX path / abstract socket — never leaves the box
+    host = address[0]
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    return str(host) in _LOOPBACK_HOSTS or str(host).startswith("127.")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_outbound_sockets():
+    import socket
+
+    attempts: list[str] = []
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def guarded_connect(self, address):
+        if not _is_loopback(address):
+            attempts.append(repr(address))
+            raise OutboundConnectionAttempted(
+                f"the suite must never open an outbound connection; attempted {address!r}")
+        return real_connect(self, address)
+
+    def guarded_connect_ex(self, address):
+        if not _is_loopback(address):
+            attempts.append(repr(address))
+            raise OutboundConnectionAttempted(
+                f"the suite must never open an outbound connection; attempted {address!r}")
+        return real_connect_ex(self, address)
+
+    socket.socket.connect = guarded_connect
+    socket.socket.connect_ex = guarded_connect_ex
+    # The SDK must not find the operator's CLI profiles either: a config file
+    # that does not exist resolves no profile, so nothing here can authenticate
+    # against a real workspace even if a guard above were bypassed.
+    previous_cfg = os.environ.get("DATABRICKS_CONFIG_FILE")
+    os.environ["DATABRICKS_CONFIG_FILE"] = str(REPO / "tests" / "_no_such_databrickscfg")
+    try:
+        yield attempts
+    finally:
+        socket.socket.connect = real_connect
+        socket.socket.connect_ex = real_connect_ex
+        if previous_cfg is None:
+            os.environ.pop("DATABRICKS_CONFIG_FILE", None)
+        else:
+            os.environ["DATABRICKS_CONFIG_FILE"] = previous_cfg
+    # A guarded attempt swallowed by a broad `except` would otherwise pass.
+    assert not attempts, f"outbound connection attempts during the suite: {attempts}"
+
+
 FIXTURES_REMOVED = (
     "contract/workbook fixtures are not in the repo (removed 2026-08-22 -- no "
     "client documents in the repository); restore anonymized fixtures to run"

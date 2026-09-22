@@ -7,6 +7,9 @@
     byte for byte (docs/acfc/rfc_capture goldens/pair_1/ACCUM_DDL.txt). -#}
 {{ "\n" if ddl.leading_newline else "" }}{{ ddl.stage_banner }}
 
+{% if stage.env_block %}
+{{ stage.env_block }}
+{% else %}
 {{ ddl.create_statement }} {{ stage.qualified }}
 (
 {% for name, dtype in stage.columns %}
@@ -15,10 +18,14 @@
 )
 {{ ddl.block_using_prefix.get("stage", "") }}
 {{ ddl.using_clause }}
+{% endif %}
 {% if standard %}
 
 {{ ddl.standard_banner }}
 
+{% if standard.env_block %}
+{{ standard.env_block }}{{ "\n" if ddl.trailing_newline else "" }}
+{%- else %}
 {{ ddl.create_statement }} {{ standard.qualified }}
 (
 {% for name, dtype in standard.columns %}
@@ -27,5 +34,6 @@
 )
 {{ ddl.block_using_prefix.get("standard", "") }}
 {{ ddl.using_clause }}{{ "\n" if ddl.trailing_newline else "" }}
+{%- endif %}
 {%- else %}{{ "\n" if ddl.trailing_newline else "" }}
 {%- endif %}

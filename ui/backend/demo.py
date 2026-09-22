@@ -1422,6 +1422,17 @@ class DemoRunner:
         self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
         specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)
 
+        # M10: the read-only environment probe — None unless env.probe.enabled /
+        # CODEGEN_ENV_PROBE. It runs HERE, on the run's own thread (never a
+        # request), every query bounded; whatever it cannot ask is `unreadable`,
+        # a flag — the run proceeds exactly as without it.
+        from codegen.env.reconcile import build_reconciler, persist_result
+
+        reconciler = build_reconciler(config)
+        if reconciler is not None:
+            self._stage("probing the environment",
+                        "read-only: Unity Catalog tables + metadata-DB config rows")
+
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = list(pre_failures)
         for spec in specs:
@@ -1439,9 +1450,14 @@ class DemoRunner:
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template,
                     playbook_template=self.playbook_template,
+                    env=reconciler,
                 )
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
+        if reconciler is not None:
+            state_store = ui_stores.get_stores(config).state
+            for result in reconciler.results.values():
+                persist_result(result, state_store)
         if not runs:
             details = "; ".join(f"{f.label}: {f.error}" for f in failures) or "no feeds resolved"
             raise RuntimeError(f"live run produced no feeds — {details}")

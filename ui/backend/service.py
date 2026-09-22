@@ -63,6 +63,10 @@ class FeedRun(BaseModel):
     # Option B artefact summary (framework/both modes): file names, row
     # counts per tab, badge coverage, framework-assigned blank columns.
     framework: dict | None = None
+    # M10: the environment probe's table for this feed (None = probe disabled):
+    # {probed_at, environment, counts, rows[{object, kind, state, evidence,
+    # differences, action}]}.
+    environment: dict | None = None
 
 
 class FailedRun(BaseModel):
@@ -198,6 +202,7 @@ class GenerationStore:
         conventions_profile: str | None = None,
         iig_template: str | None = None,
         playbook_template: str | None = None,
+        env=None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
         from codegen.gate.derivations import sibling_type_flags
@@ -265,7 +270,7 @@ class GenerationStore:
             framework_artefacts = _run_emit_framework(
                 spec, faq, ddl_sources, self.config, out_root, outcomes,
                 base_dir=REPO_ROOT, conventions_profile=conventions_profile,
-                iig_template=iig_template,
+                iig_template=iig_template, env=env,
             )
             written = [*written, *framework_artefacts.files]
             if effective_mode == "rfc":
@@ -287,7 +292,7 @@ class GenerationStore:
                 framework_artefacts = _run_emit_framework(
                     spec, faq, ddl_sources, self.config, out_root, outcomes,
                     base_dir=REPO_ROOT, conventions_profile=conventions_profile,
-                    iig_template=iig_template,
+                    iig_template=iig_template, env=env,
                 )
                 written = [*written, *framework_artefacts.files]
                 if effective_mode == "all":
@@ -341,6 +346,7 @@ class GenerationStore:
             inputs_summary=context["provenance"]["inputs"],
         )
         framework_summary = None
+        environment_summary = None
         if framework_artefacts is not None:
             from codegen.emit.framework import report_section
 
@@ -351,6 +357,27 @@ class GenerationStore:
                     from codegen.emit.rfc import report_section as rfc_report_section
 
                     handle.write(rfc_report_section(rfc_artefacts))
+                if framework_artefacts.env_result is not None:
+                    # M10: only when the probe ran — a disabled probe adds nothing.
+                    from codegen.env.reconcile import report_section as env_report_section
+
+                    handle.write(env_report_section(
+                        framework_artefacts.env_result, framework_artefacts.env_reconcile_ddl,
+                        self.config.dml.emit_updates, getattr(env, "environment", "") or "",
+                        dml_emitted=framework_artefacts.dml_emitted))
+            if framework_artefacts.env_result is not None:
+                from codegen.env.reconcile import environment_rows
+
+                result = framework_artefacts.env_result
+                environment_summary = {
+                    "probed_at": result.probed_at,
+                    "environment": getattr(env, "environment", "") or "",
+                    "counts": result.counts(),
+                    "rows": environment_rows(
+                        result, framework_artefacts.env_reconcile_ddl,
+                        self.config.dml.emit_updates,
+                        dml_emitted=framework_artefacts.dml_emitted),
+                }
             framework_summary = {
                 "files": [p.name for p in framework_artefacts.files],
                 "groups": framework_artefacts.groups,
@@ -365,6 +392,7 @@ class GenerationStore:
             gate=gate,
             written_files=[display_path(p) for p in written],
             framework=framework_summary,
+            environment=environment_summary,
         )
 
     @staticmethod

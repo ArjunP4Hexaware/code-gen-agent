@@ -277,15 +277,109 @@ agent. Workbook serialization is pinned byte-stable
 companions (NOT questions — banner/flag counts untouched) feeding the
 "from FAQ" badge.
 
-## Where this stands (2026-09-21, end of session) — READ FIRST
+## Where this stands (2026-09-21, later session) — READ FIRST
 
-`staging` = `origin/staging` = **3a5b85d**, tag **v0.5.8-acfc**, working tree
-clean. Eight tags shipped today: v0.5.1 … v0.5.8 (each has its own subsection
-below, newest first under M9). `main` is untouched at 4c35c61 (v0.4.1).
+`staging` (local) = **v0.5.9-acfc** (6b33f0d) + the **M10 commit** on top;
+`origin/staging` is still **3a5b85d** (v0.5.8-acfc) — v0.5.9 and M10 are NOT
+pushed and M10 is NOT tagged: Soham asked to see the baseline diff and the
+artefact samples first (shown; both are in the M10 section below). Next
+step on his go: `git tag v0.6.0-acfc`, push `staging` + tags. `main` is
+untouched at 4c35c61 (v0.4.1).
 
-**The App version marker is 0.5.8** (`pyproject.toml` + the
+**The App version marker is 0.6.0** (`pyproject.toml` + the
 `codegen-version-marker` comment in `requirements.txt` — bump BOTH or the
 Apps runtime serves a cached env).
+
+**v0.5.9-acfc (this session, committed 6b33f0d):** the App never reaches a
+foreign workspace — `databricks.catalog / schema / frd_volume / sttm_volume`
+ship BLANK (they named the build workspace's own document volumes; in ACFC
+the chooser listed a catalog that does not exist there and the Generate page
+probed a landing volume nobody had); `config_for(require=…)` decouples the
+serving endpoint from the volumes seam (before, blank volumes silently
+dropped live Layer 2 to mock); the UI offers Notebook + Framework artefacts
+only — the RFC toggle, the All button and the Playbook selector are gone
+(`rfc` / `all` stay in the backend for the CLI and for replaying past runs).
+`tests/conftest.py` now carries a session-wide **socket guard**: any
+non-loopback connection fails the test that made it, and
+`DATABRICKS_CONFIG_FILE` points at a file that does not exist so the SDK can
+never find the operator's CLI profile.
+
+## M10 (2026-09-21, uncommitted-to-remote, to be v0.6.0-acfc): environment reconciliation
+
+Read-only probe of what already exists where the artefacts will be deployed,
+and DDL / DML adjusted to it. Brief + decisions: Soham's paste of
+2026-09-21 (item 3 changed: NO live UPDATE — REVIEW block + commented-out
+candidate + a preflight assertion; `dml.emit_updates` turns it live once the
+framework team confirms an update path; question 19 added to
+`docs/acfc/METADATA_DB_SEMANTICS.md` §11, question 20 = the natural keys).
+Deploy notes: `docs/ACFC_DEPLOY.md` "What v0.6.0-acfc adds".
+
+- **Package `src/codegen/env/`**: `model.py` (pure data: four states
+  absent | identical | different | unreadable, `FieldDiff`, `Evidence` =
+  query + timestamp, `ExpectedTable` / `ExpectedRow`, `ProbedObject`,
+  `EnvProbeResult`, `env_flags`), `expect.py` (what the artefacts expect —
+  rows classified with `emit.dml.cell_kind`, THE one cell precedence, so the
+  probe compares exactly what the script writes; a key that is blank at
+  generation time or SHARED by several rows of the feed = `unreadable` with
+  the reason, never guessed), `probe.py` (the classifier + the two client
+  Protocols; every query in its own daemon thread joined for
+  `timeout_seconds`), `adjust.py` (the DDL env block + the report's "action"
+  wording), `clients.py` (the EDGE: `describe_table_sql` on the SQL seam —
+  `DESCRIBE TABLE` rendered from validated identifiers, the caller's
+  warehouse id, `databricks.warehouse_id` NEVER a fallback — and the
+  metadata-DB client whose ONLY statement is `render_select`: a keyed
+  `SELECT TOP 2` from validated identifiers; `build_clients` builds a client
+  ONLY inside a Databricks runtime from its injected credentials, never a
+  CLI profile), `reconcile.py` (`build_reconciler` → None when off; the
+  object `emit_framework(env=…)` receives; `persist_result` →
+  `<state>/env_probe/<feed>.json`; `report_section` / `environment_rows` =
+  object | state | evidence | action), `notebook.py` (the fallback's
+  in-process probe: `SparkUcClient` + Spark JDBC; two-pass `generate
+  --env-expected-out` → probe → `generate --env-probe-result`).
+- **Emitters** import only `env.model`. `emit/framework.py` now BUILDS every
+  table (`_combined_tables` / `_layer_tables`), asks the reconciler, then
+  RENDERS (`_render_combined` / `_render_table_creation`); both templates
+  gained an `env_block` branch (identical → comment, no CREATE; different →
+  `ALTER TABLE … ADD COLUMNS` for additive drift + a REVIEW block with no
+  statement for type / removal; never DROP). Profile knob
+  `conventions.profiles.<p>.reconcile_ddl` — ON for `acfc_prx`, OFF for
+  `edo_sfmc` ("unchanged behaviour"). `emit/dml.py`: `_env_inserts`
+  adjusts ONLY the probed environment's script (`env.probe.environment`,
+  one of `dml.environments`); identical → comment + assertion; different →
+  REVIEW block (key, both values per column) + commented-out UPDATE + an
+  assertion that fails while the row differs; the preflight's "id must be
+  unused" assertions give way to expected-state assertions for tables where
+  rows exist. `dml.natural_keys` (§2/§5/§7 as spoken, §8 by analogy —
+  flagged unconfirmed in the script header), `dml.status_columns` (shown,
+  NEVER touched unless FAQ companion `manage_row_status: yes`),
+  `dml.emit_updates` (false). Flags: `env_<state>:<object>`, `dml_review:`.
+- **Config**: new top-level `env.probe` (enabled false, environment "",
+  uc_warehouse_id "", timeout_seconds, `metadata_db` secret NAMES — all
+  blank in the tracked file; App env `CODEGEN_ENV_PROBE=1`,
+  `_WAREHOUSE_ID`, `_ENVIRONMENT`, `_SECRET_SCOPE` / `_JDBC_URL_SECRET` /
+  `_USER_SECRET` / `_PASSWORD_SECRET` win at the point of use). Optional
+  extra `[envprobe]` = `pymssql` (the App container has no JVM).
+- **Wiring**: `cli._generate_feed(env=)` / `_run_pairs(env=)` /
+  `generate --env-probe-result --env-expected-out`; `service._generate_feed
+  (env=)` → `FeedRun.environment` → `/api/feeds` `environment` → the feed
+  page's **Environment** panel (`FeedDetailPage.tsx`, chips `.env-state`);
+  the live run builds the reconciler on the run's thread and persists every
+  result to the state role; `acfc_run.py` widgets `env_probe` (skip|run) +
+  `env_probe_environment`.
+- **Verified**: suite **706 passed / 27 skipped on 3.10, 3.11, 3.12** under
+  the socket guard; ruff + tsc clean; dist rebuilt; scrub 0 hits in tracked
+  files; CV / SFMC baselines **193 files byte-identical** vs v0.5.9 with the
+  probe off; pair-1 golden DDL byte-identical (M4 tests); with the probe on
+  and everything absent OR everything unreadable the artefacts equal the
+  disabled run (`tests/test_m10_env_probe.py`, fakes in `tests/env_fakes.py`).
+- **UNVERIFIED / open**: neither transport has run against a real
+  workspace or SQL Server (fakes only); the ACFC SP has no warehouse grant,
+  so the first real run will read everything `unreadable` — expected, a
+  flag; pair 1's FAQ supplies ONE `object_id` for four file patterns, so
+  `DATA_QUALITY_RULES` rows share keys and read `unreadable` (a real IIG
+  ambiguity, reported); `IF … UPDATE` without BEGIN/END does not parse under
+  sqlglot tsql (the candidate is a comment today; a live one is a bare
+  `UPDATE … WHERE key;` which parses).
 
 **Verified at 3a5b85d:** suite **684 passed / 27 skipped on Python 3.10, 3.11
 and 3.12**, ruff clean, tsc clean, `ui/frontend/dist` rebuilt and committed, `scripts/scrub_check.py` over

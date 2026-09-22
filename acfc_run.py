@@ -42,6 +42,12 @@ dbutils.widgets.dropdown("refresh_layout", "no", ["no", "yes"],  # noqa: F821
 dbutils.widgets.text("conventions_profile", "acfc_prx", "Conventions profile")  # noqa: F821
 dbutils.widgets.text("iig_template", "iig_v2", "IIG template")  # noqa: F821
 dbutils.widgets.text("playbook_template", "main_single", "Playbook template")  # noqa: F821
+# M10: the read-only environment probe (Unity Catalog through this notebook's
+# SparkSession, the metadata DB over JDBC with the secret NAMES from config /
+# env). Runs as the USER; unreadable is a flag, never a stop. UNVERIFIED in a
+# real workspace as of 2026-09-21.
+dbutils.widgets.dropdown("env_probe", "skip", ["skip", "run"], "Environment probe (read-only)")  # noqa: F821
+dbutils.widgets.text("env_probe_environment", "", "Which metadata DB this is (q1|a2|prod)")  # noqa: F821
 
 PAIR_URI = dbutils.widgets.get("pair_folder")  # noqa: F821
 os.environ["CODEGEN_STORAGE_OUTPUTS"] = dbutils.widgets.get("outputs")  # noqa: F821
@@ -144,10 +150,29 @@ vdd_args: list[str] = []
 if vdd is not None:
     run("extract-vdd", "extract-vdd", "--vdd", str(vdd), "--out", str(work / "vdd.contract.json"))
     vdd_args = ["--vdd", str(work / "vdd.contract.json")]
-run("generate", "generate", "--frd-contract", str(frd_contract), "--sttm-contract",
-    str(work / "sttm.contract.json"), *vdd_args, *CONVENTIONS, "--output-mode", "rfc",
-    "--skip-tests",
-    *(["--dry-run"] if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER") else []))
+GENERATE = ["generate", "--frd-contract", str(frd_contract), "--sttm-contract",
+            str(work / "sttm.contract.json"), *vdd_args, *CONVENTIONS, "--output-mode", "rfc",
+            "--skip-tests",
+            *(["--dry-run"] if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER") else [])]
+if dbutils.widgets.get("env_probe") == "run":  # noqa: F821
+    # Two passes: the first writes what the artefacts expect to find, this
+    # notebook probes (spark + secrets live HERE, not in a subprocess), the
+    # second emits the artefacts adjusted to what was found.
+    from codegen.env.notebook import probe_from_notebook
+
+    probe_env = dbutils.widgets.get("env_probe_environment").strip()  # noqa: F821
+    if probe_env:
+        os.environ["CODEGEN_ENV_PROBE_ENVIRONMENT"] = probe_env
+    run("generate (expectations)", *GENERATE,
+        "--env-expected-out", str(work / "env_expected"))
+    results = probe_from_notebook(config, work / "env_expected", work / "env_probe.json",
+                                  spark, dbutils)  # noqa: F821
+    for result in results:
+        print(f"env probe {result.feed_slug}: "
+              + ", ".join(f"{n} {s}" for s, n in result.counts().items() if n))
+    run("generate", *GENERATE, "--env-probe-result", str(work / "env_probe.json"))
+else:
+    run("generate", *GENERATE)
 
 # COMMAND ----------
 

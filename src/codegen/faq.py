@@ -125,6 +125,11 @@ class LoadPatternFaq(BaseModel):
     source_host: FaqAnswer = FaqAnswer(value="unknown")
     # connection role -> existing CONNECTION_ID (identity values reused, §3)
     connection_ids: dict[str, str] = Field(default_factory=dict)
+    # M10 companion (NOT a question): may the agent treat a config row's
+    # status columns (dml.status_columns — ACTIVE_FLAG …) like any other
+    # column when the environment probe finds them different? Unanswered =
+    # no: they are reported, never touched.
+    manage_row_status: FaqAnswer = FaqAnswer(value="unknown")
     # Segmented-dialect declarations (NOT questions — banner/flag counts
     # untouched). The H/D/T record-type discriminator values are stated
     # nowhere in a segmented workbook: absent here, a segmented extraction

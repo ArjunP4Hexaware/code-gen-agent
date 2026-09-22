@@ -76,6 +76,7 @@ def _generate_feed(
     conventions_profile: str | None = None,
     iig_template: str | None = None,
     playbook_template: str | None = None,
+    env=None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -139,7 +140,7 @@ def _generate_feed(
         )
         framework_artefacts = _run_emit_framework(
             spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
-            conventions_profile=conventions_profile, iig_template=iig_template,
+            conventions_profile=conventions_profile, iig_template=iig_template, env=env,
         )
         written = [*written, *framework_artefacts.files]
         if effective_mode == "rfc":
@@ -161,7 +162,7 @@ def _generate_feed(
             ddl_sources = _read_ddl_sources(feed_dir)
             framework_artefacts = _run_emit_framework(
                 spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
-                conventions_profile=conventions_profile, iig_template=iig_template,
+                conventions_profile=conventions_profile, iig_template=iig_template, env=env,
             )
             written = [*written, *framework_artefacts.files]
             if effective_mode == "all":
@@ -222,6 +223,14 @@ def _generate_feed(
                 from codegen.emit.rfc import report_section as rfc_report_section
 
                 handle.write(rfc_report_section(rfc_artefacts))
+            if framework_artefacts.env_result is not None:
+                # M10: only when the probe ran — a disabled probe adds nothing.
+                from codegen.env.reconcile import report_section as env_report_section
+
+                handle.write(env_report_section(
+                    framework_artefacts.env_result, framework_artefacts.env_reconcile_ddl,
+                    config.dml.emit_updates, getattr(env, "environment", "") or "",
+                    dml_emitted=framework_artefacts.dml_emitted))
     print(console_summary(spec, gate))
     return gate
 
@@ -256,7 +265,7 @@ def _emit_framework_only(context, spec, config, feed_dir, skip_tests):
 
 
 def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
-                        base_dir, conventions_profile=None, iig_template=None):
+                        base_dir, conventions_profile=None, iig_template=None, env=None):
     from codegen.emit.framework import emit_framework
 
     contracts_dir = Path(config.contracts.dir)
@@ -272,6 +281,7 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
         },
         conventions_profile=conventions_profile,
         iig_template=iig_template,
+        env=env,
     )
 
 
@@ -287,6 +297,7 @@ def _run_pairs(
     conventions_profile: str | None = None,
     iig_template: str | None = None,
     playbook_template: str | None = None,
+    env=None,
 ) -> int:
     failed = False
     matched_feed = False
@@ -306,7 +317,7 @@ def _run_pairs(
                                       skip_tests=skip_tests, output_mode=output_mode,
                                       conventions_profile=conventions_profile,
                                       iig_template=iig_template,
-                                      playbook_template=playbook_template)
+                                      playbook_template=playbook_template, env=env)
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -1065,6 +1076,13 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--iig-template", dest="iig_template", default=None,
                           help="IIG workbook template version (iig_v1 = demo.metadata_sheet, "
                                "or a key of config metadata.templates)")
+    generate.add_argument("--env-probe-result", dest="env_probe_result", default=None,
+                          help="M10: a probe result JSON written elsewhere (the notebook "
+                               "fallback probes in-process) — used instead of asking the "
+                               "environment")
+    generate.add_argument("--env-expected-out", dest="env_expected_out", default=None,
+                          help="M10: write <feed>.env_expected.json (the tables and config "
+                               "rows the artefacts expect) into this directory")
     generate.add_argument("--playbook-template", dest="playbook_template", default=None,
                           help="rfc mode: deployment playbook template (a key of config "
                                "playbook.templates; default playbook.template)")
@@ -1401,13 +1419,42 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         print(f"{'FAIL':<15} {exc}")
         return 1
+    # M10: the read-only environment probe — None unless env.probe.enabled /
+    # CODEGEN_ENV_PROBE (or one of the two hand-off flags). Built at the EDGE;
+    # the emitters receive it as a plain object. Never a stop: what cannot be
+    # asked is `unreadable`, flagged, and emitted as without a probe.
+    from codegen.env.reconcile import build_reconciler, persist_result
+
+    preset = getattr(args, "env_probe_result", None)
+    expected_out = getattr(args, "env_expected_out", None)
+    try:
+        reconciler = build_reconciler(
+            config, preset_path=Path(preset) if preset else None,
+            expected_dir=Path(expected_out) if expected_out else None)
+    except (OSError, ValueError) as exc:
+        print(f"{'FAIL':<15} environment probe — {exc}")
+        return 1
     code = _run_pairs(
         pairs, config, only_feed=only_feed, dry_run=args.dry_run,
         skip_tests=args.skip_tests, output_mode=args.output_mode, vdd_path=vdd_path,
         conventions_profile=getattr(args, "conventions_profile", None),
         iig_template=getattr(args, "iig_template", None),
         playbook_template=getattr(args, "playbook_template", None),
+        env=reconciler,
     )
+    if reconciler is not None and reconciler.results:
+        import contextlib
+
+        from codegen.storage import open_storage
+
+        with contextlib.suppress(Exception):  # the state role never stops a run
+            state = open_storage(config, Path(".")).state
+            for result in reconciler.results.values():
+                path = persist_result(result, state)
+                if path is not None:
+                    counts = ", ".join(f"{n} {s}" for s, n in result.counts().items() if n)
+                    print(f"{'ENV':<15} {result.feed_slug} — {counts} -> {state.uri()}"
+                          f"/env_probe/{result.feed_slug}.json")
     push_outputs()
     return code
 

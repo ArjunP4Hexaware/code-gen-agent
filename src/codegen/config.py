@@ -944,6 +944,15 @@ class ConventionsProfileConfig(BaseModel):
     # SFMC two-file DDL are compared byte for byte with client goldens; the
     # target system is labelled in ADDITION.md / MANIFEST.md instead.
     target_system_header: bool = False
+    # M10: when the environment probe found a table, adjust its DDL to what
+    # exists (identical -> a comment, no CREATE; different -> ALTER TABLE ADD
+    # COLUMNS + a REVIEW block; never DROP, never CREATE OR REPLACE over an
+    # existing table). False = "unchanged behaviour": the profile's CREATE
+    # statement regardless — the reference profile's default, so its golden
+    # stays byte-identical even with the probe on. The probe's findings are
+    # flagged and reported either way. With the probe disabled, or when every
+    # table is absent / unreadable, this knob changes nothing.
+    reconcile_ddl: bool = False
 
 
 class ConventionsConfig(BaseModel):
@@ -1188,11 +1197,83 @@ class DmlConfig(BaseModel):
     })
     # Per-environment path prefix ('' = none); the body stays identical.
     env_path_prefix: dict[str, str] = Field(default_factory=dict)
+    # M10: how the environment probe finds "the same row" in the metadata DB.
+    # Keys as spoken in the walkthrough (METADATA_DB_SEMANTICS §2, §5, §7) for
+    # the described tables; by analogy — UNCONFIRMED, flagged — for the rest
+    # (§8, §11). A table with no entry is never probed (rows read unreadable).
+    natural_keys: dict[str, list[str]] = Field(default_factory=lambda: {
+        "DATA_FACTORY_PIPELINE_SCHEDULE": ["PIPELINE_NAME"],
+        "FILE_ADLS_INGESTION_DETAILS": ["GROUP_ID", "OBJECT_ID"],
+        "ADLS_DELTA_INGESTION_DETAILS": ["GROUP_ID", "OBJECT_ID", "OBJECT_NAME"],
+        "STGDELTA_STDDELTA_INGESTION_DET": ["GROUP_ID", "OBJECT_ID", "OBJECT_NAME"],
+        "ADLS_FIXED_WIDTH_HANDLER": ["PROCESS_NAME", "VERSION", "SEGMENT", "COL"],
+        "DATA_QUALITY_RULES": ["GROUP_ID", "OBJECT_ID", "SEQUENCE_NO"],
+        "DATABRICKS_NOTEBOOK_DETAILS": ["PIPELINE_NAME", "SEQ_NM"],
+        "EMAIL_TEMPLATE_CONFIG": ["TEMPLATE_NAME", "PROCESS_NAME", "STATUS"],
+    })
+    # Row "status" columns: shown in the Environment report when they differ,
+    # NEVER changed by the agent (no REVIEW diff, no UPDATE candidate, no
+    # assertion) unless the load-pattern FAQ answers `manage_row_status: yes`.
+    status_columns: list[str] = Field(
+        default_factory=lambda: ["ACTIVE_FLAG", "ACTIVE_RULE_FLG",
+                                 "ACTIVE_START_DATE", "ACTIVE_END_DATE"])
+    # A row that exists and differs gets a REVIEW block with a COMMENTED-OUT
+    # UPDATE candidate: the walkthrough describes no update path for config
+    # rows (METADATA_DB_SEMANTICS §11 q19). True turns the candidate live —
+    # only once the framework team confirms such a path exists.
+    emit_updates: bool = False
     # NAMES of the Databricks secret scope and its keys — never values.
     secret_scope: str = "metadata-db"
     jdbc_url_secret: str = "jdbc-url"
     user_secret: str = "jdbc-user"
     password_secret: str = "jdbc-password"
+
+
+class EnvProbeMetadataDbConfig(BaseModel):
+    """NAMES of the secret scope / keys the read-only metadata-DB probe
+    resolves inside the workspace — never values. Blank = that half of the
+    probe is not configured (its rows read ``unreadable``). Deliberately NOT
+    defaulted from ``dml.*_secret``: a read-only credential is the operator's
+    explicit choice, not something the agent assumes."""
+
+    model_config = _MODEL_CONFIG
+
+    secret_scope: str = ""
+    jdbc_url_secret: str = ""
+    user_secret: str = ""
+    password_secret: str = ""
+
+
+class EnvProbeConfig(BaseModel):
+    """M10 environment reconciliation — READ-ONLY, OFF by default.
+
+    Both targets (Unity Catalog through a SQL warehouse, the SQL Server
+    metadata DB through JDBC) exist only inside the operator's workspace. No
+    workspace value lives in the tracked config: the warehouse id and the
+    secret names come from an overlay or the App's env
+    (CODEGEN_ENV_PROBE=1, CODEGEN_ENV_PROBE_WAREHOUSE_ID,
+    CODEGEN_ENV_PROBE_ENVIRONMENT, CODEGEN_ENV_PROBE_SECRET_SCOPE — read at
+    the point of use by codegen.env.probe). ``databricks.warehouse_id`` is
+    NEVER a fallback. Outside a Databricks runtime nothing is resolved at all.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = False
+    # Which of dml.environments the probed workspace / metadata DB IS. The
+    # probe sees ONE environment; only that environment's DML script is
+    # adjusted. Blank = unstated: config rows are not probed.
+    environment: str = ""
+    uc_warehouse_id: str = ""
+    # Per-query budget; a query that does not answer is `unreadable`.
+    timeout_seconds: float = Field(default=20.0, gt=0)
+    metadata_db: EnvProbeMetadataDbConfig = EnvProbeMetadataDbConfig()
+
+
+class EnvConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    probe: EnvProbeConfig = EnvProbeConfig()
 
 
 class PlaybookConfig(BaseModel):
@@ -1262,6 +1343,8 @@ class Config(BaseModel):
     storage: StorageConfig = StorageConfig()
     inputs: InputsConfig = InputsConfig()
     upstream: UpstreamConfig = UpstreamConfig()
+    # Optional (M10): read-only environment reconciliation, off by default.
+    env: EnvConfig = EnvConfig()
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

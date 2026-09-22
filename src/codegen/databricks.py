@@ -307,6 +307,69 @@ def describe_table(cfg: DatabricksConfig, full_name: str, client=None) -> dict:
     }
 
 
+class TableNotFound(DatabricksTransportError):
+    """The statement ran and the warehouse answered: no such table."""
+
+
+_NOT_FOUND_MARKERS = ("table_or_view_not_found", "cannot be found", "does not exist",
+                      "schema_not_found", "no_such_catalog", "catalog_not_found")
+
+
+def describe_table_sql(cfg: DatabricksConfig, full_name: str, warehouse_id: str,
+                       timeout_seconds: float = 20.0, client=None) -> tuple[list[dict], str]:
+    """(columns [{name, type}], the statement sent) through a SQL warehouse.
+
+    M10 environment probe (approved 2026-09-21): the second statement shape
+    this seam sends besides EXPLAIN — ``DESCRIBE TABLE``, read-only, rendered
+    HERE from three validated identifiers; no caller ever passes SQL. The
+    warehouse id is the CALLER's (``env.probe.uc_warehouse_id``):
+    ``databricks.warehouse_id`` is deliberately not a fallback — it names one
+    workspace's warehouse and the probe runs in another. Waking a warehouse
+    is DBU spend. ``TableNotFound`` when the warehouse says so; any other
+    failure (no permission, a timeout) is a ``DatabricksTransportError``.
+    """
+    parts = full_name.split(".")
+    if len(parts) != 3 or not all(_IDENTIFIER_RE.match(p) for p in parts):
+        raise DatabricksConfigError(f"invalid table name: {full_name!r}")
+    if not warehouse_id:
+        raise DatabricksConfigError("no warehouse id was given for DESCRIBE TABLE")
+    statement = f"DESCRIBE TABLE `{parts[0]}`.`{parts[1]}`.`{parts[2]}`"
+    client = client if client is not None else _client(cfg)
+    wait = max(5, min(50, int(timeout_seconds)))
+    try:
+        response = client.statement_execution.execute_statement(
+            statement=statement, warehouse_id=warehouse_id, wait_timeout=f"{wait}s")
+    except Exception as exc:  # noqa: BLE001 — surfaced verbatim
+        if any(m in str(exc).lower() for m in _NOT_FOUND_MARKERS):
+            raise TableNotFound(f"{statement}: {exc}") from exc
+        raise DatabricksTransportError(f"{statement} failed: {exc}") from exc
+    state = str(response.status.state.value if response.status else "")
+    if state != "SUCCEEDED":
+        message = ""
+        if response.status is not None and response.status.error is not None:
+            message = str(response.status.error.message or "")
+        if state in ("PENDING", "RUNNING"):
+            # Given up, not abandoned: the statement must not keep a warehouse up.
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                client.statement_execution.cancel_execution(response.statement_id)
+            raise DatabricksTransportError(
+                f"{statement} did not finish within {wait}s (cancelled)")
+        if any(m in message.lower() for m in _NOT_FOUND_MARKERS):
+            raise TableNotFound(f"{statement}: {message}")
+        raise DatabricksTransportError(
+            f"{statement} finished {state or 'without status'}: {message}")
+    rows = response.result.data_array if response.result is not None else None
+    columns: list[dict] = []
+    for row in rows or []:
+        name = (row[0] or "").strip() if row else ""
+        if not name or name.startswith("#"):
+            break  # the partition / clustering detail sections follow a blank row
+        columns.append({"name": name, "type": (row[1] or "").strip() if len(row) > 1 else ""})
+    return columns, statement
+
+
 def table_properties(cfg: DatabricksConfig, full_name: str, client=None) -> dict:
     client = client if client is not None else _client(cfg)
     try:

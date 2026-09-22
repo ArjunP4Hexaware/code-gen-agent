@@ -160,6 +160,11 @@ function OverviewTab({ feed }: { feed: FeedDetail }) {
                 faq_unanswered: { title: "Load-pattern FAQ questions unanswered", items: [] },
                 iig_blank: { title: "IIG columns left blank (framework-assigned / unstated)", items: [] },
                 playbook_blank: { title: "Playbook cells left blank (dates, owners, contacts)", items: [] },
+                // M10: one flag per probed object, by state (the Environment panel shows the table)
+                env_absent: { title: "Environment: objects not there yet (created / inserted as usual)", items: [] },
+                env_identical: { title: "Environment: objects already there and identical (no statement)", items: [] },
+                env_different: { title: "Environment: objects already there and DIFFERENT (REVIEW)", items: [] },
+                env_unreadable: { title: "Environment: objects the probe could not ask about", items: [] },
               };
               const substantive: string[] = [];
               for (const f of feed.flags) {
@@ -204,6 +209,59 @@ function OverviewTab({ feed }: { feed: FeedDetail }) {
           </div>
         </div>
       )}
+
+      {feed.environment ? (
+        <div className="panel">
+          <div className="panel-head">
+            <h2>Environment</h2>
+            <span className="hint">
+              read-only probe at {feed.environment.probed_at}
+              {feed.environment.environment ? ` (metadata DB: ${feed.environment.environment})` : ""}
+              {" - "}
+              {(["absent", "identical", "different", "unreadable"] as const)
+                .filter((s) => feed.environment!.counts[s] > 0)
+                .map((s) => `${feed.environment!.counts[s]} ${s}`)
+                .join(", ")}
+            </span>
+          </div>
+          <div className="panel-body">
+            <p className="hint" style={{ margin: "0 0 8px" }}>
+              What already exists where the artefacts will be deployed, and what each artefact
+              does about it. <code>unreadable</code> is a flag, never a stop.
+            </p>
+            <div className="source-files-scroll">
+              <table className="source-files-table">
+                <thead>
+                  <tr>
+                    <th>Object</th>
+                    <th>State</th>
+                    <th>Evidence</th>
+                    <th>What the artefact does about it</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {feed.environment.rows.map((r, i) => (
+                    <tr key={`${r.object}-${i}`}>
+                      <td className="sf-wrap">
+                        <code>{r.object}</code>
+                        <div className="hint">{r.kind === "uc_table" ? "Unity Catalog table" : "config row"}</div>
+                      </td>
+                      <td>
+                        <span className={"env-state env-" + r.state}>{r.state}</span>
+                      </td>
+                      <td className="sf-wrap">
+                        <span className="hint">{r.evidence}</span>
+                        {r.differences ? <div>{r.differences}</div> : null}
+                      </td>
+                      <td className="sf-wrap">{r.action}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="panel">
         <div className="panel-head">

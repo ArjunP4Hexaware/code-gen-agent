@@ -161,6 +161,8 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
         "candidates_pending": pending,
         "files_written": len(run.written_files),
         "framework": run.framework,
+        # M10: the environment probe's table (None = the probe is off).
+        "environment": run.environment,
     }
 
 

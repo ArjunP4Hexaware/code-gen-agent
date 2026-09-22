@@ -119,6 +119,11 @@ class FrameworkArtefacts:
     payload: dict | None = None
     # M7 §4: file names grouped by target system (artefact_groups).
     groups: dict[str, list[str]] = field(default_factory=dict)
+    # M10: what the environment probe found (None = disabled) and whether the
+    # profile lets the DDL be adjusted to it (conventions reconcile_ddl).
+    env_result: object | None = None
+    env_reconcile_ddl: bool = False
+    dml_emitted: bool = False
 
 
 def _sanitize_abbrev(slug: str) -> str:
@@ -161,14 +166,29 @@ def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
 
 def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
                        config: Config | None = None) -> str | None:
-    """The combined-layout deployment DDL (M4, ``acfc_prx``): stage columns
+    """The combined-layout deployment DDL (M4, ``acfc_prx``) — build + render."""
+    stage, standard = _combined_tables(spec, profile, flags, config)
+    return _render_combined(profile, stage, standard)
+
+
+def _render_combined(profile, stage: dict | None, standard: dict | None) -> str | None:
+    from codegen.emit.emitter import _environment
+
+    if stage is None and standard is None:
+        return None
+    template = _environment().get_template("framework/combined_ddl.txt.j2")
+    return template.render(ddl=profile, stage=stage, standard=standard)
+
+
+def _combined_tables(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
+                     config: Config | None = None) -> tuple[dict | None, dict | None]:
+    """The combined layout's (stage, standard) tables: stage columns
     as the STTM stage band types them (distinct across segments, STTM
     order), audit columns in the profile's casing, standard = the stage
     list when the profile says so. Whitespace comes from the profile.
-    M7: every CREATE is three-part or omitted (``_qualify``); None when no
-    layer qualifies."""
-    from codegen.emit.emitter import _environment
-
+    M7: every CREATE is three-part or omitted (``_qualify``); None when a
+    layer does not qualify. ``env_block`` (M10) is None until the environment
+    probe says the table exists."""
     flags = flags if flags is not None else []
 
     seen: set[str] = set()
@@ -187,19 +207,17 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
              for a in spec.audit_columns]
     stage_table = spec.detail_segment.stage_table
     stage_qualified = _qualify(stage_table, "stage", profile, spec, flags, config)
-    stage = ({"qualified": stage_qualified, "columns": stage_columns + audit}
-             if stage_qualified else None)
+    stage = ({"qualified": stage_qualified, "columns": stage_columns + audit,
+              "env_block": None} if stage_qualified else None)
     standard = None
     if spec.standard_table is not None:
         columns = stage_columns if profile.standard_from_stage else standard_columns
         standard_qualified = _qualify(spec.standard_table, "standard", profile, spec, flags,
                                       config)
         if standard_qualified:
-            standard = {"qualified": standard_qualified, "columns": columns + audit}
-    if stage is None and standard is None:
-        return None
-    template = _environment().get_template("framework/combined_ddl.txt.j2")
-    return template.render(ddl=profile, stage=stage, standard=standard)
+            standard = {"qualified": standard_qualified, "columns": columns + audit,
+                        "env_block": None}
+    return stage, standard
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -342,11 +360,19 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                          banner: list[tuple[str, str]],
                          extra_banner_lines: list[str] | None = None,
                          profile=None, flags: list[str] | None = None) -> str:
-    """Render one deployment-team .txt file for a layer's DDL entries.
-    M7: under a profile requiring qualified names, an entry whose CREATE is
-    not three-part is left out (flagged catalog_unstated:<layer>)."""
-    from codegen.emit.emitter import _environment
+    """Render one deployment-team .txt file for a layer's DDL entries."""
+    tables = _layer_tables(layer, entries, spec, config, profile, flags)
+    return _render_table_creation(layer, tables, banner, extra_banner_lines)
 
+
+def _layer_tables(layer: str, entries: list[tuple[str, str, str]],
+                  spec: ResolvedFeedSpec, config: Config,
+                  profile=None, flags: list[str] | None = None) -> list[dict]:
+    """One layer's tables as the template renders them.
+    M7: under a profile requiring qualified names, an entry whose CREATE is
+    not three-part is left out (flagged catalog_unstated:<layer>).
+    ``env_block`` (M10) is None until the environment probe says the table
+    exists."""
     flags = flags if flags is not None else []
     descriptions = _description_map(spec)
     tables = []
@@ -386,7 +412,15 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                          if layer == "stage" else None),
             "tags": ((spec.domain, spec.sub_domain)
                      if spec.domain and spec.sub_domain else None),
+            "env_block": None,
         })
+    return tables
+
+
+def _render_table_creation(layer: str, tables: list[dict], banner: list[tuple[str, str]],
+                           extra_banner_lines: list[str] | None = None) -> str:
+    from codegen.emit.emitter import _environment
+
     banner_lines = [f"{key}: {value}" for key, value in banner
                     if key != "Layout"]
     banner_lines.append("DDL is engineer-run; the agent never creates target "
@@ -516,11 +550,18 @@ def emit_framework(
     unmapped_rule_texts: set[str] | None = None,
     conventions_profile: str | None = None,
     iig_template: str | None = None,
+    env=None,
 ) -> FrameworkArtefacts:
     """Render one feed's Option B artefacts into ``out/<slug>/framework/``.
 
     ``conventions_profile`` / ``iig_template`` (M4) select the DDL layout
-    and the IIG workbook version; the defaults reproduce today's output."""
+    and the IIG workbook version; the defaults reproduce today's output.
+
+    ``env`` (M10): the environment reconciler, injected from the EDGE (cli /
+    service) — anything with ``.environment`` and ``.probe(feed_slug, tables,
+    payload) -> EnvProbeResult | None``. This module never imports a
+    transport. None (the probe is disabled) = today's output, byte for byte;
+    so is a probe that found nothing of this feed."""
     framework_dir = out_root / spec.feed_slug / "framework"
     framework_dir.mkdir(parents=True, exist_ok=True)
     root = base_dir if base_dir is not None else Path(".")
@@ -576,7 +617,16 @@ def emit_framework(
             f"Table Name (FRD lists: {', '.join(frd_tables)}); omitted: "
             f"{', '.join(sorted(omitted_side_tables))} (CodeGen conventions, "
             "kept in ddl/)")
+    # M10: build every table FIRST, ask the environment about them (and about
+    # the config rows of `payload`), then render — adjusted where it exists.
+    from codegen.env.adjust import ddl_env_block
+    from codegen.env.model import ExpectedTable
+
+    combined_tables: tuple[dict | None, dict | None] = (None, None)
+    layer_tables: dict[str, list[dict]] = {}
+    abbrev = ""
     if profile.ddl_layout == "combined":
+        # (flag order is report text: the file-name flag precedes the catalog flags)
         abbrev_answer = getattr(faq, "feed_abbreviation", None)
         if abbrev_answer is not None and abbrev_answer.source != "unknown":
             abbrev = str(abbrev_answer.value)
@@ -584,8 +634,34 @@ def emit_framework(
             abbrev = _sanitize_abbrev(spec.feed_slug)
             flags.append(f"ddl_file_name_from_slug: no feed_abbreviation in the load-pattern "
                          f"FAQ; the combined DDL is named {abbrev!r} from the feed slug")
+        combined_tables = _combined_tables(spec, profile, flags, config)
+        built = [(layer, [t]) for layer, t in zip(("stage", "standard"), combined_tables,
+                                                  strict=True) if t is not None]
+    else:
+        for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
+            layer_tables[layer] = _layer_tables(layer, entries, spec, config, profile, flags)
+        built = list(layer_tables.items())
+    env_result = None
+    if env is not None:
+        expected_tables = [
+            ExpectedTable(qualified=t["qualified"], layer=layer,
+                          columns=[((c["name"], c["dtype"]) if isinstance(c, dict) else tuple(c))
+                                   for c in t["columns"]])
+            for layer, tables in built for t in tables]
+        # Config rows are probed only when a DML script is emitted for them.
+        env_result = env.probe(
+            spec.feed_slug, expected_tables,
+            payload if config.dml.enabled and profile.emit_dml else None, faq)
+    if env_result is not None and profile.reconcile_ddl:
+        for _layer, tables in built:
+            for t in tables:
+                columns = [c if isinstance(c, dict) else {"name": c[0], "dtype": c[1]}
+                           for c in t["columns"]]
+                t["env_block"] = ddl_env_block(env_result.table(t["qualified"]), columns,
+                                               env_result.probed_at)
+    if profile.ddl_layout == "combined":
         ddl_names = [profile.ddl_file_name_pattern.format(feed_abbrev=abbrev)]
-        combined = _combined_ddl_text(spec, profile, flags, config)
+        combined = _render_combined(profile, *combined_tables)
         if combined is not None:
             if profile.target_system_header:
                 combined = DDL_TARGET_HEADER + "\n" + combined
@@ -596,11 +672,10 @@ def emit_framework(
             ddl_names = []
     else:
         ddl_names = []
-        for layer, entries in (("stage", stage_entries), ("standard", standard_entries)):
+        for layer in ("stage", "standard"):
             txt_path = framework_dir / f"{spec.feed_slug}_{layer}_table_creation.txt"
-            text = _table_creation_text(layer, entries, spec, config, banner,
-                                        extra_banner_lines=extra_banner_lines,
-                                        profile=profile, flags=flags)
+            text = _render_table_creation(layer, layer_tables[layer], banner,
+                                          extra_banner_lines=extra_banner_lines)
             if profile.target_system_header:
                 text = DDL_TARGET_HEADER + "\n" + text
             txt_path.write_text(text, encoding="utf-8", newline="\n")
@@ -611,9 +686,15 @@ def emit_framework(
     if config.dml.enabled and profile.emit_dml:
         from codegen.emit.dml import emit_dml
 
-        dml_artefacts = emit_dml(spec, faq, payload, config, framework_dir, banner)
+        dml_artefacts = emit_dml(spec, faq, payload, config, framework_dir, banner,
+                                 env_probe=env_result,
+                                 probed_environment=getattr(env, "environment", "") or "")
         files.extend(dml_artefacts.files)
         flags.extend(dml_artefacts.flags)
+    if env_result is not None:
+        from codegen.env.model import env_flags
+
+        flags.extend(env_flags(env_result))
     # M7 gate checks: unstated catalog / schema is a FAIL, not a flag.
     checks: list[GateCheck] = []
     if dml_artefacts is not None:
@@ -739,6 +820,9 @@ def emit_framework(
         checks=checks,
         payload=payload,
         groups=artefact_groups(files),
+        env_result=env_result,
+        env_reconcile_ddl=bool(profile.reconcile_ddl),
+        dml_emitted=bool(config.dml.enabled and profile.emit_dml),
     )
 
 

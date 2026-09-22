@@ -36,6 +36,26 @@ export interface FeedSummary {
   candidates_pending: number;
   files_written: number;
   framework: FrameworkSummary | null;
+  // M10: what the read-only environment probe found (null = probe off)
+  environment: EnvironmentSummary | null;
+}
+
+export type EnvState = "absent" | "identical" | "different" | "unreadable";
+
+export interface EnvironmentRow {
+  object: string;
+  kind: "uc_table" | "config_row";
+  state: EnvState;
+  evidence: string;
+  differences: string;
+  action: string;
+}
+
+export interface EnvironmentSummary {
+  probed_at: string;
+  environment: string;
+  counts: Record<EnvState, number>;
+  rows: EnvironmentRow[];
 }
 
 export interface FrameworkSummary {

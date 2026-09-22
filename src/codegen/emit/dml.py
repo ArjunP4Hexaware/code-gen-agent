@@ -39,6 +39,7 @@ from pathlib import Path
 
 from codegen.config import Config
 from codegen.contracts.resolved import ResolvedFeedSpec
+from codegen.env.model import EnvProbeResult, ProbedObject
 from codegen.faq import LoadPatternFaq
 from codegen.gate.preflight import GateCheck
 
@@ -163,7 +164,14 @@ def _variables(faq: LoadPatternFaq, config: Config, spec: ResolvedFeedSpec, env:
 # ------------------------------------------------------------------ preflight
 
 
-def _preflight(config: Config, tables_present: set[str]) -> list[str]:
+def _preflight(config: Config, tables_present: set[str],
+               env_present: frozenset[str] = frozenset(),
+               env_assertions: tuple[str, ...] = ()) -> list[str]:
+    """``env_present`` (M10): tabs where the environment probe FOUND a row of
+    this feed. There the "id must be unused" assertion would refuse the very
+    state the probe reported — the id is in use BY that row — so it gives way
+    to the expected-state assertions (``env_assertions``). Both empty = the
+    block is byte for byte what it was before M10."""
     dml = config.dml
     schema = dml.schema
     conn = dml.connection_table
@@ -172,20 +180,32 @@ def _preflight(config: Config, tables_present: set[str]) -> list[str]:
              "IF @RFC_NUMBER IS NULL RAISERROR('RFC_NUMBER is not assigned (audit columns, "
              f"{_SEMANTICS} §1)', 16, 1);"]
     if "DATA_FACTORY_PIPELINE_SCHEDULE" in tables_present:
-        lines += [
-            "IF @PIPELINE_ID IS NULL RAISERROR('PIPELINE_ID is not assigned', 16, 1);",
-            f"IF EXISTS (SELECT 1 FROM {_table(schema, 'DATA_FACTORY_PIPELINE_SCHEDULE')} "
-            "WHERE [PIPELINE_ID] = @PIPELINE_ID) RAISERROR('PIPELINE_ID %d is already used "
-            "(unique per process)', 16, 1, @PIPELINE_ID);",
-        ]
+        lines.append("IF @PIPELINE_ID IS NULL RAISERROR('PIPELINE_ID is not assigned', 16, 1);")
+        if "DATA_FACTORY_PIPELINE_SCHEDULE" in env_present:
+            lines.append("-- ENVIRONMENT: the pipeline row exists (probe) — its PIPELINE_ID is "
+                         "in use by that row; the unused-id assertion is replaced by the "
+                         "expected-state assertions below")
+        else:
+            lines.append(
+                f"IF EXISTS (SELECT 1 FROM {_table(schema, 'DATA_FACTORY_PIPELINE_SCHEDULE')} "
+                "WHERE [PIPELINE_ID] = @PIPELINE_ID) RAISERROR('PIPELINE_ID %d is already used "
+                "(unique per process)', 16, 1, @PIPELINE_ID);")
     group_tables = [t for t in ("FILE_ADLS_INGESTION_DETAILS", "ADLS_DELTA_INGESTION_DETAILS",
                                 "STGDELTA_STDDELTA_INGESTION_DET") if t in tables_present]
     if group_tables:
         lines.append("IF @GROUP_ID IS NULL RAISERROR('GROUP_ID is not assigned', 16, 1);")
         for t in group_tables:
+            if t in env_present:
+                lines.append(f"-- ENVIRONMENT: rows of this feed exist in {t} (probe) — the "
+                             "GROUP_ID is in use by them; see the expected-state assertions")
+                continue
             lines.append(f"IF EXISTS (SELECT 1 FROM {_table(schema, t)} WHERE [GROUP_ID] = "
                          f"@GROUP_ID) RAISERROR('GROUP_ID %d is already used in {t} (never "
                          "reused)', 16, 1, @GROUP_ID);")
+    if env_assertions:
+        lines.append("-- EXPECTED STATE (environment probe): this script was written against "
+                     "what the probe found; it refuses to run if the metadata DB has changed")
+        lines.extend(env_assertions)
     lines += [
         "-- connection lookup (table / column identifiers as spoken in the walkthrough — "
         "confirm: dml_unconfirmed:connection_table)",
@@ -218,36 +238,202 @@ def _preflight(config: Config, tables_present: set[str]) -> list[str]:
 # ------------------------------------------------------------------- inserts
 
 
+def cell_kind(header: str, value, config: Config) -> tuple[str, str | None]:
+    """(kind, literal) for one IIG cell — THE precedence of the §1/§2/§7
+    conventions. The INSERT renderer and the environment probe's expectations
+    (codegen.env.expect) both read it, so the probe compares exactly what the
+    script would write. Kinds: variable | connection | audit_by | audit_date |
+    active | claim_type | identity | null | multiline | path | literal."""
+    upper = header.upper()
+    if upper in _VARIABLE_COLUMNS:
+        return "variable", _VARIABLE_COLUMNS[upper]
+    if upper in config.dml.connection_roles:
+        return "connection", f"@{upper}"
+    if upper in _AUDIT_BY:
+        return "audit_by", None
+    if upper in _AUDIT_DATE:
+        return "audit_date", None
+    if upper in _ACTIVE:
+        return "active", config.dml.active_flag
+    if upper == "CLAIM_TYPE_ID":
+        return "claim_type", config.dml.claim_type_id_default
+    if upper in _IDENTITY_COLUMNS:
+        return "identity", None
+    if upper in _ALWAYS_NULL or value in ("", None):
+        return "null", None
+    text = str(value)
+    if "\n" in text or "\r" in text:
+        return "multiline", None
+    if _is_path_column(header, config):
+        return "path", text
+    return "literal", text
+
+
 def _cell_sql(header: str, value, badge: str, tab: str, config: Config, flags: list[str],
               multiline: list[str]) -> str:
     """The SQL expression for one IIG cell, per the §1/§2/§7 conventions."""
-    upper = header.upper()
-    if upper in _VARIABLE_COLUMNS:
-        return _VARIABLE_COLUMNS[upper]
-    if upper in config.dml.connection_roles:
-        return f"@{upper}"
-    if upper in _AUDIT_BY:
+    kind, literal = cell_kind(header, value, config)
+    if kind in ("variable", "connection"):
+        return str(literal)
+    if kind == "audit_by":
         return "@RFC_NUMBER"
-    if upper in _AUDIT_DATE:
+    if kind == "audit_date":
         return "GETDATE()"
-    if upper in _ACTIVE:
-        return _literal(config.dml.active_flag)
-    if upper == "CLAIM_TYPE_ID":
-        return "NULL" if config.dml.claim_type_id_default is None \
-            else _literal(config.dml.claim_type_id_default)
-    if upper in _ALWAYS_NULL or upper in _IDENTITY_COLUMNS:
-        return "NULL"
-    if value in ("", None):
-        return "NULL"
-    text = str(value)
-    if "\n" in text or "\r" in text:
+    if kind == "multiline":
         flags.append(f"dml_multiline:{tab}.{header} — the IIG cell spans lines ({badge}); "
                      "written as NULL, never a literal")
         multiline.append(f"{tab}.{header}")
         return "NULL  /* dml_multiline */"
-    if _is_path_column(header, config):
-        return f"CONCAT(@PATH_PREFIX, {_literal(text)})"
-    return _literal(text)
+    if kind == "path":
+        return f"CONCAT(@PATH_PREFIX, {_literal(literal)})"
+    if literal is None:  # identity | null | an unset claim type
+        return "NULL"
+    return _literal(literal)
+
+
+def _raiserror(message: str) -> str:
+    """A RAISERROR literal: no format specifiers, quotes doubled, one line."""
+    text = " ".join(message.split()).replace("%", "%%").replace("'", "''")
+    return f"RAISERROR('{text[:400]}', 16, 1);"
+
+
+def _equals(column: str, expression: str) -> str:
+    return f"{_ident(column)} IS NULL" if expression.startswith("NULL") \
+        else f"{_ident(column)} = {expression}"
+
+
+def _differs(column: str, expression: str) -> str:
+    return f"{_ident(column)} IS NOT NULL" if expression.startswith("NULL") \
+        else f"({_ident(column)} <> {expression} OR {_ident(column)} IS NULL)"
+
+
+@dataclass(frozen=True)
+class _EnvAdjusted:
+    """The probed environment's body + what the preflight needs to know."""
+
+    lines: list[str]
+    assertions: tuple[str, ...]
+    present_tabs: frozenset[str]
+    flags: list[str]
+
+
+def _env_inserts(payload: dict, config: Config, result: EnvProbeResult) -> _EnvAdjusted:
+    """The INSERT block adjusted to what the probe found, row by row.
+
+    absent / unreadable / not probed -> the INSERT, exactly as without a probe.
+    identical -> a comment, no statement. different -> a REVIEW block naming
+    the natural key and both values of every differing column, with an UPDATE
+    CANDIDATE that is commented out unless ``dml.emit_updates`` — the DML stays
+    INSERT-only until the framework team confirms an update path exists
+    (METADATA_DB_SEMANTICS §11 q19). Status columns are never part of any of
+    it. Every probed row also gets an expected-state assertion.
+    """
+    dml = config.dml
+    tables = payload.get("tabs", {})
+    order = ([t for t in dml.table_order if t in tables]
+             + [t for t in tables if t not in dml.table_order])
+    lines: list[str] = []
+    assertions: list[str] = []
+    present: set[str] = set()
+    flags: list[str] = []
+    scratch: list[str] = []   # _cell_sql's flag sinks — already raised by _inserts
+    for tab in order:
+        rows = tables[tab].get("rows", [])
+        if not rows:
+            continue
+        table = config.framework.tables.get(tab, tab)
+        qualified = _table(dml.schema, table)
+        described = tab in dml.described_tables
+        headers = list(tables[tab]["headers"])
+        states = [result.row(tab, i) for i in range(len(rows))]
+        tally = {s: sum(1 for o in states if o is not None and o.state == s)
+                 for s in ("absent", "identical", "different", "unreadable")}
+        lines.append("")
+        lines.append(f"-- {tab}: {len(rows)} row(s)"
+                     + ("" if described else f" — table not yet described in the framework "
+                                             f"walkthrough ({_SEMANTICS} §8); §1 conventions only"))
+        lines.append(f"--   environment (probed {result.probed_at}): "
+                     + ", ".join(f"{n} {s}" for s, n in tally.items() if n)
+                     + ("" if described or not (tally["identical"] or tally["different"])
+                        else " — natural key UNCONFIRMED for this table (config "
+                             "dml.natural_keys; METADATA_DB_SEMANTICS §8, §11)"))
+        statements = 0
+        for index, row in enumerate(rows):
+            expressions = {h: _cell_sql(h, row["values"].get(h),
+                                        row["badges"].get(h, {}).get("badge", "?"),
+                                        tab, config, scratch, scratch) for h in headers}
+            insert = (f"INSERT INTO {qualified} ({', '.join(_ident(h) for h in headers)}) "
+                      f"VALUES ({', '.join(expressions[h] for h in headers)});")
+            probed: ProbedObject | None = states[index]
+            if probed is None or probed.state == "unreadable":
+                lines.append(insert)
+                statements += 1
+                continue
+            where = " AND ".join(_equals(k, expressions[k]) for k in probed.natural_key)
+            label = f"{table}[{', '.join(f'{k}={v}' for k, v in probed.natural_key.items())}]"
+            if probed.state == "absent":
+                lines.append(insert)
+                statements += 1
+                assertions.append(
+                    f"IF EXISTS (SELECT 1 FROM {qualified} WHERE {where}) " + _raiserror(
+                        f"environment changed since the probe: {label} was absent, now exists"))
+                continue
+            present.add(tab)
+            if probed.state == "identical":
+                lines.append(f"-- ENVIRONMENT identical: {label} exists and matches this row — "
+                             "no statement (INSERT skipped)")
+                same = " AND ".join([where, *(_equals(c, expressions[c])
+                                              for c in probed.compared if c in expressions)])
+                assertions.append(
+                    f"IF NOT EXISTS (SELECT 1 FROM {qualified} WHERE {same}) " + _raiserror(
+                        f"environment changed since the probe: {label} was identical to this "
+                        "script, no longer"))
+                continue
+            # different
+            differing = [d for d in probed.diffs if d.column in expressions]
+            names = ", ".join(d.column for d in differing)
+            lines.append(f"-- REVIEW {label}: exists and DIFFERS from this row — INSERT skipped")
+            for d in differing:
+                lines.append(f"--   {_ident(d.column)}: this script {expressions[d.column]} | "
+                             "environment "
+                             + ("NULL" if d.actual is None else _literal(d.actual)))
+            sets = [f"{_ident(d.column)} = {expressions[d.column]}" for d in differing]
+            if any(h.upper() == "UPDATED_BY" for h in headers):
+                sets.append("[UPDATED_BY] = @RFC_NUMBER")
+            if any(h.upper() == "UPDATED_DATE" for h in headers):
+                sets.append("[UPDATED_DATE] = GETDATE()")
+            update = f"UPDATE {qualified} SET {', '.join(sets)} WHERE {where};"
+            if dml.emit_updates:
+                lines.append("--   dml.emit_updates is ON: the framework team confirmed an "
+                             "update path for config rows")
+                lines.append(update)
+                statements += 1
+                held = " AND ".join([where, *(
+                    f"{_ident(d.column)} IS NULL" if d.actual is None
+                    else f"{_ident(d.column)} = {_literal(d.actual)}" for d in differing)])
+                assertions.append(
+                    f"IF NOT EXISTS (SELECT 1 FROM {qualified} WHERE {held}) " + _raiserror(
+                        f"environment changed since the probe: {label} no longer holds the "
+                        f"probed values of {names}"))
+            else:
+                lines.append("--   UPDATE candidate — NOT executed (dml.emit_updates is off: no "
+                             "update path for config rows is confirmed by the framework team, "
+                             f"{_SEMANTICS} §11 q19):")
+                lines.append(f"--   {update}")
+                still = " OR ".join(_differs(d.column, expressions[d.column]) for d in differing)
+                assertions.append(
+                    f"IF EXISTS (SELECT 1 FROM {qualified} WHERE {where} AND ({still})) "
+                    + _raiserror(f"{label} still differs from this script in {names} — resolve "
+                                 "the REVIEW block before running"))
+            flags.append(f"dml_review:{label} — differs in {names}; "
+                         + ("UPDATE emitted (dml.emit_updates)" if dml.emit_updates
+                            else "INSERT skipped, UPDATE candidate commented out"))
+        lines.append(f"SELECT {_literal(tab)} AS table_name, @@ROWCOUNT AS rows_inserted;"
+                     if statements else
+                     f"SELECT {_literal(tab)} AS table_name, 0 AS rows_inserted;  -- nothing to "
+                     "do in this environment")
+    return _EnvAdjusted(lines=lines, assertions=tuple(assertions),
+                        present_tabs=frozenset(present), flags=flags)
 
 
 def _inserts(payload: dict, config: Config, flags: list[str]) -> tuple[list[str], dict[str, int]]:
@@ -373,7 +559,13 @@ def _notebook_source(env: str, sql_name: str, variables: dict[str, str | None],
 
 
 def emit_dml(spec: ResolvedFeedSpec, faq: LoadPatternFaq, payload: dict, config: Config,
-             framework_dir: Path, banner: list[tuple[str, str]]) -> DmlArtefacts:
+             framework_dir: Path, banner: list[tuple[str, str]],
+             env_probe: EnvProbeResult | None = None,
+             probed_environment: str = "") -> DmlArtefacts:
+    """``env_probe`` (M10) adjusts ONLY the script of ``probed_environment`` —
+    a probe sees one metadata DB, and what it found says nothing about the
+    others. When it found no row of this feed (all absent / unreadable) that
+    script too is byte for byte what it is without a probe."""
     dml = config.dml
     files: list[Path] = []
     flags: list[str] = []
@@ -386,6 +578,12 @@ def emit_dml(spec: ResolvedFeedSpec, faq: LoadPatternFaq, payload: dict, config:
                  f"as spoken in the walkthrough, not printed; confirm before running "
                  f"({_SEMANTICS} §3)")
     inserts, row_counts = _inserts(payload, config, flags)
+    adjusted: _EnvAdjusted | None = None
+    if env_probe is not None and probed_environment in dml.environments and any(
+            o.kind == "config_row" and o.state in ("identical", "different")
+            for o in env_probe.objects):
+        adjusted = _env_inserts(payload, config, env_probe)
+        flags.extend(adjusted.flags)
     for env in dml.environments:
         env_flags: list[str] = []
         var_lines, variables = _variables(faq, config, spec, env, env_flags)
@@ -400,13 +598,20 @@ def emit_dml(spec: ResolvedFeedSpec, faq: LoadPatternFaq, payload: dict, config:
             *[f"-- {key}: {value}" for key, value in banner if key != "Layout"],
             f"-- ACTIVE_FLAG is written as {_literal(dml.active_flag)} (walkthrough §1); the "
             "review workbooks show the golden's value — see METADATA_DB_SEMANTICS §10",
+            *([f"-- ENVIRONMENT STATE = adjusted to the read-only probe of {env} at "
+               f"{env_probe.probed_at}; the other environments' scripts are NOT adjusted"]
+              if adjusted is not None and env_probe is not None and env == probed_environment
+              else []),
             "SET NOCOUNT ON;",
             "",
             "-- VARIABLES (this block is the only part that differs per environment)",
             *var_lines,
             "",
-            *_preflight(config, set(row_counts)),
-            *inserts,
+            *(_preflight(config, set(row_counts), adjusted.present_tabs, adjusted.assertions)
+              if adjusted is not None and env == probed_environment
+              else _preflight(config, set(row_counts))),
+            *(adjusted.lines if adjusted is not None and env == probed_environment
+              else inserts),
             "",
         ]
         text = "\n".join(header)

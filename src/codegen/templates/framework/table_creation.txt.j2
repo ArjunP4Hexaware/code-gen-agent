@@ -15,6 +15,9 @@
 
 --{{ t.qualified }}
 
+{% if t.env_block %}
+{{ t.env_block }}
+{% else %}
 CREATE OR REPLACE TABLE {{ t.qualified }} (
 {% for col in t.columns %}
   {{ col.name }} {{ col.dtype }}{% if col.comment %} COMMENT '{{ col.comment }}'{% endif %}{{ ")" if loop.last else "," }}
@@ -54,5 +57,6 @@ TBLPROPERTIES (
 
 {% if t.tags %}
 ALTER TABLE {{ t.qualified }} SET TAGS ('DOMAIN' = '{{ t.tags[0] }}', 'SUBDOMAIN' = '{{ t.tags[1] }}');
+{% endif %}
 {% endif %}
 {% endfor %}

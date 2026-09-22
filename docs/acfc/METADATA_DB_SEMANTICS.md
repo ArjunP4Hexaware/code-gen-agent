@@ -258,4 +258,9 @@ Yes / no questions, ready to send as-is. Each names the section it settles.
 **Also (§1, §2)**
 
 18. Is the `CREATED_BY` / `UPDATED_BY` value the bare ticket number (`RFC######`, the digits only after `RFC`) or does it carry a prefix?
+
+**Reconciling with rows that already exist (M10, 2026-09-21)**
+
+19. Does an **UPDATE path exist for config rows**? When the read-only probe finds a row of a new feed already present with different values (same natural key), the generated script today writes a REVIEW block with a commented-out `UPDATE … WHERE <natural key>` and refuses to run while the row differs (`dml.emit_updates: false`). Is an in-place UPDATE of such a row acceptable (audit columns `UPDATED_BY` / `UPDATED_DATE` set), or must a changed row be retired and re-inserted?
+20. Are the natural keys the probe looks rows up by correct — `PIPELINE_NAME` (§2), (`GROUP_ID`, `OBJECT_ID`) for the file → ADLS table, (`GROUP_ID`, `OBJECT_ID`, `OBJECT_NAME`) for the two Delta tables (§5, §7), and the by-analogy keys in `config.yaml dml.natural_keys` for the §8 tables?
 19. Is `IsFileCopyReqFlag` `Y` for every file ingestion the framework copies from the O drive, and `N` only for non-file processes?

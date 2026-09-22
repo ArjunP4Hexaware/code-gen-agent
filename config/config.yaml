@@ -829,6 +829,13 @@ conventions:
       # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
       # the target system is labelled in ADDITION.md / MANIFEST.md instead.
       target_system_header: false
+      # M10: adjust the DDL to what the environment probe found (identical ->
+      # comment, no CREATE; different -> ALTER TABLE ADD COLUMNS + a REVIEW
+      # block; never DROP, never CREATE OR REPLACE over an existing table).
+      # Changes NOTHING while env.probe is off or every table is absent /
+      # unreadable — the pair-1 golden stays byte-identical. edo_sfmc leaves it
+      # off ("unchanged behaviour": CREATE OR REPLACE regardless).
+      reconcile_ddl: true
 
 metadata:
   # M4: IIG workbook template versions. iig_v1 = demo.metadata_sheet (the
@@ -986,6 +993,13 @@ dml:
   jdbc_url_secret: jdbc-url
   user_secret: jdbc-user
   password_secret: jdbc-password
+  # M10: a config row the environment probe found DIFFERENT gets a REVIEW
+  # block with a COMMENTED-OUT UPDATE candidate — the DML stays INSERT-only.
+  # true turns the candidate live; flip it only once the framework team
+  # confirms an update path for config rows exists (METADATA_DB_SEMANTICS
+  # §11 q19). natural_keys / status_columns keep their model defaults
+  # (src/codegen/config.py DmlConfig) — override per table in an overlay.
+  emit_updates: false
   # The file connection table as SPOKEN in the walkthrough (§3) — flagged
   # dml_unconfirmed until the framework team confirms the identifiers.
   connection_table:
@@ -1097,6 +1111,35 @@ upstream:
   enabled: false
   timeout_seconds: 20
   refresh_seconds: 300
+
+# M10: environment reconciliation — a READ-ONLY probe of what already exists
+# where the artefacts will be deployed: the stage / standard tables (Unity
+# Catalog, DESCRIBE TABLE through a SQL warehouse) and each config row the DML
+# would insert (the SQL Server metadata DB, one keyed SELECT per row). Each
+# object reads absent | identical | different | unreadable and the DDL / DML
+# are adjusted to it (docs/ACFC_DEPLOY.md "Environment probe").
+#
+# OFF by default, and EVERY workspace value ships blank: both targets exist
+# only inside the operator's workspace. Set them in an overlay or as App env —
+#   CODEGEN_ENV_PROBE=1
+#   CODEGEN_ENV_PROBE_WAREHOUSE_ID=<warehouse the App SP has CAN USE on>
+#   CODEGEN_ENV_PROBE_ENVIRONMENT=q1|a2|prod   (which metadata DB this one is)
+#   CODEGEN_ENV_PROBE_SECRET_SCOPE / _JDBC_URL_SECRET / _USER_SECRET / _PASSWORD_SECRET
+# databricks.warehouse_id is NEVER a fallback (it names another workspace's
+# warehouse). Outside a Databricks runtime nothing is resolved — no CLI
+# profile is ever consulted — and every object reads `unreadable`.
+# `unreadable` is a flag, never a stop: the run proceeds as without the probe.
+env:
+  probe:
+    enabled: false
+    environment: ""
+    uc_warehouse_id: ""
+    timeout_seconds: 20
+    metadata_db:              # secret NAMES only — never values
+      secret_scope: ""
+      jdbc_url_secret: ""
+      user_secret: ""
+      password_secret: ""
 
 inputs:
   extra_dirs: []

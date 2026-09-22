@@ -319,6 +319,79 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.6.0-acfc adds (M10 — the environment probe, read-only)
+
+Before this the artefacts assumed an empty target: every table a `CREATE OR
+REPLACE`, every config row an `INSERT`. Now, when the probe is on, the run
+asks the environment first — each stage / standard table of the deployment
+DDL (`DESCRIBE TABLE` through a SQL warehouse) and each config row the DML
+would insert (one keyed `SELECT` per row against the metadata DB) — and each
+object reads **absent | identical | different | unreadable**, with the query
+and the timestamp as evidence (`<state>/env_probe/<feed>.json`, the report's
+"Environment" section, the feed page's Environment table, flags `env_absent`
+/ `env_identical` / `env_different` / `env_unreadable`).
+
+What the artefacts then do:
+
+| State | DDL (`conventions.profiles.<p>.reconcile_ddl`, on for `acfc_prx`) | DML (`config_inserts_<env>.sql`, the probed environment only) |
+| --- | --- | --- |
+| absent | CREATE, as before | INSERT, as before (+ an assertion: still absent) |
+| identical | a comment, no CREATE | a comment, no INSERT (+ an assertion: still identical) |
+| different | `ALTER TABLE … ADD COLUMNS` for additive drift; a REVIEW block, no statement, for type / removal differences. Never DROP, never CREATE OR REPLACE over an existing table | a REVIEW block naming the key and both values of every differing column, a **commented-out** UPDATE candidate, and an assertion that fails while the row still differs. `dml.emit_updates: true` turns the candidate live — only once the framework team confirms an update path exists (question 19 in `docs/acfc/METADATA_DB_SEMANTICS.md` §11) |
+| unreadable | as before | as before |
+
+`unreadable` is a **flag, never a stop**. Row status columns
+(`dml.status_columns`: `ACTIVE_FLAG` …) are shown in the report when they
+differ and never touched, unless the load-pattern FAQ answers
+`manage_row_status: yes`. A row whose natural key (`dml.natural_keys`) has no
+value at generation time — an unassigned `@GROUP_ID`, a client-filled
+`PROCESS_NAME` — or is shared by several rows of the feed reads `unreadable`
+and says why; it is never guessed at. With the probe **off**, or when every
+object is absent / unreadable, every artefact is byte for byte what it was
+(pinned: CV, SFMC and pair 1).
+
+**It is off, and it stays off until granted.** The tracked config ships
+`env.probe.enabled: false` and every workspace value blank. Turn it on in
+the App's env (an overlay works too):
+
+```
+CODEGEN_ENV_PROBE=1
+CODEGEN_ENV_PROBE_WAREHOUSE_ID=<a SQL warehouse the App SP has CAN USE on>
+CODEGEN_ENV_PROBE_ENVIRONMENT=q1            # which metadata DB this workspace's is
+CODEGEN_ENV_PROBE_SECRET_SCOPE=<scope>      # + _JDBC_URL_SECRET / _USER_SECRET / _PASSWORD_SECRET
+```
+
+What each half needs:
+
+- **Unity Catalog** — the App's service principal needs **CAN USE** on the
+  warehouse (today it has none: every table reads `unreadable` with that
+  reason) and USE CATALOG / USE SCHEMA / SELECT on the target tables. Each
+  probe is one `DESCRIBE TABLE` per table; a `DESCRIBE` wakes an auto-stopped
+  warehouse.
+- **The metadata DB** — a **read-only** SQL Server login, its JDBC URL / user
+  / password in a secret scope the SP can read (secret NAMES in config, values
+  only in the workspace), and the `[envprobe]` extra (`pymssql`) in the App's
+  `requirements.txt` — the App container has no JVM. Without the extra that
+  half reads `unreadable` naming the extra.
+- `databricks.warehouse_id` is **never** a fallback — it names another
+  workspace's warehouse.
+
+**Where it runs.** In the App: on the run's own thread, after the contracts
+resolve, every query bounded by `env.probe.timeout_seconds` (a query that
+hangs is given up, not waited for), never on a request path. In the notebook
+fallback (`acfc_run.py`, widget `env_probe = run`): two passes — `generate
+--env-expected-out` writes what the artefacts expect, the notebook probes
+in-process through its own SparkSession (`DESCRIBE TABLE` on the notebook's
+compute, the metadata DB over Spark JDBC with `dbutils.secrets`), then
+`generate --env-probe-result` emits the adjusted artefacts.
+
+**UNVERIFIED (2026-09-21):** neither transport has run against a real
+workspace or a real SQL Server — the suite drives fakes (`tests/env_fakes.py`,
+`tests/test_m10_env_probe.py`). Outside a Databricks runtime the probe
+resolves nothing at all: no CLI profile is ever consulted, every object reads
+`unreadable`. The suite runs under a socket guard (`tests/conftest.py`): an
+outbound connection fails the test that made it.
+
 ## What v0.5.8-acfc adds (Generate works right after a restart)
 
 Starting a run now supersedes the startup **restore** job instead of being

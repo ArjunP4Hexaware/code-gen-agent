@@ -285,20 +285,20 @@ companions (NOT questions — banner/flag counts untouched) feeding the
 
 ## START HERE (state as of 2026-09-22) — READ FIRST
 
-**Where the code is.** `staging` = `origin/staging`, tag **v0.7.4-acfc** on
-**51bf143**, working tree clean. Every tag v0.4.0 … v0.7.4 is on the
+**Where the code is.** `staging` = `origin/staging`, tag **v0.8.0-acfc** on
+**6c2dab3**, working tree clean. Every tag v0.4.0 … v0.8.0 is on the
 remote. `main` is untouched at **4c35c61 (v0.4.1)** — merge staging → main only
 on Soham's say-so. All development happens on `staging`.
 
-**App version marker = 0.7.4** (`pyproject.toml` + the `codegen-version-marker`
+**App version marker = 0.8.0** (`pyproject.toml` + the `codegen-version-marker`
 comment in `requirements.txt` — bump BOTH whenever `src/` changes, or the Apps
 runtime serves a cached env). `ui/frontend/dist` is tracked; the bundle was last
 rebuilt at v0.7.0 (`index-JnGVbJrA.js`). Rebuild and commit it whenever
 `ui/frontend/src` changes.
 
-**Verified at 51bf143:** 807 passed / 27 skipped on Python 3.10, 3.11 and 3.12
+**Verified at 6c2dab3:** 830 passed / 27 skipped on Python 3.10, 3.11 and 3.12
 (uv venvs, ruff 0.16.x); ruff clean (`src/ tests/ ui/backend/`); tsc clean; CV /
-SFMC baselines 193 files byte-identical to v0.7.3 (and so to every earlier
+SFMC baselines 193 files byte-identical to v0.7.4 (and so to every earlier
 tag); pair-1 acceptance goldens (`tests/test_m4_acceptance.py`) unchanged;
 `scripts/scrub_check.py` over EVERY tracked file (`git ls-files`): 0 hits.
 Synthetic storage URIs in code / tests use hosts under `example.invalid` — a
@@ -309,6 +309,7 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
 
 | tag | commit | what |
 |---|---|---|
+| v0.8.0 | 6c2dab3 | M13 probe snapshots: `codegen probe` asks AS THE USER through the `spark` seam (`env/spark_seam.py`: information_schema / DESCRIBE TABLE EXTENDED, JDBC + dbutils.secrets) and writes a snapshot with raw observations; `generate --probe-snapshot` and the App (`env.probe.snapshots`, <state>/probes/<feed>.json) REPLAY them through the classifier against current expectations; `env_snapshot_stale` / `_missing`; report headline NOT STARTED / PARTIAL / COMPLETE / UNKNOWN; acfc_run.py probe cell. |
 | v0.7.4 | 51bf143 | Housekeeping: ruff pinned `>=0.16,<0.17` in `[dev]` and `[ui]` (the App's requirements inherit it); synthetic URI hosts moved to `example.invalid`, scrub 0 over every tracked file. |
 | v0.7.3 | efd0efe | M12 (from RUN_v072_details): the layout model's answer is validated against a provenance-free RESPONSE schema (`layout/response.py`), provenance stamped by us; the gate's ruff is pinned (`lint_rules.py`, `--isolated`, EXE002 ignored) and the runner's unused noqa is gone; the parser child is probed once and documents parse in-process when it cannot start (`parser_mode`); a VDD tie is a question. |
 | v0.7.2 | 6b2d9ac | M11 addendum items 10, 8, 12, 13, 9 (the SHAPES_ROUND2 shapes). Layer-prefixed headers (pair 7). F2 detected in any row-0 cell (pair 8). A blank band label; NOTE rows never parsed (pair 5). Scope column, Load-Rules audit rows, type+format, and `source_kind=rdbms` → a DML REVIEW block (pair 6). F3 topic-organised FRDs (pairs 9/10). |
@@ -393,7 +394,10 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   the v0.7.2 gate's ruff FAIL actually listed was not captured: in framework
   mode the gate lints the scratch pipeline tree, not the runner notebooks the
   record's manual ruff run covered — the next run's gate details will say.
-- The environment probe has only run against fakes (`tests/env_fakes.py`).
+- The environment probe (M10 transports AND the M13 `spark` seam / snapshots)
+  has only run against fakes (`tests/env_fakes.py`,
+  `tests/test_m13_probe_snapshot.py`). Whether UC reports a table the user
+  cannot see as not-found (absent) or a permission error is not established.
 - Pair 9's real row-4 labels; pair 6's REGION_NAME "Hard code note" (today a
   typed NULL + `audit_column_unpopulated:`).
 - The real VDD span of pair 1's six amount fields; the real `Frequency` /

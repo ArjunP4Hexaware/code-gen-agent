@@ -8,5 +8,5 @@
 # file can serve stale code. Bump the marker below (and the pyproject
 # version) whenever src/ changes.
 # ruff comes from .[ui] and is pinned there (>=0.16,<0.17): the gate's ruff.
-# codegen-version-marker: 0.7.4
+# codegen-version-marker: 0.8.0
 .[ui,databricks]

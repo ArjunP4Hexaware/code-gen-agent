@@ -174,7 +174,7 @@ LAYOUT_PROFILES = REPO / "fixtures" / "layout_profiles"
 
 
 @pytest.fixture(scope="session")
-def pair1_spec(pair1_config, tmp_path_factory):
+def pair1_contracts(pair1_config, tmp_path_factory) -> dict:
     """Pair 1 end to end (M9.4): the real-shape fixtures resolve by synonyms
     alone — the mock provider is offered and must never be called, no answers
     file — then STTM + FRD(docx) + VDD contracts. The FRD's Object Name cell
@@ -212,5 +212,12 @@ def pair1_spec(pair1_config, tmp_path_factory):
     vdd_contract, _ = extract_vdd_contract(ACFC_SHAPES / "vdd" / "pair_1_v1_segments.xlsx", config,
                                            generated_date="2026-01-01")
     vdd_json.write_text(vdd_to_json(vdd_contract), encoding="utf-8")
-    (spec,) = resolve_contracts(frd_json, sttm_json, config, vdd_path=vdd_json)
+    return {"frd": frd_json, "sttm": sttm_json, "vdd": vdd_json}
+
+
+@pytest.fixture(scope="session")
+def pair1_spec(pair1_config, pair1_contracts):
+    """The pair-1 contracts (``pair1_contracts``) resolved: one feed."""
+    (spec,) = resolve_contracts(pair1_contracts["frd"], pair1_contracts["sttm"], pair1_config,
+                                vdd_path=pair1_contracts["vdd"])
     return spec

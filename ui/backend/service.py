@@ -389,7 +389,15 @@ class GenerationStore:
                 from codegen.env.reconcile import environment_rows
 
                 result = framework_artefacts.env_result
+                from codegen.env.model import deployment_headline
+
+                headline, headline_reason = deployment_headline(result)
                 environment_summary = {
+                    # M13: how far the deployment has got, and a snapshot's age.
+                    "headline": headline,
+                    "headline_reason": headline_reason,
+                    "snapshot": (result.snapshot.model_dump()
+                                 if result.snapshot is not None else None),
                     "probed_at": result.probed_at,
                     "environment": getattr(env, "environment", "") or "",
                     "counts": result.counts(),

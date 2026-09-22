@@ -106,10 +106,14 @@ def render_select(schema: str, table: str, columns: list[str], key: dict[str, st
 
 
 class WarehouseUcClient:
-    def __init__(self, workspace_client, warehouse_id: str, timeout_seconds: float) -> None:
+    transport = "warehouse"
+
+    def __init__(self, workspace_client, warehouse_id: str, timeout_seconds: float,
+                 identity: str | None = None) -> None:
         self._client = workspace_client
         self._warehouse_id = warehouse_id
         self._timeout = timeout_seconds
+        self.identity = identity
 
     def describe(self, qualified: str):
         from codegen.databricks import (
@@ -148,6 +152,9 @@ def parse_jdbc_url(url: str) -> dict[str, str]:
 class PythonDriverMetadataDbClient:
     """A Databricks App container has no JVM: the probe needs a Python SQL
     Server driver (``pymssql``, the optional ``[envprobe]`` extra)."""
+
+    transport = "python_driver"
+    identity: str | None = None
 
     def __init__(self, schema: str, url: str, user: str, credential: str,
                  timeout_seconds: float) -> None:
@@ -189,6 +196,9 @@ class SparkJdbcMetadataDbClient:
     classic and serverless compute; the JVM gateway does not exist on the
     latter). Built by ``codegen.env.notebook`` with the notebook's own
     ``spark`` and secrets — never by the CLI, which has neither."""
+
+    transport = "spark_jdbc"
+    identity: str | None = None
 
     def __init__(self, spark, schema: str, url: str, user: str, credential: str,
                  timeout_seconds: float) -> None:
@@ -240,7 +250,14 @@ def build_clients(config: Config, settings: ProbeSettings, env=None):
                   f"{type(exc).__name__}: {(str(exc).splitlines() or [''])[0][:160]}")
         return Unavailable(reason), Unavailable(reason)
 
-    uc = (WarehouseUcClient(workspace, settings.uc_warehouse_id, settings.timeout_seconds)
+    try:  # M13: who the warehouse is asked as (the runtime's identity), best-effort
+        me = workspace.current_user.me()
+        identity = str(getattr(me, "user_name", None) or getattr(me, "display_name", None)
+                       or "unknown")
+    except Exception:  # noqa: BLE001
+        identity = "unknown (the runtime identity could not be read)"
+    uc = (WarehouseUcClient(workspace, settings.uc_warehouse_id, settings.timeout_seconds,
+                            identity=identity)
           if settings.uc_warehouse_id else
           Unavailable("env.probe.uc_warehouse_id is not set (CODEGEN_ENV_PROBE_WAREHOUSE_ID) — "
                       "the App's service principal needs CAN USE on a SQL warehouse"))
@@ -261,6 +278,7 @@ def build_clients(config: Config, settings: ProbeSettings, env=None):
                 config.dml.schema, secret(settings.jdbc_url_secret),
                 secret(settings.user_secret), secret(settings.password_secret),
                 settings.timeout_seconds)
+            db.identity = f"the login in secret {settings.secret_scope}/{settings.user_secret}"
         except ProbeUnreadable as exc:
             db = Unavailable(str(exc))
         except Exception as exc:  # noqa: BLE001 — a secret's NAME may appear, never its value

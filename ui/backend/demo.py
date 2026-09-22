@@ -1460,9 +1460,14 @@ class DemoRunner:
         # CODEGEN_ENV_PROBE. It runs HERE, on the run's own thread (never a
         # request), every query bounded; whatever it cannot ask is `unreadable`,
         # a flag — the run proceeds exactly as without it.
-        from codegen.env.reconcile import build_reconciler, persist_result
+        from codegen.env.reconcile import build_reconciler, persist_result, snapshots_enabled
 
-        reconciler = build_reconciler(config)
+        # M13: with env.probe.snapshots (CODEGEN_ENV_PROBE_SNAPSHOTS=1) each feed
+        # reads its LATEST `codegen probe` snapshot from <state>/probes/ — taken
+        # in a notebook as the user, where the App's own identity cannot read.
+        reconciler = build_reconciler(
+            config, state_store=(ui_stores.get_stores(config).state
+                                 if snapshots_enabled(config) else None))
         if reconciler is not None:
             self._stage("probing the environment",
                         "read-only: Unity Catalog tables + metadata-DB config rows")

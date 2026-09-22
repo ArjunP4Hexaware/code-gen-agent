@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,8 +17,17 @@ from codegen.config import Config
 from codegen.env.adjust import ddl_action, dml_action
 from codegen.env.clients import ProbeSettings, build_clients, probe_settings
 from codegen.env.expect import expected_rows, expected_to_json
-from codegen.env.model import EnvProbeResult, ExpectedTable
-from codegen.env.probe import probe_feed
+from codegen.env.model import (
+    EnvProbeResult,
+    ExpectedTable,
+    ProbeSnapshot,
+    deployment_headline,
+)
+from codegen.env.probe import Unavailable, probe_feed
+
+# feed_slug -> (the snapshot, or None when there is none; where it was looked for)
+SnapshotSource = Callable[[str], tuple[ProbeSnapshot | None, str]]
+_TRUE = ("1", "true", "yes", "on")
 
 
 class EnvReconciler:
@@ -26,13 +36,20 @@ class EnvReconciler:
 
     def __init__(self, config: Config, settings: ProbeSettings, uc, db, probed_at: str,
                  preset: dict[str, EnvProbeResult] | None = None,
-                 expected_dir: Path | None = None) -> None:
+                 expected_dir: Path | None = None, *,
+                 snapshot_source: SnapshotSource | None = None,
+                 live: bool = True, now: str | None = None) -> None:
         self._config = config
         self._settings = settings
         self._uc, self._db = uc, db
         self._probed_at = probed_at
         self._preset = preset or {}
         self._expected_dir = expected_dir
+        # M13: snapshots first; a feed without one falls back to a live probe
+        # only when the probe is on (``live``), else it is `missing`.
+        self._snapshot_source = snapshot_source
+        self._live = live
+        self._now = now
         self.results: dict[str, EnvProbeResult] = {}
 
     @property
@@ -49,11 +66,45 @@ class EnvReconciler:
                 expected_to_json(tables, rows), encoding="utf-8", newline="\n")
         if feed_slug in self._preset:
             result = self._preset[feed_slug]
+        elif self._snapshot_source is not None:
+            result = self._from_snapshot(feed_slug, tables, rows)
         else:
             result = probe_feed(feed_slug, tables, rows, self._uc, self._db, self._probed_at,
                                 self._settings.timeout_seconds)
         self.results[feed_slug] = result
         return result
+
+    def _from_snapshot(self, feed_slug: str, tables, rows) -> EnvProbeResult:
+        from codegen.env.snapshot import (
+            SnapshotDbClient,
+            SnapshotUcClient,
+            missing_info,
+            snapshot_info,
+        )
+
+        max_age = float(self._config.env.probe.max_age_hours)
+        snapshot, where = self._snapshot_source(feed_slug)
+        feed = snapshot.feed(feed_slug) if snapshot is not None else None
+        if feed is None:
+            if self._live:
+                return probe_feed(feed_slug, tables, rows, self._uc, self._db,
+                                  self._probed_at, self._settings.timeout_seconds)
+            return EnvProbeResult(feed_slug=feed_slug, probed_at=self._probed_at,
+                                  snapshot=missing_info(where, max_age))
+
+        def identity(source: str) -> str:
+            return next((o.evidence.identity for o in feed.objects
+                         if o.evidence is not None and o.evidence.source == source
+                         and o.evidence.identity), snapshot.identity)
+
+        # The observations, replayed through the classifier against what the
+        # artefacts expect NOW — never a state trusted by name.
+        uc = SnapshotUcClient(feed, snapshot.taken_at, identity("unity_catalog"))
+        db = SnapshotDbClient(feed, snapshot.taken_at, identity("metadata_db"))
+        result = probe_feed(feed_slug, tables, rows, uc, db, snapshot.taken_at,
+                            self._settings.timeout_seconds)
+        return result.model_copy(update={"snapshot": snapshot_info(
+            snapshot, where, self._now or utc_now(), max_age)})
 
 
 def utc_now() -> str:
@@ -69,21 +120,78 @@ def load_results(path: Path) -> dict[str, EnvProbeResult]:
     return {r.feed_slug: r for r in results}
 
 
+def snapshots_enabled(config: Config, env=None) -> bool:
+    """``env.probe.snapshots``, the App env CODEGEN_ENV_PROBE_SNAPSHOTS winning."""
+    env = os.environ if env is None else env
+    toggle = env.get("CODEGEN_ENV_PROBE_SNAPSHOTS", "").strip().lower()
+    return config.env.probe.snapshots if not toggle else toggle in _TRUE
+
+
+def file_snapshot_source(path: Path) -> SnapshotSource:
+    """``generate --probe-snapshot <file>``: read once, loudly (a file that is
+    not a snapshot is an error, not a silent no-op)."""
+    from codegen.env.snapshot import load_snapshot
+
+    snapshot = load_snapshot(path)
+    return lambda _slug: (snapshot, str(path))
+
+
+def state_snapshot_source(state_store) -> SnapshotSource:
+    """The App's setting: the LATEST snapshot for a feed, from
+    ``<state>/probes/<feed_slug>.json`` (fetched per feed — a remote state
+    role is read through its RoleStore). None found = `missing`."""
+    from codegen.env.snapshot import feed_rel, load_snapshot
+
+    def source(slug: str):
+        rel = feed_rel(slug)
+        where = state_store.uri(rel)
+        try:
+            local = state_store.fetch(rel)
+        except Exception:  # noqa: BLE001 — not there (or not readable): missing, said so
+            return None, where
+        try:
+            return load_snapshot(local), where
+        except (OSError, ValueError) as exc:
+            return None, f"{where} (could not be read: {str(exc).splitlines()[0][:160]})"
+
+    return source
+
+
 def build_reconciler(config: Config, env=None, *, preset_path: Path | None = None,
                      expected_dir: Path | None = None, clients=None,
-                     probed_at: str | None = None) -> EnvReconciler | None:
+                     probed_at: str | None = None, snapshot_path: Path | None = None,
+                     state_store=None, now: str | None = None,
+                     force: bool = False) -> EnvReconciler | None:
     """None when the probe is disabled (``env.probe.enabled`` / CODEGEN_ENV_PROBE)
-    — the emitters then behave exactly as before M10. ``clients`` is the test
-    seam: a (uc, db) pair of fakes; otherwise ``build_clients`` decides, and
-    outside a Databricks runtime that is two ``Unavailable``s."""
+    and no snapshot is to be read — the emitters then behave exactly as before
+    M10. ``clients`` is the test seam: a (uc, db) pair of fakes; otherwise
+    ``build_clients`` decides, and outside a Databricks runtime that is two
+    ``Unavailable``s. M13: ``snapshot_path`` (``generate --probe-snapshot``)
+    or, with ``env.probe.snapshots`` on, ``state_store`` supplies snapshots;
+    ``force`` builds one regardless (``codegen probe``)."""
     env = os.environ if env is None else env
     settings = probe_settings(config, env)
-    if not settings.enabled and preset_path is None and expected_dir is None:
+    source: SnapshotSource | None = None
+    if snapshot_path is not None:
+        source = file_snapshot_source(Path(snapshot_path))
+    elif state_store is not None and snapshots_enabled(config, env):
+        source = state_snapshot_source(state_store)
+    if (not settings.enabled and not force and preset_path is None and expected_dir is None
+            and source is None):
         return None
-    uc, db = clients if clients is not None else build_clients(config, settings, env)
+    live = settings.enabled or force
+    if clients is not None:
+        uc, db = clients
+    elif source is not None and not live:
+        off = ("the live probe is off (env.probe.enabled / CODEGEN_ENV_PROBE) — only probe "
+               "snapshots are read")
+        uc, db = Unavailable(off), Unavailable(off)
+    else:
+        uc, db = build_clients(config, settings, env)
     return EnvReconciler(config, settings, uc, db, probed_at or utc_now(),
                          preset=load_results(preset_path) if preset_path else None,
-                         expected_dir=expected_dir)
+                         expected_dir=expected_dir, snapshot_source=source,
+                         live=live, now=now)
 
 
 def persist_result(result: EnvProbeResult, store) -> Path | None:
@@ -140,13 +248,37 @@ def environment_rows(result: EnvProbeResult, reconcile_ddl: bool, emit_updates: 
     return rows
 
 
+def headline_line(result: EnvProbeResult) -> str:
+    headline, reason = deployment_headline(result)
+    return f"**Deployment: {headline}** — {reason}."
+
+
+def snapshot_line(result: EnvProbeResult) -> str | None:
+    info = result.snapshot
+    if info is None:
+        return None
+    if info.missing:
+        return (f"No probe snapshot for this feed at `{info.where}` — the artefacts are "
+                "emitted as without a probe (`env_snapshot_missing`).")
+    age = "age unknown" if info.age_hours is None else f"{info.age_hours:g} h old"
+    stale = (f" — older than env.probe.max_age_hours ({info.max_age_hours:g}); used as it is, "
+             "flagged `env_snapshot_stale`" if info.stale else "")
+    return (f"From the probe snapshot `{info.where}`, taken {info.taken_at} as "
+            f"`{info.identity}` ({age}){stale}. Its observations were compared with what "
+            "these artefacts expect now.")
+
+
 def report_section(result: EnvProbeResult, reconcile_ddl: bool, emit_updates: bool,
                    environment: str, dml_emitted: bool = True) -> str:
     counts = result.counts()
+    snapshot = snapshot_line(result)
     lines = [
         "",
         "## Environment",
         "",
+        headline_line(result),
+        "",
+        *([snapshot, ""] if snapshot else []),
         f"Read-only probe at {result.probed_at}"
         + (f", metadata DB environment `{environment}`" if environment else "")
         + ": " + ", ".join(f"{n} {state}" for state, n in counts.items() if n) + ". "

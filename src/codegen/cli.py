@@ -1055,6 +1055,82 @@ def _contract_path(value: str, config: Config) -> Path:
     raise FileNotFoundError(f"contract not found: {value} (also tried {fallback})")
 
 
+def _probe(args, config: Config) -> int:
+    """M13: probe the environment for what a generation of this pair would
+    touch, and write a SNAPSHOT. The expectations come from a real framework-
+    mode generation into a temporary directory (dry-run, tests skipped — the
+    artefacts are discarded); the questions go through the ``spark`` seam when
+    a SparkSession exists (the user's identity), else the warehouse seam.
+    Read-only; an object that cannot be asked is `unreadable`, never a stop."""
+    import contextlib
+    import io
+    import os
+    import tempfile
+
+    from codegen.env.clients import probe_settings
+    from codegen.env.model import ProbeSnapshot, deployment_headline
+    from codegen.env.reconcile import EnvReconciler, utc_now
+    from codegen.env.snapshot import write_snapshot, write_to_state
+    from codegen.env.spark_seam import probe_clients
+
+    try:
+        sttm_path = _contract_path(args.sttm_contract, config)
+        frd_value = args.frd_contract or str(sttm_path.parent / "frd.contract.json")
+        frd_path = _contract_path(frd_value, config)
+        vdd_path = _contract_path(args.vdd_contract, config) if args.vdd_contract else None
+    except FileNotFoundError as exc:
+        hint = "" if args.frd_contract else " — pass the pair's FRD contract with --frd"
+        print(f"{'FAIL':<15} {exc}{hint}")
+        return 1
+    env = dict(os.environ)
+    if args.environment:
+        env["CODEGEN_ENV_PROBE_ENVIRONMENT"] = args.environment
+    try:
+        settings = probe_settings(config, env)
+    except ValueError as exc:
+        print(f"{'FAIL':<15} environment probe — {exc}")
+        return 1
+    uc, db, transports = probe_clients(config, settings, env)
+    taken_at = utc_now()
+    reconciler = EnvReconciler(config, settings, uc, db, taken_at)
+    captured = io.StringIO()
+    with tempfile.TemporaryDirectory(prefix="codegen-probe-") as tmp:
+        scoped = config.model_copy(update={"output": config.output.model_copy(update={
+            "dir": str(Path(tmp) / "out"), "reports_dir": str(Path(tmp) / "reports")})})
+        with contextlib.redirect_stdout(captured):
+            _run_pairs([(frd_path, sttm_path)], scoped, only_feed=args.feed, dry_run=True,
+                       skip_tests=True, output_mode="framework", vdd_path=vdd_path,
+                       conventions_profile=args.conventions_profile,
+                       iig_template=args.iig_template, env=reconciler)
+    if not reconciler.results:
+        tail = "\n".join(captured.getvalue().strip().splitlines()[-5:])
+        print(f"{'FAIL':<15} no feed of this pair reached its framework artefacts — nothing "
+              f"to probe\n{tail}")
+        return 1
+    identity = next((i for i in (getattr(uc, "identity", None), getattr(db, "identity", None))
+                     if i), "unknown")
+    snapshot = ProbeSnapshot(taken_at=taken_at, identity=identity,
+                             environment=settings.environment, transports=transports,
+                             feeds=list(reconciler.results.values()))
+    out = write_snapshot(snapshot, Path(args.out))
+    for result in snapshot.feeds:
+        headline, reason = deployment_headline(result)
+        print(f"{'PROBE':<15} {result.feed_slug} — {headline}: {reason}")
+    print(f"{'SNAPSHOT':<15} {out} (as {identity}; unity_catalog={transports['unity_catalog']}, "
+          f"metadata_db={transports['metadata_db']})")
+    if args.to_state:
+        from codegen.storage import open_storage
+
+        try:
+            written = write_to_state(snapshot, open_storage(config, Path(".")).state)
+        except Exception as exc:  # noqa: BLE001 — the file above is still there
+            print(f"{'WARN':<15} snapshot not written to the state role: {exc}")
+        else:
+            for uri in written:
+                print(f"{'STATE':<15} {uri}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="codegen", description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1105,11 +1181,42 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--env-expected-out", dest="env_expected_out", default=None,
                           help="M10: write <feed>.env_expected.json (the tables and config "
                                "rows the artefacts expect) into this directory")
+    generate.add_argument("--probe-snapshot", dest="probe_snapshot", default=None,
+                          help="M13: a `codegen probe` snapshot — its observations are "
+                               "compared with what these artefacts expect and the artefacts "
+                               "adjust as with a live probe (older than "
+                               "env.probe.max_age_hours: used, flagged env_snapshot_stale)")
     generate.add_argument("--playbook-template", dest="playbook_template", default=None,
                           help="rfc mode: deployment playbook template (a key of config "
                                "playbook.templates; default playbook.template)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
+
+    probe = subparsers.add_parser(
+        "probe",
+        help="M13: read-only environment probe for the tables and config rows a generation "
+             "of this pair would touch; writes a snapshot (`generate --probe-snapshot`)",
+    )
+    probe.add_argument("--config", default="config/config.yaml")
+    probe.add_argument("--pair", "--sttm-contract", dest="sttm_contract", required=True,
+                       help="the pair's STTM contract JSON")
+    probe.add_argument("--frd", "--frd-contract", dest="frd_contract", default=None,
+                       help="the pair's FRD contract JSON (default: frd.contract.json next "
+                            "to the STTM contract)")
+    probe.add_argument("--vdd", "--vdd-contract", dest="vdd_contract", default=None,
+                       help="the pair's VDD contract JSON")
+    probe.add_argument("--feed", help="probe only this feed_id of the pair")
+    probe.add_argument("--profile", dest="conventions_profile", default=None,
+                       help="conventions profile — as the generation will use it")
+    probe.add_argument("--iig-template", dest="iig_template", default=None,
+                       help="IIG template — as the generation will use it")
+    probe.add_argument("--environment", default="",
+                       help="which of dml.environments the probed metadata DB is "
+                            "(default env.probe.environment / CODEGEN_ENV_PROBE_ENVIRONMENT)")
+    probe.add_argument("--out", required=True, help="the snapshot JSON to write")
+    probe.add_argument("--to-state", action="store_true",
+                       help="also write <state>/probes/<feed_slug>.json per feed (what the "
+                            "App reads with env.probe.snapshots)")
 
     extract = subparsers.add_parser(
         "extract-sttm",
@@ -1304,6 +1411,8 @@ def main(argv: list[str] | None = None) -> int:
         return _layout(args, config)
     if args.command == "pair":
         return _pair(args, config)
+    if args.command == "probe":
+        return _probe(args, config)
 
     if args.command == "demo-source-files":
         # Same JSON as GET /api/demo/source-files — display data only.
@@ -1449,10 +1558,20 @@ def main(argv: list[str] | None = None) -> int:
 
     preset = getattr(args, "env_probe_result", None)
     expected_out = getattr(args, "env_expected_out", None)
+    snapshot = getattr(args, "probe_snapshot", None)
     try:
+        from codegen.env.reconcile import snapshots_enabled
+
+        # M13: env.probe.snapshots reads <state>/probes/<feed>.json per feed.
+        state_store = None
+        if snapshot is None and snapshots_enabled(config):
+            from codegen.storage import open_storage
+
+            state_store = open_storage(config, Path(".")).state
         reconciler = build_reconciler(
             config, preset_path=Path(preset) if preset else None,
-            expected_dir=Path(expected_out) if expected_out else None)
+            expected_dir=Path(expected_out) if expected_out else None,
+            snapshot_path=Path(snapshot) if snapshot else None, state_store=state_store)
     except (OSError, ValueError) as exc:
         print(f"{'FAIL':<15} environment probe — {exc}")
         return 1

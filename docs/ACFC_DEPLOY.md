@@ -319,6 +319,67 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.8.0-acfc adds (M13 — probe snapshots: probe as the user, consume anywhere)
+
+The App's service principal has no Unity Catalog grant and no warehouse, so
+its own probe reads everything `unreadable`. The USER can read. M13 moves the
+probe to where the user's identity is, and carries its answer to the App.
+
+- **`codegen probe --pair <sttm contract> [--frd <frd contract>] [--vdd …]
+  [--profile …] [--iig-template …] [--environment q1|a2|prod] --out
+  probe.json [--to-state]`.** It generates the pair's framework artefacts into
+  a temp dir (dry-run, discarded) to learn which tables and config rows they
+  touch, then asks. With a SparkSession present (a notebook / Genie session —
+  the user's identity) Unity Catalog is read through the new `spark` seam
+  (`codegen/env/spark_seam.py`): `SELECT current_user()` once, then per table
+  `information_schema.columns`, and `DESCRIBE TABLE EXTENDED` only when
+  information_schema shows nothing (it lists only what the identity can see:
+  DESCRIBE tells "absent" from "invisible"). Every statement is rendered from
+  validated identifiers; nothing else can be sent. The metadata DB is read
+  over JDBC through the same session with `dbutils.secrets` and the secret
+  NAMES from config (`env.probe.metadata_db`, App-env overrides). Without a
+  session the M10 warehouse seam answers (inside a Databricks runtime) or
+  nothing does. `--frd` defaults to `frd.contract.json` beside the STTM
+  contract; `--to-state` also writes `<state>/probes/<feed_slug>.json`.
+- **The snapshot** (`format: codegen.probe_snapshot/1`): taken_at, identity,
+  environment, the transports used, and per object its state, evidence
+  (statement + timestamp + the identity used — for the DB, the NAME of the
+  secret holding the login, never a value), diffs, and the raw
+  **observation** (columns found / rows returned).
+- **Consuming it:** `generate --probe-snapshot probe.json`, or the App
+  setting `env.probe.snapshots` (App env `CODEGEN_ENV_PROBE_SNAPSHOTS=1`),
+  which reads each feed's LATEST `<state>/probes/<feed_slug>.json`. A snapshot
+  is never applied by name: its observations are REPLAYED through the M10
+  classifier against what the artefacts expect NOW, so the artefacts adjust
+  exactly as a live probe with the same answers would (absent / identical /
+  different / unreadable — byte-identical, tested), a changed table is
+  compared again, and an object the snapshot never saw is `unreadable`. Older
+  than `env.probe.max_age_hours` (24): used, flagged `env_snapshot_stale`. No
+  snapshot for a feed: `env_snapshot_missing`, the artefacts as without a
+  probe (or a live probe, if `env.probe.enabled`).
+- **Report headline per feed** (top of the "Environment" section, and
+  `environment.headline` on `/api/feeds`): `NOT STARTED` (all absent),
+  `COMPLETE` (all identical), `PARTIAL` (something is there and something is
+  missing or differs — proven by the readable objects alone), `UNKNOWN`
+  (nothing readable, or unreadable objects could still change the answer).
+  The object table beneath it is the list behind it.
+- **`acfc_run.py`** gains a "Probe the environment AS YOU" cell: it hands the
+  notebook's `spark` / `dbutils` to the seam, runs `codegen probe` IN the
+  notebook process (a subprocess has neither), writes the snapshot to
+  `codegen-state/probes/`, and the generate cell passes `--probe-snapshot`.
+  Widget `env_probe` = run, `env_probe_environment` = q1 | a2 | prod.
+- To use it from the App: run the notebook's probe cell (or `codegen probe
+  --to-state` in a Genie session) against the same state folder the App uses,
+  set `CODEGEN_ENV_PROBE_SNAPSHOTS=1` in the App env, redeploy.
+
+UNVERIFIED: every transport above has run only against fakes (a fake
+SparkSession / JDBC reader / dbutils); whether Unity Catalog reports a table
+the user cannot see as not-found or as a permission error is not established
+— the evidence names the identity so a person can judge.
+
+Version marker 0.8.0. CV / SFMC baselines byte-identical (193 files) without
+a snapshot.
+
 ## What v0.7.4-acfc adds (housekeeping)
 
 - **ruff is pinned to one minor range, `>=0.16,<0.17`**, in both extras that

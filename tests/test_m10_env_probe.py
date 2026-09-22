@@ -430,8 +430,10 @@ def test_the_result_is_written_to_the_state_role_with_provenance(pair1_config, p
     assert path == tmp_path / "state" / "env_probe" / f"{pair1_spec.feed_slug}.json"
     first = saved["objects"][0]
     assert first["state"] == "identical"
+    # M13: evidence names WHO asked — the fake client declares no identity.
     assert first["evidence"] == {"source": "unity_catalog", "at": PROBED_AT,
-                                 "query": f"DESCRIBE TABLE {tables[0].qualified}"}
+                                 "query": f"DESCRIBE TABLE {tables[0].qualified}",
+                                 "identity": None}
 
 
 def test_a_result_probed_elsewhere_is_used_instead_of_asking(pair1_config, pair1_spec,

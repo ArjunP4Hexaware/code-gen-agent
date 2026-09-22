@@ -27,6 +27,7 @@ from codegen.env.model import (
     ExpectedRow,
     ExpectedTable,
     FieldDiff,
+    Observation,
     ProbedObject,
 )
 
@@ -48,6 +49,8 @@ class Unavailable:
 
 
 class UcClient(Protocol):
+    # M13: optional attribute ``identity`` (who the client asks as) — recorded
+    # on every Evidence it produces; absent = not recorded.
     def describe(self, qualified: str) -> tuple[list[tuple[str, str]] | None, str]:
         """(columns as (name, type) — None when the table does not exist, the
         query that was sent). Raises ``ProbeUnreadable`` otherwise."""
@@ -154,10 +157,18 @@ def _bounded(call: Callable[[], object], timeout: float, what: str):
 # ----------------------------------------------------------------------- probe
 
 
+def _text_rows(rows) -> list[dict[str, str | None]]:
+    """A driver's typed values as text — what the classifier compares anyway."""
+    return [{str(k): (None if v is None else str(v)) for k, v in dict(row).items()}
+            for row in rows]
+
+
 def probe_feed(feed_slug: str, tables: list[ExpectedTable], rows: list[ExpectedRow],
                uc: UcClient | Unavailable, db: MetadataDbClient | Unavailable,
                probed_at: str, timeout_seconds: float = 20.0) -> EnvProbeResult:
     objects: list[ProbedObject] = []
+    uc_identity = getattr(uc, "identity", None)
+    db_identity = getattr(db, "identity", None)
 
     for table in tables:
         base = {"kind": "uc_table", "name": table.qualified, "layer": table.layer}
@@ -170,13 +181,17 @@ def probe_feed(feed_slug: str, tables: list[ExpectedTable], rows: list[ExpectedR
         except ProbeUnreadable as exc:
             objects.append(ProbedObject(
                 **base, state="unreadable", error=str(exc),
-                evidence=(Evidence(source="unity_catalog", query=exc.query, at=probed_at)
+                evidence=(Evidence(source="unity_catalog", query=exc.query, at=probed_at,
+                                   identity=uc_identity)
                           if exc.query else None)))
             continue
         state, diffs = classify_table(table, columns)
         objects.append(ProbedObject(
             **base, state=state, diffs=diffs,
-            evidence=Evidence(source="unity_catalog", query=query, at=probed_at)))
+            observation=Observation(columns=None if columns is None
+                                    else [(str(n), str(t)) for n, t in columns]),
+            evidence=Evidence(source="unity_catalog", query=query, at=probed_at,
+                              identity=uc_identity)))
 
     for row in rows:
         base = {"kind": "config_row", "name": row.name, "table": row.table,
@@ -197,19 +212,23 @@ def probe_feed(feed_slug: str, tables: list[ExpectedTable], rows: list[ExpectedR
         except ProbeUnreadable as exc:
             objects.append(ProbedObject(
                 **base, state="unreadable", error=str(exc),
-                evidence=(Evidence(source="metadata_db", query=exc.query, at=probed_at)
+                evidence=(Evidence(source="metadata_db", query=exc.query, at=probed_at,
+                                   identity=db_identity)
                           if exc.query else None)))
             continue
-        evidence = Evidence(source="metadata_db", query=query, at=probed_at)
+        evidence = Evidence(source="metadata_db", query=query, at=probed_at,
+                            identity=db_identity)
+        observation = Observation(rows=_text_rows(found))
         if len(found) > 1:
             objects.append(ProbedObject(
-                **base, state="unreadable", evidence=evidence,
+                **base, state="unreadable", evidence=evidence, observation=observation,
                 error=f"the natural key ({row.key_label}) matched {len(found)} rows in "
                       f"{row.table} — it does not identify one row; nothing is concluded"))
             continue
         state, diffs, status_diffs = classify_row(row, found[0] if found else None)
         compared = [c for c in columns if c not in row.status_columns] if found else []
         objects.append(ProbedObject(**base, state=state, diffs=diffs, compared=compared,
-                                    status_diffs=status_diffs, evidence=evidence))
+                                    status_diffs=status_diffs, evidence=evidence,
+                                    observation=observation))
 
     return EnvProbeResult(feed_slug=feed_slug, probed_at=probed_at, objects=objects)

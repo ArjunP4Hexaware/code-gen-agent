@@ -83,3 +83,43 @@ def test_a_live_run_with_remote_roles_produces_feeds_and_pushes_them(remote_run)
     pushed = [p for p in remote_run.vol.files if p.startswith(VOLUME)]
     assert pushed, "nothing was pushed to the outputs role"
     assert any(p.endswith(".sql") for p in pushed), sorted(pushed)[:5]
+
+
+def test_the_app_reads_probe_snapshots_from_a_remote_state_role(remote_run, monkeypatch):
+    """M13: with env.probe.snapshots on, each feed's LATEST snapshot is read
+    from <state>/probes/<feed>.json on the REMOTE state role (a workspace
+    folder here). One feed has a snapshot (probed for nothing this run
+    expects: every table is `not in the probe snapshot`), the others have
+    none (`missing`) — and the run completes either way."""
+    from codegen.env.model import EnvProbeResult, ProbeSnapshot
+
+    store = GenerationStore(str(REPO / "config" / "config.yaml"))
+    workbook = REPO / store.config.demo.workbook
+    frd = REPO / store.config.contracts.dir / store.config.demo.frd
+    if not (workbook.is_file() and frd.is_file()):
+        pytest.skip("demo fixture pair not restored (removed 2026-08-22)")
+    monkeypatch.setenv("CODEGEN_ENV_PROBE_SNAPSHOTS", "1")
+    slug = "cv_community_risk"
+    taken = "2026-09-22T09:00:00Z"
+    snapshot = ProbeSnapshot(taken_at=taken, identity="analyst@synthetic.example",
+                             feeds=[EnvProbeResult(feed_slug=slug, probed_at=taken)])
+    remote_run.ws.files[f"{SHARED}/state/probes/{slug}.json"] = \
+        snapshot.model_dump_json().encode("utf-8")
+
+    runner = DemoRunner(store)
+    runner.select_output_mode("framework")
+    runner.start_live()
+    deadline = __import__("time").monotonic() + 600
+    while runner.state in ("running", "needs_layout"):
+        assert __import__("time").monotonic() < deadline, "the live run did not finish"
+        __import__("time").sleep(0.5)
+    assert runner.state == "done", f"{runner.error}\n{runner.stages}"
+    envs = {s: r.environment for s, r in store.runs.items()}
+    assert slug in envs and all(e is not None for e in envs.values()), envs
+    read = envs[slug]["snapshot"]
+    assert read["where"].startswith("workspace:") and not read["missing"]
+    assert read["identity"] == "analyst@synthetic.example"
+    assert envs[slug]["headline"] == "UNKNOWN"          # it saw none of these tables
+    for other, env in envs.items():
+        if other != slug:
+            assert env["snapshot"]["missing"] and env["headline"] == "UNKNOWN", other

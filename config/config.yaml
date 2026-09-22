@@ -1187,6 +1187,10 @@ env:
       jdbc_url_secret: ""
       user_secret: ""
       password_secret: ""
+    # M13: read the latest `codegen probe` snapshot per feed from
+    # <state>/probes/<feed_slug>.json (App: CODEGEN_ENV_PROBE_SNAPSHOTS=1).
+    snapshots: false
+    max_age_hours: 24          # older = still used, flagged env_snapshot_stale
 
 inputs:
   extra_dirs: []

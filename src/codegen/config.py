@@ -1335,6 +1335,12 @@ class EnvProbeConfig(BaseModel):
     # Per-query budget; a query that does not answer is `unreadable`.
     timeout_seconds: float = Field(default=20.0, gt=0)
     metadata_db: EnvProbeMetadataDbConfig = EnvProbeMetadataDbConfig()
+    # M13: probe SNAPSHOTS (`codegen probe`, run as the user). `snapshots`
+    # makes generation read the latest one per feed from
+    # <state>/probes/<feed_slug>.json (App env CODEGEN_ENV_PROBE_SNAPSHOTS=1);
+    # one older than max_age_hours is still used, flagged env_snapshot_stale.
+    snapshots: bool = False
+    max_age_hours: float = Field(default=24.0, gt=0)
 
 
 class EnvConfig(BaseModel):

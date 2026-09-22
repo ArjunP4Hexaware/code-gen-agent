@@ -208,7 +208,9 @@ def test_cli_offers_exactly_the_two_outputs(capsys):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["generate", "--frd", "x", "--sttm", "y", "--output-mode", "rfc"])
     assert exit_info.value.code == 2                      # argparse: invalid choice
-    assert "choose from 'notebook', 'framework'" in capsys.readouterr().err
+    # 3.12's argparse prints the choices unquoted, 3.10 / 3.11 quote them.
+    err = capsys.readouterr().err.replace("'", "")
+    assert "invalid choice: rfc (choose from notebook, framework)" in err
 
 
 @pytest.mark.parametrize("retired", ["both", "rfc", "all"])

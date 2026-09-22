@@ -100,7 +100,8 @@ def test_a_missing_required_role_is_always_a_question(config, no_cache):
                               cache_dirs=no_cache)
     assert sorted(q.key for q in doc.questions) == sorted(pre_m9_vocabulary.PAIR1_OPEN_ROLES)
     schema = next(q for q in doc.questions if q.key == f"{SHEET}/stage/schema")
-    assert {"col": 20, "header": "Target Schema Name in DL"} in schema.candidates
+    # M14 item 4: every candidate carries its column letter too
+    assert {"col": 20, "letter": "T", "header": "Target Schema Name in DL"} in schema.candidates
 
 
 # ---------------------------------------------------------------- M9.1 cache

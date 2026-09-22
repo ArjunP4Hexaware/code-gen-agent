@@ -414,6 +414,21 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
   // Answers to "choice" / "layer" questions: {key: {value, layer?, source}}.
   const [gapPicks, setGapPicks] = useState<Record<string, { value: string; layer?: string; source: string }>>({});
+  // M14: a question asked once for several feeds, answered per feed instead.
+  const [perFeed, setPerFeed] = useState<Record<string, boolean>>({});
+  const expandFeeds = (qs: LayoutQuestion[]): LayoutQuestion[] =>
+    qs.flatMap((q) =>
+      q.feeds?.length && perFeed[q.key]
+        ? q.feeds.map((i) => ({
+            ...q,
+            key: q.key.replace("feeds[*]", `feeds[${i}]`),
+            role: q.role.replace("feeds[*]", `feeds[${i}]`),
+            title: `${q.title || q.key} (feed ${i})`,
+            feeds: undefined,
+            parentKey: q.key,
+          }))
+        : [q],
+    );
   const preselectedRef = useRef<string | null>(null);
   useEffect(() => {
     // Pre-select each question's suggested candidate (still confirmed by the
@@ -1057,7 +1072,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       </details>
                     ) : null}
                     {(["sttm", "frd", "vdd"] as const).map((doc) => {
-                      const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
+                      const qs = expandFeeds((status.layout_questions ?? []).filter((q) => q.document === doc));
                       if (!qs.length) return null;
                       return (
                         <div key={doc} style={{ marginBottom: 10 }}>
@@ -1072,6 +1087,24 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                               </div>
                               {q.hint ? (
                                 <div className="hint" style={{ marginTop: 2 }}>{q.hint}</div>
+                              ) : null}
+                              {q.feeds?.length || q.parentKey ? (
+                                <div className="hint" style={{ marginTop: 2, fontSize: 12 }}>
+                                  {q.feeds?.length
+                                    ? `Asked once for feeds ${q.feeds.join(", ")} — the answer applies to all of them. `
+                                    : "Answered for this feed only. "}
+                                  <button
+                                    type="button"
+                                    className="btn"
+                                    style={{ fontSize: 11, padding: "1px 6px" }}
+                                    onClick={() => {
+                                      const parent = q.parentKey ?? q.key;
+                                      setPerFeed({ ...perFeed, [parent]: !perFeed[parent] });
+                                    }}
+                                  >
+                                    {q.feeds?.length ? "Answer per feed" : "Answer once for all feeds"}
+                                  </button>
+                                </div>
                               ) : null}
                               <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
                                 Why it is asked: {q.reason}.{" "}
@@ -1108,7 +1141,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                 <input
                                   type="text"
                                   style={{ width: "100%", marginTop: 4 }}
-                                  placeholder="pattern_1_*.txt; pattern_2_*.txt"
+                                  placeholder={
+                                    q.role.endsWith("file_patterns") ? "pattern_1_*.txt; pattern_2_*.txt" : "type the value"
+                                  }
                                   value={gapPicks[q.key]?.value ?? ""}
                                   onChange={(e) => {
                                     const next = { ...gapPicks };
@@ -1117,6 +1152,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                                     setGapPicks(next);
                                   }}
                                 />
+                              ) : null}
+                              {q.kind === "text" && q.evidence?.length ? (
+                                // M14: what the document itself says about it — verbatim.
+                                <ul className="hint" style={{ marginTop: 4, marginBottom: 0, paddingLeft: 18, fontSize: 12 }}>
+                                  {q.evidence.map((e) => (
+                                    <li key={`${q.key}-${e.cell}`}>
+                                      “{e.text}” <span style={{ opacity: 0.7 }}>— {e.cell}</span>
+                                    </li>
+                                  ))}
+                                </ul>
                               ) : null}
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
                                 {q.candidates.map((c) =>

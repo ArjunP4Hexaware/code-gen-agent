@@ -1176,6 +1176,67 @@ upstream:
 # warehouse). Outside a Databricks runtime nothing is resolved — no CLI
 # profile is ever consulted — and every object reads `unreadable`.
 # `unreadable` is a flag, never a stop: the run proceeds as without the probe.
+# M14: candidate texts -> canonical values, BEFORE the gap chain decides the
+# documents disagree (resolve/gapfill.py::reconcile). Only canonical values that
+# genuinely differ become a question; a dropped candidate is flagged with its
+# cell. Spellings match as whole phrases in the lower-cased, space-collapsed
+# text with a trailing "file(s)" removed; the longest spelling wins.
+value_vocabulary:
+  file_format:
+    canonical:
+      delimited: ["delimited", "delimited file", "character delimited", "separated values"]
+      csv: ["csv", "comma separated", "comma-separated", "comma delimited", "comma-delimited"]
+      psv: ["psv", "pipe separated", "pipe delimited", "pipe-delimited"]
+      tsv: ["tsv", "tab separated", "tab delimited", "tab-delimited"]
+      fixed_width: ["fixed width", "fixed-width", "fixed length", "fixed-length", "positional"]
+      spreadsheet: ["xlsx", "xls", "excel", "spreadsheet", "workbook"]
+      database_table: ["database table", "sql server table", "rdbms table", "db table"]
+    refines: {csv: delimited, psv: delimited, tsv: delimited}
+    extensions:                       # an extension-only cell
+      ".csv": csv
+      ".psv": psv
+      ".tsv": tsv
+      ".xlsx": spreadsheet
+      ".xls": spreadsheet
+      ".txt": any                     # names the file, not its layout
+      ".dat": any
+    not_formats:                      # transport / scope phrases seen in real FRDs
+      - "file data ingestion"
+      - "sql server table to databricks table"
+      - "file ingestion"
+      - "data ingestion"
+  delimiter:
+    canonical:
+      ",": [",", "comma", "comma (,)", "comma separated", "comma delimited"]
+      "|": ["|", "pipe", "pipe (|)", "pipe separated", "pipe delimited"]
+      "\t": ["tab", "\\t", "tab separated", "tab delimited"]
+      ";": [";", "semicolon", "semi-colon"]
+  frequency:
+    canonical:
+      daily: ["daily", "every day", "once a day"]
+      weekly: ["weekly", "every week", "once a week"]
+      monthly: ["monthly", "every month", "once a month"]
+      quarterly: ["quarterly"]
+      yearly: ["yearly", "annually", "annual"]
+      ad_hoc_historical: ["ad hoc", "ad-hoc", "adhoc", "historical", "historical (one-time)",
+                          "one-time", "one time", "on demand"]
+    vague: ["periodic", "tbd", "to be determined", "as needed", "as required", "as and when",
+            "n/a", "na"]
+    schedule_min_dates: 2
+  # M14 item 2: the requirement text shown with an F2 / F3 content question.
+  evidence_terms:
+    source_system: ["vendor", "source system", "source application", "sent by",
+                    "received from", "provided by", "inbound from"]
+    lobs: ["line of business", "lines of business", "lob", "lobs", "product line"]
+    domain: ["domain", "subdomain", "sub-domain", "sub domain", "subject area"]
+    sub_domain: ["subdomain", "sub-domain", "sub domain"]
+    load_strategy: ["load strategy", "load type", "truncate", "append", "upsert", "merge",
+                    "full load", "incremental", "overwrite", "insert"]
+    frequency: ["frequency", "daily", "weekly", "monthly", "schedule", "cadence"]
+    feed_name: ["feed name", "file name", "object name", "interface"]
+  max_evidence: 6
+  evidence_chars: 240
+
 env:
   probe:
     enabled: false

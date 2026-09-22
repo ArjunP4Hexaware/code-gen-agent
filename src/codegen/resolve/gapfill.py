@@ -153,12 +153,156 @@ def fill_flag(field: str, statement: Statement) -> str:
             f"{statement.value!r}")
 
 
+# ------------------------------------------------ M14: normalize, then compare
+
+
+@dataclass(frozen=True)
+class Canon:
+    """What a candidate text MEANS for its field.
+
+    ``key``: the canonical value (``csv``, ``fixed_width``, ``","``,
+    ``weekly``…), or None when the vocabulary does not know the text — then
+    the raw text is compared as before (``same_value``). ``weak``: yields to
+    any other candidate (an extension that fits any layout, a vague cadence).
+    ``drop``: not a candidate at all (a transport phrase, a date schedule),
+    with the reason for the flag."""
+
+    key: str | None
+    text: str
+    weak: bool = False
+    drop: str | None = None
+
+
+_TRAILING_FILES_RE = re.compile(r"\s+files?$")
+_DATE_RE = re.compile(r"\b\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}\b")
+
+
+def _norm(text: str | None) -> str:
+    value = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    return _TRAILING_FILES_RE.sub("", value).rstrip(" .:;").strip()   # a LEADING dot is kept
+
+
+def _phrase_in(spelling: str, text: str) -> bool:
+    """``spelling`` occurs in ``text`` as a whole phrase (no letter / digit
+    touching either end)."""
+    pattern = r"(?<![a-z0-9])" + re.escape(spelling) + r"(?![a-z0-9])"
+    return re.search(pattern, text) is not None
+
+
+def _lookup(table: dict[str, list[str]], text: str) -> str | None:
+    """The key whose LONGEST spelling occurs in ``text`` as a whole phrase."""
+    best: tuple[int, str] | None = None
+    for key, spellings in table.items():
+        for spelling in spellings:
+            s = _norm(spelling) if spelling.strip() not in (",", "|", ";") else spelling.strip()
+            if s and (s == text or _phrase_in(s, text)) and (best is None or len(s) > best[0]):
+                best = (len(s), key)
+    return best[1] if best else None
+
+
+def canonical(field: str, value: str | None, vocabulary) -> Canon:
+    """``field``: file_format | delimiter | frequency (anything else: unknown)."""
+    text = _norm(value)
+    if field == "file_format":
+        vocab = vocabulary.file_format
+        if text in {_norm(p) for p in vocab.not_formats}:
+            return Canon(None, text, drop="describes how the data is moved, not a file format")
+        if is_extension_only(text):
+            ext = "." + text.lstrip(".")
+            kind = vocab.extensions.get(ext)
+            if kind == "any":
+                return Canon("any", text, weak=True)
+            if kind:
+                return Canon(kind, text)
+        kind = _lookup(vocab.canonical, text)
+        if kind:
+            return Canon(kind, text)
+        if any(_phrase_in(_norm(p), text) for p in vocab.not_formats):
+            return Canon(None, text, drop="describes how the data is moved, not a file format")
+        return Canon(None, text)
+    if field == "delimiter":
+        raw = str(value or "").strip()
+        for key, spellings in vocabulary.delimiter.canonical.items():
+            if raw in spellings or raw == key:
+                return Canon(key, text)
+        return Canon(_lookup(vocabulary.delimiter.canonical, text), text)
+    if field == "frequency":
+        vocab = vocabulary.frequency
+        if len(_DATE_RE.findall(str(value or ""))) >= vocab.schedule_min_dates:
+            return Canon(None, text, drop="lists dates — a load schedule, not a frequency")
+        if text in {_norm(v) for v in vocab.vague}:
+            return Canon("vague", text, weak=True)
+        return Canon(_lookup(vocab.canonical, text), text)
+    return Canon(None, text)
+
+
+def _compatible(a: Canon, b: Canon, refines: dict[str, str]) -> bool:
+    if a.key is None or b.key is None:
+        return same_value(a.text, b.text)
+    return a.key == b.key or refines.get(a.key) == b.key or refines.get(b.key) == a.key
+
+
+@dataclass
+class Reconciled:
+    """``kept``: one representative per group of mutually compatible
+    candidates — ONE means the documents agree, more is a real question.
+    ``dropped``: (statement, reason) for the flag."""
+
+    kept: list[Statement]
+    dropped: list[tuple[Statement, str]]
+
+
+def reconcile(field: str, statements: list[Statement], vocabulary) -> Reconciled:
+    refines = vocabulary.file_format.refines if field == "file_format" else {}
+    dropped: list[tuple[Statement, str]] = []
+    entries: list[tuple[Statement, Canon]] = []
+    for statement in statements:
+        canon = canonical(field, statement.value, vocabulary)
+        if canon.drop:
+            dropped.append((statement, canon.drop))
+        else:
+            entries.append((statement, canon))
+    strong = [e for e in entries if not e[1].weak]
+    if strong and len(strong) < len(entries):
+        for statement, canon in entries:
+            if canon.weak and canon.key == "vague":
+                dropped.append((statement, "a vague cadence — yields to the specific one stated "
+                                           "elsewhere"))
+        entries = strong               # an extension-only cell yields silently (M9.0)
+    groups: list[list[tuple[Statement, Canon]]] = []
+    for entry in entries:
+        for group in groups:
+            if all(_compatible(entry[1], other[1], refines) for other in group):
+                group.append(entry)
+                break
+        else:
+            groups.append([entry])
+
+    def specificity(entry: tuple[Statement, Canon]) -> tuple[int, int]:
+        statement, canon = entry
+        refined = 1 if canon.key in refines else 0
+        return (1 if statement.source == "FRD" else 0, refined)
+
+    kept = [max(group, key=specificity)[0] for group in groups]
+    return Reconciled(kept=kept, dropped=dropped)
+
+
+def dropped_flag(field_key: str, statement: Statement, reason: str) -> str:
+    return (f"candidate_dropped:{field_key} — {statement.value!r} ({statement.source} "
+            f"{statement.cell}) {reason}")
+
+
 __all__ = [
     "LOAD_STRATEGIES",
+    "Canon",
+    "Reconciled",
     "Statement",
+    "canonical",
     "canonical_strategy",
     "distinct",
+    "dropped_flag",
     "fill_flag",
+    "reconcile",
     "format_statements",
     "is_extension_only",
     "parse_load_strategy_text",

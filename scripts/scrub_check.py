@@ -13,6 +13,15 @@ Two layers:
    numbers, author tags, VM names, 4+ digit IDs from ID columns, contact
    names). Raw values are never written into this tracked file.
 
+3. Local raw-term denylist — ``docs/acfc/denylist_local.txt`` when present
+   (GITIGNORED: it holds raw client terms, e.g. the ones tokenized out of the
+   run records on ``acfc-runs``). One or more terms per line separated by
+   ``|``; ``#`` starts a comment line. Each term is matched case-
+   insensitively as a WHOLE term (no letter or digit on either side; an
+   underscore counts as a boundary, so a term inside ``X_TERM_Y`` is found),
+   whatever its length. A hit names the term's position in the file, never
+   the term.
+
 Usage:
     python scripts/scrub_check.py [path ...]     # default: fixtures/reference out
 Exit 1 on any hit. Also importable: harvest_raw_denylist(), scan_paths().
@@ -26,6 +35,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 RAW = REPO / "inputs" / "reference_raw"
+LOCAL_DENYLIST = REPO / "docs" / "acfc" / "denylist_local.txt"
 
 GENERIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("databricks_workspace_host", re.compile(r"adb-\d{6,}\.\d+\.azuredatabricks\.net")),
@@ -95,9 +105,30 @@ def harvest_raw_denylist() -> dict[str, str]:
     return deny
 
 
-def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
+def load_local_denylist(path: Path = LOCAL_DENYLIST) -> list[str]:
+    """The local raw terms (layer 3), in file order; [] when the file is absent."""
+    if not path.is_file():
+        return []
+    terms: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        terms.extend(term.strip() for term in line.split("|") if term.strip())
+    return list(dict.fromkeys(terms))
+
+
+def _local_patterns(terms: list[str]) -> list[tuple[int, re.Pattern[str]]]:
+    return [(index, re.compile(r"(?<![A-Za-z0-9])" + re.escape(term) + r"(?![A-Za-z0-9])",
+                               re.IGNORECASE))
+            for index, term in enumerate(terms, start=1)]
+
+
+def scan_paths(paths: list[Path], deny: dict[str, str] | None = None,
+               local: list[str] | None = None):
     """Return [(path, class, context)] for every denylist hit under paths."""
     deny = deny if deny is not None else harvest_raw_denylist()
+    local_patterns = _local_patterns(local if local is not None else load_local_denylist())
     hits: list[tuple[Path, str, str]] = []
     for root in paths:
         files = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
@@ -106,6 +137,8 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
                 continue  # never scan the raw dir itself
             if f.resolve() == Path(__file__).resolve():
                 continue  # the scanner's own pattern table is not a leak
+            if f.resolve() == LOCAL_DENYLIST.resolve():
+                continue  # nor the local denylist (it IS the raw terms)
             for text in _iter_strings(f):
                 for klass, pat in GENERIC_PATTERNS:
                     m = pat.search(text)
@@ -114,6 +147,11 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
                 for tok, klass in deny.items():
                     if len(tok) >= 5 and tok in text:
                         hits.append((f, klass, tok[:40] + "..."))
+                for index, pat in local_patterns:
+                    for m in pat.finditer(text):
+                        line = text.count("\n", 0, m.start()) + 1
+                        hits.append((f, "local_denylist",
+                                     f"term #{index} of {LOCAL_DENYLIST.name} at line {line}"))
     return hits
 
 
@@ -121,6 +159,9 @@ def main(argv: list[str]) -> int:
     targets = [Path(a) for a in argv] or [REPO / "fixtures" / "reference", REPO / "out"]
     targets = [t for t in targets if t.exists()]
     hits = scan_paths(targets)
+    local = load_local_denylist()
+    if local:
+        print(f"local denylist: {len(local)} term(s) from {LOCAL_DENYLIST}")
     for path, klass, ctx in hits:
         print(f"DENYLIST HIT [{klass}] {path}: {ctx}")
     if hits:

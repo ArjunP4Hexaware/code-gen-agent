@@ -137,6 +137,14 @@ export interface LayoutQuestion {
   hint?: string;
   suggested?: number | null;
   suggested_reason?: string;
+  // M14: a text question's evidence — the document's own sentences that
+  // mention the concept, verbatim, with their cells.
+  evidence?: { text: string; cell: string }[];
+  // M14: asked ONCE for these feeds (key "feeds[*].<field>"); a per-feed
+  // answer "feeds[i].<field>" overrides it.
+  feeds?: number[];
+  // set on the per-feed copies of such a question (the "feeds[*]" key)
+  parentKey?: string;
 }
 
 export type PairRule = "pairing_map" | "content" | "ticket" | "name_stem";

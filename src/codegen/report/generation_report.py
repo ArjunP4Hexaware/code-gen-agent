@@ -8,6 +8,7 @@ never data values — so there is no PHI egress here by construction.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from codegen.contracts.resolved import ResolvedFeedSpec
@@ -189,8 +190,31 @@ def _gate_section(gate: GateResult) -> list[str]:
         lines.append("Flags:")
         lines += [f"- {flag}" for flag in gate.flags]
         lines.append("")
-    lines += [f"**Verdict: {gate.verdict}**", ""]
+    lines += [verdict_line(gate), ""]
     return lines
+
+
+def _first_finding(details: str) -> str:
+    """The first line that IS a finding — a leading "N finding(s)" count is
+    skipped; the first line otherwise."""
+    lines = [line.strip() for line in (details or "").splitlines() if line.strip()]
+    for line in lines:
+        if not re.fullmatch(r"\d+ finding\(s\)", line):
+            return line
+    return lines[0] if lines else "no details"
+
+
+def verdict_line(gate: GateResult) -> str:
+    """M14 item 6: the verdict, and every failed / not-run check by name with
+    its first finding — a FAIL's cause is readable from this one line. A run
+    whose checks all passed reads exactly as before."""
+    troubled = [c for c in gate.checks if c.not_run or not c.passed]
+    if not troubled:
+        return f"**Verdict: {gate.verdict}**"
+    causes = "; ".join(
+        f"{c.name}{' (not run)' if c.not_run else ''}: {_first_finding(c.details)}"
+        for c in troubled)
+    return f"**Verdict: {gate.verdict}** — {causes}"
 
 
 def _layout_section(skipped: list[dict] | None) -> list[str]:

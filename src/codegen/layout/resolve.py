@@ -40,7 +40,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from openpyxl.utils import get_column_letter
@@ -108,6 +108,11 @@ class LayoutQuestion:
     # (candidates {value, source, cell}); layer: apply a single stated load
     # strategy to stage / standard / both (candidates {layer, value}).
     kind: str = "role"
+    # M14: a text question's EVIDENCE — the document's own sentences that
+    # mention the concept ({text, cell}), verbatim; and the feeds a question
+    # asked once for several feeds applies to (key ``feeds[*].<field>``).
+    evidence: list[dict] = field(default_factory=list)
+    feeds: list[int] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -122,7 +127,10 @@ class LayoutQuestion:
                 "layer": self.layer, "role": self.role, "reason": self.reason,
                 "header": self.header, "candidates": self.candidates,
                 "title": self.title, "hint": self.hint, "suggested": self.suggested,
-                "suggested_reason": self.suggested_reason, "kind": self.kind}
+                "suggested_reason": self.suggested_reason, "kind": self.kind,
+                # M14 — present only when set, so earlier payloads are unchanged
+                **({"evidence": self.evidence} if self.evidence else {}),
+                **({"feeds": self.feeds} if self.feeds else {})}
 
 
 @dataclass(frozen=True)
@@ -393,12 +401,26 @@ def _questions_for(profile: LayoutProfile, workbook,
         band = sheet.band(item.layer)  # type: ignore[arg-type]
         claimed = set(band.roles.values()) if band else set()
         span = range(band.col_start, band.col_end + 1) if band else range(1, len(header) + 1)
-        candidates = [{"col": c, "header": text(header[c - 1])} for c in span
-                      if c not in claimed and c - 1 < len(header) and text(header[c - 1])]
+
+        def headed(columns, skip=frozenset(), header=header):
+            return [{"col": c, "letter": get_column_letter(c), "header": text(header[c - 1])}
+                    for c in columns
+                    if c not in skip and c - 1 < len(header) and text(header[c - 1])]
+
+        candidates = headed(span, claimed)
+        reason = item.reason
+        if not candidates:
+            # M14 item 4 (pair 5): nothing unclaimed inside the band — the
+            # question still offers every headed column of the row, never an
+            # empty picker.
+            candidates = headed(range(1, len(header) + 1), claimed) or headed(
+                range(1, len(header) + 1))
+            reason = (f"{reason}; no unclaimed headed column inside the {item.layer} band — "
+                      "every headed column of the header row is offered")
         title, hint, suggested = role_help(item.role, item.layer, candidates)
         questions.append(LayoutQuestion(
             document=document, sheet=item.sheet, layer=item.layer, role=item.role,
-            reason=item.reason, header=_header_strip(ws, sheet.header_row),
+            reason=reason, header=_header_strip(ws, sheet.header_row),
             candidates=candidates, title=title, hint=hint, suggested=suggested))
     return questions
 
@@ -1281,10 +1303,12 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_doc.questions = [q for q in frd_doc.questions
                                  if q.role not in gap.handled
                                  and not _filled_on_contract(frd_contract, q.role)]
-            if frd_doc.profile is not None and frd_doc.profile.family in ("unrecognized",
-                                                                          "F3"):
-                frd_doc.questions = [_typed(q) for q in frd_doc.questions]
-            frd_doc.questions = frd_doc.questions + split_questions + gap.questions
+            family = frd_doc.profile.family if frd_doc.profile is not None else None
+            if family in _PROSE_FAMILIES:
+                frd_doc.questions = [_typed(q, content, config, family)
+                                     for q in frd_doc.questions]
+            frd_doc.questions = _one_question_for_all_feeds(
+                frd_doc.questions + split_questions + gap.questions)
     # M9.2: a positional field whose length is not an integer ("10,2" — a
     # precision), with no STTM end and no VDD span, needs its byte width from
     # the person: one text question per field, answered under `gaps`.
@@ -1449,18 +1473,127 @@ def _filled_on_contract(contract, role: str) -> bool:
     return bool(value)
 
 
-def _typed(question: LayoutQuestion) -> LayoutQuestion:
-    """M11 item 7: a role question about an FRD whose family was not
-    recognized has no cell to offer — ask for the VALUE instead (a `text`
-    question, answered under `gaps` with the same key)."""
-    if question.document != "frd" or question.kind != "role" or question.candidates:
+# M14 item 2: families that state their content in requirement PROSE, not in
+# labelled cells — their content questions are TEXT questions with evidence,
+# never a picker over row labels.
+_PROSE_FAMILIES = ("F2", "F3", "unrecognized")
+_SENTENCE_SPLIT = re.compile(r"[\r\n]+|(?<=[.;])\s+(?=[A-Z0-9])")
+
+
+def frd_evidence(field_path: str, content, config: Config) -> list[dict]:
+    """The document's own text that mentions a field's concept: every cell
+    line of every table holding one of ``value_vocabulary.evidence_terms``
+    for the field's leaf name (whole phrases, case-insensitive) — verbatim,
+    with its cell, at most ``max_evidence``."""
+    vocab = config.value_vocabulary
+    leaf = field_path.rsplit(".", 1)[-1]
+    terms = [t.lower() for t in vocab.evidence_terms.get(leaf, [])]
+    if not terms or content is None:
+        return []
+    patterns = [re.compile(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])") for t in terms]
+    found: list[dict] = []
+    seen: set[str] = set()
+    for t_index, rows in enumerate(getattr(content, "tables", []) or []):
+        for r_index, row in enumerate(rows):
+            for c_index, cell in enumerate(row):
+                for line in _SENTENCE_SPLIT.split(cell or ""):
+                    snippet = re.sub(r"\s+", " ", line).strip()
+                    seen_key = snippet.lower().rstrip(" .;:")
+                    if len(snippet) < 3 or seen_key in seen:
+                        continue
+                    if any(p.search(snippet.lower()) for p in patterns):
+                        seen.add(seen_key)
+                        if len(snippet) > vocab.evidence_chars:
+                            snippet = snippet[: vocab.evidence_chars - 1].rstrip() + "…"
+                        found.append({"text": snippet,
+                                      "cell": f"table {t_index} row {r_index} col {c_index}"})
+                        if len(found) >= vocab.max_evidence:
+                            return found
+    return found
+
+
+def _typed(question: LayoutQuestion, content=None, config: Config | None = None,
+           family: str | None = None) -> LayoutQuestion:
+    """M11 item 7 / M14 item 2: an FRD role question of a family that states
+    its content in prose (F2 / F3 / unrecognized) asks for the VALUE — a
+    `text` question answered under `gaps` with the same key — shown with the
+    requirement text that mentions the concept. A picker over row labels
+    ("Business Requirement", "Impact Details", …) answers nothing."""
+    if question.document != "frd" or question.kind not in ("role", "text"):
         return question
+    evidence = frd_evidence(question.role, content, config) if config is not None else []
+    if question.kind == "text":
+        return question if not evidence or question.evidence else replace(
+            question, evidence=evidence)
+    label = {"F2": "frd_family_f2", "F3": "frd_family_f3"}.get(family or "",
+                                                               "frd_family_unrecognized")
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=question.role, kind="text",
-        reason=f"{question.reason}; the FRD states no such field in a structure the agent "
-               "reads (frd_family_unrecognized / frd_family_f3) and no other document states it",
-        header=[], candidates=[], title=question.title or question.role,
-        hint="Type the value. Separate several values (LOBs) with ';'.")
+        reason=f"{question.reason}; the FRD ({label}) states this in requirement prose, not in a "
+               "labelled cell the agent reads, and no other document states it",
+        header=[], candidates=[], title=question.title or question.role, evidence=evidence,
+        hint=("Type the value. Separate several values (LOBs) with ';'. "
+              + ("The document's own sentences that mention it are shown below, with their "
+                 "cells." if evidence else "No sentence of the document mentions it.")))
+
+
+_FEED_KEY = re.compile(r"^feeds\[(\d+)\]\.(.+)$")
+# Fields that are a feed's OWN by nature — its files, its name, a field's
+# width — are never asked once for all feeds: one answer would be wrong for
+# every other feed.
+_PER_FEED_FIELDS = ("file_patterns", "file_name_patterns", "feed_name", "sheet_name")
+
+
+def _one_question_for_all_feeds(questions: list[LayoutQuestion]) -> list[LayoutQuestion]:
+    """M14 item 3: the SAME question for several feeds of one document (same
+    field, kind, title and candidate values) is asked ONCE, keyed
+    ``feeds[*].<field>``; its answer applies to every feed it lists, and a
+    per-feed answer (``feeds[i].<field>``) overrides it."""
+    groups: dict[tuple, list[tuple[int, LayoutQuestion]]] = {}
+    order: list[object] = []
+    for question in questions:
+        match = _FEED_KEY.match(question.role) if question.document == "frd" else None
+        if (match is None or question.kind == "role" or match.group(2) in _PER_FEED_FIELDS
+                or match.group(2).startswith("fields[")):
+            order.append(question)
+            continue
+        signature = (question.kind, match.group(2), question.title,
+                     tuple((c.get("value"), c.get("source"), c.get("layer"))
+                           for c in question.candidates),
+                     tuple(e.get("text") for e in question.evidence))
+        if signature not in groups:
+            groups[signature] = []
+            order.append(signature)
+        groups[signature].append((int(match.group(1)), question))
+    out: list[LayoutQuestion] = []
+    for item in order:
+        if isinstance(item, LayoutQuestion):
+            out.append(item)
+            continue
+        members = groups[item]
+        if len(members) == 1:
+            out.append(members[0][1])
+            continue
+        feeds = sorted(index for index, _q in members)
+        first = members[0][1]
+        listed = ", ".join(str(i) for i in feeds)
+        out.append(replace(
+            first, role=f"feeds[*].{item[1]}", feeds=feeds,
+            reason=(f"{first.reason} — the same question for feeds {listed}: answered once, "
+                    f"applied to all; a per-feed answer (feeds[i].{item[1]}) overrides it")))
+    return out
+
+
+def expand_all_feeds(gaps: dict, feed_count: int) -> dict:
+    """``feeds[*].<field>`` answers become one answer per feed, unless that
+    feed has its own (the per-feed answer wins)."""
+    out = dict(gaps)
+    for key, value in gaps.items():
+        if key.startswith("feeds[*]."):
+            rest = key[len("feeds[*]."):]
+            for index in range(feed_count):
+                out.setdefault(f"feeds[{index}].{rest}", value)
+    return out
 
 
 def _feed_set(feed, dotted: str, value):
@@ -1932,8 +2065,9 @@ class _FeedGapFiller:
         from codegen.resolve.gapfill import (
             Statement,
             distinct,
-            format_statements,
+            dropped_flag,
             parse_load_strategy_text,
+            reconcile,
             same_value,
             strategy_from_faq,
         )
@@ -1962,7 +2096,12 @@ class _FeedGapFiller:
         self._file_patterns()
         self._sheet_name()          # M11: the worksheet of a spreadsheet source
 
-        # b. file format / delimiter: STTM meta row, then VDD FILES.
+        # b. file format / delimiter: STTM meta row, then VDD FILES. M14: every
+        # candidate is normalized first (config value_vocabulary): a transport
+        # phrase is no candidate, ".txt" fits any layout, csv refines
+        # delimited, "Comma" is "," — only canonical values that genuinely
+        # differ are a question.
+        vocabulary = self.config.value_vocabulary
         for dotted in ("file_format", "delimiter"):
             if self.handled(dotted):
                 continue
@@ -1971,29 +2110,27 @@ class _FeedGapFiller:
                 value, cell = meta[dotted]
                 others.append(Statement(value, "STTM", cell))
             others += [Statement(v, "VDD", cell) for v, cell in self.vdd.get(dotted, [])]
-            if dotted == "file_format":
-                # ".dat" names the file, not its layout: never a disagreement
-                # with a document that states a format.
-                others = format_statements(
-                    others if _feed_get(feed, dotted) is None
-                    else [self.frd_stmt(dotted, _feed_get(feed, dotted)), *others])
-                others = [o for o in others if o.source != "FRD"]
-            others = distinct(others)
             current = _feed_get(feed, dotted)
-            if current is not None:
-                disagreeing = [o for o in others if not same_value(current, o.value)]
-                if disagreeing:
+            statements = ([self.frd_stmt(dotted, current)] if current is not None else []) \
+                + others
+            outcome = reconcile(dotted, statements, vocabulary)
+            for statement, why in outcome.dropped:
+                self.result.flags.append(dropped_flag(self.prefix + dotted, statement, why))
+            kept = outcome.kept
+            frd_kept = any(s.source == "FRD" for s in kept)
+            if current is not None and frd_kept:
+                if len(kept) > 1:
                     self.ask(dotted, "choice",
                              [{"value": s.value, "source": s.source, "cell": s.cell}
-                              for s in distinct([self.frd_stmt(dotted, current), *disagreeing])],
+                              for s in kept],
                              "the documents disagree — choose the value to use")
                 continue
-            if len(others) == 1:
-                self.record_fill(dotted, others[0])
-            elif len(others) > 1:
+            if len(kept) == 1:
+                self.record_fill(dotted, kept[0])
+            elif len(kept) > 1:
                 self.ask(dotted, "choice",
-                         [{"value": s.value, "source": s.source, "cell": s.cell} for s in others],
-                         "the FRD is silent and the other documents disagree")
+                         [{"value": s.value, "source": s.source, "cell": s.cell} for s in kept],
+                         "the FRD states no usable value and the other documents disagree")
             # no statement anywhere: the ordinary FRD question stays.
 
         # b'. frequency: the STTM File Details row for THIS feed's file (the
@@ -2010,7 +2147,11 @@ class _FeedGapFiller:
                 value, cell = meta["frequency"]
                 others = [Statement(value, "STTM", cell)]
             others += [Statement(v, "VDD", cell) for v, cell in self.vdd.get("frequency", [])]
-            others = distinct(others)
+            # M14: a date list is a schedule, a vague cadence yields.
+            outcome = reconcile("frequency", distinct(others), vocabulary)
+            for statement, why in outcome.dropped:
+                self.result.flags.append(dropped_flag(self.prefix + "frequency", statement, why))
+            others = outcome.kept
             if len(others) == 1:
                 self.record_fill("frequency", others[0])
             elif len(others) > 1:
@@ -2070,6 +2211,7 @@ def fill_frd_gaps(contract: FrdContract, frd_doc, facts: dict, vdd: dict, gaps: 
                   config: Config, base_dir: Path) -> GapFillResult:
     """Apply the FRD gap chain to every feed (see resolve/gapfill.py)."""
     result = GapFillResult(contract=contract)
+    gaps = expand_all_feeds(gaps, len(contract.feeds))      # M14: feeds[*] answers
     feeds = [_FeedGapFiller(contract, index, facts, vdd, gaps, config, base_dir, result).run()
              for index in range(len(contract.feeds))]
     result.contract = contract.model_copy(update={"feeds": feeds})

@@ -348,7 +348,15 @@ def _report_verdict(tmp_path: Path) -> str:
     (report,) = (tmp_path / "out" / "reports").glob("*.md")
     line = next(li for li in report.read_text(encoding="utf-8").splitlines()
                 if li.startswith("**Verdict:"))
-    return line.strip("*").split(": ")[1]
+    # M14 item 6: a FAIL's line goes on to name its checks — the verdict is
+    # the bold part.
+    return line.split("**")[1].split(": ")[1]
+
+
+def _report_verdict_line(tmp_path: Path) -> str:
+    (report,) = (tmp_path / "out" / "reports").glob("*.md")
+    return next(li for li in report.read_text(encoding="utf-8").splitlines()
+                if li.startswith("**Verdict:"))
 
 
 def test_exit_code_zero_for_pass_with_flags_and_the_headline_is_the_report_verdict(
@@ -376,6 +384,9 @@ def test_exit_code_one_only_when_the_verdict_is_fail_and_the_console_says_why(
     assert "CHECK FAILED    ruff — 1 finding(s)" in out
     assert "pipeline/audit.py:3:1: F401 unused import" in out
     assert _report_verdict(tmp_path) == "FAIL"               # headline == report == exit code
+    # M14 item 6: the cause, readable from ONE line (the count line skipped)
+    assert _report_verdict_line(tmp_path) == (
+        "**Verdict: FAIL** — ruff: pipeline/audit.py:3:1: F401 unused import")
 
 
 def test_a_check_that_could_not_run_is_a_flag_not_a_fail(tmp_path, monkeypatch, capsys):

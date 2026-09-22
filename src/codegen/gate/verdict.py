@@ -38,6 +38,15 @@ class GateResult(BaseModel):
     flags: list[str]
 
 
+def dedupe_flags(flags: list[str]) -> list[str]:
+    """M14 item 5: an identical flag string appears ONCE, first position kept;
+    repeated, it carries its count (`` (×3)``). Distinct flags are untouched."""
+    counts: dict[str, int] = {}
+    for flag in flags:
+        counts[flag] = counts.get(flag, 0) + 1
+    return [flag if n == 1 else f"{flag} (×{n})" for flag, n in counts.items()]
+
+
 def compute_verdict(
     feed_id: str,
     outcomes: list[RuleOutcome],
@@ -99,6 +108,7 @@ def compute_verdict(
             flags.append(f"check_not_run:{check.name} — {check.details.splitlines()[0]}; the "
                          "generated code was NOT checked — PASS cannot be claimed")
 
+    flags = dedupe_flags(flags)
     if any(not check.passed for check in checks):
         verdict: Verdict = "FAIL"
     elif flags:

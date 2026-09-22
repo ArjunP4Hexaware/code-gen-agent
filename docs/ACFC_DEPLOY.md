@@ -319,6 +319,54 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.8.1-acfc adds (M14 — question quality and the last two blockers)
+
+From the v0.7.3 all-pairs run (1 DONE / 1 FAILED / 8 NEEDS_ANSWERS): most of
+the questions were not real disagreements.
+
+- **Candidates are normalized before a disagreement is declared**
+  (`value_vocabulary:` in config, `resolve/gapfill.py::reconcile`). File
+  format: `csv` / `psv` / `tsv` refine `delimited` (never a conflict, the
+  specific one wins); an extension-only cell maps to its format (`.xlsx` →
+  spreadsheet) or to "any layout" (`.txt`, `.dat` — yields); transport
+  phrases ("File Data Ingestion", "SQL Server Table to Databricks Table") are
+  not formats — dropped, flagged `candidate_dropped:`. Delimiter: `Comma` is
+  `,`, `Pipe (|)` is `|`. Frequency: a cell listing dates is a schedule
+  (dropped, flagged); vague terms (Periodic, TBD, As needed) yield to a
+  specific cadence; "Historical (one-time)" stands when a document states it.
+  Only canonical values that genuinely differ are a question: of the run's
+  nine candidate pairs, three still ask (pair 4 and 7: spreadsheet vs fixed
+  width; pair 10: comma vs pipe), six resolve. A text the vocabulary does not
+  know is compared exactly as before.
+- **F2 / F3 content questions are TEXT questions with evidence** — the
+  requirement document's own sentences that mention the concept (vendor, LOB,
+  domain, load strategy, frequency), verbatim with their table / row / column
+  (`value_vocabulary.evidence_terms`), never a picker over row labels
+  ("Business Requirement", "Impact Details", …).
+- **One question for all feeds**: the same question for several feeds of a
+  document (same field, kind, candidate values) is asked ONCE as
+  `feeds[*].<field>` — the dialog shows the feeds it covers and an "Answer per
+  feed" switch; the answers file accepts `feeds[*].<field>` and a per-feed
+  `feeds[i].<field>` overrides it. A feed's own things (file patterns, feed
+  name, sheet name, field widths) are never collapsed.
+- **Role questions always carry candidates** — column letter + header text;
+  when the band holds no unclaimed headed column (pair 5), every headed
+  column of the header row is offered, never an empty picker.
+- **Flags de-duplicated**: an identical flag appears once, with `(×n)`.
+- **The verdict line names the cause**: `**Verdict: FAIL** — ruff:
+  pipeline/x.py:3:1: F401 …; <check> (not run): …` — every failed / not-run
+  check with its first finding. A passing run's line is unchanged.
+- **Parser subprocess**: already on the used-range loader and the same
+  per-file budget as the in-process reader; now pinned by tests (a
+  1M-row-dimension workbook through the real child process).
+- **`scripts/scrub_check.py` layer 3**: a LOCAL, gitignored raw-term denylist
+  (`docs/acfc/denylist_local.txt`, `|`-separated terms, `#` comments), each
+  term matched case-insensitively as a whole term of any length; a hit names
+  the term's position, never the term.
+
+Version marker 0.8.1; `ui/frontend/dist` rebuilt (sync it). CV / SFMC
+baselines byte-identical (193 files).
+
 ## What v0.8.0-acfc adds (M13 — probe snapshots: probe as the user, consume anywhere)
 
 The App's service principal has no Unity Catalog grant and no warehouse, so

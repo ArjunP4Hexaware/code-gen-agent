@@ -1375,6 +1375,63 @@ class PlaybookConfig(BaseModel):
         return self.tasks.get(profile) or self.tasks.get("default") or PlaybookTasksConfig()
 
 
+class FormatVocabularyConfig(BaseModel):
+    """M14: what a file-format cell MEANS. ``canonical`` maps a kind to its
+    spellings (matched as whole phrases in the normalized text, longest
+    first); ``refines`` says a kind is a specific case of another (csv of
+    delimited) — the two never conflict, the specific one wins; ``extensions``
+    maps an extension-only cell to a kind or to ``any`` (compatible with every
+    kind — it names the file, not its layout); ``not_formats`` are transport /
+    scope phrases ("File Data Ingestion"): dropped as candidates, flagged."""
+
+    model_config = _MODEL_CONFIG
+
+    canonical: dict[str, list[str]] = Field(default_factory=dict)
+    refines: dict[str, str] = Field(default_factory=dict)
+    extensions: dict[str, str] = Field(default_factory=dict)
+    not_formats: list[str] = Field(default_factory=list)
+
+
+class DelimiterVocabularyConfig(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    canonical: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class FrequencyVocabularyConfig(BaseModel):
+    """``vague`` terms (Periodic, TBD, As needed) yield to any specific
+    cadence; a cell holding ``schedule_min_dates`` or more dates is a
+    SCHEDULE, not a frequency — dropped as a candidate, flagged."""
+
+    model_config = _MODEL_CONFIG
+
+    canonical: dict[str, list[str]] = Field(default_factory=dict)
+    vague: list[str] = Field(default_factory=list)
+    schedule_min_dates: int = Field(default=2, ge=2)
+
+
+class ValueVocabularyConfig(BaseModel):
+    """M14: candidate texts are normalized to canonical values BEFORE the gap
+    chain looks for a disagreement — only canonical values that genuinely
+    differ produce a question (resolve/gapfill.py::reconcile). Top-level on
+    purpose: the layout cache's vocabulary hash covers ``extractor:`` and
+    this is not layout vocabulary."""
+
+    model_config = _MODEL_CONFIG
+
+    file_format: FormatVocabularyConfig = FormatVocabularyConfig()
+    delimiter: DelimiterVocabularyConfig = DelimiterVocabularyConfig()
+    frequency: FrequencyVocabularyConfig = FrequencyVocabularyConfig()
+    # M14 item 2: an F2 / F3 FRD states its content fields in requirement
+    # prose. The question is TEXT, shown with the document's own sentences
+    # that mention the concept — field leaf name -> terms (whole phrases,
+    # case-insensitive); at most ``max_evidence`` snippets of
+    # ``evidence_chars`` characters each.
+    evidence_terms: dict[str, list[str]] = Field(default_factory=dict)
+    max_evidence: int = Field(default=6, ge=1)
+    evidence_chars: int = Field(default=240, ge=40)
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -1386,6 +1443,7 @@ class Config(BaseModel):
     masking: MaskingConfig
     segments: SegmentsConfig
     extractor: ExtractorConfig
+    value_vocabulary: ValueVocabularyConfig = ValueVocabularyConfig()
     reasoning: ReasoningConfig
     demo: DemoConfig
     gate: GateConfig

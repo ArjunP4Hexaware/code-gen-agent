@@ -1210,6 +1210,10 @@ inputs:
   select_timeout_seconds: 120
   listing_timeout_seconds: 30
   parser_start_timeout_seconds: 60
+  # M12: can the parser child start at all? Asked once per process within
+  # this budget; if not, documents are parsed in-process (worker thread, the
+  # same per-file timeout) and the status says parser_mode=inprocess.
+  parser_probe_seconds: 10
   # Auto-pairing by content (codegen.pairing): for the chosen STTM every FRD /
   # VDD candidate is scored on what the documents SAY; the ticket number and
   # the file-name stem are two weak signals among several. Paired only when

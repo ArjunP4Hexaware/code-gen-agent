@@ -236,11 +236,15 @@ def test_rejection_log_is_written_in_full_and_carries_no_model_string(config, tm
     pre_m9 = pre_m9_vocabulary.strip(config)
     invented = "MODEL_INVENTED_KEY_91ac"
     answer = tmp_path / "answer.json"
+    # M12: an extra KEY in the answer is dropped (the response schema ignores
+    # it, never a rejection), so the invented name rides where it still errs:
+    # a role name whose column is not a number.
     answer.write_text(json.dumps({
         "fingerprint": "x", "source": "model", "strategy": "content",
         "sheets": [{"name": SHEET, "kind": "mapping", "header_row": "fifteen",
                     "bands": [{"layer": "stage", "col_start": 0, "col_end": 23,
-                               "roles": {"schema": "T"}, invented: 1}]}]}), encoding="utf-8")
+                               "roles": {"schema": "T", invented: "x"}}]}]}),
+        encoding="utf-8")
     provider = MockLayoutProvider([], override=answer)
     doc, _ = resolve_workbook(PAIR_1, pre_m9, provider=provider, cache_dirs=[],
                               runtime_cache_dir=runtime, refresh=True)

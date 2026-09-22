@@ -929,6 +929,13 @@ class InputsConfig(BaseModel):
     # The document parser is a child process (codegen.layout.docworker); its
     # START (interpreter + imports) has its own budget, apart from a file's.
     parser_start_timeout_seconds: float = Field(default=60.0, gt=0)
+    # M12: whether that child CAN start is asked ONCE per process, within this
+    # short budget. When it cannot (serverless compute; an App runtime that
+    # never answers "ready"), documents are parsed in-process in a worker
+    # thread under the same per-file timeout and the used-range loader, and
+    # the status says so (parser_mode=inprocess) — a selection never waits on
+    # a parser that did not start.
+    parser_probe_seconds: float = Field(default=10.0, gt=0)
     classify_timeout_seconds: float = Field(default=60.0, gt=0)
     # M11: a workbook declaring more cells than this is `unreadable` with the
     # count and the cap, decided read-only BEFORE any scan — a 140k-cell STTM

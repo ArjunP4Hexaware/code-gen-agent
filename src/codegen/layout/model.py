@@ -27,6 +27,7 @@ from typing import Protocol
 
 from codegen.config import Config
 from codegen.layout.profile import ROLE_DEFINITIONS, LayoutProfile, UnresolvedRole
+from codegen.layout.response import frd_response_schema, layout_partial, layout_response_schema
 
 
 class LayoutProviderError(RuntimeError):
@@ -51,14 +52,18 @@ _SYSTEM_PROMPT = (
     "filling the unresolved roles with the 1-based column number of the header "
     "cell that carries them (or the table/row/col of the label cell for a document). "
     "Never invent sheets, rows or columns; never include cell values; leave a role "
-    "out when no header carries it."
+    "out when no header carries it. State WHERE things are and nothing else: the "
+    "schema in `response_schema` is the whole of what is read — no confidence, no "
+    "source, no strategy (who resolved a role is recorded on our side)."
 )
 
 
 def build_sttm_request(fingerprint: str, regions: list[str], partial: LayoutProfile,
                        unresolved: list[UnresolvedRole], config: Config) -> dict:
     """The ONLY workbook content the model sees is ``regions`` — the rendered
-    header regions the fingerprint was hashed over."""
+    header regions the fingerprint was hashed over. The partial profile and the
+    schema are both the RESPONSE shape (M12 item 1): what the model is asked
+    for is what it is judged against, and neither carries provenance."""
     disc = config.extractor.discovery
     return {
         "kind": "sttm_layout",
@@ -67,7 +72,8 @@ def build_sttm_request(fingerprint: str, regions: list[str], partial: LayoutProf
         "roles": {role.value: definition for role, definition in ROLE_DEFINITIONS.items()},
         "synonym_hints": disc.roles,
         "band_tokens": disc.band_tokens,
-        "partial_profile": partial.model_dump(mode="json"),
+        "partial_profile": layout_partial(partial),
+        "response_schema": layout_response_schema(),
         "unresolved": [u.model_dump(mode="json") for u in unresolved],
     }
 
@@ -81,6 +87,7 @@ def build_frd_request(fingerprint: str, labels: list[str], partial: dict,
         "label_hints": config.extractor.frd.labels,
         "section_titles": config.extractor.frd.section_titles,
         "partial_profile": partial,
+        "response_schema": frd_response_schema(),
         "unresolved": unresolved,
     }
 

@@ -72,6 +72,11 @@ from codegen.layout.profile import (
     confidence_key,
     missing_required_roles,
 )
+from codegen.layout.response import (
+    frd_partial,
+    frd_profile_from_response,
+    layout_profile_from_response,
+)
 from codegen.layout.validate import Rejection, validate_profile
 
 _STEM_MIN = 4
@@ -605,7 +610,9 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
         calls += 1
         try:
             answer = provider.complete_layout(request)
-            model_profile = LayoutProfile.model_validate(answer)
+            # M12: the answer is judged on its PLACEMENT alone — provenance it
+            # volunteers is dropped, and stamped by us (codegen.layout.response).
+            model_profile = layout_profile_from_response(answer, digest)
         except LayoutProviderError as exc:
             rejections.append(Rejection(document, None, None, None, f"model: {exc}"))
         except ValidationError as exc:
@@ -851,13 +858,13 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
 
     model_from = len(rejections)
     if profile.unresolved and provider is not None:
-        request = build_frd_request(digest, _frd_labels(content), profile.model_dump(mode="json"),
+        request = build_frd_request(digest, _frd_labels(content), frd_partial(profile),
                                     [u.model_dump(mode="json") for u in profile.unresolved],
                                     config)
         calls += 1
         try:
             answer = provider.complete_layout(request)
-            model_profile = FrdLayoutProfile.model_validate(answer)
+            model_profile = frd_profile_from_response(answer, digest, profile.family)
         except LayoutProviderError as exc:
             rejections.append(Rejection("frd", None, None, None, f"model: {exc}"))
         except ValidationError as exc:

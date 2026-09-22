@@ -319,6 +319,61 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
+## What v0.7.3-acfc adds (M12 — four causes read out of the v0.7.2 all-pairs run)
+
+- **Item 1 — a layout model's answer is judged on its PLACEMENT only.** In
+  the v0.7.2 run every model answer (pairs 5, 7, 8, 9, 10) was thrown away by
+  a `literal_error` on `source` and on every `role_sources` key: the answer
+  was validated against `LayoutProfile`, whose provenance fields are a
+  four-word Literal, and the prompt had shown the model a partial profile
+  carrying them. The wire schema is now its own model
+  (`codegen/layout/response.py`): sheets / bands / roles / meta rows, NO
+  source, role_sources, confidence, fingerprint or strategy; extra keys are
+  dropped, never a rejection; the resolver stamps `source="model"` and the
+  per-role sources itself. The prompt's `partial_profile` and its new
+  `response_schema` are generated from that model. Same fix on the FRD side
+  (`field_sources`, `family` — the family is what discovery found). A
+  placement that does not parse is still rejected, and every surviving claim
+  still goes through the validator. Expect the next run's layout stage to
+  reach the validator on those five pairs — whether their placements pass it
+  is the next thing the run will show.
+- **Item 2 — the gate's ruff no longer depends on where the tree lives.** It
+  runs `--isolated` with the rule set pinned in `codegen/lint_rules.py` (the
+  same definition the emitted `ruff.toml` renders from, byte-identical), and
+  ignores EXE002 — a file mode is the storage's business, never a finding.
+  Before, ruff DISCOVERED its config: the emitted `ruff.toml` / the
+  checkout's `pyproject.toml` here, the config of the process's working
+  directory when nothing sat above the tree, ruff's own defaults otherwise.
+  The runner notebook's unused `noqa: SLF001` (RUF100 under the defaults) is
+  gone. Note: in framework mode the gate lints the scratch pipeline tree, not
+  the runner notebooks; the RUF100 / EXE002 lines in the run record came
+  from a manual ruff over `framework/`. The gate's own findings list for
+  that run was not captured — the gate details carry every finding (M9.1b),
+  so the next run shows what, if anything, remains. `ruff` itself is still
+  `>=0.5` (unpinned upper bound): a newer ruff can add rules inside the
+  selected families.
+- **Item 3 — a parser that cannot start no longer holds a selection.**
+  Whether the document parser child can start is asked ONCE per process at
+  App start, in the background, within `inputs.parser_probe_seconds` (10 s).
+  When it cannot (serverless compute; the App runtime of the v0.7.2 run),
+  documents are parsed in-process: `docworker.read_document` in a worker
+  thread with the same per-file timeout, the used-range loader and the cell
+  cap; one read per lane at a time, a late read abandoned (`timed_out`) and
+  holding its lane until it ends. A child that started once and then fails to
+  start demotes the process to in-process. The status says so once:
+  `parser_mode` = `{mode: probing | subprocess | inprocess, reason}`; the
+  `start parser` step reads `in-process (parser_mode=inprocess)`. A workbook
+  whose dimension claims a million rows classifies in-process in well under
+  2 s.
+- **Item 4 — a VDD tie is a question.** Pair 5 had three dictionaries at 1.0
+  each, below `min_score`, and was left with no VDD and no question. A tie at
+  a positive score is now a `pair.vdd` choice question (the margin rule can
+  never separate equal candidates). One weak candidate alone is still not a
+  question — a VDD is optional.
+
+Version marker 0.7.3. CV / SFMC baselines byte-identical (193 files); the
+pair-1 acceptance goldens unchanged. No frontend change (dist untouched).
+
 ## What v0.7.2-acfc adds (M11 addendum items 10, 8, 12, 13, 9 — from SHAPES_ROUND2)
 
 - **Item 10 — layer-prefixed headers (pair 7).** A mapping sheet with NO band

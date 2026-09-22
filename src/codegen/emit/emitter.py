@@ -18,6 +18,7 @@ from typing import Any
 
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
+from codegen import lint_rules
 from codegen.emit.context import KNOWN_AUDIT_COLUMNS as _KNOWN_AUDIT_COLUMNS  # noqa: F401
 from codegen.emit.notebook import build_notebook
 
@@ -33,9 +34,9 @@ def _py_literal(value: Any) -> str:
     return json.dumps(value)
 
 
-# Mirrors ``line-length`` in templates/ruff.toml.j2: a generated module must
-# pass the lint config emitted next to it.
-_LINE_LENGTH = 100
+# A generated module must pass the lint config emitted next to it, and both
+# come from codegen.lint_rules — the one place the rule set is stated.
+_LINE_LENGTH = lint_rules.LINE_LENGTH
 _INDENT = "    "
 
 
@@ -164,7 +165,7 @@ def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
         renders.append((f"tests/test_{module}.py.j2", tests_dir / f"test_{module}.py", {}))
 
     renders.append(("fixtures/make_fixtures.py.j2", feed_dir / "tools" / "make_fixtures.py", {}))
-    renders.append(("ruff.toml.j2", feed_dir / "ruff.toml", {}))
+    renders.append(("ruff.toml.j2", feed_dir / "ruff.toml", lint_rules.template_context()))
     renders.append(("readme.md.j2", feed_dir / "README.md", {}))
 
     written: list[Path] = []

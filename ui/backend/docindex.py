@@ -23,6 +23,16 @@ size, a thread cannot be stopped, and a runaway parse inside the App starved
 every endpoint until a restart. ``ParserProcess`` answers one document at a
 time and is KILLED when a file exceeds its budget. Downloads stay in threads
 (a stuck socket idles; it does not starve anyone).
+
+**M12: when the child cannot start, documents are parsed IN-PROCESS.** On
+serverless compute the child never starts, and in the v0.7.2 App run it never
+said "ready": every selection's classify step waited out its whole budget.
+Whether the child can start is now asked ONCE per process
+(``inputs.parser_probe_seconds``, in the background at App start); when it
+cannot, ``docworker.read_document`` runs in a worker thread of this process
+with the same per-file timeout, the same used-range loader and the same cell
+cap — one read per lane at a time, a late one abandoned (``timed_out``) and
+holding its lane until it ends. The status says so once: ``parser_mode``.
 """
 
 from __future__ import annotations
@@ -47,6 +57,19 @@ UNREADABLE = "unreadable"
 
 class ParserTimeout(TimeoutError):
     """The parser process did not answer in time and was stopped."""
+
+
+class ParserStartError(RuntimeError):
+    """The parser process did not start (no ``{"ready": true}`` in time)."""
+
+
+# M12: parser modes. ``subprocess`` is the M9.3 design (a killable child);
+# ``inprocess`` is the fallback for an environment where the child cannot start
+# (serverless compute; the App runtime of the v0.7.2 run, where it never said
+# "ready" and every classify waited out its budget). ``probing`` = not yet known.
+PARSER_PROBING = "probing"
+PARSER_SUBPROCESS = "subprocess"
+PARSER_INPROCESS = "inprocess"
 
 
 def worker_command(config, base_dir: Path) -> list[str]:
@@ -98,10 +121,14 @@ class ParserProcess:
             hello = lines.get(timeout=self.start_timeout)
         except queue.Empty:
             hello = None
-        if hello is None or not json.loads(hello).get("ready"):
+        try:
+            ready = hello is not None and bool(json.loads(hello).get("ready"))
+        except (ValueError, AttributeError):
+            ready = False                                # not our protocol: not started
+        if not ready:
             self.stop()
-            raise RuntimeError("the document parser process did not start "
-                               f"(not ready within {self.start_timeout:g}s)")
+            raise ParserStartError("the document parser process did not start "
+                                   f"(not ready within {self.start_timeout:g}s)")
         return proc
 
     def ensure(self) -> None:
@@ -174,6 +201,41 @@ def parser_for(command: list[str], cwd: Path, lane: str,
 def _stop_parsers() -> None:
     for parser in list(_parsers.values()):
         parser.stop()
+
+
+# M12: can the child start HERE? Asked once per (command, cwd) per process —
+# every runner shares the answer, as they share the children.
+_modes: dict[tuple, dict] = {}
+_modes_guard = threading.Lock()
+# In-process reads, one at a time per lane (the subprocess lanes' semantics):
+# a thread cannot be killed, so a read that outlives its budget is abandoned
+# and HOLDS its lane until it ends — the next read waits within its own budget
+# rather than piling a second runaway parse onto the same CPU.
+_inprocess_lanes: dict[str, threading.Lock] = {"background": threading.Lock(),
+                                               "request": threading.Lock()}
+
+
+def _probe_parser(entry: dict, command: list[str], cwd: Path, timeout: float,
+                  start_timeout: float) -> None:
+    try:
+        parser = parser_for(command, cwd, "request", timeout)
+        parser.ensure()
+        parser.start_timeout = start_timeout            # back to the per-start budget
+        entry.update(mode=PARSER_SUBPROCESS, reason="")
+    except Exception as exc:  # noqa: BLE001 — any failure to start means: not here
+        entry.update(mode=PARSER_INPROCESS,
+                     reason=(f"{str(exc) or type(exc).__name__} — documents are parsed "
+                             "in-process (a worker thread, the same per-file timeout)"))
+    finally:
+        entry["done"].set()
+
+
+def _demote(entry: dict, reason: str) -> None:
+    """A child that started once and cannot start again: in-process from now on."""
+    with _modes_guard:
+        entry.update(mode=PARSER_INPROCESS,
+                     reason=f"{reason} — documents are parsed in-process from now on")
+        entry["done"].set()
 
 
 _fetch_locks: dict[str, threading.Lock] = {}
@@ -276,17 +338,117 @@ class DocumentIndex:
         return parser_for(worker_command(config, self._base_dir), self._base_dir, lane,
                           float(config.inputs.parser_start_timeout_seconds))
 
-    def ensure_parser(self, lane: str = "request") -> None:
-        """Start the lane's parser process when it is not running."""
-        self._parser(lane).ensure()
+    # -- M12: the parser mode --------------------------------------------------------
+
+    def _mode_entry(self) -> dict:
+        """This process's answer to "can the parser child start?" — probed once
+        (in the background, within ``inputs.parser_probe_seconds``)."""
+        config = self._get_config()
+        command = worker_command(config, self._base_dir)
+        key = (tuple(command), str(self._base_dir))
+        with _modes_guard:
+            entry = _modes.get(key)
+            if entry is None:
+                entry = _modes[key] = {"mode": PARSER_PROBING, "reason": "",
+                                       "done": threading.Event()}
+                threading.Thread(
+                    target=_probe_parser, name="document-parser-probe", daemon=True,
+                    args=(entry, command, self._base_dir,
+                          float(config.inputs.parser_probe_seconds),
+                          float(config.inputs.parser_start_timeout_seconds))).start()
+        return entry
+
+    def start_probe(self) -> None:
+        """App start: ask the question in the background (never waited for)."""
+        self._mode_entry()
+
+    def parser_mode(self, wait: float = 0.0) -> dict:
+        """``{mode: probing | subprocess | inprocess, reason}`` — the status
+        field. ``wait`` > 0 waits (at most that long) for a running probe."""
+        entry = self._mode_entry()
+        if wait > 0:
+            entry["done"].wait(wait)
+        return {"mode": entry["mode"], "reason": entry["reason"]}
+
+    def _settled_mode(self, budget: float) -> tuple[str, dict]:
+        """The mode a parse runs under: the probe's answer, waited for no longer
+        than the probe's own budget or the caller's — whichever is shorter. A
+        probe that has not answered by then is treated as ``inprocess`` for
+        this read (never block on a parser that has not started)."""
+        entry = self._mode_entry()
+        probe = float(self._get_config().inputs.parser_probe_seconds)
+        entry["done"].wait(max(min(budget, probe), 0.0))
+        mode = entry["mode"]
+        return (PARSER_INPROCESS if mode == PARSER_PROBING else mode), entry
+
+    def ensure_parser(self, lane: str = "request") -> str:
+        """Make the lane's parser ready: start the child in subprocess mode;
+        nothing to start in-process. Returns the mode the next read runs under.
+        A child that no longer starts demotes the process to ``inprocess``."""
+        probe = float(self._get_config().inputs.parser_probe_seconds)
+        mode, entry = self._settled_mode(probe)
+        if mode == PARSER_INPROCESS:
+            return mode
+        try:
+            self._parser(lane).ensure()
+        except ParserStartError as exc:
+            _demote(entry, str(exc))
+            return PARSER_INPROCESS
+        return mode
 
     def _parse(self, doc, local: Path, timeout: float, lane: str) -> dict:
-        try:
-            return self._parser(lane).parse(local, doc.name, timeout)
-        except Exception as exc:  # noqa: BLE001 — every failure is a listed state
-            return {"state": UNREADABLE, "facts": None,
-                    "timed_out": isinstance(exc, ParserTimeout),
-                    "reason": str(exc) or type(exc).__name__}
+        deadline = time.monotonic() + timeout
+        mode, entry = self._settled_mode(timeout)
+        if mode == PARSER_SUBPROCESS:
+            try:
+                return self._parser(lane).parse(local, doc.name,
+                                                max(deadline - time.monotonic(), 0.05))
+            except ParserStartError as exc:
+                # It started once (the probe said so) and no longer does: the
+                # rest of THIS read's budget goes to the in-process reader.
+                _demote(entry, str(exc))
+            except Exception as exc:  # noqa: BLE001 — every failure is a listed state
+                return {"state": UNREADABLE, "facts": None,
+                        "timed_out": isinstance(exc, ParserTimeout),
+                        "reason": str(exc) or type(exc).__name__}
+        return self._parse_inprocess(doc, local, max(deadline - time.monotonic(), 0.05), lane)
+
+    def _parse_inprocess(self, doc, local: Path, timeout: float, lane: str) -> dict:
+        """The docworker's own ``read_document`` in a worker thread of THIS
+        process: the same verdict, the same used-range loader and cell cap, the
+        same per-file budget. A read past its budget is abandoned (``timed_out``)
+        — it keeps its lane until it ends, so runaway reads never stack."""
+        from codegen.layout.docworker import read_document
+
+        deadline = time.monotonic() + timeout
+        lane_lock = _inprocess_lanes.setdefault(lane, threading.Lock())
+        if not lane_lock.acquire(timeout=max(timeout, 0.05)):
+            return {"state": UNREADABLE, "facts": None, "timed_out": True,
+                    "reason": f"the document was not read within {timeout:g}s — an earlier "
+                              "in-process read of this lane is still running"}
+        config, base_dir = self._get_config(), self._base_dir
+        box: dict = {}
+        finished = threading.Event()
+
+        def read() -> None:
+            try:
+                box["result"] = read_document(local, doc.name, config, base_dir)
+            except Exception as exc:  # noqa: BLE001 — every failure is an answer
+                box["result"] = {"state": UNREADABLE, "facts": None,
+                                 "reason": (f"{type(exc).__name__}: "
+                                            f"{str(exc).splitlines()[0][:300]}"
+                                            if str(exc) else type(exc).__name__)}
+            finally:
+                finished.set()
+                lane_lock.release()
+
+        threading.Thread(target=read, name=f"document-parser-inprocess:{doc.name}",
+                         daemon=True).start()
+        if not finished.wait(max(deadline - time.monotonic(), 0.05)):
+            return {"state": UNREADABLE, "facts": None, "timed_out": True,
+                    "reason": f"the document was not read within {timeout:g}s (in-process "
+                              "parser; the read was abandoned)"}
+        return box["result"]
 
     def wait_idle(self, timeout: float = 30.0) -> bool:
         """Tests: block until the queue is drained (True) or ``timeout``."""
@@ -360,4 +522,6 @@ class DocumentIndex:
         self._save()
 
 
-__all__ = ["CLASSIFYING", "INDEX_FILE", "UNREADABLE", "DocumentIndex", "fetch_exclusive"]
+__all__ = ["CLASSIFYING", "INDEX_FILE", "PARSER_INPROCESS", "PARSER_PROBING",
+           "PARSER_SUBPROCESS", "UNREADABLE", "DocumentIndex", "ParserStartError",
+           "fetch_exclusive"]

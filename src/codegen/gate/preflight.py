@@ -18,6 +18,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from codegen.config import Config
+from codegen.lint_rules import ruff_config_args
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -59,10 +60,16 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
     # config it rejects: no JSON — the code was NOT linted, which is a flag,
     # not a verdict on the code). A run inside ACFC came back `ruff=FAIL` with
     # nothing to tell the two apart.
+    # M12: the rules are PINNED (codegen.lint_rules) instead of discovered.
+    # Discovery made the verdict depend on where the tree lived — inside the
+    # checkout ruff found the intended config, under a remote outputs role it
+    # found none and applied its own defaults (RUF100 / EXE002 on artefacts
+    # that are clean here). Same rules everywhere, EXE002 ignored: a file's
+    # mode is the filesystem's business, never a finding about the code.
     try:
         result = subprocess.run(
             [sys.executable, "-m", "ruff", "check", "--no-cache", "--output-format", "json",
-             str(feed_dir)],
+             *ruff_config_args(), str(feed_dir)],
             capture_output=True,
             text=True,
             check=False,

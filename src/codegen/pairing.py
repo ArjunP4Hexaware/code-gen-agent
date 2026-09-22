@@ -65,12 +65,18 @@ class PairDecision:
     @property
     def ambiguous(self) -> bool:
         """Undecided AND worth asking. An FRD is required, so any scored
-        candidate is worth showing; a VDD is optional, so only candidates
-        strong enough to have paired (a tie between real contenders)."""
+        candidate is worth showing; a VDD is optional, so candidates strong
+        enough to have paired — or (M12) a TIE at a positive score: the margin
+        rule can never separate equal candidates and no further signal exists,
+        so only a person can say which it is. Pair 5 had three dictionaries at
+        1.0 each and was left with "no VDD", silently."""
         if self.chosen is not None or not self.candidates:
             return False
         best = self.candidates[0].score
-        return best > 0 if self.kind == "frd" else best >= self.min_score
+        if self.kind == "frd":
+            return best > 0
+        tied = len(self.candidates) > 1 and self.candidates[1].score == best
+        return best >= self.min_score or (best > 0 and tied)
 
     def question(self) -> dict:
         """The decision as a layout-dialog ``choice`` question (same shape

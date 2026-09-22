@@ -22,7 +22,13 @@ from pathlib import Path
 
 from codegen.extract import extract_to_file
 from codegen.resolve.resolver import resolve_pair
-from ui.backend.docindex import INDEX_FILE, UNREADABLE, DocumentIndex, fetch_exclusive
+from ui.backend.docindex import (
+    INDEX_FILE,
+    PARSER_INPROCESS,
+    UNREADABLE,
+    DocumentIndex,
+    fetch_exclusive,
+)
 from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
 
 # State files under the default (local) state role — module constants so tests
@@ -210,6 +216,8 @@ class DemoRunner:
         self._index = DocumentIndex(
             lambda: self._store.config, self._index_path,
             lambda: self._push_state_file(INDEX_FILE), REPO_ROOT)
+        # M12: can the parser child start here? Asked once, in the background.
+        self._index.start_probe()
         self._start_restore()
 
     def _index_path(self) -> Path:
@@ -822,8 +830,13 @@ class DemoRunner:
             local = self._step(job, "download", lambda _d: self._fetch(doc, timeout), timeout)
             step = "starting the document parser"
             try:
-                self._step(job, "start parser", lambda _d: self._index.ensure_parser("request"),
-                           float(self._store.config.inputs.parser_start_timeout_seconds))
+                mode = self._step(job, "start parser",
+                                  lambda _d: self._index.ensure_parser("request"),
+                                  float(self._store.config.inputs.parser_start_timeout_seconds))
+                if mode == PARSER_INPROCESS:
+                    # M12: said once on the status (parser_mode); the step only
+                    # names the mode — nothing waited on a child that cannot start.
+                    job["steps"][-1]["detail"] = "in-process (parser_mode=inprocess)"
             except Exception:  # noqa: BLE001 — said on the step; the choice still stands
                 # No parser (an environment that cannot start a child process):
                 # the documents go unread — pairing falls back to names and the
@@ -1048,6 +1061,9 @@ class DemoRunner:
             "vdd_auto_paired": self.vdd_auto_paired,
             # M8.1: input roots whose last listing failed (label -> API message).
             "input_errors": self.input_errors(),
+            # M12: how documents are opened — {mode: probing | subprocess |
+            # inprocess, reason}; inprocess when the parser child cannot start.
+            "parser_mode": self._index.parser_mode(),
             # M8.2: undecided pairings (asked in the dialog when the run starts).
             "pair_candidates": {
                 kind: {"reason": d.reason,

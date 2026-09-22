@@ -397,10 +397,11 @@ class ExtractorConfig(BaseModel):
     frd: FrdExtractorConfig = FrdExtractorConfig()
     # Vendor Data Dictionary vocabulary (M3); empty = nothing resolves, loudly.
     vdd: VddExtractorConfig = VddExtractorConfig()
-    # M11 item 11: a document worksheet is read up to its USED range — the
-    # last row with a value before this many consecutive empty rows. A sheet
-    # formatted a million rows down otherwise makes every scan create a cell
-    # per row (codegen.layout.extent). 0 = trust max_row (the old behaviour).
+    # M11 item 11: a document worksheet's dead tail — empty (styled only)
+    # cells more than this many rows below the data — is dropped on load; a
+    # cell with a value never is. A sheet formatted a million rows down
+    # otherwise makes every scan create a cell per row
+    # (codegen.layout.extent). 0 = trust max_row (the old behaviour).
     used_range_empty_rows: int = Field(default=500, ge=0)
 
     @model_validator(mode="after")

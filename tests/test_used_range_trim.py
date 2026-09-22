@@ -42,14 +42,27 @@ def test_used_max_row_stops_at_the_first_long_gap():
     assert used_max_row([1, 5000], 0) == (5000, 0)                 # 0 = trust everything
 
 
-def test_a_dead_tail_is_trimmed_and_valued_rows_beyond_a_gap_are_reported():
+def test_a_dead_tail_is_trimmed_but_a_value_below_a_gap_is_never_dropped():
+    """The empty styled tail goes; a VALUE far below a run of empty rows is
+    kept (and counted) — never silently lost."""
     ws = Workbook().active
     for row in range(1, 11):
         ws.cell(row=row, column=1).value = f"v{row}"
     ws.cell(row=2000, column=1).value = "after the gap"
     ws.cell(row=900_000, column=3).font = Font(bold=True)          # formatting only
-    assert trim_worksheet(ws, 500) == (900_000, 10, 1)
-    assert ws.max_row == 10
+    assert trim_worksheet(ws, 500) == (900_000, 2000, 1)
+    assert ws.max_row == 2000 and ws.cell(row=2000, column=1).value == "after the gap"
+
+
+def test_every_value_survives_the_trim_whatever_the_gaps():
+    ws = Workbook().active
+    rows = [1, 2, 3, 700, 5_000, 600_000]
+    for row in rows:
+        ws.cell(row=row, column=2).value = f"r{row}"
+    ws.cell(row=1_048_538, column=1).fill = PatternFill("solid", fgColor="FFFFFF")
+    trim_worksheet(ws, 500)
+    assert ws.max_row == rows[-1]
+    assert [ws.cell(row=r, column=2).value for r in rows] == [f"r{r}" for r in rows]
 
 
 def test_a_few_formatted_empty_rows_keep_max_row_exact():

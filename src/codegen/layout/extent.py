@@ -7,13 +7,16 @@ mode, CREATES a cell object for every row up to it: 34 columns x a million
 rows. That, not the data, is what ran the v0.6.2 parser past its budget on a
 sheet holding 336 real rows (SHAPES_ROUND2 §3).
 
-So documents are loaded through :func:`load_document`, which trims each
-worksheet to its populated extent right after the load: the last row with a
-value before the first run of ``stop_after`` consecutive empty rows (config
-``extractor.used_range_empty_rows``). openpyxl derives ``max_row`` from the
-cells it holds, so every scan downstream is bounded without a change at the
-call site. Nothing with a value is dropped silently: rows with values beyond
-such a gap are counted and reported (``TrimReport``).
+So documents are loaded through :func:`load_document`, which drops each
+worksheet's dead tail right after the load — EMPTY cells only (styled, no
+value) more than ``stop_after`` rows (config ``extractor.used_range_empty_rows``)
+below the data (the exact cut: :func:`trim_worksheet`). openpyxl derives
+``max_row`` from the cells it holds, so every scan downstream is bounded
+without a change at the call site.
+
+A cell WITH a value is never dropped: rows with values far below a long run
+of empty rows are kept and read (the sheet is then slower to scan, never
+incomplete), and ``TrimReport`` counts them.
 """
 
 from __future__ import annotations
@@ -24,7 +27,8 @@ from pathlib import Path
 
 @dataclass
 class TrimReport:
-    """Per sheet: (declared max_row, used max_row, valued rows beyond the gap)."""
+    """Per sheet: (declared max_row, used max_row, valued rows found below a
+    long run of empty rows — kept and read)."""
 
     sheets: dict[str, tuple[int, int, int]] = field(default_factory=dict)
 
@@ -38,8 +42,8 @@ class TrimReport:
             note = (f"sheet {name!r}: used range {used} row(s) (the sheet reached row "
                     f"{declared:,}, formatting only)")
             if beyond:
-                note += (f"; {beyond} row(s) WITH values lie beyond a run of empty rows and "
-                         "were not read — raise extractor.used_range_empty_rows to read them")
+                note += (f"; {beyond} row(s) with values lie below a run of empty rows — "
+                         "kept and read")
             out.append(note)
         return out
 
@@ -58,15 +62,16 @@ def used_max_row(valued_rows: list[int], stop_after: int) -> tuple[int, int]:
 
 
 def trim_worksheet(ws, stop_after: int) -> tuple[int, int, int]:
-    """Drop the cells beyond the used range. (declared, used, beyond).
+    """Drop the empty cells of the dead tail. (declared, used, beyond).
 
-    The cut is the EARLIER of two bounds: the last held cell (valued or only
+    The cut is the EARLIER of two bounds — the last held cell (valued or only
     styled) before the first gap of ``stop_after`` rows holding no cell at
-    all, and ``stop_after`` rows past the last VALUED row. The first bound
-    keeps a normal sheet's trailing formatted rows — so a clean sheet and a
-    copy of it with one styled cell a million rows down trim to the SAME
-    max_row (fingerprint input); the second bounds a sheet whose formatting
-    was dragged down row after row without a gap."""
+    all, and ``stop_after`` rows past the last VALUED row — but never above
+    the last valued row: no cell with a value is ever dropped. The first
+    bound keeps a normal sheet's trailing formatted rows, so a clean sheet
+    and a copy of it with one styled cell a million rows down trim to the
+    SAME max_row (fingerprint input); the second bounds a sheet whose
+    formatting was dragged down row after row without a gap."""
     cells = getattr(ws, "_cells", None)
     if cells is None:                                    # a read-only sheet: nothing held
         return ws.max_row or 0, ws.max_row or 0, 0
@@ -77,7 +82,9 @@ def trim_worksheet(ws, stop_after: int) -> tuple[int, int, int]:
                      if cell.value is not None and cell.value != ""})
     used, beyond = used_max_row(valued, stop_after)
     held, _ = used_max_row(sorted({row for (row, _col) in cells}), stop_after)
-    cut = min(held, used + stop_after)
+    last_valued = valued[-1] if valued else 0
+    # Never above the last valued row: values below a long gap are KEPT.
+    cut = max(min(held, used + stop_after), last_valued)
     # Only a sheet whose cells run past the cut loses anything: a sheet with a
     # few formatted empty rows keeps its exact max_row, so no cached layout
     # profile is invalidated. A sheet holding NO value is cut at its held

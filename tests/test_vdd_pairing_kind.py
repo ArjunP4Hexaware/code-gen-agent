@@ -88,7 +88,11 @@ def test_an_uploaded_sttm_never_pairs_its_own_copy_as_the_vdd(api):
     vdd = finished["pairing"]["vdd"]
     # The STTM's own copy is not even a candidate — it reads as a mapping workbook.
     assert STTM.name not in {c["name"] for c in vdd["candidates"]}, vdd
+    # The real dictionary is chosen or, when no content decides, OFFERED: it
+    # is a candidate of the question the run asks (never replaced by an STTM).
     assert vdd["chosen"] in (VDD.name, None), vdd
+    assert VDD.name in {c["name"] for c in vdd["candidates"]}, vdd
+    assert vdd["chosen"] == VDD.name or vdd["question"], vdd
     assert status["selection"]["vdd"] in (VDD.name, None), status["selection"]
     assert runner.selected_vdd is None or runner.selected_vdd.name == VDD.name
 

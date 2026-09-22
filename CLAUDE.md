@@ -310,7 +310,7 @@ Soham's call.
 Synthetic storage URIs in code / tests use hosts under `example.invalid` — a
 `*.dfs.core.windows.net` example trips the `real_adls_host` pattern.
 
-**Release map** (newest first). Details are in "Release notes v0.5.9 – v0.7.3"
+**Release map** (newest first). Details are in "Release notes v0.5.9 – v0.8.1"
 below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
 
 | tag | commit | what |
@@ -360,6 +360,19 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
 - A test that can reach a live path must pin the provider: FMAPI resolves from
   workspace auth with no env secret.
 - `scripts/scrub_check.py` over every tracked file must stay at 0 hits.
+- **Run records on `acfc-runs` must be tokenized INSIDE quoted strings, flag
+  bodies and rejection messages too** (file-name patterns, LOB names, sheet
+  names, feed wording, deployment ids) — `RUN_v073_all_pairs.md` leaked all of
+  those and was rewritten on 2026-09-22 (`--amend` + `push --force-with-lease`
+  on Soham's authorization: `b00bc6f` → `cc852e1`; the old SHA is still
+  fetchable on GitHub until a purge). Generic data-element names (Amount,
+  AMT_nn, *_DT) were kept as structural.
+- **`docs/acfc/denylist_local.txt` is GITIGNORED and holds RAW client terms**
+  (`|`-separated, `#` comments; `scrub_check.py` layer 3, whole-term,
+  case-insensitive, hits name the term's POSITION only). Never commit it,
+  never print its terms; `tests/test_scrub_local_denylist.py` asserts it stays
+  ignored. Scratch copies of raw text are deleted after use. Three of its
+  terms are generic words that also hit tracked files (see "Verified at").
 
 **Standing rules for every change:**
 - CV / SFMC baselines must stay byte-identical unless Soham approves a re-base.
@@ -394,13 +407,15 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   never hand-edited. `PYTHONUTF8=1` for scripts that print non-ASCII.
 
 **Open / not proven** (nothing below has run for real):
-- The next real ACFC run (v0.7.3): all ten pairs. The v0.7.2 run's records are
-  `RUN_v072_all_pairs.md` / `RUN_v072_details.md` on `origin/acfc-runs`; M12
-  addresses the four causes read out of them. Whether the five pairs' model
-  placements now pass the VALIDATOR is unproven (they never reached it). What
-  the v0.7.2 gate's ruff FAIL actually listed was not captured: in framework
-  mode the gate lints the scratch pipeline tree, not the runner notebooks the
-  record's manual ruff run covered — the next run's gate details will say.
+- The next real ACFC run (v0.8.1): all ten pairs. The v0.7.3 run
+  (`RUN_v073_all_pairs.md` on `origin/acfc-runs`): 1 DONE (pair 1, verdict
+  FAIL — its cause was not in the record; the v0.8.1 verdict line names it),
+  1 FAILED (pair 3: 116 s select, 266 s run, `Error: None` — NOT addressed by
+  M12–M14, cause unknown), 8 NEEDS_ANSWERS (M14 targets their question
+  quality: six of the nine candidate pairs now resolve). Whether the model
+  placements pass the VALIDATOR (M12) is still unproven.
+- M13 probe snapshots from a real notebook / Genie session (never run), and
+  the App reading them (`CODEGEN_ENV_PROBE_SNAPSHOTS=1`).
 - The environment probe (M10 transports AND the M13 `spark` seam / snapshots)
   has only run against fakes (`tests/env_fakes.py`,
   `tests/test_m13_probe_snapshot.py`). Whether UC reports a table the user
@@ -414,7 +429,75 @@ below and in the `docs/ACFC_DEPLOY.md` "What vX adds" sections.
   the RDBMS connection / ingestion tables §4 / §6 are undescribed).
 - The staging → main merge.
 
-## Release notes v0.5.9 – v0.7.3 (newest first)
+## Release notes v0.5.9 – v0.8.1 (newest first)
+
+**v0.8.1 (M14, from `docs/acfc/RUN_v073_all_pairs.md` on `origin/acfc-runs`).**
+(1) Top-level config `value_vocabulary:` (NOT under `extractor:` — that
+section feeds the layout cache's `vocabulary_hash`) + `resolve/gapfill.py::
+canonical` / `reconcile` / `dropped_flag`: file_format / delimiter /
+frequency candidates are normalized before the gap filler
+(`layout/resolve.py::_FeedGapFiller.run`, steps b / b') declares a
+disagreement; `reconcile` returns one representative per compatible group
+(`kept`, FRD first, then the more specific kind) + `dropped` (flag
+`candidate_dropped:`). An extension-only cell yields SILENTLY (M9.0 — the
+pair-1 acceptance flag list is pinned); a vague cadence yields WITH a flag;
+an unknown text falls back to `same_value`. (2) `_PROSE_FAMILIES` (F2, F3,
+unrecognized): `_typed(question, content, config, family)` turns FRD role
+questions into `text` questions with `frd_evidence` (verbatim cell lines
+matching `value_vocabulary.evidence_terms` for the field's leaf name, deduped,
+capped). (3) `_one_question_for_all_feeds` collapses identical FRD questions
+into `feeds[*].<field>` (`LayoutQuestion.feeds`), except `_PER_FEED_FIELDS`
+and `fields[...]` widths; `expand_all_feeds` (called in `fill_frd_gaps`)
+applies a `feeds[*]` answer to every feed without its own. `evidence` /
+`feeds` appear in `as_dict` only when set. Frontend: `ModesPage.tsx`
+`expandFeeds` + "Answer per feed" switch, evidence list under text questions.
+(4) `_questions_for`: candidates carry `letter`; no unclaimed headed column in
+the band → every headed column of the row. (5) `gate/verdict.py::
+dedupe_flags` at the end of `compute_verdict`. (6)
+`report/generation_report.py::verdict_line` / `_first_finding` (a leading
+"N finding(s)" line is skipped). (7) tests only. `scripts/scrub_check.py`
+layer 3 = `load_local_denylist` (see the security rules). Tests:
+`tests/test_m14.py` (22), `tests/test_scrub_local_denylist.py` (3); two
+existing tests updated (candidate `letter`; the verdict line's cause). 855
+passed / 27 skipped on 3.10 / 3.11 / 3.12; dist `index-B80Mab_s.js`.
+
+**v0.8.0 (M13, probe snapshots).** `codegen probe --pair <sttm contract>
+[--frd …] [--vdd …] [--profile …] [--iig-template …] [--environment …] --out
+probe.json [--to-state]` (`cli._probe`): a framework-mode generation into a
+temp dir (dry-run, stdout captured) feeds an `EnvReconciler` whose clients
+come from `env/spark_seam.py::probe_clients` — a SparkSession (registered via
+`spark_seam.register(spark=…, dbutils=…)`, else
+`SparkSession.getActiveSession()`; `databricks.sdk.runtime.dbutils` only
+inside a Databricks runtime) → `SparkUcClient` (`SELECT current_user()`,
+`information_schema.columns`, `DESCRIBE TABLE EXTENDED` only when
+information_schema is empty) + `SparkJdbcMetadataDbClient`; else the M10
+`build_clients`. `env/model.py`: `Evidence.identity`, `Observation`
+(`ProbedObject.observation`: columns found / rows returned, as text),
+`SnapshotInfo` (`EnvProbeResult.snapshot`), `ProbeSnapshot` (`format:
+codegen.probe_snapshot/1`), `deployment_headline` (NOT STARTED / PARTIAL /
+COMPLETE / UNKNOWN — claims only what the states prove). `env/snapshot.py`:
+load / write / `write_to_state` (`<state>/probes/<feed_slug>.json`),
+`SnapshotUcClient` / `SnapshotDbClient` REPLAY observations through
+`probe_feed` against the CURRENT expectations (a snapshot is never applied by
+name). `env/reconcile.py`: `build_reconciler(snapshot_path=, state_store=,
+now=, force=)`, precedence preset > snapshot > live, `snapshots_enabled`
+(`env.probe.snapshots` / `CODEGEN_ENV_PROBE_SNAPSHOTS`), flags
+`env_snapshot_stale:` (`env.probe.max_age_hours` 24) / `env_snapshot_missing:`;
+`report_section` opens with the headline and the snapshot line. `generate
+--probe-snapshot`; the App reads snapshots from the state role;
+`/api/feeds` `environment.headline`. `acfc_run.py` probe cell (in-process
+`cli.main(["probe", …, "--to-state"])`, then `generate --probe-snapshot`).
+`tests/conftest.py` gained `pair1_contracts` (paths) under `pair1_spec`.
+Tests: `tests/test_m13_probe_snapshot.py` (fake SparkSession / JDBC reader /
+dbutils) + a remote-roles run in `tests/test_remote_run_e2e.py`. 830 passed.
+
+**v0.7.4 (housekeeping).** ruff `>=0.16,<0.17` in `[dev]` and `[ui]`
+(`requirements.txt` installs `.[ui,databricks]`, so the App inherits it; the
+generator emits no requirements file). Synthetic storage URIs in
+`gate/derivations.py` and `tests/test_m101_real_run_bugs.py` moved to
+`example.invalid` hosts (the `real_adls_host` pattern had flagged them since
+M10.2). 807 passed.
+
 
 **v0.7.3 (M12, from `docs/acfc/RUN_v072_details.md` on `origin/acfc-runs` —
 UNSCRUBBED, read in place).** (1) `codegen/layout/response.py`: `LayoutResponse`

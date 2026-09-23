@@ -3,22 +3,49 @@
 ## START HERE — demo branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
 
 **What this branch is.** A LEGACY demo branch cut from **v0.5.8-acfc (3a5b85d)**
-— NOT from `staging` (which is far ahead: v0.8.1). `origin/fix/remove-mock-
-provider-ui-text` is at **3c7e8fd**; LOCALLY the branch is at **e825c23**
-(696421e CLAUDE.md + the four M15 commits below, NOT pushed — push when Soham
-says), working tree clean (only the untracked `docs/acfc/denylist_local.txt`,
-see below). Soham's rule for this branch: **only make the changes he
-indicates.** Nothing here is merged anywhere; staging / main are untouched.
+— NOT from `staging` (which is far ahead: v0.8.1). Pushed to
+`origin/fix/remove-mock-provider-ui-text` (M15 at 16238d0, then the M15b
+commits below — the remote head is the last commit of `git log`), working tree
+clean (only the untracked `docs/acfc/denylist_local.txt`, see below). Soham's
+rule for this branch: **only make the changes he indicates.** Nothing here is
+merged anywhere; staging / main are untouched.
 
-**Verified at e825c23:** 728 passed / 27 skipped (Python 3.11 full suite; the
-chooser / hang / pairing / remote-e2e files also on 3.10 and 3.12 — uv venvs
-in the session scratchpad, not in the checkout); ruff clean (`src/ tests/
-ui/backend/` — `acfc_run.py` has 6 PRE-EXISTING E402s, notebook cells); tsc
-clean; vitest 7 passed (`cd ui/frontend && npx vitest run`); scrub 0 over
-every changed file; `ui/frontend/dist` rebuilt and tracked
-(`index-CGkzpwIC.js`). App version marker **0.5.8.post5** (pyproject +
-requirements.txt — bump BOTH whenever `src/` changes; `ui/` runs from the
-source tree and needs no bump).
+**Verified at the M15b wrap-up:** 730 passed / 27 skipped (Python 3.11 full
+suite; the chooser / hang / pairing / databricks / demo-UI / remote-e2e files
+also on 3.10 and 3.12 — uv venvs in the session scratchpad, not in the
+checkout; one timing-bound chooser test flaked once on 3.10 under CPU load and
+passed on every re-run); ruff clean (`src/ tests/ ui/backend/` — `acfc_run.py`
+has 6 PRE-EXISTING E402s, notebook cells); tsc clean; vitest 15 passed (`cd
+ui/frontend && npx vitest run`; `jsdom` is a devDependency now, for the
+ErrorBoundary test); scrub 0 over every changed file incl. the bundle and its
+map; `ui/frontend/dist` rebuilt WITH SOURCE MAPS and tracked
+(`index-CFS_8pvg.js` + `.js.map` — `vite.config.ts build.sourcemap`, so a
+console stack names the component and line). App version marker
+**0.5.8.post5** (pyproject + requirements.txt — bump BOTH whenever `src/`
+changes; `ui/` runs from the source tree and needs no bump; M15b touched no
+`src/`).
+
+**M15b (2026-09-23, 102b91d · bda1dc0 · f91c68e · the wrap-up) — the white
+screen on select**, from the ACFC console: `TypeError: Cannot read properties
+of null (reading 'toFixed')` in the step trace (M15's `steps[].seconds` is
+null while a step runs) + `GET api/databricks/documents → 503`. (1) every
+number renders through `ui/frontend/src/format.ts` (`fmtSeconds` "…" while
+running / "—" when missing, `fmtNumber`, `fmtKb`); the step trace and the
+pairing lines are `components/SelectionTrace.tsx`; (2) the status payload is
+normalized ONCE in `api.ts` (`normalizeStatus`, every DemoStatus call):
+pairing null-safe, `pairing_pending` always an array, seconds / scores
+`number | null`; (3) `components/ErrorBoundary.tsx` around the routes
+(App.tsx) and around the document chooser; (4) `chooseWorkbook` has no
+one-shot status read (the poll delivers); (5) the documents route answers
+**200 `{configured: false, reason, documents: {sttm: [], frd: []}}`** when the
+volumes seam is off (the UI hides the panel; store unbound stays 503, refused
+workspace stays 502); (6) the FRD and VDD pairings run in PARALLEL threads
+(own step entry — `_try_step` never touches `steps[-1]` — own parser lane
+`request` / `request-vdd`, applied as each lands, recorded when the last
+does): with a fake 5 s backend both pairs land after **6.3 s instead of
+11.2 s**; (7) `_index_folder_first`: the folder of the STTM being selected —
+and at App start the folder `selection.json` names — is queued for the index
+and read first.
 
 **M15 (2026-09-23, a7b41f4 · 49108e6 · c33ae06 · e825c23) — selection latency +
 pairing correctness**, from Soham's brief after the diagnosis of "Selecting

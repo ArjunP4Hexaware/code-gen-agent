@@ -323,15 +323,18 @@ def test_a_slow_state_write_never_holds_the_chosen_sttm_back(ws):
     assert json.loads(ws.fake.ws.files[f"{SHARED}/state/selection.json"])["sttm"] is None
 
 
-def test_index_writes_never_run_inside_a_selection_step(ws):
+def test_index_writes_never_run_inside_a_selection_step(ws, monkeypatch):
     """M15.1: with a cold index, classify / pair FRD / pair VDD each read a
     document on the request path — and each read used to end in a synchronous
     pull + push of document_index.json on the step's own thread (a Workspace
     API write that took minutes in ACFC, inside the step's budget). Now a
     state role whose write takes 5 s does not extend any step: the index is
-    written locally and pushed by a background writer behind the selection."""
+    written locally and pushed by a background writer behind the selection.
+    The background worker is OFF here so the request path must do all three
+    reads itself (M15b.7 lets the worker win the race on a fast machine)."""
     ws.pairs("pair_1")
     runner = ws.runner()
+    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)
     upload = ws.fake.workspace.upload
     pushes: list[float] = []
 

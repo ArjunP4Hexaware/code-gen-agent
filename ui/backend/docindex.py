@@ -192,12 +192,18 @@ def fetch_exclusive(doc) -> Path:
 
 class DocumentIndex:
     def __init__(self, get_config: Callable[[], object], state_path: Callable[[], Path],
-                 push_state: Callable[[], None], base_dir: Path) -> None:
+                 push_state: Callable[[], None], base_dir: Path,
+                 local_path: Callable[[], Path] | None = None) -> None:
         self._get_config = get_config
         # Documents the REQUEST path had to read itself (tests: a selection
         # reads its own folder's documents, never the whole input tree).
         self.request_parses: list[str] = []
+        # ``state_path`` PULLS the file from a remote state role (the one read
+        # after a restart); ``local_path`` is the same file without the pull —
+        # what a writer about to overwrite it wants (M15.1: the pulled bytes
+        # were discarded unread, one Workspace export per document read).
         self._state_path = state_path
+        self._local_path = local_path or state_path
         self._push_state = push_state
         self._base_dir = base_dir
         self._lock = threading.Lock()
@@ -205,6 +211,15 @@ class DocumentIndex:
         self._pending: set[str] = set()
         self._queue: queue.Queue = queue.Queue()
         self._worker: threading.Thread | None = None
+        # M15.1: the remote push of document_index.json is owned by ONE
+        # background writer (newest state wins, pushes coalesce). It used to run
+        # on the thread that had just read a document — inside a selection
+        # step's budget, where a slow Workspace import cost minutes per step.
+        self._push_lock = threading.Lock()
+        self._push_pending = False
+        self._push_busy = False
+        self._push_idle = threading.Event()
+        self._push_idle.set()
 
     # -- state ------------------------------------------------------------------------
 
@@ -217,13 +232,43 @@ class DocumentIndex:
         return self._entries
 
     def _save(self) -> None:
+        """Write the index to its LOCAL file and hand the remote push to the
+        background writer: a state-role write never runs on the thread that
+        read a document (M15.1). No pull before the write — the bytes were
+        overwritten unread."""
         with contextlib.suppress(Exception):      # a cache that cannot be written costs a re-read
-            path = self._state_path()
+            path = self._local_path()
             path.parent.mkdir(parents=True, exist_ok=True)
             with self._lock:
                 text = json.dumps(self._entries or {}, indent=2, sort_keys=True) + "\n"
             path.write_text(text, encoding="utf-8", newline="\n")
-            self._push_state()
+        self._push_later()
+
+    def _push_later(self) -> None:
+        """Queue a push of the index file; the running writer picks it up."""
+        with self._push_lock:
+            self._push_pending = True
+            if self._push_busy:
+                return
+            self._push_busy = True
+            self._push_idle.clear()
+        threading.Thread(target=self._push_loop, name="document-index-push",
+                         daemon=True).start()
+
+    def _push_loop(self) -> None:
+        while True:
+            with self._push_lock:
+                if not self._push_pending:
+                    self._push_busy = False
+                    self._push_idle.set()
+                    return
+                self._push_pending = False
+            with contextlib.suppress(Exception):  # a cache: a failed push costs a re-read
+                self._push_state()
+
+    def wait_pushed(self, timeout: float = 30.0) -> bool:
+        """Tests: block until the background writer has pushed the latest index."""
+        return self._push_idle.wait(timeout)
 
     # -- the request path: never blocks, never opens a document ------------------------
 

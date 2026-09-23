@@ -155,7 +155,8 @@ def test_list_is_metadata_only_then_kinds_arrive_by_content_and_are_kept_in_stat
         rows["STTM_alpha.xlsx"]["kind_reason"]
     unclassified_reason = rows["Inventory_juliet.xlsx"]["kind_reason"]
     assert "no band row with stage + standard labels" in unclassified_reason
-    # The verdicts live in the STATE role …
+    # The verdicts live in the STATE role … (pushed by the background writer, M15.1)
+    assert runner._index.wait_pushed(30)
     index = {key: e for key, e in json.loads(
         ws.fake.ws.files[f"{SHARED}/state/document_index.json"]).items()
         if key.startswith("workspace:")}                        # (local fixtures are indexed too)
@@ -320,6 +321,43 @@ def test_a_slow_state_write_never_holds_the_chosen_sttm_back(ws):
     assert runner.wait_recorded(20)
     assert written[-1]["sttm"] is None, written
     assert json.loads(ws.fake.ws.files[f"{SHARED}/state/selection.json"])["sttm"] is None
+
+
+def test_index_writes_never_run_inside_a_selection_step(ws):
+    """M15.1: with a cold index, classify / pair FRD / pair VDD each read a
+    document on the request path — and each read used to end in a synchronous
+    pull + push of document_index.json on the step's own thread (a Workspace
+    API write that took minutes in ACFC, inside the step's budget). Now a
+    state role whose write takes 5 s does not extend any step: the index is
+    written locally and pushed by a background writer behind the selection."""
+    ws.pairs("pair_1")
+    runner = ws.runner()
+    upload = ws.fake.workspace.upload
+    pushes: list[float] = []
+
+    def slow(path, content, **kw):
+        if path.endswith("/document_index.json"):
+            time.sleep(5)
+            pushes.append(time.monotonic())
+        return upload(path, content, **kw)
+
+    ws.fake.workspace.upload = slow
+    started = time.monotonic()
+    assert runner.select_workbook("STTM_alpha.xlsx").name == "STTM_alpha.xlsx"
+    took = time.monotonic() - started
+    assert runner.job_view()["state"] == "done"
+    assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
+                                  "vdd": "VDD_charlie.xlsx"}
+    # Three documents were read cold on the request path; three 5 s writes on
+    # that path would have made this 15 s or more.
+    assert len(runner._index.request_parses) >= 3, runner._index.request_parses
+    assert took < 10, took
+    # The index still reaches the state role — behind the selection, coalesced.
+    assert runner._index.wait_pushed(40)
+    assert pushes and f"{SHARED}/state/document_index.json" in ws.fake.ws.files
+    entries = json.loads(ws.fake.ws.files[f"{SHARED}/state/document_index.json"])
+    assert {e["name"] for e in entries.values()} >= {"STTM_alpha.xlsx", "FRD_bravo.docx",
+                                                     "VDD_charlie.xlsx"}
 
 
 def test_a_pairing_that_raises_never_discards_the_chosen_sttm(ws, monkeypatch):

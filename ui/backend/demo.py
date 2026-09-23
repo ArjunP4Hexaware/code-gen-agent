@@ -192,13 +192,21 @@ class DemoRunner:
         # document (ui/backend/docindex.py).
         self._index = DocumentIndex(
             lambda: self._store.config, self._index_path,
-            lambda: self._push_state_file(INDEX_FILE), REPO_ROOT)
+            lambda: self._push_state_file(INDEX_FILE), REPO_ROOT,
+            local_path=self._index_local_path)
         self._start_restore()
 
     def _index_path(self) -> Path:
+        """The index file, PULLED from a remote state role (the read after a restart)."""
         from ui.backend import stores as ui_stores
 
         return ui_stores.state_file(self._store.config, INDEX_FILE, INDEX_PATH)
+
+    def _index_local_path(self) -> Path:
+        """The index file's local path, no pull (the writer overwrites it whole)."""
+        from ui.backend import stores as ui_stores
+
+        return ui_stores.state_local_path(self._store.config, INDEX_FILE, INDEX_PATH)
 
     def _push_state_file(self, name: str) -> None:
         from ui.backend import stores as ui_stores
@@ -694,7 +702,8 @@ class DemoRunner:
 
         if ui_stores.state_is_default(self._store.config):
             return
-        path = ui_stores.state_file(self._store.config, SELECTION_FILE, SELECTION_PATH)
+        # No pull before the write (M15.1): the file is overwritten whole.
+        path = ui_stores.state_local_path(self._store.config, SELECTION_FILE, SELECTION_PATH)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = payload if payload is not None else self.selection()
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")

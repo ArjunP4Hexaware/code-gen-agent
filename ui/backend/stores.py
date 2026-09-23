@@ -66,6 +66,14 @@ def state_file(config, name: str, default: Path) -> Path:
     return store.local_path(name)
 
 
+def state_local_path(config, name: str, default: Path) -> Path:
+    """Local path of a state file WITHOUT pulling it first — for a writer that
+    is about to overwrite it whole (M15.1: the pull was discarded unread, one
+    Workspace export per write)."""
+    store = get_stores(config).state
+    return default if _is_default(store, _DEFAULT_STATE) else store.local_path(name)
+
+
 def state_is_default(config) -> bool:
     """True under the default (local, in-checkout) state role."""
     return _is_default(get_stores(config).state, _DEFAULT_STATE)

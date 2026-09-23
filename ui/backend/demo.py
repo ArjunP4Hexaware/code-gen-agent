@@ -213,6 +213,21 @@ class DemoRunner:
 
         return ui_stores.state_local_path(self._store.config, INDEX_FILE, INDEX_PATH)
 
+    def _index_folder_first(self, source: str) -> None:
+        """Queue the documents of ``source`` (a listing label — the folder of the
+        STTM being selected, or of the one selection.json names at App start,
+        M15b.7) for the background index and read them before anything else
+        waiting (M15.8). A listing problem is reported elsewhere; never fatal."""
+        try:
+            docs = [*self._workbook_catalog().documents((".xlsx",)),
+                    *self._frd_catalog().documents((".contract.json", ".docx"))]
+        except Exception:  # noqa: BLE001 — status.input_errors carries it
+            return
+        for doc in docs:
+            if doc.source == source:
+                self._index.lookup(doc)
+        self._index.prioritize(source)
+
     def _push_state_file(self, name: str) -> None:
         from ui.backend import stores as ui_stores
 
@@ -376,7 +391,8 @@ class DemoRunner:
                         try:
                             state = self._index.read_now(
                                 doc, self._fetch(doc, left),
-                                max(deadline - time.monotonic(), 0.05))["state"]
+                                max(deadline - time.monotonic(), 0.05),
+                                lane="request" if kind == "frd" else "request-vdd")["state"]
                         except StepTimeout:
                             # M15.5: not read IN TIME is not unreachable — the
                             # candidate stays, scored on its name (``unread``).
@@ -815,28 +831,36 @@ class DemoRunner:
         self._pairing_done.set()                  # a previous job's pairing is moot
         return job
 
+    def _new_step(self, job: dict, step: str) -> dict:
+        """Append a step entry to the job's trace and return it. M15.6: every
+        step carries how long it took (``seconds``, null while it runs)."""
+        entry = {"step": step, "state": "running", "detail": "", "seconds": None}
+        job["steps"].append(entry)
+        return entry
+
     def _try_step(self, job: dict, step: str, work, timeout: float, fallback):
         """A step that must NEVER discard the person's choice: pairing is an
         assist and recording is a convenience — a failure is a ``warning`` on
         the job (and a note the UI shows), not a failed selection. Only
-        locating and reading the document itself can fail a selection."""
+        locating and reading the document itself can fail a selection. The
+        entry is this step's OWN (M15b.6: two pairing steps run at once —
+        ``steps[-1]`` may be the other one's)."""
+        entry = self._new_step(job, step)
         try:
-            return self._step(job, step, work, timeout)
+            return self._step(job, step, work, timeout, entry=entry)
         except Exception as exc:  # noqa: BLE001 — said on the step, never fatal
-            job["steps"][-1]["state"] = "warning"
+            entry["state"] = "warning"
             job.setdefault("warnings", []).append(f"{step}: {exc}")
             return fallback
 
-    def _step(self, job: dict, step: str, work, timeout: float):
+    def _step(self, job: dict, step: str, work, timeout: float, entry: dict | None = None):
         """Run ONE step in its own thread and wait ``timeout`` for it. ``work``
         takes the step's deadline (time.monotonic) and returns a value — it must
         not change the runner: a step that is given up keeps running nowhere
         that matters. Late = ``StepTimeout``, shown on the job."""
-        # M15.6: every step carries how long it took (``seconds``, set when it
-        # ends) — the trace names the step that ate the minutes.
         started = time.monotonic()
-        entry = {"step": step, "state": "running", "detail": "", "seconds": None}
-        job["steps"].append(entry)
+        if entry is None:
+            entry = self._new_step(job, step)
         deadline = started + timeout
         box: dict = {}
 
@@ -923,12 +947,16 @@ class DemoRunner:
                 return
             # M15.8: the background index reads THIS folder's documents next,
             # so the pairing steps find their facts indexed more often.
-            self._index.prioritize(doc.source)
+            self._index_folder_first(doc.source)
             step = f"downloading {doc.uri}"
             local = self._step(job, "download", lambda _d: self._fetch(doc, timeout), timeout)
             step = "starting the document parser"
             try:
-                self._step(job, "start parser", lambda _d: self._index.ensure_parser("request"),
+                # Two request lanes (M15b.6): the FRD and VDD pairings read in
+                # parallel, each on its own parser process.
+                self._step(job, "start parser",
+                           lambda _d: [self._index.ensure_parser(lane)
+                                       for lane in ("request", "request-vdd")],
                            float(self._store.config.inputs.parser_start_timeout_seconds))
             except Exception:  # noqa: BLE001 — said on the step; the choice still stands
                 # No parser (an environment that cannot start a child process):
@@ -974,8 +1002,13 @@ class DemoRunner:
                 job["pairing_pending"] = ["frd", "vdd"]
                 self._pairing_done.clear()
             self._finish_job(job)
-            for kind in ("frd", "vdd"):
-                step = f"pairing its {kind.upper()}"
+            step = "pairing its FRD / VDD"
+
+            # M15b.6: the FRD and the VDD pairing run in PARALLEL threads (own
+            # step entry, own parser lane, nothing shared until ``_apply_pair``
+            # under the lock) and each is applied as it lands — total pairing
+            # time is max(frd, vdd), and the FRD chip never waits for the VDD.
+            def pair(kind: str) -> None:
                 plan = self._try_step(job, f"pair {kind.upper()}",
                                       lambda d, k=kind: self._plan_pair(k, name, d),
                                       timeout, None)
@@ -990,9 +1023,18 @@ class DemoRunner:
                         self._drop_auto_pair(kind)   # M15.3: nothing paired = nothing kept
                     job["pairing_pending"] = [k for k in job["pairing_pending"] if k != kind]
                     if not job["pairing_pending"]:
+                        # Remembering the choice across a restart is a background
+                        # write — queued BEFORE the event, so a waiter that sees
+                        # "paired" also sees the record in flight.
+                        self._record_later(self.selection(), job)
                         self._pairing_done.set()
-            # Remembering the choice across a restart is a background write.
-            self._record_later(self.selection(), job)
+
+            threads = [threading.Thread(target=pair, args=(kind,), name=f"select:pair-{kind}",
+                                        daemon=True) for kind in ("frd", "vdd")]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
         except BaseException as exc:  # noqa: BLE001 — a job thread must end in a visible state
             # Nothing half-selected, nothing from before, and NOT the config
             # default: the person sees why and chooses again.
@@ -1059,10 +1101,14 @@ class DemoRunner:
             name = recorded.get(kind)
             if not name:
                 continue
-            def locate(_deadline, name=name, catalog=catalog, suffixes=suffixes):
+            def locate(_deadline, name=name, kind=kind, catalog=catalog, suffixes=suffixes):
                 doc = catalog().find(name, suffixes)
                 if doc is None:
                     raise FileNotFoundError(f"{name!r} is no longer in the input folders")
+                if kind == "sttm":
+                    # M15b.7: at App start, the folder selection.json names is
+                    # indexed first — before any person acts.
+                    self._index_folder_first(doc.source)
                 return self._fetch(doc, timeout)
 
             try:

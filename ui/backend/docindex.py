@@ -319,17 +319,18 @@ class DocumentIndex:
             self._load().pop(doc.version, None)
         self.lookup(doc)
 
-    def read_now(self, doc, local: Path, timeout: float) -> dict:
+    def read_now(self, doc, local: Path, timeout: float, lane: str = "request") -> dict:
         """A selection needs this document's verdict NOW: the indexed one, else
-        read through the (killable) parser within ``timeout`` and indexed. A
-        late parse is an ``unreadable`` entry (``timed_out``) — never a hung
-        request. An indexed ``unreadable`` is read AGAIN: a person chose the
-        file, and the earlier failure may have been the download's."""
+        read through the (killable) parser of ``lane`` within ``timeout`` and
+        indexed. A late parse is an ``unreadable`` entry (``timed_out``) —
+        never a hung request. An indexed ``unreadable`` is read AGAIN: a person
+        chose the file, and the earlier failure may have been the download's.
+        M15b.6: the FRD and VDD pairings read on their own lanes, in parallel."""
         with self._lock:
             entry = self._load().get(doc.version)
         if entry is None or entry["state"] == UNREADABLE:
             self.request_parses.append(doc.name)
-            entry = self._parse(doc, local, timeout, "request")
+            entry = self._parse(doc, local, timeout, lane)
             self._store(doc, entry)
         return entry
 

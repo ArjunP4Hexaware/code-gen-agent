@@ -399,9 +399,66 @@ def test_the_sttm_is_selected_and_a_run_may_start_before_its_pairing_lands(ws, m
     assert runner.wait_recorded(20)
     job = runner.job_view()
     steps = [s["step"] for s in job["steps"]]
-    assert job["pairing_pending"] == [] and steps[-3:] == ["pair FRD", "pair VDD", "record"]
+    # The two pairings run in parallel (M15b.6): their order in the trace is free.
+    assert job["pairing_pending"] == [] and steps[-1] == "record"
+    assert set(steps[-3:-1]) == {"pair FRD", "pair VDD"}
     # M15.6: every step says how long it took.
     assert all(isinstance(s["seconds"], (int, float)) for s in job["steps"]), job["steps"]
+
+
+def test_the_frd_and_vdd_pairings_run_in_parallel(ws, monkeypatch):
+    """M15b.6: a slow VDD read (5 s) does not delay the FRD chip — the two
+    pairings run in their own threads and each is applied as it lands, so the
+    total pairing time is max(frd, vdd), not the sum."""
+    ws.pairs("pair_1")
+    runner = ws.runner()
+    real = runner._plan_pair
+
+    def slow_vdd(kind, sttm_name, deadline=None):
+        if kind == "vdd":
+            time.sleep(5)
+        return real(kind, sttm_name, deadline)
+
+    monkeypatch.setattr(runner, "_plan_pair", slow_vdd)
+    runner.start_selection("STTM_alpha.xlsx")
+    assert runner._job_done.wait(20)
+    done_at = time.monotonic()
+    while runner.selection()["frd"] is None and time.monotonic() - done_at < 10:
+        time.sleep(0.05)
+    frd_after = time.monotonic() - done_at
+    assert runner.selection()["frd"] == "FRD_bravo.docx" and frd_after < 3, frd_after
+    assert runner.selection()["vdd"] is None                 # still on its way
+    assert runner.job_view()["pairing_pending"] == ["vdd"]
+    assert runner.wait_paired(20)
+    total = time.monotonic() - done_at
+    assert runner.selection()["vdd"] == "VDD_charlie.xlsx"
+    assert 5 <= total < 8, total                             # max(frd, vdd), not the sum
+    steps = {s["step"]: s for s in runner.job_view()["steps"]}
+    assert steps["pair FRD"]["state"] == "done" and steps["pair VDD"]["state"] == "done"
+    assert steps["pair VDD"]["seconds"] >= 5 > steps["pair FRD"]["seconds"]
+
+
+def test_app_start_indexes_the_recorded_selections_folder_first(ws, monkeypatch):
+    """M15b.7: the folder selection.json names is queued for the background
+    index and read first — before any person acts."""
+    from ui.backend.docindex import DocumentIndex
+
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)   # queue only
+    ws.pairs()                                                                # pair_1 .. pair_3
+    ws.fake.ws.files[f"{SHARED}/state/selection.json"] = json.dumps(
+        {"sttm": "STTM_delta.xlsx", "frd": "FRD_echo.docx", "vdd": "VDD_foxtrot.xlsx"}).encode()
+    runner = ws.runner()                                                      # restore job
+    job = runner.wait_selection(30)
+    assert job["kind"] == "restore" and job["state"] == "done", job
+    assert runner.selection()["sttm"] == "STTM_delta.xlsx"
+    queued = []
+    while True:
+        try:
+            queued.append(runner._index._queue.get_nowait())
+        except Exception:  # noqa: BLE001 — drained
+            break
+    assert queued, "nothing was queued for the index at start"
+    assert {d.source for d in queued[:3]} == {"frd_sttm_pairs/pair_2"}, [d.source for d in queued]
 
 
 def test_an_automatic_pair_from_a_prior_sttm_never_survives_a_new_selection(ws, monkeypatch):

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ModelUsageList } from "../components/ModelUsage";
 import { OutputSelector } from "../components/OutputSelector";
+import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
+import { fmtKb, fmtNumber } from "../format";
 import type { LayoutQuestion } from "../api";
 import {
   api,
@@ -217,7 +220,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api
       .databricksDocuments()
       .then((docs) => {
-        setDbDocs(docs);
+        // M15b.5: the seam OFF is 200 + configured:false — panel absent, no error.
+        setDbDocs(docs.configured === false ? null : docs);
         setDbDocsError(null);
       })
       .catch((e) => {
@@ -431,7 +435,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       // 409: a run or another selection is in progress.
       setError(e instanceof Error ? e.message : String(e));
     }
-    api.demoStatus().then(setStatus).catch(() => {});
+    // No one-shot status read here (M15b.4): the chooser's poll delivers the
+    // next status; a second in-flight response raced the poll's.
   }, []);
 
   // Presenter's reset: back to "none chosen" without a backend restart.
@@ -1433,6 +1438,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       {choosing ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
+           <ErrorBoundary label="The document chooser">
             <h2>Choose documents</h2>
             <p className="hint">
               Scanned live from the local fixtures directory and the{" "}
@@ -1526,67 +1532,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               ))
             )}
-            {selectionJob && selectionJob.kind !== "frd_upstream"
-              && (selecting || pairingPending.size > 0 || selectionJob.state === "failed") ? (
-              <div className="hint" style={{ marginTop: 8 }}>
-                <strong>
-                  {selecting ? "Selecting" : pairingPending.size > 0 ? "Pairing" : "Selection ended"}{" "}
-                  <code>{selectionJob.name}</code>
-                </strong>
-                {" — "}
-                {selectionJob.steps.map((s, i) => (
-                  <span key={`${s.step}-${i}`} title={s.detail}>
-                    {i > 0 ? " → " : ""}
-                    {s.step}{" "}
-                    {s.state === "done" ? "✓" : s.state === "running" ? "…"
-                      : s.state === "warning" ? "(read by name only)"
-                      : s.state === "timed_out" ? "(timed out)" : "(failed)"}
-                    {s.seconds !== undefined ? ` ${s.seconds.toFixed(1)}s` : ""}
-                  </span>
-                ))}
-                {(selectionJob.warnings ?? []).map((w, i) => (
-                  <div key={`w-${i}`} style={{ marginTop: 4 }}>
-                    ⚠ {w} — the document stays selected.
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <SelectionTrace job={selectionJob} selecting={selecting} pairingPending={pairingPending} />
             {status?.selection_error ? (
               <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
                 <strong>Not selected.</strong>{" "}
                 <span className="hint">{status.selection_error.message}</span>
               </div>
             ) : null}
-            {(["frd", "vdd"] as const).map((kind) => {
-              const outcome = status?.pairing?.[kind];
-              if (!chosen.sttm) return null;
-              if (!outcome) {
-                return pairingPending.has(kind) ? (
-                  <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
-                    <strong>{kind.toUpperCase()} pairing</strong>: Pairing… (the STTM is
-                    selected; Generate waits for this to land)
-                  </p>
-                ) : null;
-              }
-              return (
-                <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
-                  <strong>{kind.toUpperCase()} pairing</strong>{" "}
-                  ({outcome.scope === "same_folder" ? `same folder ${outcome.folder ?? ""}` : "all input folders"}):{" "}
-                  {outcome.chosen ? (
-                    <>
-                      <code>{outcome.chosen}</code> — {outcome.rule}
-                    </>
-                  ) : outcome.question ? (
-                    <>asked when the run starts — {outcome.reason}</>
-                  ) : (
-                    <>none — {outcome.reason}</>
-                  )}
-                  {outcome.unread && outcome.unread.length > 0 ? (
-                    <> (not read, scored by name: {outcome.unread.join(", ")})</>
-                  ) : null}
-                </p>
-              );
-            })}
+            <PairingLines pairing={status?.pairing} chosenSttm={chosen.sttm} pairingPending={pairingPending} />
             <p className="hint" style={{ margin: "14px 0 4px" }}>
               <strong>Vendor data dictionary (optional third input)</strong> — currently{" "}
               {chosen.vdd ? <code>{chosen.vdd}</code> : "none"}. Cross-checked
@@ -1641,7 +1594,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                           {middleTruncate(d.name)}
                         </code>
                         <span className="hint chooser-meta">
-                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.volume} · {fmtKb(d.size)}
                           {d.companion_frd
                             ? " · includes companion FRD — fetched together"
                             : ""}
@@ -1656,7 +1609,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                           {middleTruncate(d.name)}
                         </code>
                         <span className="hint chooser-meta">
-                          {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                          {d.volume} · {fmtKb(d.size)}
                           {d.state === "differs" ? " · differs from local copy" : ""}
                           {d.companion_frd
                             ? " · includes companion FRD — fetched together"
@@ -1697,7 +1650,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                         {middleTruncate(d.name)}
                       </code>
                       <span className="hint chooser-meta">
-                        {d.volume} · {(d.size / 1024).toFixed(0)} KB
+                        {d.volume} · {fmtKb(d.size)}
                         {d.paired ? " · companion of an STTM above" : ""}
                         {d.state === "differs" ? " · differs from local copy" : ""}
                       </span>
@@ -1800,6 +1753,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {chosen.sttm ? "Done" : "Cancel"}
               </button>
             </div>
+           </ErrorBoundary>
           </div>
         </div>
       ) : null}
@@ -1862,7 +1816,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   "This makes real, billed Anthropic API calls:"
                 )}
                 <br />
-                <strong>~{est?.calls ?? 3} calls · ≈ ${(est?.cost_usd ?? 0.1).toFixed(2)} · ~
+                <strong>~{est?.calls ?? 3} calls · ≈ ${fmtNumber(est?.cost_usd ?? 0.1, 2)} · ~
                 {est?.seconds ?? 20}s</strong>
               </p>
             )}

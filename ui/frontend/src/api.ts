@@ -220,9 +220,9 @@ export interface SelectionJob {
   kind: "sttm" | "restore" | "frd_upstream";
   name: string;
   state: "running" | "done" | "failed";
-  // seconds: how long the step took (M15.6) — present once it has ended.
+  // seconds: how long the step took (M15.6) — null while it is still running.
   steps: { step: string; state: "running" | "done" | "failed" | "timed_out" | "warning";
-           detail: string; seconds?: number }[];
+           detail: string; seconds: number | null }[];
   error: { code: "not_found" | "timeout" | "failed" | "superseded"; message: string } | null;
   pairing: { frd?: PairingOutcome; vdd?: PairingOutcome };
   // steps that did not succeed but never discard the choice (pairing, and
@@ -254,7 +254,8 @@ export interface PairingOutcome {
   reason: string;
   scope: "same_folder" | "all";
   folder: string | null;
-  candidates: { name: string; score: number; signals: string }[];
+  // score: null when the payload carried none (rendered "—", never formatted raw)
+  candidates: { name: string; score: number | null; signals: string }[];
   question: LayoutQuestion | null;
   // candidates scored on their NAME alone (unreadable / not read in time)
   unread?: string[];
@@ -327,7 +328,8 @@ export interface SourceFilesResponse {
 
 export interface DatabricksDocument {
   name: string;
-  size: number;
+  // null when the listing gave no size (rendered "— KB")
+  size: number | null;
   volume: string;
   // Server-side dedupe against the local input dirs:
   state: "fetchable" | "fetched" | "differs";
@@ -355,6 +357,10 @@ export interface DatabricksPublishResult {
 }
 
 export interface DatabricksDocumentsResponse {
+  // false when the volumes seam is not configured (M15b.5): 200 with empty
+  // lists and a reason; the UI hides the panel. Never an error.
+  configured?: boolean;
+  reason?: string;
   catalog: string;
   schema: string;
   documents: { frd: DatabricksDocument[]; sttm: DatabricksDocument[] };
@@ -523,6 +529,82 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+// -- the status payload, normalized ONCE (M15b.2) --------------------------------
+// Consumers read the normalized shape only: optional pairing fields null-safe,
+// pairing_pending always an array, step seconds number | null, candidate
+// scores number | null. A field the backend leaves out or nulls can never
+// reach a render as ``undefined.toFixed``.
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function normalizeOutcome(raw: any): PairingOutcome {
+  const candidates = Array.isArray(raw?.candidates) ? raw.candidates : [];
+  return {
+    chosen: raw?.chosen ?? null,
+    rule: raw?.rule ?? null,
+    reason: typeof raw?.reason === "string" ? raw.reason : "",
+    scope: raw?.scope === "same_folder" ? "same_folder" : "all",
+    folder: raw?.folder ?? null,
+    candidates: candidates.map((c: any) => ({
+      name: String(c?.name ?? ""),
+      score: typeof c?.score === "number" && Number.isFinite(c.score) ? c.score : null,
+      signals: typeof c?.signals === "string" ? c.signals : "",
+    })),
+    question: raw?.question ?? null,
+    unread: Array.isArray(raw?.unread) ? raw.unread : [],
+  };
+}
+
+function normalizePairing(raw: any): { frd?: PairingOutcome; vdd?: PairingOutcome } {
+  const out: { frd?: PairingOutcome; vdd?: PairingOutcome } = {};
+  if (raw?.frd) out.frd = normalizeOutcome(raw.frd);
+  if (raw?.vdd) out.vdd = normalizeOutcome(raw.vdd);
+  return out;
+}
+
+function normalizeJob(raw: any): SelectionJob | null {
+  if (!raw || typeof raw !== "object") return null;
+  const steps = Array.isArray(raw.steps) ? raw.steps : [];
+  return {
+    ...raw,
+    steps: steps.map((s: any) => ({
+      step: String(s?.step ?? ""),
+      state: s?.state ?? "running",
+      detail: typeof s?.detail === "string" ? s.detail : "",
+      seconds: typeof s?.seconds === "number" && Number.isFinite(s.seconds) ? s.seconds : null,
+    })),
+    error: raw.error ?? null,
+    pairing: normalizePairing(raw.pairing),
+    warnings: Array.isArray(raw.warnings) ? raw.warnings : [],
+    pairing_pending: Array.isArray(raw.pairing_pending) ? raw.pairing_pending : [],
+  };
+}
+
+export function normalizeStatus(raw: DemoStatus): DemoStatus {
+  const r: any = raw ?? {};
+  const pairCandidates: Record<string, { reason: string; candidates: { name: string; score: number | null; signals: string }[] }> = {};
+  for (const [kind, pending] of Object.entries(r.pair_candidates ?? {})) {
+    const p: any = pending;
+    pairCandidates[kind] = {
+      reason: typeof p?.reason === "string" ? p.reason : "",
+      candidates: normalizeOutcome({ candidates: p?.candidates }).candidates,
+    };
+  }
+  return {
+    ...r,
+    stages: Array.isArray(r.stages) ? r.stages : [],
+    selection: r.selection ?? { sttm: null, frd: null, vdd: null },
+    selection_job: normalizeJob(r.selection_job),
+    pairing: normalizePairing(r.pairing),
+    pair_candidates: pairCandidates,
+    input_errors: r.input_errors ?? {},
+    layout_questions: Array.isArray(r.layout_questions) ? r.layout_questions : [],
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const statusRequest = (path: string, init?: RequestInit): Promise<DemoStatus> =>
+  request<DemoStatus>(path, init).then(normalizeStatus);
+
 export interface Layer2Transport {
   kind: "mock_locked" | "databricks_fmapi" | "anthropic" | "mock";
   configured: string;
@@ -625,7 +707,7 @@ export const api = {
       body: JSON.stringify({ confirm: true }),
     }),
   setOutputParts: (parts: OutputPart[]) =>
-    request<DemoStatus>("/api/demo/output-parts", {
+    statusRequest("/api/demo/output-parts", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ parts }),
@@ -678,28 +760,28 @@ export const api = {
       body: JSON.stringify({ volume, name }),
     }),
   runLive: () =>
-    request<DemoStatus>("/api/demo/run-live", {
+    statusRequest("/api/demo/run-live", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirm: true }),
     }),
-  demoStatus: () => request<DemoStatus>("/api/demo/status"),
+  demoStatus: () => statusRequest("/api/demo/status"),
   layoutAnswers: (body: {
     answers: Record<string, unknown>; proceed?: boolean; cancel?: boolean; refresh?: boolean;
   }) =>
-    request<DemoStatus>("/api/demo/layout-answers", {
+    statusRequest("/api/demo/layout-answers", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
   layoutRefresh: (enabled: boolean) =>
-    request<DemoStatus>("/api/demo/layout-refresh", {
+    statusRequest("/api/demo/layout-refresh", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ enabled }),
     }),
   layoutAdvice: () =>
-    request<DemoStatus>("/api/demo/layout-advice", {
+    statusRequest("/api/demo/layout-advice", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirm: true }),

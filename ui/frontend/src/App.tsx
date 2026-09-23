@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { usageSummary } from "./components/ModelUsage";
 import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
@@ -148,24 +149,27 @@ export function App() {
             </div>
           </div>
         ) : null}
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <Dashboard
-                data={data}
-                generating={generating}
-                onGenerateAll={generateAll}
-                onFeedsChanged={refresh}
-              />
-            }
-          />
-          <Route path="/modes" element={<ModesPage onFeedsChanged={refresh} />} />
-          <Route
-            path="/feeds/:slug"
-            element={<FeedDetailPage onFeedsChanged={refresh} />}
-          />
-        </Routes>
+        {/* A render error inside a page degrades to a card; the shell stays. */}
+        <ErrorBoundary label="This page">
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <Dashboard
+                  data={data}
+                  generating={generating}
+                  onGenerateAll={generateAll}
+                  onFeedsChanged={refresh}
+                />
+              }
+            />
+            <Route path="/modes" element={<ModesPage onFeedsChanged={refresh} />} />
+            <Route
+              path="/feeds/:slug"
+              element={<FeedDetailPage onFeedsChanged={refresh} />}
+            />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );

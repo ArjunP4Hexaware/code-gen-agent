@@ -3,6 +3,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  // Source maps ship with the tracked bundle (M15b): a stack trace from the
+  // ACFC browser console names the component and line, not "Rv at :130".
+  build: { sourcemap: true },
   server: {
     port: 5173,
     proxy: {

@@ -360,6 +360,75 @@ def test_index_writes_never_run_inside_a_selection_step(ws):
                                                      "VDD_charlie.xlsx"}
 
 
+def test_the_sttm_is_selected_and_a_run_may_start_before_its_pairing_lands(ws, monkeypatch):
+    """M15.2: the job is DONE — the STTM applied, Generate enabled — as soon as
+    the workbook is classified; both pairing steps land behind it
+    (``pairing_pending`` names what is still on its way) and a run started
+    meanwhile waits for them, never taking the config default instead."""
+    ws.pairs("pair_1")
+    runner = ws.runner()
+    gate = threading.Event()
+    real = runner._plan_pair
+
+    def gated(kind, sttm_name, deadline=None):
+        gate.wait(15)
+        return real(kind, sttm_name, deadline)
+
+    monkeypatch.setattr(runner, "_plan_pair", gated)
+    runner.start_selection("STTM_alpha.xlsx")
+    assert runner._job_done.wait(20)
+    job = runner.job_view()
+    assert job["state"] == "done" and job["pairing_pending"] == ["frd", "vdd"], job
+    assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": None, "vdd": None}
+    assert not runner.wait_paired(0.1)
+    runner.start_live()                                     # enabled: no refusal
+    for _ in range(100):
+        if runner.stages and runner.stages[-1]["stage"] == "pairing":
+            break
+        time.sleep(0.05)
+    assert runner.state == "running" and runner.stages[-1]["stage"] == "pairing", runner.stages
+    gate.set()
+    assert runner.wait_paired(30)
+    assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
+                                  "vdd": "VDD_charlie.xlsx"}
+    for _ in range(200):
+        if runner.state == "done":
+            break
+        time.sleep(0.05)
+    assert runner.state == "done"                           # the run went on after the pairing
+    assert runner.wait_recorded(20)
+    job = runner.job_view()
+    steps = [s["step"] for s in job["steps"]]
+    assert job["pairing_pending"] == [] and steps[-3:] == ["pair FRD", "pair VDD", "record"]
+    # M15.6: every step says how long it took.
+    assert all(isinstance(s["seconds"], (int, float)) for s in job["steps"]), job["steps"]
+
+
+def test_an_automatic_pair_from_a_prior_sttm_never_survives_a_new_selection(ws, monkeypatch):
+    """M15.3 (the stale-VDD finding of the review workflow): a pair VDD step
+    that returned nothing — it raised, or timed out — left the PREVIOUS STTM's
+    dictionary selected and badged auto-paired for the new one."""
+    ws.pairs("pair_1")
+    ws.put("pair_7", "STTM_golf.xlsx", TREE["pair_3"]["STTM_golf.xlsx"])     # alone in its folder
+    runner = ws.runner()
+    runner.select_workbook("STTM_alpha.xlsx")
+    assert runner.selection()["vdd"] == "VDD_charlie.xlsx" and runner.vdd_auto_paired
+    real = runner._plan_pair
+
+    def broken(kind, sttm_name, deadline=None):
+        if kind == "vdd":
+            raise RuntimeError("the dictionary scan exploded")
+        return real(kind, sttm_name, deadline)
+
+    monkeypatch.setattr(runner, "_plan_pair", broken)
+    runner.select_workbook("STTM_golf.xlsx")
+    job = runner.job_view()
+    assert job["state"] == "done"
+    assert [s["state"] for s in job["steps"] if s["step"] == "pair VDD"] == ["warning"]
+    assert runner.selection()["vdd"] is None and runner.vdd_auto_paired is None
+    assert runner.status()["selection"]["vdd"] is None
+
+
 def test_a_pairing_that_raises_never_discards_the_chosen_sttm(ws, monkeypatch):
     ws.pairs("pair_1")
     runner = ws.runner()

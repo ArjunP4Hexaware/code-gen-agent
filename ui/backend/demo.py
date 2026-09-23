@@ -183,6 +183,11 @@ class DemoRunner:
         self._job_seq = 0
         self._job_done = threading.Event()
         self._job_done.set()
+        # M15.2: the job is DONE (the STTM applied, Generate enabled) as soon
+        # as the workbook is classified; its FRD / VDD pairing lands behind it.
+        # Clear while a pairing is on its way; a run started meanwhile waits.
+        self._pairing_done = threading.Event()
+        self._pairing_done.set()
         # Upstream contract listing (upstream.enabled only): refreshed in a
         # background task with a hard timeout; request paths read this snapshot.
         self._upstream: dict = {"state": "idle", "rows": [], "error": None, "at": 0.0}
@@ -421,20 +426,26 @@ class DemoRunner:
         self.pair_decisions[kind] = decision
         self.last_pairing[kind] = plan["outcome"]
         rule = decision.rule or "content"
+        if decision.chosen is None:
+            self._drop_auto_pair(kind)
+            return
         if kind == "frd":
-            if decision.chosen is None:
-                if self.frd_auto_paired is not None:
-                    self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
-                return
             self.selected_frd, self.selected_frd_label = plan["path"], decision.chosen
             self.frd_auto_paired = {"frd": decision.chosen, "rule": rule}
         else:
-            if decision.chosen is None:
-                if self.vdd_auto_paired is not None:
-                    self.selected_vdd = self.vdd_auto_paired = None
-                return
             self.selected_vdd = plan["path"]
             self.vdd_auto_paired = {"vdd": decision.chosen, "rule": rule}
+
+    def _drop_auto_pair(self, kind: str) -> None:
+        """Forget an AUTOMATIC pair (a manual pick stays). M15.3: called for the
+        previous STTM's pairs the moment a new STTM is applied, and for a
+        pairing step that returns nothing — an automatic pair from a prior
+        STTM never survives a new selection."""
+        if kind == "frd":
+            if self.frd_auto_paired is not None:
+                self.selected_frd = self.selected_frd_label = self.frd_auto_paired = None
+        elif self.vdd_auto_paired is not None:
+            self.selected_vdd = self.vdd_auto_paired = None
 
     def _ask_pairing(self) -> None:
         """Run start: an undecided pairing becomes a question in the layout
@@ -746,8 +757,10 @@ class DemoRunner:
                     box["error"] = exc
 
             writer = threading.Thread(target=write, name="record-selection-write", daemon=True)
+            started = time.monotonic()
             writer.start()
             writer.join(timeout)
+            seconds = round(time.monotonic() - started, 2)
             if writer.is_alive():
                 problem = (f"no answer from the state role within {timeout:g}s — the choice "
                            "stands, but is not remembered across an App restart")
@@ -757,7 +770,7 @@ class DemoRunner:
                 problem = None
             if job is not None:
                 job["steps"].append({"step": "record", "state": "warning" if problem else "done",
-                                     "detail": problem or ""})
+                                     "detail": problem or "", "seconds": seconds})
                 if problem:
                     job.setdefault("warnings", []).append(f"record: {problem}")
 
@@ -779,9 +792,12 @@ class DemoRunner:
                 "(each step has a timeout) and choose again")
         self._job_seq += 1
         job = {"id": self._job_seq, "kind": kind, "name": name, "state": "running",
-               "steps": [], "error": None, "pairing": {}, "result": None, "warnings": []}
+               "steps": [], "error": None, "pairing": {}, "result": None, "warnings": [],
+               # M15.2: the pairs still on their way once the job is done.
+               "pairing_pending": []}
         self.selection_job = job
         self._job_done.clear()
+        self._pairing_done.set()                  # a previous job's pairing is moot
         return job
 
     def _try_step(self, job: dict, step: str, work, timeout: float, fallback):
@@ -801,9 +817,12 @@ class DemoRunner:
         takes the step's deadline (time.monotonic) and returns a value — it must
         not change the runner: a step that is given up keeps running nowhere
         that matters. Late = ``StepTimeout``, shown on the job."""
-        entry = {"step": step, "state": "running", "detail": ""}
+        # M15.6: every step carries how long it took (``seconds``, set when it
+        # ends) — the trace names the step that ate the minutes.
+        started = time.monotonic()
+        entry = {"step": step, "state": "running", "detail": "", "seconds": None}
         job["steps"].append(entry)
-        deadline = time.monotonic() + timeout
+        deadline = started + timeout
         box: dict = {}
 
         def run() -> None:
@@ -815,6 +834,7 @@ class DemoRunner:
         thread = threading.Thread(target=run, name=f"select:{step}", daemon=True)
         thread.start()
         thread.join(timeout + _STEP_GRACE_SECONDS)
+        entry["seconds"] = round(time.monotonic() - started, 2)
         if thread.is_alive():
             entry.update(state="timed_out", detail=f"no answer within {timeout:g}s")
             raise StepTimeout(f"no answer within {timeout:g}s")
@@ -830,7 +850,9 @@ class DemoRunner:
         """Under ``_lock``: the job's results will be dropped (its steps are
         bounded; it ends on its own and changes nothing)."""
         job["state"], job["error"] = "failed", {"code": "superseded", "message": why}
+        job["pairing_pending"] = []
         self._job_done.set()
+        self._pairing_done.set()
 
     def _finish_job(self, job: dict, error: dict | None = None) -> None:
         if self.selection_job is not job:
@@ -844,13 +866,22 @@ class DemoRunner:
         if job is None:
             return None
         return {**job, "steps": [dict(s) for s in job["steps"]],
-                "warnings": list(job.get("warnings", []))}
+                "warnings": list(job.get("warnings", [])),
+                "pairing_pending": list(job.get("pairing_pending", []))}
 
     def wait_selection(self, timeout: float = 60.0) -> dict | None:
-        """Block until the current selection job has finished (tests, the upload
-        route's own bounded wait). Returns the job."""
+        """Block until the current selection job has finished AND its pairing
+        has landed (tests, the upload route's own bounded wait). Returns the
+        job. M15.2: the job is done before the pairs are; a caller that wants
+        only the STTM waits on ``_job_done``."""
+        deadline = time.monotonic() + timeout
         self._job_done.wait(timeout)
+        self._pairing_done.wait(max(deadline - time.monotonic(), 0.0))
         return self.job_view()
+
+    def wait_paired(self, timeout: float = 60.0) -> bool:
+        """Tests / scripts: block until the current job's FRD / VDD pairing landed."""
+        return self._pairing_done.wait(timeout)
 
     def start_selection(self, name: str) -> dict:
         """Choose the STTM: returns the JOB at once. Progress, the pairing and
@@ -901,26 +932,13 @@ class DemoRunner:
                 # Not a reason to refuse the person's choice (the run will say
                 # what is wrong with the file) — but said: it pairs by name only.
                 job["steps"][-1]["state"] = "warning"
-            # From here on the STTM IS the person's choice: pairing it and
-            # recording it are best-effort (a warning), never a reason to throw
-            # the choice away — the run refuses on its own if an input is
-            # missing, and a state role that cannot be written is a deployment
-            # note, not a failed selection.
-            step = "pairing its FRD"
-            frd = self._try_step(job, "pair FRD", lambda d: self._plan_pair("frd", name, d),
-                                 timeout, None)
-            if frd is not None:
-                job["pairing"]["frd"] = frd["outcome"]
-            step = "pairing its VDD"
-            vdd = self._try_step(job, "pair VDD", lambda d: self._plan_pair("vdd", name, d),
-                                 timeout, None)
-            if vdd is not None:
-                job["pairing"]["vdd"] = vdd["outcome"]
-            chosen = {"sttm": name,
-                      "frd": (frd["decision"].chosen if frd else None) or (
-                          None if self.frd_auto_paired is not None else self.selection()["frd"]),
-                      "vdd": (vdd["decision"].chosen if vdd else None) or (
-                          None if self.vdd_auto_paired is not None else self.selection()["vdd"])}
+            # From here on the STTM IS the person's choice — applied NOW, the
+            # job done, Generate enabled (M15.2). Pairing it is an assist that
+            # lands BEHIND the job (its steps keep appending to the trace and
+            # ``pairing_pending`` names what is still on its way; a run started
+            # meanwhile waits for it in ``_await_pairing``), and recording it is
+            # a convenience — neither is ever a reason to throw the choice away.
+            step = "applying the choice"
             with self._lock:                       # state mutation ONLY — no I/O in here
                 if self.selection_job is not job or job["state"] != "running":
                     return                           # superseded (a Clear): change nothing
@@ -929,15 +947,34 @@ class DemoRunner:
                                             "selected — the selection was not applied")
                 self.selected_workbook = local
                 self.last_pairing = {}
-                if frd is not None:
-                    self._apply_pair("frd", frd)
-                if vdd is not None:
-                    self._apply_pair("vdd", vdd)
+                self.pair_decisions = {}
+                # M15.3: the PREVIOUS STTM's automatic pairs go the moment the
+                # new STTM is applied — never shown as this STTM's.
+                self._drop_auto_pair("frd")
+                self._drop_auto_pair("vdd")
                 self.selection_error = None
+                job["pairing_pending"] = ["frd", "vdd"]
+                self._pairing_done.clear()
             self._finish_job(job)
-            # AFTER the choice is applied and the job done (Generate enabled):
-            # remembering it across a restart is a background write.
-            self._record_later(chosen, job)
+            for kind in ("frd", "vdd"):
+                step = f"pairing its {kind.upper()}"
+                plan = self._try_step(job, f"pair {kind.upper()}",
+                                      lambda d, k=kind: self._plan_pair(k, name, d),
+                                      timeout, None)
+                if plan is not None:
+                    job["pairing"][kind] = plan["outcome"]
+                with self._lock:                   # state mutation ONLY
+                    if self.selection_job is not job:
+                        return                       # superseded: a newer choice owns the pairs
+                    if plan is not None:
+                        self._apply_pair(kind, plan)
+                    else:
+                        self._drop_auto_pair(kind)   # M15.3: nothing paired = nothing kept
+                    job["pairing_pending"] = [k for k in job["pairing_pending"] if k != kind]
+                    if not job["pairing_pending"]:
+                        self._pairing_done.set()
+            # Remembering the choice across a restart is a background write.
+            self._record_later(self.selection(), job)
         except BaseException as exc:  # noqa: BLE001 — a job thread must end in a visible state
             # Nothing half-selected, nothing from before, and NOT the config
             # default: the person sees why and chooses again.
@@ -953,6 +990,11 @@ class DemoRunner:
             self._finish_job(job, {
                 "code": "timeout" if isinstance(exc, StepTimeout) else "failed",
                 "message": str(failed)})
+        finally:
+            with self._lock:                       # a run waiting on the pairing never hangs
+                if self.selection_job is job:
+                    job["pairing_pending"] = []
+                    self._pairing_done.set()
 
     def _start_restore(self) -> None:
         """After a restart under a remote state role: bring the recorded pair
@@ -1028,6 +1070,7 @@ class DemoRunner:
         name), the STTM left UNSELECTED with ``selection_error`` set."""
         started = self.start_selection(name)
         self._job_done.wait()
+        self._pairing_done.wait()
         self.wait_recorded(float(self._store.config.inputs.select_timeout_seconds) + 5)
         job = self.selection_job
         if job is None or job["id"] != started["id"]:
@@ -1281,8 +1324,25 @@ class DemoRunner:
                 self.model_usage = []
         return {"deleted": deleted, "unloaded_current": unloaded}
 
+    def _await_pairing(self) -> None:
+        """M15.2: Generate enables as soon as the STTM is classified; a run that
+        starts while the FRD / VDD pairing is still landing waits for it here
+        (every pairing step is bounded), so a run never takes the config
+        default in place of a pair that is on its way."""
+        if self._pairing_done.is_set():
+            return
+        job = self.selection_job
+        name = job["name"] if job else "the chosen STTM"
+        self._stage("pairing", f"waiting for the FRD / VDD pairing of {name!r} to finish")
+        budget = 2 * (float(self._store.config.inputs.select_timeout_seconds)
+                      + _STEP_GRACE_SECONDS)
+        if not self._pairing_done.wait(budget):
+            self._stage("pairing", "the pairing did not finish in time — running with what "
+                                   "is selected now")
+
     def _run(self) -> None:
         try:
+            self._await_pairing()
             self._work()
             self.state = "done"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash

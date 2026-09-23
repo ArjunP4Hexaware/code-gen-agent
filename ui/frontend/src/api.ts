@@ -220,12 +220,17 @@ export interface SelectionJob {
   kind: "sttm" | "restore" | "frd_upstream";
   name: string;
   state: "running" | "done" | "failed";
-  steps: { step: string; state: "running" | "done" | "failed" | "timed_out" | "warning"; detail: string }[];
+  // seconds: how long the step took (M15.6) — present once it has ended.
+  steps: { step: string; state: "running" | "done" | "failed" | "timed_out" | "warning";
+           detail: string; seconds?: number }[];
   error: { code: "not_found" | "timeout" | "failed" | "superseded"; message: string } | null;
   pairing: { frd?: PairingOutcome; vdd?: PairingOutcome };
   // steps that did not succeed but never discard the choice (pairing, and
   // recording it in the state role)
   warnings?: string[];
+  // M15.2: the job is done (STTM applied, Generate enabled) as soon as the
+  // workbook is classified; these pairs are still on their way.
+  pairing_pending?: ("frd" | "vdd")[];
 }
 
 export interface FrdChoicesResponse {

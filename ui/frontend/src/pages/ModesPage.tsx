@@ -383,22 +383,35 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   // chooser: choosing supersedes it, and a slow restore would otherwise lock
   // the page for as long as its steps take.
   const selecting = selectionJob?.state === "running" && selectionJob.kind !== "restore";
+  // M15.2: the job is done (STTM applied, Generate enabled) as soon as the
+  // workbook is classified; the FRD / VDD pairs land behind it. "Pairing…" is
+  // shown on those chips, never on the button.
+  const pairingPending = new Set<string>(
+    selectionJob?.state === "done" ? selectionJob.pairing_pending ?? [] : [],
+  );
   const upstreamLoading = choosing && frdChoices?.upstream_state === "loading";
   const lastJobRef = useRef<string | null>(null);
+  const [pollFailures, setPollFailures] = useState(0);
   // Poll the status while anything can still change what is selected — and the
   // whole time the chooser is open, so the page can never sit on a stale status
   // (a selection that ended while nothing was polling left Generate disabled
-  // with no visible reason).
+  // with no visible reason). A poll that FAILS re-arms itself (M15.7): one lost
+  // GET used to strand the page on "Selecting…" for good.
   useEffect(() => {
-    if (!choosing && !selecting && !upstreamLoading) return;
+    if (!choosing && !selecting && !upstreamLoading && pairingPending.size === 0) return;
     const timer = setTimeout(() => {
-      api.demoStatus().then(setStatus).catch(() => {});
+      api.demoStatus()
+        .then((s) => { setPollFailures(0); setStatus(s); })
+        .catch(() => setPollFailures((n) => n + 1));
       if (upstreamLoading) api.frdChoices().then(setFrdChoices).catch(() => {});
-    }, selecting ? 700 : 1500);
+    }, selecting || pairingPending.size > 0 ? 700 : 1500);
     return () => clearTimeout(timer);
-  }, [status, choosing, selecting, upstreamLoading, frdChoices]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, choosing, selecting, upstreamLoading, frdChoices, pollFailures, pairingPending.size]);
   useEffect(() => {
-    const key = selectionJob ? `${selectionJob.id}:${selectionJob.state}` : null;
+    const key = selectionJob
+      ? `${selectionJob.id}:${selectionJob.state}:${(selectionJob.pairing_pending ?? []).join(",")}`
+      : null;
     if (key === lastJobRef.current) return;
     lastJobRef.current = key;
     if (!selectionJob || selectionJob.state === "running") return;
@@ -642,7 +655,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </span>
               <span>
                 FRD: <code>{status?.frd_name ?? "…"}</code>
-                {status?.frd_chosen ? null : <span className="hint"> (config default)</span>}
+                {pairingPending.has("frd") ? (
+                  <em className="hint" title="Choosing the FRD that belongs to this STTM"> Pairing…</em>
+                ) : status?.frd_chosen ? null : <span className="hint"> (config default)</span>}
                 {status?.frd_auto_paired ? (
                   <span
                     className="hint"
@@ -666,7 +681,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               </span>
               <span>
                 VDD:{" "}
-                {chosen.vdd ? <code>{chosen.vdd}</code> : <em className="hint">none</em>}
+                {chosen.vdd ? <code>{chosen.vdd}</code>
+                  : pairingPending.has("vdd")
+                    ? <em className="hint" title="Looking for the dictionary that belongs to this STTM">Pairing…</em>
+                    : <em className="hint">none</em>}
                 {status?.vdd_auto_paired ? (
                   <span
                     className="hint"
@@ -1509,10 +1527,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               ))
             )}
             {selectionJob && selectionJob.kind !== "frd_upstream"
-              && (selecting || selectionJob.state === "failed") ? (
+              && (selecting || pairingPending.size > 0 || selectionJob.state === "failed") ? (
               <div className="hint" style={{ marginTop: 8 }}>
                 <strong>
-                  {selecting ? "Selecting" : "Selection ended"}{" "}
+                  {selecting ? "Selecting" : pairingPending.size > 0 ? "Pairing" : "Selection ended"}{" "}
                   <code>{selectionJob.name}</code>
                 </strong>
                 {" — "}
@@ -1523,6 +1541,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     {s.state === "done" ? "✓" : s.state === "running" ? "…"
                       : s.state === "warning" ? "(read by name only)"
                       : s.state === "timed_out" ? "(timed out)" : "(failed)"}
+                    {s.seconds !== undefined ? ` ${s.seconds.toFixed(1)}s` : ""}
                   </span>
                 ))}
                 {(selectionJob.warnings ?? []).map((w, i) => (
@@ -1540,7 +1559,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             ) : null}
             {(["frd", "vdd"] as const).map((kind) => {
               const outcome = status?.pairing?.[kind];
-              if (!outcome || !chosen.sttm) return null;
+              if (!chosen.sttm) return null;
+              if (!outcome) {
+                return pairingPending.has(kind) ? (
+                  <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
+                    <strong>{kind.toUpperCase()} pairing</strong>: Pairing… (the STTM is
+                    selected; Generate waits for this to land)
+                  </p>
+                ) : null;
+              }
               return (
                 <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
                   <strong>{kind.toUpperCase()} pairing</strong>{" "}

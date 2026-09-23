@@ -3,19 +3,49 @@
 ## START HERE — demo branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
 
 **What this branch is.** A LEGACY demo branch cut from **v0.5.8-acfc (3a5b85d)**
-— NOT from `staging` (which is far ahead: v0.8.1). It is pushed to
-`origin/fix/remove-mock-provider-ui-text` at **3c7e8fd**, working tree clean
-(only the untracked `docs/acfc/denylist_local.txt`, see below). Soham's rule
-for this branch: **only make the changes he indicates.** Nothing here is
-merged anywhere; staging / main are untouched.
+— NOT from `staging` (which is far ahead: v0.8.1). `origin/fix/remove-mock-
+provider-ui-text` is at **3c7e8fd**; LOCALLY the branch is at **e825c23**
+(696421e CLAUDE.md + the four M15 commits below, NOT pushed — push when Soham
+says), working tree clean (only the untracked `docs/acfc/denylist_local.txt`,
+see below). Soham's rule for this branch: **only make the changes he
+indicates.** Nothing here is merged anywhere; staging / main are untouched.
 
-**Verified at 3c7e8fd:** 721 passed / 27 skipped (Python 3.11 full suite; the
-new tests also on 3.10 and 3.12); ruff clean (`src/ tests/ ui/backend/` —
-`acfc_run.py` has 6 PRE-EXISTING E402s, notebook cells); tsc clean; vitest 7
-passed (`cd ui/frontend && npx vitest run`); scrub 0 over every tracked file;
-`ui/frontend/dist` rebuilt and tracked (`index-CZZeZpzt.js`). App version
-marker **0.5.8.post4** (pyproject + requirements.txt — bump BOTH whenever
-`src/` changes; `ui/` runs from the source tree and needs no bump).
+**Verified at e825c23:** 728 passed / 27 skipped (Python 3.11 full suite; the
+chooser / hang / pairing / remote-e2e files also on 3.10 and 3.12 — uv venvs
+in the session scratchpad, not in the checkout); ruff clean (`src/ tests/
+ui/backend/` — `acfc_run.py` has 6 PRE-EXISTING E402s, notebook cells); tsc
+clean; vitest 7 passed (`cd ui/frontend && npx vitest run`); scrub 0 over
+every changed file; `ui/frontend/dist` rebuilt and tracked
+(`index-CGkzpwIC.js`). App version marker **0.5.8.post5** (pyproject +
+requirements.txt — bump BOTH whenever `src/` changes; `ui/` runs from the
+source tree and needs no bump).
+
+**M15 (2026-09-23, a7b41f4 · 49108e6 · c33ae06 · e825c23) — selection latency +
+pairing correctness**, from Soham's brief after the diagnosis of "Selecting
+<MIDS> takes minutes": (1) `DocumentIndex._save` writes the index locally and
+ONE background writer pushes `document_index.json` (no pull before a
+whole-file write: `stores.state_local_path`) — every request-path read used to
+pay a Workspace export + import inside the step's budget; (2) the job is DONE
+(STTM applied, Generate enabled) right after classify; pair FRD / pair VDD run
+behind it (`job.pairing_pending`, chips say "Pairing…", `_await_pairing` makes
+a run started meanwhile wait); `wait_selection` / `select_workbook` /
+`tests/ui_select.py` and the tests' `_wait_job` helpers wait for the pairing;
+(3) `_drop_auto_pair`: a prior STTM's automatic pair goes when the new STTM is
+applied and when a pairing step returns None; (4) a VDD score in (0,
+min_score) is a QUESTION and the same-folder rescue ignores the score —
+DEVIATION kept as found: a zero-score VDD is still OFFERED
+(`test_vdd_pairing_kind` pins it); (5) `StepTimeout` in `_plan_pair` keeps the
+candidate name-only (`unread`), a chosen file not downloadable in time is said
+on the outcome; (6) `steps[].seconds` on every job step (record too); (7) the
+status poll re-arms after a failed GET, the trace shows seconds; (8)
+`catalog.natural_key` ordering (pair_2 before pair_10) + `DocumentIndex
+.prioritize(folder)` on selection start. Commits: 2+3+6+7 landed together
+(same regions), 4+5+8 together. **Before/after** (fake workspace, cold index,
+a 5 s state-role write standing in for ACFC's; MIDS itself is not in the repo
+— the family-E multi-sheet fixture in the uploads inbox stands in): inbox
+STTM 66.7 s → 1.0 s until Generate enables (pairs 1.4 s); pair-folder STTM
+15.1 s → 0.0 s. Script: the session scratchpad's `m15_timing.py` (not
+tracked). Not yet run inside ACFC — the new per-step seconds will say.
 
 **What the branch changed (oldest first):**
 1. b5cf50d (Genie) hid the mock label exactly when the provider WAS locked —

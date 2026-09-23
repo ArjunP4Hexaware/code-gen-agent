@@ -1,5 +1,97 @@
 # CodeGen / Data Engineer Agent — working notes
 
+## START HERE — demo branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
+
+**What this branch is.** A LEGACY demo branch cut from **v0.5.8-acfc (3a5b85d)**
+— NOT from `staging` (which is far ahead: v0.8.1). It is pushed to
+`origin/fix/remove-mock-provider-ui-text` at **3c7e8fd**, working tree clean
+(only the untracked `docs/acfc/denylist_local.txt`, see below). Soham's rule
+for this branch: **only make the changes he indicates.** Nothing here is
+merged anywhere; staging / main are untouched.
+
+**Verified at 3c7e8fd:** 721 passed / 27 skipped (Python 3.11 full suite; the
+new tests also on 3.10 and 3.12); ruff clean (`src/ tests/ ui/backend/` —
+`acfc_run.py` has 6 PRE-EXISTING E402s, notebook cells); tsc clean; vitest 7
+passed (`cd ui/frontend && npx vitest run`); scrub 0 over every tracked file;
+`ui/frontend/dist` rebuilt and tracked (`index-CZZeZpzt.js`). App version
+marker **0.5.8.post4** (pyproject + requirements.txt — bump BOTH whenever
+`src/` changes; `ui/` runs from the source tree and needs no bump).
+
+**What the branch changed (oldest first):**
+1. b5cf50d (Genie) hid the mock label exactly when the provider WAS locked —
+   REVERTED (74fcbbb). Its RFC/All button removal was redone properly below.
+2. **Provider labels are derived, never static** (cd799ed, 1cf9e76):
+   `src/codegen/reasoning/usage.py` `StageUsage` per stage (layout, layer2):
+   provider, endpoint, model, real call count, mock reason. ONE label:
+   `Claude Opus 5 (databricks-claude-opus-5) · N call(s)` /
+   `Resolved from the documents (no model call needed)` /
+   `Mock provider (reason: <CODEGEN_FORCE_MOCK_PROVIDER | endpoint
+   unreachable — … | dry-run | test>)`. Rides FeedRun.model_usage,
+   `/api/feeds` + run status `model_usage`, the report's `## Model usage`
+   section, the CLI `MODEL USAGE` lines, the UI (`ModelUsageList`). Every
+   mock the builders make carries `mock_reason`. **`app.yaml` ships LIVE**
+   (no `CODEGEN_FORCE_MOCK_PROVIDER`; set it as App env to lock — the UI
+   then SAYS so). `tests/snapshots/notebook_mode.json` was re-based for the
+   three CV REPORT hashes only (the new section); generated code unchanged.
+3. **Outputs are exactly Notebook + Framework artefacts**
+   (`src/codegen/output_modes.py`, the one vocabulary): config `output.mode`
+   is a list of parts (a string still reads), CLI `--output-mode
+   notebook|framework` (repeatable), `GET /api/demo/output-options` =
+   `["notebook","framework"]`, UI `OutputSelector`. A retired `both` /
+   `rfc` / `all` (config, saved state, request, a past run's run_meta.json)
+   maps to both with a ONE-TIME notice (`status.output_notices`), never an
+   error. `emit/rfc.py` is kept but unreachable (its tests drive it
+   directly). Left in place, now no-ops: the UI Playbook selector,
+   `--playbook-template`, acfc_run.py's playbook widget. acfc_run.py now
+   passes `--output-mode framework`.
+4. **"Clear past runs…"** button (1f65a5b): `GET /api/demo/runs`, `POST
+   /api/demo/runs/clear {confirm: true}` — deletes ONLY `demo_YYYYMMDD_HHMMSS`
+   folders, remote copy too (`StorageBackend.delete_tree`, never the root;
+   Workspace API recursive delete, Files API files-then-dirs). 409 during a
+   run; a run cannot start mid-clear (`_clearing`). Remote delete ran
+   against fakes only. Locally, 41 stale run dirs were MOVED (not deleted) to
+   `out/_stale_runs_20260922/` on 2026-09-22 — delete it when sure.
+5. **Downloads** (893d991, 6238643): Notebook tab `Download .ipynb`; Code
+   tab toolbar `Download .ipynb` + a per-file icon button in the path bar —
+   GitHub-style `DownloadButton` (`.gh-btn`), never a primary button. The
+   route `/api/feeds/{slug}/download` serves .ipynb as
+   application/x-ipynb+json. Verified in a real browser (Playwright).
+6. **No Databricks-volume document source** (d0a7ef3): `databricks.catalog /
+   schema / frd_volume / sttm_volume` ship BLANK (they named the Hexaware
+   workspace's volumes; ACFC has none). A desktop opts in via
+   `DATABRICKS_CATALOG / _SCHEMA / _FRD_VOLUME / _STTM_VOLUME`.
+   `config_for(require=...)`: endpoint / layout / upstream pass `require=()`
+   so blank volumes never drop live Layer 2 to mock. Side effect: the
+   publish panel is unavailable as shipped. Still Hexaware-specific in the
+   config (unused in ACFC): `warehouse_id`, `readable_tables`, landing /
+   output volume names.
+7. **Selection no longer waits on the state-role write** (a591c07): the
+   job applies the choice, THEN a background recorder writes
+   selection.json (newest wins, bounded, failure = `record` warning).
+   Cause of Soham's report: FRD/VDD showed paired, the STTM name took 2-3
+   min (the old `record` step ran before the choice with a 120 s budget).
+   WHY the ACFC Workspace write is slow is still unknown.
+8. **Workflow-built, adversarially reviewed** (6bb9cb3, e506ae1, 3c7e8fd):
+   VDD pairing never picks a workbook read as an STTM (cold index too; the
+   CLI `codegen pair` too). Staging's used-range trim ported
+   (`src/codegen/layout/extent.py::load_document`, knob
+   `extractor.used_range_empty_rows: 500`): a sheet formatted to row
+   1,048,538 classified in 87 s → 0.03 s. Deviation from staging: a cell WITH
+   a value is NEVER dropped (only the empty styled tail). The new extractor
+   knob changes `vocabulary_hash` → runtime layout caches in ACFC re-resolve
+   once. Known leftover: a copy of the STTM that pairing did not manage to
+   READ in time can still appear as an option of the pairing question.
+
+**Easy to break on this branch:**
+- `docs/acfc/denylist_local.txt` (RAW client terms) is **NOT gitignored
+  here** — stage files explicitly, never `git add -A`.
+- `origin/acfc-runs` is unscrubbed: read in place (`git show`), never quote
+  real names.
+- In a git worktree, `PYTHONPATH=.` still imports `codegen` from the main
+  checkout's editable install — use `PYTHONPATH="src;."`.
+- Redeploy needs: `dist` synced (strip `.gitignore` from the staged tree),
+  the version marker bumped, Can Manage on state / outputs / inputs.
+
 ## Purpose & pipeline position
 
 Generates production-shaped Databricks ingestion pipelines (PySpark + Delta

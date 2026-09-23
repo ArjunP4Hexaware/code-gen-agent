@@ -90,7 +90,17 @@ def _annotate(entry: dict, local: dict[str, tuple[str, int]]) -> dict:
 
 @router.get("/documents")
 def documents() -> dict:
-    cfg = _config()
+    """The volumes' documents. The seam OFF (blank catalog / schema / volumes,
+    as shipped for ACFC) is not an error (M15b.5): 200 with ``configured:
+    false``, empty lists and the reason — the UI hides the panel. The store
+    not being bound is still a 503 (the pipeline itself is unavailable)."""
+    if _store is None:
+        raise HTTPException(503, "pipeline unavailable")
+    try:
+        cfg = config_for(_store.config.databricks)
+    except DatabricksConfigError as exc:
+        return {"configured": False, "reason": str(exc), "catalog": "", "schema": "",
+                "documents": {"sttm": [], "frd": []}}
     try:
         listing = list_documents(cfg)
     except DatabricksTransportError as exc:
@@ -109,6 +119,7 @@ def documents() -> dict:
     for entry in frd:
         entry["paired"] = entry["name"] in paired_frds
     return {
+        "configured": True,
         "catalog": cfg.catalog,
         "schema": cfg.schema,
         "documents": {"sttm": sttm, "frd": frd},

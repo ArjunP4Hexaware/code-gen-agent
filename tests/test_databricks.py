@@ -371,13 +371,17 @@ def client():
     return TestClient(ui_main.app)
 
 
-def test_documents_route_unconfigured_is_503(client, monkeypatch):
+def test_documents_route_unconfigured_is_200_with_configured_false(client, monkeypatch):
+    """M15b.5: the volumes seam OFF (as shipped for ACFC) is a missing optional
+    feature, not an error — 200, ``configured: false``, empty lists, the
+    reason; the UI hides the panel. It used to be a 503 the console logged
+    on every chooser open. No workspace client is ever built for it."""
     for name in VOLUMES_ENV:
         monkeypatch.delenv(name, raising=False)
-    # As shipped: the chooser's Databricks section is absent (503), and no
-    # workspace client is ever built for it.
     monkeypatch.setattr(db, "_client", lambda _cfg: pytest.fail("a client was built"))
-    assert client.get("/api/databricks/documents").status_code == 503
+    response = client.get("/api/databricks/documents")
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
     store = ui_main._require_store()
     from codegen.config import DatabricksSettings
 
@@ -386,8 +390,11 @@ def test_documents_route_unconfigured_is_503(client, monkeypatch):
         store.config.model_copy(update={"databricks": DatabricksSettings()}),
     )
     response = client.get("/api/databricks/documents")
-    assert response.status_code == 503
-    assert "not configured" in response.json()["detail"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["configured"] is False
+    assert "not configured" in payload["reason"]
+    assert payload["documents"] == {"sttm": [], "frd": []}
 
 
 def test_documents_route_workspace_refusal_is_502_with_message(client, volumes_env, monkeypatch):

@@ -103,7 +103,8 @@ def _wait_job(client, job_id: int, limit: float) -> dict:
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
         job = client.get("/api/demo/status").json()["selection_job"]
-        if job["id"] == job_id and job["state"] != "running":
+        # M15.2: done as soon as the STTM is classified; the pairs land behind.
+        if job["id"] == job_id and job["state"] != "running" and not job.get("pairing_pending"):
             return job
         time.sleep(0.05)
     raise AssertionError(f"the selection job did not finish within {limit:g}s")

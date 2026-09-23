@@ -296,6 +296,23 @@ class DocumentIndex:
             return None
         return facts_from_dict(entry["facts"])
 
+    def prioritize(self, source: str) -> None:
+        """Read the queued documents of ``source`` (a listing label — the
+        chosen STTM's folder) before anything else still waiting (M15.8): the
+        folder a person just picked is the one whose facts the pairing steps
+        want, not pair_1's. Order among the rest is kept."""
+        with self._lock:
+            pending: list = []
+            while True:
+                try:
+                    pending.append(self._queue.get_nowait())
+                except queue.Empty:
+                    break
+            for _doc in pending:
+                self._queue.task_done()            # re-queued below: the join count stays right
+            for doc in sorted(pending, key=lambda d: d.source != source):
+                self._queue.put(doc)
+
     def retry(self, doc) -> None:
         """A person asked: forget the verdict and read the file again (once)."""
         with self._lock:

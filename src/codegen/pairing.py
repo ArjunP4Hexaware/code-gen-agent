@@ -65,12 +65,18 @@ class PairDecision:
     @property
     def ambiguous(self) -> bool:
         """Undecided AND worth asking. An FRD is required, so any scored
-        candidate is worth showing; a VDD is optional, so only candidates
-        strong enough to have paired (a tie between real contenders)."""
+        candidate is worth showing. A VDD is optional: a candidate that shares
+        SOMETHING (a score above 0) is asked about — M15.4: a best score above
+        0 but below ``min_score`` used to be a dead zone, neither paired nor
+        asked, and it blocked the same-folder rescue — and, kept as found, so
+        is a no-content decision (``min_score`` 0.0 on those branches: the
+        dictionary is OFFERED rather than silently dropped)."""
         if self.chosen is not None or not self.candidates:
             return False
         best = self.candidates[0].score
-        return best > 0 if self.kind == "frd" else best >= self.min_score
+        if self.kind == "frd":
+            return best > 0
+        return best > 0 or best >= self.min_score
 
     def question(self) -> dict:
         """The decision as a layout-dialog ``choice`` question (same shape

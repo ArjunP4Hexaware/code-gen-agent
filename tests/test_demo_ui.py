@@ -62,7 +62,8 @@ def _job_done(client, job_id: int, timeout: float = 90.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         job = client.get("/api/demo/status").json()["selection_job"]
-        if job and job["id"] == job_id and job["state"] != "running":
+        if (job and job["id"] == job_id and job["state"] != "running"
+                and not job.get("pairing_pending")):          # M15.2: pairs land behind
             return job
         time.sleep(0.05)
     raise AssertionError(f"selection job {job_id} did not finish")

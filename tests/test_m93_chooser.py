@@ -581,6 +581,113 @@ def test_a_sole_candidate_in_a_pair_folder_pairs_even_without_a_content_signal(w
     assert runner.vdd_auto_paired == {"vdd": "VDD_november.xlsx", "rule": "same_folder"}
 
 
+# ------------------------------------------------------------ M15: dead zone, late reads, order
+
+
+def test_a_weak_vdd_score_is_a_question_not_a_dead_zone(config):
+    """M15.4: a VDD whose best score sat above 0 but below min_score was
+    neither paired nor asked about (and blocked the same-folder rescue)."""
+    from codegen.pairing import facts_from_dict, pair_by_content
+
+    sttm = facts_from_dict({"meta": {"file_format": ["CSV", "Sheet!B3"]}})
+    weak = facts_from_dict({"meta": {"file_format": ["csv", "FILES!C2"]}})
+    nothing = facts_from_dict({})
+    paths = {"VDD_a.xlsx": Path("VDD_a.xlsx"), "VDD_b.xlsx": Path("VDD_b.xlsx")}
+    decision = pair_by_content("vdd", Path("STTM_x.xlsx"), paths, config, REPO, known_facts={
+        "STTM_x.xlsx": sttm, "VDD_a.xlsx": weak, "VDD_b.xlsx": nothing})
+    best = decision.candidates[0]
+    assert decision.chosen is None and best.name == "VDD_a.xlsx"
+    assert 0 < best.score < config.inputs.pairing.min_score
+    assert decision.ambiguous                                   # asked, with the scores
+    question = decision.question()
+    assert question["candidates"][0]["value"] == "VDD_a.xlsx"
+    assert f"score {best.score:g}" in question["candidates"][0]["source"]
+    # Kept as found (test_vdd_pairing_kind): a dictionary that shares NOTHING is
+    # still OFFERED rather than silently dropped.
+    none = pair_by_content("vdd", Path("STTM_x.xlsx"), {"VDD_b.xlsx": paths["VDD_b.xlsx"]},
+                           config, REPO, known_facts={"STTM_x.xlsx": sttm, "VDD_b.xlsx": nothing})
+    assert none.chosen is None and none.ambiguous
+
+
+def test_the_sole_vdd_in_the_folder_pairs_even_on_a_weak_score(ws, monkeypatch):
+    """M15.4: the same-folder rescue applies whenever the folder holds exactly
+    one non-STTM workbook, whatever its content score."""
+    from dataclasses import replace
+
+    import codegen.pairing as pairing
+
+    ws.put("pair_7", "STTM_mike.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])
+    ws.put("pair_7", "VDD_november.xlsx", TREE["pair_1"]["VDD_charlie.xlsx"])
+    real = pairing.pair_by_content
+
+    def weak(kind, sttm_path, candidates, config, base_dir, **kw):
+        decision = real(kind, sttm_path, candidates, config, base_dir, **kw)
+        if kind != "vdd":
+            return decision
+        signal = (pairing.PairSignal("meta_file_format", 1.0, "same format"),)
+        scored = tuple(pairing.PairCandidate(name, 1.0, signal) for name in candidates
+                       if name != sttm_path.name)
+        return replace(decision, chosen=None, rule=None, candidates=scored,
+                       reason="no candidate wins by the margin: best 1, next 0", min_score=3.0)
+
+    monkeypatch.setattr(pairing, "pair_by_content", weak)
+    runner = ws.runner()
+    runner.select_workbook("STTM_mike.xlsx")
+    vdd = runner.last_pairing["vdd"]
+    assert (vdd["chosen"], vdd["rule"], vdd["scope"]) == ("VDD_november.xlsx", "same_folder",
+                                                          "same_folder")
+    assert vdd["candidates"][0]["score"] == 1.0
+    assert runner.selection()["vdd"] == "VDD_november.xlsx"
+
+
+def test_a_candidate_not_read_in_time_survives_as_name_only(monkeypatch, tmp_path):
+    """M15.5: a download that outlived the step's remaining budget raised
+    StepTimeout, which the loop caught as an OSError and DROPPED the candidate
+    ("unreachable") — the folder's own dictionary vanished from the pairing.
+    It stays now, scored on its name, and the outcome says it was not read."""
+    workspace = _Workspace(monkeypatch, tmp_path, select_timeout=6.0)
+    try:
+        workspace.pairs("pair_1")
+        workspace.blocked["VDD_charlie.xlsx"] = threading.Event()   # never arrives
+        runner = workspace.runner()
+        assert runner.select_workbook("STTM_alpha.xlsx").name == "STTM_alpha.xlsx"
+        job = runner.job_view()
+        assert job["state"] == "done"
+        assert [s["state"] for s in job["steps"] if s["step"] == "pair VDD"] == ["done"]
+        vdd = runner.last_pairing["vdd"]
+        assert [c["name"] for c in vdd["candidates"]] == ["VDD_charlie.xlsx"]
+        assert vdd["unread"] == ["VDD_charlie.xlsx"]
+        # Chosen by the folder rule, then its file did not arrive: said, not selected.
+        assert vdd["chosen"] is None and "could not be downloaded" in vdd["reason"]
+        assert runner.selection()["vdd"] is None
+    finally:
+        workspace.release()
+        ui_stores.reset_stores()
+
+
+def test_folders_list_in_natural_order_and_the_chosen_folder_is_indexed_first(ws, monkeypatch):
+    """M15.8: pair_1, pair_2, … pair_10 (a string sort put pair_10 second), and
+    the background index reads the folder of the STTM being selected next."""
+    for folder in ("pair_10", "pair_2", "pair_1"):
+        ws.put(folder, f"STTM_{folder}.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])
+        ws.put(folder, f"VDD_{folder}.xlsx", TREE["pair_1"]["VDD_charlie.xlsx"])
+    runner = ws.runner()
+    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)   # queue only
+    rows = [c for c in runner.workbook_choices() if c["source"].startswith("frd_sttm")]
+    assert [c["source"].rsplit("/", 1)[-1] for c in rows] == [
+        "pair_1", "pair_1", "pair_2", "pair_2", "pair_10", "pair_10"]
+    runner._index.prioritize("frd_sttm_pairs/pair_10")
+    queued = []
+    while True:
+        try:
+            queued.append(runner._index._queue.get_nowait())
+        except Exception:  # noqa: BLE001 — drained
+            break
+    order = [d.source.rsplit("/", 1)[-1] for d in queued if d.source.startswith("frd_sttm")]
+    assert order[:2] == ["pair_10", "pair_10"] and order[2:] == ["pair_1", "pair_1",
+                                                                 "pair_2", "pair_2"]
+
+
 # ------------------------------------------------------------ the classifier itself (pure, offline)
 
 

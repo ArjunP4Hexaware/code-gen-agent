@@ -377,6 +377,10 @@ class DemoRunner:
                             state = self._index.read_now(
                                 doc, self._fetch(doc, left),
                                 max(deadline - time.monotonic(), 0.05))["state"]
+                        except StepTimeout:
+                            # M15.5: not read IN TIME is not unreachable — the
+                            # candidate stays, scored on its name (``unread``).
+                            pass
                         except (StorageError, OSError):
                             del local[name]           # unreachable candidate: not a contender
                             continue
@@ -392,17 +396,33 @@ class DemoRunner:
                                        explicit_map=explicit_map, known_facts=known)
             nested = sttm_doc is not None and "/" in sttm_doc.rel
             if (decision.chosen is None and scope == "same_folder" and nested
-                    and len(local) == 1 and not any(c.score > 0 for c in decision.candidates)):
+                    and len(local) == 1):
                 # A pair folder holding exactly ONE candidate of the kind: the
-                # folder is the person's pairing. (Never applied to a flat inbox.)
+                # folder is the person's pairing, whatever the content score
+                # (M15.4 — a weak score used to block this rescue). Never
+                # applied to a flat inbox.
                 (only,) = local
                 decision = replace(
                     decision, chosen=only, rule="same_folder",
                     reason=f"the only {kind.upper()} in the STTM's folder {folder!r} "
-                           f"(no content signal decides: {decision.reason})")
+                           f"(the content did not decide: {decision.reason})")
             if decision.chosen is not None or decision.ambiguous:
                 break                        # decided, or a question among THESE candidates
         assert decision is not None
+        path = None
+        if decision.chosen is not None:
+            doc = docs.get(decision.chosen)
+            try:
+                path = (self._fetch(doc, max(deadline - time.monotonic(), 0.05))
+                        if doc is not None else candidates[decision.chosen])
+            except (StorageError, OSError) as exc:
+                # M15.5: chosen, but its file did not arrive in time — said on
+                # the outcome (the candidate stays listed), nothing selected.
+                decision = replace(
+                    decision, chosen=None, rule=None,
+                    reason=f"{decision.chosen} was chosen but could not be downloaded "
+                           f"within the step's budget ({exc}); choose it again or pick it "
+                           "in the chooser")
         outcome = {
             "chosen": decision.chosen, "rule": decision.rule, "reason": decision.reason,
             "scope": scope, "folder": folder,
@@ -412,11 +432,6 @@ class DemoRunner:
             # Candidates scored on their NAME alone (unreadable / not read in time).
             "unread": sorted(set(unread) & {c.name for c in decision.candidates}),
         }
-        path = None
-        if decision.chosen is not None:
-            doc = docs.get(decision.chosen)
-            path = (self._fetch(doc, max(deadline - time.monotonic(), 0.05))
-                    if doc is not None else candidates[decision.chosen])
         return {"decision": decision, "outcome": outcome, "path": path}
 
     def _apply_pair(self, kind: str, plan: dict) -> None:
@@ -906,6 +921,9 @@ class DemoRunner:
                 self._finish_job(job, {"code": "not_found",
                                        "message": f"no STTM workbook named {name!r} in {sources}"})
                 return
+            # M15.8: the background index reads THIS folder's documents next,
+            # so the pairing steps find their facts indexed more often.
+            self._index.prioritize(doc.source)
             step = f"downloading {doc.uri}"
             local = self._step(job, "download", lambda _d: self._fetch(doc, timeout), timeout)
             step = "starting the document parser"

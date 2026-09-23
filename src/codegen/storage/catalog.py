@@ -17,6 +17,7 @@ second caller joins the listing in flight instead of starting another.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -58,6 +59,12 @@ class InputDocument:
 
     def fetch(self) -> Path:
         return self.store.fetch(self.rel, self.size)
+
+
+def natural_key(text: str) -> tuple:
+    """Sort key that orders embedded numbers by value: pair_2 before pair_10."""
+    return tuple(int(part) if part.isdigit() else part.lower()
+                 for part in re.split(r"(\d+)", text or ""))
 
 
 def local_source(label: str, directory: Path, depth: int = 0) -> InputSource:
@@ -138,11 +145,15 @@ class InputCatalog:
 
     def documents(self, suffixes: tuple[str, ...]) -> list[InputDocument]:
         """Every document with one of the suffixes, first source wins per
-        name, Office lock files (``~$…``) skipped; source order, then name."""
+        name, Office lock files (``~$…``) skipped; source order, then folder
+        and name in NATURAL order (M15.8: pair_1, pair_2, … pair_10 — a plain
+        string sort put pair_10 second, and the background index read the
+        folders in that order)."""
         seen: set[str] = set()
         out: list[InputDocument] = []
         for index, source in enumerate(self.sources):
-            for doc in sorted(self._listing(index, source), key=lambda d: (d.source, d.name)):
+            for doc in sorted(self._listing(index, source),
+                              key=lambda d: (natural_key(d.source), natural_key(d.name))):
                 lower = doc.name.lower()
                 if doc.name.startswith("~$") or not lower.endswith(suffixes) or doc.name in seen:
                     continue

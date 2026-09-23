@@ -70,7 +70,9 @@ def _wait_job(client, job_id: str, timeout: float = 90.0) -> dict:
     while time.monotonic() < deadline:
         status = client.get("/api/demo/status").json()
         job = status["selection_job"]
-        if job is not None and job["id"] == job_id and job["state"] != "running":
+        # M15.2: done as soon as the STTM is classified; the pairs land behind.
+        if (job is not None and job["id"] == job_id and job["state"] != "running"
+                and not job.get("pairing_pending")):
             return status
         time.sleep(0.05)
     raise AssertionError(f"the selection job did not finish within {timeout:g}s")

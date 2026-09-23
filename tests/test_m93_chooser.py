@@ -335,6 +335,12 @@ def test_index_writes_never_run_inside_a_selection_step(ws, monkeypatch):
     ws.pairs("pair_1")
     runner = ws.runner()
     monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)
+    # Explicitly COLD: no verdict anywhere (the test is about the reads the
+    # request path must do itself, and a warm entry from a sibling test's
+    # push made it flake).
+    ws.fake.ws.files.pop(f"{SHARED}/state/document_index.json", None)
+    runner._index._local_path().unlink(missing_ok=True)
+    runner._index._entries = {}
     upload = ws.fake.workspace.upload
     pushes: list[float] = []
 
@@ -351,10 +357,12 @@ def test_index_writes_never_run_inside_a_selection_step(ws, monkeypatch):
     assert runner.job_view()["state"] == "done"
     assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
                                   "vdd": "VDD_charlie.xlsx"}
-    # Three documents were read cold on the request path; three 5 s writes on
-    # that path would have made this 15 s or more.
-    assert len(runner._index.request_parses) >= 3, runner._index.request_parses
+    # Three documents are read cold on the request path; a 5 s write on that
+    # path after each would have made this 15 s or more and put 5 s on the
+    # classify / pair steps. No step took the write.
     assert took < 10, took
+    job = runner.job_view()
+    assert all(s["seconds"] < 5 for s in job["steps"] if s["step"] != "record"), job["steps"]
     # The index still reaches the state role — behind the selection, coalesced.
     assert runner._index.wait_pushed(40)
     assert pushes and f"{SHARED}/state/document_index.json" in ws.fake.ws.files
@@ -622,6 +630,11 @@ def test_a_folder_without_candidates_falls_back_to_the_other_input_roots(monkeyp
     ws.put("pair_1", "STTM_alpha.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])  # the STTM alone
     ws.put("shared_docs", "FRD_bravo.docx", TREE["pair_1"]["FRD_bravo.docx"])
     client, _main = _api(monkeypatch, ws)
+    # M15c: the other roots pair from INDEXED facts (never a scan on the
+    # request path) — let the background index finish first.
+    runner = _main._require_runner()
+    runner.local_frd_candidates()
+    assert runner._index.wait_idle(60)
     frd = select_sttm(client, "STTM_alpha.xlsx")["selection_job"]["pairing"]["frd"]
     assert frd["scope"] == "all" and frd["chosen"] == "FRD_bravo.docx" and frd["rule"] == "content"
     assert {"FRD_bravo.docx", "FRD_echo.docx"} <= {c["name"] for c in frd["candidates"]}
@@ -746,6 +759,105 @@ def test_folders_list_in_natural_order_and_the_chosen_folder_is_indexed_first(ws
     order = [d.source.rsplit("/", 1)[-1] for d in queued if d.source.startswith("frd_sttm")]
     assert order[:2] == ["pair_10", "pair_10"] and order[2:] == ["pair_1", "pair_1",
                                                                  "pair_2", "pair_2"]
+
+
+def test_a_run_never_waits_for_the_vdd_and_waits_for_a_pending_frd_only_when_none_is_selected(
+        ws, monkeypatch):
+    """M15c (ACFC): Generate enabled, then the run sat on "waiting for the FRD
+    / VDD pairing" for minutes — the VDD scan, with the FRD long paired. A run
+    waits for a pending FRD only while NONE is selected, never for the VDD."""
+    ws.pairs("pair_1")
+    runner = ws.runner()
+    gate = threading.Event()
+    real = runner._plan_pair
+
+    def slow_vdd(kind, sttm_name, deadline=None):
+        if kind == "vdd":
+            gate.wait(15)
+        return real(kind, sttm_name, deadline)
+
+    monkeypatch.setattr(runner, "_plan_pair", slow_vdd)
+    runner.start_selection("STTM_alpha.xlsx")
+    assert runner._job_done.wait(20)
+    for _ in range(200):                                  # the FRD lands on its own
+        if runner.selection()["frd"]:
+            break
+        time.sleep(0.05)
+    assert runner.selection() == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx", "vdd": None}
+    started = time.monotonic()
+    runner.start_live()
+    for _ in range(200):
+        if runner.state == "done":
+            break
+        time.sleep(0.05)
+    assert runner.state == "done" and time.monotonic() - started < 3      # no wait for the VDD
+    assert not any(s["stage"] == "pairing" for s in runner.stages), runner.stages
+    gate.set()
+    assert runner.wait_paired(20)
+
+    # A pending FRD with none selected IS waited for: a run cannot go without one.
+    runner2 = ws.runner()
+    gate2 = threading.Event()
+    real2 = runner2._plan_pair
+
+    def slow_frd(kind, sttm_name, deadline=None):
+        if kind == "frd":
+            gate2.wait(15)
+        return real2(kind, sttm_name, deadline)
+
+    monkeypatch.setattr(runner2, "_plan_pair", slow_frd)
+    runner2.start_selection("STTM_alpha.xlsx")
+    assert runner2._job_done.wait(20)
+    runner2.start_live()
+    time.sleep(0.5)
+    assert runner2.state == "running" and runner2.stages[-1]["stage"] == "pairing", runner2.stages
+    gate2.set()
+    for _ in range(200):
+        if runner2.state == "done":
+            break
+        time.sleep(0.05)
+    assert runner2.state == "done" and runner2.selection()["frd"] == "FRD_bravo.docx"
+
+
+def test_the_other_roots_are_never_scanned_on_the_request_path(ws, monkeypatch):
+    """M15c: an STTM whose folder holds no VDD falls to the "all" scope — scored
+    from indexed facts or names only, never a read of every workbook of every
+    folder on the request path (that scan took minutes in ACFC)."""
+    ws.pairs()                                                          # pair_1 .. pair_3
+    ws.put("inbox_7", "STTM_mike.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])   # alone
+    runner = ws.runner()
+    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)  # cold, no worker
+    started = time.monotonic()
+    runner.select_workbook("STTM_mike.xlsx")
+    took = time.monotonic() - started
+    # The STTM itself (classify) and, at most, the LOCAL fixture workbooks —
+    # never a remote pair folder's document.
+    remote = {name for folder in TREE.values() for name in folder}
+    assert "STTM_mike.xlsx" in runner._index.request_parses
+    assert not remote & set(runner._index.request_parses), runner._index.request_parses
+    vdd = runner.last_pairing["vdd"]
+    assert vdd["scope"] == "all" and vdd["chosen"] is None
+    assert vdd["unread"] and set(vdd["unread"]) <= {
+        "VDD_charlie.xlsx", "VDD_foxtrot.xlsx", "VDD_india.xlsx",
+        "STTM_alpha.xlsx", "STTM_delta.xlsx", "STTM_golf.xlsx"}
+    assert took < 10, took
+
+
+def test_an_explicit_pairing_map_entry_decides_without_reading_anything(ws, monkeypatch):
+    """M15c: ``_plan_pair`` read every candidate BEFORE letting
+    ``pair_by_content`` return the pairing_map's answer."""
+    ws.pairs("pair_1", "pair_2")
+    runner = ws.runner()
+    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)
+    config = runner._store.config
+    monkeypatch.setattr(runner._store, "config", config.model_copy(update={
+        "demo": config.demo.model_copy(update={"pairing_map": {"STTM_alpha": "FRD_echo"}})}))
+    runner.select_workbook("STTM_alpha.xlsx")
+    frd = runner.last_pairing["frd"]
+    assert (frd["chosen"], frd["rule"], frd["scope"]) == ("FRD_echo.docx", "pairing_map",
+                                                          "pairing_map")
+    assert not {"FRD_echo.docx", "FRD_bravo.docx"} & set(runner._index.request_parses)
+    assert runner.selection()["frd"] == "FRD_echo.docx"
 
 
 # ------------------------------------------------------------ the classifier itself (pure, offline)

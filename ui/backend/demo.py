@@ -373,6 +373,16 @@ class DemoRunner:
         folder = sttm_doc.source if sttm_doc is not None else None
         in_folder = [n for n, d in docs.items() if d is not None and d.source == folder]
         scopes = ([("same_folder", in_folder)] if in_folder else []) + [("all", list(candidates))]
+        # M15c: an explicit pairing_map entry decides WITHOUT reading anything
+        # (``_plan_pair`` used to read every candidate first, then let
+        # ``pair_by_content`` return the map's answer).
+        from codegen.demo_sources import document_stem
+
+        explicit = {document_stem(k): document_stem(v) for k, v in (explicit_map or {}).items()}
+        by_stem = {document_stem(n): n for n in candidates}
+        mapped = explicit.get(document_stem(sttm_name))
+        if mapped in by_stem:
+            scopes = [("pairing_map", [by_stem[mapped]])]
         decision, scope = None, "all"
         for scope, names in scopes:
             local: dict[str, Path] = {}
@@ -385,7 +395,14 @@ class DemoRunner:
                     continue
                 facts = self._index.facts(doc) if doc is not None else None
                 state = self._index.lookup(doc)["state"] if doc is not None else None
-                if facts is None and doc is not None and state != UNREADABLE:
+                # M15c: on the request path only the STTM's OWN folder and the
+                # LOCAL sources are read. REMOTE roots outside the folder score
+                # from indexed facts or names (``unread``) — a download + parse
+                # of every workbook of every pair folder for an inbox STTM took
+                # minutes, and the run waited for it; the background index
+                # (folder-first) closes the gap behind the person.
+                if (facts is None and doc is not None and state != UNREADABLE
+                        and (scope == "same_folder" or doc.store.is_local)):
                     left = deadline - time.monotonic()
                     if left > 0:
                         try:
@@ -1393,16 +1410,32 @@ class DemoRunner:
         starts while the FRD / VDD pairing is still landing waits for it here
         (every pairing step is bounded), so a run never takes the config
         default in place of a pair that is on its way."""
-        if self._pairing_done.is_set():
-            return
         job = self.selection_job
-        name = job["name"] if job else "the chosen STTM"
-        self._stage("pairing", f"waiting for the FRD / VDD pairing of {name!r} to finish")
-        budget = 2 * (float(self._store.config.inputs.select_timeout_seconds)
-                      + _STEP_GRACE_SECONDS)
-        if not self._pairing_done.wait(budget):
-            self._stage("pairing", "the pairing did not finish in time — running with what "
-                                   "is selected now")
+        if self._pairing_done.is_set() or job is None:
+            return
+
+        def frd_pending() -> bool:
+            current = self.selection_job
+            return (current is job and self.selected_frd is None
+                    and "frd" in job.get("pairing_pending", []))
+
+        # M15c: wait ONLY for an FRD still on its way while NONE is selected (a
+        # run cannot proceed without one). Never for the VDD — it is optional,
+        # and one that lands later is simply not part of this run. In ACFC the
+        # run sat on "waiting for the FRD / VDD pairing" for minutes while the
+        # VDD scan of every folder ran, with the FRD long since paired.
+        if not frd_pending():
+            return
+        self._stage("pairing", f"waiting for the FRD pairing of {job['name']!r} to finish "
+                               "(no FRD is selected yet)")
+        deadline = time.monotonic() + float(
+            self._store.config.inputs.select_timeout_seconds) + _STEP_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            if not frd_pending():
+                return
+            time.sleep(0.1)
+        self._stage("pairing", "the FRD pairing did not finish in time — running with what is "
+                               "selected now")
 
     def _run(self) -> None:
         try:

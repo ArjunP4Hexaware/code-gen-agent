@@ -47,6 +47,19 @@ does): with a fake 5 s backend both pairs land after **6.3 s instead of
 and at App start the folder `selection.json` names — is queued for the index
 and read first.
 
+**M15c (2026-09-23, the commit after the M15b wrap-up) — Generate still sat
+on "pairing — waiting for the FRD / VDD pairing of <MIDS>" for minutes.** The
+button was enabled, but `_await_pairing` waited up to two step budgets for
+BOTH pairs, and for an inbox STTM the VDD scope "all" downloaded + parsed
+every workbook of every pair folder on the request path. Now: (a) a run waits
+only for an FRD still pending while NONE is selected (one step budget), never
+for the VDD (optional; one that lands later is not part of this run); (b) an
+explicit `demo.pairing_map` entry decides in `_plan_pair` WITHOUT reading any
+candidate; (c) on the request path only the STTM's own folder and LOCAL
+sources are read — remote roots outside the folder score from indexed facts
+or names (`unread`), the folder-first background index closing the gap. The
+"other roots pair by content" test waits for the index first.
+
 **M15 (2026-09-23, a7b41f4 · 49108e6 · c33ae06 · e825c23) — selection latency +
 pairing correctness**, from Soham's brief after the diagnosis of "Selecting
 <MIDS> takes minutes": (1) `DocumentIndex._save` writes the index locally and

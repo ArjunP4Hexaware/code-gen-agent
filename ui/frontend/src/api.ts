@@ -259,6 +259,11 @@ export interface PairingOutcome {
   question: LayoutQuestion | null;
   // candidates scored on their NAME alone (unreadable / not read in time)
   unread?: string[];
+  // VDD candidates the background index has not reached yet (name-only for
+  // now; the pairing is re-scored and the chip updated when they are)
+  not_indexed?: string[];
+  // set when a re-scoring replaced the earlier automatic pick
+  upgraded_from?: string | null;
 }
 
 export interface SttmWorkbook {
@@ -551,6 +556,8 @@ function normalizeOutcome(raw: any): PairingOutcome {
     })),
     question: raw?.question ?? null,
     unread: Array.isArray(raw?.unread) ? raw.unread : [],
+    not_indexed: Array.isArray(raw?.not_indexed) ? raw.not_indexed : [],
+    upgraded_from: raw?.upgraded_from ?? null,
   };
 }
 

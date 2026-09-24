@@ -65,6 +65,7 @@ export function PairingLines({ pairing, chosenSttm, pairingPending }: {
         }
         const candidates = outcome.candidates ?? [];
         const unread = outcome.unread ?? [];
+        const notIndexed = outcome.not_indexed ?? [];
         return (
           <p key={`pairing-${kind}`} className="hint" style={{ margin: "6px 0 0" }}>
             <strong>{kind.toUpperCase()} pairing</strong>{" "}
@@ -82,6 +83,12 @@ export function PairingLines({ pairing, chosenSttm, pairingPending }: {
               <> (candidates: {candidates.map((c) => `${c.name}: ${c.score ?? "—"}`).join(", ")})</>
             ) : null}
             {unread.length > 0 ? <> (not read, scored by name: {unread.join(", ")})</> : null}
+            {notIndexed.length > 0 ? (
+              <> (not yet indexed, scored by name for now: {notIndexed.join(", ")})</>
+            ) : null}
+            {outcome.upgraded_from ? (
+              <> (re-scored once indexed; was {outcome.upgraded_from})</>
+            ) : null}
           </p>
         );
       })}

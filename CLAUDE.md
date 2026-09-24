@@ -60,6 +60,35 @@ sources are read — remote roots outside the folder score from indexed facts
 or names (`unread`), the folder-first background index closing the gap. The
 "other roots pair by content" test waits for the index first.
 
+**M15d (2026-09-23, the commits after M15c) — VDD pairing as fast as FRD
+pairing, inbox STTM included.** (1) A VDD candidate is NEVER downloaded or
+parsed on the request path (`_plan_pair`, `kind == "vdd"`): dictionaries the
+background index has classified score in memory from the index's stored
+facts; ones it has not reached score by name and are listed as
+`not_indexed` on the outcome (the chip text says "not yet indexed"). (2)
+`DemoRunner._index_warmup` (a thread at construction, `index_warmup=False`
+for tests that want no worker) queues, after the restore job, every
+workbook classified or likely by name (`_LIKELY_VDD`: vdd / dictionary) to be
+a VDD, then the rest, and keeps the folder `selection.json` named first
+(`_restored_folder`); logger `codegen.ui.index` says `index warm-up: all VDD
+candidates indexed`; `_warmup_done` is the event tests wait on. (3)
+`DocumentIndex.add_listener` → `DemoRunner._on_indexed`: when a watched
+name-only candidate (`_vdd_watch`) gets its verdict, `_repair_vdd` re-scores
+from the index and applies a candidate that now WINS (`upgraded_from` on the
+outcome; never over a manual pick; deferred past a run in progress —
+`_deferred_vdd_plan`, applied when `_run` ends). (4) `demo.vdd_pairing_map`
+decides immediately like `pairing_map` — documented in `docs/ACFC_DEPLOY.md`
+§7. **Wall-clock (fake workspace, inbox STTM, three pair folders):** warm
+index — select 0.62 s, pair VDD 0.02 s, by content, zero VDD downloads on the
+request path; cold — select 0.06 s by name (ticket), upgraded to the true
+dictionary by content 0.2 s after the index reached it. Two tests that
+assumed request-path VDD reads were re-stated (`test_vdd_pairing_kind`: the
+STTM's own copy is a `not_indexed` name-only candidate on a cold index and
+dropped once indexed; the M15.5 late-read test now uses an FRD). Windows
+note: the local index file is read by the pusher while `_save` rewrites it —
+harmless on the App's Linux, a sharing violation only in local tests that
+unlink the file.
+
 **M15 (2026-09-23, a7b41f4 · 49108e6 · c33ae06 · e825c23) — selection latency +
 pairing correctness**, from Soham's brief after the diagnosis of "Selecting
 <MIDS> takes minutes": (1) `DocumentIndex._save` writes the index locally and

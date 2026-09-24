@@ -13,6 +13,7 @@ the default out/ tree and never the tracked replay fixtures.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
@@ -23,7 +24,13 @@ from codegen.extract import extract_to_file
 from codegen.output_modes import OUTPUT_OPTIONS, output_parts
 from codegen.output_modes import notices as output_notices
 from codegen.resolve.resolver import resolve_pair
-from ui.backend.docindex import INDEX_FILE, UNREADABLE, DocumentIndex, fetch_exclusive
+from ui.backend.docindex import (
+    CLASSIFYING,
+    INDEX_FILE,
+    UNREADABLE,
+    DocumentIndex,
+    fetch_exclusive,
+)
 from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
 
 # State files under the default (local) state role — module constants so tests
@@ -52,6 +59,10 @@ class StepTimeout(TimeoutError):
 # abandoned, a parser process that is killed); the job waits this much longer
 # for the step to come back before it gives the step up.
 _STEP_GRACE_SECONDS = 2.0
+# M15d.2: a workbook that LOOKS like a Vendor Data Dictionary by name — read
+# early by the start-up warm-up, before its verdict exists.
+_LIKELY_VDD = re.compile(r"vdd|data[ _-]?dictionary|dictionary", re.IGNORECASE)
+log = logging.getLogger("codegen.ui.index")
 
 
 class LiveRunInProgress(RuntimeError):
@@ -86,9 +97,25 @@ def feeds_left_without_a_file(questions, contract) -> list[tuple[int, object]]:
 class DemoRunner:
     """One live run at a time; stage list is append-only per run."""
 
-    def __init__(self, store: GenerationStore, work=None) -> None:
+    def __init__(self, store: GenerationStore, work=None, *, index_warmup: bool = True) -> None:
         self._store = store
         self._work = work or self._execute  # injectable for tests
+        # M15d.3: VDD candidates the last pairing scored by NAME only (the
+        # index had not reached them); when the index stores one, the VDD
+        # pairing is re-scored and the chip updated — deferred past a run in
+        # progress (``_deferred_vdd_plan``), applied when it ends.
+        self._vdd_watch: set[str] = set()
+        self._repair_lock = threading.Lock()
+        self._repair_busy = False
+        self._repair_again = False
+        self._deferred_vdd_plan: dict | None = None
+        # M15d.2: the likely dictionaries the start-up warm-up queued; logged
+        # once when all of them are indexed. ``_warmup_done`` is set when the
+        # warm-up has queued everything (tests wait on it); ``_restored_folder``
+        # is the folder selection.json named, kept first in the queue.
+        self._vdd_warmup_pending: set[str] = set()
+        self._warmup_done = threading.Event()
+        self._restored_folder: str | None = None
         self._lock = threading.Lock()
         self.state: str = "idle"  # idle | running | needs_layout | done | failed
         # M2.5 layout resolution: while a run waits for the human to place
@@ -199,7 +226,13 @@ class DemoRunner:
             lambda: self._store.config, self._index_path,
             lambda: self._push_state_file(INDEX_FILE), REPO_ROOT,
             local_path=self._index_local_path)
+        self._index.add_listener(self._on_indexed)
         self._start_restore()
+        if index_warmup:
+            threading.Thread(target=self._index_warmup, name="index-warmup",
+                             daemon=True).start()
+        else:
+            self._warmup_done.set()
 
     def _index_path(self) -> Path:
         """The index file, PULLED from a remote state role (the read after a restart)."""
@@ -227,6 +260,98 @@ class DemoRunner:
             if doc.source == source:
                 self._index.lookup(doc)
         self._index.prioritize(source)
+
+    def _index_warmup(self) -> None:
+        """M15d.2: at App start the background index reads, in this order, the
+        folder selection.json names (the restore job queues it first), then
+        every workbook the index already classified as a VDD or that looks
+        like one by name, then everything else. Logged when all the likely
+        dictionaries are indexed. Never on a request thread."""
+        try:
+            self._job_done.wait(float(self._store.config.inputs.select_timeout_seconds) * 4)
+            try:
+                workbooks = self._workbook_catalog().documents((".xlsx",))
+                frds = self._frd_catalog().documents((".contract.json", ".docx"))
+            except Exception:  # noqa: BLE001 — status.input_errors carries it
+                return
+
+            def likely_vdd(doc) -> bool:
+                with self._index._lock:
+                    entry = self._index._load().get(doc.version)
+                return (entry["state"] == "vdd") if entry else bool(_LIKELY_VDD.search(doc.name))
+
+            likely = [d for d in workbooks if likely_vdd(d)]
+            pending = set()
+            for doc in likely:
+                if self._index.lookup(doc)["state"] == CLASSIFYING:
+                    pending.add(doc.version)
+            for doc in [*workbooks, *frds]:
+                self._index.lookup(doc)
+            self._vdd_warmup_pending = pending
+            if pending:
+                likely_versions = {d.version for d in likely}
+                self._index.prioritize(select=lambda d: d.version in likely_versions)
+                log.info("index warm-up: %d likely VDD candidate(s) queued first", len(pending))
+            else:
+                log.info("index warm-up: all %d VDD candidate(s) already indexed", len(likely))
+            if self._restored_folder:
+                self._index.prioritize(self._restored_folder)   # the recorded folder stays first
+        finally:
+            self._warmup_done.set()
+
+    def _on_indexed(self, doc, entry: dict) -> None:
+        """Index listener (off the request path): the warm-up log, and the VDD
+        re-pairing when a name-only candidate just got its verdict (M15d.3)."""
+        if self._vdd_warmup_pending:
+            self._vdd_warmup_pending.discard(doc.version)
+            if not self._vdd_warmup_pending:
+                log.info("index warm-up: all VDD candidates indexed")
+        if doc.name in self._vdd_watch and entry.get("state") != CLASSIFYING:
+            with self._repair_lock:
+                if self._repair_busy:
+                    self._repair_again = True       # the running re-scoring goes once more
+                    return
+                self._repair_busy, self._repair_again = True, False
+            threading.Thread(target=self._repair_vdd, name="repair-vdd", daemon=True).start()
+
+    def _repair_vdd(self) -> None:
+        """Re-score the VDD pairing from the index (no download, no parse) and
+        apply it when a candidate now WINS over the name-only pick; never
+        over a manual pick; deferred past a run in progress. Loops while
+        verdicts kept landing during a pass."""
+        while True:
+            try:
+                self._repair_vdd_once()
+            except Exception as exc:  # noqa: BLE001 — a re-scoring never breaks anything
+                log.warning("VDD re-scoring failed: %s: %s", type(exc).__name__, exc)
+            with self._repair_lock:
+                if not self._repair_again:
+                    self._repair_busy = False
+                    return
+                self._repair_again = False
+
+    def _repair_vdd_once(self) -> None:
+        job = self.selection_job
+        sttm = self.selected_workbook
+        manual_vdd = self.selected_vdd is not None and self.vdd_auto_paired is None
+        if job is None or job["kind"] != "sttm" or sttm is None or manual_vdd:
+            return
+        plan = self._plan_pair("vdd", sttm.name)
+        chosen = plan["decision"].chosen
+        current = (self.vdd_auto_paired or {}).get("vdd")
+        with self._lock:
+            if self.selection_job is not job:
+                return
+            self._vdd_watch = set(plan["outcome"].get("not_indexed", []))
+            if chosen is None or chosen == current:
+                return
+            plan["outcome"]["upgraded_from"] = current
+            if self.state == "running":
+                self._deferred_vdd_plan = plan      # the run is not affected; the next one is
+                return
+            self._apply_pair("vdd", plan)
+            job["pairing"]["vdd"] = plan["outcome"]
+        log.info("VDD pairing re-scored: %s (was %s)", chosen, current)
 
     def _push_state_file(self, name: str) -> None:
         from ui.backend import stores as ui_stores
@@ -363,6 +488,9 @@ class DemoRunner:
         sttm_facts = self._index.facts(sttm_doc) if sttm_doc is not None else None
         known = {sttm_name: sttm_facts if sttm_facts is not None else empty_facts()}
         unread: list[str] = []
+        # M15d.1: VDD candidates the background index has not reached yet —
+        # scored by NAME only, said so on the outcome, re-scored when indexed.
+        not_indexed: list[str] = []
         # A workbook whose verdict -- once read, here or by the background index
         # meanwhile -- is "sttm" is never a dictionary: dropped in every scope
         # (a copy of the chosen STTM in the pair folder would otherwise score
@@ -401,7 +529,10 @@ class DemoRunner:
                 # of every workbook of every pair folder for an inbox STTM took
                 # minutes, and the run waited for it; the background index
                 # (folder-first) closes the gap behind the person.
+                # M15d.1: a VDD candidate is NEVER downloaded or parsed on the
+                # request path — the index's stored facts score it in memory.
                 if (facts is None and doc is not None and state != UNREADABLE
+                        and kind != "vdd"
                         and (scope == "same_folder" or doc.store.is_local)):
                     left = deadline - time.monotonic()
                     if left > 0:
@@ -423,7 +554,10 @@ class DemoRunner:
                     del local[name]
                     continue
                 if facts is None:
-                    unread.append(name)               # its NAME still speaks
+                    if kind == "vdd" and state == CLASSIFYING:
+                        not_indexed.append(name)      # not reached yet: re-scored when it is
+                    else:
+                        unread.append(name)           # its NAME still speaks
                 known[name] = facts if facts is not None else empty_facts()
             decision = pair_by_content(kind, sttm_path, local, config, REPO_ROOT,
                                        explicit_map=explicit_map, known_facts=known)
@@ -464,6 +598,9 @@ class DemoRunner:
             "question": decision.question() if decision.ambiguous else None,
             # Candidates scored on their NAME alone (unreadable / not read in time).
             "unread": sorted(set(unread) & {c.name for c in decision.candidates}),
+            # M15d: VDD candidates the index has not reached yet (name-only for
+            # now; the pairing is re-scored when they are indexed).
+            "not_indexed": sorted(set(not_indexed) & {c.name for c in decision.candidates}),
         }
         return {"decision": decision, "outcome": outcome, "path": path}
 
@@ -474,6 +611,9 @@ class DemoRunner:
         self.pair_decisions[kind] = decision
         self.last_pairing[kind] = plan["outcome"]
         rule = decision.rule or "content"
+        if kind == "vdd":
+            # M15d.3: the candidates scored by name only — re-scored when indexed.
+            self._vdd_watch = set(plan["outcome"].get("not_indexed", []))
         if decision.chosen is None:
             self._drop_auto_pair(kind)
             return
@@ -1125,6 +1265,7 @@ class DemoRunner:
                 if kind == "sttm":
                     # M15b.7: at App start, the folder selection.json names is
                     # indexed first — before any person acts.
+                    self._restored_folder = doc.source
                     self._index_folder_first(doc.source)
                 return self._fetch(doc, timeout)
 
@@ -1194,6 +1335,8 @@ class DemoRunner:
         self.pair_decisions = {}
         self.selection_error = None
         self.last_pairing = {}
+        self._vdd_watch = set()
+        self._deferred_vdd_plan = None
         if self.frd_auto_paired is not None:
             self.selected_frd = None
             self.selected_frd_label = None
@@ -1445,6 +1588,15 @@ class DemoRunner:
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
             self.error = f"{type(exc).__name__}: {exc}"
             self.state = "failed"
+        finally:
+            # M15d.3: a VDD re-scored while the run was in progress lands now —
+            # that run was not affected; the next one is.
+            with self._lock:
+                plan, self._deferred_vdd_plan = self._deferred_vdd_plan, None
+                manual_vdd = self.selected_vdd is not None and self.vdd_auto_paired is None
+                if plan is not None and self.selection_job is not None and not manual_vdd:
+                    self._apply_pair("vdd", plan)
+                    self.selection_job["pairing"]["vdd"] = plan["outcome"]
 
     def upstream_snapshot(self) -> dict:
         """The upstream contract listing as last read — NEVER a call: with

@@ -220,6 +220,7 @@ class DocumentIndex:
         self._push_busy = False
         self._push_idle = threading.Event()
         self._push_idle.set()
+        self._listeners: list[Callable] = []
 
     # -- state ------------------------------------------------------------------------
 
@@ -296,11 +297,16 @@ class DocumentIndex:
             return None
         return facts_from_dict(entry["facts"])
 
-    def prioritize(self, source: str) -> None:
+    def prioritize(self, source: str | None = None, *, select: Callable | None = None) -> None:
         """Read the queued documents of ``source`` (a listing label — the
-        chosen STTM's folder) before anything else still waiting (M15.8): the
-        folder a person just picked is the one whose facts the pairing steps
-        want, not pair_1's. Order among the rest is kept."""
+        chosen STTM's folder) — or those ``select(doc)`` picks — before
+        anything else still waiting (M15.8 / M15d.2): the folder a person just
+        picked, then the likely dictionaries, are what the pairing wants
+        first. Order among the rest is kept."""
+        def first(doc) -> bool:
+            return (source is not None and doc.source == source) or (
+                select is not None and bool(select(doc)))
+
         with self._lock:
             pending: list = []
             while True:
@@ -310,8 +316,15 @@ class DocumentIndex:
                     break
             for _doc in pending:
                 self._queue.task_done()            # re-queued below: the join count stays right
-            for doc in sorted(pending, key=lambda d: d.source != source):
+            for doc in sorted(pending, key=lambda d: not first(d)):
                 self._queue.put(doc)
+
+    def add_listener(self, callback: Callable) -> None:
+        """``callback(doc, entry)`` after every verdict stored (M15d.3: the
+        runner re-scores a VDD pairing that was name-only when the true
+        dictionary gets indexed). Called off the request path, never under
+        the index lock; a raising listener is dropped for that event."""
+        self._listeners.append(callback)
 
     def retry(self, doc) -> None:
         """A person asked: forget the verdict and read the file again (once)."""
@@ -421,6 +434,9 @@ class DocumentIndex:
                 del entries[stale]                     # one verdict per file
             entries[doc.version] = {"name": doc.name, **entry}
         self._save()
+        for callback in list(self._listeners):
+            with contextlib.suppress(Exception):      # a listener never breaks the index
+                callback(doc, entry)
 
 
 __all__ = ["CLASSIFYING", "INDEX_FILE", "UNREADABLE", "DocumentIndex", "fetch_exclusive"]

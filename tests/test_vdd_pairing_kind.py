@@ -80,6 +80,10 @@ def _wait_job(client, job_id: str, timeout: float = 90.0) -> dict:
 
 def test_an_uploaded_sttm_never_pairs_its_own_copy_as_the_vdd(api):
     client, runner = api
+    # M15d: VDD candidates are scored from the INDEX (never read on the request
+    # path) — with the index warm, the STTM's copy is known as a mapping
+    # workbook and the dictionary by its content.
+    assert runner._warmup_done.wait(30) and runner._index.wait_idle(60)
     reply = client.post("/api/demo/upload", data={"kind": "sttm"},
                         files={"file": (UPLOADED, STTM.read_bytes())})
     assert reply.status_code == 201, reply.text
@@ -100,9 +104,12 @@ def test_an_uploaded_sttm_never_pairs_its_own_copy_as_the_vdd(api):
 
 
 def test_plan_pair_drops_a_workbook_read_as_an_sttm_with_a_cold_index(api):
-    """The plan itself, on a cold index: every candidate is read on the
-    request path; the one whose verdict is ``sttm`` is dropped."""
+    """The plan itself. M15d: on a COLD index nothing is read on the request
+    path — the STTM's copy is a name-only candidate marked ``not_indexed``
+    (never chosen: no name signal); once the index has read it, it reads as a
+    mapping workbook and is dropped from the plan."""
     client, runner = api
+    assert runner._warmup_done.wait(30) and runner._index.wait_idle(60)
     reply = client.post("/api/demo/upload", data={"kind": "sttm"},
                         files={"file": (UPLOADED, STTM.read_bytes())})
     _wait_job(client, reply.json()["job"]["id"])
@@ -110,6 +117,14 @@ def test_plan_pair_drops_a_workbook_read_as_an_sttm_with_a_cold_index(api):
     runner._index.wait_idle(30.0)
     with runner._index._lock:
         runner._index._load().clear()
+    plan = runner._plan_pair("vdd", UPLOADED, time.monotonic() + 60.0)
+    outcome = plan["outcome"]
+    assert STTM.name in outcome["not_indexed"], outcome          # not read, said so
+    assert plan["decision"].chosen != STTM.name
+    # Warm again: the copy reads as an STTM and is no longer a candidate.
+    for doc in runner._workbook_catalog().documents((".xlsx",)):
+        runner._index.lookup(doc)
+    assert runner._index.wait_idle(60)
     plan = runner._plan_pair("vdd", UPLOADED, time.monotonic() + 60.0)
     names = {c["name"] for c in plan["outcome"]["candidates"]}
     assert STTM.name not in names, plan["outcome"]

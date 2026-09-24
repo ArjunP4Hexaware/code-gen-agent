@@ -112,8 +112,8 @@ class _Workspace:
                    if op == "download" and path.startswith(PAIRS)
                    and (name is None or path.endswith("/" + name)))
 
-    def runner(self) -> DemoRunner:
-        return DemoRunner(self.store, work=lambda: None)
+    def runner(self, warmup: bool = True) -> DemoRunner:
+        return DemoRunner(self.store, work=lambda: None, index_warmup=warmup)
 
     def release(self) -> None:
         for event in self.blocked.values():
@@ -138,7 +138,7 @@ def _rows(runner) -> dict[str, dict]:
 def test_list_is_metadata_only_then_kinds_arrive_by_content_and_are_kept_in_state(ws):
     ws.pairs()
     ws.put("pair_1", "Inventory_juliet.xlsx", UNCLASSIFIED)
-    runner = ws.runner()
+    runner = ws.runner(warmup=False)        # the LIST is under test, not the start-up warm-up
     started = time.monotonic()
     rows = _rows(runner)
     assert time.monotonic() - started < 2.0
@@ -164,7 +164,7 @@ def test_list_is_metadata_only_then_kinds_arrive_by_content_and_are_kept_in_stat
     assert next(e for e in index.values() if e["name"] == "STTM_alpha.xlsx")["facts"]["tables"]
     # … so a restarted process (a new runner) reads NO workbook again.
     before = ws.downloads()
-    again = ws.runner()
+    again = ws.runner(warmup=False)        # (the warm-up would index the FRDs too)
     assert {n: r["kind"] for n, r in _rows(again).items()} == {n: r["kind"]
                                                                  for n, r in rows.items()}
     again._index.wait_idle(10)
@@ -332,15 +332,16 @@ def test_index_writes_never_run_inside_a_selection_step(ws, monkeypatch):
     written locally and pushed by a background writer behind the selection.
     The background worker is OFF here so the request path must do all three
     reads itself (M15b.7 lets the worker win the race on a fast machine)."""
+    from ui.backend.docindex import DocumentIndex
+
     ws.pairs("pair_1")
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)   # before the runner
     runner = ws.runner()
-    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)
     # Explicitly COLD: no verdict anywhere (the test is about the reads the
     # request path must do itself, and a warm entry from a sibling test's
     # push made it flake).
     ws.fake.ws.files.pop(f"{SHARED}/state/document_index.json", None)
-    runner._index._local_path().unlink(missing_ok=True)
-    runner._index._entries = {}
+    runner._index._entries = {}            # (never unlink the file: the warm-up thread reads it)
     upload = ws.fake.workspace.upload
     pushes: list[float] = []
 
@@ -462,6 +463,7 @@ def test_app_start_indexes_the_recorded_selections_folder_first(ws, monkeypatch)
     job = runner.wait_selection(30)
     assert job["kind"] == "restore" and job["state"] == "done", job
     assert runner.selection()["sttm"] == "STTM_delta.xlsx"
+    assert runner._warmup_done.wait(30)         # M15d.2: the warm-up queued the rest behind
     queued = []
     while True:
         try:
@@ -716,23 +718,27 @@ def test_the_sole_vdd_in_the_folder_pairs_even_on_a_weak_score(ws, monkeypatch):
 def test_a_candidate_not_read_in_time_survives_as_name_only(monkeypatch, tmp_path):
     """M15.5: a download that outlived the step's remaining budget raised
     StepTimeout, which the loop caught as an OSError and DROPPED the candidate
-    ("unreachable") — the folder's own dictionary vanished from the pairing.
-    It stays now, scored on its name, and the outcome says it was not read."""
+    ("unreachable") — the folder's own document vanished from the pairing. It
+    stays now, scored on its name, and the outcome says it was not read. (An
+    FRD: since M15d a VDD candidate is never read on the request path at all.)"""
+    from ui.backend.docindex import DocumentIndex
+
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)   # request path only
     workspace = _Workspace(monkeypatch, tmp_path, select_timeout=6.0)
     try:
         workspace.pairs("pair_1")
-        workspace.blocked["VDD_charlie.xlsx"] = threading.Event()   # never arrives
+        workspace.blocked["FRD_bravo.docx"] = threading.Event()     # never arrives
         runner = workspace.runner()
         assert runner.select_workbook("STTM_alpha.xlsx").name == "STTM_alpha.xlsx"
         job = runner.job_view()
         assert job["state"] == "done"
-        assert [s["state"] for s in job["steps"] if s["step"] == "pair VDD"] == ["done"]
-        vdd = runner.last_pairing["vdd"]
-        assert [c["name"] for c in vdd["candidates"]] == ["VDD_charlie.xlsx"]
-        assert vdd["unread"] == ["VDD_charlie.xlsx"]
+        assert [s["state"] for s in job["steps"] if s["step"] == "pair FRD"] == ["done"]
+        frd = runner.last_pairing["frd"]
+        assert [c["name"] for c in frd["candidates"]] == ["FRD_bravo.docx"]
+        assert frd["unread"] == ["FRD_bravo.docx"]
         # Chosen by the folder rule, then its file did not arrive: said, not selected.
-        assert vdd["chosen"] is None and "could not be downloaded" in vdd["reason"]
-        assert runner.selection()["vdd"] is None
+        assert frd["chosen"] is None and "could not be downloaded" in frd["reason"]
+        assert runner.selection()["frd"] is None
     finally:
         workspace.release()
         ui_stores.reset_stores()
@@ -741,11 +747,13 @@ def test_a_candidate_not_read_in_time_survives_as_name_only(monkeypatch, tmp_pat
 def test_folders_list_in_natural_order_and_the_chosen_folder_is_indexed_first(ws, monkeypatch):
     """M15.8: pair_1, pair_2, … pair_10 (a string sort put pair_10 second), and
     the background index reads the folder of the STTM being selected next."""
+    from ui.backend.docindex import DocumentIndex
+
     for folder in ("pair_10", "pair_2", "pair_1"):
         ws.put(folder, f"STTM_{folder}.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])
         ws.put(folder, f"VDD_{folder}.xlsx", TREE["pair_1"]["VDD_charlie.xlsx"])
-    runner = ws.runner()
-    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)   # queue only
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)   # queue only
+    runner = ws.runner(warmup=False)                     # the warm-up would queue VDDs first
     rows = [c for c in runner.workbook_choices() if c["source"].startswith("frd_sttm")]
     assert [c["source"].rsplit("/", 1)[-1] for c in rows] == [
         "pair_1", "pair_1", "pair_2", "pair_2", "pair_10", "pair_10"]
@@ -823,10 +831,12 @@ def test_the_other_roots_are_never_scanned_on_the_request_path(ws, monkeypatch):
     """M15c: an STTM whose folder holds no VDD falls to the "all" scope — scored
     from indexed facts or names only, never a read of every workbook of every
     folder on the request path (that scan took minutes in ACFC)."""
+    from ui.backend.docindex import DocumentIndex
+
     ws.pairs()                                                          # pair_1 .. pair_3
     ws.put("inbox_7", "STTM_mike.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])   # alone
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)  # cold, no worker
     runner = ws.runner()
-    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)  # cold, no worker
     started = time.monotonic()
     runner.select_workbook("STTM_mike.xlsx")
     took = time.monotonic() - started
@@ -837,18 +847,21 @@ def test_the_other_roots_are_never_scanned_on_the_request_path(ws, monkeypatch):
     assert not remote & set(runner._index.request_parses), runner._index.request_parses
     vdd = runner.last_pairing["vdd"]
     assert vdd["scope"] == "all" and vdd["chosen"] is None
-    assert vdd["unread"] and set(vdd["unread"]) <= {
-        "VDD_charlie.xlsx", "VDD_foxtrot.xlsx", "VDD_india.xlsx",
-        "STTM_alpha.xlsx", "STTM_delta.xlsx", "STTM_golf.xlsx"}
+    # M15d: not read — listed as not yet indexed (name-only for now).
+    assert vdd["not_indexed"] and {"VDD_charlie.xlsx", "VDD_foxtrot.xlsx", "VDD_india.xlsx",
+                                   "STTM_alpha.xlsx", "STTM_delta.xlsx", "STTM_golf.xlsx"} >= (
+        set(vdd["not_indexed"]) - {"demo_sttm_cv_golden.xlsx", "synthetic_segmented_golden.xlsx"})
     assert took < 10, took
 
 
 def test_an_explicit_pairing_map_entry_decides_without_reading_anything(ws, monkeypatch):
     """M15c: ``_plan_pair`` read every candidate BEFORE letting
     ``pair_by_content`` return the pairing_map's answer."""
+    from ui.backend.docindex import DocumentIndex
+
     ws.pairs("pair_1", "pair_2")
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)
     runner = ws.runner()
-    monkeypatch.setattr(runner._index, "_ensure_worker", lambda: None)
     config = runner._store.config
     monkeypatch.setattr(runner._store, "config", config.model_copy(update={
         "demo": config.demo.model_copy(update={"pairing_map": {"STTM_alpha": "FRD_echo"}})}))
@@ -858,6 +871,72 @@ def test_an_explicit_pairing_map_entry_decides_without_reading_anything(ws, monk
                                                           "pairing_map")
     assert not {"FRD_echo.docx", "FRD_bravo.docx"} & set(runner._index.request_parses)
     assert runner.selection()["frd"] == "FRD_echo.docx"
+
+
+def test_an_inbox_sttm_pairs_its_vdd_from_the_index_in_memory(ws):
+    """M15d.1 / .5, WARM index: the VDD pairing scores the dictionaries the
+    index already classified, from their stored facts, in memory — under 1 s,
+    zero VDD downloads on the request path (the STTM's own download is the
+    selection's only one)."""
+    ws.pairs()                                                          # pair_1 .. pair_3
+    ws.put("inbox_7", "STTM_mike.xlsx", TREE["pair_2"]["STTM_delta.xlsx"])   # alone: the inbox case
+    runner = ws.runner()
+    assert runner._warmup_done.wait(30)
+    assert runner._index.wait_idle(90)                                  # warm
+    vdd_downloads = {n: ws.downloads(n) for n in ("VDD_charlie.xlsx", "VDD_foxtrot.xlsx",
+                                                   "VDD_india.xlsx")}
+    runner.select_workbook("STTM_mike.xlsx")
+    vdd = runner.last_pairing["vdd"]
+    steps = {s["step"]: s for s in runner.job_view()["steps"]}
+    assert steps["pair VDD"]["seconds"] < 1.0, steps["pair VDD"]
+    assert (vdd["chosen"], vdd["rule"], vdd["scope"]) == ("VDD_foxtrot.xlsx", "content", "all")
+    assert vdd["not_indexed"] == [] and vdd["unread"] == []
+    assert {n: ws.downloads(n) for n in vdd_downloads} == vdd_downloads   # none on the request path
+    assert not {"VDD_charlie.xlsx", "VDD_foxtrot.xlsx", "VDD_india.xlsx"} & set(
+        runner._index.request_parses)
+
+
+def test_a_cold_index_pairs_the_vdd_by_name_then_upgrades_when_indexed(ws, monkeypatch):
+    """M15d.3 / .5, COLD index: nothing is downloaded or parsed for the VDD on
+    the request path — the candidates score by NAME (a shared ticket wins), and
+    when the background index reaches the TRUE dictionary the pairing is
+    re-scored and the chip updated."""
+    from ui.backend.docindex import DocumentIndex
+
+    released = threading.Event()
+    real_ensure = DocumentIndex._ensure_worker
+
+    def gated(self):                                   # the worker runs only once released
+        if released.is_set():
+            real_ensure(self)
+
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker", gated)
+    ws.put("inbox_7", "STTM_mike_1005034.xlsx", TREE["pair_2"]["STTM_delta.xlsx"])
+    ws.put("dicts", "VDD_decoy_1005034.xlsx", TREE["pair_3"]["VDD_india.xlsx"])  # name only
+    ws.put("dicts", "VDD_charlie.xlsx", TREE["pair_2"]["VDD_foxtrot.xlsx"])       # content only
+    runner = ws.runner()
+    started = time.monotonic()
+    runner.select_workbook("STTM_mike_1005034.xlsx")
+    cold = time.monotonic() - started
+    vdd = runner.last_pairing["vdd"]
+    assert (vdd["chosen"], vdd["rule"]) == ("VDD_decoy_1005034.xlsx", "ticket"), vdd
+    assert {"VDD_decoy_1005034.xlsx", "VDD_charlie.xlsx"} <= set(vdd["not_indexed"])
+    assert not {"VDD_decoy_1005034.xlsx", "VDD_charlie.xlsx"} & set(runner._index.request_parses)
+    assert cold < 10, cold
+    # The index runs and reaches the true dictionary: re-scored, chip updated.
+    released.set()
+    runner._index._ensure_worker()
+    upgraded_at = None
+    for _ in range(1200):
+        if runner.selection()["vdd"] == "VDD_charlie.xlsx":
+            upgraded_at = time.monotonic() - started
+            break
+        time.sleep(0.05)
+    assert upgraded_at is not None, runner.last_pairing["vdd"]
+    assert runner.vdd_auto_paired == {"vdd": "VDD_charlie.xlsx", "rule": "content"}
+    outcome = runner.job_view()["pairing"]["vdd"]
+    assert outcome["upgraded_from"] == "VDD_decoy_1005034.xlsx"
+    assert "VDD_charlie.xlsx" not in outcome["not_indexed"]
 
 
 # ------------------------------------------------------------ the classifier itself (pure, offline)

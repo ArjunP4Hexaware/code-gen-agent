@@ -84,9 +84,11 @@ def _api(monkeypatch, ws, *, upstream_enabled: bool = False, upstream_timeout: f
     if main.store is None:
         pytest.skip("the UI backend has no store in this environment")
     config = ws.store.config
-    monkeypatch.setattr(ws.store, "config", config.model_copy(update={
+    # A plain assignment, not a monkeypatch (see _Workspace): a patch reverted
+    # at teardown hands a runner thread still alive the original config object.
+    ws.store.config = config.model_copy(update={
         "upstream": config.upstream.model_copy(update={
-            "enabled": upstream_enabled, "timeout_seconds": upstream_timeout})}))
+            "enabled": upstream_enabled, "timeout_seconds": upstream_timeout})})
     runner = ws.runner()
     monkeypatch.setattr(main, "store", ws.store)
     monkeypatch.setattr(main, "runner", runner)

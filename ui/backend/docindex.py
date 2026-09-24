@@ -31,6 +31,7 @@ import atexit
 import contextlib
 import hashlib
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -81,9 +82,18 @@ class ParserProcess:
         self.used = time.monotonic()
 
     def _start(self) -> subprocess.Popen:
+        # The child's stderr is discarded unless CODEGEN_DOCWORKER_STDERR names
+        # a file (M15e: "the document parser exited while reading the
+        # document" was undiagnosable without it).
+        stderr: object = subprocess.DEVNULL
+        log_path = os.environ.get("CODEGEN_DOCWORKER_STDERR")
+        if log_path:
+            stderr = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 — the child owns it
         proc = subprocess.Popen(  # noqa: S603 — our own interpreter, a fixed module
             self._command, cwd=self._cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1)
+            stderr=stderr, text=True, encoding="utf-8", bufsize=1)
+        if stderr is not subprocess.DEVNULL:
+            stderr.close()  # type: ignore[union-attr]  — the child holds its own handle
         lines: queue.Queue = queue.Queue()
 
         def pump() -> None:
@@ -154,7 +164,12 @@ class ParserProcess:
 # children exist; the least recently used one is stopped for a new config.
 _parsers: dict[tuple, ParserProcess] = {}
 _parsers_guard = threading.Lock()
-_MAX_PARSERS = 4
+# One runner uses three lanes (background, request, request-vdd — M15b); the
+# cap is over that so a second config's lanes (tests, a reloaded App) do not
+# evict the first's. A parser that is mid-parse is NEVER evicted (M15e: the
+# eviction killed a child mid-document — "the document parser exited while
+# reading the document" — when two runners' lanes exceeded the cap).
+_MAX_PARSERS = 6
 
 
 def parser_for(command: list[str], cwd: Path, lane: str,
@@ -163,7 +178,10 @@ def parser_for(command: list[str], cwd: Path, lane: str,
         key = (tuple(command), str(cwd), lane)
         if key not in _parsers:
             while len(_parsers) >= _MAX_PARSERS:
-                oldest = min(_parsers, key=lambda k: _parsers[k].used)
+                idle = [k for k in _parsers if not _parsers[k]._lock.locked()]
+                if not idle:
+                    break                    # every parser is busy: exceed the cap, never kill
+                oldest = min(idle, key=lambda k: _parsers[k].used)
                 _parsers.pop(oldest).stop()
             _parsers[key] = ParserProcess(command, cwd, start_timeout)
         _parsers[key].start_timeout = start_timeout

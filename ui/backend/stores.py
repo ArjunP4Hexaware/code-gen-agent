@@ -20,22 +20,33 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_INPUTS = REPO_ROOT / "inputs"
 _DEFAULT_STATE = Path(__file__).resolve().parent / "state"
 
-_stores: StorageSet | None = None
-_config = None      # the config object the stores were opened for (identity)
+# One StorageSet per config OBJECT (identity). It used to be one process-wide
+# slot rebuilt whenever a different config object asked — so two runners alive
+# at once (the App module's and a test's; a test's leftover background thread
+# and the next test's) rebuilt each other's roles on every call, and a thread
+# whose fixture patch was already undone fell back to the DEFAULT local roles
+# and wrote fake-workspace verdicts into the checkout's
+# ui/backend/state/document_index.json (M15e).
+_stores_by_config: dict[int, tuple[object, StorageSet]] = {}
 
 
 def get_stores(config) -> StorageSet:
-    """The role stores for this config (rebuilt when the config object changes)."""
-    global _stores, _config  # noqa: PLW0603 — one process-wide set, like the routes' store
-    if _stores is None or _config is not config:
-        _stores = open_storage(config, REPO_ROOT)
-        _config = config
-    return _stores
+    """The role stores for this config object (opened once per object)."""
+    entry = _stores_by_config.get(id(config))
+    if entry is None or entry[0] is not config:
+        entry = (config, open_storage(config, REPO_ROOT))
+        _stores_by_config[id(config)] = entry
+    return entry[1]
 
 
 def reset_stores() -> None:
-    global _stores, _config  # noqa: PLW0603
-    _stores, _config = None, None
+    """Kept for the tests that call it; a no-op since the cache became per
+    config object. Every test builds its own config, so a new config never
+    sees an old config's stores — and CLEARING would let a runner still alive
+    (a background index / pusher / recorder thread outliving its test) rebuild
+    its roles through whatever ``open_storage`` is current at that moment:
+    the unpatched one, i.e. the DEFAULT local roles in the checkout."""
+    return None
 
 
 def _is_default(store: RoleStore, default: Path) -> bool:

@@ -89,6 +89,47 @@ note: the local index file is read by the pusher while `_save` rewrites it —
 harmless on the App's Linux, a sharing violation only in local tests that
 unlink the file.
 
+**M15e (2026-09-23, the commit after M15d) — a cold index never auto-selects
+a VDD by name.** (1) In `_plan_pair` a VDD candidate that wins by a NAME rule
+while not yet indexed is demoted: `outcome.likely` = its name, `chosen` None,
+nothing applied — content, the same-folder rule or the pairing map still
+decide; the chip / pairing line read "Indexing dictionaries… likely: <name>
+(by name only, not applied)"; no VDD question is asked while `not_indexed`
+is non-empty (`_ask_pairing`). (2) A run started in that window goes
+WITHOUT a VDD: `_note_undecided_vdd` → `run_notes` (["VDD not decided at run
+start (likely X, by name only — not applied)"]), a run stage, a gate flag
+`vdd_not_decided_at_run_start: …` on every feed (so the report says it) and
+`run_meta.json` `notes` + `vdd`. (3) When the index reaches the candidates the
+content decision applies as before (`upgraded_from` = the applied pick, else
+the earlier `likely`); an undecided re-score refreshes `likely` on the
+status. Test: four pair folders sharing a ticket, cold index, inbox STTM — no
+VDD applied, a run in the window has none and the note, the true dictionary
+lands by content. Test-infra fix worth knowing: `_Workspace.release()` now
+DRAINS every runner's index worker / pusher / recorder — a thread outliving
+its test wrote through the module-level `ui_stores.get_stores` cache into the
+NEXT test's roles (foreign names in a listing test, once). The name-stem rule
+needs THREE content tokens (`_token_prefix`), so name-only fixtures are
+`<role>_<a>_<b>_<ticket>`.
+
+**M15e test-infra findings (same day; the code changes are real, keep them):**
+(a) `ui_stores.get_stores` caches ONE StorageSet PER CONFIG OBJECT
+(identity) instead of one process-wide slot — two runners alive at once (the
+App module's import-time runner and a test's) rebuilt each other's roles on
+every call; `reset_stores()` is a NO-OP now (clearing let a thread outliving
+its test rebuild through the unpatched `open_storage` = the checkout's
+default roles, and write fake-workspace verdicts into
+`ui/backend/state/document_index.json`, gitignored, which the next session's
+runners then LOADED — the "unreadable at the first listing" failures on
+3.10). (b) Test fixtures assign `store.config = copy` PLAINLY, never via
+monkeypatch: a reverted patch hands a live runner thread the original
+config object. (c) `_Workspace.release()` stops every parser child
+(`docindex._stop_parsers()`) and drains each runner's worker / pusher /
+recorder before the next test. (d) `docindex.parser_for` never evicts a
+parser that is mid-parse (cap 6; one runner uses three lanes). (e)
+`CODEGEN_DOCWORKER_STDERR=<file>` appends the parser child's stderr (it is
+discarded otherwise) — set it in the App env to diagnose "the document
+parser exited while reading the document".
+
 **M15 (2026-09-23, a7b41f4 · 49108e6 · c33ae06 · e825c23) — selection latency +
 pairing correctness**, from Soham's brief after the diagnosis of "Selecting
 <MIDS> takes minutes": (1) `DocumentIndex._save` writes the index locally and

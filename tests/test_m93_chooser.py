@@ -65,6 +65,7 @@ class _Workspace:
         # name -> Event: the download BLOCKS until the event is set (never, in
         # the test — the fixture sets it at teardown so no thread outlives it).
         self.blocked: dict[str, threading.Event] = {}
+        self.runners: list[DemoRunner] = []
         download = self.fake.workspace.download
 
         def guarded(path, **kw):
@@ -90,11 +91,15 @@ class _Workspace:
         ui_stores.reset_stores()
         self.store = GenerationStore(str(REPO / "config" / "config.yaml"))
         config = self.store.config
-        monkeypatch.setattr(self.store, "config", config.model_copy(update={
+        # A plain assignment, NOT monkeypatch: the store is this test's own, and
+        # a monkeypatch reverted at teardown handed a runner thread still alive
+        # the ORIGINAL config object — whose roles then got built through the
+        # unpatched open_storage (the checkout's default state dir).
+        self.store.config = config.model_copy(update={
             "inputs": config.inputs.model_copy(update={
                 "classify_timeout_seconds": classify_timeout,
                 "select_timeout_seconds": select_timeout,
-                "listing_ttl_seconds": 0.0})}))
+                "listing_ttl_seconds": 0.0})})
 
     def put(self, folder: str, name: str, source: Path | bytes) -> None:
         self.fake.ws.dirs.add(f"{PAIRS}/{folder}")
@@ -113,11 +118,27 @@ class _Workspace:
                    and (name is None or path.endswith("/" + name)))
 
     def runner(self, warmup: bool = True) -> DemoRunner:
-        return DemoRunner(self.store, work=lambda: None, index_warmup=warmup)
+        runner = DemoRunner(self.store, work=lambda: None, index_warmup=warmup)
+        self.runners.append(runner)
+        return runner
 
     def release(self) -> None:
         for event in self.blocked.values():
             event.set()
+        # Drain every runner's background work (index worker, index pusher,
+        # selection recorder) BEFORE the next test: a thread that outlives its
+        # test writes through the module-level store cache (ui_stores.get_stores
+        # rebuilds for a new config object) into the NEXT test's roles.
+        from ui.backend import docindex
+
+        docindex._stop_parsers()       # a hanging child (the hang tests) answers "exited" at once
+        for runner in self.runners:
+            runner._warmup_done.wait(30)
+            worker = runner._index._worker
+            if worker is not None and worker.is_alive():   # (a test may have disabled it)
+                runner._index.wait_idle(60)
+            runner._index.wait_pushed(30)
+            runner.wait_recorded(30)
 
 
 @pytest.fixture
@@ -142,7 +163,8 @@ def test_list_is_metadata_only_then_kinds_arrive_by_content_and_are_kept_in_stat
     started = time.monotonic()
     rows = _rows(runner)
     assert time.monotonic() - started < 2.0
-    assert len(rows) == 7 and {r["kind"] for r in rows.values()} == {"classifying"}
+    assert len(rows) == 7 and {r["kind"] for r in rows.values()} == {"classifying"}, {
+        n: r["kind_reason"] for n, r in rows.items() if r["kind"] != "classifying"}
     assert all(isinstance(r["size"], int) and r["size"] > 0 for r in rows.values())
     assert rows["STTM_alpha.xlsx"]["source"] == "frd_sttm_pairs/pair_1"
     assert runner._index.wait_idle(60)
@@ -160,7 +182,8 @@ def test_list_is_metadata_only_then_kinds_arrive_by_content_and_are_kept_in_stat
     index = {key: e for key, e in json.loads(
         ws.fake.ws.files[f"{SHARED}/state/document_index.json"]).items()
         if key.startswith("workspace:")}                        # (local fixtures are indexed too)
-    assert sorted(e["name"] for e in index.values() if e["name"].endswith(".xlsx")) == sorted(rows)
+    assert sorted(e["name"] for e in index.values()
+                  if e["name"].endswith(".xlsx")) == sorted(rows), sorted(index)
     assert next(e for e in index.values() if e["name"] == "STTM_alpha.xlsx")["facts"]["tables"]
     # … so a restarted process (a new runner) reads NO workbook again.
     before = ws.downloads()
@@ -368,8 +391,8 @@ def test_index_writes_never_run_inside_a_selection_step(ws, monkeypatch):
     assert runner._index.wait_pushed(40)
     assert pushes and f"{SHARED}/state/document_index.json" in ws.fake.ws.files
     entries = json.loads(ws.fake.ws.files[f"{SHARED}/state/document_index.json"])
-    assert {e["name"] for e in entries.values()} >= {"STTM_alpha.xlsx", "FRD_bravo.docx",
-                                                     "VDD_charlie.xlsx"}
+    # (The VDD is never read on the request path since M15d — the worker is off here.)
+    assert {e["name"] for e in entries.values()} >= {"STTM_alpha.xlsx", "FRD_bravo.docx"}
 
 
 def test_the_sttm_is_selected_and_a_run_may_start_before_its_pairing_lands(ws, monkeypatch):
@@ -863,8 +886,8 @@ def test_an_explicit_pairing_map_entry_decides_without_reading_anything(ws, monk
     monkeypatch.setattr(DocumentIndex, "_ensure_worker", lambda self: None)
     runner = ws.runner()
     config = runner._store.config
-    monkeypatch.setattr(runner._store, "config", config.model_copy(update={
-        "demo": config.demo.model_copy(update={"pairing_map": {"STTM_alpha": "FRD_echo"}})}))
+    runner._store.config = config.model_copy(update={      # plain assignment (see _Workspace)
+        "demo": config.demo.model_copy(update={"pairing_map": {"STTM_alpha": "FRD_echo"}})})
     runner.select_workbook("STTM_alpha.xlsx")
     frd = runner.last_pairing["frd"]
     assert (frd["chosen"], frd["rule"], frd["scope"]) == ("FRD_echo.docx", "pairing_map",
@@ -919,7 +942,9 @@ def test_a_cold_index_pairs_the_vdd_by_name_then_upgrades_when_indexed(ws, monke
     runner.select_workbook("STTM_mike_1005034.xlsx")
     cold = time.monotonic() - started
     vdd = runner.last_pairing["vdd"]
-    assert (vdd["chosen"], vdd["rule"]) == ("VDD_decoy_1005034.xlsx", "ticket"), vdd
+    # M15e: the name-only match is SHOWN as likely, never applied.
+    assert (vdd["chosen"], vdd["likely"]) == (None, "VDD_decoy_1005034.xlsx"), vdd
+    assert runner.selection()["vdd"] is None and vdd["question"] is None
     assert {"VDD_decoy_1005034.xlsx", "VDD_charlie.xlsx"} <= set(vdd["not_indexed"])
     assert not {"VDD_decoy_1005034.xlsx", "VDD_charlie.xlsx"} & set(runner._index.request_parses)
     assert cold < 10, cold
@@ -937,6 +962,57 @@ def test_a_cold_index_pairs_the_vdd_by_name_then_upgrades_when_indexed(ws, monke
     outcome = runner.job_view()["pairing"]["vdd"]
     assert outcome["upgraded_from"] == "VDD_decoy_1005034.xlsx"
     assert "VDD_charlie.xlsx" not in outcome["not_indexed"]
+
+
+def test_a_cold_index_never_applies_a_vdd_by_name_and_a_run_in_the_window_has_none(
+        ws, monkeypatch):
+    """M15e: four pair folders sharing a ticket, cold index, inbox STTM — no VDD
+    is applied until CONTENT decides; a run started in the window has no VDD
+    and says "VDD not decided at run start"; the eventual pairing is the true
+    dictionary."""
+    from ui.backend.docindex import DocumentIndex
+
+    released = threading.Event()
+    real_ensure = DocumentIndex._ensure_worker
+    monkeypatch.setattr(DocumentIndex, "_ensure_worker",
+                        lambda self: real_ensure(self) if released.is_set() else None)
+    # The inbox: the STTM (pair-2 shape) and its FRD (same folder — read on the request path).
+    ws.put("inbox_7", "STTM_mike_feed_1005034.xlsx", TREE["pair_2"]["STTM_delta.xlsx"])
+    ws.put("inbox_7", "FRD_mike.docx", TREE["pair_2"]["FRD_echo.docx"])
+    # Four pair folders whose dictionaries all share the ticket; ONE also shares
+    # the name stem (the decoy: wrong content) and one is the true dictionary.
+    ws.put("pair_A", "VDD_mike_feed_1005034.xlsx", TREE["pair_3"]["VDD_india.xlsx"])     # decoy
+    ws.put("pair_B", "VDD_true_1005034.xlsx", TREE["pair_2"]["VDD_foxtrot.xlsx"])   # true
+    ws.put("pair_C", "VDD_other_1005034.xlsx", TREE["pair_1"]["VDD_charlie.xlsx"])
+    ws.put("pair_D", "VDD_fourth_1005034.xlsx", TREE["pair_3"]["VDD_india.xlsx"])
+    runner = ws.runner()
+    runner.select_workbook("STTM_mike_feed_1005034.xlsx")
+    vdd = runner.last_pairing["vdd"]
+    assert runner.selection()["frd"] == "FRD_mike.docx"
+    assert runner.selection()["vdd"] is None and vdd["chosen"] is None
+    assert vdd["likely"] == "VDD_mike_feed_1005034.xlsx" and vdd["question"] is None
+    assert {"VDD_mike_feed_1005034.xlsx", "VDD_true_1005034.xlsx"} <= set(vdd["not_indexed"])
+    # A run in the window: no VDD, and the note.
+    runner.start_live()
+    for _ in range(200):
+        if runner.state == "done":
+            break
+        time.sleep(0.05)
+    assert runner.state == "done"
+    assert runner.run_notes == ["VDD not decided at run start (likely VDD_mike_feed_1005034.xlsx, "
+                                "by name only — not applied)"]
+    assert [s["stage"] for s in runner.stages if s["stage"].startswith("VDD not decided")]
+    assert runner.selection()["vdd"] is None
+    # The index reaches the dictionaries: content decides, the true one is applied.
+    released.set()
+    runner._index._ensure_worker()
+    for _ in range(1200):
+        if runner.selection()["vdd"] == "VDD_true_1005034.xlsx":
+            break
+        time.sleep(0.05)
+    assert runner.selection()["vdd"] == "VDD_true_1005034.xlsx", runner.last_pairing["vdd"]
+    assert runner.vdd_auto_paired["rule"] == "content"
+    assert runner.job_view()["pairing"]["vdd"]["upgraded_from"] == "VDD_mike_feed_1005034.xlsx"
 
 
 # ------------------------------------------------------------ the classifier itself (pure, offline)

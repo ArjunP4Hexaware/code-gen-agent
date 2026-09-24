@@ -229,10 +229,33 @@ weak signals among several. A candidate is paired only when it reaches
 top candidates — each with its score and the cells behind it — are asked in
 the layout dialog when the run starts, or printed by `codegen pair --sttm X`
 with the `pairing:` remedy for the answers file. An explicit
-`demo.pairing_map` / `vdd_pairing_map` entry (overlay) still overrides. A
-manual pick in the chooser always wins. When no document says anything in
+`demo.pairing_map` (STTM → FRD) or `demo.vdd_pairing_map` (STTM → VDD) entry
+(overlay) decides IMMEDIATELY — no candidate is read first — and both take
+the same form: canonical stems (lower-case, the upload prefix and a " (n)"
+copy suffix stripped, no extension), e.g.
+
+```yaml
+demo:
+  pairing_map:
+    "sttm_<stem>": "frd_<stem>"
+  vdd_pairing_map:
+    "sttm_<stem>": "vdd_<stem>"
+```
+
+A manual pick in the chooser always wins. When no document says anything in
 common, the pre-0.5 name rules (unique shared ticket, else unique name stem)
 still apply.
+
+**VDD pairing never reads a document on the request path (M15d).** Every
+workbook the background index has already classified as a dictionary is
+scored in memory from the index's stored facts; one the index has not reached
+yet is scored by its name only and listed as *not yet indexed* on the outcome
+— and when the index does reach it, the pairing is re-scored and the chip
+updated (a run in progress is not affected; the next one is; a manual pick is
+never replaced). At App start the index reads, in this order: the folder
+`selection.json` names, then every workbook classified or likely by name
+(`vdd`, `dictionary`) to be a VDD, then the rest; the App log says
+`index warm-up: all VDD candidates indexed` when the dictionaries are in.
 
 ## 8. Deploy and redeploy
 

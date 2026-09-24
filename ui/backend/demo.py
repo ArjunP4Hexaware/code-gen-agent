@@ -116,6 +116,10 @@ class DemoRunner:
         self._vdd_warmup_pending: set[str] = set()
         self._warmup_done = threading.Event()
         self._restored_folder: str | None = None
+        # M15e: what the current / last run had to note about its inputs
+        # ("VDD not decided at run start: …") — a stage, a gate flag on every
+        # feed and a line in run_meta.json.
+        self.run_notes: list[str] = []
         self._lock = threading.Lock()
         self.state: str = "idle"  # idle | running | needs_layout | done | failed
         # M2.5 layout resolution: while a run waits for the human to place
@@ -343,15 +347,23 @@ class DemoRunner:
             if self.selection_job is not job:
                 return
             self._vdd_watch = set(plan["outcome"].get("not_indexed", []))
-            if chosen is None or chosen == current:
+            previous_likely = (self.last_pairing.get("vdd") or {}).get("likely")
+            if chosen is None:
+                # Still undecided: a fresher "likely" / not-indexed list for the chip.
+                if self.vdd_auto_paired is None:
+                    self.last_pairing["vdd"] = plan["outcome"]
+                    job["pairing"]["vdd"] = plan["outcome"]
                 return
-            plan["outcome"]["upgraded_from"] = current
+            if chosen == current:
+                return
+            plan["outcome"]["upgraded_from"] = current or previous_likely
             if self.state == "running":
                 self._deferred_vdd_plan = plan      # the run is not affected; the next one is
                 return
             self._apply_pair("vdd", plan)
             job["pairing"]["vdd"] = plan["outcome"]
-        log.info("VDD pairing re-scored: %s (was %s)", chosen, current)
+        log.info("VDD pairing decided by the index: %s (was %s)", chosen,
+                 current or previous_likely)
 
     def _push_state_file(self, name: str) -> None:
         from ui.backend import stores as ui_stores
@@ -576,6 +588,17 @@ class DemoRunner:
             if decision.chosen is not None or decision.ambiguous:
                 break                        # decided, or a question among THESE candidates
         assert decision is not None
+        likely = None
+        if (kind == "vdd" and decision.chosen is not None and decision.chosen in not_indexed
+                and decision.rule not in ("same_folder", "pairing_map")):
+            # M15e: a candidate that matches by NAME only and is not indexed yet
+            # is SHOWN as likely, never applied — content, the folder or the
+            # pairing map decide; the index re-scores when it reaches it.
+            likely = decision.chosen
+            decision = replace(
+                decision, chosen=None, rule=None,
+                reason=f"{likely} matches by name only and is not indexed yet — likely, not "
+                       "decided (content, the folder or the pairing map decide)")
         path = None
         if decision.chosen is not None:
             doc = docs.get(decision.chosen)
@@ -595,12 +618,18 @@ class DemoRunner:
             "scope": scope, "folder": folder,
             "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
                            for c in decision.candidates],
-            "question": decision.question() if decision.ambiguous else None,
+            # No question while dictionaries are still being indexed: the index
+            # decides shortly (M15e); a question now would be premature.
+            "question": (decision.question()
+                         if decision.ambiguous and not (kind == "vdd" and not_indexed)
+                         else None),
             # Candidates scored on their NAME alone (unreadable / not read in time).
             "unread": sorted(set(unread) & {c.name for c in decision.candidates}),
             # M15d: VDD candidates the index has not reached yet (name-only for
             # now; the pairing is re-scored when they are indexed).
             "not_indexed": sorted(set(not_indexed) & {c.name for c in decision.candidates}),
+            # M15e: the name-only match shown while the index decides (never applied).
+            "likely": likely,
         }
         return {"decision": decision, "outcome": outcome, "path": path}
 
@@ -643,8 +672,11 @@ class DemoRunner:
         if self.selected_frd is None and "frd" in self.pair_decisions \
                 and self.pair_decisions["frd"].ambiguous:
             pending.append(self.pair_decisions["frd"])
+        # M15e: never a VDD question while dictionaries are still being indexed —
+        # the run goes without a VDD (said in the report); the index decides.
+        vdd_indexing = bool((self.last_pairing.get("vdd") or {}).get("not_indexed"))
         if self.selected_vdd is None and "vdd" in self.pair_decisions \
-                and self.pair_decisions["vdd"].ambiguous:
+                and self.pair_decisions["vdd"].ambiguous and not vdd_indexing:
             pending.append(self.pair_decisions["vdd"])
         if not pending:
             return
@@ -1580,9 +1612,23 @@ class DemoRunner:
         self._stage("pairing", "the FRD pairing did not finish in time — running with what is "
                                "selected now")
 
+    def _note_undecided_vdd(self) -> None:
+        """M15e: a run started while the dictionaries are still being indexed
+        runs WITHOUT a VDD and says so — never with a name-only guess."""
+        self.run_notes = []
+        outcome = self.last_pairing.get("vdd") or {}
+        if self.selected_vdd is None and outcome.get("not_indexed"):
+            likely = outcome.get("likely")
+            note = "VDD not decided at run start" + (
+                f" (likely {likely}, by name only — not applied)" if likely else
+                f" ({len(outcome['not_indexed'])} dictionary candidate(s) not indexed yet)")
+            self.run_notes.append(note)
+            self._stage("VDD not decided at run start", note + " — running without a VDD")
+
     def _run(self) -> None:
         try:
             self._await_pairing()
+            self._note_undecided_vdd()
             self._work()
             self.state = "done"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
@@ -1809,6 +1855,8 @@ class DemoRunner:
                 "conventions_profile": self.conventions_profile or config.conventions.profile,
                 "iig_template": self.iig_template or config.metadata.template,
                 "playbook_template": self.playbook_template or config.playbook.template,
+                "vdd": self.selected_vdd.name if self.selected_vdd else None,
+                "notes": list(self.run_notes),          # M15e: "VDD not decided at run start"
             }, indent=2) + "\n",
             encoding="utf-8", newline="\n",
         )
@@ -1854,7 +1902,10 @@ class DemoRunner:
                     reports_dir=reports_root,
                     on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
                     output_mode=self.output_mode,
-                    extra_flags=layout_flags,
+                    # M15e: "VDD not decided at run start" is a flag on every
+                    # feed — the report says the run went without a VDD.
+                    extra_flags=[*layout_flags,
+                                 *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes)],
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template,
                     playbook_template=self.playbook_template,

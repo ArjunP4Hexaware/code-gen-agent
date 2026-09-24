@@ -262,8 +262,10 @@ export interface PairingOutcome {
   // VDD candidates the background index has not reached yet (name-only for
   // now; the pairing is re-scored and the chip updated when they are)
   not_indexed?: string[];
-  // set when a re-scoring replaced the earlier automatic pick
+  // set when a re-scoring replaced the earlier automatic pick (or the likely name)
   upgraded_from?: string | null;
+  // M15e: the name-only match SHOWN while the index decides — never applied
+  likely?: string | null;
 }
 
 export interface SttmWorkbook {
@@ -558,6 +560,7 @@ function normalizeOutcome(raw: any): PairingOutcome {
     unread: Array.isArray(raw?.unread) ? raw.unread : [],
     not_indexed: Array.isArray(raw?.not_indexed) ? raw.not_indexed : [],
     upgraded_from: raw?.upgraded_from ?? null,
+    likely: typeof raw?.likely === "string" ? raw.likely : null,
   };
 }
 

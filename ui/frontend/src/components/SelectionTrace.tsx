@@ -74,6 +74,11 @@ export function PairingLines({ pairing, chosenSttm, pairingPending }: {
               <>
                 <code>{outcome.chosen}</code> — {outcome.rule ?? "content"}
               </>
+            ) : notIndexed.length > 0 ? (
+              <>
+                Indexing dictionaries…
+                {outcome.likely ? <> likely: <code>{outcome.likely}</code> (by name only, not applied)</> : null}
+              </>
             ) : outcome.question ? (
               <>asked when the run starts — {outcome.reason}</>
             ) : (

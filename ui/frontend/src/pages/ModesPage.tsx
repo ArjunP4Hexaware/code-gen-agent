@@ -689,7 +689,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {chosen.vdd ? <code>{chosen.vdd}</code>
                   : pairingPending.has("vdd")
                     ? <em className="hint" title="Looking for the dictionary that belongs to this STTM">Pairing…</em>
-                    : <em className="hint">none</em>}
+                    : (status?.pairing?.vdd?.not_indexed ?? []).length > 0
+                      ? <em className="hint" title="A name-only match is never applied; content, the folder or the pairing map decide">
+                          Indexing dictionaries…{status?.pairing?.vdd?.likely ? ` likely: ${status.pairing.vdd.likely}` : ""}
+                        </em>
+                      : <em className="hint">none</em>}
                 {status?.vdd_auto_paired ? (
                   <span
                     className="hint"

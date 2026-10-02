@@ -780,7 +780,11 @@ conventions:
   # (docs/acfc/rfc_capture/.../goldens/pair_1/ACCUM_DDL.txt): one combined
   # file, '--stage table' / '--standard table' banners, CREATE OR REPLACE,
   # stage columns TYPED as the STTM stage band states them, audit columns in
-  # upper-case types, standard = the stage column list, no LOCATION /
+  # upper-case types, standard = the stage column list and order with each
+  # column typed from the STTM STANDARD band (a type that differs from the
+  # stage band's is written normalised, e.g. Date -> DATE; one that matches
+  # keeps the stage text; blank -> stage type + flag standard_type_blank;
+  # unmappable -> as stated + flag standard_type_unmapped), no LOCATION /
   # CLUSTER BY / TBLPROPERTIES / TAGS / COMMENTs. Whitespace knobs are data:
   # the golden opens with a blank line, has a lone-space line before the
   # standard block's USING clause, and ends WITHOUT a trailing newline.

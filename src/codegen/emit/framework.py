@@ -159,12 +159,55 @@ def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
     return ".".join(p for p in (catalog, schema, name) if p)
 
 
+def _sttm_row(f) -> str:
+    """Where a field's mapping row sits in the STTM, for a flag's citation."""
+    if f.provenance is None:
+        return "STTM (row not recorded)"
+    return f"STTM {f.provenance.sheet} row {f.provenance.row}"
+
+
+def _standard_from_stage_type(f, stage_type: str, flags: list[str]) -> str:
+    """The standard-table type of one column under ``standard_from_stage``:
+    the STTM standard band's type, never the stage band's.
+
+    * Same type as the stage column once both are normalised through
+      ``sql_type`` -> the stage column's text, unchanged (a feed whose bands
+      agree, pair 1, keeps its golden byte for byte).
+    * A different type -> ``sql_type`` of the standard band's type
+      (``Date`` -> ``DATE``, ``Decimal(18,4)`` -> ``DECIMAL(18,4)``).
+    * Blank -> the stage type, flagged ``standard_type_blank``.
+    * No SQL mapping -> written as the STTM states it (never guessed),
+      flagged ``standard_type_unmapped``."""
+    from codegen.emit.context import TemplateGapError, sql_type
+
+    stated = (f.standard_datatype or "").strip()
+    if not stated:
+        flags.append(f"standard_type_blank:{f.stage_column} — {_sttm_row(f)} states no "
+                     f"standard-band data type; the standard table uses the stage type "
+                     f"{stage_type!r}")
+        return stage_type
+    try:
+        standard = sql_type(stated)
+    except TemplateGapError:
+        flags.append(f"standard_type_unmapped:{f.stage_column} — {_sttm_row(f)} standard-band "
+                     f"data type {stated!r} maps to no SQL type; written as stated, not "
+                     "guessed")
+        return stated
+    try:
+        stage = sql_type(stage_type)
+    except TemplateGapError:
+        stage = None
+    return stage_type if stage == standard else standard
+
+
 def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
                        config: Config | None = None) -> str | None:
     """The combined-layout deployment DDL (M4, ``acfc_prx``): stage columns
     as the STTM stage band types them (distinct across segments, STTM
-    order), audit columns in the profile's casing, standard = the stage
-    list when the profile says so. Whitespace comes from the profile.
+    order), audit columns in the profile's casing. With
+    ``standard_from_stage`` the standard table takes the stage column LIST
+    and ORDER, but each column's TYPE from the STTM standard band
+    (``_standard_from_stage_type``). Whitespace comes from the profile.
     M7: every CREATE is three-part or omitted (``_qualify``); None when no
     layer qualifies."""
     from codegen.emit.emitter import _environment
@@ -174,13 +217,17 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
     seen: set[str] = set()
     stage_columns: list[tuple[str, str]] = []
     standard_columns: list[tuple[str, str]] = []
+    standard_from_stage: list[tuple[str, str]] = []
     for segment in spec.segments:
         for f in segment.fields:
             if f.stage_column in seen:
                 continue
             seen.add(f.stage_column)
-            stage_columns.append((f.stage_column, f.stage_datatype if profile.typed_stage
-                                  else "STRING"))
+            stage_type = f.stage_datatype if profile.typed_stage else "STRING"
+            stage_columns.append((f.stage_column, stage_type))
+            if profile.standard_from_stage:
+                standard_from_stage.append(
+                    (f.stage_column, _standard_from_stage_type(f, stage_type, flags)))
             if f.standard_column is not None:
                 standard_columns.append((f.standard_column, f.standard_datatype or ""))
     audit = [(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
@@ -191,7 +238,7 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
              if stage_qualified else None)
     standard = None
     if spec.standard_table is not None:
-        columns = stage_columns if profile.standard_from_stage else standard_columns
+        columns = standard_from_stage if profile.standard_from_stage else standard_columns
         standard_qualified = _qualify(spec.standard_table, "standard", profile, spec, flags,
                                       config)
         if standard_qualified:

@@ -46,7 +46,7 @@ _SCHEME_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+.-]*):/")
 
 
 def location_scheme(value: str | None) -> str | None:
-    """``abfss`` for ``abfss://c@a.dfs.core.windows.net/x``, ``dbfs`` for
+    """``abfss`` for ``abfss://c@a.example.invalid/x``, ``dbfs`` for
     ``dbfs:/mnt/x``; None for a folder path (or an unknown scheme, which the
     folder rules then reject — ``https://`` is not a storage location)."""
     match = _SCHEME_RE.match(value or "")

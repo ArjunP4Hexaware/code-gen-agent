@@ -116,6 +116,9 @@ class GenerationStore:
         # The served run's layout-stage record (None: the run started from
         # contracts, no layout stage ran). Layer 2 is merged from the feeds.
         self.layout_usage = None
+        # The IIG template version the served run used (None = the config
+        # default) — the metadata-sheet preview renders in it (IIG-first M2).
+        self.iig_template: str | None = None
 
     @property
     def model_usage(self) -> list[dict]:
@@ -137,10 +140,12 @@ class GenerationStore:
         out_root: Path,
         reports_root: Path,
         layout_usage=None,
+        iig_template: str | None = None,
     ) -> None:
         """Atomically swap the served state for a demo (live/replay) run."""
         with self._lock:
             self.layout_usage = layout_usage
+            self.iig_template = iig_template
             self.runs = runs
             self.failures = failures
             self.mode = mode
@@ -160,6 +165,7 @@ class GenerationStore:
             self.mode = "mock"
             self.label = None
             self.layout_usage = None
+            self.iig_template = None
             self.out_root = REPO_ROOT / self.config.output.dir
             self.reports_root = REPO_ROOT / self.config.output.reports_dir
             self.has_run = False
@@ -188,6 +194,7 @@ class GenerationStore:
             self.mode = "mock"
             self.label = None
             self.layout_usage = None
+            self.iig_template = None
             self.out_root = REPO_ROOT / self.config.output.dir
             self.reports_root = REPO_ROOT / self.config.output.reports_dir
             contracts_dir = REPO_ROOT / self.config.contracts.dir

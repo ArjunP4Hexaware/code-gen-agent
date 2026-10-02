@@ -1934,5 +1934,6 @@ class DemoRunner:
             out_root=run_root,
             reports_root=reports_root,
             layout_usage=layout_usage,
+            iig_template=self.iig_template or config.metadata.template,
         )
         self.last_run_label = label

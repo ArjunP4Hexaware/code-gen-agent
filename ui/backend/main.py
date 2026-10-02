@@ -1018,6 +1018,7 @@ def metadata_sheet() -> dict:
         return metadata_sheet_payload(
             store.config, REPO_ROOT, specs=specs,
             unmapped_by_slug=unmapped, run_label=store.label,
+            template=store.iig_template,   # the version the run used (M2)
         )
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
@@ -1033,6 +1034,7 @@ def metadata_sheet_xlsx() -> Response:
         payload = metadata_sheet_payload(
             store.config, REPO_ROOT, specs=specs,
             unmapped_by_slug=unmapped, run_label=store.label,
+            template=store.iig_template,   # the version the run used (M2)
         )
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc

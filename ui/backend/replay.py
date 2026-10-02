@@ -91,6 +91,7 @@ def _rebuild_state(
     out_root,
     reports_root,
     output_mode: str | list[str] | None = None,
+    iig_template: str | None = None,
 ) -> None:
     """Deterministic pipeline re-run with recorded candidates injected.
 
@@ -120,6 +121,7 @@ def _rebuild_state(
             reports_dir=reports_root,
             candidates_override=candidates,
             output_mode=output_mode,
+            iig_template=iig_template,
         )
     store.adopt(
         runs,
@@ -128,6 +130,7 @@ def _rebuild_state(
         label=label,
         out_root=out_root,
         reports_root=reports_root,
+        iig_template=iig_template,
     )
 
 
@@ -250,13 +253,17 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
     run_frd = run_dir / "frd.contract.json"
     meta_path = run_dir / "run_meta.json"
     output_mode = None
+    iig_template = None
     from codegen.output_modes import output_parts
 
     if meta_path.is_file():
         try:
-            output_mode = json.loads(meta_path.read_text(encoding="utf-8")).get(
-                "output_mode"
-            )
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            output_mode = meta.get("output_mode")
+            # IIG-first M2: the run's own IIG template (older runs: default).
+            recorded = meta.get("iig_template")
+            if recorded in store.config.metadata.templates or recorded == "iig_v1":
+                iig_template = recorded
         except ValueError:
             output_mode = None
     if output_mode is not None:
@@ -284,4 +291,5 @@ def load_past_live_run(store: GenerationStore, name: str, root=None) -> None:
         out_root=run_dir,
         reports_root=run_dir / "reports",
         output_mode=output_mode,
+        iig_template=iig_template,
     )

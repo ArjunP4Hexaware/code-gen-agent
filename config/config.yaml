@@ -829,6 +829,9 @@ conventions:
       # notebooks again (emit/dml.py is kept, unchanged); the run report says
       # "DML not generated (disabled)" while it is off.
       emit_dml: false
+      # IIG-first M3: the BSA review copy + clean copy of the IIG workbook
+      # (iig_review: section below), listed in ADDITION.md with both switches.
+      emit_iig_review: true
       # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
       # the target system is labelled in ADDITION.md / MANIFEST.md instead.
       target_system_header: false

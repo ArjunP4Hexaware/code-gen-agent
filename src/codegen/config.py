@@ -961,6 +961,11 @@ class ConventionsProfileConfig(BaseModel):
     # profile since the IIG-first flow (2026-10-02): the certified IIG workbook
     # is the deliverable. Both this AND dml.enabled must be true for DML.
     emit_dml: bool = False
+    # IIG-first M3: write <feed>_IIG_REVIEW.xlsx (the BSA's review copy) and
+    # <feed>_IIG.xlsx (the clean copy) next to config_rows.xlsx, and list them
+    # plus both switches in ADDITION.md. Off for the reference profile so its
+    # framework output stays byte-identical.
+    emit_iig_review: bool = False
     # M7 §4: prefix every deployment DDL file with the target-system header
     # line. Off in both shipped profiles: the pair-1 combined DDL and the
     # SFMC two-file DDL are compared byte for byte with client goldens; the

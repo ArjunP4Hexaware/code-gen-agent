@@ -94,8 +94,6 @@ def test_framework_mode_tree_and_verdicts(config, framework_run, tmp_path):
         names = sorted(p.name for p in (feed_dir / "framework").iterdir())
         assert names == ["ADDITION.md", "config_inserts.xlsx",
                          "config_rows.xlsx",
-                         f"{spec.feed_slug}_IIG.xlsx",            # IIG-first M3: clean
-                         f"{spec.feed_slug}_IIG_REVIEW.xlsx",     # IIG-first M3: review
                          f"{spec.feed_slug}_stage_table_creation.txt",
                          f"{spec.feed_slug}_standard_table_creation.txt"]
 

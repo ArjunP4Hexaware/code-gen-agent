@@ -141,3 +141,27 @@ def test_the_owner_table_is_validated():
         IigReviewConfig(owners={"S.C": "nobody"})
     assert IigReviewConfig(owners={"*.C": "bsa"}).owner_for("ANY", "C", "template_constant") \
         == "bsa"
+
+
+def test_addition_lists_both_workbooks_and_both_switches(pair1_dirs, pair1_spec):
+    (framework,) = pair1_dirs
+    addition = (framework / "ADDITION.md").read_text(encoding="utf-8")
+    assert f"| `{pair1_spec.feed_slug}_IIG_REVIEW.xlsx` | The BSA's review copy" in addition
+    assert f"| `{pair1_spec.feed_slug}_IIG.xlsx` | The clean copy of the IIG" in addition
+    assert "## Switches" in addition
+    assert "`conventions.profiles.acfc_prx.emit_iig_review`: on" in addition
+    assert ("`conventions.profiles.acfc_prx.emit_dml` (with `dml.enabled`): off — DML not "
+            "generated (disabled)") in addition
+
+
+def test_the_reference_profile_writes_no_iig_workbooks(pair1_config, pair1_spec, tmp_path):
+    """edo_sfmc ships emit_iig_review: false — its framework output is as before M3."""
+    assert pair1_config.conventions.profiles["edo_sfmc"].emit_iig_review is False
+    assert pair1_config.conventions.profiles["acfc_prx"].emit_iig_review is True
+    cli._generate_feed(pair1_spec, _scoped(pair1_config, tmp_path), dry_run=True,
+                       skip_tests=True, output_mode="framework", conventions_profile="edo_sfmc",
+                       iig_template="iig_v1")
+    framework = tmp_path / "out" / pair1_spec.feed_slug / "framework"
+    assert not [p for p in framework.iterdir() if p.name.endswith(("_IIG.xlsx",
+                                                                    "_IIG_REVIEW.xlsx"))]
+    assert "## Switches" not in (framework / "ADDITION.md").read_text(encoding="utf-8")

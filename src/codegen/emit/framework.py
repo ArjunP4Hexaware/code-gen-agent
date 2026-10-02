@@ -57,7 +57,7 @@ it only produces the add-ons.
 
 Columns awaiting framework-assigned IDs (rendered as `{id_placeholder}`,
 never invented): {blank_columns}.
-{segmented_block}{target_block}
+{segmented_block}{target_block}{switch_block}
 Layout note: the tab names and column headers are the client IIG template
 (anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
 
@@ -709,12 +709,19 @@ def emit_framework(
         if header in set(blank_list)
     ]
     flagged = sorted(set(always_blank))
-    # IIG-first M3: the BSA's review copy and the clean copy CI/CD loads.
-    from codegen.iig_review import write_iig_workbooks
+    # IIG-first M3: the BSA's review copy and the clean copy CI/CD loads —
+    # behind the profile's emit_iig_review switch (off: output as before).
+    iig_rows = ""
+    switch_block = ""
+    if profile.emit_iig_review:
+        from codegen.iig_review import write_iig_workbooks
 
-    review_path, clean_path, _open = write_iig_workbooks(
-        payload, blank_list, config, framework_dir, spec.feed_slug, template_name)
-    files.extend([review_path, clean_path])
+        review_path, clean_path, _open = write_iig_workbooks(
+            payload, blank_list, config, framework_dir, spec.feed_slug, template_name)
+        files.extend([review_path, clean_path])
+        iig_rows, switch_block = _iig_addition_parts(
+            review_path.name, clean_path.name, config,
+            conventions_profile or config.conventions.profile, dml_disabled_reason)
     ddl_row = (
         f"| {' / '.join(f'`{name}`' for name in ddl_names)} | Deployment-team "
         "DDL, conformant to the client's reference format (the `.sql` "
@@ -775,11 +782,12 @@ def emit_framework(
             banner="\n".join(f"- {k}: {v}" for k, v in banner),
             ddl_row=ddl_row,
             rows_row=rows_row,
-            inserts_row=inserts_row,
+            inserts_row=inserts_row + iig_rows,
             id_placeholder=config.framework.id_placeholder,
             blank_columns=", ".join(f"`{c}`" for c in flagged) or "none",
             segmented_block=segmented_block,
             target_block=target_block,
+            switch_block=switch_block,
         ),
         encoding="utf-8", newline="\n",
     )
@@ -798,6 +806,32 @@ def emit_framework(
         groups=artefact_groups(files),
         dml_disabled_reason=dml_disabled_reason,
     )
+
+
+def _iig_addition_parts(review_name: str, clean_name: str, config: Config, profile_name: str,
+                        dml_disabled_reason: str | None) -> tuple[str, str]:
+    """IIG-first: the ADDITION.md rows for the two IIG workbooks and the
+    "Switches" block naming emit_iig_review and emit_dml (only written when
+    the profile emits the workbooks, so other profiles' manifests are as
+    before)."""
+    rows = (
+        f"\n| `{review_name}` | The BSA's review copy of the IIG: sheet "
+        f"`{config.iig_review.summary_sheet}` first (one row per sheet / column / "
+        "reason / owner group), then the template sheets with every open cell "
+        "highlighted by owner and commented with its reason, citation and owner. |"
+        f"\n| `{clean_name}` | The clean copy of the IIG: the template's sheets and "
+        "columns, values only — the file the BSA certifies and CI/CD loads. |"
+    )
+    prefix = f"conventions.profiles.{profile_name}"
+    dml_state = ("off — DML not generated (disabled): " + dml_disabled_reason
+                 if dml_disabled_reason is not None else
+                 "on — `config_inserts_<env>.sql` and the runner notebooks are written")
+    switches = (
+        "\n## Switches\n\n"
+        f"- `{prefix}.emit_iig_review`: on — the two IIG workbooks above are written.\n"
+        f"- `{prefix}.emit_dml` (with `dml.enabled`): {dml_state}.\n"
+    )
+    return rows, switches
 
 
 def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> str | None:

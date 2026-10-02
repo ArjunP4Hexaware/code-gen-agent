@@ -426,6 +426,7 @@ def test_pair1_default_profile_writes_two_files_and_no_combined_ddl(pair1_config
     framework_dir = tmp_path / "out" / pair1_spec.feed_slug / "framework"
     names = sorted(p.name for p in framework_dir.iterdir())
     assert names == ["ADDITION.md", "config_inserts.xlsx", "config_rows.xlsx",
+                     "vnd_p_accum_client_IIG.xlsx", "vnd_p_accum_client_IIG_REVIEW.xlsx",
                      "vnd_p_accum_client_stage_table_creation.txt",
                      "vnd_p_accum_client_standard_table_creation.txt"]   # no DML (M7)
     # iig_v1: the 7-tab reference layout, no blank-and-flag flags.

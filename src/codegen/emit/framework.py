@@ -709,6 +709,12 @@ def emit_framework(
         if header in set(blank_list)
     ]
     flagged = sorted(set(always_blank))
+    # IIG-first M3: the BSA's review copy and the clean copy CI/CD loads.
+    from codegen.iig_review import write_iig_workbooks
+
+    review_path, clean_path, _open = write_iig_workbooks(
+        payload, blank_list, config, framework_dir, spec.feed_slug, template_name)
+    files.extend([review_path, clean_path])
     ddl_row = (
         f"| {' / '.join(f'`{name}`' for name in ddl_names)} | Deployment-team "
         "DDL, conformant to the client's reference format (the `.sql` "

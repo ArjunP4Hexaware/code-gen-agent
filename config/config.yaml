@@ -999,6 +999,61 @@ dml:
     root_column: ROOT_PATH
     source_type_column: SOURCE_TYPE
 
+iig_review:
+  # IIG-first (2026-10-02, M3): every framework run writes TWO IIG workbooks
+  # next to config_rows.xlsx: <feed>_IIG_REVIEW.xlsx (summary sheet first;
+  # every open / flagged cell highlighted by owner and commented with its
+  # reason, citation and owner) and <feed>_IIG.xlsx (the clean copy: the
+  # template's sheets and columns, values only). The BSA reviews and
+  # certifies; CI/CD loads the config tables from the certified clean copy.
+  review_file_pattern: "{feed}_IIG_REVIEW.xlsx"
+  clean_file_pattern: "{feed}_IIG.xlsx"
+  summary_sheet: REVIEW_SUMMARY
+  audit_date_columns: [CREATED_DATE, UPDATED_DATE]
+  audit_by_columns: [CREATED_BY, UPDATED_BY, CRETAED_BY]
+  # Owner of an open cell: owners["<SHEET>.<COLUMN>"], else owners["*.<COLUMN>"],
+  # else owner_by_reason[<reason>]. Owners: bsa | engineer | engineer_confirms |
+  # set_at_load. Seeded from the 2026-10-02 inventory of pairs 1 and 11
+  # (IIG_FIRST_PLAN.md); reassign a column by adding or changing a key here.
+  owner_by_reason:
+    framework_assigned: engineer      # always_blank ids / connections / containers
+    audit_date: set_at_load           # CREATED_DATE / UPDATED_DATE, GETDATE() at load
+    audit_by: bsa                     # CREATED_BY / UPDATED_BY = RFC<rfc_number>
+    unstated: bsa                     # business / schedule values no input states
+    synthetic_path: engineer          # path shapes: the real container/path
+    template_constant: engineer_confirms
+    flagged_note: engineer            # e.g. iig_path_shape_on_uri
+  owners:
+    # Technical values no input states: the engineer, not the BSA.
+    FILE_ADLS_INGESTION_DETAILS.SRC_ROOT_DIR: engineer
+    ADLS_DELTA_INGESTION_DETAILS.MAPPING_EXPRESSION: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_COL_LNGTH: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_COL_STRT_END_INDX: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_FILE_DELIMITER: engineer
+    ADLS_DELTA_INGESTION_DETAILS.SRC_REC_LNGTH: engineer
+    ADLS_FIXED_WIDTH_HANDLER.EXTENSION: engineer
+    ADLS_FIXED_WIDTH_HANDLER.FILE_TYPE: engineer
+    ADLS_FIXED_WIDTH_HANDLER.RJCT_RSN_COLUMN_NM: engineer
+    ADLS_FIXED_WIDTH_HANDLER.SEGMNT_TYP: engineer
+    ADLS_FIXED_WIDTH_HANDLER.VERSION: engineer
+    DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_PATH: engineer
+    DATABRICKS_NOTEBOOK_DETAILS.DELETE_DATABRICKS_NOTEBOOK_NAME: engineer
+    DATABRICKS_NOTEBOOK_DETAILS.DQ_NOTEBOOK_PATH: engineer
+  owner_labels:
+    bsa: BSA
+    engineer: Engineer
+    engineer_confirms: Engineer (confirm)
+    set_at_load: Set at load (CI/CD)
+  owner_fills: {bsa: FFC7CE, engineer: FFEB9C, engineer_confirms: DDEBF7, set_at_load: E7E6E6}
+  reason_labels:
+    framework_assigned: framework-assigned id / connection
+    audit_date: audit date (set when the config tables are loaded)
+    audit_by: audit by (RFC number not supplied)
+    unstated: no input states it
+    synthetic_path: synthetic path shape (real container/path unknown)
+    template_constant: template constant (confirm against the framework)
+    flagged_note: flagged by the derivation (see note)
+
 playbook:
   # Deployment playbook templates (rfc mode). sfmc_7sheet reads the
   # SCRUBBED reference workbook for its structure (sheet order, band +

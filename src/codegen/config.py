@@ -1243,6 +1243,73 @@ class PlaybookConfig(BaseModel):
         return self.tasks.get(profile) or self.tasks.get("default") or PlaybookTasksConfig()
 
 
+IigOwner = Literal["bsa", "engineer", "engineer_confirms", "set_at_load"]
+IigReason = Literal["framework_assigned", "audit_date", "audit_by", "unstated",
+                    "synthetic_path", "template_constant", "flagged_note"]
+
+
+class IigReviewConfig(BaseModel):
+    """IIG-first M3: the two IIG workbooks a framework run writes — the BSA's
+    review copy (summary sheet first, open / flagged cells highlighted and
+    commented) and the clean copy (the template, values only).
+
+    Owner of an open cell: ``owners["<SHEET>.<COLUMN>"]``, else
+    ``owners["*.<COLUMN>"]``, else ``owner_by_reason[<reason>]`` — the client
+    reassigns a column by adding a key, no code change. The reason is decided
+    by ``codegen.iig_review`` from the cell itself (blank / badge / tooltip)."""
+
+    model_config = _MODEL_CONFIG
+
+    review_file_pattern: str = "{feed}_IIG_REVIEW.xlsx"
+    clean_file_pattern: str = "{feed}_IIG.xlsx"
+    summary_sheet: str = "REVIEW_SUMMARY"
+    audit_date_columns: list[str] = Field(
+        default_factory=lambda: ["CREATED_DATE", "UPDATED_DATE"])
+    audit_by_columns: list[str] = Field(
+        default_factory=lambda: ["CREATED_BY", "UPDATED_BY", "CRETAED_BY"])
+    owner_by_reason: dict[IigReason, IigOwner] = Field(default_factory=lambda: {
+        "framework_assigned": "engineer", "audit_date": "set_at_load", "audit_by": "bsa",
+        "unstated": "bsa", "synthetic_path": "engineer",
+        "template_constant": "engineer_confirms", "flagged_note": "engineer"})
+    owners: dict[str, IigOwner] = Field(default_factory=dict)
+    owner_labels: dict[IigOwner, str] = Field(default_factory=lambda: {
+        "bsa": "BSA", "engineer": "Engineer", "engineer_confirms": "Engineer (confirm)",
+        "set_at_load": "Set at load (CI/CD)"})
+    owner_fills: dict[IigOwner, str] = Field(default_factory=lambda: {
+        "bsa": "FFC7CE", "engineer": "FFEB9C", "engineer_confirms": "DDEBF7",
+        "set_at_load": "E7E6E6"})
+    reason_labels: dict[IigReason, str] = Field(default_factory=lambda: {
+        "framework_assigned": "framework-assigned id / connection",
+        "audit_date": "audit date (set when the config tables are loaded)",
+        "audit_by": "audit by (RFC number not supplied)",
+        "unstated": "no input states it",
+        "synthetic_path": "synthetic path shape (real container/path unknown)",
+        "template_constant": "template constant (confirm against the framework)",
+        "flagged_note": "flagged by the derivation (see note)"})
+
+    @model_validator(mode="after")
+    def _complete(self) -> IigReviewConfig:
+        reasons = set(IigReason.__args__)      # type: ignore[attr-defined]
+        owners = set(IigOwner.__args__)        # type: ignore[attr-defined]
+        for name, table, keys in (("owner_by_reason", self.owner_by_reason, reasons),
+                                  ("reason_labels", self.reason_labels, reasons),
+                                  ("owner_labels", self.owner_labels, owners),
+                                  ("owner_fills", self.owner_fills, owners)):
+            missing = keys - set(table)
+            if missing:
+                raise ValueError(f"iig_review.{name} lacks {sorted(missing)}")
+        for key in self.owners:
+            if key.count(".") != 1 or not all(key.split(".")):
+                raise ValueError(f"iig_review.owners key {key!r} must be <SHEET>.<COLUMN> "
+                                 "or *.<COLUMN>")
+        return self
+
+    def owner_for(self, sheet: str, column: str, reason: str) -> str:
+        """``<SHEET>.<COLUMN>`` > ``*.<COLUMN>`` > the reason's default."""
+        return (self.owners.get(f"{sheet}.{column}") or self.owners.get(f"*.{column}")
+                or self.owner_by_reason[reason])  # type: ignore[index]
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -1280,6 +1347,8 @@ class Config(BaseModel):
     playbook: PlaybookConfig = PlaybookConfig()
     # Optional (M7): the SQL Server metadata-DB DML deliverable.
     dml: DmlConfig = DmlConfig()
+    # Optional (IIG-first M3): the review / clean IIG workbooks + owner table.
+    iig_review: IigReviewConfig = IigReviewConfig()
     # Optional (M8): storage backends per role + extra input roots.
     storage: StorageConfig = StorageConfig()
     inputs: InputsConfig = InputsConfig()

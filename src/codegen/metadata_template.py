@@ -18,6 +18,7 @@ from codegen.config import Config, MetadataTemplateConfig
 from codegen.contracts.frd import FrdFeed
 from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
 from codegen.contracts.sttm import SttmField
+from codegen.gate.derivations import join_location, location_scheme
 
 _TEMPLATE_TOOLTIP = "template constant — {citation}"
 _PATH_TOOLTIP = ("synthetic path shape from the template ({citation}); the real "
@@ -74,8 +75,19 @@ def _qualified(table) -> str:
 def _landing(feed: FrdFeed) -> str | None:
     if not feed.landing_location:
         return None
+    if location_scheme(feed.landing_location):
+        # M10.2: a location URI is carried through as written (trailing '/'
+        # so the path shapes append to it) — never re-rooted or re-spelt.
+        return feed.landing_location.strip().rstrip("/") + "/"
     value = feed.landing_location.replace("\\", "/")
     return "/" + value.strip("/") + "/"
+
+
+def _landing_badge(feed: FrdFeed, folder_badge: str = "from_frd") -> tuple[str, str | None]:
+    scheme = location_scheme(feed.landing_location)
+    if scheme:
+        return "location_uri", f"location URI ({scheme}://) from the FRD ADLS Location"
+    return folder_badge, "FRD Structural Metadata → ADLS Location"
 
 
 def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
@@ -84,7 +96,31 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
     if landing is None:
         return {}
     cells = {}
+    uri = location_scheme(feed.landing_location)
     for header, pattern in tpl.path_patterns.get(tab, {}).items():
+        if uri:
+            # M10.2: the shape's segments are appended INSIDE the URI's path
+            # — a shape that puts something before {landing} ("/Archive
+            # {landing}") cannot prefix a URI, so its literal goes after
+            # the URI too, and the cell says so.
+            before, _, after = pattern.partition("{landing}")
+            value = join_location(
+                landing, before, after.format(stage_table=stage_table,
+                                              reject_table=reject_table))
+            if pattern.endswith(("/", "{landing}")) and not value.endswith("/"):
+                value += "/"                     # the shape's own trailing slash
+            note = (f"; the template shape {pattern!r} prefixes the landing, which a "
+                    "location URI cannot carry — its segments follow the URI instead"
+                    if before.strip("/\\") else "")
+            cell = _cell(value, "synthetic",
+                         _PATH_TOOLTIP.format(citation=tpl.citation)
+                         + f" (location URI base, {uri}://){note}")
+            if note:
+                cell["badge_entry"]["note"] = (
+                    f"iig_path_shape_on_uri:{tab}.{header} — template shape {pattern!r} "
+                    "prefixes the landing; on a location URI its segments follow the URI")
+            cells[header] = cell
+            continue
         value = pattern.format(landing=landing, stage_table=stage_table,
                                reject_table=reject_table)
         cells[header] = _cell(value.replace("//", "/"), "synthetic",
@@ -145,8 +181,7 @@ def _file_adls(tab, feed, config, spec, faq, tpl) -> list[dict]:
     }
     landing = _landing(feed)
     if landing is not None:
-        cells["TGT_ADLS_PATH"] = _cell(landing, "from_frd",
-                                       "FRD Structural Metadata → ADLS Location")
+        cells["TGT_ADLS_PATH"] = _cell(landing, *_landing_badge(feed))
     return [_with_constants(tpl, tab, cells)]
 
 
@@ -486,6 +521,17 @@ def blank_flags(payload: dict) -> list[str]:
         if blank:
             flags.append(f"iig_blank:{tab_name}: {', '.join(blank)}")
     return flags
+
+
+def shape_flags(payload: dict) -> list[str]:
+    """M10.2: the ``iig_path_shape_on_uri:`` notes the path derivation left
+    on cells (a template shape that prefixes the landing, applied to a
+    location URI). Empty for every folder-path landing."""
+    return [entry["note"]
+            for tab in payload["tabs"].values()
+            for row in tab["rows"]
+            for entry in row["badges"].values()
+            if entry is not None and entry.get("note")]
 
 
 def blank_columns(flags: list[str]) -> dict[str, list[str]]:

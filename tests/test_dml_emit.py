@@ -19,6 +19,7 @@ from codegen.config import load_config
 from codegen.emit.dml import validate_tsql
 from codegen.emit.framework import emit_framework
 from codegen.faq import FaqAnswer, LoadPatternFaq
+from conftest import with_dml
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -44,7 +45,7 @@ def _body(text: str) -> str:
 @pytest.fixture(scope="module")
 def pair1_dml(pair1_config, pair1_spec, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_dml")
-    gate = cli._generate_feed(pair1_spec, _scoped(pair1_config, tmp), dry_run=True,
+    gate = cli._generate_feed(pair1_spec, _scoped(with_dml(pair1_config), tmp), dry_run=True,
                               skip_tests=True, output_mode="framework",
                               conventions_profile="acfc_prx", iig_template="iig_v2")
     return gate, tmp / "out" / pair1_spec.feed_slug / "framework"
@@ -140,7 +141,7 @@ def test_faq_supplied_ids_fill_the_declares_and_raise_no_unassigned_flags(pair1_
         connection_ids={"SRC_CONNECTION_ID": "31", "SRC_ADLS_CONNECTION_ID": "32",
                         "METADATA_CONNECTION_ID": "33", "TGT_CONNECTION_ID": "34"},
     )
-    framework = emit_framework(pair1_spec, faq, [], pair1_config, tmp_path,
+    framework = emit_framework(pair1_spec, faq, [], with_dml(pair1_config), tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     assert not any(f.startswith("dml_unassigned:") for f in framework.flags)
     sql = next(p for p in framework.files if p.name == "config_inserts_q1.sql")
@@ -181,7 +182,8 @@ def test_multi_file_frd_dml_takes_the_sttm_frequency_and_no_pointer_text(tmp_pat
     (tmp_path / "contracts").mkdir()
     specs, _flags = _pair11_specs(FRD_CATALOG, tmp_path / "contracts", config)
     risk = next(s for s in specs if s.feed_slug == "vc_individual_risk")
-    gate = cli._generate_feed(risk, _scoped(config, tmp_path), dry_run=True, skip_tests=True,
+    gate = cli._generate_feed(risk, _scoped(with_dml(config), tmp_path), dry_run=True,
+                              skip_tests=True,
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
     assert gate.verdict == "PASS_WITH_FLAGS", [c for c in gate.checks if not c.passed]
@@ -191,3 +193,21 @@ def test_multi_file_frd_dml_takes_the_sttm_frequency_and_no_pointer_text(tmp_pat
     assert "Monthly" in literals                       # FREQUENCY from the STTM File Details
     assert not any("refer to" in lit.lower() or "\n" in lit for lit in literals)
     assert "Vendor Files =" not in text                # the label-prefixed description never lands
+
+
+def test_dml_is_off_by_default_for_acfc_prx_and_the_report_says_so(pair1_config, pair1_spec,
+                                                                    tmp_path):
+    """IIG-first (2026-10-02): the shipped acfc_prx profile writes no DML; the
+    IIG workbooks are still written and the run report names the switch."""
+    assert pair1_config.conventions.profiles["acfc_prx"].emit_dml is False
+    gate = cli._generate_feed(pair1_spec, _scoped(pair1_config, tmp_path), dry_run=True,
+                              skip_tests=True, output_mode="framework",
+                              conventions_profile="acfc_prx", iig_template="iig_v2")
+    framework = tmp_path / "out" / pair1_spec.feed_slug / "framework"
+    assert not list(framework.glob("config_inserts_*.sql"))
+    assert not list(framework.glob("Insert_scripts_config_table_*.py"))
+    assert (framework / "config_rows.xlsx").is_file()
+    assert not any(c.name.startswith("dml_") for c in gate.checks)
+    report = (tmp_path / "reports" / f"{pair1_spec.feed_slug}.md").read_text(encoding="utf-8")
+    assert ("| DML | DML not generated (disabled) — conventions profile 'acfc_prx' has "
+            "emit_dml: false |") in report

@@ -823,7 +823,12 @@ conventions:
       require_qualified_names: true
       default_catalog: {}
       # M7: the SQL Server metadata-DB DML deliverable (dml: section below).
-      emit_dml: true
+      # IIG-first (2026-10-02): OFF by default — the IIG workbook is the
+      # deliverable and DevOps's CI/CD loads the config tables from the
+      # certified copy. Set true to write config_inserts_<env>.sql + the runner
+      # notebooks again (emit/dml.py is kept, unchanged); the run report says
+      # "DML not generated (disabled)" while it is off.
+      emit_dml: false
       # M7 §4: off — the combined DDL is byte-compared with the pair-1 golden;
       # the target system is labelled in ADDITION.md / MANIFEST.md instead.
       target_system_header: false

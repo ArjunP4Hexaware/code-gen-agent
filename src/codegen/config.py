@@ -957,8 +957,9 @@ class ConventionsProfileConfig(BaseModel):
     require_qualified_names: bool = False
     default_catalog: dict[str, str] = Field(default_factory=dict)
     # M7 §3: write the SQL Server DML deliverable (config_inserts_<env>.sql +
-    # the runner notebook) next to the IIG. Off for the reference profile so
-    # its byte-compared reports keep today's file list.
+    # the runner notebook) next to the IIG. Off by default in every shipped
+    # profile since the IIG-first flow (2026-10-02): the certified IIG workbook
+    # is the deliverable. Both this AND dml.enabled must be true for DML.
     emit_dml: bool = False
     # M7 §4: prefix every deployment DDL file with the target-system header
     # line. Off in both shipped profiles: the pair-1 combined DDL and the

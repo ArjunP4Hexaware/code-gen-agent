@@ -22,6 +22,7 @@ from codegen.emit.framework import (
 )
 from codegen.emit.rfc import emit_rfc_package
 from codegen.faq import FaqAnswer, LoadPatternFaq
+from conftest import with_dml
 
 FAQ = LoadPatternFaq(
     rfc_number=FaqAnswer(value="SYN001", source="engineer", evidence="ticket"),
@@ -41,7 +42,7 @@ def test_artefact_groups_by_target_system():
 
 
 def test_framework_labels_groups_readme_and_addition_block(pair1_config, pair1_spec, tmp_path):
-    framework = emit_framework(pair1_spec, FAQ, [], pair1_config, tmp_path,
+    framework = emit_framework(pair1_spec, FAQ, [], with_dml(pair1_config), tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     assert set(framework.groups) == {TARGET_DDL, TARGET_DML, TARGET_REVIEW, "Notes"}
     assert len(framework.groups[TARGET_DML]) == 6
@@ -79,7 +80,7 @@ def test_reference_profile_output_carries_no_labels(pair1_config, pair1_spec, tm
 
 
 def test_manifest_groups_files_by_target_system(pair1_config, pair1_spec, tmp_path):
-    framework = emit_framework(pair1_spec, FAQ, [], pair1_config, tmp_path,
+    framework = emit_framework(pair1_spec, FAQ, [], with_dml(pair1_config), tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     rfc = emit_rfc_package(pair1_spec, FAQ, pair1_config, tmp_path, framework,
                            flags_so_far=list(framework.flags), conventions_profile="acfc_prx",

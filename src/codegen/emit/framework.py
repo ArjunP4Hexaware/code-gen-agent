@@ -119,6 +119,8 @@ class FrameworkArtefacts:
     payload: dict | None = None
     # M7 §4: file names grouped by target system (artefact_groups).
     groups: dict[str, list[str]] = field(default_factory=dict)
+    # IIG-first: why no DML was written (None = it was). Shown in the report.
+    dml_disabled_reason: str | None = None
 
 
 def _sanitize_abbrev(slug: str) -> str:
@@ -656,7 +658,8 @@ def emit_framework(
             ddl_names.append(txt_path.name)
     # M7 §3: the SQL Server DML deliverable from the same rows.
     dml_artefacts = None
-    if config.dml.enabled and profile.emit_dml:
+    dml_disabled_reason = _dml_disabled_reason(config, profile, conventions_profile)
+    if dml_disabled_reason is None:
         from codegen.emit.dml import emit_dml
 
         dml_artefacts = emit_dml(spec, faq, payload, config, framework_dir, banner)
@@ -685,7 +688,7 @@ def emit_framework(
 
     inserts_path = framework_dir / "config_inserts.xlsx"
     inserts_workbook = _config_inserts_workbook(payload, spec, config, banner)
-    if config.dml.enabled and profile.emit_dml:
+    if dml_disabled_reason is None:
         # M7 §4: sheet 1 says this workbook is the REVIEW copy; the executable
         # script is the per-environment .sql next to it.
         readme = inserts_workbook.create_sheet(title="README", index=0)
@@ -787,7 +790,18 @@ def emit_framework(
         checks=checks,
         payload=payload,
         groups=artefact_groups(files),
+        dml_disabled_reason=dml_disabled_reason,
     )
+
+
+def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> str | None:
+    """None when the DML deliverable is written; else which switch is off."""
+    if not config.dml.enabled:
+        return "dml.enabled is false"
+    if not profile.emit_dml:
+        name = profile_name or config.conventions.profile
+        return f"conventions profile {name!r} has emit_dml: false"
+    return None
 
 
 def report_section(artefacts: FrameworkArtefacts) -> str:
@@ -824,6 +838,9 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         lines.append(f"| **PROVENANCE** | {note} |")
     for held in artefacts.held_back:
         lines.append(f"| **HELD BACK** | {held} |")
+    if artefacts.dml_disabled_reason is not None:
+        lines.append(f"| DML | DML not generated (disabled) — "
+                     f"{artefacts.dml_disabled_reason} |")
     return "\n".join(lines) + "\n"
 
 

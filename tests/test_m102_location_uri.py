@@ -25,6 +25,7 @@ from openpyxl import load_workbook
 
 from acfc_shapes import pair1
 from codegen import cli
+from conftest import with_dml
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -83,7 +84,7 @@ def _pair1_spec(config, tmp: Path, frd: Path):
 def uri_run(pair1_config, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_uri")
     pair, spec = _pair1_spec(pair1_config, tmp, _uri_variant(tmp))
-    scoped = pair1_config.model_copy(update={"output": pair1_config.output.model_copy(
+    scoped = with_dml(pair1_config).model_copy(update={"output": pair1_config.output.model_copy(
         update={"dir": str(tmp / "out"), "reports_dir": str(tmp / "reports")})})
     gate = cli._generate_feed(spec, scoped, dry_run=True, skip_tests=True,
                               output_mode="framework", conventions_profile="acfc_prx",

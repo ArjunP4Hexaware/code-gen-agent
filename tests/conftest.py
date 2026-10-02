@@ -50,6 +50,20 @@ FIXTURES_REMOVED = (
 )
 
 
+def with_dml(config, profile: str = "acfc_prx"):
+    """The config with the DML deliverable forced ON for ``profile``.
+
+    IIG-first (2026-10-02): ``emit_dml`` ships false; the DML tests opt in
+    here so they keep exercising emit/dml.py unchanged."""
+    profiles = dict(config.conventions.profiles)
+    profiles[profile] = profiles[profile].model_copy(update={"emit_dml": True})
+    return config.model_copy(update={"conventions": config.conventions.model_copy(
+        update={"profiles": profiles}), "dml": config.dml.model_copy(update={"enabled": True})})
+
+
+DML_ON_OVERLAY = Path(__file__).resolve().parent / "dml_on_overlay.yaml"
+
+
 def require_fixture_files(*paths: Path) -> None:
     """Skip the calling test/fixture unless every path exists."""
     missing = [p for p in paths if not p.exists()]

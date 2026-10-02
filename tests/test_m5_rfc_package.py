@@ -36,6 +36,7 @@ from codegen.config import load_config
 from codegen.emit.rfc import emit_rfc_package
 from codegen.faq import FaqAnswer, LoadPatternFaq, faq_for_spec
 from codegen.resolve.resolver import resolve_pair as resolve_contracts
+from conftest import with_dml
 from test_m4_acceptance import GOLDEN_DDL, _scoped, needs_golden
 
 REPO = Path(__file__).resolve().parents[1]
@@ -145,7 +146,7 @@ def _framework_then_package(spec, config, **options):
 @pytest.fixture(scope="module")
 def pair1_rfc(pair1_config, pair1_spec, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_rfc")
-    gate, flags = _framework_then_package(pair1_spec, _scoped(pair1_config, tmp),
+    gate, flags = _framework_then_package(pair1_spec, _scoped(with_dml(pair1_config), tmp),
                                           conventions_profile="acfc_prx",
                                           iig_template="iig_v2",
                                           playbook_template="main_single")
@@ -221,7 +222,7 @@ def test_answered_rfc_number_names_the_package(pair1_rfc, pair1_config, pair1_sp
         rfc_number=FaqAnswer(value="SYN001", source="engineer", evidence="ticket"),
         feed_abbreviation=FaqAnswer(value="ACCUM", source="engineer", evidence="package"),
     )
-    framework = emit_framework(pair1_spec, faq, [], pair1_config, tmp_path,
+    framework = emit_framework(pair1_spec, faq, [], with_dml(pair1_config), tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
     rfc = emit_rfc_package(pair1_spec, faq, pair1_config, tmp_path, framework, flags_so_far=[],
                            conventions_profile="acfc_prx", iig_template="iig_v2",

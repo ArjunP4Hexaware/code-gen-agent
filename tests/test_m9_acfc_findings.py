@@ -32,6 +32,7 @@ from codegen.layout.model import MockLayoutProvider
 from codegen.layout.profile import REQUIRED_ROLES, LayoutProfile, Role, missing_required_roles
 from codegen.layout.resolve import resolve_pair, resolve_workbook, vocabulary_hash
 from codegen.resolve.resolver import normalize_table_name
+from conftest import DML_ON_OVERLAY
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -465,7 +466,9 @@ def test_cli_chain_layout_contract_out_then_generate_matches_the_golden(tmp_path
     `generate` honours --vdd / --profile / --iig-template / --playbook-template
     (it used to parse and drop them)."""
     monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
-    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", str(SHAPES / "pair_1" / "config_overlay.yaml"))
+    # IIG-first: emit_dml ships false; this chain pins the DML too.
+    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS",
+                       f"{SHAPES / 'pair_1' / 'config_overlay.yaml'};{DML_ON_OVERLAY}")
     monkeypatch.setenv("CODEGEN_STORAGE_STATE", f"local:{(tmp_path / 'state').as_posix()}")
     monkeypatch.setenv("CODEGEN_STORAGE_OUTPUTS", f"local:{(tmp_path / 'out').as_posix()}")
     (tmp_path / "state").mkdir()

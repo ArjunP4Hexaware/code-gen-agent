@@ -32,6 +32,7 @@ from acfc_shapes.pair1 import alias_golden_iig
 from codegen import cli
 from codegen.gate.drag_fill import drag_fill_flags
 from codegen.metadata_template import blank_columns
+from conftest import with_dml
 
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = REPO / "fixtures" / "acfc_shapes"
@@ -57,7 +58,7 @@ def _scoped(config, tmp: Path):
 @pytest.fixture(scope="module")
 def pair1_run(pair1_config, pair1_spec, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("pair1_run")
-    scoped = _scoped(pair1_config, tmp)
+    scoped = _scoped(with_dml(pair1_config), tmp)      # the pinned flags include DML
     gate = cli._generate_feed(pair1_spec, scoped, dry_run=True, skip_tests=True,
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")

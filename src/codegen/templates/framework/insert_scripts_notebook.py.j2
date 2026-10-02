@@ -86,7 +86,7 @@ url = dbutils.secrets.get(SECRET_SCOPE, KEY_NAME_JDBC_URL)  # noqa: F821
 user = dbutils.secrets.get(SECRET_SCOPE, KEY_NAME_JDBC_USER)  # noqa: F821
 credential = dbutils.secrets.get(SECRET_SCOPE, KEY_NAME_JDBC_AUTH)  # noqa: F821
 
-jvm = spark._sc._jvm  # noqa: F821, SLF001
+jvm = spark._sc._jvm  # noqa: F821
 connection = jvm.java.sql.DriverManager.getConnection(url, user, credential)
 connection.setAutoCommit(False)
 try:

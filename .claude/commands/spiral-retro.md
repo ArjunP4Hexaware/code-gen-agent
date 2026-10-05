@@ -86,13 +86,16 @@ least 3 runs per side. All counts below are runs, out of the runs actually made 
 - *Positive scenario, any of trigger / pattern / first-action rate:* the drop is more than
   10 percentage points at 20+ runs (more than 2 of 20), or 2 or more runs at 3 runs per
   side.
-- *Negative scenario:* any candidate run that triggers (strict, regardless of the current
-  side). Its first-action rate follows the positive thresholds above.
+- *Negative scenario:* any INCREASE in false triggers versus the current skill (clarified
+  2026-10-05 before retro 4; until then any candidate trigger counted, whatever the
+  current side did). Its first-action rate follows the positive thresholds above.
 - *Violations (`violated_must_not`):* on a target scenario, an increase of more than 1 of
   20 (more than 5 percentage points); on any other scenario, any increase.
 
 **Improvement.** The target metric on the target scenario must improve by at least 4 of
-20 runs (20 percentage points).
+20 runs (20 percentage points). When the target is a negative scenario, improvement
+means its false triggers drop by at least 4 of 20; the report also states separately
+whether they reached 0/20.
 
 **Decision.** Adopt only if no regression holds AND the improvement threshold is met;
 otherwise reject. There is no "needs more evidence" outcome once the pre-registered run

@@ -1511,3 +1511,9 @@ generated files; keep it that way (extract-sttm: inject `--generated-date`).
   Monday 8 PM" compiles to cron, MIDS ships unscheduled. The client's
   pipeline stack is unknown — output targets plain PySpark + Workflows,
   structured for a mechanical DLT port.
+
+## Debugging
+After two failed fix attempts on the same problem, follow the spiral-breaker skill
+(.claude/skills/spiral-breaker/SKILL.md) before trying anything else. When extracting
+facts from FRD/STTM documents, apply its Pattern C citation rules. Log resolved
+spirals in docs/spiral-log.md.

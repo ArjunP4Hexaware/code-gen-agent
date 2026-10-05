@@ -1,6 +1,6 @@
 ---
 name: spiral-breaker
-description: Stops debug spirals before they eat hours. Use this whenever a fix attempt has failed twice on the same problem, the same test keeps failing, the same file has been edited repeatedly without progress, an error message changes but the failure doesn't, or the user says things like "still broken", "same error", "this isn't working", or "we've been at this for hours". Also use before extracting facts from FRD, STTM, spec, or requirements documents, and whenever you find yourself building a workaround around an access, permission, gateway, or environment restriction.
+description: Stops debug spirals before they eat hours. Use this whenever a fix attempt has failed twice on the same problem, the same test keeps failing, the same file has been edited repeatedly without progress, an error message changes but the failure doesn't, or the user says things like "still broken", "same error", "this isn't working", or "we've been at this for hours". Also use before extracting facts from FRD, STTM, spec, or requirements documents, and whenever you find yourself building a workaround around an access, permission, gateway, or environment restriction, or the user reports workarounds that have already failed against one.
 ---
 
 # Spiral Breaker
@@ -71,8 +71,11 @@ Signs:
   firewall.
 - You are on your second workaround.
 
-What to do: stop engineering. Draft a short question for the person who owns the
-constraint: what we are trying to do, what is blocked, and what the sanctioned path is.
+What to do: stop engineering. Your first action is a short question for the person who
+owns the constraint: what we are trying to do, what is blocked, and what the sanctioned
+path is. Do not propose or try alternative channels, routes, or workarounds before the
+owner answers, even ones that look sanctioned. If you can see possible options, put them
+inside the question for the owner to choose from, not in a plan to act on.
 Do not keep routing around security controls. In client environments those workarounds
 can be compliance violations, not just wasted time.
 

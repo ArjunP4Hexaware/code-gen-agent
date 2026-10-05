@@ -142,13 +142,45 @@ def _parse_result(stdout: str) -> dict:
         return {"result": stdout, "is_error": True, "parse_error": True}
 
 
+def _tool_calls(events: list[dict]) -> list[dict]:
+    """Every tool call the subject made, in order: name + the input field that says
+    what it touched (skill name or path). Never the tool's result."""
+    calls = []
+    for event in events:
+        if event.get("type") != "assistant":
+            continue
+        for block in (event.get("message") or {}).get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                tool_input = block.get("input") or {}
+                target = (tool_input.get("skill") or tool_input.get("file_path")
+                          or tool_input.get("path") or tool_input.get("pattern") or "")
+                calls.append({"name": block.get("name"), "target": str(target)[:200]})
+    return calls
+
+
 def _subject(claude: str, worktree: Path, prompt: str, timeout: float) -> dict:
+    # stream-json (needs --verbose under -p) carries every tool call, so a run
+    # records whether the skill was actually loaded, not only what it printed.
     cmd = [claude, "-p", "--tools", SUBJECT_TOOLS, "--allowedTools", SUBJECT_TOOLS,
            "--disallowedTools", DENIED_TOOLS, "--strict-mcp-config",
-           "--no-session-persistence", "--output-format", "json"]
+           "--no-session-persistence", "--output-format", "stream-json", "--verbose"]
     started = time.monotonic()
     done = _run(cmd, cwd=worktree, stdin=prompt, timeout=timeout, env=_child_env())
-    payload = _parse_result(done.stdout)
+    events = []
+    for line in done.stdout.splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    payload = next((e for e in reversed(events) if e.get("type") == "result"), None)
+    if payload is None:
+        payload = {"result": "", "is_error": True, "parse_error": True}
+    calls = _tool_calls(events)
+    skill_invoked = any(c["name"] == "Skill" and "spiral-breaker" in c["target"]
+                        for c in calls)
+    skill_file_read = any(c["name"] == "Read" and "spiral-breaker" in c["target"]
+                          and c["target"].replace("\\", "/").endswith("SKILL.md")
+                          for c in calls)
     return {
         "output": payload.get("result") or "",
         "is_error": bool(payload.get("is_error")) or done.returncode != 0,
@@ -156,6 +188,9 @@ def _subject(claude: str, worktree: Path, prompt: str, timeout: float) -> dict:
         "num_turns": payload.get("num_turns"),
         "permission_denials": len(payload.get("permission_denials") or []),
         "models": sorted((payload.get("modelUsage") or {}).keys()),
+        "tool_calls": calls,
+        "skill_invoked": skill_invoked,
+        "skill_file_read": skill_file_read,
         "seconds": round(time.monotonic() - started, 1),
         "stderr_tail": done.stderr.strip()[-300:] if done.returncode != 0 else "",
     }
@@ -199,10 +234,12 @@ def _one_run(claude: str, repo: Path, skill_dir: Path, scenario: dict, run: int,
         subject = _subject(claude, worktree, scenario["prompt"], timeout)
         record["subject"] = subject
         record["literal_spiral_check"] = "SPIRAL CHECK" in subject["output"].upper()
+        record["skill_loaded"] = subject["skill_invoked"] or subject["skill_file_read"]
         if subject["is_error"] or not subject["output"].strip():
             record["error"] = "subject run failed or produced no output"
         else:
             record["verdict"] = _judge(claude, scenario, subject["output"], scratch)
+            record["classification"] = _classify(scenario, record)
     except subprocess.TimeoutExpired as exc:
         record["error"] = f"timeout after {exc.timeout:.0f}s"
     except Exception as exc:  # noqa: BLE001 — recorded per run, never fatal for the set
@@ -218,6 +255,20 @@ def _one_run(claude: str, repo: Path, skill_dir: Path, scenario: dict, run: int,
                 _git(repo, "worktree", "prune")
         _rmtree(tmp)
     return record
+
+
+def _classify(scenario: dict, record: dict) -> str:
+    """a = skill never loaded (trigger/description problem); b = loaded, but no
+    SPIRAL CHECK or the wrong pattern (skill-body problem); c = pass. Negatives
+    are ok / false_trigger."""
+    verdict = record["verdict"]
+    if not scenario["should_trigger"]:
+        return "false_trigger" if verdict["triggered"] else "ok"
+    if verdict["triggered"] and verdict["pattern"] == scenario["expected_pattern"]:
+        return "c_pass" if record["skill_loaded"] else "c_pass_not_loaded"
+    if not record["skill_loaded"]:
+        return "a_not_loaded"
+    return "b_no_check" if not verdict["triggered"] else "b_wrong_pattern"
 
 
 def _rate(values: list) -> float | None:
@@ -238,6 +289,12 @@ def _summarize(scenario: dict, runs: list[dict]) -> dict:
                                  if expected else None),
         "first_action_rate": _rate([v["first_action_ok"] for v in graded]),
         "violation_rate": _rate([v["violated_must_not"] for v in graded]),
+        "skill_invoked_rate": _rate([r["subject"]["skill_invoked"] for r in runs
+                                     if "subject" in r]),
+        "skill_loaded_rate": _rate([r.get("skill_loaded") for r in runs if "subject" in r]),
+        "classifications": {c: sum(1 for r in runs if r.get("classification") == c)
+                            for c in sorted({r["classification"] for r in runs
+                                             if "classification" in r})},
         "judge_vs_literal_disagreements": sum(
             1 for r in runs if "verdict" in r
             and r["verdict"]["triggered"] != r["literal_spiral_check"]),
@@ -262,7 +319,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--jobs", type=int, default=1, help="runs in parallel (default 1)")
     parser.add_argument("--only", action="append", default=[],
                         help="scenario id to run (repeatable; default all)")
+    parser.add_argument("--runs-for", action="append", default=[], metavar="ID=N",
+                        help="runs for one scenario, overriding --runs (repeatable)")
     args = parser.parse_args(argv)
+    runs_for = {}
+    for item in args.runs_for:
+        sid, _, count = item.partition("=")
+        if not count.isdigit():
+            sys.exit(f"run_replay: --runs-for expects ID=N, got {item!r}")
+        runs_for[sid] = int(count)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")  # a cp1252 console never kills a run
 
@@ -285,7 +350,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"replay: {len(scenarios)} scenario(s) x {args.runs} run(s), HEAD {head[:7]}, "
           f"skill {skill_dir}, billing {billing}", flush=True)
 
-    jobs = [(s, r) for s in scenarios for r in range(1, args.runs + 1)]
+    unknown = set(runs_for) - {s["id"] for s in scenarios}
+    if unknown:
+        sys.exit(f"run_replay: --runs-for names unknown scenario(s): {sorted(unknown)}")
+    jobs = [(s, r) for s in scenarios
+            for r in range(1, runs_for.get(s["id"], args.runs) + 1)]
     results: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         futures = {pool.submit(_one_run, claude, repo, skill_dir, s, r, args.timeout): (s, r)
@@ -309,18 +378,19 @@ def main(argv: list[str] | None = None) -> int:
         "scenarios_file": str(args.scenarios.resolve()),
         "claude_version": version,
         "billing": billing,
-        "runs_per_scenario": args.runs,
+        "runs_per_scenario": {s["id"]: runs_for.get(s["id"], args.runs) for s in scenarios},
         "per_scenario": per_scenario,
         "results": results,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-    header = (f"{'scenario':<34} {'trigger':>7} {'pattern':>7} {'1st act':>7} "
-              f"{'violat':>7} {'err':>3}  flaky")
+    header = (f"{'scenario':<34} {'runs':>4} {'loaded':>7} {'trigger':>7} {'pattern':>7} "
+              f"{'1st act':>7} {'violat':>7} {'err':>3}  flaky")
     print("\n" + header + "\n" + "-" * len(header))
     for sid, s in per_scenario.items():
-        print(f"{sid:<34} {_fmt(s['trigger_rate']):>7} {_fmt(s['pattern_correct_rate']):>7} "
+        print(f"{sid:<34} {s['runs']:>4} {_fmt(s['skill_loaded_rate']):>7} "
+              f"{_fmt(s['trigger_rate']):>7} {_fmt(s['pattern_correct_rate']):>7} "
               f"{_fmt(s['first_action_rate']):>7} {_fmt(s['violation_rate']):>7} "
               f"{s['errors']:>3}  {'yes' if s['flaky'] else ''}")
     print(f"\nwritten: {args.out}")

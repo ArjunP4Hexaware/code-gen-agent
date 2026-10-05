@@ -22,6 +22,13 @@ dated after it (all entries if there is no report). Summarize:
 - false triggers (`Caught by skill: false trigger`)
 - entries whose cause fit none of the four patterns
 
+Then read the replay evidence: `evals/baseline.json` and any fresh replay of the current
+skill. List every positive scenario with a trigger rate under 100% and every negative
+scenario with a trigger rate above 0%. Before proposing anything for such a scenario,
+diagnose it: replay it at least 10 times and use each run's `classification`
+((a) skill never loaded, (b) loaded but no SPIRAL CHECK or the wrong pattern, (c) pass)
+to decide whether the description, the skill body, or the scenario itself is at fault.
+
 ## 2. Draft proposals, each with the log evidence behind it
 
 - **Known-causes cleanup**: merge duplicate entries, sharpen signatures, add dates to
@@ -31,8 +38,16 @@ dated after it (all entries if there is no report). Summarize:
   this session.", describes the symptom plus the two failed fixes generically, and uses
   the must_not of the existing scenarios of the same kind.
 - **Core changes** (pattern wording, a new pattern, the trigger description) ONLY when
-  backed by evidence: a miss, a false trigger, or 2+ entries that fit no pattern. No
-  evidence, no core proposal.
+  backed by evidence: a miss, a false trigger, 2+ entries that fit no pattern, or a
+  replay result (a positive scenario under 100% trigger rate, a negative above 0%). No
+  evidence, no core proposal. Match the change to the diagnosis: mostly (a) → a minimal
+  change to the description; mostly (b) → a minimal change to the body section that
+  applies.
+- **Scenario rewording** only when the diagnosis shows the scenario itself is ambiguous
+  or unfair. Flag it separately from core changes: a test changed until it passes is
+  the one change that can fake an improvement. Explain exactly why the old wording was
+  unfair, and never make it pass by putting the expected answer (pattern name, the
+  skill's own phrases, the expected first action) into the prompt.
 
 Known-causes and scenario additions are not core changes; they need no replay but do
 need the user's review in the report.
@@ -48,8 +63,11 @@ For each core proposal:
    python .claude/skills/spiral-breaker/scripts/run_replay.py --skill-dir .claude/skills/spiral-breaker --scenarios <scenarios> --runs 3 --out <tmp>/current.json
    python .claude/skills/spiral-breaker/scripts/run_replay.py --skill-dir <tmp>/candidate --scenarios <scenarios> --runs 3 --out <tmp>/candidate.json
    ```
-   The runner bills the claude.ai subscription (it strips `ANTHROPIC_API_KEY` from its
-   children) and never writes to the repo's working tree.
+   Give every scenario the proposal targets 10 runs on both sides
+   (`--runs-for <id>=10`, repeatable). The runner bills the claude.ai subscription (it
+   strips `ANTHROPIC_API_KEY` from its children), never writes to the repo's working
+   tree, and records per run which tools were called, `skill_invoked` and the
+   classification.
 
 ## 4. Acceptance rule
 

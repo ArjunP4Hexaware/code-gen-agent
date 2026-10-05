@@ -125,3 +125,6 @@ port_kit_audit/
 # Local raw-term denylist read by scripts/scrub_check.py (raw client terms):
 # NEVER tracked.
 docs/acfc/denylist_local.txt
+
+# Local-only review material (judge audits, blind-grading files): NEVER tracked.
+/.local/

@@ -63,20 +63,45 @@ For each core proposal:
    python .claude/skills/spiral-breaker/scripts/run_replay.py --skill-dir .claude/skills/spiral-breaker --scenarios <scenarios> --runs 3 --out <tmp>/current.json
    python .claude/skills/spiral-breaker/scripts/run_replay.py --skill-dir <tmp>/candidate --scenarios <scenarios> --runs 3 --out <tmp>/candidate.json
    ```
-   Give every scenario the proposal targets 10 runs on both sides
-   (`--runs-for <id>=10`, repeatable). The runner bills the claude.ai subscription (it
+   Give every scenario the proposal targets 20 runs on both sides
+   (`--runs-for <id>=20`, repeatable; see the acceptance rule). The runner bills the claude.ai subscription (it
    strips `ANTHROPIC_API_KEY` from its children), never writes to the repo's working
    tree, and records per run which tools were called, `skill_invoked` and the
    classification.
 
-## 4. Acceptance rule
+## 4. Acceptance rule (noise-aware, pre-registered 2026-10-05)
 
-Recommend a candidate only if NO scenario gets worse and AT LEAST ONE gets better
-(for example, the scenario from a miss now passes). Per scenario compare
-`trigger_correct_rate` (higher is better; it accounts for should_trigger),
-`pattern_correct_rate` (higher), `first_action_rate` (higher) and `violation_rate`
-(lower). A scenario with errors in either run is inconclusive: re-run it, never count it
-as better. Also compare against `evals/baseline.json` and note drift in the current skill.
+This rule is fixed BEFORE a candidate's replay data exists. Never adjust it after
+seeing results; a rule change is its own commit, made before the runs it will judge.
+
+Before running, name the candidate's **target scenario(s)** and its **target metric**,
+from the diagnosis: (a) not loaded → `trigger_correct_rate`; (b) loaded but no check or
+wrong pattern → `pattern_correct_rate` or `first_action_rate`, whichever the (b) runs
+failed.
+
+Run sizes: every target scenario at least **20 runs per side**; every other scenario at
+least 3 runs per side. All counts below are runs, out of the runs actually made (k/n).
+
+**Regressions.** A candidate is rejected if ANY of these holds:
+- *Positive scenario, any of trigger / pattern / first-action rate:* the drop is more than
+  10 percentage points at 20+ runs (more than 2 of 20), or 2 or more runs at 3 runs per
+  side.
+- *Negative scenario:* any candidate run that triggers (strict, regardless of the current
+  side). Its first-action rate follows the positive thresholds above.
+- *Violations (`violated_must_not`):* on a target scenario, an increase of more than 1 of
+  20 (more than 5 percentage points); on any other scenario, any increase.
+
+**Improvement.** The target metric on the target scenario must improve by at least 4 of
+20 runs (20 percentage points).
+
+**Decision.** Adopt only if no regression holds AND the improvement threshold is met;
+otherwise reject. There is no "needs more evidence" outcome once the pre-registered run
+sizes are reached. A scenario with errors in either side is inconclusive: re-run it up to
+the required count before deciding, and never count an errored run as better.
+
+Report every metric as raw counts **k/n** per side (rates alone are not enough), plus
+the hash of the commit that registered this rule. Also compare against
+`evals/baseline.json` and note drift in the current skill.
 
 ## 5. Write the report, then STOP
 

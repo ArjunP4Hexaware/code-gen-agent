@@ -28,9 +28,11 @@ FAILURE = (
 )
 OTHER_FAILURE = "FAILED tests/test_x.py::test_two - KeyError: 'feed'\n1 failed, 3 passed in 0.40s"
 MESSAGE_RE = re.compile(
-    r"^Spiral signal \((a|b|c)\): [^\n]+\. Stop fix attempts and follow the "
-    r"spiral-breaker skill before the next change\.$"
+    r"^spiral-detector hook \(user-configured in \.claude/settings\.local\.json\): "
+    r"signal \((a|b|c)\): [^\n]+\.$"
 )
+PIPED = "python -m pytest -q tests/test_x.py 2>&1 | tail -20"
+PASSING = "4 passed in 0.31s"
 
 
 class Session:
@@ -71,15 +73,19 @@ class Session:
             "is_interrupt": False,
         })
 
-    def ok(self, command: str = PYTEST) -> list[str]:
+    def ok(self, command: str = PYTEST, stdout: str = PASSING) -> list[str]:
+        """Exit 0. For a piped command that is the pipe tail's exit, whatever pytest did."""
         return self._send({
             "hook_event_name": "PostToolUse",
             "tool_name": self.tool,
             "tool_input": {"command": command, "description": "run"},
             "tool_response": {
-                "stdout": "4 passed", "stderr": "", "interrupted": False, "isImage": False,
+                "stdout": stdout, "stderr": "", "interrupted": False, "isImage": False,
             },
         })
+
+    def state(self) -> dict:
+        return json.loads((self.state_dir / sd.STATE_FILE).read_text(encoding="utf-8"))
 
     def write(self, name: str, content: str) -> list[str]:
         path = self.root / name
@@ -261,6 +267,104 @@ def test_a_watched_command_piped_into_rg_is_not_judged(s: Session) -> None:
     assert s.fired == []
 
 
+# --- Piped runs: judged from the pytest / ruff summary --------------------------------------
+
+
+PYTEST_OUTPUT = (
+    "tests/test_x.py ..F.                                                  [100%]\n"
+    "=================================== FAILURES ===================================\n"
+    "___________________________________ test_one ___________________________________\n"
+    "    def test_one():\n"
+    ">       assert 1 == 2\n"
+    "E       assert 1 == 2\n"
+    "tests/test_x.py:7: AssertionError\n"
+    "=========================== short test summary info ============================\n"
+    "FAILED tests/test_x.py::test_one - assert 1 == 2\n"
+    "1 failed, 3 passed in 0.42s\n"
+)
+
+
+def _tail(output: str, n: int) -> str:
+    return "\n".join(output.rstrip("\n").split("\n")[-n:]) + "\n"
+
+
+def test_piped_pytest_with_failures_counts(s: Session) -> None:
+    # `pytest | tail` exits 0 (tail's code), so it arrives as PostToolUse
+    assert s.ok(command=PIPED, stdout=_tail(PYTEST_OUTPUT, 20)) == []
+    assert s.state()["failing"] == ["python -m pytest -q tests/test_x.py"]
+    assert s.ok(command=PIPED, stdout=_tail(PYTEST_OUTPUT, 20)) == ["a"]
+
+
+def test_piped_pytest_errors_count_as_failures(s: Session) -> None:
+    out = "ERROR tests/test_x.py - ImportError: no module\n1 error in 0.20s\n"
+    assert s.ok(command=PIPED, stdout=out) == []
+    assert s.ok(command=PIPED, stdout=out) == ["a"]
+
+
+def test_piped_pytest_with_a_passing_summary_resets_the_episode(s: Session) -> None:
+    s.fail(output=PYTEST_OUTPUT)
+    for i in range(3):
+        s.write("mod.py", f"v{i}\n")
+    assert s.ok(command=PIPED, stdout="....  [100%]\n4 passed in 0.31s\n") == []
+    assert s.state()["failing"] == []
+    assert s.write("mod.py", "v3\n") == []  # a 4th edit, but the episode was reset
+    assert s.fired == []
+    # and the signals are armed again
+    s.fail(output=PYTEST_OUTPUT)
+    assert s.fail(output=PYTEST_OUTPUT) == ["a"]
+
+
+def test_piped_run_without_a_summary_is_ignored(s: Session) -> None:
+    s.fail(output=PYTEST_OUTPUT)  # an episode is open
+    for stdout in ("collecting ...", "", "Traceback (most recent call last):"):
+        assert s.ok(command=PIPED, stdout=stdout) == []
+        assert s._send({
+            "hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+            "tool_input": {"command": PIPED}, "error": f"Exit code 1\n{stdout}",
+        }) == []
+    # neither a pass (the episode is still open) nor a failure (no signal a)
+    assert s.state()["failing"] == ["python -m pytest -q tests/test_x.py"]
+    assert s.fired == []
+
+
+def test_piped_script_runs_stay_ignored(s: Session) -> None:
+    cmd = "python scripts/scrub_check.py docs/x.md | tail -3"
+    for _ in range(3):
+        assert s.ok(command=cmd, stdout="hit: line 4\nFound 1 error") == []
+    assert s.fired == []
+
+
+def test_signature_is_stable_across_piped_and_unpiped_forms() -> None:
+    key = "python -m pytest -q tests/test_x.py"
+    full = sd.read_summary(key, PYTEST_OUTPUT)
+    later = PYTEST_OUTPUT.replace("0.42s", "1.97s").replace(":7:", ":9:")
+    assert full[0] == "fail"
+    assert sd.read_summary(key, _tail(PYTEST_OUTPUT, 20)) == full
+    assert sd.read_summary(key, _tail(later, 2)) == full
+    other = PYTEST_OUTPUT.replace("test_one", "test_two")
+    assert sd.read_summary(key, other)[1] != full[1]
+
+
+def test_unpiped_then_piped_same_failure_fires_a(s: Session) -> None:
+    assert s.fail(command=PYTEST, output=PYTEST_OUTPUT) == []
+    assert s.ok(command=PIPED, stdout=_tail(PYTEST_OUTPUT, 5)) == ["a"]
+
+
+def test_piped_ruff(s: Session) -> None:
+    cmd = "ruff check src/ tests/ 2>&1 | tail -15"
+    full = (
+        "F401 [*] `os` imported but unused\n --> src/a.py:1:8\n"
+        "E501 Line too long (108 > 100)\n --> src/b.py:72:101\n"
+        "Found 2 errors.\n[*] 1 fixable with the `--fix` option.\n"
+    )
+    concise = "src/a.py:1:8: F401 [*] `os` imported\nsrc/b.py:9:101: E501 too long\nFound 2 errors."
+    assert s.ok(command=cmd, stdout=full) == []
+    assert s.ok(command=cmd, stdout=full) == ["a"]
+    assert sd.read_summary("ruff check src/", full) == sd.read_summary("ruff check src/", concise)
+    assert s.ok(command=cmd, stdout="All checks passed!\n") == []
+    assert s.state()["failing"] == []
+
+
 def test_no_double_firing_in_one_episode(s: Session) -> None:
     s.fail()
     for _ in range(5):
@@ -347,28 +451,31 @@ def test_fires_log_contains_no_command_output(s: Session) -> None:
 # --- Command classification ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("command", "key"), [
-    ("pytest -q", "pytest -q"),
-    (".venv/bin/python -m pytest -q", "python -m pytest -q"),
-    ("cd /x && python -m pytest tests/a.py -q", "python -m pytest tests/a.py -q"),
-    ("ruff check src/ tests/", "ruff check src/ tests/"),
-    ("python scripts/scrub_check.py docs/x.md", "python scripts/scrub_check.py docs/x.md"),
+@pytest.mark.parametrize(("command", "expected"), [
+    ("pytest -q", ("pytest -q", True)),
+    (".venv/bin/python -m pytest -q", ("python -m pytest -q", True)),
+    ("cd /x && python -m pytest tests/a.py -q", ("python -m pytest tests/a.py -q", True)),
+    ("ruff check src/ tests/", ("ruff check src/ tests/", True)),
+    ("python scripts/scrub_check.py docs/x.md", ("python scripts/scrub_check.py docs/x.md", True)),
     ("python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests",
-     "python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests"),
-    ("ruff check src && python -m pytest -q", "ruff check src && python -m pytest -q"),
-    ("set -o pipefail; python -m pytest -q | tail -5", "python -m pytest -q"),
-    ("python -m pytest -q && echo ok", "python -m pytest -q"),
-    ("python -m pytest -q | tail -5", None),
-    ("python -m pytest -q; echo done", None),
-    ("python -m pytest -q || true", None),
+     ("python -m codegen.cli generate-all --config config/config.yaml --dry-run --skip-tests",
+      True)),
+    ("ruff check src && python -m pytest -q", ("ruff check src && python -m pytest -q", True)),
+    ("set -o pipefail; python -m pytest -q | tail -5", ("python -m pytest -q", True)),
+    ("python -m pytest -q && echo ok", ("python -m pytest -q", True)),
+    ("python -m pytest -q 2>&1 > out.log", ("python -m pytest -q", True)),
+    ("python -m pytest -q | tail -5", ("python -m pytest -q", False)),
+    ("python -m pytest -q 2>&1 | tail -5", ("python -m pytest -q", False)),
+    ("python -m pytest -q; echo done", ("python -m pytest -q", False)),
+    ("python -m pytest -q || true", ("python -m pytest -q", False)),
     ("grep -rn 'pytest' docs/", None),
     ("rg -n \"ruff check\" CLAUDE.md", None),
     ("git log --oneline", None),
     ("python .claude/skills/spiral-breaker/scripts/run_replay.py --runs 3", None),
     ("python -m codegen.cli generate --frd-contract a --sttm-contract b", None),
 ])
-def test_watched_key(command: str, key: str | None) -> None:
-    assert sd.watched_key(command) == key
+def test_watched_run(command: str, expected: tuple[str, bool] | None) -> None:
+    assert sd.watched_run(command) == expected
 
 
 def test_absolute_repo_script_path_is_watched(tmp_path: Path) -> None:

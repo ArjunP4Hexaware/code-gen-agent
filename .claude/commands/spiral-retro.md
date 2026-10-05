@@ -7,9 +7,12 @@ description: Retro over the spiral log — propose spiral-breaker improvements, 
 ## When to run
 
 Run a retro only when (a) 5 or more spiral-log entries have accumulated since the last
-retro, or (b) any entry is logged with Caught by skill: no or false trigger, or (c) the
-user asks. Between retros, the skill only logs spirals, appends known causes, and drafts
-replay scenarios.
+retro, or (b) any entry is logged with Caught by skill: no or false trigger (the
+SKILL's misses and false triggers only; a hook false positive alone does not count),
+or (c) the user asks, or (d) 3 or more hook false positives since the last retro
+(entries whose `Hook signal:` line says false positive). One hook false positive is not
+enough evidence to retune the hook's thresholds. Between retros, the skill only logs
+spirals, appends known causes, and drafts replay scenarios.
 
 ## What a retro does
 

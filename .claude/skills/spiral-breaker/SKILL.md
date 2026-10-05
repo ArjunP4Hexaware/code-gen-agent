@@ -1,6 +1,6 @@
 ---
 name: spiral-breaker
-description: Stops debug spirals before they eat hours. Use this whenever a fix attempt has failed twice on the same problem, the same test keeps failing, the same file has been edited repeatedly without progress, an error message changes but the failure doesn't, or the user says things like "still broken", "same error", "this isn't working", or "we've been at this for hours". Also use before extracting facts from FRD, STTM, spec, or requirements documents, and whenever you find yourself building a workaround around an access, permission, gateway, or environment restriction, or the user reports workarounds that have already failed against one.
+description: Stops debug spirals before they eat hours. Use this whenever a fix attempt has failed twice on the same problem, the same test keeps failing, the same file has been edited repeatedly without progress, an error message changes but the failure doesn't, or the user says things like "still broken", "same error", "this isn't working", or "we've been at this for hours". Also use before extracting facts from FRD, STTM, spec, or requirements documents, and whenever you find yourself building a workaround around an access, permission, gateway, or environment restriction, or the user reports workarounds that have already failed against one. Don't trigger when the owner of the constraint has already answered and named the route to take; in that case, just help use that route.
 ---
 
 # Spiral Breaker

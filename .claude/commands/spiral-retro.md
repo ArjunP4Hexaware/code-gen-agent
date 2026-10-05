@@ -37,7 +37,9 @@ dated after it (all entries if there is no report). Summarize:
 Then compare the spiral-detector hook's firings (`~/.claude/spiral-breaker/fires.jsonl`,
 local only, written by the user-level hook `~/.claude/spiral-breaker/hook/spiral_detector.py`;
 use only lines with `"repo": "code-gen-agent"`) dated after the last report against the
-same log entries:
+same log entries. Firings labelled `"label": "test"` (deliberate hook checks, such as a
+manual check of the hook) are excluded from every stat below; report their count
+separately:
 - **precision**: firings that matched a logged spiral, out of all firings (a firing
   with no logged spiral is a false alarm, or a spiral nobody logged; say which);
 - **recall**: logged spirals that a firing preceded, out of all logged spirals in the

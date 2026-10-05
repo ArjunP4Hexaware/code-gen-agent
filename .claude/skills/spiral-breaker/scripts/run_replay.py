@@ -286,18 +286,46 @@ def _one_run(claude: str, repo: Path, skill_dir: Path, scenario: dict, run: int,
     return record
 
 
+CLASSES = ("pass", "not-triggered", "triggered-but-violated", "triggered-wrong-first-action",
+           "triggered-wrong-pattern", "false-trigger", "wrong-first-action")
+
+
 def _classify(scenario: dict, record: dict) -> str:
-    """a = skill never loaded (trigger/description problem); b = loaded, but no
-    SPIRAL CHECK or the wrong pattern (skill-body problem); c = pass. Negatives
-    are ok / false_trigger."""
+    """One label per graded run; `pass` only when nothing failed.
+
+    Positive: not-triggered | triggered-but-violated | triggered-wrong-first-action |
+    triggered-wrong-pattern | pass (checked in that order: a violation outranks a
+    first-action miss, which outranks a wrong pattern). Negative: false-trigger |
+    wrong-first-action (did not trigger, but violated or did the wrong thing) | pass.
+    Whether the skill loaded is the separate `skill_loaded` field."""
     verdict = record["verdict"]
     if not scenario["should_trigger"]:
-        return "false_trigger" if verdict["triggered"] else "ok"
-    if verdict["triggered"] and verdict["pattern"] == scenario["expected_pattern"]:
-        return "c_pass" if record["skill_loaded"] else "c_pass_not_loaded"
-    if not record["skill_loaded"]:
-        return "a_not_loaded"
-    return "b_no_check" if not verdict["triggered"] else "b_wrong_pattern"
+        if verdict["triggered"]:
+            return "false-trigger"
+        if verdict["violated_must_not"] or not verdict["first_action_ok"]:
+            return "wrong-first-action"
+        return "pass"
+    if not verdict["triggered"]:
+        return "not-triggered"
+    if verdict["violated_must_not"]:
+        return "triggered-but-violated"
+    if not verdict["first_action_ok"]:
+        return "triggered-wrong-first-action"
+    if verdict["pattern"] != scenario["expected_pattern"]:
+        return "triggered-wrong-pattern"
+    return "pass"
+
+
+def relabel(report: dict, scenarios: dict[str, dict]) -> dict:
+    """Recompute every stored run's classification (and the per-scenario summaries)
+    with the current classifier. Verdicts are never touched; no claude call."""
+    for record in report["results"]:
+        if "verdict" in record:
+            record["classification"] = _classify(scenarios[record["scenario"]], record)
+    report["per_scenario"] = {
+        sid: _summarize(scenarios[sid], [r for r in report["results"] if r["scenario"] == sid])
+        for sid in report["per_scenario"]}
+    return report
 
 
 def _rate(values: list) -> float | None:
@@ -318,9 +346,10 @@ def _summarize(scenario: dict, runs: list[dict]) -> dict:
                                  if expected else None),
         "first_action_rate": _rate([v["first_action_ok"] for v in graded]),
         "violation_rate": _rate([v["violated_must_not"] for v in graded]),
+        # Runs recorded before tool-call capture carry neither field: left out.
         "skill_invoked_rate": _rate([r["subject"]["skill_invoked"] for r in runs
-                                     if "subject" in r]),
-        "skill_loaded_rate": _rate([r.get("skill_loaded") for r in runs if "subject" in r]),
+                                     if "skill_invoked" in r.get("subject", {})]),
+        "skill_loaded_rate": _rate([r["skill_loaded"] for r in runs if "skill_loaded" in r]),
         "classifications": {c: sum(1 for r in runs if r.get("classification") == c)
                             for c in sorted({r["classification"] for r in runs
                                              if "classification" in r})},
@@ -340,7 +369,7 @@ def _fmt(value) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--skill-dir", required=True, type=Path)
+    parser.add_argument("--skill-dir", type=Path, help="required unless --relabel")
     parser.add_argument("--scenarios", required=True, type=Path)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--out", required=True, type=Path)
@@ -356,7 +385,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="build each replay checkout and apply the exclusions, but run "
                              "no claude call; reports what was removed")
+    parser.add_argument("--relabel", type=Path, metavar="REPORT",
+                        help="re-classify the runs stored in an existing report with the "
+                             "current classifier and write it to --out; no claude call")
     args = parser.parse_args(argv)
+    if args.relabel:
+        scenario_map = {s["id"]: s for s in
+                        json.loads(args.scenarios.read_text(encoding="utf-8"))}
+        report = relabel(json.loads(args.relabel.read_text(encoding="utf-8")), scenario_map)
+        args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(f"relabelled {len(report['results'])} run(s) -> {args.out}")
+        return 0
+    if args.skill_dir is None:
+        parser.error("--skill-dir is required unless --relabel")
     excludes = args.exclude if args.exclude is not None else list(DEFAULT_EXCLUDES)
     runs_for = {}
     for item in args.runs_for:

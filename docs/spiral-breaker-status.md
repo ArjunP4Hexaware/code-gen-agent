@@ -20,7 +20,7 @@
 
 ## Open items
 
-- **Approved-channels scenario:** `docs/spiral-retro/proposed-scenarios-2026-10-05-2.md`, awaiting review. It is only fair with a skill that ships `references/approved-channels.md`.
+- **Approved-channels scenario pair** (inbound in scope / outbound not covered): reviewed and queued in `docs/spiral-retro/proposed-scenarios-2026-10-05-2.md`, not in `scenarios.json`. Running it needs both an approved-channels candidate (a skill shipping `references/approved-channels.md`) and a retro request from the user.
 - **Outbound approved-channels entry** (pushing outputs to a team branch after the scrub check): needs a named approver (role and date) before it can be added.
 
 ## Cadence

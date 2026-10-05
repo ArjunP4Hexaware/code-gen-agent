@@ -13,7 +13,8 @@
 ## Components
 
 - Skill `.claude/skills/spiral-breaker/` (replay set + runner under `evals/`, `scripts/`), retro command `.claude/commands/spiral-retro.md`, log `docs/spiral-log.md`.
-- **Spiral-detector hook** `.claude/hooks/spiral_detector.py` (tests `tests/test_spiral_detector.py`): signals a/b/c with pre-registered thresholds, fires log `.local/spiral-hook-fires.jsonl`. Wired only in the gitignored `.claude/settings.local.json`.
+- **Spiral-detector hook** (moved to user level 2026-10-05): `~/.claude/spiral-breaker/hook/spiral_detector.py`, tests in `hook/tests/` there (that folder is its own private repo), registered in `~/.claude/settings.json`. Signals a/b/c with pre-registered thresholds. State `~/.claude/spiral-breaker/state/code-gen-agent.json`, firings `~/.claude/spiral-breaker/fires.jsonl` (`repo` and `signature_basis` fields). Nothing is written inside this repo.
+- **Skill name here:** `spiral-breaker` (P4) is the only spiral skill in this repo. A personal skill beats a same-named project skill, so the user-level copy is named `spiral-breaker-general` and the tracked `.claude/settings.json` turns it off here (`skillOverrides`), which also covers the replay worktrees (checked out from HEAD).
 
 ## Retro history
 
@@ -26,7 +27,7 @@
 ## Open items
 
 - **Approved-channels scenario pair** (inbound in scope / outbound not covered): reviewed and queued in `docs/spiral-retro/proposed-scenarios-2026-10-05-2.md`, not in `scenarios.json`. Running it needs both an approved-channels candidate (a skill shipping `references/approved-channels.md`) and a retro request from the user.
-- **Spiral-detector hook:** one firing so far, a false positive (signal b during a planned red-then-green test update; spiral log 2026-10-05). The next retro reports precision and recall (spiral-retro §1). Blind spots: piped runs of watched commands other than pytest / ruff (piped pytest / ruff runs are judged from their summary lines), and edits made through shell commands.
+- **Spiral-detector hook:** two firings here before the move, both migrated to the central fires log with `signature_basis: unrecorded`: signal b, a logged false positive (spiral log 2026-10-05), and signal a at 16:24Z, not yet classified. The next retro reports precision and recall and the summary-only share (spiral-retro §1). Blind spots: piped runs with no summary line (piped pytest / ruff / cargo test runs are judged from their summaries), and edits made through shell commands.
 - **Hook field in the log:** spiral-log entries may carry a `Hook signal: <a|b|c|none>, <true positive|false positive|miss>` line, so hook and skill accuracy are tracked separately. It is a log convention, not part of the SKILL.md Step 3 template (that changes only through a retro).
 - **Outbound approved-channels entry** (pushing outputs to a team branch after the scrub check): needs a named approver (role and date) before it can be added.
 

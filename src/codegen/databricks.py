@@ -366,6 +366,36 @@ def get_job(cfg: DatabricksConfig, job_id: int, client=None) -> dict:
     }
 
 
+_BLOCK_TYPE_LABEL = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,40}")
+
+
+def _nesting_depth(value) -> int:
+    if isinstance(value, dict):
+        return 1 + max((_nesting_depth(v) for v in value.values()), default=0)
+    if isinstance(value, (list, tuple)):
+        return 1 + max((_nesting_depth(v) for v in value), default=0)
+    return 0
+
+
+def _block_type_label(block) -> str:
+    if not isinstance(block, dict):
+        return f"<{type(block).__name__}>"
+    kind = block.get("type")
+    if isinstance(kind, str) and _BLOCK_TYPE_LABEL.fullmatch(kind):
+        return kind
+    return "<unrecognized type>" if isinstance(kind, str) else f"<type {type(kind).__name__}>"
+
+
+def _content_shape_error(problem: str, content: list) -> DatabricksTransportError:
+    # Structure only — types, block "type" values, nesting depth. Never a
+    # value: the content is model output over client documents.
+    labels = ", ".join(_block_type_label(b) for b in content)
+    return DatabricksTransportError(
+        f"unexpected chat content shape: {problem}; content is a list of "
+        f"{len(content)} block(s) [{labels}], nesting depth {_nesting_depth(content)}"
+    )
+
+
 def _chat_content_text(content) -> str:
     """Normalize an FMAPI chat message ``content`` to plain text.
 
@@ -373,26 +403,38 @@ def _chat_content_text(content) -> str:
     as a LIST of typed blocks (e.g. a ``reasoning`` block with a summary +
     signature, then a ``text`` block) instead of a plain string. Text
     blocks are joined; every non-text block is ignored.
+
+    Only the two observed shapes are accepted (2026-10-05): a string, or a
+    list of dict blocks with at least one ``text`` block whose ``text`` is
+    a string (``""`` included). Anything else raises
+    ``DatabricksTransportError`` instead of being guessed at — a non-empty
+    list with no text block used to come back as a silent ``""``. The
+    message describes structure only, never the content text.
     """
-    if content is None:
-        return ""
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-                continue
-            get = block.get if isinstance(block, dict) else (
-                lambda key, _b=block: getattr(_b, key, None)
-            )
-            if get("type") == "text":
-                parts.append(get("text") or "")
-        return "".join(parts)
-    raise DatabricksTransportError(
-        f"unexpected chat content shape: {type(content).__name__}"
-    )
+    if not isinstance(content, list):
+        raise DatabricksTransportError(
+            f"unexpected chat content shape: {type(content).__name__}"
+        )
+    if not content:
+        return ""
+    parts: list[str] = []
+    for index, block in enumerate(content):
+        if not isinstance(block, dict):
+            raise _content_shape_error(
+                f"block {index} is a {type(block).__name__}, not a dict", content)
+        if block.get("type") != "text":
+            continue
+        text = block.get("text")
+        if not isinstance(text, str):
+            raise _content_shape_error(
+                f"text block {index} carries 'text' of type {type(text).__name__} "
+                f"(nesting depth {_nesting_depth(text)})", content)
+        parts.append(text)
+    if not parts:
+        raise _content_shape_error("no text block", content)
+    return "".join(parts)
 
 
 def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = None,

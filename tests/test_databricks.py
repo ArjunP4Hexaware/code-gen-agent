@@ -327,16 +327,85 @@ def test_chat_joins_list_of_content_blocks():
     assert text == "pong"  # reasoning block ignored, text block kept
 
 
-def test_chat_content_text_handles_every_shape():
-    assert db._chat_content_text(None) == ""
+def test_chat_content_text_accepts_the_observed_shapes():
     assert db._chat_content_text("plain") == "plain"
     assert db._chat_content_text(_RECORDED_BLOCK_CONTENT) == "pong"
-    # multiple text blocks join; stray plain strings in the list survive
+    # multiple text blocks join; non-text blocks are ignored
     assert db._chat_content_text(
-        [{"type": "text", "text": "a"}, "b", {"type": "tool_use"}]
+        [{"type": "text", "text": "a"}, {"type": "tool_use"}, {"type": "text", "text": "b"}]
     ) == "ab"
-    with pytest.raises(db.DatabricksTransportError):
-        db._chat_content_text(42)
+    # an EMPTY text block is still a text block — valid, not "no text found"
+    assert db._chat_content_text(
+        [_RECORDED_BLOCK_CONTENT[0], {"type": "text", "text": ""}]
+    ) == ""
+
+
+# Fail loud on unobserved shapes (2026-10-05): none of these has been seen
+# from the endpoint, so none is flattened or guessed at. Every one carries
+# _CLIENT_TEXT somewhere; the error must describe structure only.
+_CLIENT_TEXT = "Member ID 12345 risk score"
+_UNKNOWN_CONTENT_SHAPES = {
+    "text value is a list": [
+        {"type": "text", "text": [{"type": "text", "text": _CLIENT_TEXT}]},
+    ],
+    "text value missing": [{"type": "text"}],
+    "text value is a dict": [{"type": "text", "text": {"value": _CLIENT_TEXT}}],
+    "no text block (was a silent '')": [
+        {"type": "reasoning",
+         "summary": [{"type": "summary_text", "text": _CLIENT_TEXT}]},
+    ],
+    "no text block, prose in the type value": [
+        {"type": _CLIENT_TEXT, "text": _CLIENT_TEXT},
+    ],
+    "nested list of blocks": [[{"type": "text", "text": _CLIENT_TEXT}]],
+    "plain string inside the list": [_CLIENT_TEXT],
+    "block is an object, not a dict": [
+        SimpleNamespace(type="text", text=_CLIENT_TEXT),
+    ],
+    "content is None": None,
+    "content is a dict": {"type": "text", "text": _CLIENT_TEXT},
+    "content is a tuple": ({"type": "text", "text": _CLIENT_TEXT},),
+    "content is bytes": _CLIENT_TEXT.encode(),
+    "content is an int": 42,
+}
+
+
+@pytest.mark.parametrize("content", list(_UNKNOWN_CONTENT_SHAPES.values()),
+                         ids=list(_UNKNOWN_CONTENT_SHAPES))
+def test_chat_content_text_raises_on_unknown_shapes_without_leaking(content):
+    with pytest.raises(db.DatabricksTransportError) as info:
+        db._chat_content_text(content)
+    message = str(info.value)
+    assert message.startswith("unexpected chat content shape: ")
+    for fragment in (_CLIENT_TEXT, "Member", "12345", "risk score"):
+        assert fragment not in message
+
+
+def test_chat_content_shape_error_names_the_structure():
+    with pytest.raises(db.DatabricksTransportError) as info:
+        db._chat_content_text(
+            [{"type": "reasoning"}, {"type": "text", "text": [{"type": "text", "text": "x"}]}])
+    assert str(info.value) == (
+        "unexpected chat content shape: text block 1 carries 'text' of type list "
+        "(nesting depth 2); content is a list of 2 block(s) [reasoning, text], "
+        "nesting depth 4"
+    )
+    with pytest.raises(db.DatabricksTransportError, match=r"no text block; .*\[reasoning\]"):
+        db._chat_content_text([_RECORDED_BLOCK_CONTENT[0]])
+
+
+def test_chat_raises_on_a_content_list_without_text():
+    # Through chat() itself: the transport error passes through unwrapped.
+    cfg = db.config_for(_settings(serving_endpoint="databricks-claude-opus-4-8"),
+                        env={})
+
+    def query(name, messages, max_tokens):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=[_RECORDED_BLOCK_CONTENT[0]]))])
+
+    client = SimpleNamespace(serving_endpoints=SimpleNamespace(query=query))
+    with pytest.raises(db.DatabricksTransportError, match="^unexpected chat content shape: "):
+        db.chat(cfg, [{"role": "user", "content": "hi"}], client=client)
 
 
 def test_write_surface_is_exactly_the_sanctioned_set():

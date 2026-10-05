@@ -16,6 +16,9 @@ the steps below and report before writing more fix code.
 
 ## Step 1: Name the pattern
 
+First, check references/known-causes.md for a signature matching this symptom. A
+match tells you what to check first; it does not replace the check.
+
 Most spirals are one of four patterns. Identify which one applies.
 
 ### Pattern A: Wrong layer
@@ -100,6 +103,7 @@ missing):
 ## <date>: <short symptom>
 - Actual cause:
 - Pattern:
+- Caught by skill: yes | no (noticed afterward) | false trigger
 - Earliest signal that would have revealed it:
 - Approx. time lost:
 - Permanent fix (config, test, assertion), if any:
@@ -107,3 +111,11 @@ missing):
 
 The log is the long-term payoff. When the same cause shows up twice, it needs a permanent
 fix, not a faster rediscovery.
+
+After logging:
+- If the cause isn't already in references/known-causes.md, append an entry.
+  If it is, add the date to its Seen line.
+- Append a replay scenario for this spiral to evals/scenarios.json (format in that
+  file).
+- Do not edit this SKILL.md. Changes to the core (patterns, steps, description) go
+  only through /spiral-retro, with replay results and the user's approval.

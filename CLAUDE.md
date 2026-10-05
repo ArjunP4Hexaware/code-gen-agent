@@ -1724,3 +1724,6 @@ After two failed fix attempts on the same problem, follow the spiral-breaker ski
 (.claude/skills/spiral-breaker/SKILL.md) before trying anything else. When extracting
 facts from FRD/STTM documents, apply its Pattern C citation rules. Log resolved
 spirals in docs/spiral-log.md.
+If I say a past problem was a spiral that wasn't caught, log it with the
+spiral-breaker Step 3 template, Caught by skill: no, including the known-causes
+entry and replay scenario.

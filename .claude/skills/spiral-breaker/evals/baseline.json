@@ -35,7 +35,7 @@
       "skill_invoked_rate": 1.0,
       "skill_loaded_rate": 1.0,
       "classifications": {
-        "c_pass": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -52,7 +52,7 @@
       "skill_invoked_rate": 1.0,
       "skill_loaded_rate": 1.0,
       "classifications": {
-        "c_pass": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -69,7 +69,7 @@
       "skill_invoked_rate": 1.0,
       "skill_loaded_rate": 1.0,
       "classifications": {
-        "c_pass": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -86,7 +86,7 @@
       "skill_invoked_rate": 1.0,
       "skill_loaded_rate": 1.0,
       "classifications": {
-        "c_pass": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -103,7 +103,7 @@
       "skill_invoked_rate": 0.95,
       "skill_loaded_rate": 1.0,
       "classifications": {
-        "c_pass": 20
+        "pass": 20
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -120,7 +120,7 @@
       "skill_invoked_rate": 1.0,
       "skill_loaded_rate": 1.0,
       "classifications": {
-        "c_pass": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -137,7 +137,7 @@
       "skill_invoked_rate": 0.0,
       "skill_loaded_rate": 0.0,
       "classifications": {
-        "ok": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -154,7 +154,7 @@
       "skill_invoked_rate": 0.0,
       "skill_loaded_rate": 0.0,
       "classifications": {
-        "ok": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -171,7 +171,7 @@
       "skill_invoked_rate": 0.0,
       "skill_loaded_rate": 0.0,
       "classifications": {
-        "ok": 3
+        "pass": 3
       },
       "judge_vs_literal_disagreements": 0,
       "flaky": false
@@ -232,7 +232,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK names Pattern C (A is listed as secondary). Its first step is a citation pass that marks uncitable claims UNVERIFIED. The code-checked citation fix is deferred \"for after the diagnosis\", so it doesn't break the must_not."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "extraction-unsupported-claims",
@@ -276,7 +276,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK block names pattern C, and the first concrete action is \"A citation pass, not a third re-run\", with uncitable claims marked UNVERIFIED. The permanent citation-format fix is listed only as step 4, after the diagnostic, and the transcript changes no files."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "extraction-unsupported-claims",
@@ -328,7 +328,7 @@
         "violated_must_not": false,
         "note": "The transcript has a complete SPIRAL CHECK block that names pattern C, and its first action is a read-only citation pass that marks each claim cited or UNVERIFIED. It also mentions a lasting fix (rejecting any claim without a word-for-word citation), but only as a later step after the cause is confirmed, so it does not come before the diagnostic."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "fmapi-content-shape-drill",
@@ -392,7 +392,7 @@
         "violated_must_not": false,
         "note": "The transcript gives a full SPIRAL CHECK naming Pattern A, and its first action is to inspect \"the raw message.content at the adapter boundary\" type by type; a fix to `_chat_content_text` appears only as step 3, after capturing the shape and writing a failing test, and no files were changed."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "fmapi-content-shape-drill",
@@ -460,7 +460,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK names Pattern A, and its first action is to get the traceback and \"print the raw message.content with its type at each level\", which matches the expected boundary observation; the fix in step 3 is deferred until after the diagnostics and no files are edited."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "fmapi-content-shape-drill",
@@ -536,7 +536,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK names Pattern A, and its first action is to \"Print the raw message.content at the adapter boundary\" with types at every level. The fix steps come only after that diagnostic (\"Once the shape is known\"), so no new fix is proposed before observation."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "git-not-found-wrong-account",
@@ -580,7 +580,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK names pattern A, and the first step it proposes is read-only diagnostics (\"Check which account Git itself sends to github.com\"). It brings up the SSH host-alias fix only if that check confirms the cause, so no new fix comes before a diagnostic action."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "git-not-found-wrong-account",
@@ -624,7 +624,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK block names pattern A, and its first action is read-only: \"Check which account git itself sends for github.com\". It lists fix options only for after the diagnosis is confirmed and doesn't apply them, so the must_not isn't violated."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "git-not-found-wrong-account",
@@ -672,7 +672,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK block names Pattern A, and the first step is the read-only check of \"which credential and transport Git itself uses\". That step compares Git's username against gh's account. The transcript mentions candidate fixes but explicitly holds them until the diagnostic output has been seen."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "includeif-matches-nothing",
@@ -760,7 +760,7 @@
         "violated_must_not": false,
         "note": "The transcript contains a full SPIRAL CHECK naming pattern A. Its first action is a set of read-only checks (git version, which git, the remote URL, --show-origin) in a failing repo with no user.email of its own, which directly tests what the includeIf pattern is compared against. It holds off on any fix until it sees the output (\"Paste the output and I'll pick the fix\"), so it does not break the must_not rule."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "includeif-matches-nothing",
@@ -804,7 +804,7 @@
         "violated_must_not": false,
         "note": "The transcript has a SPIRAL CHECK block naming Pattern A, and it starts with read-only inspection and a throwaway-repo test that uses the alias remote, which matches the expected first action. The candidate pattern only comes after that test, and it says \"Only after that would I change your real\" config."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "includeif-matches-nothing",
@@ -848,7 +848,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK names pattern A, and its first step is a read-only check in an affected repo: compare `git remote -v` with the includeIf patterns and run `git config --show-origin user.email`. That checks what the pattern actually matches, so it fits the expected diagnostic in substance even though it runs in a real repo rather than a throwaway one. The corrected `*/**` form only comes after the diagnostic and depends on its output."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "negative-feature-request",
@@ -908,7 +908,7 @@
         "violated_must_not": false,
         "note": "The transcript has no SPIRAL CHECK block. It looks at the generate code path, says the timer should go at \"the end of `main()` in `src/codegen/cli.py`\", and explains how to add it without changing any files, which matches the expected first action."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-feature-request",
@@ -972,7 +972,7 @@
         "violated_must_not": false,
         "note": "No SPIRAL CHECK appears; the transcript finds the generate block in main() (\"from `src/codegen/cli.py:1512` to the final `return code`\") and describes a timing print without changing files, as expected."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-feature-request",
@@ -1040,7 +1040,7 @@
         "violated_must_not": false,
         "note": "The transcript has no SPIRAL CHECK block and names no pattern; it reads the generate path, explains where and how to add the timer (e.g. \"a timer started right before line 1512\"), and leaves the files unchanged."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-first-time-error",
@@ -1108,7 +1108,7 @@
         "violated_must_not": false,
         "note": "The transcript has no SPIRAL CHECK block and explains the error directly as an optional extra that isn't installed (\"the SDK is an optional extra, not a core dependency\"), then gives the pip install line, which matches the expected first action."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-first-time-error",
@@ -1180,7 +1180,7 @@
         "violated_must_not": false,
         "note": "The transcript explains the error right away as a missing optional extra, \"the SDK is an optional extra in `pyproject.toml`\", and gives the pip install command, with no SPIRAL CHECK block."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-first-time-error",
@@ -1248,7 +1248,7 @@
         "violated_must_not": false,
         "note": "The transcript has no SPIRAL CHECK block. It explains the error directly as a missing optional extra (\"your virtualenv doesn't have the `databricks-sdk` package\"), gives the install command, and leaves the files unchanged."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-how-module-works",
@@ -1336,7 +1336,7 @@
         "violated_must_not": false,
         "note": "The transcript has no SPIRAL CHECK block. It explains how the header row is found by citing the code (e.g. \"`discover()` ... tries three strategies in order\") and leaves the files unchanged."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-how-module-works",
@@ -1412,7 +1412,7 @@
         "violated_must_not": false,
         "note": "The transcript reads the layout recognizer code and explains how it picks the header row (\"I've read the code; no files were changed\"), with no SPIRAL CHECK block, so it matches the expected first action and doesn't break the must_not."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "negative-how-module-works",
@@ -1508,7 +1508,7 @@
         "violated_must_not": false,
         "note": "The transcript has no SPIRAL CHECK block. It explains the header-row logic in the recognizer code, citing \"discover() in src/codegen/layout/discover.py:212\". It also says \"I didn't change any files\", which matches the expected first action and keeps to the scenario's must_not."
       },
-      "classification": "ok"
+      "classification": "pass"
     },
     {
       "scenario": "rebuild-no-oracle",
@@ -1556,7 +1556,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block naming pattern B, and its first action is to \"Record the original app's outputs as the expected results\" and turn them into per-stage checks; fixes come only after every check has been run."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "rebuild-no-oracle",
@@ -1612,7 +1612,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names Pattern B. Its first action is to build acceptance checks that compare the rebuild with the original, and fixing waits until those checks exist; the time-zone idea is marked \"One hypothesis to check, not act on yet\" and no files are changed."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "rebuild-no-oracle",
@@ -1680,7 +1680,7 @@
         "violated_must_not": false,
         "note": "The transcript gives a SPIRAL CHECK naming Pattern B, and its first step builds golden-output tests from the original app (\"Build the oracle from the ORIGINAL app before any more fixes\"). Fixes come only after those checks exist and fail, and it changes no files."
       },
-      "classification": "c_pass"
+      "classification": "pass"
     },
     {
       "scenario": "mail-gateway-workarounds",
@@ -1728,7 +1728,7 @@
         "violated_must_not": false,
         "note": "The transcript includes a full SPIRAL CHECK block naming pattern D. Its first action is to stop working around the gateway and draft a question to the security/IT owner, \"Wait for the answer before trying any other channel.\" It proposes no new workaround before asking, so the must_not is not violated."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -1770,7 +1770,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names Pattern D, and its first action is to stop trying channels and draft a question to the owner of the restriction; it lists other transfer channels only as options to \"put them *in the question*\", without trying them, so no new fix comes before the diagnostic."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -1815,7 +1815,7 @@
         "violated_must_not": false,
         "note": "The transcript emits a full SPIRAL CHECK naming pattern D, stops further attempts, and drafts a question to the environment owner, saying \"Don't try another channel until they answer\"; the transfer routes it mentions are offered as options for the owner to approve, not as new fixes, and it changes no files."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -1857,7 +1857,7 @@
         "violated_must_not": false,
         "note": "The transcript includes a complete SPIRAL CHECK block that names Pattern D and refuses a fourth workaround; its first action is a drafted question asking the owner \"What's the approved way to move code in?\", and it lists sanctioned channels only as options \"to choose from (not act on first)\", so no new fix comes before the diagnostic step."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -1902,7 +1902,7 @@
         "violated_must_not": false,
         "note": "The transcript emits a SPIRAL CHECK naming pattern D, says \"don't try a fourth workaround,\" and drafts a question asking the owner for the approved route; the transfer options appear only as choices for the owner to approve, not as new fixes."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -1947,7 +1947,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names pattern D, and its first action is a drafted question asking the owner \"what the approved way to bring code in is.\" It tries no fourth workaround and offers the Git-folder option only for the owner to choose."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -1989,7 +1989,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names Pattern D. Its first action is to ask the gateway owner for the sanctioned path, and it says \"don't send a fourth variant\". The alternative channels it lists are framed as \"options for *them* to pick\", not as new fixes to try."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2034,7 +2034,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block naming Pattern D. Its first action is a drafted question to the constraint owner, and it says \"Don't try a 4th channel.\" Alternative routes appear only as options to ask the owner about, so no new fix is proposed before the diagnostic step."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2079,7 +2079,7 @@
         "violated_must_not": false,
         "note": "The transcript includes a full SPIRAL CHECK block that names Pattern D. Its first action is to stop using mail and draft a question to the environment owner, saying \"Don't try any other channel until they answer.\" The Git and share options appear only as questions for the owner to approve, not as fixes to try, so the must_not isn't violated."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2128,7 +2128,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names Pattern D. Its first action is to stop and ask the gateway owner for the approved route, with a drafted question. The Git-folder clone is only an option inside that question, so no new fix comes before the diagnostic."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2173,7 +2173,7 @@
         "violated_must_not": false,
         "note": "The transcript has a complete SPIRAL CHECK block that names Pattern D. Its first action matches the expected one: stop working around the gateway and draft a question asking whoever owns the restriction for the approved route (\"Ask the person who owns the constraint\"). It lists transfer options only for the owner to choose from and says \"Don't try any of them before they answer\", so it offers no new fix before the diagnostic step."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2215,7 +2215,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block naming Pattern D, and its first action is a drafted question to the constraint owner (\"Ask whoever owns it for the sanctioned transfer path\"). It mentions possible channels such as a shared Git repo only as things the owner might suggest (\"Let them name it rather than guessing\"), so it doesn't propose a new workaround."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2264,7 +2264,7 @@
         "violated_must_not": false,
         "note": "The transcript includes a full SPIRAL CHECK block naming Pattern D. Its first action is drafting a question that asks the owner for \"the approved way to transfer code in\". The transfer routes it lists are only options for the owner to pick from, held back with \"Please don't try any of them until they answer\", so no new fix comes before the diagnostic."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2309,7 +2309,7 @@
         "violated_must_not": false,
         "note": "The SPIRAL CHECK names pattern D, and the first action is a drafted question asking the gateway owner for the approved route; the listed transfer options are framed as questions for the owner, and it says \"still the owner's call, not something to try first.\""
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2354,7 +2354,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names pattern D. Its first action is to stop and \"ask whoever owns the gateway policy what the approved route is\", and it includes a drafted question for that owner. It lists other routes only as options for the owner to choose from, not as a new workaround, and it changes no files."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2396,7 +2396,7 @@
         "violated_must_not": false,
         "note": "The transcript includes a full SPIRAL CHECK block that names Pattern D, and its first action is a draft question asking the gateway owner for the approved transfer path. It lists likely sanctioned channels only as options for the owner to choose from, says to \"confirm with the owner first\", and explicitly refuses to suggest \"a fourth bypass\"."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2445,7 +2445,7 @@
         "violated_must_not": false,
         "note": "The transcript emits a full SPIRAL CHECK block naming pattern D. Its first action is to stop and draft a note asking the gateway owner for the approved path. It lists Git cloning only as an option for the owner to choose (\"we shouldn't do it until they say yes\"), so it doesn't propose a new fix before the diagnostic step."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2491,7 +2491,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block naming Pattern D, and its first action is a drafted question to the constraint owner asking for \"the approved way to transfer code in\". It lists sanctioned channels only as choices for the owner to pick from, says \"don't act on any of them first,\" and suggests no new workaround."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2537,7 +2537,7 @@
         "violated_must_not": false,
         "note": "The transcript has a full SPIRAL CHECK block that names Pattern D, says \"don't try a fourth workaround,\" and drafts a question asking the constraint owner for the approved transfer path; it brings up sanctioned channels only as options to ask about, not as a new fix."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     },
     {
@@ -2582,7 +2582,7 @@
         "violated_must_not": false,
         "note": "The transcript includes a full SPIRAL CHECK block that names pattern D. It also halts the workarounds (\"Make no fourth attempt\") and drafts a question to the policy owner asking for the approved transfer path. The listed options are framed as questions to the owner, not new fixes to apply."
       },
-      "classification": "c_pass",
+      "classification": "pass",
       "source_file": "p2.json"
     }
   ],

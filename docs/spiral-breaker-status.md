@@ -25,9 +25,4 @@
 
 ## Cadence
 
-Run `/spiral-retro` only when:
-- 5 or more spiral-log entries have accumulated since the last retro; or
-- any entry is logged with "Caught by skill: no" or "false trigger"; or
-- the user asks.
-
-Between retros, the skill only logs spirals, appends known causes and drafts replay scenarios.
+Run `/spiral-retro` only when 5 or more spiral-log entries have accumulated since the last retro, when any entry is logged with "Caught by skill: no" or "false trigger", or when the user asks. Between retros, the skill only logs spirals, appends known causes and drafts replay scenarios.

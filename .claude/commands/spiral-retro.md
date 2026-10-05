@@ -31,6 +31,18 @@ dated after it (all entries if there is no report). Summarize:
 - false triggers (`Caught by skill: false trigger`)
 - entries whose cause fit none of the four patterns
 
+Then compare the spiral-detector hook's firings (`.local/spiral-hook-fires.jsonl`,
+local only, written by `.claude/hooks/spiral_detector.py`) dated after the last
+report against the same log entries:
+- **precision**: firings that matched a logged spiral, out of all firings (a firing
+  with no logged spiral is a false alarm, or a spiral nobody logged; say which);
+- **recall**: logged spirals that a firing preceded, out of all logged spirals in the
+  window (a spiral logged with no earlier firing is a hook miss).
+Report both as k/n, broken down by signal (a / b / c). The hook's thresholds are
+pre-registered at the top of the script; propose a threshold change only from these
+counts, and treat it like a core change (stop for approval). The fires log holds no
+command output; quote from it freely, but never paste command output into the report.
+
 Then read the replay evidence: `evals/baseline.json` and any fresh replay of the current
 skill. List every positive scenario with a trigger rate under 100% and every negative
 scenario with a trigger rate above 0%. Before proposing anything for such a scenario,
@@ -117,7 +129,8 @@ the hash of the commit that registered this rule. Also compare against
 
 ## 5. Write the report, then STOP
 
-Write `docs/spiral-retro/<YYYY-MM-DD>.md`: the evidence summary from step 1, every
+Write `docs/spiral-retro/<YYYY-MM-DD>.md`: the evidence summary from step 1 (including
+the hook's precision and recall), every
 proposal with its log evidence, the replay tables (current vs candidate, per scenario),
 and a recommendation for each (adopt / reject / needs more evidence).
 

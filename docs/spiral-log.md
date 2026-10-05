@@ -24,7 +24,7 @@
 - Actual cause: endpoint began returning a list of reasoning + text blocks instead of a string.
 - Pattern: A (wrong layer)
 - Earliest signal: failure appeared downstream of the adapter right after the endpoint changed.
-- Permanent fix: shape assertion at the adapter boundary.
+- Permanent fix: shape assertion at the adapter boundary — commit "fix: fail loud on unrecognized FMAPI content shapes" (2026-10-05): `_chat_content_text` in `src/codegen/databricks.py` accepts only a str or a list of dict blocks with a str-valued text block and raises `DatabricksTransportError` (structure only, never content text) on anything else, incl. the former silent `''`; pinned by `tests/test_databricks.py::test_chat_content_text_accepts_the_observed_shapes`, `::test_chat_content_text_raises_on_unknown_shapes_without_leaking`, `::test_chat_content_shape_error_names_the_structure`, `::test_chat_raises_on_a_content_list_without_text`.
 
 ## 2026-09: multiple workarounds to move code past mail gateways
 - Actual cause: an access policy question, not a technical one; Git folder cloning was approved once asked.

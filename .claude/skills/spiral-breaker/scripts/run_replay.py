@@ -3,7 +3,9 @@
 For every scenario x run:
   1. a temporary detached worktree of the repo's HEAD, OUTSIDE the repo;
   2. its .claude/skills/spiral-breaker replaced by a copy of --skill-dir
-     (minus evals/: the scenarios carry the expected answers);
+     (minus evals/: the scenarios carry the expected answers), then every
+     --exclude path (default docs/spiral-retro/: retro reports state the
+     expected answers too) deleted and asserted gone;
   3. `claude -p` (prompt on stdin) in that worktree, read-only tools only;
   4. a second `claude -p` grades the output against a fixed rubric and
      returns JSON {triggered, pattern, first_action_ok, violated_must_not, note};
@@ -46,6 +48,8 @@ SKILL_REL = Path(".claude") / "skills" / "spiral-breaker"
 SUBJECT_TOOLS = "Read,Grep,Glob,Skill"
 DENIED_TOOLS = "Edit,Write,NotebookEdit,Bash,PowerShell,Agent,WebFetch,WebSearch"
 BILLING_STRIP = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+# Retro reports state the scenarios' expected answers: never visible to a subject.
+DEFAULT_EXCLUDES = ("docs/spiral-retro/",)
 JUDGE_TIMEOUT = 300
 
 RUBRIC = """You grade one transcript of an AI coding assistant against one test scenario for a
@@ -215,8 +219,29 @@ def _judge(claude: str, scenario: dict, output: str, scratch: Path) -> dict:
     return verdict
 
 
+def _exclude(worktree: Path, excludes: list[str]) -> list[dict]:
+    """Delete each excluded repo-relative path from the replay worktree and assert it
+    is gone. Retro reports state the scenarios' expected answers; a subject that can
+    Read/Grep the checkout must never see them."""
+    root = worktree.resolve()
+    done = []
+    for rel in excludes:
+        path = (root / rel).resolve()
+        if path == root or root not in path.parents:
+            raise RuntimeError(f"--exclude {rel!r} does not name a path inside the checkout")
+        existed = path.exists()
+        if path.is_dir():
+            _rmtree(path)
+        elif existed:
+            path.unlink()
+        if path.exists():
+            raise RuntimeError(f"excluded path {rel!r} still present in the replay worktree")
+        done.append({"path": rel, "existed": existed})
+    return done
+
+
 def _one_run(claude: str, repo: Path, skill_dir: Path, scenario: dict, run: int,
-             timeout: float) -> dict:
+             timeout: float, excludes: list[str], dry_run: bool = False) -> dict:
     record: dict = {"scenario": scenario["id"], "run": run}
     tmp = Path(tempfile.mkdtemp(prefix="spiral-replay-"))
     worktree = tmp / "wt"
@@ -231,6 +256,10 @@ def _one_run(claude: str, repo: Path, skill_dir: Path, scenario: dict, run: int,
         _rmtree(target)
         shutil.copytree(skill_dir, target,
                         ignore=shutil.ignore_patterns("evals", "__pycache__"))
+        record["excluded"] = _exclude(worktree, excludes)
+        if dry_run:
+            record["dry_run"] = True
+            return record
         subject = _subject(claude, worktree, scenario["prompt"], timeout)
         record["subject"] = subject
         record["literal_spiral_check"] = "SPIRAL CHECK" in subject["output"].upper()
@@ -321,7 +350,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="scenario id to run (repeatable; default all)")
     parser.add_argument("--runs-for", action="append", default=[], metavar="ID=N",
                         help="runs for one scenario, overriding --runs (repeatable)")
+    parser.add_argument("--exclude", action="append", default=None, metavar="PATH",
+                        help="repo-relative path removed from every replay checkout before "
+                             f"claude runs (repeatable; default {DEFAULT_EXCLUDES})")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="build each replay checkout and apply the exclusions, but run "
+                             "no claude call; reports what was removed")
     args = parser.parse_args(argv)
+    excludes = args.exclude if args.exclude is not None else list(DEFAULT_EXCLUDES)
     runs_for = {}
     for item in args.runs_for:
         sid, _, count = item.partition("=")
@@ -331,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")  # a cp1252 console never kills a run
 
-    repo =Path(_git(Path.cwd(), "rev-parse", "--show-toplevel")).resolve()
+    repo = Path(_git(Path.cwd(), "rev-parse", "--show-toplevel")).resolve()
     skill_dir = args.skill_dir.resolve()
     if not (skill_dir / "SKILL.md").is_file():
         sys.exit(f"run_replay: {skill_dir} has no SKILL.md")
@@ -342,22 +378,37 @@ def main(argv: list[str] | None = None) -> int:
     if tmp_root == repo or repo in tmp_root.parents:
         sys.exit("run_replay: the temp directory is inside the repo; set TMP elsewhere")
 
+    head = _git(repo, "rev-parse", "HEAD")
+    unknown = set(runs_for) - {s["id"] for s in scenarios}
+    if unknown:
+        sys.exit(f"run_replay: --runs-for names unknown scenario(s): {sorted(unknown)}")
+
+    if args.dry_run:
+        record = _one_run("", repo, skill_dir, scenarios[0], 1, args.timeout, excludes,
+                          dry_run=True)
+        report = {"dry_run": True, "repo_head": head, "skill_dir": str(skill_dir),
+                  "excluded_paths": excludes, "record": record}
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(f"dry run at HEAD {head[:7]}: "
+              + (record.get("error") or ", ".join(
+                  f"{e['path']} {'removed' if e['existed'] else 'absent'}, verified gone"
+                  for e in record["excluded"])))
+        return 1 if "error" in record else 0
+
     claude = _claude_exe()
     billing = _check_subscription(claude)
     version = _run([claude, "--version"], cwd=tmp_root, timeout=60,
                    env=_child_env()).stdout.strip()
-    head = _git(repo, "rev-parse", "HEAD")
     print(f"replay: {len(scenarios)} scenario(s) x {args.runs} run(s), HEAD {head[:7]}, "
-          f"skill {skill_dir}, billing {billing}", flush=True)
+          f"skill {skill_dir}, billing {billing}, excluded {excludes}", flush=True)
 
-    unknown = set(runs_for) - {s["id"] for s in scenarios}
-    if unknown:
-        sys.exit(f"run_replay: --runs-for names unknown scenario(s): {sorted(unknown)}")
     jobs = [(s, r) for s in scenarios
             for r in range(1, runs_for.get(s["id"], args.runs) + 1)]
     results: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        futures = {pool.submit(_one_run, claude, repo, skill_dir, s, r, args.timeout): (s, r)
+        futures = {pool.submit(_one_run, claude, repo, skill_dir, s, r, args.timeout,
+                               excludes): (s, r)
                    for s, r in jobs}
         for future in concurrent.futures.as_completed(futures):
             record = future.result()
@@ -379,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
         "claude_version": version,
         "billing": billing,
         "runs_per_scenario": {s["id"]: runs_for.get(s["id"], args.runs) for s in scenarios},
+        "excluded_paths": excludes,
         "per_scenario": per_scenario,
         "results": results,
     }

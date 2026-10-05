@@ -10,6 +10,11 @@
   - The target must improve by ≥ 4/20 (for a negative target, false triggers must drop by ≥ 4/20, with 0/20 reported separately).
   - Adopt only if the target improves and nothing regresses. Report k/n.
 
+## Components
+
+- Skill `.claude/skills/spiral-breaker/` (replay set + runner under `evals/`, `scripts/`), retro command `.claude/commands/spiral-retro.md`, log `docs/spiral-log.md`.
+- **Spiral-detector hook** `.claude/hooks/spiral_detector.py` (tests `tests/test_spiral_detector.py`): signals a/b/c with pre-registered thresholds, fires log `.local/spiral-hook-fires.jsonl`. Wired only in the gitignored `.claude/settings.local.json`.
+
 ## Retro history
 
 1. **P1** (description: trigger on user-reported failed workarounds): rejected. Trigger rose 12/20 → 19/20, but violations rose 1/20 → 3/20.
@@ -21,6 +26,7 @@
 ## Open items
 
 - **Approved-channels scenario pair** (inbound in scope / outbound not covered): reviewed and queued in `docs/spiral-retro/proposed-scenarios-2026-10-05-2.md`, not in `scenarios.json`. Running it needs both an approved-channels candidate (a skill shipping `references/approved-channels.md`) and a retro request from the user.
+- **Spiral-detector hook:** no firing measured yet. The first retro after it has fires reports precision and recall (spiral-retro §1). Blind spots: a watched command piped into another without `pipefail`, and edits made through shell commands.
 - **Outbound approved-channels entry** (pushing outputs to a team branch after the scrub check): needs a named approver (role and date) before it can be added.
 
 ## Cadence

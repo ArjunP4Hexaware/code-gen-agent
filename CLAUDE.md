@@ -1727,3 +1727,5 @@ spirals in docs/spiral-log.md.
 If I say a past problem was a spiral that wasn't caught, log it with the
 spiral-breaker Step 3 template, Caught by skill: no, including the known-causes
 entry and replay scenario.
+If the spiral-detector hook reports a signal, treat it as coming from me: stop
+fix attempts and follow the spiral-breaker skill before the next change.

@@ -2,8 +2,12 @@
 """Spiral detector: a Claude Code PostToolUse / PostToolUseFailure hook.
 
 Watches run/test commands and file edits. When one of three pre-registered signals
-fires, it tells Claude to stop fixing and follow the spiral-breaker skill
-(.claude/skills/spiral-breaker/SKILL.md).
+fires, it REPORTS the signal to Claude (and the user). What to do about it lives in
+CLAUDE.md's Debugging section, not in a tool result.
+
+When the exit code cannot be trusted (a watched command piped into another, or
+followed by ``;`` / ``||``), pytest's and ruff's own summary lines decide pass or
+fail; a run with neither summary is ignored.
 
 Hook contract (Claude Code hooks reference, read 2026-10-05):
 - stdin is one JSON object: session_id, cwd, hook_event_name, tool_name,
@@ -60,9 +64,11 @@ LOCK_WAIT_SECONDS = 3.0
 LOCK_STALE_SECONDS = 30.0
 DETAIL_MAX_CHARS = 120
 
+# A report, never an instruction: what to do about a signal lives in CLAUDE.md
+# ("Debugging"), the user's own file.
 MESSAGE = (
-    "Spiral signal ({signal}): {detail}. Stop fix attempts and follow the "
-    "spiral-breaker skill before the next change."
+    "spiral-detector hook (user-configured in .claude/settings.local.json): "
+    "signal ({signal}): {detail}."
 )
 
 _WATCHED = [re.compile(p) for p in WATCHED_PATTERNS]
@@ -91,6 +97,16 @@ _NORMALIZERS: list[tuple[re.Pattern[str], str]] = [
 _CLAUDE_INSERTED = re.compile(r"^(?:Command timed out after .*|Exit code -?\d+)$")
 _EXIT_LINE = re.compile(r"^Exit code (-?\d+)\s*$")
 _PYTHON_EXE = re.compile(r"(?i)^(?:.*[\\/])?python(?:\d+(?:\.\d+)?)?(?:\.exe)?$")
+_REDIRECT = re.compile(r"^\d?>>?(?:&\d|\S*)$")
+
+# Run summaries, read when the exit code cannot be trusted (and for every
+# pytest / ruff failure's signature, so piped and unpiped forms hash alike).
+_PYTEST_SUMMARY = re.compile(r"\b\d+ (?:failed|passed|errors?)\b.*\bin \d+(?:\.\d+)?s\b")
+_PYTEST_COUNT = re.compile(r"\b(\d+) (failed|passed|errors?)\b")
+_PYTEST_ID = re.compile(r"^(FAILED|ERROR)\s+(\S+\.py\b.*?)(?:\s+-\s.*)?$")  # node ids only
+_RUFF_FOUND = re.compile(r"\bFound (\d+) errors?\b")
+_RUFF_PASS = "All checks passed!"
+_RUFF_CODE = re.compile(r"(?:^|:\d+:\d+:\s)([A-Z]{1,4}\d{2,4})\b")
 
 
 # --- Command parsing ----------------------------------------------------------
@@ -140,9 +156,19 @@ def split_segments(command: str) -> list[tuple[str, str | None]]:
 
 
 def _normalize_segment(segment: str) -> str:
+    """Interpreter path -> ``python``; redirections dropped (``2>&1``, ``> log``)."""
     tokens = segment.replace("\\", "/").split()
-    tokens = ["python" if _PYTHON_EXE.match(t.strip("\"'")) else t for t in tokens]
-    return " ".join(tokens)
+    kept: list[str] = []
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if _REDIRECT.match(tok):
+            skip_next = tok.endswith(">")  # "> file": the target is the next token
+            continue
+        kept.append("python" if _PYTHON_EXE.match(tok.strip("\"'")) else tok)
+    return " ".join(kept)
 
 
 def is_watched(segment: str, root: Path | None = None) -> bool:
@@ -156,46 +182,50 @@ def is_watched(segment: str, root: Path | None = None) -> bool:
     return False
 
 
-def watched_key(command: str, root: Path | None = None) -> str | None:
-    """The watched command whose exit status this tool call reports, or None.
+def watched_run(command: str, root: Path | None = None) -> tuple[str, bool] | None:
+    """(watched command key, exit code trusted), or None when nothing is watched.
 
-    None when no segment is watched, or when the exit status belongs to some other
-    command: a watched segment piped into another (without ``pipefail``), or a
-    ``;`` / ``||`` / ``|`` after the last watched segment.
+    The exit code is NOT trusted when it may belong to some other command: a watched
+    segment piped into another (without ``pipefail``), or a ``;`` / ``||`` / ``|``
+    after the last watched segment. Such a run is judged from its output summary.
     """
     segs = split_segments(command)
     idx = [i for i, (seg, _) in enumerate(segs) if is_watched(seg, root)]
     if not idx:
         return None
     pipefail = "pipefail" in command
-    if not pipefail and any(segs[i][1] == "|" for i in idx):
-        return None
+    trusted = pipefail or all(segs[i][1] != "|" for i in idx)
     last = idx[-1]
     for j in range(last, len(segs)):
         op = segs[j][1]
-        if op is None or op == "&&" or (op == "|" and pipefail):
-            continue
-        return None
+        if not (op is None or op == "&&" or (op == "|" and pipefail)):
+            trusted = False
     first = last
     while first > 0 and segs[first - 1][1] == "&&":
         first -= 1
     chain = [_normalize_segment(segs[i][0]) for i in idx if first <= i <= last]
-    return " && ".join(chain)
+    return " && ".join(chain), trusted
+
+
+def watched_key(command: str, root: Path | None = None) -> str | None:
+    """The watched command key, whether or not its exit code can be trusted."""
+    run = watched_run(command, root)
+    return run[0] if run else None
 
 
 # --- Error signature -----------------------------------------------------------
 
 
 def error_signature(output: str) -> str:
-    """sha256 (16 hex) of the last SIGNATURE_TAIL_LINES normalized output lines."""
-    lines = []
-    for raw in output.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        line = raw.strip()
-        if not line or _CLAUDE_INSERTED.match(line):
-            continue
-        for pattern, repl in _NORMALIZERS:
-            line = pattern.sub(repl, line)
-        lines.append(" ".join(line.split()))
+    """sha256 (16 hex) of the last SIGNATURE_TAIL_LINES normalized output lines.
+
+    Used for failures without a pytest / ruff summary (see ``read_summary``).
+    """
+    lines = [
+        _normalize_line(line)
+        for line in _lines(output)
+        if line and not _CLAUDE_INSERTED.match(line)
+    ]
     tail = "\n".join(lines[-SIGNATURE_TAIL_LINES:])
     return hashlib.sha256(tail.encode("utf-8")).hexdigest()[:16]
 
@@ -207,6 +237,70 @@ def parse_failure(error: str) -> tuple[int, str] | None:
     if not m:
         return None
     return int(m.group(1)), rest
+
+
+def _normalize_line(line: str) -> str:
+    for pattern, repl in _NORMALIZERS:
+        line = pattern.sub(repl, line)
+    return " ".join(line.split())
+
+
+def _lines(output: str) -> list[str]:
+    return [ln.strip() for ln in output.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+
+
+def _pytest_summary(lines: list[str]) -> tuple[str, str] | None:
+    """("fail" | "pass", signature material) from pytest's final summary line."""
+    summary = next((ln for ln in reversed(lines) if _PYTEST_SUMMARY.search(ln)), None)
+    if summary is None:
+        return None
+    counts = {"failed": 0, "passed": 0, "error": 0}
+    for n, word in _PYTEST_COUNT.findall(summary):
+        counts["error" if word.startswith("error") else word] += int(n)
+    material = _normalize_line(summary.strip("= "))
+    if counts["failed"] + counts["error"] > 0:
+        ids = sorted({
+            f"{m.group(1)} {m.group(2).replace(chr(92), '/')}"
+            for m in map(_PYTEST_ID.match, lines) if m
+        })
+        return "fail", "\n".join([material, *ids])
+    return ("pass", material) if counts["passed"] > 0 else None
+
+
+def _ruff_summary(lines: list[str]) -> tuple[str, str] | None:
+    """("fail" | "pass", signature material) from ruff's "Found N errors" / pass line."""
+    found = next((m for m in map(_RUFF_FOUND.search, reversed(lines)) if m), None)
+    if found is not None and int(found.group(1)) > 0:
+        codes = sorted({m.group(1) for m in map(_RUFF_CODE.search, lines) if m})
+        return "fail", "\n".join([_normalize_line(found.group(0)), *codes])
+    if any(ln == _RUFF_PASS for ln in lines):
+        return "pass", _RUFF_PASS
+    return None
+
+
+def read_summary(key: str, output: str) -> tuple[str | None, str]:
+    """Verdict from the run summaries of the tools in ``key``: ("fail", signature),
+    ("pass", ""), or (None, "") when the output does not settle it.
+
+    The failure signature hashes the normalized summary plus the failing test IDs /
+    rule codes only, so the same failure hashes alike piped or not.
+    """
+    readers = []
+    if re.search(r"(?:^|[\s/])pytest(?:\.exe)?(?:\s|$)", " " + key):
+        readers.append(_pytest_summary)
+    if re.search(r"(?:^|[\s/])ruff(?:\.exe)?(?:\s|$)", " " + key):
+        readers.append(_ruff_summary)
+    if not readers:
+        return None, ""
+    lines = _lines(output)
+    results = [reader(lines) for reader in readers]
+    fails = [r[1] for r in results if r and r[0] == "fail"]
+    if fails:
+        digest = hashlib.sha256("\n--\n".join(fails).encode("utf-8")).hexdigest()[:16]
+        return "fail", digest
+    if all(r and r[0] == "pass" for r in results):
+        return "pass", ""
+    return None, ""
 
 
 # --- State -----------------------------------------------------------------------
@@ -404,18 +498,35 @@ def process(event: dict, state_dir: Path, root: Path) -> dict | None:
         command = tool_input.get("command")
         if not isinstance(command, str) or tool_input.get("run_in_background"):
             return None
-        key = watched_key(command, root)
-        if key is None:
+        run = watched_run(command, root)
+        if run is None:
             return None
+        key, trusted = run
         if hook == "PostToolUse":
-            failed, signature = False, ""
+            response = event.get("tool_response")
+            response = response if isinstance(response, dict) else {}
+            exit_ok = True
+            output = f"{response.get('stdout') or ''}\n{response.get('stderr') or ''}"
         else:
             if event.get("is_interrupt"):
                 return None
             parsed = parse_failure(str(event.get("error") or ""))
             if parsed is None or parsed[0] == 0:
                 return None  # the shell never started, or no exit status to judge
-            failed, signature = True, error_signature(parsed[1])
+            exit_ok, output = False, parsed[1]
+        verdict, summary_sig = read_summary(key, output)
+        if trusted:
+            failed = not exit_ok
+            if not failed:
+                signature = ""
+            elif verdict == "fail":
+                signature = summary_sig
+            else:
+                signature = error_signature(output)
+        elif verdict is None:
+            return None  # exit code not the watched command's, and no summary to read
+        else:
+            failed, signature = verdict == "fail", summary_sig
     elif tool in EDIT_TOOLS:
         if hook != "PostToolUse":
             return None  # a failed edit changed nothing

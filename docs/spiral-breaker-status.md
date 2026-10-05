@@ -26,9 +26,10 @@
 ## Open items
 
 - **Approved-channels scenario pair** (inbound in scope / outbound not covered): reviewed and queued in `docs/spiral-retro/proposed-scenarios-2026-10-05-2.md`, not in `scenarios.json`. Running it needs both an approved-channels candidate (a skill shipping `references/approved-channels.md`) and a retro request from the user.
-- **Spiral-detector hook:** no firing measured yet. The first retro after it has fires reports precision and recall (spiral-retro §1). Blind spots: a watched command piped into another without `pipefail`, and edits made through shell commands.
+- **Spiral-detector hook:** one firing so far, a false positive (signal b during a planned red-then-green test update; spiral log 2026-10-05). The next retro reports precision and recall (spiral-retro §1). Blind spots: piped runs of watched commands other than pytest / ruff (piped pytest / ruff runs are judged from their summary lines), and edits made through shell commands.
+- **Hook field in the log:** spiral-log entries may carry a `Hook signal: <a|b|c|none>, <true positive|false positive|miss>` line, so hook and skill accuracy are tracked separately. It is a log convention, not part of the SKILL.md Step 3 template (that changes only through a retro).
 - **Outbound approved-channels entry** (pushing outputs to a team branch after the scrub check): needs a named approver (role and date) before it can be added.
 
 ## Cadence
 
-Run `/spiral-retro` only when 5 or more spiral-log entries have accumulated since the last retro, when any entry is logged with "Caught by skill: no" or "false trigger", or when the user asks. Between retros, the skill only logs spirals, appends known causes and drafts replay scenarios.
+Run `/spiral-retro` only when 5 or more spiral-log entries have accumulated since the last retro, when any entry is logged with "Caught by skill: no" or "false trigger" (skill only), when 3 or more hook false positives have accumulated, or when the user asks. Between retros, the skill only logs spirals, appends known causes and drafts replay scenarios.

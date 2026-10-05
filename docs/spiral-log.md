@@ -44,3 +44,12 @@
 - Earliest signal: per-repo email check came back empty for every aliased repo.
 - Approx. time lost: minutes (caught by verification step)
 - Permanent fix: patterns changed to `git@github-work:*/**` / `git@github-personal:*/**`, plus throwaway-repo regression check.
+
+## 2026-10-05: hook signal (b) during planned red-then-green test update
+- Actual cause: not a spiral. One planned red run (15 expected failures), four planned test edits, then a green run (56/56).
+- Pattern: none
+- Caught by skill: n/a (not a spiral; the skill correctly concluded none applied)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: none
+- Proposed refinement (for a retro, not now): count edit-run cycles that end in an unchanged error signature, rather than raw edits while red.

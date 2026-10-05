@@ -4,6 +4,15 @@ description: Retro over the spiral log — propose spiral-breaker improvements, 
 
 # /spiral-retro
 
+## When to run
+
+Run a retro only when (a) 5 or more spiral-log entries have accumulated since the last
+retro, or (b) any entry is logged with Caught by skill: no or false trigger, or (c) the
+user asks. Between retros, the skill only logs spirals, appends known causes, and drafts
+replay scenarios.
+
+## What a retro does
+
 Improve the spiral-breaker skill from evidence. You may PROPOSE changes to it; the replay
 set decides whether a core change is better, and the user approves every core change.
 All content you write stays generic: no client names, feed names or document contents.

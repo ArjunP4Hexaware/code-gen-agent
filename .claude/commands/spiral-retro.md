@@ -34,14 +34,19 @@ dated after it (all entries if there is no report). Summarize:
 - false triggers (`Caught by skill: false trigger`)
 - entries whose cause fit none of the four patterns
 
-Then compare the spiral-detector hook's firings (`.local/spiral-hook-fires.jsonl`,
-local only, written by `.claude/hooks/spiral_detector.py`) dated after the last
-report against the same log entries:
+Then compare the spiral-detector hook's firings (`~/.claude/spiral-breaker/fires.jsonl`,
+local only, written by the user-level hook `~/.claude/spiral-breaker/hook/spiral_detector.py`;
+use only lines with `"repo": "code-gen-agent"`) dated after the last report against the
+same log entries:
 - **precision**: firings that matched a logged spiral, out of all firings (a firing
   with no logged spiral is a false alarm, or a spiral nobody logged; say which);
 - **recall**: logged spirals that a firing preceded, out of all logged spirals in the
   window (a spiral logged with no earlier firing is a hook miss).
-Report both as k/n, broken down by signal (a / b / c). The hook's thresholds are
+Report both as k/n, broken down by signal (a / b / c). Also report the signature basis:
+how many firings in the window were `"signature_basis": "summary-only"` (the signature
+came from the summary line alone, the failing IDs cut off, e.g. by a pipe), k/n, and how
+many of those were false positives; firings recorded before the field existed read
+`unrecorded`. No threshold changes from this count alone. The hook's thresholds are
 pre-registered at the top of the script; propose a threshold change only from these
 counts, and treat it like a core change (stop for approval). The fires log holds no
 command output; quote from it freely, but never paste command output into the report.

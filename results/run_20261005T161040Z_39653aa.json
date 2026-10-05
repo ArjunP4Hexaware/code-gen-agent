@@ -1,0 +1,64 @@
+{
+  "status": "FAILED",
+  "branch": "feature/iig-first",
+  "sha": "39653aa8329d8a354abbe114f8be09135b679b1f",
+  "timestamp": "20261005T161040Z",
+  "environment": {
+    "python_version": "3.12.3",
+    "packages": {
+      "codegen-data-engineer-agent": "0.5.8.post6",
+      "openpyxl": "3.1.5",
+      "pydantic": "2.13.3",
+      "jinja2": "3.1.6",
+      "pyyaml": "6.0.3",
+      "ruff": "not installed",
+      "databricks-sdk": "0.122.0"
+    },
+    "endpoint": "databricks-claude-opus-5 (EndpointStateReady.READY)"
+  },
+  "pairs": [
+    {
+      "pair": "pair_01",
+      "status": "FAILED",
+      "runtime_sec": 3.6,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS"
+        },
+        "frd_extract": {
+          "status": "PASS"
+        },
+        "vdd_crosscheck": {
+          "status": "PASS"
+        },
+        "generate": {
+          "status": "FAIL"
+        },
+        "ddl_emit": {
+          "status": "FAIL"
+        },
+        "iig_emit": {
+          "status": "FAIL"
+        },
+        "dml_emit": {
+          "status": "FAIL"
+        }
+      },
+      "layout_family": "user",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 70,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {}
+      },
+      "error": null
+    }
+  ],
+  "leak_gate": {
+    "terms_checked": 197,
+    "hits": 0,
+    "verdict": "CLEAN"
+  }
+}

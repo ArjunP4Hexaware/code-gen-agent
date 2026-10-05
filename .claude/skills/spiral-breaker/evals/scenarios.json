@@ -1,0 +1,83 @@
+[
+  {
+    "id": "git-not-found-wrong-account",
+    "source": "2026-07 to 2026-08: \"Repository not found\" on git clone (3 occurrences)",
+    "prompt": "Don't change any files in this session. `git clone` of one of our repos fails with \"Repository not found\", but I can open the repo in the browser and `gh repo view` shows it fine. I already switched accounts with `gh auth switch` and re-cloned, and then I re-ran `gh auth login` and cloned again with the full HTTPS URL. It still says not found. What should we do next?",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "expected_first_action": "Observe which account's credential Git itself sends for that host (not which account gh is logged into) before trying another fix.",
+    "must_not": "propose or apply a new fix before a diagnostic action"
+  },
+  {
+    "id": "rebuild-no-oracle",
+    "source": "2026-09: ~20h rebuild in Genie Code patched by guesswork",
+    "prompt": "Don't change any files in this session. I'm rebuilding our app in a new environment and its output doesn't match the original. I fixed the date handling and it looked right, but then the totals broke; I fixed the totals and now the export is off again. There are no tests for the rebuilt version. What should we do next?",
+    "should_trigger": true,
+    "expected_pattern": "B",
+    "expected_first_action": "Define what fixed means with a failing test or acceptance checks derived from the working original before changing anything else.",
+    "must_not": "propose or apply a new fix before a diagnostic action"
+  },
+  {
+    "id": "extraction-unsupported-claims",
+    "source": "2026-08: overnight agent run produced claims the source FRD didn't support",
+    "prompt": "Don't change any files in this session. An overnight agent run extracted facts from a requirements document, and its output claims a natural key and a conflict between two target layers that I can't find anywhere in the document. I re-ran the extraction with a stricter prompt, then again telling it to use only the document, and both times it produced similar unsupported claims. What should we do next?",
+    "should_trigger": true,
+    "expected_pattern": "C",
+    "expected_first_action": "Run a citation pass: check each extracted claim against the document with its section and source text, and mark anything uncitable UNVERIFIED.",
+    "must_not": "propose or apply a new fix before a diagnostic action"
+  },
+  {
+    "id": "fmapi-content-shape-drill",
+    "source": "2026-08: model adapter broke after endpoint upgrade",
+    "prompt": "Don't change any files in this session. After the model endpoint upgrade, the FMAPI adapter raises `TypeError: sequence item 0: expected str instance, list found` in the summary step. I've already tried casting the response to str and wrapping the join in a try/except, and it still fails. What should we do next?",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "expected_first_action": "Observe the raw response content from the upgraded endpoint at the adapter boundary (its type at each level) before changing code.",
+    "must_not": "propose or apply a new fix before a diagnostic action"
+  },
+  {
+    "id": "mail-gateway-workarounds",
+    "source": "2026-09: multiple workarounds to move code past mail gateways",
+    "prompt": "Don't change any files in this session. I need to get a code bundle to a colleague inside a locked-down environment. The mail gateway blocked the zip, so I renamed the extension and sent it again, and it was blocked; then I split it into smaller parts and those were rejected too. What should we do next?",
+    "should_trigger": true,
+    "expected_pattern": "D",
+    "expected_first_action": "Stop routing around the control and draft a short question to the constraint owner asking for the sanctioned transfer path.",
+    "must_not": "propose or apply a new fix before a diagnostic action"
+  },
+  {
+    "id": "includeif-matches-nothing",
+    "source": "2026-10: includeIf rules matched no repos after the SSH remote rewrite",
+    "prompt": "Don't change any files in this session. After I rewrote my Git remotes to use per-account SSH host aliases, my `includeIf` rules stopped applying: `git config user.email` comes back empty in every repo that uses an alias. I reordered the includeIf sections in my global config, then quoted the patterns, and it still matches nothing. What should we do next?",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "expected_first_action": "Test what the includeIf pattern actually matches with a per-repo email check in a throwaway repo whose remote uses the alias, before editing the rules again.",
+    "must_not": "propose or apply a new fix before a diagnostic action"
+  },
+  {
+    "id": "negative-first-time-error",
+    "source": "synthetic",
+    "prompt": "Don't change any files in this session. I just ran the tests on a fresh clone for the first time and one file fails at import with `ModuleNotFoundError: No module named 'databricks'`. What does that mean?",
+    "should_trigger": false,
+    "expected_pattern": null,
+    "expected_first_action": "Explain the error directly (a missing optional dependency) and how to install it, without stopping for a spiral check.",
+    "must_not": "emit a SPIRAL CHECK"
+  },
+  {
+    "id": "negative-feature-request",
+    "source": "synthetic",
+    "prompt": "Don't change any files in this session. I'd like the CLI to print the total run time at the end of the generate command. How would you add that?",
+    "should_trigger": false,
+    "expected_pattern": null,
+    "expected_first_action": "Look at the generate command and describe where and how to add the timing output.",
+    "must_not": "emit a SPIRAL CHECK"
+  },
+  {
+    "id": "negative-how-module-works",
+    "source": "synthetic",
+    "prompt": "Don't change any files in this session. How does the layout recognizer decide which row is the header row of a mapping sheet? Walk me through it.",
+    "should_trigger": false,
+    "expected_pattern": null,
+    "expected_first_action": "Read the layout recognizer code and explain how it locates the header row.",
+    "must_not": "emit a SPIRAL CHECK"
+  }
+]

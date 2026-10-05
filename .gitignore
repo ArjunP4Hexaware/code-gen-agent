@@ -128,3 +128,6 @@ docs/acfc/denylist_local.txt
 
 # Local-only review material (judge audits, blind-grading files): NEVER tracked.
 /.local/
+
+# Per-user Claude Code settings (local hook wiring, permissions): NEVER tracked.
+/.claude/settings.local.json

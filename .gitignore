@@ -131,3 +131,5 @@ docs/acfc/denylist_local.txt
 
 # Per-user Claude Code settings (local hook wiring, permissions): NEVER tracked.
 /.claude/settings.local.json
+
+LOOP_LOG.md

@@ -9,6 +9,7 @@ pipeline module.
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -44,11 +45,25 @@ class GateCheck(BaseModel):
     # `check_not_run:<name>` flag instead ("PASS cannot be claimed"), like
     # skipped tests. ``passed`` is True on such a check by construction.
     not_run: bool = False
+    # The flag kind a not-run check raises (default ``check_not_run:<name>``);
+    # e.g. ``ruff_unavailable`` when the ruff module is not installed.
+    flag: str | None = None
 
 
 def _generated_text_files(feed_dir: Path) -> list[Path]:
     suffixes = {".py", ".sql", ".json", ".toml", ".md"}
     return sorted(p for p in feed_dir.rglob("*") if p.is_file() and p.suffix in suffixes)
+
+
+RUFF_UNAVAILABLE = "ruff_unavailable"
+
+
+def _ruff_unavailable(reason: str) -> GateCheck:
+    """ruff is not installed where the gate runs: a FLAG naming why, never a
+    FAIL — the generated code was not linted, and the verdict says so."""
+    return GateCheck(name="ruff", passed=True, not_run=True, flag=RUFF_UNAVAILABLE,
+                     details=f"ruff unavailable: {reason} (ruff is a base dependency of "
+                             "codegen-data-engineer-agent — reinstall the package)")
 
 
 def _ruff_check(feed_dir: Path) -> GateCheck:
@@ -60,6 +75,8 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
     # config it rejects: no JSON — the code was NOT linted, which is a flag,
     # not a verdict on the code). A run inside ACFC came back `ruff=FAIL` with
     # nothing to tell the two apart.
+    if importlib.util.find_spec("ruff") is None:
+        return _ruff_unavailable(f"the ruff module is not installed for {sys.executable}")
     try:
         result = subprocess.run(
             [sys.executable, "-m", "ruff", "check", "--no-cache", "--output-format", "json",
@@ -80,6 +97,8 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
         if result.returncode == 0:
             return GateCheck(name="ruff", passed=True, details="ruff clean")
         output = (result.stdout + result.stderr).strip()
+        if "No module named ruff" in output:
+            return _ruff_unavailable(output.splitlines()[-1])
         return GateCheck(name="ruff", passed=True, not_run=True,
                          details=f"ruff did not run (exit {result.returncode}): "
                                  f"{output or 'no output'}")

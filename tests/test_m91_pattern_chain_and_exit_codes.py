@@ -429,11 +429,20 @@ def test_ruff_check_tells_findings_from_a_tool_that_did_not_run(tmp_path, monkey
     monkeypatch.setattr(preflight.subprocess, "run", no_ruff)
     missing = _ruff_check(dirty)
     assert missing.passed and missing.not_run and "No module named ruff" in missing.details
+    assert missing.flag == "ruff_unavailable"
     gate = compute_verdict("feed", [], [], [missing], tests_skipped=False)
     assert gate.verdict == "PASS_WITH_FLAGS"
-    assert gate.flags == ["check_not_run:ruff — ruff did not run (exit 1): /usr/bin/python: No "
-                          "module named ruff; the generated code was NOT checked — PASS cannot "
-                          "be claimed"]
+    assert gate.flags == ["ruff_unavailable — ruff unavailable: /usr/bin/python: No module "
+                          "named ruff (ruff is a base dependency of codegen-data-engineer-agent "
+                          "— reinstall the package); the generated code was NOT checked — PASS "
+                          "cannot be claimed"]
+    # Any other reason the tool did not run keeps the generic flag.
+    monkeypatch.setattr(preflight.subprocess, "run", lambda *_a, **_k: subprocess.CompletedProcess(
+        [], 2, stdout="", stderr="ruff: invalid configuration"))
+    other = _ruff_check(dirty)
+    assert other.not_run and other.flag is None
+    assert compute_verdict("feed", [], [], [other], tests_skipped=False).flags[0].startswith(
+        "check_not_run:ruff — ruff did not run (exit 2): ruff: invalid configuration")
 
 
 def test_a_lint_dirty_layer2_sketch_is_a_review_artifact_never_a_gate_input(

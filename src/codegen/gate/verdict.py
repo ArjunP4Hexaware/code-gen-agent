@@ -96,7 +96,8 @@ def compute_verdict(
         if check.not_run:
             # The tool did not run here: nothing was found AND nothing was
             # checked — a human's call, never a FAIL (M9.1b).
-            flags.append(f"check_not_run:{check.name} — {check.details.splitlines()[0]}; the "
+            kind = check.flag or f"check_not_run:{check.name}"
+            flags.append(f"{kind} — {check.details.splitlines()[0]}; the "
                          "generated code was NOT checked — PASS cannot be claimed")
 
     if any(not check.passed for check in checks):

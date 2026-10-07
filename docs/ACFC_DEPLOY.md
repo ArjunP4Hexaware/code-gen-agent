@@ -58,6 +58,29 @@ documents do not state go in `fixtures/faq/<feed_slug>.faq.yaml`, each with
 its citation; unanswered means blank-and-flag, never a guess. The real
 prod-support DL is `CODEGEN_NOTIFICATION_EMAILS` in the App env.
 
+### The ACFC environment overlay (default since 2026-10-07)
+
+`config/overlays/acfc_env.yaml` is COMMITTED and applied by `load_config`
+itself whenever `CODEGEN_CONFIG_OVERLAYS` is unset — so the CLI, the App
+backend, harness jobs and `acfc_run.py` all pick it up with no env change. It
+carries the ACFC environment's constants, not per-feed values:
+
+| Key | Value | Effect |
+| --- | --- | --- |
+| `conventions.profiles.acfc_prx.default_catalog` | `{stage: d1_dlk, standard: d1_std}` | last link of the catalog chain — clears `catalog_unstated:<layer>`; the DDL gets three-part names |
+| `metadata.templates.iig_v2.constants.ADLS_DELTA_INGESTION_DETAILS` | `SRC_ADLS_CONNECTION_ID 7`, `METADATA_CONNECTION_ID 4`, `TGT_CONNECTION_ID 2`, `SRC_CONTAINER_NAME mftlanding`, `TGT_CONTAINER_NAME z-use-d1-dlk-stage-01`, `SCHEMA_DRIFT_FLAG Y` | filled cells, badge synthetic, tooltip naming the overlay (`constant_citations`) |
+| `metadata.templates.iig_v2.always_blank` | the shipped list minus the five connection / container columns | lists REPLACE on merge — the cells above can only fill once they leave it |
+
+- One stderr line says it was applied: `config overlay (default): <path>`.
+- `CODEGEN_CONFIG_OVERLAYS=<a.yaml;b.yaml>` REPLACES the default (add
+  `config/overlays/acfc_env.yaml` to the list yourself to keep it);
+  `CODEGEN_CONFIG_OVERLAYS=""` disables it. The test suite sets `""`
+  (`tests/conftest.py`) so goldens and inventories stay on the shipped config.
+- The file is looked up next to the config file being loaded
+  (`<config dir>/overlays/acfc_env.yaml`); a config elsewhere gets no default.
+- Per-feed path shapes (`path_patterns`) go in the same overlay when the
+  feed's values are known; the shipped `iig_v2` shapes are unchanged.
+
 ## 3. Storage: workspace folders shared with the App's service principal
 
 Three roles, one storage URI each:

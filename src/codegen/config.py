@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -1034,6 +1035,10 @@ class MetadataTemplateConfig(BaseModel):
     # (the golden spells the archive path differently per sheet).
     path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
     constants: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # Per-cell citation for a constant that does not come from the template
+    # itself (an environment overlay): {tab: {header: citation}}; a
+    # constant without one cites ``citation``.
+    constant_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
     # tab -> rows of header -> value; keys starting with '_' steer the
     # builder (e.g. _layer: standard) and never render.
     template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
@@ -1375,6 +1380,27 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
+# The ACFC environment overlay (IIG-first, 2026-10-07): catalogs + the
+# framework's connection ids / containers, committed next to the config.
+# load_config applies it by DEFAULT — every entry point (CLI, App backend,
+# harness jobs, acfc_run.py) behaves the same. CODEGEN_CONFIG_OVERLAYS set to
+# paths replaces it; set to "" disables it (the test suite does).
+DEFAULT_OVERLAY = Path("overlays") / "acfc_env.yaml"
+_announced_overlays: set[str] = set()
+
+
+def _default_overlays(config_path: Path) -> list[Path]:
+    if "CODEGEN_CONFIG_OVERLAYS" in os.environ:
+        return []
+    path = config_path.parent / DEFAULT_OVERLAY
+    if not path.is_file():
+        return []
+    if str(path) not in _announced_overlays:
+        _announced_overlays.add(str(path))
+        print(f"config overlay (default): {path}", file=sys.stderr)
+    return [path]
+
+
 def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> Config:
     """Load the YAML config, failing loudly on unknown top-level sections.
 
@@ -1383,6 +1409,10 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
     the file before validation — the M5 home for client-shaped vocabulary
     (e.g. the pair-1 IIG template rows under fixtures/) so the shipped
     config carries none of it. Unknown sections are refused after the merge.
+
+    When ``CODEGEN_CONFIG_OVERLAYS`` is UNSET and ``overlays/acfc_env.yaml``
+    sits next to the config file, that overlay is applied first (one stderr
+    line names it); an explicit env value replaces it, ``""`` disables it.
 
     ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
     ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
@@ -1393,7 +1423,7 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
-    overlay_paths = [Path(p) for p in (overlays or [])]
+    overlay_paths = [Path(p) for p in (overlays or [])] + _default_overlays(Path(path))
     env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
     if env_overlays:
         overlay_paths += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]

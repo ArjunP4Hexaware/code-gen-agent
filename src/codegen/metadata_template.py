@@ -35,7 +35,8 @@ def _const(tpl: MetadataTemplateConfig, tab: str, header: str) -> dict | None:
     value = tpl.constants.get(tab, {}).get(header)
     if value is None:
         return None
-    return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=tpl.citation))
+    citation = tpl.constant_citations.get(tab, {}).get(header) or tpl.citation
+    return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=citation))
 
 
 def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:

@@ -1,0 +1,34 @@
+# ACFC environment overlay (IIG-first, 2026-10-07). Deep-merged onto
+# config/config.yaml (codegen.config.load_config). acfc_run.py loads it by
+# DEFAULT whenever this file exists and CODEGEN_CONFIG_OVERLAYS is not set
+# (docs/ACFC_DEPLOY.md "ACFC environment overlay"). Values: the ACFC
+# environment's catalogs and the framework's connection ids / containers as
+# the real ADLS_DELTA_INGESTION_DETAILS rows carry them — environment
+# constants, not per-feed values. always_blank REPLACES the template's list
+# (lists are not merged): the six columns filled below leave it.
+conventions:
+  profiles:
+    acfc_prx:
+      default_catalog: {stage: d1_dlk, standard: d1_std}
+metadata:
+  templates:
+    iig_v2:
+      constants:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_CONNECTION_ID: "7"
+          METADATA_CONNECTION_ID: "4"
+          TGT_CONNECTION_ID: "2"
+          SRC_CONTAINER_NAME: mftlanding
+          TGT_CONTAINER_NAME: z-use-d1-dlk-stage-01
+          SCHEMA_DRIFT_FLAG: "Y"
+      constant_citations:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
+          METADATA_CONNECTION_ID: *acfc
+          TGT_CONNECTION_ID: *acfc
+          SRC_CONTAINER_NAME: *acfc
+          TGT_CONTAINER_NAME: *acfc
+          SCHEMA_DRIFT_FLAG: *acfc
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
+        TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
+        DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

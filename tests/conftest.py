@@ -23,6 +23,13 @@ from codegen.resolve.resolver import resolve_pair as resolve_contracts
 
 REPO = Path(__file__).resolve().parents[1]
 
+# The committed ACFC environment overlay (config/overlays/acfc_env.yaml) is
+# applied by load_config whenever CODEGEN_CONFIG_OVERLAYS is unset; the suite
+# asserts the SHIPPED config (goldens, inventories), so it disables the
+# default here — at import, before any module-level load_config. Tests that
+# want an overlay pass overlays= or monkeypatch the env.
+os.environ["CODEGEN_CONFIG_OVERLAYS"] = ""
+
 # Importing ui.backend.main (test_demo_ui and friends) runs load_dotenv as an
 # import side effect, which can put the OPERATOR'S machine-local env overrides
 # (e.g. CODEGEN_NOTIFICATION_EMAILS — a client value) into this process. The

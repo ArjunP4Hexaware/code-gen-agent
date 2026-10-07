@@ -164,6 +164,20 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
     }
 
 
+@app.get("/api/health")
+def health() -> dict:
+    """Liveness + every storage root the App reads: env var, value, and a live
+    probe (readable / empty / not shared with the App's service principal /
+    unset) — what the documents panel shows when it lists nothing."""
+    from codegen.storage import default_client_factory
+    from ui.backend.health import probe_roots
+
+    factory = default_client_factory(store.config) if store is not None else None
+    return {"status": "ok" if store is not None else "degraded",
+            "startup_error": startup_error,
+            **probe_roots(REPO_ROOT, client_factory=factory)}
+
+
 @app.get("/api/feeds")
 def list_feeds() -> dict:
     if store is None:

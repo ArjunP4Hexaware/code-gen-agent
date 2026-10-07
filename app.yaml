@@ -51,3 +51,26 @@ command: ["python", "-m", "ui.backend.main"]
 #   CODEGEN_STORAGE_OUTPUTS    workspace:/Workspace/Users/<user>/codegen/outputs
 #   CODEGEN_CONFIG_OVERLAYS    <acfc.overlay.yaml>
 #   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>
+
+# --- 2026-10-07: a Git deploy is self-sufficient --------------------------
+# ACFC workspace paths are committed HERE on explicit instruction (Soham,
+# 2026-10-07) — the App deployed from Git found no documents because these
+# values lived only in an uncommitted local copy. They are ACFC workspace
+# identifiers; do not merge this block into a branch shared outside ACFC.
+# Names are the ones this branch reads (codegen.storage ENV_OVERRIDES /
+# EXTRA_INPUTS_ENV; docs/ACFC_DEPLOY.md §3). The grants the App's service
+# principal needs, and how to find it: docs/ACFC_APP_ENV.md. If the document
+# chooser is empty it shows every root below with a live probe
+# (GET /api/health).
+env:
+  - name: CODEGEN_CONFIG_OVERLAYS
+    value: config/overlays/acfc_env.yaml
+  # PENDING the real paths — uncomment with the ACFC values:
+  # - name: CODEGEN_EXTRA_INPUT_DIRS
+  #   value: workspace:/Workspace/<path to frd_sttm_pairs>
+  # - name: CODEGEN_STORAGE_INPUTS
+  #   value: workspace:/Workspace/<...>/codegen/inputs
+  # - name: CODEGEN_STORAGE_STATE
+  #   value: workspace:/Workspace/<...>/codegen/state
+  # - name: CODEGEN_STORAGE_OUTPUTS
+  #   value: workspace:/Workspace/<...>/codegen/outputs

@@ -91,14 +91,43 @@ def _landing_badge(feed: FrdFeed, folder_badge: str = "from_frd") -> tuple[str, 
     return folder_badge, "FRD Structural Metadata → ADLS Location"
 
 
+_RELATIVE_PLACEHOLDERS = ("{landing_rel}", "{domain_path}")
+
+
+def _landing_rel(tpl: MetadataTemplateConfig, tab: str, landing: str) -> str:
+    """{landing_rel}: the landing minus its leading /<SRC_CONTAINER_NAME>
+    (the sheet's constant, else ADLS_DELTA_INGESTION_DETAILS's) — the path
+    INSIDE the source container. Unchanged when it does not start so."""
+    container = (tpl.constants.get(tab, {}).get("SRC_CONTAINER_NAME")
+                 or tpl.constants.get("ADLS_DELTA_INGESTION_DETAILS", {})
+                 .get("SRC_CONTAINER_NAME"))
+    prefix = f"/{container}/" if container else None
+    if prefix and landing.lower().startswith(prefix.lower()):
+        return landing[len(prefix) - 1:]
+    return landing
+
+
+def _domain_path(landing_rel: str) -> str:
+    """{domain_path}: {landing_rel} minus a leading inbound/ (no leading '/')."""
+    return re.sub(r"^/?inbound/", "", landing_rel, flags=re.IGNORECASE).lstrip("/")
+
+
 def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
            stage_table: str, reject_table: str) -> dict[str, dict]:
+    """Path cells from the template's shapes. Placeholders: {landing} (the
+    FRD ADLS Location), {landing_rel} / {domain_path} (see above),
+    {stage_table}, {reject_table}. Any shape may be overridden per sheet +
+    column in an overlay (SRC_ADLS_PATH included — a shape wins over the
+    FRD's plain landing)."""
     landing = _landing(feed)
     if landing is None:
         return {}
     cells = {}
     uri = location_scheme(feed.landing_location)
+    landing_rel = _landing_rel(tpl, tab, landing)
     for header, pattern in tpl.path_patterns.get(tab, {}).items():
+        if uri and any(p in pattern for p in _RELATIVE_PLACEHOLDERS):
+            continue                     # a location URI has no container-relative path
         if uri:
             # M10.2: the shape's segments are appended INSIDE the URI's path
             # — a shape that puts something before {landing} ("/Archive
@@ -122,8 +151,9 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
                     "prefixes the landing; on a location URI its segments follow the URI")
             cells[header] = cell
             continue
-        value = pattern.format(landing=landing, stage_table=stage_table,
-                               reject_table=reject_table)
+        value = pattern.format(landing=landing, landing_rel=landing_rel,
+                               domain_path=_domain_path(landing_rel),
+                               stage_table=stage_table, reject_table=reject_table)
         cells[header] = _cell(value.replace("//", "/"), "synthetic",
                               _PATH_TOOLTIP.format(citation=tpl.citation))
     return cells

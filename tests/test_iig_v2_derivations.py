@@ -144,3 +144,65 @@ def test_frequency_cell_normalises_and_keeps_the_text():
     open_cell = _frequency(_feed("twice a month"), None)
     assert open_cell["value"] == "" and open_cell["badge_entry"]["badge"] == "needs_template"
     assert "'twice a month'" in open_cell["badge_entry"]["tooltip"]
+
+
+# -- d. path placeholders ------------------------------------------------------- #
+
+ACFC_PATHS = """
+metadata:
+  templates:
+    iig_v2:
+      path_patterns:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: "{landing_rel}"
+          SRC_ADLS_ARCHVL_PATH: "{landing_rel}Archive/"
+          TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
+"""
+
+
+def test_landing_rel_and_domain_path():
+    from types import SimpleNamespace
+
+    from codegen.metadata_template import _domain_path, _landing_rel
+
+    tpl = SimpleNamespace(constants={"ADLS_DELTA_INGESTION_DETAILS": {
+        "SRC_CONTAINER_NAME": "mftlanding"}})
+    rel = _landing_rel(tpl, "STGDELTA_STDDELTA_INGESTION_DET",
+                       "/mftlanding/inbound/sdh/public/vendor_x/")
+    assert rel == "/inbound/sdh/public/vendor_x/"
+    assert _domain_path(rel) == "sdh/public/vendor_x/"
+    assert _landing_rel(tpl, "X", "/other/inbound/a/") == "/other/inbound/a/"   # not the container
+    assert _domain_path("/a/b/") == "a/b/"                                       # no inbound/
+    no_container = SimpleNamespace(constants={})
+    assert _landing_rel(no_container, "X", "/mftlanding/a/") == "/mftlanding/a/"
+
+
+def test_overlay_path_shapes_render_the_real_target_shape(tmp_path):
+    overlay = _write_overlay(tmp_path, ACFC_PATHS)
+    config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY, overlay])
+    spec, _gate, xlsx = _run(FRD, config, tmp_path)
+    (row, *_more) = _rows(xlsx, "ADLS_DELTA_INGESTION_DETAILS")
+    from codegen.metadata_template import _domain_path, _landing, _landing_rel
+
+    rel = _landing_rel(config.metadata.templates["iig_v2"], "ADLS_DELTA_INGESTION_DETAILS",
+                       _landing(_frd_feed(spec)))
+    stage = spec.detail_segment.stage_table.table
+    assert row["SRC_ADLS_PATH"][0] == rel                             # the shape wins
+    assert row["SRC_ADLS_ARCHVL_PATH"][0] == f"{rel}Archive/"
+    assert row["TGT_ADLS_PATH"][0] == f"/{_domain_path(rel)}Processed/{stage}"
+    assert row["TGT_RJT_ADLS_PATH"][0] == f"/{_domain_path(rel)}Reject/{stage}_reject"
+
+
+def test_shipped_iig_v2_path_shapes_unchanged():
+    shapes = load_config(REPO / "config" / "config.yaml").metadata.templates["iig_v2"] \
+        .path_patterns["ADLS_DELTA_INGESTION_DETAILS"]
+    assert shapes == {"SRC_ADLS_ARCHVL_PATH": "{landing}Archive/",
+                      "TGT_ADLS_PATH": "{landing}Processed/{stage_table}",
+                      "TGT_RJT_ADLS_PATH": "{landing}Processed/{reject_table}"}
+
+
+def _frd_feed(spec):
+    from codegen.metadata_sheet import _feed_from_spec
+
+    return _feed_from_spec(spec)

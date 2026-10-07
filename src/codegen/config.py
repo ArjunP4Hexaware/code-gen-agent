@@ -1018,7 +1018,9 @@ class MetadataTemplateConfig(BaseModel):
     always_blank: list[str] = Field(default_factory=list)
     citation: str = ""
     # SRC_COLUMNS: name_pair 'src:stage' | positional 'col<i>:<stage>'.
-    src_columns_style: Literal["name_pair", "positional"] = "name_pair"
+    # "named" = 'src:src' when every STTM source column is a real header,
+    # else positional ('col1:...' — a colN-style source names no header).
+    src_columns_style: Literal["name_pair", "positional", "named"] = "name_pair"
     # SRC_DATA_TYPE pairs: full types | base types ('Decimal' for Decimal(17,2)).
     data_type_style: Literal["full", "base"] = "full"
     rows_per_file_pattern: bool = False

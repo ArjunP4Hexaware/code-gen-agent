@@ -206,3 +206,40 @@ def _frd_feed(spec):
     from codegen.metadata_sheet import _feed_from_spec
 
     return _feed_from_spec(spec)
+
+
+# -- e. src_columns_style: named ------------------------------------------------- #
+
+
+def _field(source, stage):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(source_column=source, stage_column=stage)
+
+
+def test_named_sources_rule():
+    from codegen.metadata_template import _named_sources
+
+    assert _named_sources([_field("zip_code", "zip_code"), _field("pop", "pop")])
+    assert not _named_sources([_field("col1", "a"), _field("pop", "pop")])
+    assert not _named_sources([_field("COL_2", "a")])
+    assert not _named_sources([_field(None, "a")])
+    assert not _named_sources([])
+
+
+def test_named_style_is_overlay_selectable(tmp_path):
+    overlay = _write_overlay(tmp_path, "metadata: {templates: {iig_v2: "
+                                       "{src_columns_style: named}}}\n")
+    config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY, overlay])
+    spec, _gate, xlsx = _run(FRD, config, tmp_path)
+    from codegen.metadata_template import _distinct_fields, _named_sources
+
+    fields = _distinct_fields(spec)
+    (row, *_more) = _rows(xlsx, "ADLS_DELTA_INGESTION_DETAILS")
+    if _named_sources(fields):
+        expected = ",".join(f"{f.source_column}:{f.source_column}" for f in fields)
+    else:
+        expected = ",".join(f"col{i}:{f.stage_column}" for i, f in enumerate(fields, start=1))
+    assert row["SRC_COLUMNS"][0] == expected
+    shipped = load_config(REPO / "config" / "config.yaml").metadata.templates["iig_v2"]
+    assert shipped.src_columns_style == "positional"                   # the shipped default

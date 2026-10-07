@@ -63,6 +63,14 @@ def _distinct_fields(spec: ResolvedFeedSpec) -> list[SttmField]:
     return out
 
 
+def _named_sources(fields: list[SttmField]) -> bool:
+    """Every STTM source column is a real header (not blank, not 'col<N>')."""
+    return bool(fields) and all(
+        (f.source_column or "").strip()
+        and not re.fullmatch(r"col_?\d+", f.source_column.strip(), re.IGNORECASE)
+        for f in fields)
+
+
 def _audit(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) -> list[tuple[str, str]]:
     return [(a.column, tpl.audit_type_casing.get(a.datatype, a.datatype))
             for a in spec.audit_columns]
@@ -297,7 +305,9 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
     reject = _reject_table(tpl, spec, stage.table)
     patterns = (list(spec.file_name_patterns) if tpl.rows_per_file_pattern
                 else ["; ".join(spec.file_name_patterns)])
-    if tpl.src_columns_style == "positional":
+    if tpl.src_columns_style == "named" and _named_sources(fields):
+        src_columns = ",".join(f"{f.source_column}:{f.source_column}" for f in fields)
+    elif tpl.src_columns_style in ("positional", "named"):
         src_columns = ",".join(f"col{i}:{f.stage_column}" for i, f in enumerate(fields, start=1))
     else:
         src_columns = ",".join(f"{f.source_column}:{f.stage_column}" for f in fields)

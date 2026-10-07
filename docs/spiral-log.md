@@ -53,3 +53,12 @@
 - Earliest signal: n/a
 - Approx. time lost: none
 - Proposed refinement (for a retro, not now): count edit-run cycles that end in an unchanged error signature, rather than raw edits while red.
+
+## 2026-10-07: hook signal (b) — doc edited 4x while a ruff command "still failing"
+- Actual cause: not a spiral. `ruff check scripts/iig_scorecard.py tests/test_iig_scorecard.py` failed once (B905 + E501 from a heredoc line-join), was fixed by one edit, and then passed under a LONGER command line (`… src tests scripts/iig_scorecard.py`). The hook keys on the exact command string, so it never saw that command go green; the four edits were to four different sections of an unrelated doc (docs/acfc/IIG_SCORECARD_2026-10-07.md).
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — exit 0, "All checks passed!")
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~2 minutes
+- Proposed refinement (for a retro, not now): treat a later passing run whose command is a superset (same tool, more paths) as clearing an earlier failing one; and ignore edits to files the failing command does not cover.

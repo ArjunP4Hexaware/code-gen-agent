@@ -80,3 +80,13 @@ Entry format:
 - Seen: 2026-10
 - Permanent fix: patterns `git@github-work:*/**` / `git@github-personal:*/**`, plus a
   throwaway-repo regression check.
+
+## Hook (b) false positive: the failing command later passed under a different command line
+- Signature: spiral-detector signal (b) names a lint / test command as "still failing"
+  while the edits it counts are to files that command does not cover.
+- Usual cause: the hook matches the exact command string; the same check went green
+  under a broader invocation (more paths), which the hook does not link to the old one.
+- Check: re-run the exact command the signal quotes. Exit 0 = false trigger.
+- Pattern: none (not a spiral)
+- Seen: 2026-10-07
+- Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.

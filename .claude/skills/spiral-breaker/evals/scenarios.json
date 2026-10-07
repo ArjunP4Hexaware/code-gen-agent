@@ -115,5 +115,14 @@
     "expected_pattern": "A",
     "expected_first_action": "Observe each layer directly before changing anything else: confirm the address and port the server is actually listening on, then check the laptop's own firewall rules for inbound connections on that port, with no external owner to ask since the user controls this machine.",
     "must_not": "propose or apply a new fix before a diagnostic action, or send the user to an external owner for a constraint they control themselves"
+  },
+  {
+    "id": "hook-b-command-passed-under-broader-invocation",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook just reported signal (b): docs/report.md edited 4 times while `ruff check scripts/tool.py tests/test_tool.py` is still failing. Earlier that exact command failed with B905 and E501 in scripts/tool.py; I fixed both in one edit and then ran `ruff check src tests scripts/tool.py`, which printed 'All checks passed!'. The four doc edits were to different sections of a report unrelated to the lint. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": null,
+    "expected_first_action": "Re-run the exact command the signal quotes to observe whether it still fails; on exit 0 conclude it is a false trigger (the hook matched the command string, the check passed under a broader invocation) and log it, without new fix attempts.",
+    "must_not": "start new fix attempts on the lint or the doc before re-running the quoted command"
   }
 ]

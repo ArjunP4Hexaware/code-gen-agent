@@ -243,3 +243,50 @@ def test_named_style_is_overlay_selectable(tmp_path):
     assert row["SRC_COLUMNS"][0] == expected
     shipped = load_config(REPO / "config" / "config.yaml").metadata.templates["iig_v2"]
     assert shipped.src_columns_style == "positional"                   # the shipped default
+
+
+# -- f. HEADER_FLAG / FILE_HEADER_FLAG / FILE_FOOTER_FLAG ------------------------ #
+
+
+def _faq(header=None, trailer=None):
+    from types import SimpleNamespace
+
+    from codegen.faq import FaqAnswer
+
+    def answer(value):
+        return (FaqAnswer(value=value, source="engineer", evidence="FRD says so")
+                if value is not None else FaqAnswer(value="unknown"))
+
+    return SimpleNamespace(has_header=answer(header), has_trailer=answer(trailer))
+
+
+def _spec(delimiter):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(delimiter=delimiter)
+
+
+def test_delimited_flags_only_from_stated_answers():
+    from codegen.metadata_template import _header_flag_cells
+
+    cells = _header_flag_cells(_spec(","), _faq(header="yes", trailer="no"))
+    assert {k: v["value"] for k, v in cells.items()} == {
+        "HEADER_FLAG": "Y", "FILE_HEADER_FLAG": "Y", "FILE_FOOTER_FLAG": "N"}
+    assert all(v["badge_entry"]["badge"] == "from_faq" for v in cells.values())
+    assert "has_header 'yes' → Y" in cells["HEADER_FLAG"]["badge_entry"]["tooltip"]
+    only_header = _header_flag_cells(_spec("|"), _faq(header="no"))
+    assert {k: v["value"] for k, v in only_header.items()} == {
+        "HEADER_FLAG": "N", "FILE_HEADER_FLAG": "N"}                   # trailer stays open
+    assert _header_flag_cells(_spec(","), _faq()) == {}               # nothing stated: open
+    assert _header_flag_cells(_spec(","), None) == {}
+
+
+def test_fixed_width_keeps_the_pre_existing_reading():
+    """No delimiter: the golden's flags do not follow header / trailer
+    SEGMENTS (open framework question) — HEADER_FLAG as the FAQ states it,
+    the FILE_* flags open."""
+    from codegen.metadata_template import _header_flag_cells
+
+    cells = _header_flag_cells(_spec(None), _faq(header="no", trailer="yes"))
+    assert list(cells) == ["HEADER_FLAG"]
+    assert cells["HEADER_FLAG"]["value"] == "no"

@@ -260,6 +260,35 @@ def _load_option_cell(strategy, layer_label: str) -> dict:
     return _cell(option, "from_frd", tooltip)
 
 
+_YES_NO = {"yes": "Y", "y": "Y", "true": "Y", "no": "N", "n": "N", "false": "N"}
+
+
+def _header_flag_cells(spec: ResolvedFeedSpec, faq) -> dict:
+    """HEADER_FLAG / FILE_HEADER_FLAG / FILE_FOOTER_FLAG — only from a stated
+    answer (the FAQ's has_header / has_trailer; the FRD states neither).
+    Delimited files: the column-header row -> HEADER_FLAG + FILE_HEADER_FLAG,
+    the trailer -> FILE_FOOTER_FLAG, as Y / N. Fixed-width files keep the
+    pre-existing reading (HEADER_FLAG = the FAQ answer as given; the FILE_*
+    flags open): the golden's flags there do not follow header / trailer
+    SEGMENTS (an open framework question), so nothing is derived. Unstated
+    -> open (BSA)."""
+    header = _faq_cell(faq, "has_header", "load-pattern FAQ answer")
+    if not spec.delimiter:
+        return {"HEADER_FLAG": header} if header is not None else {}
+    cells = {}
+    for name, headers in (("has_header", ("HEADER_FLAG", "FILE_HEADER_FLAG")),
+                          ("has_trailer", ("FILE_FOOTER_FLAG",))):
+        answer = _faq_cell(faq, name, "load-pattern FAQ answer")
+        flag = _YES_NO.get(str(answer["value"]).strip().lower()) if answer else None
+        if flag is None:
+            continue
+        for column in headers:
+            cells[column] = _cell(flag, answer["badge_entry"]["badge"],
+                                  f"{answer['badge_entry'].get('tooltip', '')} — {name} "
+                                  f"{answer['value']!r} → {flag}")
+    return cells
+
+
 def _reject_table(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec, stage_table: str) -> str:
     if tpl.reject_table_suffix is not None:
         return f"{stage_table}{tpl.reject_table_suffix}"
@@ -358,9 +387,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                                            "FRD Structural Metadata → ADLS Location")
         if spec.delimiter:
             cells["SRC_FILE_DELIMITER"] = _cell(spec.delimiter, "from_frd")
-        header_flag = _faq_cell(faq, "has_header", "load-pattern FAQ answer")
-        if header_flag is not None:
-            cells["HEADER_FLAG"] = header_flag
+        cells.update(_header_flag_cells(spec, faq))
         if spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
         if spec.natural_key_columns:

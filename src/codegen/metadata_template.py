@@ -171,6 +171,21 @@ def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
                  "three-part name uses the same value")
 
 
+def _load_option_cell(strategy, layer_label: str) -> dict:
+    """TGT_LOAD_OPTION in the framework's vocabulary: the FRD Load Strategy
+    through the same map TGT_REFRESH_TYPE uses (metadata_sheet
+    ._REFRESH_TYPE_BY_STRATEGY: Truncate and Load -> Overwrite); a mapped
+    value keeps the FRD's own text in the tooltip."""
+    from codegen.metadata_sheet import _REFRESH_TYPE_BY_STRATEGY
+
+    tooltip = f"FRD Structural Metadata → Load Strategy {layer_label}"
+    option = _REFRESH_TYPE_BY_STRATEGY.get(strategy, strategy)
+    if option != strategy:
+        tooltip += (f": FRD states {str(strategy)!r} → framework load option {option!r} "
+                    "(reference IIG vocabulary)")
+    return _cell(option, "from_frd", tooltip)
+
+
 def _reject_table(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec, stage_table: str) -> str:
     if tpl.reject_table_suffix is not None:
         return f"{stage_table}{tpl.reject_table_suffix}"
@@ -246,8 +261,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                 ",".join([f.stage_column for f in fields] + [c for c, _t in audit]), "from_sttm"),
             "TGT_DATA_TYPE": _cell(
                 ",".join([f.stage_datatype for f in fields] + [t for _c, t in audit]), "from_sttm"),
-            "TGT_LOAD_OPTION": _cell(spec.stage_load_strategy, "from_frd",
-                                     "FRD Structural Metadata → Load Strategy STG"),
+            "TGT_LOAD_OPTION": _load_option_cell(spec.stage_load_strategy, "STG"),
             "TGT_RJT_TABLE_NAME": _cell(
                 reject, "synthetic" if tpl.reject_table_suffix is not None else "from_sttm",
                 _TEMPLATE_TOOLTIP.format(citation=tpl.citation)
@@ -326,8 +340,7 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
         if catalog is not None:
             cells[header] = catalog
     if spec.standard_load_strategy:
-        cells["TGT_LOAD_OPTION"] = _cell(spec.standard_load_strategy, "from_frd",
-                                         "FRD Structural Metadata → Load Strategy STD")
+        cells["TGT_LOAD_OPTION"] = _load_option_cell(spec.standard_load_strategy, "STD")
     if spec.natural_key_columns:
         cells["TGT_PRIMARY_KEY"] = _cell(",".join(spec.natural_key_columns), "from_sttm",
                                          "the mapping contract's natural key columns")

@@ -82,3 +82,30 @@ def test_unresolved_catalog_leaves_the_cell_to_a_constant(tmp_path):
     (row,) = _rows(xlsx, "STGDELTA_STDDELTA_INGESTION_DET")
     assert row["SRC_CATALOG_NAME"][0] == "const_stg"           # was always blank before
     assert row["TGT_CATALOG_NAME"][0] in (None, "")             # still open, never guessed
+
+
+# -- b. TGT_LOAD_OPTION ------------------------------------------------------------ #
+
+
+def test_load_option_speaks_the_framework_vocabulary():
+    from codegen.metadata_template import _load_option_cell
+
+    cell = _load_option_cell("Truncate and Load", "STG")
+    assert cell["value"] == "Overwrite"
+    assert cell["badge_entry"]["badge"] == "from_frd"
+    assert "'Truncate and Load'" in cell["badge_entry"]["tooltip"]      # the FRD's own text
+    assert "Load Strategy STG" in cell["badge_entry"]["tooltip"]
+    same = _load_option_cell("Append", "STD")                             # already framework
+    assert same["value"] == "Append"
+    assert same["badge_entry"]["tooltip"] == "FRD Structural Metadata → Load Strategy STD"
+
+
+def test_load_option_both_sheets_on_a_truncate_and_load_feed(tmp_path):
+    config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY])
+    spec, _gate, xlsx = _run(FRD, config, tmp_path)
+    expected = {"ADLS_DELTA_INGESTION_DETAILS": spec.stage_load_strategy,
+                "STGDELTA_STDDELTA_INGESTION_DET": spec.standard_load_strategy}
+    for sheet, strategy in expected.items():
+        for row in _rows(xlsx, sheet):
+            want = "Overwrite" if strategy == "Truncate and Load" else strategy
+            assert row["TGT_LOAD_OPTION"][0] == want

@@ -13,7 +13,7 @@ inside ACFC pulls this branch. Nothing merged anywhere.
 the IIG / metadata / framework files also pass with lxml installed (the local
 `.venv` has NO lxml — install it to a scratch `--target` dir and put it on
 `PYTHONPATH` to reproduce lxml-only bugs); ruff clean; scrub 0 over every
-changed file. Version marker **0.5.8.post10** (pyproject + requirements.txt).
+changed file. Version marker **0.5.8.post11** (pyproject + requirements.txt).
 
 **What 2026-10-07 changed (oldest first):**
 - be4c6e4 — `stable_workbook_bytes` replaced the whole `<dcterms:modified>`
@@ -56,7 +56,9 @@ changed file. Version marker **0.5.8.post10** (pyproject + requirements.txt).
   the Socially Determined (MIDS) pair.
 
 - 50a510e and the commit after it — **stale-install immunity**: the App
-  (`ui/backend/__init__.py`: `<repo>/src` first on sys.path + PYTHONPATH,
+  (`ui/backend/__init__.py` loads `src/codegen/_srcpath.py` by path:
+  `ensure_src_first()`; every child launch — docindex parser, gate ruff /
+  pytest, acfc_run.py — passes `env=_srcpath.child_env()`,
   startup line `codegen source: …`, `GET /api/health`), the CLI (first line
   `codegen <v> from <file> · overlays: …`, `codegen doctor`), `acfc_run.py`
   (`launch_codegen` with `PYTHONPATH=<repo>/src`, root from its own location),

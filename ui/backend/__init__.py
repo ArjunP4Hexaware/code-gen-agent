@@ -5,18 +5,19 @@ predates ``iig_review`` while ``config/config.yaml`` came from the new tree →
 
 This package ``__init__`` runs before any ``ui.backend.*`` module imports
 ``codegen`` (``python -m ui.backend.main``, ``uvicorn ui.backend.main:app``,
-``import ui.backend.main``): it puts ``<repo root>/src`` first on ``sys.path``
-and drops an already-imported ``codegen`` that lives elsewhere. An editable
-install already pointing at ``<repo root>/src`` (the test suite) is left as
-it is — its modules are never re-imported. `<repo root>/src` is also
-prepended to PYTHONPATH so child processes resolve the same code. Stdlib only.
+``import ui.backend.main``). It loads the tree's ``src/codegen/_srcpath.py``
+BY FILE PATH (never via ``import codegen``, which a stale install could
+answer) and calls its ``ensure_src_first()``: ``<repo root>/src`` first on
+``sys.path``, a ``codegen`` imported from elsewhere dropped. Child processes
+get the same rule explicitly — every launch site passes
+``env=codegen._srcpath.child_env()``. Stdlib only.
 """
 
 from __future__ import annotations
 
-import os
-import sys
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 
 def _repo_root() -> Path | None:
@@ -36,18 +37,18 @@ def _from_tree(module_file: str | None, src: Path) -> bool:
     return True
 
 
+def _load_srcpath(src: Path) -> ModuleType | None:
+    path = src / "codegen" / "_srcpath.py"
+    spec = importlib.util.spec_from_file_location("codegen_srcpath_bootstrap", path)
+    if not path.is_file() or spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 REPO_ROOT = _repo_root()
 TREE_SRC = REPO_ROOT / "src" if REPO_ROOT is not None else None
-
-if TREE_SRC is not None and (TREE_SRC / "codegen").is_dir():
-    loaded = sys.modules.get("codegen")
-    if loaded is not None and not _from_tree(getattr(loaded, "__file__", None), TREE_SRC):
-        for name in [m for m in sys.modules if m == "codegen" or m.startswith("codegen.")]:
-            del sys.modules[name]
-    src = str(TREE_SRC)
-    sys.path[:] = [p for p in sys.path if p != src]
-    sys.path.insert(0, src)
-    # Child processes (the document parser `python -m codegen.layout.docworker`,
-    # the gate's ruff / pytest) inherit the environment, not sys.path.
-    _existing = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p and p != src]
-    os.environ["PYTHONPATH"] = os.pathsep.join([src, *_existing])
+srcpath = _load_srcpath(TREE_SRC) if TREE_SRC is not None else None
+if srcpath is not None:
+    srcpath.ensure_src_first()

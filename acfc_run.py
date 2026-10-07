@@ -81,14 +81,22 @@ def launcher_file() -> Path:
         return Path("/Workspace" + context.notebookPath().get())
 
 
+def srcpath_module(repo_root: Path):
+    """This checkout's ``src/codegen/_srcpath.py``, loaded BY FILE PATH — never
+    via ``import codegen``, which a stale install could answer."""
+    import importlib.util
+
+    path = repo_root / "src" / "codegen" / "_srcpath.py"
+    spec = importlib.util.spec_from_file_location("codegen_srcpath_bootstrap", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def codegen_env(repo_root: Path, base: dict | None = None) -> dict:
     """``base`` (default: this process's env) with ``<repo_root>/src``
-    prepended to PYTHONPATH, existing entries kept."""
-    env = dict(os.environ if base is None else base)
-    src = str(repo_root / "src")
-    rest = [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p and p != src]
-    env["PYTHONPATH"] = os.pathsep.join([src, *rest])
-    return env
+    prepended to PYTHONPATH, existing entries kept (``_srcpath.child_env``)."""
+    return srcpath_module(repo_root).child_env(base=base)
 
 
 def launch_codegen(repo_root: Path, *args: str,
@@ -102,9 +110,7 @@ def launch_codegen(repo_root: Path, *args: str,
 
 REPO = repo_root_from(launcher_file().parent)
 # The in-process imports below resolve the same code as the subprocesses.
-sys.path[:] = [str(REPO / "src"), *[p for p in sys.path if p != str(REPO / "src")]]
-for _name in [m for m in sys.modules if m == "codegen" or m.startswith("codegen.")]:
-    del sys.modules[_name]
+srcpath_module(REPO).ensure_src_first()
 print("repo:", REPO)
 
 # COMMAND ----------

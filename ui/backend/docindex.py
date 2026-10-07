@@ -41,6 +41,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from codegen._srcpath import child_env, ensure_src_first
+
 INDEX_FILE = "document_index.json"
 CLASSIFYING = "classifying"
 UNREADABLE = "unreadable"
@@ -82,6 +84,9 @@ class ParserProcess:
         self.used = time.monotonic()
 
     def _start(self) -> subprocess.Popen:
+        # The child is `python -m codegen.layout.docworker`: it must import the
+        # same codegen as this process — src/ first here, and on its PYTHONPATH.
+        ensure_src_first()
         # The child's stderr is discarded unless CODEGEN_DOCWORKER_STDERR names
         # a file (M15e: "the document parser exited while reading the
         # document" was undiagnosable without it).
@@ -91,7 +96,7 @@ class ParserProcess:
             stderr = open(log_path, "a", encoding="utf-8")  # noqa: SIM115 — the child owns it
         proc = subprocess.Popen(  # noqa: S603 — our own interpreter, a fixed module
             self._command, cwd=self._cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=stderr, text=True, encoding="utf-8", bufsize=1)
+            stderr=stderr, text=True, encoding="utf-8", bufsize=1, env=child_env())
         if stderr is not subprocess.DEVNULL:
             stderr.close()  # type: ignore[union-attr]  — the child holds its own handle
         lines: queue.Queue = queue.Queue()

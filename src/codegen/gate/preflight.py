@@ -17,6 +17,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from codegen._srcpath import child_env
 from codegen.config import Config
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -66,6 +67,7 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
             capture_output=True,
             text=True,
             check=False,
+            env=child_env(),
         )
     except OSError as exc:
         return GateCheck(name="ruff", passed=True, not_run=True,

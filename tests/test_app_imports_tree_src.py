@@ -59,3 +59,55 @@ def test_the_shim_without_a_decoy_keeps_an_editable_install(tmp_path):
     assert Path(codegen.__file__).resolve().is_relative_to(SRC.resolve())
     assert backend.TREE_SRC == SRC
     assert str(SRC) in sys.path
+
+
+# -- the document-parser child (ui/backend/docindex.py) ------------------------- #
+
+WORKBOOK = REPO / "fixtures" / "acfc_shapes" / "sttm" / "pair_1_family_a.xlsx"
+
+
+def _decoy_dir(tmp_path: Path) -> Path:
+    decoy = tmp_path / "decoy"
+    (decoy / "codegen").mkdir(parents=True)
+    (decoy / "codegen" / "__init__.py").write_text(
+        'raise ImportError("decoy codegen imported — a stale install won")\n', encoding="utf-8")
+    return decoy
+
+
+def test_the_document_parser_classifies_despite_a_decoy(config, tmp_path, monkeypatch):
+    from ui.backend import docindex
+
+    monkeypatch.setenv("PYTHONPATH", str(_decoy_dir(tmp_path)))
+    parser = docindex.ParserProcess(docindex.worker_command(config, REPO), REPO, 90.0)
+    try:
+        result = parser.parse(WORKBOOK, WORKBOOK.name, 60.0)
+    finally:
+        parser.stop()
+    assert result["state"] == "sttm" and result["facts"] is not None
+
+
+def test_without_child_env_the_decoy_kills_the_parser(config, tmp_path, monkeypatch):
+    """The control: the same child with the plain environment exits."""
+    import pytest
+    from ui.backend import docindex
+
+    monkeypatch.setenv("PYTHONPATH", str(_decoy_dir(tmp_path)))
+    monkeypatch.setattr(docindex, "child_env", lambda: dict(os.environ))
+    parser = docindex.ParserProcess(docindex.worker_command(config, REPO), REPO, 20.0)
+    try:
+        with pytest.raises((RuntimeError, docindex.ParserTimeout)):
+            parser.parse(WORKBOOK, WORKBOOK.name, 20.0)
+    finally:
+        parser.stop()
+
+
+def test_child_env_and_ensure_src_first():
+    from codegen import _srcpath
+
+    assert SRC.resolve() == _srcpath.SRC and REPO.resolve() == _srcpath.REPO_ROOT
+    env = _srcpath.child_env({"X_EXTRA": "1"}, base={"PYTHONPATH": os.pathsep.join(
+        ["a", str(_srcpath.SRC), "b"])})
+    assert env["PYTHONPATH"].split(os.pathsep) == [str(_srcpath.SRC), "a", "b"]
+    assert env["X_EXTRA"] == "1"
+    assert _srcpath.ensure_src_first() == _srcpath.SRC and sys.path[0] == str(_srcpath.SRC)
+    assert _srcpath.load_by_path(SRC).SRC == _srcpath.SRC

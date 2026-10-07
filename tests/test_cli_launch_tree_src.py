@@ -26,7 +26,7 @@ def _launcher_functions() -> dict:
     """repo_root_from / codegen_env / launch_codegen as acfc_run.py defines
     them (the notebook's top level runs dbutils, so it is not importable)."""
     tree = ast.parse(LAUNCHER.read_text(encoding="utf-8"))
-    wanted = {"repo_root_from", "codegen_env", "launch_codegen"}
+    wanted = {"repo_root_from", "srcpath_module", "codegen_env", "launch_codegen"}
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     assert {n.name for n in nodes} == wanted
     namespace: dict = {"os": os, "subprocess": subprocess, "sys": sys, "Path": Path}

@@ -96,9 +96,18 @@ The Apps venv once kept an old pip-installed `codegen` while
 "unknown top-level config section(s) ['iig_review']". Every entry point now
 runs the checkout's own `src/` and says so:
 
-- **App**: `ui/backend/__init__.py` puts `<repo>/src` first on `sys.path`
-  (and on `PYTHONPATH`, for the document-parser child and the gate's ruff /
-  pytest) before anything imports `codegen`. Startup prints
+- **One rule, `src/codegen/_srcpath.py`** (stdlib, loadable by file path
+  before any `import codegen`): `ensure_src_first()` puts `<repo>/src` first
+  on `sys.path` and drops a `codegen` imported from elsewhere;
+  `child_env(extra=None)` returns the environment with `<repo>/src` prepended
+  to `PYTHONPATH`. EVERY child-process launch passes `env=child_env()`: the
+  document parser (`ui/backend/docindex.py` `ParserProcess._start`, which
+  also calls `ensure_src_first()` first), the gate's ruff
+  (`gate/preflight.py`) and pytest (`gate/tests_runner.py`), and the
+  `acfc_run.py` CLI launcher. A launcher outside this repo (codegen-watch)
+  must do the same: `PYTHONPATH=<repo>/src` ahead of anything else.
+- **App**: `ui/backend/__init__.py` loads `_srcpath.py` by path and calls
+  `ensure_src_first()` before anything imports `codegen`. Startup prints
   `codegen source: <file> version <v> · iig_review supported: <b> · config:
   <path>`; the same line is in the startup error the UI shows and in
   `GET /api/health` (`codegen_source`, `codegen_file`).

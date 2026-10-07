@@ -7,11 +7,11 @@ is the feed directory; the generated conftest handles sys.path itself.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
+from codegen._srcpath import child_env
 from codegen.gate.preflight import GateCheck
 
 
@@ -27,7 +27,7 @@ def run_generated_tests(feed_dir: Path, tail_lines: int) -> GateCheck:
         text=True,
         check=False,
         cwd=str(feed_dir),
-        env=os.environ.copy(),
+        env=child_env(),
     )
     output_lines = (result.stdout + result.stderr).strip().splitlines()
     tail = "\n".join(output_lines[-tail_lines:])

@@ -1,0 +1,7 @@
+# ACFC environment overlay — backup/ddl-only (2026-10-07). This branch has NO
+# auto-load: apply it with CODEGEN_CONFIG_OVERLAYS=config/overlays/acfc_env.yaml.
+# The last link of the catalog chain, so acfc_prx DDL gets three-part names.
+conventions:
+  profiles:
+    acfc_prx:
+      default_catalog: {stage: d1_dlk, standard: d1_std}

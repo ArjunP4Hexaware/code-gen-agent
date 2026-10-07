@@ -109,3 +109,38 @@ def test_load_option_both_sheets_on_a_truncate_and_load_feed(tmp_path):
         for row in _rows(xlsx, sheet):
             want = "Overwrite" if strategy == "Truncate and Load" else strategy
             assert row["TGT_LOAD_OPTION"][0] == want
+
+
+# -- c. FREQUENCY / PIPELINE_FREQUENCY ------------------------------------------- #
+
+
+def test_frequency_token_reading():
+    from codegen.metadata_template import _frequency_token
+
+    assert _frequency_token("Monthly Run; File will be received yearly twice.") == "Monthly"
+    assert _frequency_token("daily") == "Daily"
+    assert _frequency_token("Files arrive weekly on Monday") == "Weekly"
+    assert _frequency_token("Received annually") == "Yearly"
+    assert _frequency_token("twice a month") is None                   # no token
+    assert _frequency_token("Files arrive daily and monthly") is None  # several, none leads
+
+
+def _feed(frequency):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(frequency=frequency)
+
+
+def test_frequency_cell_normalises_and_keeps_the_text():
+    from codegen.metadata_template import _frequency
+
+    cell = _frequency(_feed("Monthly Run; File reception: 11-15th of every month"), None)
+    assert cell["value"] == "Monthly"
+    assert cell["badge_entry"]["badge"] == "from_frd"
+    assert "'Monthly Run; File reception: 11-15th of every month'" in \
+        cell["badge_entry"]["tooltip"]
+    plain = _frequency(_feed("Daily"), None)                     # already a token: unchanged
+    assert plain["value"] == "Daily" and "tooltip" not in plain["badge_entry"]
+    open_cell = _frequency(_feed("twice a month"), None)
+    assert open_cell["value"] == "" and open_cell["badge_entry"]["badge"] == "needs_template"
+    assert "'twice a month'" in open_cell["badge_entry"]["tooltip"]

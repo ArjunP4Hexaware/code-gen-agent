@@ -144,10 +144,46 @@ def _process_name(faq) -> dict | None:
     return _faq_cell(faq, "process_name", "framework process name (load-pattern FAQ)")
 
 
+_FREQUENCY_TOKENS = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly",
+                     "yearly": "Yearly", "annual": "Yearly", "annually": "Yearly"}
+_FREQUENCY_TOKEN_RE = re.compile(r"\b(daily|weekly|monthly|yearly|annual(?:ly)?)\b",
+                                 re.IGNORECASE)
+
+
+def _frequency_token(text: str) -> str | None:
+    """One framework frequency token from FRD / FAQ text: the LEADING word
+    when it is one ("Monthly Run; … yearly twice" -> Monthly — the run
+    cadence leads, as metadata_sheet._frequency_parts reads it), else the
+    only token the text names; None when it names none or several."""
+    found = [_FREQUENCY_TOKENS[m.group(1).lower()] for m in _FREQUENCY_TOKEN_RE.finditer(text)]
+    lead = _FREQUENCY_TOKEN_RE.match(text.strip())
+    if lead:
+        return _FREQUENCY_TOKENS[lead.group(1).lower()]
+    return found[0] if len(set(found)) == 1 else None
+
+
 def _frequency(feed: FrdFeed, faq) -> dict:
+    """FREQUENCY / PIPELINE_FREQUENCY as one framework token (Monthly / Daily
+    / Weekly / Yearly); the stated text stays in the tooltip. No single
+    token -> left open, never guessed."""
     from codegen.metadata_sheet import _frequency_cell
 
-    return _frequency_cell(feed, faq)
+    cell = _frequency_cell(feed, faq)
+    raw = str(cell["value"] or "").strip()
+    if not raw:
+        return cell
+    entry = cell["badge_entry"]
+    token = _frequency_token(raw)
+    if token == raw:
+        return cell
+    source = entry.get("tooltip") or ("FRD Descriptive Metadata → Frequency"
+                                      if entry["badge"] == "from_frd" else "stated")
+    if token is None:
+        return _cell("", "needs_template",
+                     f"{source}: stated as {raw!r} — no single framework frequency token "
+                     "(Monthly / Daily / Weekly / Yearly); left open")
+    return _cell(token, entry["badge"],
+                 f"{source}: stated as {raw!r} → framework frequency token {token!r}")
 
 
 def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:

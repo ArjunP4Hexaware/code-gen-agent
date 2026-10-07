@@ -1,19 +1,62 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## START HERE — branch `feature/iig-first` (state as of 2026-10-07, before the 2:30 PM demo)
+## START HERE — branch `feature/iig-first` (state as of 2026-10-07, end of day)
 
-**What this branch is.** Cut from `fix/remove-mock-provider-ui-text` (merge
-base e89a263 = M15e; that branch's notes follow below and still apply).
-IIG-first M1–M3 (6291cb5 … 3f44dc8) made every `acfc_prx` framework run write
-`<feed>_IIG.xlsx` (clean copy) + `<feed>_IIG_REVIEW.xlsx` (review copy). Pushed
-to `origin/feature/iig-first` at d8b2f29, working tree clean. `codegen-watch`
-inside ACFC pulls this branch. Nothing merged anywhere.
+**Where things stand.** Two live branches, both pushed, nothing merged
+anywhere (staging / main untouched):
 
-**Verified at d8b2f29:** 800 passed / 27 skipped (Python 3.11, full suite);
-the IIG / metadata / framework files also pass with lxml installed (the local
+| Branch | Head | Version | What it is |
+| --- | --- | --- | --- |
+| `feature/iig-first` (this checkout) | **9da340a** | 0.5.8.post13 | cut from `fix/remove-mock-provider-ui-text` at e89a263 (M15e — that branch's notes below still apply); IIG-first M1–M3 (6291cb5 … 3f44dc8) made every `acfc_prx` framework run write `<feed>_IIG.xlsx` (clean) + `<feed>_IIG_REVIEW.xlsx` (review); then the 2026-10-07 work below. `codegen-watch` inside ACFC pulls it |
+| `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only fallback for the demo: `origin/fix/remove-mock-provider-ui-text` (e89a263, descended from tag `v0.5.8-acfc` 3a5b85d) + version bump + `config/overlays/acfc_env.yaml` with ONLY the `acfc_prx` default_catalog (NO auto-load there — `CODEGEN_CONFIG_OVERLAYS`) + the health probe below. `docs/acfc/BACKUP_DDL_ONLY.md`. Suite 740 passed / 28 skipped |
+
+Working tree clean at 9da340a (only the untracked `docs/acfc/denylist_local.txt`).
+A worktree of `backup/ddl-only` lived in the 2026-10-07 session scratchpad
+(gone with it): recreate with `git worktree prune` then `git worktree add
+<dir> backup/ddl-only`; copy in the gitignored fixtures (SFMC contracts, the
+raw pair-1 IIG golden under `docs/acfc/rfc_capture/…/goldens/pair_1/`) and run
+with the main `.venv` + `PYTHONPATH="src;."` (export
+`MSYS2_ENV_CONV_EXCL=PYTHONPATH`). A fresh Windows checkout CRLF-converts
+`docs/acfc/rfc_capture/…/goldens/pair_1/ACCUM_DDL.txt` (no `-text` rule outside
+`fixtures/**`) and fails one fixture test locally — re-check it out with
+`git -c core.autocrlf=false checkout -- <file>`.
+
+**FIRST, pick up here (pending, in priority order):**
+1. **The four ACFC workspace paths for `app.yaml` (both branches).** The
+   Git-deployed App finds no documents because the committed `app.yaml` had no
+   env block. Both branches now carry `env:` with
+   `CODEGEN_CONFIG_OVERLAYS=config/overlays/acfc_env.yaml` and the four
+   `CODEGEN_EXTRA_INPUT_DIRS` / `CODEGEN_STORAGE_INPUTS` / `_STATE` / `_OUTPUTS`
+   entries **commented out as PENDING** — Soham's brief carried placeholders,
+   not values; never guess them. When he sends them: uncomment on BOTH
+   branches (comment says ACFC paths committed on explicit instruction), bump
+   the marker, suite, push. Grants + how to find the App's principal:
+   `docs/ACFC_APP_ENV.md` (a fresh Git deploy may mean a new App = a new
+   service principal → re-share the folders).
+2. **ACFC harness results are `LEAK_GATE_BLOCKED`.** `origin/acfc-results`
+   (read in place with `git show`, never check out, never quote names): every
+   10-pair run of this branch on 2026-10-07 (d8b2f29 ×2, 50a510e, ca6bab8)
+   is a 4-field stub — `status: LEAK_GATE_BLOCKED, hit_count: 4`, no pairs,
+   no env, no log — so it says nothing about pass/fail. The only detailed
+   result (2026-10-05, 39653aa, 1 pair) was leak-gate CLEAN (0/197),
+   installed 0.5.8.post6 = the tree, generate/ddl/iig/dml FAIL, error null.
+   **Hypothesis (unverified):** the 4 hits are the overlay's four
+   environment names (two catalogs, two containers) now in the DDL / IIG.
+   Test: re-run the harness on this branch with `CODEGEN_SKIP_ENV_OVERLAY=1`;
+   0 hits → it is a leak-gate allow-list decision; else ask the harness owner
+   for the per-pair stages with only the hit terms redacted.
+3. After the demo (scheduled, Soham's call): untrack / purge the real
+   reference files (see "Open / scheduled" below); split `acfc_env.yaml` per
+   source family.
+
+**Verified at 9da340a:** 818 passed / 27 skipped (Python 3.11, full suite);
+ruff (`src/ tests/ ui/backend/`), tsc clean; vitest 15 passed; scrub 0 over
+every changed file; `ui/frontend/dist` rebuilt (`index-CS2UgojU.js` + map).
+The IIG / metadata / framework files also pass with lxml installed (the local
 `.venv` has NO lxml — install it to a scratch `--target` dir and put it on
-`PYTHONPATH` to reproduce lxml-only bugs); ruff clean; scrub 0 over every
-changed file. Version marker **0.5.8.post13** (pyproject + requirements.txt).
+`PYTHONPATH` to reproduce lxml-only bugs). Version marker **0.5.8.post13**
+(pyproject + requirements.txt — bump BOTH on every push that changes `src/`
+or `ui/`).
 
 **What 2026-10-07 changed (oldest first):**
 - be4c6e4 — `stable_workbook_bytes` replaced the whole `<dcterms:modified>`
@@ -66,6 +109,29 @@ changed file. Version marker **0.5.8.post13** (pyproject + requirements.txt).
   from the notebook-mode snapshot hash — it names the checkout). Tests:
   `tests/test_app_imports_tree_src.py`, `tests/test_cli_launch_tree_src.py`
   (decoy `codegen` ahead on PYTHONPATH). docs/ACFC_DEPLOY.md "Which codegen runs".
+- ca6bab8 — one src-first rule, `src/codegen/_srcpath.py` (stdlib, loadable
+  BY FILE PATH before any `import codegen`): `ensure_src_first()`,
+  `child_env(extra=None, base=None)`, `load_by_path()`. Launch sites that pass
+  `env=child_env()`: `ui/backend/docindex.py` `ParserProcess._start` (also
+  calls `ensure_src_first()` first), `gate/preflight.py` (ruff),
+  `gate/tests_runner.py` (pytest), `acfc_run.py` `launch_codegen`
+  (`srcpath_module`). `codegen-watch` is NOT in this repo — it must put
+  `PYTHONPATH=<repo>/src` first itself.
+- 2c3c6d4 — **ruff is a BASE dependency** (every install: `.`, `.[ui]`,
+  `.[databricks]`); a missing ruff module is the gate flag
+  `ruff_unavailable — <reason>` (GateCheck.flag), PASS_WITH_FLAGS, never FAIL;
+  any other reason ruff did not run keeps `check_not_run:ruff`
+  (`tests/test_ruff_dependency.py`).
+- 9da340a (cherry-pick of backup 4acec93) — **self-diagnosing storage roots**:
+  `ui/backend/health.py` probes every root the App reads
+  (`CODEGEN_EXTRA_INPUT_DIRS` entries + `CODEGEN_STORAGE_INPUTS/_STATE/_OUTPUTS`):
+  readable / empty / not_shared (names the App's principal + the grant: Can
+  Read pairs, Can Manage roles) / unset / invalid / error / timeout; read-only
+  (`exists` then `list` — a remote `list` answers `[]` for a root it cannot
+  see). `GET /api/health` here = version, codegen_source, codegen_file,
+  config_overlays, startup_error, **principal, roots**. The document chooser's
+  empty state shows the table (`components/StorageRoots.tsx`). Tests:
+  `tests/test_health_probe.py`. Docs: `docs/ACFC_APP_ENV.md`.
 
 **Current scorecard** (CV golden pair, committed overlay, vs the real
 `demographics_package` row): `filled 38/55, matched 33, alias 8, open 10 (BSA
@@ -92,6 +158,10 @@ sd_community_demographic_risk`.
 - Split `acfc_env.yaml` per source family (SDOH vs PRX path shapes).
 - The CV FAQ leaves `has_header` / `has_trailer` unanswered → the three flag
   cells stay open (BSA).
+
+**Demo-day facts worth keeping:** `0.5.8.post5-ddl1` is not PEP 440 — a
+local label `+ddl1` is (pip builds it). `.claude/skills/spiral-breaker/…/
+run_replay.py` launches `claude`, not codegen (no child_env there).
 
 **Session gotchas (this Windows box):** bash heredocs containing backticks
 break — write patch scripts with the Write tool and run them as files;

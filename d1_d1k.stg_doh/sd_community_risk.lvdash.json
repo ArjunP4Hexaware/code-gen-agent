@@ -1,0 +1,39 @@
+{
+  "datasets": [
+    {
+      "name": "36d2f929",
+      "displayName": "sd_community_risk",
+      "catalog": "d1_dlk",
+      "config": {
+        "version": "1.1",
+        "source": "d1_dlk.stg_sdoh.sd_community_risk",
+        "dimensions": [
+          {
+            "expr": "source.*"
+          }
+        ],
+        "measures": [
+          {
+            "name": "count",
+            "expr": "COUNT(*)",
+            "comment": "Represents the total number of rows in the dataset. Use this measure to count all",
+            "displayName": "Count"
+          }
+        ]
+      }
+    }
+  ],
+  "pages": [
+    {
+      "name": "1698e225",
+      "displayName": "Untitled page",
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

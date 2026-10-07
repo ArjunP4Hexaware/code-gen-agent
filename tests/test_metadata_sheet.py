@@ -320,8 +320,15 @@ def test_workbook_structure_and_provenance(config, tmp_path):
 
 def test_workbook_bytes_and_filename(config, tmp_path):
     payload = _payload(config, tmp_path)
-    workbook = load_workbook(io.BytesIO(workbook_bytes(payload)))
+    data = workbook_bytes(payload)
+    workbook = load_workbook(io.BytesIO(data))
     assert "_provenance" in workbook.sheetnames
+    # The pinned timestamp keeps the xsi namespace declaration (an undeclared
+    # prefix made the part unreadable under lxml).
+    import xml.etree.ElementTree as ET
+    import zipfile
+    ET.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("docProps/core.xml"))
+    assert data == workbook_bytes(payload)                      # still byte-stable
     assert workbook_filename(payload) == "metadata_sheet_preview_pre-run.xlsx"
     payload["run_label"] = "demo_x"
     assert workbook_filename(payload) == "metadata_sheet_preview_demo_x.xlsx"

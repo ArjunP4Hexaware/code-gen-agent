@@ -958,10 +958,12 @@ def stable_workbook_bytes(workbook: Workbook) -> bytes:
         for info in source.infolist():
             data = source.read(info.filename)
             if info.filename == "docProps/core.xml":
+                # Only the timestamp text is replaced: the element keeps its
+                # attributes, incl. the xmlns:xsi openpyxl declares on it
+                # (dropping it made the part unreadable under lxml).
                 data = re.sub(
-                    rb"<dcterms:modified[^>]*>[^<]*</dcterms:modified>",
-                    b'<dcterms:modified xsi:type="dcterms:W3CDTF">'
-                    b"2026-01-01T00:00:00Z</dcterms:modified>",
+                    rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)",
+                    rb"\g<1>2026-01-01T00:00:00Z\g<2>",
                     data,
                 )
             pinned = zipfile.ZipInfo(info.filename, date_time=(2026, 1, 1, 0, 0, 0))

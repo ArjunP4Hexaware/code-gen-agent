@@ -165,3 +165,23 @@ def test_the_reference_profile_writes_no_iig_workbooks(pair1_config, pair1_spec,
     assert not [p for p in framework.iterdir() if p.name.endswith(("_IIG.xlsx",
                                                                     "_IIG_REVIEW.xlsx"))]
     assert "## Switches" not in (framework / "ADDITION.md").read_text(encoding="utf-8")
+
+
+def _assert_readable_xlsx(data: bytes) -> None:
+    """openpyxl reads it AND its core properties parse with namespace checks
+    on (expat, like lxml, refuses an undeclared ``xsi:`` prefix — openpyxl's
+    own reader only trips on it when lxml is installed)."""
+    import io
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    load_workbook(io.BytesIO(data))
+    ET.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("docProps/core.xml"))
+
+
+def test_every_iig_workbook_round_trips_through_openpyxl(pair1_dirs, pair11_dirs):
+    written = [p for framework in [*pair1_dirs, *pair11_dirs]
+               for p in framework.glob("*.xlsx")]
+    assert len([p for p in written if p.name.endswith(("_IIG.xlsx", "_IIG_REVIEW.xlsx"))]) == 8
+    for path in written:
+        _assert_readable_xlsx(path.read_bytes())

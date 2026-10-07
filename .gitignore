@@ -133,3 +133,12 @@ docs/acfc/denylist_local.txt
 /.claude/settings.local.json
 
 LOOP_LOG.md
+
+# 2026-10-07 (IIG-first demo): REAL client reference material for the
+# scorecard — read in place, never tracked. NOTE: these were committed on
+# feature/iig-first before this rule (705e332, 17d1300, e27ef7f); a gitignore
+# line does not untrack them — see docs/acfc/IIG_SCORECARD_2026-10-07.md.
+/IIG test cells.xlsx
+/d1_d1k.stg_doh/
+/d1_std.sdoh/
+/sd_community_demographic_risk.lvdash.json

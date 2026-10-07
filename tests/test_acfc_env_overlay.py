@@ -6,8 +6,10 @@
   is written with three-part names.
 * Its six ADLS_DELTA_INGESTION_DETAILS constants fill their cells (badge
   synthetic, tooltip naming the overlay) and leave the always-blank list.
-* load_config applies it by default (every entry point): UNSET env = the
-  overlay, an explicit env value replaces it, "" disables it.
+* load_config ALWAYS applies it first (every entry point);
+  CODEGEN_CONFIG_OVERLAYS adds overlays on top (later wins);
+  CODEGEN_SKIP_ENV_OVERLAY=1 opts out. The App's startup line and
+  GET /api/health list the overlays in effect.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from codegen import cli
-from codegen.config import DEFAULT_OVERLAY, load_config
+from codegen.config import DEFAULT_OVERLAY, load_config, overlay_paths
 from test_derivations import FRD, REPO, _pair11_specs, _scoped
 
 OVERLAY = REPO / "config" / DEFAULT_OVERLAY
@@ -97,38 +99,68 @@ def _catalogs(config) -> dict:
     return config.conventions.profiles["acfc_prx"].default_catalog
 
 
-def test_default_overlay_applies_when_the_env_is_unset(monkeypatch, capsys):
+def _default_on(monkeypatch) -> None:
+    monkeypatch.delenv("CODEGEN_SKIP_ENV_OVERLAY", raising=False)
     monkeypatch.delenv("CODEGEN_CONFIG_OVERLAYS", raising=False)
+
+
+def test_default_overlay_is_always_applied(monkeypatch, capsys):
+    _default_on(monkeypatch)
     config = load_config(REPO / "config" / "config.yaml")
     assert _catalogs(config) == {"stage": "d1_dlk", "standard": "d1_std"}
     constants = config.metadata.templates["iig_v2"].constants["ADLS_DELTA_INGESTION_DETAILS"]
     assert constants["TGT_CONNECTION_ID"] == "2"
     assert "SRC_CONTAINER_NAME" not in config.metadata.templates["iig_v2"].always_blank
+    assert overlay_paths(REPO / "config" / "config.yaml") == [OVERLAY]
 
 
-def test_an_explicit_env_overlay_replaces_the_default(monkeypatch, tmp_path):
+def test_an_env_overlay_goes_on_top_of_the_default(monkeypatch, tmp_path, capsys):
+    _default_on(monkeypatch)
     other = tmp_path / "other.yaml"
     other.write_text("conventions: {profiles: {acfc_prx: {default_catalog: {stage: x_stg}}}}\n",
                      encoding="utf-8")
-    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", str(other))
+    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", f"{OVERLAY};{other}")  # listed twice: once
+    assert overlay_paths(REPO / "config" / "config.yaml") == [OVERLAY, other]
     config = load_config(REPO / "config" / "config.yaml")
-    assert _catalogs(config) == {"stage": "x_stg"}               # acfc_env.yaml not applied
-    assert "SRC_CONTAINER_NAME" in config.metadata.templates["iig_v2"].always_blank
+    assert _catalogs(config) == {"stage": "x_stg", "standard": "d1_std"}  # later wins
+    assert "SRC_CONTAINER_NAME" not in config.metadata.templates["iig_v2"].always_blank
+    assert f"config overlays (in order): {OVERLAY} -> {other}" in capsys.readouterr().err
 
 
-def test_an_empty_env_value_disables_the_default(monkeypatch):
-    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", "")
+def test_skip_env_overlay_opts_out(monkeypatch, tmp_path):
+    _default_on(monkeypatch)
+    monkeypatch.setenv("CODEGEN_SKIP_ENV_OVERLAY", "1")
+    assert overlay_paths(REPO / "config" / "config.yaml") == []
     config = load_config(REPO / "config" / "config.yaml")
     assert _catalogs(config) == {}
     assert "SRC_CONTAINER_NAME" in config.metadata.templates["iig_v2"].always_blank
+    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", "")            # "" no longer opts out
+    monkeypatch.delenv("CODEGEN_SKIP_ENV_OVERLAY")
+    assert _catalogs(load_config(REPO / "config" / "config.yaml"))["stage"] == "d1_dlk"
 
 
 def test_no_default_without_the_file_next_to_the_config(monkeypatch, tmp_path):
-    monkeypatch.delenv("CODEGEN_CONFIG_OVERLAYS", raising=False)
+    _default_on(monkeypatch)
     copy = tmp_path / "config.yaml"
     copy.write_text((REPO / "config" / "config.yaml").read_text(encoding="utf-8"),
                     encoding="utf-8")
     assert _catalogs(load_config(copy)) == {}
+
+
+def test_app_health_and_startup_line_list_the_overlays(monkeypatch):
+    pytest.importorskip("fastapi")
+    from ui.backend import main as ui_main
+
+    _default_on(monkeypatch)
+    expected = [str(Path("config") / "overlays" / "acfc_env.yaml")]
+    monkeypatch.chdir(REPO)
+    assert ui_main._config_overlays() == expected
+    body = ui_main.health()
+    assert body["config_overlays"] == expected
+    assert set(body) == {"status", "version", "codegen_source", "codegen_file",
+                         "config_overlays", "startup_error"}
+    monkeypatch.setenv("CODEGEN_SKIP_ENV_OVERLAY", "1")
+    assert ui_main.health()["config_overlays"] == []
 
 
 PATH_CELLS = ("SRC_ADLS_PATH", "SRC_ADLS_ARCHVL_PATH", "TGT_ADLS_PATH", "TGT_RJT_ADLS_PATH")

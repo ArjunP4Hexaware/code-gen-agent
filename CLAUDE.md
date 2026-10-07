@@ -20,12 +20,15 @@ changed file. Version marker **0.5.8.post8** (pyproject + requirements.txt).
   element and dropped the `xmlns:xsi` openpyxl declares ON it under lxml →
   every IIG xlsx unreadable in ACFC. Only the timestamp text is replaced now;
   round-trip tests (`test_every_iig_workbook_round_trips_through_openpyxl`).
-- 44e74a9 / d0afec7 — **`config/overlays/acfc_env.yaml` is COMMITTED and
-  applied by `load_config` itself** when `CODEGEN_CONFIG_OVERLAYS` is UNSET
-  (stderr line `config overlay (default): …`); an explicit value REPLACES it,
-  `""` disables it. **`tests/conftest.py` sets `""` at import** so the suite
-  stays on the shipped config — a test that wants the overlay passes
-  `overlays=[…]`. Content: `acfc_prx.default_catalog {stage: d1_dlk,
+- 44e74a9 / d0afec7 (+ the overlay-order commit after 58ed330) —
+  **`config/overlays/acfc_env.yaml` is COMMITTED and ALWAYS applied first by
+  `load_config`** (`codegen.config.overlay_paths`); `CODEGEN_CONFIG_OVERLAYS`
+  ADDS overlays on top (later wins, a duplicate applies once); opt out only
+  with `CODEGEN_SKIP_ENV_OVERLAY=1`. stderr `config overlays (in order): …`;
+  the App's startup line and `GET /api/health` (`config_overlays`) list them.
+  **`tests/conftest.py` sets `CODEGEN_SKIP_ENV_OVERLAY=1` at import** so the
+  suite stays on the shipped config — a test that wants the overlay passes
+  `overlays=[…]` or unsets it. Content: `acfc_prx.default_catalog {stage: d1_dlk,
   standard: d1_std}`; six ADLS_DELTA constants (connection ids 7/4/2,
   `mftlanding`, `z-use-d1-dlk-stage-01`, SCHEMA_DRIFT_FLAG Y) with
   `constant_citations`; `always_blank` minus the five connection/container

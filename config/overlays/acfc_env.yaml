@@ -1,7 +1,8 @@
 # ACFC environment overlay (IIG-first, 2026-10-07). Deep-merged onto
-# config/config.yaml (codegen.config.load_config). acfc_run.py loads it by
-# DEFAULT whenever this file exists and CODEGEN_CONFIG_OVERLAYS is not set
-# (docs/ACFC_DEPLOY.md "ACFC environment overlay"). Values: the ACFC
+# config/config.yaml by codegen.config.load_config, ALWAYS and FIRST (every
+# entry point); CODEGEN_CONFIG_OVERLAYS adds overlays on top; opt out only with
+# CODEGEN_SKIP_ENV_OVERLAY=1 (docs/ACFC_DEPLOY.md "ACFC environment overlay").
+# Values: the ACFC
 # environment's catalogs and the framework's connection ids / containers as
 # the real ADLS_DELTA_INGESTION_DETAILS rows carry them — environment
 # constants, not per-feed values. always_blank REPLACES the template's list

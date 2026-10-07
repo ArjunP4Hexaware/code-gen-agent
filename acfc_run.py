@@ -66,9 +66,9 @@ from codegen.config import load_config
 from codegen.storage import RoleStore, default_client_factory, open_backend, open_storage
 
 REPO = Path.cwd()
-config = load_config(REPO / "config" / "config.yaml",
-                     overlays=[p for p in os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").split(";")
-                               if p] or None)
+# load_config applies config/overlays/acfc_env.yaml, then CODEGEN_CONFIG_OVERLAYS
+# on top (and prints the list); the `codegen` subprocesses below inherit both.
+config = load_config(REPO / "config" / "config.yaml")
 stores = open_storage(config, REPO)
 pair_backend = open_backend(PAIR_URI, base_dir=REPO,
                             client_factory=default_client_factory(config))

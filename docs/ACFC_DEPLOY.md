@@ -22,7 +22,8 @@ environment or a config overlay, never in the tracked `config/config.yaml`.
 
 ## 2. Config: one overlay, nothing workspace-specific in the tracked file
 
-Put ACFC's values in an overlay (`CODEGEN_CONFIG_OVERLAYS=<path.yaml>`) — a
+Put ACFC's values in an overlay (`config/overlays/acfc_env.yaml`, always
+applied — see below; more via `CODEGEN_CONFIG_OVERLAYS=<path.yaml>`) — a
 YAML mapping deep-merged onto `config/config.yaml` before validation. The
 loader refuses unknown keys, so a typo fails at start-up.
 
@@ -58,12 +59,12 @@ documents do not state go in `fixtures/faq/<feed_slug>.faq.yaml`, each with
 its citation; unanswered means blank-and-flag, never a guess. The real
 prod-support DL is `CODEGEN_NOTIFICATION_EMAILS` in the App env.
 
-### The ACFC environment overlay (default since 2026-10-07)
+### The ACFC environment overlay (always applied since 2026-10-07)
 
-`config/overlays/acfc_env.yaml` is COMMITTED and applied by `load_config`
-itself whenever `CODEGEN_CONFIG_OVERLAYS` is unset — so the CLI, the App
-backend, harness jobs and `acfc_run.py` all pick it up with no env change. It
-carries the ACFC environment's constants, not per-feed values:
+`config/overlays/acfc_env.yaml` is COMMITTED and ALWAYS applied first by
+`load_config` itself — so the CLI, the App backend, harness jobs and
+`acfc_run.py` all pick it up with no env change. It carries the ACFC
+environment's constants and the SDOH path shapes:
 
 | Key | Value | Effect |
 | --- | --- | --- |
@@ -71,11 +72,18 @@ carries the ACFC environment's constants, not per-feed values:
 | `metadata.templates.iig_v2.constants.ADLS_DELTA_INGESTION_DETAILS` | `SRC_ADLS_CONNECTION_ID 7`, `METADATA_CONNECTION_ID 4`, `TGT_CONNECTION_ID 2`, `SRC_CONTAINER_NAME mftlanding`, `TGT_CONTAINER_NAME z-use-d1-dlk-stage-01`, `SCHEMA_DRIFT_FLAG Y` | filled cells, badge synthetic, tooltip naming the overlay (`constant_citations`) |
 | `metadata.templates.iig_v2.always_blank` | the shipped list minus the five connection / container columns | lists REPLACE on merge — the cells above can only fill once they leave it |
 
-- One stderr line says it was applied: `config overlay (default): <path>`.
-- `CODEGEN_CONFIG_OVERLAYS=<a.yaml;b.yaml>` REPLACES the default (add
-  `config/overlays/acfc_env.yaml` to the list yourself to keep it);
-  `CODEGEN_CONFIG_OVERLAYS=""` disables it. The test suite sets `""`
-  (`tests/conftest.py`) so goldens and inventories stay on the shipped config.
+| `metadata.templates.iig_v2.src_columns_style` / `path_patterns` / `path_citations` | `named`; the four ADLS_DELTA path shapes (`{landing_rel}` / `{domain_path}`) | SDOH-shaped — **applies to every ACFC feed**, so PRX-shaped feeds (pair 1) get SDOH paths until the overlay is split per source family |
+
+- Order (later wins): `acfc_env.yaml`, then `load_config(overlays=…)`, then
+  `CODEGEN_CONFIG_OVERLAYS=<a.yaml;b.yaml>` — the env ADDS overlays ON TOP
+  of the default, it never replaces it. A path listed twice is applied once.
+- Opt out only with `CODEGEN_SKIP_ENV_OVERLAY=1` (`CODEGEN_CONFIG_OVERLAYS=""`
+  no longer does). The test suite sets it (`tests/conftest.py`) so goldens and
+  inventories stay on the shipped config.
+- What is in effect: one stderr line per process, `config overlays (in order):
+  a -> b`; the App's startup line (`UI starting — version …; config overlays
+  (in order): …`); and `GET /api/health` → `{status, version,
+  config_overlays: [...], startup_error}`.
 - The file is looked up next to the config file being loaded
   (`<config dir>/overlays/acfc_env.yaml`); a config elsewhere gets no default.
 - Per-feed path shapes (`path_patterns`) go in the same overlay when the
@@ -294,7 +302,7 @@ env:
   - {name: CODEGEN_STORAGE_INPUTS,   value: "workspace:/Workspace/Users/<user>/codegen/inputs"}
   - {name: CODEGEN_STORAGE_STATE,    value: "workspace:/Workspace/Users/<user>/codegen/state"}
   - {name: CODEGEN_STORAGE_OUTPUTS,  value: "workspace:/Workspace/Users/<user>/codegen/outputs"}
-  - {name: CODEGEN_CONFIG_OVERLAYS,  value: "<path to acfc.overlay.yaml inside the source tree>"}
+  - {name: CODEGEN_CONFIG_OVERLAYS,  value: "<extra overlay(s), applied on top of config/overlays/acfc_env.yaml>"}
   - {name: CODEGEN_LAYOUT_PROVIDER,  value: "live"}           # optional, §5
   - {name: CODEGEN_NOTIFICATION_EMAILS, value: "<prod-support DL>"}
 ```

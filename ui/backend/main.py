@@ -63,6 +63,51 @@ load_dotenv()
 
 CONFIG_PATH = "config/config.yaml"
 
+
+def _config_overlays() -> list[str]:
+    """The overlays load_config applies to CONFIG_PATH, in order."""
+    from codegen.config import overlay_paths
+
+    return [str(p) for p in overlay_paths(CONFIG_PATH)]
+
+
+def _app_version() -> str | None:
+    """The tree's pyproject version when ``codegen`` is imported from the
+    deployed tree's src/ (ui/backend/__init__.py puts it first), else the
+    installed distribution's — a stale wheel's metadata would lie about the
+    tree."""
+    import re
+    from importlib.metadata import PackageNotFoundError, version
+
+    import codegen
+    from ui.backend import REPO_ROOT, TREE_SRC, _from_tree
+
+    if REPO_ROOT is not None and TREE_SRC is not None and _from_tree(codegen.__file__, TREE_SRC):
+        match = re.search(r'^version\s*=\s*"([^"]+)"',
+                          (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M)
+        if match:
+            return match.group(1)
+    try:
+        return version("codegen-data-engineer-agent")
+    except PackageNotFoundError:
+        return None
+
+
+def _codegen_source_line() -> str:
+    """Which ``codegen`` this process runs and whether it knows the sections
+    the tree's config.yaml carries — the first thing to read when the App
+    fails at startup."""
+    import codegen
+    from codegen.config import Config
+
+    supported = "iig_review" in Config.model_fields
+    return (f"codegen source: {codegen.__file__} version {_app_version() or 'unknown'} · "
+            f"iig_review supported: {supported} · config: {CONFIG_PATH}")
+
+
+CODEGEN_SOURCE = _codegen_source_line()
+print(CODEGEN_SOURCE, flush=True)
+
 # An Apps deployment may start without config/fixtures in place — come up
 # with empty state and a clear message instead of crashing at import.
 store: GenerationStore | None
@@ -71,7 +116,7 @@ try:
     store = GenerationStore(CONFIG_PATH)
 except Exception as exc:  # noqa: BLE001 — surfaced via /api/feeds, never hidden
     store = None
-    startup_error = f"{type(exc).__name__}: {exc}"
+    startup_error = f"{type(exc).__name__}: {exc} [{CODEGEN_SOURCE}]"
 
 
 runner: DemoRunner | None = DemoRunner(store) if store is not None else None
@@ -94,6 +139,9 @@ async def lifespan(app: FastAPI):
     # Generate on startup so the dashboard is populated on first load.
     # Dry-run + skip-tests: mock Layer-2 provider, no Spark needed — the
     # same fast path the CLI's --dry-run --skip-tests takes.
+    overlays = _config_overlays()
+    print(f"UI starting — version {_app_version() or 'unknown'}; config overlays (in order): "
+          f"{' -> '.join(overlays) if overlays else '(none)'}")
     if store is None:
         print(f"UI starting with EMPTY STATE — {startup_error}")
     else:
@@ -162,6 +210,21 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
         "files_written": len(run.written_files),
         "framework": run.framework,
     }
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """Liveness + what this process runs with: version, the codegen source
+    line, the config overlays applied (in order), and the startup error when
+    the pipeline is down."""
+    import codegen
+
+    return {"status": "ok" if store is not None else "degraded",
+            "version": _app_version(),
+            "codegen_source": CODEGEN_SOURCE,
+            "codegen_file": codegen.__file__,
+            "config_overlays": _config_overlays(),
+            "startup_error": startup_error}
 
 
 @app.get("/api/feeds")

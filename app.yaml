@@ -49,5 +49,8 @@ command: ["python", "-m", "ui.backend.main"]
 #   CODEGEN_STORAGE_INPUTS     workspace:/Workspace/Users/<user>/codegen/inputs
 #   CODEGEN_STORAGE_STATE      workspace:/Workspace/Users/<user>/codegen/state
 #   CODEGEN_STORAGE_OUTPUTS    workspace:/Workspace/Users/<user>/codegen/outputs
-#   CODEGEN_CONFIG_OVERLAYS    <acfc.overlay.yaml>
+#   CODEGEN_CONFIG_OVERLAYS    <extra.overlay.yaml>   (';'-separated; applied ON TOP of
+#                              config/overlays/acfc_env.yaml, which is always applied
+#                              first; CODEGEN_SKIP_ENV_OVERLAY=1 opts out of it.
+#                              The list in effect: startup line + GET /api/health)
 #   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>

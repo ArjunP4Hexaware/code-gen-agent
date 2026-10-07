@@ -1385,25 +1385,47 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
-# The ACFC environment overlay (IIG-first, 2026-10-07): catalogs + the
-# framework's connection ids / containers, committed next to the config.
-# load_config applies it by DEFAULT — every entry point (CLI, App backend,
-# harness jobs, acfc_run.py) behaves the same. CODEGEN_CONFIG_OVERLAYS set to
-# paths replaces it; set to "" disables it (the test suite does).
+# The ACFC environment overlay (IIG-first, 2026-10-07): catalogs, the
+# framework's connection ids / containers, the SDOH path shapes — committed
+# next to the config. load_config ALWAYS applies it first when it exists, so
+# every entry point (CLI, App backend, harness jobs, acfc_run.py) behaves the
+# same; CODEGEN_CONFIG_OVERLAYS adds overlays ON TOP of it (later wins).
+# Opt out only with CODEGEN_SKIP_ENV_OVERLAY=1 (the test suite does).
 DEFAULT_OVERLAY = Path("overlays") / "acfc_env.yaml"
-_announced_overlays: set[str] = set()
+SKIP_ENV_OVERLAY = "CODEGEN_SKIP_ENV_OVERLAY"
+_announced_overlays: set[tuple[str, ...]] = set()
 
 
-def _default_overlays(config_path: Path) -> list[Path]:
-    if "CODEGEN_CONFIG_OVERLAYS" in os.environ:
-        return []
-    path = config_path.parent / DEFAULT_OVERLAY
-    if not path.is_file():
-        return []
-    if str(path) not in _announced_overlays:
-        _announced_overlays.add(str(path))
-        print(f"config overlay (default): {path}", file=sys.stderr)
-    return [path]
+def overlay_paths(path: str | Path, overlays: list[str | Path] | None = None) -> list[Path]:
+    """Every overlay load_config applies to ``path``, in order (later wins):
+    ``<config dir>/overlays/acfc_env.yaml`` when it exists (unless
+    CODEGEN_SKIP_ENV_OVERLAY=1), then ``overlays``, then the
+    ``;``/``,``-separated CODEGEN_CONFIG_OVERLAYS. A path listed twice is
+    applied once, at its first position."""
+    candidates: list[Path] = []
+    default = Path(path).parent / DEFAULT_OVERLAY
+    if os.environ.get(SKIP_ENV_OVERLAY, "").strip() != "1" and default.is_file():
+        candidates.append(default)
+    candidates += [Path(p) for p in (overlays or [])]
+    env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
+    if env_overlays:
+        candidates += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        key = candidate.resolve()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(candidate)
+    return ordered
+
+
+def _announce(paths: list[Path]) -> None:
+    """One stderr line per process and distinct overlay list."""
+    key = tuple(str(p) for p in paths)
+    if paths and key not in _announced_overlays:
+        _announced_overlays.add(key)
+        print("config overlays (in order): " + " -> ".join(key), file=sys.stderr)
 
 
 def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> Config:
@@ -1415,9 +1437,10 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
     (e.g. the pair-1 IIG template rows under fixtures/) so the shipped
     config carries none of it. Unknown sections are refused after the merge.
 
-    When ``CODEGEN_CONFIG_OVERLAYS`` is UNSET and ``overlays/acfc_env.yaml``
-    sits next to the config file, that overlay is applied first (one stderr
-    line names it); an explicit env value replaces it, ``""`` disables it.
+    ``overlays/acfc_env.yaml`` next to the config file is ALWAYS applied
+    first when it exists; ``overlays`` and CODEGEN_CONFIG_OVERLAYS go on top
+    of it (``overlay_paths``). CODEGEN_SKIP_ENV_OVERLAY=1 opts out. One
+    stderr line lists every overlay applied, in order.
 
     ``CODEGEN_NOTIFICATION_EMAILS`` (comma/semicolon-separated) overrides
     ``job.notification_emails`` — env > YAML, like the SharePoint knobs. It
@@ -1428,11 +1451,9 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config file {path} is not a YAML mapping")
-    overlay_paths = [Path(p) for p in (overlays or [])] + _default_overlays(Path(path))
-    env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
-    if env_overlays:
-        overlay_paths += [Path(p.strip()) for p in re.split(r"[;,]", env_overlays) if p.strip()]
-    for overlay_path in overlay_paths:
+    applied = overlay_paths(path, overlays)
+    _announce(applied)
+    for overlay_path in applied:
         overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
         if not isinstance(overlay, dict):
             raise ValueError(f"config overlay {overlay_path} is not a YAML mapping")

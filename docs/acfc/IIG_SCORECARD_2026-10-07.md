@@ -159,8 +159,10 @@ real value is NULL, so it scores MATCH.
 
 ## ACFC run — the Socially Determined (MIDS) pair
 
-No env change: `load_config` applies `config/overlays/acfc_env.yaml` whenever
-`CODEGEN_CONFIG_OVERLAYS` is unset (stderr: `config overlay (default): …`).
+No env change: `load_config` ALWAYS applies `config/overlays/acfc_env.yaml`
+first; `CODEGEN_CONFIG_OVERLAYS` adds overlays on top (later wins);
+`CODEGEN_SKIP_ENV_OVERLAY=1` opts out (stderr: `config overlays (in order): …`;
+the App's startup line and `GET /api/health` list them too).
 Run from the repo root of the ACFC checkout; `$PAIR` is the folder holding the
 pair's FRD `.docx` and STTM `.xlsx` (names as they sit in that folder).
 

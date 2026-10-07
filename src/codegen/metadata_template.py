@@ -151,7 +151,7 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
                     "location URI cannot carry — its segments follow the URI instead"
                     if before.strip("/\\") else "")
             cell = _cell(value, "synthetic",
-                         _PATH_TOOLTIP.format(citation=tpl.citation)
+                         _path_tooltip(tpl, tab, header, pattern)
                          + f" (location URI base, {uri}://){note}")
             if note:
                 cell["badge_entry"]["note"] = (
@@ -163,8 +163,19 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
                                domain_path=_domain_path(landing_rel),
                                stage_table=stage_table, reject_table=reject_table)
         cells[header] = _cell(value.replace("//", "/"), "synthetic",
-                              _PATH_TOOLTIP.format(citation=tpl.citation))
+                              _path_tooltip(tpl, tab, header, pattern))
     return cells
+
+
+def _path_tooltip(tpl: MetadataTemplateConfig, tab: str, header: str, pattern: str) -> str:
+    """The template's own shape cites the template; a shape an overlay
+    supplies (path_citations) names the overlay and the shape. Both keep the
+    'synthetic path shape' prefix the review copy keys its reason on."""
+    citation = tpl.path_citations.get(tab, {}).get(header)
+    if citation is None:
+        return _PATH_TOOLTIP.format(citation=tpl.citation)
+    return (f"synthetic path shape {pattern!r} from {citation}; the real container/path are "
+            "assigned at deployment")
 
 
 def _object_name(pattern: str) -> str:

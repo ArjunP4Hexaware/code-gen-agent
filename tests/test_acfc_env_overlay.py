@@ -129,3 +129,40 @@ def test_no_default_without_the_file_next_to_the_config(monkeypatch, tmp_path):
     copy.write_text((REPO / "config" / "config.yaml").read_text(encoding="utf-8"),
                     encoding="utf-8")
     assert _catalogs(load_config(copy)) == {}
+
+
+PATH_CELLS = ("SRC_ADLS_PATH", "SRC_ADLS_ARCHVL_PATH", "TGT_ADLS_PATH", "TGT_RJT_ADLS_PATH")
+
+
+def test_overlay_path_shapes_cite_the_overlay_in_the_tooltip_and_review_copy(tmp_path):
+    from openpyxl import load_workbook
+
+    config = load_config(REPO / "config" / "config.yaml", overlays=[OVERLAY])
+    (tmp_path / "contracts").mkdir()
+    specs, _flags = _pair11_specs(FRD, tmp_path / "contracts", config)
+    _generate(specs[0], config, tmp_path / "acfc")
+    for _values, tooltips in _adls_rows(tmp_path / "acfc", specs[0].feed_slug):
+        for header in PATH_CELLS:
+            badge, tooltip = tooltips[header]
+            assert badge == "SYNTHETIC"
+            assert tooltip.startswith("synthetic path shape '")
+            assert "config/overlays/acfc_env.yaml" in tooltip
+            assert "from the template" not in tooltip
+    framework = tmp_path / "acfc" / "out" / specs[0].feed_slug / "framework"
+    (review,) = framework.glob("*_IIG_REVIEW.xlsx")
+    summary = {(row[0], row[1]): row for row in load_workbook(review)["REVIEW_SUMMARY"]
+               .iter_rows(min_row=2, values_only=True)}
+    for header in PATH_CELLS:
+        sheet, column, reason, _owner, _cells, _ref, citation = \
+            summary[("ADLS_DELTA_INGESTION_DETAILS", header)]
+        assert "path" in reason.lower()
+        assert "config/overlays/acfc_env.yaml" in citation
+
+
+def test_template_path_shapes_still_cite_the_template(tmp_path):
+    config = load_config(REPO / "config" / "config.yaml")
+    (tmp_path / "contracts").mkdir()
+    specs, _flags = _pair11_specs(FRD, tmp_path / "contracts", config)
+    _generate(specs[0], config, tmp_path / "plain")
+    for _values, tooltips in _adls_rows(tmp_path / "plain", specs[0].feed_slug):
+        assert tooltips["TGT_ADLS_PATH"][1].startswith("synthetic path shape from the template")

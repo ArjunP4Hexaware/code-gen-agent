@@ -1041,6 +1041,9 @@ class MetadataTemplateConfig(BaseModel):
     # itself (an environment overlay): {tab: {header: citation}}; a
     # constant without one cites ``citation``.
     constant_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # The same for a path_patterns shape an overlay supplies: {tab: {header:
+    # citation}}; a shape without one cites ``citation`` (the template).
+    path_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
     # tab -> rows of header -> value; keys starting with '_' steer the
     # builder (e.g. _layer: standard) and never render.
     template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)

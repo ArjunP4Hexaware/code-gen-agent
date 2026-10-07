@@ -29,6 +29,22 @@ metadata:
           SRC_CONTAINER_NAME: *acfc
           TGT_CONTAINER_NAME: *acfc
           SCHEMA_DRIFT_FLAG: *acfc
+      # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
+      # until this overlay is split per source family — a PRX-shaped feed
+      # (pair 1) gets these paths too.
+      src_columns_style: named
+      path_patterns:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: "{landing_rel}"
+          SRC_ADLS_ARCHVL_PATH: "{landing_rel}Archive/"
+          TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
+      path_citations:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: *acfc
+          SRC_ADLS_ARCHVL_PATH: *acfc
+          TGT_ADLS_PATH: *acfc
+          TGT_RJT_ADLS_PATH: *acfc
       always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
         TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
         DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

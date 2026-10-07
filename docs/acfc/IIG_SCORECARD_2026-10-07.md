@@ -10,15 +10,8 @@ vendor name) — so name-only differences score **ALIAS**, not DIFF.
 
 ## Scorecard
 
-Committed state (`config/overlays/acfc_env.yaml` applied by default, the
-shipped `iig_v2` path shapes, `src_columns_style: positional`):
-
-```
-filled 38/55, matched 31, alias 3, open 10 (BSA 5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 11
-```
-
-Demo configuration — the same plus the per-feed path shapes (P1d) and
-`src_columns_style: named` (P1e), which go in an overlay (not committed):
+`config/overlays/acfc_env.yaml` as committed now carries the SDOH path shapes
+and `src_columns_style: named` (follow-up, 2026-10-07):
 
 ```yaml
 metadata:
@@ -33,6 +26,22 @@ metadata:
           TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
 ```
 
+> **This overlay applies to EVERY feed generated in ACFC.** A PRX-shaped feed
+> (pair 1, the accumulators) gets these SDOH-shaped paths and the `named`
+> SRC_COLUMNS style too, until the overlay is split per source family. The
+> path cells say which shape they came from: tooltip and review-copy citation
+> name `config/overlays/acfc_env.yaml` and quote the shape.
+
+Score history for the CV pair against the real row:
+
+| State | Line |
+| --- | --- |
+| first commit (shipped path shapes, positional) | `filled 38/55, matched 31, alias 3, open 10 (BSA 5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 11` |
+| + path shapes and `named` in the overlay | `filled 38/55, matched 32, alias 7, open 10 (BSA 5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 6` |
+| + scorecard: data types caseless, LOB as ALIAS on the fixture (now) | `filled 38/55, matched 33, alias 8, open 10 (BSA 5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 4` |
+
+Current output (committed overlay, default-loaded, no env set):
+
 ```
 ADLS_DELTA_INGESTION_DETAILS: real sd_community_demographic_risk vs generated cv_community_demographic_risk
 OPEN  GROUP_ID                   owner: Engineer
@@ -43,7 +52,7 @@ MATCH SUBDOMAIN
 OPEN  PIPELINE_ID                owner: Engineer
 DIFF  SOURCE                     real 'Socially Determined' | generated 'Civic Vantage (CV)'
 MATCH FREQUENCY
-DIFF  LOB                        real 'MIDS' | generated 'OHDS'
+ALIAS LOB                        (anonymised in the fixture) generated 'OHDS'
 MATCH CLAIM_TYPE_ID              (both blank / NULL)
 MATCH ACTIVE_FLAG
 MATCH SRC_ADLS_CONNECTION_ID
@@ -73,7 +82,7 @@ MATCH TGT_CONTAINER_NAME
 ALIAS TGT_ADLS_PATH              generated '/sdh/public/civic_vantage/Processed/cv_community_demograp...'
 MATCH TGT_COLUMN_NAMES
 MATCH TGT_FORMAT
-DIFF  TGT_DATA_TYPE              (case only) real 90 items ['String', 'String', 'String'] | generated 90 items ['String', 'String', 'String']; first difference at item 87: 'string' vs 'String'
+MATCH TGT_DATA_TYPE              (case-insensitive; real 90 items ['String', 'String', 'String'] | generated 90 items ['String', 'String', 'String']; first difference at item 87: 'string' vs 'String')
 MATCH TGT_LOAD_OPTION
 ALIAS TGT_RJT_TABLE_NAME         generated 'cv_community_demographic_risk_reject'
 ALIAS TGT_RJT_ADLS_PATH          generated '/sdh/public/civic_vantage/Reject/cv_community_demographic...'
@@ -90,30 +99,28 @@ OPEN  CREATED_DATE               owner: Set at load (CI/CD)
 OPEN  UPDATED_BY                 owner: BSA
 OPEN  UPDATED_DATE               owner: Set at load (CI/CD)
 MATCH FILE_METADATA              (both blank / NULL)
-filled 38/55, matched 32, alias 7, open 10 (BSA 5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 6
+filled 38/55, matched 33, alias 8, open 10 (BSA 5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 4
 ```
 
-Five rows move between the two runs: `SRC_ADLS_PATH`, `SRC_ADLS_ARCHVL_PATH`,
-`TGT_ADLS_PATH` and `TGT_RJT_ADLS_PATH` go from DIFF to ALIAS (the landing
-loses its `/mftlanding` container prefix, the target paths drop `inbound/`
-and use `Reject/`), and `SRC_COLUMNS` goes from DIFF to MATCH
-(`zip_code:zip_code`).
+Scoring rules worth knowing: `SRC_DATA_TYPE` / `TGT_DATA_TYPE` compare
+case-insensitively (the real row itself mixes `String` and `string`; a
+case-only difference is MATCH with a note), and `LOB` is ALIAS when the
+generated row is the anonymised fixture (its table name differs from
+`--real-table`) — on the real documents both are compared exactly.
 
-## Where the 54 template cells came from (demo configuration)
+## Where the 54 template cells came from (committed overlay)
 
 | Source | Cells | Columns |
 | --- | --- | --- |
 | **ACFC overlay**: environment constants, badged synthetic, tooltip names `config/overlays/acfc_env.yaml` | 6 | SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, TGT_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONTAINER_NAME, SCHEMA_DRIFT_FLAG |
-| **Overlay path shapes** applied to the FRD ADLS Location | 4 | SRC_ADLS_PATH, SRC_ADLS_ARCHVL_PATH, TGT_ADLS_PATH, TGT_RJT_ADLS_PATH |
+| **Overlay path shapes** applied to the FRD ADLS Location (tooltip and review citation name the overlay and quote the shape) | 4 | SRC_ADLS_PATH, SRC_ADLS_ARCHVL_PATH, TGT_ADLS_PATH, TGT_RJT_ADLS_PATH |
 | **FRD** | 13 | OBJECT_NAME, DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY (token, P1c), LOB, SRC_FILE_NAME, SRC_FORMAT, SRC_FILE_DELIMITER, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_LOAD_OPTION (Overwrite, P1b), RECYCL_ENBL_FLG |
 | **STTM** | 6 | SRC_COLUMNS, SRC_DATA_TYPE, MANDATORY_FIELD_LIST, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_PRIMARY_KEY |
 | **Template constants**: framework vocabulary, shipped | 9 | ACTIVE_FLAG, SRC_COMPRESSION, MULTILINE_FLAG, TGT_FORMAT, TGT_RJT_TABLE_NAME, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, RECYCL_TBL_NM, RECYCL_ADLS_PATH |
 | **Open**: blank, flagged, owner in the review copy | 16 | see below |
 
 The 55th real column, `FILE_METADATA`, is not in the `iig_v2` template. Its
-real value is NULL, so it scores MATCH. The path-shape cells' tooltip still
-reads "synthetic path shape from the template". It does not yet say that an
-overlay supplied the shape.
+real value is NULL, so it scores MATCH.
 
 ### Open cells and why
 
@@ -131,9 +138,7 @@ overlay supplied the shape.
 | --- | --- | --- |
 | OBJECT_NAME, SRC_FILE_NAME | `demographics_package*` vs `demographic_extract_CCYY_MM.csv` | the fixture's file pattern is not the real one. The derivation (the pattern minus wildcards and extension) produces the real row's shape |
 | SOURCE | `Socially Determined` vs `Civic Vantage (CV)` | the FRD's Data Source cell carries a bracketed abbreviation that the real row drops |
-| LOB | `MIDS` vs `OHDS` | the fixture's LOB, possibly anonymised. It is not in the alias list |
-| TGT_DATA_TYPE | case only, first at item 87: `string` vs `String` | the REAL row mixes `String` and `string`. The generated row is consistent |
-| TGT_PRIMARY_KEY | `NULL` vs `zip_code` | the mapping contract's natural key, while the real row states none. Question for the framework team: is the PK used for a truncate-and-load feed? |
+| TGT_PRIMARY_KEY | `NULL` vs `zip_code` | **a real question for the framework team, kept as DIFF on purpose**: the mapping contract states `zip_code` as the natural key, the real row states no primary key. Is TGT_PRIMARY_KEY read at all for a truncate-and-load (Overwrite) feed, and should it then be NULL? |
 
 ## Step results
 
@@ -150,43 +155,52 @@ overlay supplied the shape.
 | P1f header / footer flags | 0e14ce7 | pass |
 | P2 `scripts/iig_scorecard.py` | 4b0c1ce | pass |
 | Wrap: 0.5.8.post7, suite 797 passed / 27 skipped, ruff clean, scrub 0 | e743147 | pushed |
+| Follow-up: path shapes + `named` in the overlay, overlay path citations, scorecard caseless types / fixture LOB, the ACFC run section; 0.5.8.post8 | see `git log` | pushed |
 
-## The ACFC run
+## ACFC run — the Socially Determined (MIDS) pair
 
-The overlay needs no env change. `load_config` applies
-`config/overlays/acfc_env.yaml` whenever `CODEGEN_CONFIG_OVERLAYS` is unset,
-and prints one stderr line, `config overlay (default): …`. To add the path
-shapes and `named` for the demo, either add the block above to
-`config/overlays/acfc_env.yaml` in the ACFC checkout, or keep it in a second
-file and list both files, because an explicit value replaces the default:
-
-```bash
-export CODEGEN_CONFIG_OVERLAYS="config/overlays/acfc_env.yaml;<path>/sdoh_paths.yaml"
-```
-
-Notebook path: run `acfc_run.py` with widgets `conventions_profile = acfc_prx`
-and `iig_template = iig_v2`. Its `generate` step already passes
-`--output-mode framework --skip-tests`.
-
-CLI path, run in the pair's working directory after `codegen layout …
---frd-contract-out frd.contract.json` and `codegen extract-sttm … --out
-sttm.contract.json`:
+No env change: `load_config` applies `config/overlays/acfc_env.yaml` whenever
+`CODEGEN_CONFIG_OVERLAYS` is unset (stderr: `config overlay (default): …`).
+Run from the repo root of the ACFC checkout; `$PAIR` is the folder holding the
+pair's FRD `.docx` and STTM `.xlsx` (names as they sit in that folder).
 
 ```bash
-python -m codegen.cli generate --frd-contract frd.contract.json \
-    --sttm-contract sttm.contract.json --output-mode framework \
+PAIR="<pair folder>"; FRD="$PAIR/<MIDS Socially Determined FRD>.docx"
+STTM="$PAIR/<MIDS Socially Determined STTM>.xlsx"; mkdir -p work
+
+# 1. layout (writes the pair-resolved FRD contract; stops when roles stay open)
+python -m codegen.cli layout --workbook "$STTM" --frd "$FRD" \
+    --frd-contract-out work/frd.contract.json --profile-out work/sttm.layout.json \
+    --report-unresolved work/unresolved_headers.md --require-complete \
+    [--answers "$PAIR/answers.yaml"]
+
+# 2. extract the STTM mapping contract
+python -m codegen.cli extract-sttm --workbook "$STTM" \
+    --frd-contract work/frd.contract.json --layout work/sttm.layout.json \
+    --out work/sttm.contract.json
+
+# 3. generate — all three feeds of the pair (add --feed <feed_id> for one)
+python -m codegen.cli generate --frd-contract work/frd.contract.json \
+    --sttm-contract work/sttm.contract.json --output-mode framework \
     --profile acfc_prx --iig-template iig_v2 --skip-tests [--dry-run]
-```
 
-Both IIG workbooks land in `<outputs>/<feed_slug>/framework/`:
-`<feed_slug>_IIG.xlsx` (clean copy) and `<feed_slug>_IIG_REVIEW.xlsx` (review
-copy). To score one against the real rows:
-
-```bash
+# 4. score the community-demographic feed against the real row
 python scripts/iig_scorecard.py \
-    --generated <outputs>/sd_community_demographic_risk/framework/sd_community_demographic_risk_IIG.xlsx \
-    --real "IIG test cells.xlsx" --real-table sd_community_demographic_risk
+    --generated out/<feed>/framework/<feed>_IIG.xlsx \
+    --real "IIG test cells.xlsx" --sheet ADLS_DELTA_INGESTION_DETAILS \
+    --real-table sd_community_demographic_risk --generated-table <generated name>
 ```
 
-On the real documents nothing needs aliasing. Pass `--alias x=x` to switch
-the CV defaults off.
+`<feed>` is the feed slug `generate` prints on its verdict line (`PASS_WITH_FLAGS
+<feed> — …`); `<generated name>` is that feed's `TGT_TABLE_NAME` — on the real
+documents the STTM stage table, `sd_community_demographic_risk`. Both IIG
+workbooks land in `out/<feed>/framework/` (`<feed>_IIG.xlsx`, the clean copy;
+`<feed>_IIG_REVIEW.xlsx`, the review copy). With `CODEGEN_STORAGE_OUTPUTS` set,
+`out/` is that role's working copy. The real workbook has one sheet, so
+`--sheet` selects the generated sheet and the real side falls back to its first
+sheet. On the real documents nothing is aliased: the table names agree, so the
+LOB rule is off; pass `--alias x=x` to switch the CV name aliases off too.
+
+Notebook alternative: `acfc_run.py` with widgets `conventions_profile =
+acfc_prx`, `iig_template = iig_v2` runs steps 1–3 (its `generate` passes
+`--output-mode framework --skip-tests`).

@@ -771,6 +771,7 @@ def metadata_sheet_payload(
     faq_by_slug: dict | None = None,
     frd_path: Path | None = None,
     template: str | None = None,
+    conventions_profile: str | None = None,
 ) -> dict:
     """The whole preview. ``specs`` (a run's resolved feeds) populate the
     STTM-derived cells; without them the ``columns`` tab is empty with an
@@ -784,6 +785,7 @@ def metadata_sheet_payload(
     contract = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
 
     template_name, template_cfg = config.metadata.resolve(template)
+    profile = config.conventions.get(conventions_profile)
     sheet = template_cfg if template_cfg is not None else config.demo.metadata_sheet
     always_blank = set(sheet.always_blank)
     spec_by_id = {s.feed_id: s for s in (specs or [])}
@@ -831,7 +833,8 @@ def metadata_sheet_payload(
                 slug = normalize_feed_name(feed.feed_name)
                 spec = spec_by_id.get(slug)
                 for cells in template_tab_rows(name, feed, config, spec,
-                                               faq_by_slug.get(slug), template_cfg):
+                                               faq_by_slug.get(slug), template_cfg,
+                                               profile=profile):
                     cells = {**cells, **audit_by_cells(tab.headers, faq_by_slug.get(slug))}
                     rows.append(_row(tab.headers, always_blank, cells, feed_slug=slug))
         elif name in _IIG_TAB_BUILDERS:

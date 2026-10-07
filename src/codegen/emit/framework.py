@@ -585,6 +585,7 @@ def emit_framework(
         faq_by_slug={spec.feed_slug: faq},
         frd_path=frd_path,
         template=template_name,
+        conventions_profile=conventions_profile,
     )
     payload = _filter_payload_for_feed(payload, spec.feed_slug)
     if template_cfg is not None:

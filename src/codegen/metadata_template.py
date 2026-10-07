@@ -150,6 +150,27 @@ def _frequency(feed: FrdFeed, faq) -> dict:
     return _frequency_cell(feed, faq)
 
 
+def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
+    """The catalog the DDL's three-part name uses (emit.framework._qualify):
+    the resolved table's catalog (FRD label, else the STTM band), else the
+    conventions profile's default_catalog[layer] (provenance config_default).
+    None when no link states one — the cell stays open (or a template /
+    overlay constant fills it)."""
+    if table.catalog:
+        return _cell(table.catalog, "from_frd",
+                     f"{layer} catalog: FRD Target Catalog and Schema label / STTM target "
+                     "band catalog column (the DDL's three-part name)")
+    from codegen.emit.framework import _config_default_catalog
+
+    default = _config_default_catalog(config, profile, layer) if profile is not None else None
+    if not default:
+        return None
+    return _cell(default, "synthetic",
+                 f"{layer} catalog: no FRD / STTM catalog; provenance config_default "
+                 f"(conventions default_catalog[{layer}] = {default!r}) — the DDL's "
+                 "three-part name uses the same value")
+
+
 def _reject_table(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec, stage_table: str) -> str:
     if tpl.reject_table_suffix is not None:
         return f"{stage_table}{tpl.reject_table_suffix}"
@@ -260,7 +281,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
     return rows
 
 
-def _stg_std(tab, feed, config, spec, faq, tpl) -> list[dict]:
+def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
     if spec is None or spec.standard_table is None:
         return []
     fields = [f for f in _distinct_fields(spec) if f.standard_column]
@@ -281,14 +302,12 @@ def _stg_std(tab, feed, config, spec, faq, tpl) -> list[dict]:
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency(feed, faq),
         "LOB": _cell(", ".join(feed.lobs), "from_frd"),
-        "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd"),
         "SRC_SCHEMA_NAME": _cell(stage.schema_name, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage.table, "from_frd"),
         "SRC_COLUMNS": _cell(
             ",".join([f"{f.stage_column}:{f.standard_column}" for f in fields]
                      + [f"{c}:{c}" for c, _t in audit]), "from_sttm"),
         "SRC_DATA_TYPE": _cell(",".join(src_types), "from_sttm"),
-        "TGT_CATALOG_NAME": _cell(standard.catalog or "", "from_frd"),
         "TGT_SCHEMA_NAME": _cell(standard.schema_name, "from_frd"),
         "TGT_TABLE_NAME": _cell(standard.table, "from_frd"),
         "TGT_COLUMN_NAMES": _cell(
@@ -301,6 +320,11 @@ def _stg_std(tab, feed, config, spec, faq, tpl) -> list[dict]:
             _TEMPLATE_TOOLTIP.format(citation=tpl.citation)
             if tpl.reject_table_suffix is not None else "stage table + errors suffix"),
     }
+    for header, table, layer in (("SRC_CATALOG_NAME", stage, "stage"),
+                                 ("TGT_CATALOG_NAME", standard, "standard")):
+        catalog = _catalog_cell(config, profile, table, layer)
+        if catalog is not None:
+            cells[header] = catalog
     if spec.standard_load_strategy:
         cells["TGT_LOAD_OPTION"] = _cell(spec.standard_load_strategy, "from_frd",
                                          "FRD Structural Metadata → Load Strategy STD")
@@ -495,12 +519,16 @@ _BUILDERS = {
 
 
 def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFeedSpec | None,
-                      faq, tpl: MetadataTemplateConfig) -> list[dict]:
+                      faq, tpl: MetadataTemplateConfig, profile=None) -> list[dict]:
     """Cells for one tab of a non-default IIG template (rows without the
-    header/always_blank assembly, which ``metadata_sheet._row`` does)."""
+    header/always_blank assembly, which ``metadata_sheet._row`` does).
+    ``profile`` = the run's conventions profile (its default_catalog is the
+    catalog chain's last link)."""
     builder = _BUILDERS.get(tab)
     if builder is None:
         return []
+    if builder is _stg_std:
+        return builder(tab, feed, config, spec, faq, tpl, profile=profile)
     return builder(tab, feed, config, spec, faq, tpl)
 
 

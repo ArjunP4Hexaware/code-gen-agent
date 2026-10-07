@@ -61,14 +61,68 @@ CONVENTIONS = [arg for flag, widget in (("--profile", "conventions_profile"),
 
 # COMMAND ----------
 
-# DBTITLE 1,Bring the pair down to local scratch (Workspace / Files API)
-from codegen.config import load_config
-from codegen.storage import RoleStore, default_client_factory, open_backend, open_storage
+# DBTITLE 1,Launcher: always the checkout's own codegen, never a stale install
+def repo_root_from(start: Path) -> Path:
+    """The checkout holding this launcher: the first of ``start`` and its
+    parents with a pyproject.toml."""
+    for parent in [start, *start.parents]:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    raise RuntimeError(f"no pyproject.toml at or above {start}")
 
-REPO = Path.cwd()
+
+def launcher_file() -> Path:
+    """This notebook's own location — ``__file__`` when run as a file, else
+    the notebook path from the Databricks context. Never the cwd."""
+    try:
+        return Path(__file__).resolve()
+    except NameError:
+        context = dbutils.notebook.entry_point.getDbutils().notebook().getContext()  # noqa: F821
+        return Path("/Workspace" + context.notebookPath().get())
+
+
+def codegen_env(repo_root: Path, base: dict | None = None) -> dict:
+    """``base`` (default: this process's env) with ``<repo_root>/src``
+    prepended to PYTHONPATH, existing entries kept."""
+    env = dict(os.environ if base is None else base)
+    src = str(repo_root / "src")
+    rest = [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p and p != src]
+    env["PYTHONPATH"] = os.pathsep.join([src, *rest])
+    return env
+
+
+def launch_codegen(repo_root: Path, *args: str,
+                   env: dict | None = None) -> subprocess.CompletedProcess:
+    """``python -m codegen.cli <args>`` on the checkout's src/ (its first
+    output line names the codegen that ran)."""
+    return subprocess.run([sys.executable, "-m", "codegen.cli", *args], cwd=repo_root,
+                          env=codegen_env(repo_root, env), text=True, capture_output=True,
+                          check=False)
+
+
+REPO = repo_root_from(launcher_file().parent)
+# The in-process imports below resolve the same code as the subprocesses.
+sys.path[:] = [str(REPO / "src"), *[p for p in sys.path if p != str(REPO / "src")]]
+for _name in [m for m in sys.modules if m == "codegen" or m.startswith("codegen.")]:
+    del sys.modules[_name]
+print("repo:", REPO)
+
+# COMMAND ----------
+
+# DBTITLE 1,Bring the pair down to local scratch (Workspace / Files API)
+from codegen.build_info import source_line  # noqa: E402
+from codegen.config import load_config  # noqa: E402
+from codegen.storage import (  # noqa: E402
+    RoleStore,
+    default_client_factory,
+    open_backend,
+    open_storage,
+)
+
 # load_config applies config/overlays/acfc_env.yaml, then CODEGEN_CONFIG_OVERLAYS
 # on top (and prints the list); the `codegen` subprocesses below inherit both.
 config = load_config(REPO / "config" / "config.yaml")
+print(source_line())
 stores = open_storage(config, REPO)
 pair_backend = open_backend(PAIR_URI, base_dir=REPO,
                             client_factory=default_client_factory(config))
@@ -84,8 +138,7 @@ for name in documents:
 # DBTITLE 1,Pair by content, resolve the layout, extract, generate
 def run(label: str, *args: str) -> int:
     print(f"\n=== {label}")
-    done = subprocess.run([sys.executable, "-m", "codegen.cli", *args], cwd=REPO, text=True,
-                          capture_output=True, check=False)
+    done = launch_codegen(REPO, *args)
     print(done.stdout + (("\nSTDERR:\n" + done.stderr) if done.stderr.strip() else ""))
     return done.returncode
 

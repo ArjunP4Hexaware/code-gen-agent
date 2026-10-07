@@ -89,6 +89,31 @@ environment's constants and the SDOH path shapes:
 - Per-feed path shapes (`path_patterns`) go in the same overlay when the
   feed's values are known; the shipped `iig_v2` shapes are unchanged.
 
+### Which codegen runs (2026-10-07: a stale wheel shadowed the tree)
+
+The Apps venv once kept an old pip-installed `codegen` while
+`config/config.yaml` came from the deployed tree — startup died with
+"unknown top-level config section(s) ['iig_review']". Every entry point now
+runs the checkout's own `src/` and says so:
+
+- **App**: `ui/backend/__init__.py` puts `<repo>/src` first on `sys.path`
+  (and on `PYTHONPATH`, for the document-parser child and the gate's ruff /
+  pytest) before anything imports `codegen`. Startup prints
+  `codegen source: <file> version <v> · iig_review supported: <b> · config:
+  <path>`; the same line is in the startup error the UI shows and in
+  `GET /api/health` (`codegen_source`, `codegen_file`).
+- **CLI**: every command's first line is `codegen <version> from <file> ·
+  overlays: <list>` (stderr under `--json`). `python -m codegen.cli doctor`
+  adds the python executable, `sys.path[0:3]` and `iig_review supported`.
+- **acfc_run.py**: `launch_codegen` runs `python -m codegen.cli` with
+  `PYTHONPATH=<repo>/src` prepended (existing entries kept); the repo root
+  comes from the notebook's own location, never the cwd.
+- **Artefacts**: `run_meta.json` (`codegen`) and the report's Model usage
+  section (`- Produced by: …`) carry the same line.
+
+If `doctor` (or the startup line) names a path outside the checkout's `src/`,
+a stale install is still winning — redeploy with a bumped version marker.
+
 ## 3. Storage: workspace folders shared with the App's service principal
 
 Three roles, one storage URI each:

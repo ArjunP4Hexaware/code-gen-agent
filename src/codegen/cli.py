@@ -1239,9 +1239,25 @@ def main(argv: list[str] | None = None) -> int:
                             help="override databricks.output_volume")
     db_publish.add_argument("--force", action="store_true",
                             help="overwrite files already in the volume")
+    doctor = subparsers.add_parser(
+        "doctor", help="print which codegen runs (version, location, overlays, python, "
+                       "sys.path) and whether it knows the config's sections")
+    doctor.add_argument("--config", default="config/config.yaml")
 
     args = parser.parse_args(argv)
     load_dotenv()
+    # First line of EVERY command: which code runs, with which overlays —
+    # printed before load_config, which is what fails on a stale install.
+    # Machine-readable output (--json) keeps stdout clean: the line goes to stderr.
+    from codegen.build_info import doctor_lines, source_line
+    from codegen.config import overlay_paths
+
+    overlays = [str(p) for p in overlay_paths(args.config)]
+    if args.command == "doctor":
+        print("\n".join(doctor_lines(overlays)))
+        return 0
+    print(source_line(overlays), file=sys.stderr if getattr(args, "json", False) else sys.stdout,
+          flush=True)
     config = load_config(args.config)
 
     if args.command == "extract-sttm":

@@ -83,3 +83,7 @@ def test_a_live_run_with_remote_roles_produces_feeds_and_pushes_them(remote_run)
     pushed = [p for p in remote_run.vol.files if p.startswith(VOLUME)]
     assert pushed, "nothing was pushed to the outputs role"
     assert any(p.endswith(".sql") for p in pushed), sorted(pushed)[:5]
+    # run_meta.json says which code produced the run (codegen.build_info).
+    (meta_path,) = [p for p in pushed if p.endswith("/run_meta.json")]
+    meta = __import__("json").loads(remote_run.vol.files[meta_path])
+    assert meta["codegen"].startswith("codegen ") and str(REPO / "src") in meta["codegen"]

@@ -143,10 +143,15 @@ def layout_usage(*providers) -> StageUsage:
 
 
 def report_lines(usages: list[StageUsage]) -> list[str]:
-    """The generation report's "Model usage" section."""
+    """The generation report's "Model usage" section — and which code
+    produced the report (codegen.build_info.source_line: version, location,
+    overlays; environment metadata, the one line that varies by checkout)."""
+    from codegen.build_info import PRODUCED_BY_PREFIX, source_line
+
     titles = {"layout": "Layout recognizer", "layer2": "Layer 2 (rule reasoning)"}
     lines = ["## Model usage", ""]
     lines += [f"- {titles.get(u.stage, u.stage)}: {u.label}" for u in usages]
+    lines.append(PRODUCED_BY_PREFIX + source_line())
     return [*lines, ""]
 
 

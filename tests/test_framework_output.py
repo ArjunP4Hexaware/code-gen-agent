@@ -51,13 +51,25 @@ def _generate_all(config, tmp: Path, mode: str, output_mode: str | None = None):
         yield spec, gate
 
 
+def _stable_bytes(path: Path) -> bytes:
+    """A report's "Produced by" line names the checkout and version that ran
+    (codegen.build_info) — environment metadata, left out of the hash."""
+    from codegen.build_info import PRODUCED_BY_PREFIX
+
+    data = path.read_bytes()
+    if path.suffix != ".md":
+        return data
+    prefix = PRODUCED_BY_PREFIX.encode("utf-8")
+    return b"\n".join(line for line in data.split(b"\n") if not line.startswith(prefix))
+
+
 def _manifest(tmp: Path) -> dict[str, str]:
     manifest = {}
     for base, label in ((tmp / "out", "out"), (tmp / "reports", "reports")):
         for p in sorted(base.rglob("*")):
             if p.is_file():
                 rel = f"{label}/{p.relative_to(base).as_posix()}"
-                manifest[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+                manifest[rel] = hashlib.sha256(_stable_bytes(p)).hexdigest()
     return manifest
 
 

@@ -1394,6 +1394,12 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 DEFAULT_OVERLAY = Path("overlays") / "acfc_env.yaml"
 SKIP_ENV_OVERLAY = "CODEGEN_SKIP_ENV_OVERLAY"
 _announced_overlays: set[tuple[str, ...]] = set()
+_last_applied: list[str] = []
+
+
+def last_applied_overlays() -> list[str]:
+    """The overlays the most recent load_config in this process applied."""
+    return list(_last_applied)
 
 
 def overlay_paths(path: str | Path, overlays: list[str | Path] | None = None) -> list[Path]:
@@ -1453,6 +1459,7 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
         raise ValueError(f"config file {path} is not a YAML mapping")
     applied = overlay_paths(path, overlays)
     _announce(applied)
+    _last_applied[:] = [str(p) for p in applied]
     for overlay_path in applied:
         overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
         if not isinstance(overlay, dict):

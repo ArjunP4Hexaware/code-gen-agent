@@ -40,6 +40,13 @@ SELECTION_FILE = "selection.json"
 SELECTION_PATH = STATE_DIR / SELECTION_FILE
 
 
+def _codegen_source_line() -> str:
+    """run_meta.json's record of which code produced the run."""
+    from codegen.build_info import source_line
+
+    return source_line()
+
+
 class SelectionFailed(RuntimeError):
     """A chosen document could not be brought in (download / pairing /
     recording the choice failed). The selection is NOT made and nothing falls
@@ -1857,6 +1864,7 @@ class DemoRunner:
                 "playbook_template": self.playbook_template or config.playbook.template,
                 "vdd": self.selected_vdd.name if self.selected_vdd else None,
                 "notes": list(self.run_notes),          # M15e: "VDD not decided at run start"
+                "codegen": _codegen_source_line(),      # which code produced this run
             }, indent=2) + "\n",
             encoding="utf-8", newline="\n",
         )

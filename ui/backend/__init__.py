@@ -8,11 +8,13 @@ This package ``__init__`` runs before any ``ui.backend.*`` module imports
 ``import ui.backend.main``): it puts ``<repo root>/src`` first on ``sys.path``
 and drops an already-imported ``codegen`` that lives elsewhere. An editable
 install already pointing at ``<repo root>/src`` (the test suite) is left as
-it is — its modules are never re-imported. Stdlib only.
+it is — its modules are never re-imported. `<repo root>/src` is also
+prepended to PYTHONPATH so child processes resolve the same code. Stdlib only.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -45,3 +47,7 @@ if TREE_SRC is not None and (TREE_SRC / "codegen").is_dir():
     src = str(TREE_SRC)
     sys.path[:] = [p for p in sys.path if p != src]
     sys.path.insert(0, src)
+    # Child processes (the document parser `python -m codegen.layout.docworker`,
+    # the gate's ruff / pytest) inherit the environment, not sys.path.
+    _existing = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p and p != src]
+    os.environ["PYTHONPATH"] = os.pathsep.join([src, *_existing])

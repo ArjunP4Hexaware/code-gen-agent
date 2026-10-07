@@ -13,7 +13,7 @@ inside ACFC pulls this branch. Nothing merged anywhere.
 the IIG / metadata / framework files also pass with lxml installed (the local
 `.venv` has NO lxml — install it to a scratch `--target` dir and put it on
 `PYTHONPATH` to reproduce lxml-only bugs); ruff clean; scrub 0 over every
-changed file. Version marker **0.5.8.post8** (pyproject + requirements.txt).
+changed file. Version marker **0.5.8.post10** (pyproject + requirements.txt).
 
 **What 2026-10-07 changed (oldest first):**
 - be4c6e4 — `stable_workbook_bytes` replaced the whole `<dcterms:modified>`
@@ -54,6 +54,16 @@ changed file. Version marker **0.5.8.post8** (pyproject + requirements.txt).
 - `docs/acfc/IIG_SCORECARD_2026-10-07.md` — scorecard output, cell provenance,
   open cells + owners, remaining DIFFs, and the exact ACFC run commands for
   the Socially Determined (MIDS) pair.
+
+- 50a510e and the commit after it — **stale-install immunity**: the App
+  (`ui/backend/__init__.py`: `<repo>/src` first on sys.path + PYTHONPATH,
+  startup line `codegen source: …`, `GET /api/health`), the CLI (first line
+  `codegen <v> from <file> · overlays: …`, `codegen doctor`), `acfc_run.py`
+  (`launch_codegen` with `PYTHONPATH=<repo>/src`, root from its own location),
+  `run_meta.json` `codegen`, the report's `- Produced by:` line (stripped
+  from the notebook-mode snapshot hash — it names the checkout). Tests:
+  `tests/test_app_imports_tree_src.py`, `tests/test_cli_launch_tree_src.py`
+  (decoy `codegen` ahead on PYTHONPATH). docs/ACFC_DEPLOY.md "Which codegen runs".
 
 **Current scorecard** (CV golden pair, committed overlay, vs the real
 `demographics_package` row): `filled 38/55, matched 33, alias 8, open 10 (BSA

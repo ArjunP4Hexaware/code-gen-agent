@@ -342,7 +342,11 @@ def _generate(tmp_path, monkeypatch, capsys, *extra: str) -> tuple[int, str]:
     code = cli.main(["generate", "--frd-contract", str(frd_json), "--sttm-contract",
                      str(sttm_json), "--output-mode", "framework", "--profile", "acfc_prx",
                      "--iig-template", "iig_v2", "--skip-tests", "--dry-run", *extra])
-    return code, capsys.readouterr().out
+    out = capsys.readouterr().out
+    # Line 1 names the code that ran (codegen.build_info); the headline follows.
+    source, _, rest = out.partition("\n")
+    assert source.startswith("codegen ") and " from " in source
+    return code, rest
 
 
 def _report_verdict(tmp_path: Path) -> str:

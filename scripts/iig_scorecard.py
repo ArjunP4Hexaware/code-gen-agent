@@ -11,6 +11,9 @@ Rows are matched by TGT_TABLE_NAME. One line per column of the REAL sheet:
 * ALIAS — equal only once the fixture's anonymisation is undone (--alias
   pairs, applied to the generated value, case-insensitive); a case-only
   difference is a DIFF marked "(case only)";
+* SRC_ / TGT_DATA_TYPE compare case-insensitively (MATCH with a note);
+  LOB is ALIAS when the generated row is the anonymised fixture (its table
+  name differs from --real-table);
 * OPEN  — the generated cell is blank; owner from the review copy's
   REVIEW_SUMMARY (sheet + column);
 * DIFF  — real vs generated, values cut to 60 characters; comma-list
@@ -38,6 +41,11 @@ NULLS = {"", "null", "none"}
 # The CV golden fixture's anonymisation of the Socially Determined feeds.
 DEFAULT_ALIASES = ["cv_=sd_", "sdh=sdoh", "civic_vantage=socially_determined",
                    "civic vantage=socially determined"]
+# Type lists: the real rows mix 'String' / 'string' — compared case-insensitively.
+CASELESS_COLUMNS = {"SRC_DATA_TYPE", "TGT_DATA_TYPE"}
+# Columns the CV fixture anonymised outright (a value, not a name fragment):
+# a difference there is ALIAS when the generated row IS the fixture.
+FIXTURE_ANONYMISED = {"LOB"}
 OWNER_BUCKETS = {"BSA": "BSA", "Engineer": "Engineer", "Engineer (confirm)": "Engineer-confirm",
                  "Set at load (CI/CD)": "CI/CD"}
 WIDTH = 60
@@ -108,7 +116,9 @@ def _find(rows: list[dict], table: str, aliases) -> dict | None:
 
 
 def score(generated: dict, real: dict, owners: dict[str, str],
-          aliases: list[tuple[str, str]]) -> tuple[list[str], dict]:
+          aliases: list[tuple[str, str]], fixture: bool = False) -> tuple[list[str], dict]:
+    """``fixture`` = the generated row is the anonymised fixture (its table
+    name differs from the real one)."""
     lines: list[str] = []
     counts = {"filled": 0, "match": 0, "alias": 0, "open": 0, "diff": 0}
     open_by: dict[str, int] = {}
@@ -132,6 +142,14 @@ def score(generated: dict, real: dict, owners: dict[str, str],
         elif gen_value == real_value or (_is_null(gen_value) and _is_null(real_value)):
             status, detail = "MATCH", ""
             counts["match"] += 1
+        elif column in CASELESS_COLUMNS and gen_value.lower() == real_value.lower():
+            status = "MATCH"
+            detail = "(case-insensitive; " + _diff_text(column, real_value, gen_value) + ")"
+            counts["match"] += 1
+        elif fixture and column in FIXTURE_ANONYMISED:
+            status = "ALIAS"
+            detail = f"(anonymised in the fixture) generated {_cut(gen_value)!r}"
+            counts["alias"] += 1
         elif (_dealias(gen_value, aliases) == real_value.lower()
               and _dealias(gen_value, aliases) != gen_value.lower()):
             # equal only once the fixture's anonymisation is undone
@@ -182,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"generated row {args.generated_table or args.real_table!r} not found",
               file=sys.stderr)
         return 2
-    lines, _counts = score(generated, real, _owners(review, args.sheet), aliases)
+    fixture = _text(generated.get("TGT_TABLE_NAME")).lower() != args.real_table.lower()
+    lines, _counts = score(generated, real, _owners(review, args.sheet), aliases, fixture)
     print(f"{args.sheet}: real {args.real_table} vs generated "
           f"{_text(generated.get('TGT_TABLE_NAME'))}")
     print("\n".join(lines))

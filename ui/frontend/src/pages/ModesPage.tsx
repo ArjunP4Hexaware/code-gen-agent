@@ -4,6 +4,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ModelUsageList } from "../components/ModelUsage";
 import { OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
+import { StorageRoots } from "../components/StorageRoots";
 import { fmtKb, fmtNumber } from "../format";
 import type { LayoutQuestion } from "../api";
 import {
@@ -1497,7 +1498,10 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             {workbooks === null ? (
               <div className="empty">Scanning…</div>
             ) : workbooks.length === 0 ? (
-              <div className="empty">No .xlsx workbooks found in the input directories.</div>
+              <div className="empty">
+                No .xlsx workbooks found in the input directories.
+                <StorageRoots />
+              </div>
             ) : (
               // By CONTENT (M9.3): dictionaries are listed under the VDD heading;
               // everything else here — an unclassified / unreadable workbook is

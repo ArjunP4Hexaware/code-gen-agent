@@ -158,7 +158,7 @@ def test_app_health_and_startup_line_list_the_overlays(monkeypatch):
     body = ui_main.health()
     assert body["config_overlays"] == expected
     assert set(body) == {"status", "version", "codegen_source", "codegen_file",
-                         "config_overlays", "startup_error"}
+                         "config_overlays", "startup_error", "principal", "roots"}
     monkeypatch.setenv("CODEGEN_SKIP_ENV_OVERLAY", "1")
     assert ui_main.health()["config_overlays"] == []
 

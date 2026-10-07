@@ -215,16 +215,23 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
 @app.get("/api/health")
 def health() -> dict:
     """Liveness + what this process runs with: version, the codegen source
-    line, the config overlays applied (in order), and the startup error when
-    the pipeline is down."""
+    line, the config overlays applied (in order), the startup error when the
+    pipeline is down — and every storage root the App reads: env var, value
+    and a live probe (readable / empty / not shared with the App's service
+    principal / unset), what the documents panel shows when it lists
+    nothing."""
     import codegen
+    from codegen.storage import default_client_factory
+    from ui.backend.health import probe_roots
 
+    factory = default_client_factory(store.config) if store is not None else None
     return {"status": "ok" if store is not None else "degraded",
             "version": _app_version(),
             "codegen_source": CODEGEN_SOURCE,
             "codegen_file": codegen.__file__,
             "config_overlays": _config_overlays(),
-            "startup_error": startup_error}
+            "startup_error": startup_error,
+            **probe_roots(REPO_ROOT, client_factory=factory)}
 
 
 @app.get("/api/feeds")

@@ -527,6 +527,31 @@ export class ApiError extends Error {
   }
 }
 
+// GET /api/health (2026-10-07): every storage root the App reads, probed live.
+export type StorageRootState =
+  | "readable"
+  | "empty"
+  | "not_shared"
+  | "unset"
+  | "invalid"
+  | "error"
+  | "timeout";
+
+export interface StorageRoot {
+  env: string;
+  role: string;
+  value: string | null;
+  state: StorageRootState;
+  detail: string;
+}
+
+export interface HealthResponse {
+  status: "ok" | "degraded";
+  startup_error: string | null;
+  principal: string;
+  roots: StorageRoot[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   if (!res.ok) {
@@ -641,6 +666,7 @@ export const downloadHref = (slug: string, path: string) =>
   `/api/feeds/${slug}/download?path=${encodeURIComponent(path)}`;
 
 export const api = {
+  health: () => request<HealthResponse>("/api/health"),
   feeds: () => request<FeedsResponse>("/api/feeds"),
   feed: (slug: string) => request<FeedDetail>(`/api/feeds/${slug}`),
   generate: (feedSlug?: string) =>

@@ -13,7 +13,7 @@ inside ACFC pulls this branch. Nothing merged anywhere.
 the IIG / metadata / framework files also pass with lxml installed (the local
 `.venv` has NO lxml — install it to a scratch `--target` dir and put it on
 `PYTHONPATH` to reproduce lxml-only bugs); ruff clean; scrub 0 over every
-changed file. Version marker **0.5.8.post12** (pyproject + requirements.txt).
+changed file. Version marker **0.5.8.post13** (pyproject + requirements.txt).
 
 **What 2026-10-07 changed (oldest first):**
 - be4c6e4 — `stable_workbook_bytes` replaced the whole `<dcterms:modified>`

@@ -1,6 +1,93 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## START HERE — demo branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
+## START HERE — branch `feature/iig-first` (state as of 2026-10-07, before the 2:30 PM demo)
+
+**What this branch is.** Cut from `fix/remove-mock-provider-ui-text` (merge
+base e89a263 = M15e; that branch's notes follow below and still apply).
+IIG-first M1–M3 (6291cb5 … 3f44dc8) made every `acfc_prx` framework run write
+`<feed>_IIG.xlsx` (clean copy) + `<feed>_IIG_REVIEW.xlsx` (review copy). Pushed
+to `origin/feature/iig-first` at d8b2f29, working tree clean. `codegen-watch`
+inside ACFC pulls this branch. Nothing merged anywhere.
+
+**Verified at d8b2f29:** 800 passed / 27 skipped (Python 3.11, full suite);
+the IIG / metadata / framework files also pass with lxml installed (the local
+`.venv` has NO lxml — install it to a scratch `--target` dir and put it on
+`PYTHONPATH` to reproduce lxml-only bugs); ruff clean; scrub 0 over every
+changed file. Version marker **0.5.8.post8** (pyproject + requirements.txt).
+
+**What 2026-10-07 changed (oldest first):**
+- be4c6e4 — `stable_workbook_bytes` replaced the whole `<dcterms:modified>`
+  element and dropped the `xmlns:xsi` openpyxl declares ON it under lxml →
+  every IIG xlsx unreadable in ACFC. Only the timestamp text is replaced now;
+  round-trip tests (`test_every_iig_workbook_round_trips_through_openpyxl`).
+- 44e74a9 / d0afec7 — **`config/overlays/acfc_env.yaml` is COMMITTED and
+  applied by `load_config` itself** when `CODEGEN_CONFIG_OVERLAYS` is UNSET
+  (stderr line `config overlay (default): …`); an explicit value REPLACES it,
+  `""` disables it. **`tests/conftest.py` sets `""` at import** so the suite
+  stays on the shipped config — a test that wants the overlay passes
+  `overlays=[…]`. Content: `acfc_prx.default_catalog {stage: d1_dlk,
+  standard: d1_std}`; six ADLS_DELTA constants (connection ids 7/4/2,
+  `mftlanding`, `z-use-d1-dlk-stage-01`, SCHEMA_DRIFT_FLAG Y) with
+  `constant_citations`; `always_blank` minus the five connection/container
+  columns (lists REPLACE on merge); `src_columns_style: named`; four SDOH
+  path shapes with `path_citations`. **It applies to EVERY ACFC feed** —
+  PRX-shaped feeds (pair 1) get SDOH paths until it is split per source
+  family. Documented in `docs/ACFC_DEPLOY.md` §2.
+- 13e93bd … 0e14ce7 — iig_v2 derivations in `src/codegen/metadata_template.py`
+  (tests: `tests/test_iig_v2_derivations.py`): (a) STGDELTA SRC_/TGT_CATALOG_NAME
+  follow the DDL chain (the run's profile is threaded through
+  `metadata_sheet_payload(conventions_profile=)` → `template_tab_rows(profile=)`);
+  (b) TGT_LOAD_OPTION via `_REFRESH_TYPE_BY_STRATEGY` (Truncate and Load →
+  Overwrite); (c) FREQUENCY token (leading word, else the only token, else
+  open); (d) `{landing_rel}` / `{domain_path}` placeholders (shipped shapes
+  unchanged, test-pinned); (e) `src_columns_style: named`; (f) HEADER/FILE_
+  HEADER/FILE_FOOTER flags only from FAQ `has_header`/`has_trailer`, and ONLY
+  for delimited files — fixed-width keeps the old reading because the pair-1
+  golden's flags contradict segment semantics.
+- 4b0c1ce / 984ab92 — `scripts/iig_scorecard.py` (+ `tests/test_iig_scorecard.py`):
+  MATCH / ALIAS / OPEN / DIFF per real column; never prints CREATED_BY /
+  UPDATED_BY; data types caseless; LOB ALIAS only when the generated row is
+  the anonymised fixture.
+- `docs/acfc/IIG_SCORECARD_2026-10-07.md` — scorecard output, cell provenance,
+  open cells + owners, remaining DIFFs, and the exact ACFC run commands for
+  the Socially Determined (MIDS) pair.
+
+**Current scorecard** (CV golden pair, committed overlay, vs the real
+`demographics_package` row): `filled 38/55, matched 33, alias 8, open 10 (BSA
+5, Engineer 3, Engineer-confirm 0, CI/CD 2), diff 4`. Remaining DIFFs:
+OBJECT_NAME / SRC_FILE_NAME (fixture file pattern), SOURCE ("(CV)" suffix),
+TGT_PRIMARY_KEY (`NULL` real vs `zip_code` — kept as DIFF: a framework-team
+question). Re-run: generate the CV pair (`fixtures/contracts/FRD_demo_cv_golden
+.contract.json` + `sttm_mapping_contracts_cv_golden.json`, `--feed
+cv_community_demographic_risk --dry-run --skip-tests --output-mode framework
+--profile acfc_prx --iig-template iig_v2`, outputs via
+`CODEGEN_STORAGE_OUTPUTS=local:<scratch>`), then `python scripts/iig_scorecard.py
+--generated <…>_IIG.xlsx --real "IIG test cells.xlsx" --real-table
+sd_community_demographic_risk`.
+
+**Open / scheduled — do not act without Soham:**
+- **Real client reference files are TRACKED and on origin**: `IIG test
+  cells.xlsx` (705e332 — real CREATED_BY user ids), `d1_d1k.stg_doh/`,
+  `d1_std.sdoh/` (note the real folder names) and
+  `sd_community_demographic_risk.lvdash.json` (17d1300, e27ef7f), committed
+  from ACFC before this session. `.gitignore` now lists them, which does NOT
+  untrack them. Untracking / history purge is **scheduled for after the
+  demo** — `git rm --cached` would delete them from the ACFC checkout on its
+  next pull. Read them in place; never print CREATED_BY / UPDATED_BY.
+- Split `acfc_env.yaml` per source family (SDOH vs PRX path shapes).
+- The CV FAQ leaves `has_header` / `has_trailer` unanswered → the three flag
+  cells stay open (BSA).
+
+**Session gotchas (this Windows box):** bash heredocs containing backticks
+break — write patch scripts with the Write tool and run them as files;
+Write-tool files may be CRLF, so `str.replace` patches can miss (use Edit);
+an env var holding a `;`-separated path list with a drive letter gets
+MSYS-converted — `export MSYS2_ENV_CONV_EXCL=CODEGEN_CONFIG_OVERLAYS`. The
+spiral-detector hook keys on the exact command string: a check that later
+passed under a broader command still reads "failing" (logged as a false
+trigger in `docs/spiral-log.md`, 2026-10-07) — re-run the quoted command first.
+
+## Parent branch `fix/remove-mock-provider-ui-text` (state as of 2026-09-23)
 
 **What this branch is.** A LEGACY demo branch cut from **v0.5.8-acfc (3a5b85d)**
 — NOT from `staging` (which is far ahead: v0.8.1). Pushed to

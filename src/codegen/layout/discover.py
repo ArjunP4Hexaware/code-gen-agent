@@ -358,6 +358,15 @@ def _segmented_family(workbook, config: ExtractorConfig, name: str, digest: str,
             band_starts["stage"] = index
         elif value == _norm(labels.standard):
             band_starts["standard"] = index
+    missing = [layer for layer in ("source", "stage") if layer not in band_starts]
+    if missing:
+        # The band row shares SOME of the family's labels (e.g. "Stage Layer"
+        # under a plain "Source" band) — not this family; content-driven
+        # discovery reads it (multi-table, 2026-10-07).
+        diagnostics.append(
+            f"sheet {ws.title!r}: segmented family band labels incomplete (no "
+            f"{' / '.join(missing)} band); routed to content-driven discovery")
+        return None
     try:
         facts = legacy._parse_metadata_block(rows, band_index, seg, ws.title)
         max_col = max(len(r) for r in rows) - 1

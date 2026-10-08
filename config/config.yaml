@@ -118,6 +118,10 @@ extractor:
   # field is left out of stage and standard and flagged
   # field_unmapped:<field>, citing the cell — never a note only.
   unmapped_markers: ["do not map", "dnm", "not mapped", "n/a", "na", "none"]
+  # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a header-block file
+  # pattern holding one of these LOB-varying tokens (case-insensitive) expands
+  # to one file per listed LOB; any other pattern is one file.
+  lob_tokens: ["<LOB>", "{LOB}", "[LOB]"]
   file_details_headers:
     vendor: ["vendor"]
     file_name: ["filename", "file name"]

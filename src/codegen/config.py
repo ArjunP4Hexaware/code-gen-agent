@@ -385,6 +385,10 @@ class ExtractorConfig(BaseModel):
     # both layers and flagged field_unmapped:<field>, citing the cell. Empty =
     # no marker is recognised (the row then fails loudly for its missing type).
     unmapped_markers: list[str] = Field(default_factory=list)
+    # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a file-pattern
+    # token that varies by LOB (matched case-insensitively). A pattern holding
+    # one expands to one file per LOB the header block lists.
+    lob_tokens: list[str] = Field(default_factory=lambda: ["<LOB>", "{LOB}", "[LOB]"])
     file_details_headers: ExtractorFileDetailsHeaders
     recycle_on_match: str
     recycle_on_no_match: str

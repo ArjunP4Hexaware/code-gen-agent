@@ -216,6 +216,22 @@ class SttmField(BaseModel):
     # The person's answer to feeds[i].fields[<name>].width, carried by the
     # extractor; the resolver uses it only when the VDD states no span.
     width_answer: int | None = None
+    # Multi-table step 1 (docs/acfc/MULTI_TABLE_DESIGN.md rules 1 and 6): what
+    # codegen.contracts.tables needs to group rows into tables per band. Each
+    # is written only when it says something (the contract JSON excludes
+    # defaults), so every existing contract is byte-identical:
+    # the row's Primary Key cell (Stage band, else the rules / source band);
+    primary_key: bool = False
+    # the row's own band catalog / schema when it differs from the band's
+    # value (SttmFeed.stage / .standard), else None = the band's value;
+    stage_catalog: str | None = None
+    stage_schema: str | None = None
+    standard_catalog: str | None = None
+    standard_schema: str | None = None
+    # the Standard band's Mandatory / Primary Key when they differ from the
+    # Stage band's, else None = the same.
+    standard_mandatory: bool | None = None
+    standard_primary_key: bool | None = None
 
     @property
     def byte_width(self) -> int | None:

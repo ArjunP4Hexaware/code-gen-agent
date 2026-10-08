@@ -129,7 +129,7 @@ Feed                                   (one ResolvedFeedSpec — unchanged ident
                                                       codegen.contracts.tables.SttmTable
 ```
 
-**Step 1.** `SttmTable` / `TableDef` / `ColumnDef` are DERIVED from an
+**Step 1 (done).** `SttmTable` / `TableDef` / `ColumnDef` are DERIVED from an
 `SttmFeed` (`codegen.contracts.tables.feed_tables`), never stored, so every
 existing STTM contract JSON is byte-identical. What the derivation needs and the
 contract did not carry is on `SttmField`, each written only when it says
@@ -265,7 +265,7 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 Each step: tests, ruff, scrub, commit; pair-1 acceptance byte-identical, the
 pair-4 golden consistent, `test_m5_rfc_package` green.
 
-1. **STTM parser.** Both bands → `SttmTable {stage_def, standard_def}`
+1. **STTM parser — DONE.** Both bands → `SttmTable {stage_def, standard_def}`
    grouped by distinct triple; `Feed.files` from the header block per rule 2.
    Unit tests on the pair-1 and pair-4 shapes, a single-pattern-no-LOB case
    and a two-LOB case (`tests/test_multi_table_step1.py`).

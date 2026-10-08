@@ -286,6 +286,12 @@ def _first(row: FieldRow, *keys: str) -> str | None:
     return None
 
 
+def _differs(value: str | None, band_value: str | None) -> str | None:
+    """A row's own band cell when it differs from the band's value (multi-table
+    rule 1: a table is a distinct (catalog, schema, table) triple), else None."""
+    return value if value is not None and value != band_value else None
+
+
 def _dominant(values: list[str | None]) -> str | None:
     counts: dict[str, int] = {}
     for value in values:
@@ -601,6 +607,18 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         mandatory = _yes(_first(row, "source.required", "source.mandatory",
                                 "rules.required", "stage.mandatory_column"), disc)
         pii = _yes(_first(row, "source.pii", "rules.pii"), disc)
+        primary_key = _yes(_first(row, "stage.primary_key", "rules.primary_key", "source.key"),
+                           disc)
+        standard_mandatory = standard_primary_key = None
+        if has_standard:
+            # The Standard band's own Mandatory / Primary Key, kept only when
+            # they differ from the Stage band's (rule 6: each band its own).
+            stated_mandatory = _first(row, "standard.mandatory_column")
+            if stated_mandatory is not None and _yes(stated_mandatory, disc) != mandatory:
+                standard_mandatory = not mandatory
+            stated_key = _first(row, "standard.primary_key")
+            if stated_key is not None and _yes(stated_key, disc) != primary_key:
+                standard_primary_key = not primary_key
         rule_parts = [v for v in (_first(row, "rules.load_rule", "source.load_rule"),
                                   _first(row, "stage.transformation"),
                                   _first(row, "source.business_rule")) if v]
@@ -633,6 +651,15 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             stage_table=(_first(row, "stage.table") or stage_table) if segmented else None,
             standard_table=(_first(row, "standard.table") if segmented and has_standard
                             else None),
+            primary_key=primary_key,
+            stage_catalog=_differs(_first(row, "stage.catalog"), stage_catalog),
+            stage_schema=_differs(_first(row, "stage.schema"), stage_schema),
+            standard_catalog=(_differs(_first(row, "standard.catalog"), standard_catalog)
+                              if has_standard else None),
+            standard_schema=(_differs(_first(row, "standard.schema"), standard_schema)
+                             if has_standard else None),
+            standard_mandatory=standard_mandatory,
+            standard_primary_key=standard_primary_key,
             provenance=FieldProvenance(
                 sheet=row.sheet, row=row.row, col=row.col,
                 source=ir.profile.role_source(row.sheet, "source", "field_name")),

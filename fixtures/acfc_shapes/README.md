@@ -62,4 +62,4 @@ the overlay and the design doc's owner map.
 
 | Cell | Value | Evidence |
 | --- | --- | --- |
-| `ADLS_DELTA_INGESTION_DETAILS.SCHEMA_DRIFT_FLAG` (golden + overlay) | `Y` | both real sheets we have: the SD (Socially Determined) file-to-stage row — `IIG test cells.xlsx`, `ADLS_DELTA_INGESTION_DETAILS`, read in place, untracked after the demo — and the CAQH IIG (reported 2026-10-09; no copy in this checkout). Was the hand-written `N`. The ACFC overlay (`acfc_env.yaml`) carries the same `Y`; the pair-1 (PRX) golden says `N`, so the shipped default stays `N` |
+| `ADLS_DELTA_INGESTION_DETAILS.SCHEMA_DRIFT_FLAG` (golden + overlay) | `Y` | both real sheets we have: the SD (Socially Determined) file-to-stage row — `IIG test cells.xlsx`, `ADLS_DELTA_INGESTION_DETAILS`, read in place (still tracked; untracking is scheduled for after the demo) — and the CAQH IIG (reported 2026-10-09; no copy in this checkout). Was the hand-written `N`. The ACFC overlay (`acfc_env.yaml`) carries the same `Y`; the pair-1 (PRX) golden says `N`, so the shipped default stays `N` |

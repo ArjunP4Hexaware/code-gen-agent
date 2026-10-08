@@ -66,16 +66,11 @@ command: ["python", "-m", "ui.backend.main"]
 # chooser is empty it shows every root below with a live probe
 # (GET /api/health).
 env:
-  # (feature/iig-first applies this overlay anyway — load_config always applies
-  # config/overlays/acfc_env.yaml first; listing it again is applied once.)
-  - name: CODEGEN_CONFIG_OVERLAYS
-    value: config/overlays/acfc_env.yaml
-  # PENDING the real paths — uncomment with the ACFC values:
-  # - name: CODEGEN_EXTRA_INPUT_DIRS
-  #   value: workspace:/Workspace/<path to frd_sttm_pairs>
-  # - name: CODEGEN_STORAGE_INPUTS
-  #   value: workspace:/Workspace/<...>/codegen/inputs
-  # - name: CODEGEN_STORAGE_STATE
-  #   value: workspace:/Workspace/<...>/codegen/state
-  # - name: CODEGEN_STORAGE_OUTPUTS
-  #   value: workspace:/Workspace/<...>/codegen/outputs
+  - name: CODEGEN_EXTRA_INPUT_DIRS
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/frd_sttm_pairs"
+  - name: CODEGEN_STORAGE_INPUTS
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/inputs"
+  - name: CODEGEN_STORAGE_STATE
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/state"
+  - name: CODEGEN_STORAGE_OUTPUTS
+    value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/outputs"

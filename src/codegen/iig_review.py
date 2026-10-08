@@ -118,6 +118,32 @@ def open_cells(payload: dict, always_blank: list[str], config: Config,
     return cells
 
 
+def dq_review_entries(payload: dict, config: Config) -> list[dict]:
+    """One 'additional DQ rules — Engineer' summary entry per FILE (decision
+    2026-10-07): only the header/trailer split and the STTM-derived rules are
+    generated, so the DQ sheet is visibly — never silently — incomplete. The
+    files are the ADLS_DELTA_INGESTION_DETAILS rows (OBJECT_ID, SRC_FILE_NAME);
+    no cell to fill, so Cells = 0."""
+    tabs = payload.get("tabs", {})
+    if "DATA_QUALITY_RULES" not in tabs or "ADLS_DELTA_INGESTION_DETAILS" not in tabs:
+        return []
+    review = config.iig_review
+    entries = []
+    for row in tabs["ADLS_DELTA_INGESTION_DETAILS"]["rows"]:
+        values = row["values"]
+        name = values.get("SRC_FILE_NAME") or values.get("OBJECT_NAME") or "?"
+        entries.append({
+            "sheet": "DATA_QUALITY_RULES", "column": "(rule rows)",
+            "reason": "additional_dq_rules",
+            "owner": review.owner_for("DATA_QUALITY_RULES", "(rule rows)",
+                                      "additional_dq_rules"),
+            "cells": 0, "example_cell": "",
+            "example_citation": (f"file {name} (OBJECT_ID {values.get('OBJECT_ID') or '?'}): "
+                                 "only the header/trailer split and the rules the STTM states "
+                                 "are generated — add the feed's other DQ rule classes")})
+    return entries
+
+
 def review_groups(cells: list[OpenCell]) -> list[dict]:
     """One entry per (sheet, column, reason, owner), first-seen order."""
     groups: dict[tuple[str, str, str, str], dict] = {}
@@ -167,7 +193,7 @@ def review_workbook(payload: dict, cells: list[OpenCell], config: Config) -> Wor
     summary.append(SUMMARY_HEADERS)
     for cell in summary[1]:
         cell.font = Font(bold=True)
-    for group in review_groups(cells):
+    for group in [*review_groups(cells), *dq_review_entries(payload, config)]:
         summary.append([group["sheet"], group["column"], review.reason_labels[group["reason"]],
                         review.owner_labels[group["owner"]], group["cells"],
                         group["example_cell"], group["example_citation"]])
@@ -199,5 +225,6 @@ def write_iig_workbooks(payload: dict, always_blank: list[str], config: Config,
     return review_path, clean_path, cells
 
 
-__all__ = ["OpenCell", "clean_workbook", "open_cells", "review_groups", "review_workbook",
+__all__ = ["OpenCell", "clean_workbook", "dq_review_entries", "open_cells", "review_groups",
+           "review_workbook",
            "write_iig_workbooks"]

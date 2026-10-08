@@ -1036,7 +1036,8 @@ class MetadataTemplateConfig(BaseModel):
     object_name_from_pattern: bool = False
     reject_table_suffix: str | None = None
     segment_filter_pattern: str | None = None
-    dq_rules: list[Literal["date_format", "data_type_cast"]] = Field(default_factory=list)
+    dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast"]] = Field(
+        default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
     date_format_rule_regex: str = r"^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$"
     date_format_param_joiner: str = "--"
@@ -1276,7 +1277,8 @@ class PlaybookConfig(BaseModel):
 
 IigOwner = Literal["bsa", "engineer", "engineer_confirms", "set_at_load"]
 IigReason = Literal["framework_assigned", "audit_date", "audit_by", "unstated",
-                    "synthetic_path", "template_constant", "flagged_note"]
+                    "synthetic_path", "template_constant", "flagged_note",
+                    "additional_dq_rules"]
 
 
 class IigReviewConfig(BaseModel):
@@ -1301,7 +1303,8 @@ class IigReviewConfig(BaseModel):
     owner_by_reason: dict[IigReason, IigOwner] = Field(default_factory=lambda: {
         "framework_assigned": "engineer", "audit_date": "set_at_load", "audit_by": "bsa",
         "unstated": "bsa", "synthetic_path": "engineer",
-        "template_constant": "engineer_confirms", "flagged_note": "engineer"})
+        "template_constant": "engineer_confirms", "flagged_note": "engineer",
+        "additional_dq_rules": "engineer"})
     owners: dict[str, IigOwner] = Field(default_factory=dict)
     owner_labels: dict[IigOwner, str] = Field(default_factory=lambda: {
         "bsa": "BSA", "engineer": "Engineer", "engineer_confirms": "Engineer (confirm)",
@@ -1316,7 +1319,8 @@ class IigReviewConfig(BaseModel):
         "unstated": "no input states it",
         "synthetic_path": "synthetic path shape (real container/path unknown)",
         "template_constant": "template constant (confirm against the framework)",
-        "flagged_note": "flagged by the derivation (see note)"})
+        "flagged_note": "flagged by the derivation (see note)",
+        "additional_dq_rules": "additional DQ rules (not generated)"})
 
     @model_validator(mode="after")
     def _complete(self) -> IigReviewConfig:

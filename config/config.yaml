@@ -893,8 +893,10 @@ metadata:
       object_name_from_pattern: true       # 'I_ACCUM_*_TO_CLIENT_*.csv' -> I_ACCUM_TO_CLIENT
       reject_table_suffix: "_reject"       # TGT_RJT_TABLE_NAME = <stage table>_reject
       segment_filter_pattern: "value like '{value}%'"   # from the FAQ's confirmed discriminators
-      dq_rules: [date_format, data_type_cast]
-      dq_rule_classes: {date_format: DateFormatRule, data_type_cast: DataTypeCastRule}
+      # Multi-table step 4: header_trailer_split fires only when the header /
+      # trailer segments land in a table other than the detail (rule 5).
+      dq_rules: [header_trailer_split, date_format, data_type_cast]
+      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, date_format: DateFormatRule, data_type_cast: DataTypeCastRule}
       # STTM Load Rule 'Convert yyyyMMdd to yyyy-MM-dd' -> INPUT_PARAM 'yyyyMMdd--yyyy-MM-dd'
       date_format_rule_regex: '^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$'
       date_format_param_joiner: "--"
@@ -1035,6 +1037,7 @@ iig_review:
     synthetic_path: engineer          # path shapes: the real container/path
     template_constant: engineer_confirms
     flagged_note: engineer            # e.g. iig_path_shape_on_uri
+    additional_dq_rules: engineer     # one summary entry per file: rule classes not generated
   owners:
     # Technical values no input states: the engineer, not the BSA.
     FILE_ADLS_INGESTION_DETAILS.SRC_ROOT_DIR: engineer
@@ -1065,6 +1068,7 @@ iig_review:
     synthetic_path: synthetic path shape (real container/path unknown)
     template_constant: template constant (confirm against the framework)
     flagged_note: flagged by the derivation (see note)
+    additional_dq_rules: additional DQ rules (not generated)
 
 playbook:
   # Deployment playbook templates (rfc mode). sfmc_7sheet reads the

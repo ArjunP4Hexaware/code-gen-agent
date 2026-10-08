@@ -365,7 +365,7 @@ STGDELTA_STDDELTA_INGESTION_DET:
 DATA_QUALITY_RULES:
   columns:
     GROUP_ID: engineer
-    OBJECT_ID: engineer
+    OBJECT_ID: per_file
     SEQUENCE_NO: convention
     RULE_TYPE: convention
     RULE_CLASS: convention
@@ -377,15 +377,15 @@ DATA_QUALITY_RULES:
     CREATED_DATE: convention
     UPDATED_BY: engineer
     UPDATED_DATE: convention
-  # One header/trailer split row per ADLS object (open Q2); GROUP_ID /
-  # OBJECT_ID = that ADLS row's (_object).
+  # One header/trailer split row per FILE (decision 2026-10-07): OBJECT_ID =
+  # that file's ADLS OBJECT_ID (_object); GROUP_ID is the engineer's.
   rows:
-    - {<<: *dq_common, _object: 1, INPUT_PARAM: NWB_COB_RPT_110_*.txt}
-    - {<<: *dq_common, _object: 2, INPUT_PARAM: NWB_COB_RPT_120_*.txt}
-    - {<<: *dq_common, _object: 3, INPUT_PARAM: NWB_COB_RPT_210_*.txt}
-    - {<<: *dq_common, _object: 4, INPUT_PARAM: NWB_COB_RPT_220_*.txt}
-    - {<<: *dq_common, _object: 5, INPUT_PARAM: NWB_COB_RPT_310_*.txt}
-    - {<<: *dq_common, _object: 6, INPUT_PARAM: NWB_COB_RPT_320_*.txt}
+    - {<<: *dq_common, _object: 1, OBJECT_ID: "1", INPUT_PARAM: NWB_COB_RPT_110_*.txt}
+    - {<<: *dq_common, _object: 2, OBJECT_ID: "2", INPUT_PARAM: NWB_COB_RPT_120_*.txt}
+    - {<<: *dq_common, _object: 3, OBJECT_ID: "3", INPUT_PARAM: NWB_COB_RPT_210_*.txt}
+    - {<<: *dq_common, _object: 4, OBJECT_ID: "4", INPUT_PARAM: NWB_COB_RPT_220_*.txt}
+    - {<<: *dq_common, _object: 5, OBJECT_ID: "5", INPUT_PARAM: NWB_COB_RPT_310_*.txt}
+    - {<<: *dq_common, _object: 6, OBJECT_ID: "6", INPUT_PARAM: NWB_COB_RPT_320_*.txt}
 
 # Every table definition the feed defines (one stage_def + one standard_def per
 # table), labelled with the MAPPED three-part name — the label the metadata

@@ -198,7 +198,20 @@ the FRD's). The iig_v2 builders group the resolved segments by stage triple
   (`ADLS_DELTA_INGESTION_DETAILS.SRC_CONTAINER_NAME`) first: a stage →
   standard sheet's own `SRC_CONTAINER_NAME` is the stage container.
 
-Still to come (steps 4–7).
+**Step 4 (done).** `DATA_QUALITY_RULES` is keyed per FILE (decision (a),
+2026-10-07): for each ADLS object, in `dq_rules` order —
+`header_trailer_split` (rule 5's condition: the header / trailer segments land
+in a table other than the detail; `SOURCE_COLUMN` = the header table's
+columns, `INPUT_PARAM` = the object's `SRC_FILE_NAME`, `TARGET_COLUMN` =
+`<mapped catalog>,<schema>,<header table>,<trailer table>`), then the
+date-format / data-type-cast rows the STTM states (unchanged; pair 1's eight).
+`SEQUENCE_NO` restarts per object; `OBJECT_ID` = the file's ADLS `OBJECT_ID`.
+No other rule class is generated: the review copy's summary lists one
+**"additional DQ rules (not generated)" — Engineer** entry per file
+(`iig_review.dq_review_entries`, Cells = 0 — there is no cell to fill), so the
+sheet is visibly incomplete, never silently so.
+
+Still to come (steps 5–7).
 
 ## 4. Row-count rules per sheet
 
@@ -271,12 +284,12 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 
 ### DATA_QUALITY_RULES
 
-- **per-file:** INPUT_PARAM
+- **per-file:** OBJECT_ID, INPUT_PARAM
 - **per-table:** SOURCE_COLUMN, TARGET_COLUMN
 - **per-feed:** —
 - **environment:** —
 - **convention:** SEQUENCE_NO, RULE_TYPE, RULE_CLASS, ACTIVE_RULE_FLG, CREATED_DATE, UPDATED_DATE
-- **engineer-assigned:** GROUP_ID, OBJECT_ID, CREATED_BY, UPDATED_BY
+- **engineer-assigned:** GROUP_ID, CREATED_BY, UPDATED_BY
 
 ### Sheets not goldened for pair 4 (classes for Phase C)
 
@@ -315,7 +328,8 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
 3. **ADLS rows = files; STGDELTA rows = tables — DONE** (pair 4: 6 and 3,
    cell for cell as the golden; pair 1: 4 and 1;
    `tests/test_multi_table_step3.py`).
-4. **`DATA_QUALITY_RULES` header/trailer row** under rule 5's condition.
+4. **`DATA_QUALITY_RULES` header/trailer row — DONE** (pair 4: 6 rows = the golden;
+   pair 1: no split row, its 8 derived rows; `tests/test_multi_table_step4.py`).
 5. **`DATA_FACTORY_PIPELINE_SCHEDULE`: four rows** (grand master, master,
    file→stage, stage→standard), ids left to the engineer, names from the
    naming convention.
@@ -334,7 +348,8 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    — is the continuation `trl_table` (the golden assumes
    `catalog,schema,hdr_table,trl_table`)? Are the trailer's columns named
    anywhere (`SOURCE_COLUMN` lists the header columns only)?
-2. One split-rule row per ADLS object (6 for pair 4), or one per group?
+2. ~~One split-rule row per ADLS object, or one per group?~~ **Decided
+   2026-10-07: one per file** (pair 4 = 6).
 3. Does a delimited feed whose stage is all-`String` get a `DataTypeCastRule`
    on the stage → standard leg (where the types change), and on which sheet?
 4. Are the grand master and master new rows per feed, or existing pipelines a

@@ -168,3 +168,75 @@ def pair1_spec(pair1_config, tmp_path_factory):
     vdd_json.write_text(vdd_to_json(vdd_contract), encoding="utf-8")
     (spec,) = resolve_contracts(frd_json, sttm_json, config, vdd_path=vdd_json)
     return spec
+
+
+# ---- multi-table Phase C (docs/acfc/MULTI_TABLE_DESIGN.md §6): pair 4 + pair 1 IIG payloads
+
+@pytest.fixture(scope="session")
+def pair4_config():
+    from multi_table_golden import PAIR4_OVERLAY
+
+    return load_config(REPO / "config" / "config.yaml", overlays=[PAIR4_OVERLAY])
+
+
+@pytest.fixture(scope="session")
+def pair4_spec(pair4_config, tmp_path_factory):
+    """Pair 4 (multi-table fixture): STTM extracted by synonyms, resolved
+    against its FRD contract under the pair-4 environment overlay."""
+    from acfc_shapes import FIXTURE_ROOT, pair4_nb
+    from codegen.extract import contract_to_json, extract_contract
+
+    sttm = extract_contract(FIXTURE_ROOT / pair4_nb.STTM_PATH, FIXTURE_ROOT / pair4_nb.FRD_PATH,
+                            pair4_config, generated_date="2026-10-07")
+    path = tmp_path_factory.mktemp("pair4_spec") / "sttm.contract.json"
+    path.write_text(contract_to_json(sttm), encoding="utf-8")
+    (spec,) = resolve_contracts(FIXTURE_ROOT / pair4_nb.FRD_PATH, path, pair4_config)
+    return spec
+
+
+@pytest.fixture(scope="session")
+def pair4_payload(pair4_config, pair4_spec):
+    from acfc_shapes import FIXTURE_ROOT, pair4_nb
+    from codegen.metadata_sheet import metadata_sheet_payload
+
+    return metadata_sheet_payload(pair4_config, REPO, specs=[pair4_spec],
+                                  frd_path=FIXTURE_ROOT / pair4_nb.FRD_PATH, template="iig_v2",
+                                  conventions_profile="acfc_prx")
+
+
+@pytest.fixture(scope="session")
+def pair4_golden() -> dict:
+    from multi_table_golden import load_golden
+
+    return load_golden()
+
+
+@pytest.fixture(scope="session")
+def pair1_payload(pair1_config, pair1_spec, tmp_path_factory):
+    """Pair 1's iig_v2 payload from its resolved spec (the preview FRD carries
+    only the feed-level facts the spec already has)."""
+    import json
+
+    from codegen.metadata_sheet import metadata_sheet_payload
+
+    spec = pair1_spec
+    frd = tmp_path_factory.mktemp("pair1_payload") / "frd.contract.json"
+    feed = {"feed_name": spec.feed_name, "source_system": spec.source_system,
+            "file_name_patterns": spec.file_name_patterns, "file_format": spec.file_format,
+            "delimiter": spec.delimiter, "record_segments": [], "frequency": spec.frequency,
+            "load_windows_sla": [], "lobs": spec.lobs, "domain": spec.domain,
+            "sub_domain": spec.sub_domain, "landing_location": spec.landing_location,
+            "stage_target": {"catalog": None, "schema": None, "tables": [], "load_strategy": None},
+            "standard_target": {"catalog": None, "schema": None, "tables": [],
+                                "load_strategy": None},
+            "validation_rules": [], "recycle_rule": None, "history_backfill": None,
+            "archive_retention": None, "phi_pii_notes": None, "sttm_reference": None,
+            "requirement_ids": []}
+    frd.write_text(json.dumps({
+        "contract_name": "pair-1 preview", "generated_from_frd": "x", "status": "PASS",
+        "generated_date": "2026-01-01T00:00:00+00:00", "generator": "test",
+        "project": {"project_id": None, "project_name": "x", "business_context_summary": None},
+        "in_scope": [], "out_of_scope": [], "assumptions_constraints_dependencies": [],
+        "feeds": [feed], "system_interfaces": [], "open_items": []}), encoding="utf-8")
+    return metadata_sheet_payload(pair1_config, REPO, specs=[spec], frd_path=frd,
+                                  template="iig_v2", conventions_profile="acfc_prx")

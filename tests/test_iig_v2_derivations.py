@@ -232,9 +232,9 @@ def test_named_style_is_overlay_selectable(tmp_path):
                                        "{src_columns_style: named}}}\n")
     config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY, overlay])
     spec, _gate, xlsx = _run(FRD, config, tmp_path)
-    from codegen.metadata_template import _distinct_fields, _named_sources
+    from codegen.metadata_template import _detail_group, _named_sources, _table_groups
 
-    fields = _distinct_fields(spec)
+    fields = _detail_group(_table_groups(spec)).fields     # the ADLS row's (detail) table
     (row, *_more) = _rows(xlsx, "ADLS_DELTA_INGESTION_DETAILS")
     if _named_sources(fields):
         expected = ",".join(f"{f.source_column}:{f.source_column}" for f in fields)

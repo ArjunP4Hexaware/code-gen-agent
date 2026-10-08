@@ -186,6 +186,7 @@ def test_dq_split_rule_is_one_row_per_adls_object(golden, config):
         assert row["TARGET_COLUMN"] == _joined(
             [catalog, pair4_nb.STAGE_SCHEMA, header.table, trailer.table])
         assert row["SEQUENCE_NO"] == "1"
+        assert row["OBJECT_ID"] == adls[row["_object"]]["OBJECT_ID"]   # keyed per file
     assert sorted(r["_object"] for r in _rows(golden, "DATA_QUALITY_RULES")) == sorted(adls)
 
 

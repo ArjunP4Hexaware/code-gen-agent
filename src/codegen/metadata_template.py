@@ -52,19 +52,6 @@ def _base_type(dtype: str | None) -> str:
     return re.sub(r"\(.*\)", "", dtype or "").strip()
 
 
-def _distinct_fields(spec: ResolvedFeedSpec) -> list[SttmField]:
-    """Fields across segments, one per stage column, STTM order (the
-    segments-in-one-table shape lists each shared column once)."""
-    seen: set[str] = set()
-    out: list[SttmField] = []
-    for segment in spec.segments:
-        for f in segment.fields:
-            if f.stage_column not in seen:
-                seen.add(f.stage_column)
-                out.append(f)
-    return out
-
-
 def _named_sources(fields: list[SttmField]) -> bool:
     """Every STTM source column is a real header (not blank, not 'col<N>')."""
     return bool(fields) and all(
@@ -737,15 +724,62 @@ def _by_type_order(fields: list[SttmField], type_order: list[str]) -> list[SttmF
     return sorted(fields, key=_rank)
 
 
+def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_TableGroup],
+                detail: _TableGroup) -> dict | None:
+    """Rule 5: the LoadHeaderAndTrailerToSeparateTablesRule cells shared by
+    every file — only when the header / trailer segments land in a table
+    other than the detail. SOURCE_COLUMN = the header table's columns;
+    TARGET_COLUMN = <catalog>,<schema>,<header table>,<trailer table> (the
+    framework convention, the stage catalog mapped). INPUT_PARAM is per file."""
+    split = [g for g in groups if g is not detail
+             and any(s.segment in ("Header", "Trailer") for s in g.segments)]
+    if not split:
+        return None
+    order = {"Header": 0, "Trailer": 1}
+    split.sort(key=lambda g: min(order.get(s.segment, 2) for s in g.segments))
+    header = next((g for g in split if any(s.segment == "Header" for s in g.segments)), split[0])
+    stage = header.stage
+    catalog = stage.catalog
+    if not catalog:
+        from codegen.emit.framework import _config_default_catalog
+
+        catalog = _config_default_catalog(config, config.conventions.get(None), "stage") or ""
+    target = ",".join([p for p in (catalog, stage.schema_name) if p]
+                      + [g.stage.table for g in split])
+    return {
+        "RULE_CLASS": _cell(tpl.dq_rule_classes.get("header_trailer_split",
+                                                    "header_trailer_split"), "synthetic",
+                            _TEMPLATE_TOOLTIP.format(citation=tpl.citation)),
+        "SOURCE_COLUMN": _cell(",".join(f.stage_column for f in header.fields), "from_sttm",
+                               f"the header table's columns ({stage.table}, STTM Stage band)"),
+        "TARGET_COLUMN": _cell(target, "from_sttm",
+                               "framework convention <catalog>,<schema>,<header table>,"
+                               "<trailer table> (docs/acfc/MULTI_TABLE_DESIGN.md rule 5)"
+                               + catalog_mapping_note(stage)),
+    }
+
+
 def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
+    """Rule 5 + the STTM-derived rules, keyed per FILE (decision 2026-10-07):
+    for each ADLS object, the header/trailer split row (when it applies) and
+    the date-format / data-type-cast rows the STTM states, numbered in
+    ``dq_rules`` order; OBJECT_ID = the file's position, as on the ADLS row.
+    Rule classes no input derives are not generated — the review copy lists
+    'additional DQ rules — Engineer' per file (iig_review)."""
     if spec is None or not tpl.dq_rules:
         return []
-    fields = _distinct_fields(spec)
-    stage = spec.detail_segment.stage_table
-    objects = (list(spec.file_name_patterns) if tpl.rows_per_file_pattern else [None])
+    groups = _table_groups(spec)
+    detail = _detail_group(groups)
+    fields = detail.fields
+    stage = detail.stage
+    files = (_feed_files(spec, config) if tpl.rows_per_file_pattern else [None])
     rules: list[dict] = []
     for kind in tpl.dq_rules:
-        if kind == "date_format":
+        if kind == "header_trailer_split":
+            split = _split_rule(tpl, config, groups, detail)
+            if split is not None:
+                rules.append({**split, "_per_file": "INPUT_PARAM"})
+        elif kind == "date_format":
             columns, params = _date_rule(tpl, fields)
             if not columns:
                 continue
@@ -774,11 +808,18 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
                 "TARGET_COLUMN": _cell(joined, "from_sttm"),
             })
     rows = []
-    for _object in objects:
+    for number, file in enumerate(files, start=1):
+        pattern = _wildcarded(file.pattern, tpl) if file is not None else None
         for index, rule in enumerate(rules, start=1):
-            cells = dict(rule)
+            cells = {k: v for k, v in rule.items() if not k.startswith("_")}
+            if rule.get("_per_file") == "INPUT_PARAM" and pattern is not None:
+                cells["INPUT_PARAM"] = _cell(pattern, "from_frd",
+                                             "the object's SRC_FILE_NAME (ADLS row "
+                                             f"OBJECT_ID {number})")
             cells["SEQUENCE_NO"] = _cell(index, "synthetic",
                                          _TEMPLATE_TOOLTIP.format(citation=tpl.citation))
+            if pattern is not None:
+                cells["OBJECT_ID"] = _sequence_cell(number, f"file ({pattern})")
             rows.append(_with_constants(tpl, tab, cells))
     return rows
 

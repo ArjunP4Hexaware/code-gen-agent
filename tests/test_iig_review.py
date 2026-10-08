@@ -28,9 +28,10 @@ from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 # Multi-table step 3 moved pair 1 by: 4 ADLS OBJECT_IDs from Engineer (framework-assigned
 # blank) to Engineer (confirm) (the cited 1..n convention), and the STGDELTA TGT_PRIMARY_KEY
 # 'NA' (no Primary Key cell in the Standard band) to Engineer (confirm) — the golden's value;
-# pair 11 likewise for its three feeds (3 OBJECT_IDs, 3 'NA').
+# pair 11 likewise for its three feeds (3 OBJECT_IDs, 3 'NA'). Step 4: the DQ rows' OBJECT_IDs
+# (keyed per file) likewise move to Engineer (confirm) — pair 1: 8.
 INVENTORY = {
-    "pair1": {"BSA": 92, "Engineer": 153, "Engineer (confirm)": 134, "Set at load (CI/CD)": 52},
+    "pair1": {"BSA": 92, "Engineer": 145, "Engineer (confirm)": 142, "Set at load (CI/CD)": 52},
     "pair11": {"BSA": 132, "Engineer": 138, "Engineer (confirm)": 90, "Set at load (CI/CD)": 42},
 }
 

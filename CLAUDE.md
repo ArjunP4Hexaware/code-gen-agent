@@ -7,7 +7,7 @@ anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/multi-table` (this checkout) | (see `git log`) | 0.5.8.post24 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
+| `feature/multi-table` (this checkout) | (see `git log`) | 0.5.8.post25 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
 | `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
 
@@ -65,7 +65,7 @@ explicitly — never `git add -A`.
 not run on this branch); ruff clean (`src/ tests/ ui/backend/
 scripts/iig_scorecard.py`); scrub 0 over every changed file; no `ui/frontend`
 change on this branch (dist untouched; `ui/backend/demo.py` changed in post20).
-Marker **0.5.8.post24**. `tests/snapshots/notebook_mode.json` was re-based in
+Marker **0.5.8.post25**. `tests/snapshots/notebook_mode.json` was re-based in
 0c2ba13 (37 hashes: `ruff format` now rewrites every emitted .py).
 
 **What the branch does** (design + status: `docs/acfc/MULTI_TABLE_DESIGN.md`;
@@ -142,7 +142,12 @@ QUESTION = `gaps:` / `pairing:` key, UNRESOLVED = `<sheet>/<layer>/<role>`);
 `_NEEDED_KEY_RE`, copied VERBATIM from the "Line format" section of
 `docs/acfc/HARNESS_EXIT_CODES.md` on `origin/acfc/harness-exit3` (517919c) —
 keys print verbatim, a sheet name's spaces kept. The harness scans stdout for
-these lines at the end of EVERY pair, whatever the exit codes. The harness's exit-1 reclassification rule (a later stage's exit 1 becomes
+these lines at the end of EVERY pair, whatever the exit codes — so QUESTION /
+UNRESOLVED are RESERVED for answers owed (post25, `cli._owed_key`: a REQUIRED
+STTM role, a still-missing format / load strategy / LOBs / file pattern, a gap
+question, `pair.frd`); everything informational (optional column, unread FRD
+field, VDD role, `pair.vdd`) is `NOTE` in the same form. A clean pair 1 / 4
+prints none (`tests/test_answer_labels.py`). The harness's exit-1 reclassification rule (a later stage's exit 1 becomes
 NEEDS_ANSWERS only for a missing-input first-error line) is in that doc, pushed
 at 7f121ca. acfc_run.py summarises the codes and the lines.
 

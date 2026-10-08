@@ -271,8 +271,10 @@ EXIT_CODES = f"""exit codes:
   {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — layout --require-complete: columns left unplaced / questions
      open; extract-sttm: NO feed produced a usable contract (none written);
      generate: a feed it was asked for (--feed) has no contract
-  Every missing answer is one line, label padded to 15 columns, then the
-  answers.yaml key, an em-dash and the reason:
+  Every answer OWED (the run cannot complete a feed without it) is one line,
+  label padded to 15 columns, then the answers.yaml key, an em-dash, the reason
+  (informational items — optional columns unplaced, FRD fields not read, the
+  VDD pairing — use the same form with the label NOTE; the harness ignores it):
      QUESTION       feeds[2].stage_target.tables — <reason>
      UNRESOLVED     <sheet>/<layer>/<role> — <reason>
   Answer them (`gaps:` / `answers:` in answers.yaml) and re-run
@@ -295,6 +297,40 @@ def answer_line(label: str, key: str, reason: str) -> str:
 
     verbatim = re.sub(r"[\r\n]+", " ", str(key)).strip()
     return f"{label:<{ANSWER_LABEL_WIDTH}}{verbatim} \u2014 {one(reason)}"
+
+
+# FRD fields the run cannot proceed without (the resolver's hard stops): an
+# unread one is an answer owed only while the pair-resolved FRD contract still
+# lacks it. Every other unread FRD field is informational.
+_FRD_REQUIRED_FIELDS = ("file_format", "stage_target.load_strategy", "lobs",
+                        "file_name_patterns", "file_patterns")
+
+
+def _owed_key(document: str, key: str, kind: str = "role", frd_contract=None) -> bool:
+    """True when the run cannot complete a feed without an answers.yaml entry
+    for ``key`` — a QUESTION / UNRESOLVED line; False = informational, a NOTE
+    line (the harness's regex does not match it). STTM: a REQUIRED role. VDD:
+    never (its gaps are gate flags). FRD: a field of ``_FRD_REQUIRED_FIELDS``
+    the pair-resolved contract still lacks. A gap question (choice / layer /
+    text): yes, except the VDD pairing (a run proceeds without a VDD)."""
+    from codegen.layout.profile import is_required_role
+
+    if kind != "role":
+        return key != "pair.vdd"
+    if document == "sttm":
+        sheet_layer, _sep, role = key.rpartition("/")
+        return is_required_role(sheet_layer.rpartition("/")[2], role)
+    if document == "frd" and frd_contract is not None:
+        match = re.match(r"^feeds\[(\d+)\]\.(.+)$", key)
+        if match is None or match.group(2) not in _FRD_REQUIRED_FIELDS:
+            return False
+        index = int(match.group(1))
+        if index >= len(frd_contract.feeds):
+            return False
+        from codegen.layout.resolve import _feed_get
+
+        return _feed_get(frd_contract.feeds[index], match.group(2)) in (None, "", [])
+    return False
 
 
 def _print_needs_answers(pending) -> None:
@@ -479,7 +515,9 @@ def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
               f"{answers_path} (source=user)")
         push_cache()
     for question in doc.questions:
-        print(answer_line("UNRESOLVED", question.key, question.reason))
+        owed = _owed_key("sttm", question.key)
+        print(answer_line("UNRESOLVED" if owed else "NOTE", question.key, question.reason
+                          + ("" if owed else " — optional role, not required to run")))
     return doc.profile
 
 
@@ -529,7 +567,10 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
                   f"{decision.reason}")
         elif decision.ambiguous:
             undecided = True
-            print(answer_line("QUESTION", f"pair.{kind}", decision.reason))
+            # An undecided FRD is an answer owed; an undecided VDD is not (the
+            # run proceeds without one) — a NOTE the harness does not record.
+            print(answer_line("QUESTION" if _owed_key("pair", f"pair.{kind}", "choice")
+                              else "NOTE", f"pair.{kind}", decision.reason))
             for candidate in decision.candidates:
                 print(f"{'CANDIDATE':<15} {candidate.name} score {candidate.score:g} — "
                       f"{candidate.summary()}")
@@ -637,7 +678,10 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 print(f"{'REJECTED':<15} {item}")
             for item in doc["unresolved"]:
                 key, _sep, reason = item.partition(": ")
-                print(answer_line("UNRESOLVED", key, reason or item))
+                owed = _owed_key(document, key, "role", result.frd_contract)
+                print(answer_line("UNRESOLVED" if owed else "NOTE", key,
+                                  (reason or item) + ("" if owed else
+                                                      " — informational, not required to run")))
                 printed.add(key)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
@@ -670,20 +714,28 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         # with unplaced columns reads NEEDS_ANSWERS instead of FAILED. One
         # UNRESOLVED line per unplaced column (a role question, placed under
         # `answers:`), one QUESTION line per other question (`gaps:`).
+        owed = [q for q in result.questions
+                if _owed_key(q.document, q.key, q.kind, result.frd_contract)]
         for question in result.questions:
-            if question.kind == "role":
-                if question.key not in printed:
-                    print(answer_line("UNRESOLVED", question.key,
-                                      f"{question.reason} ({question.document}; place it "
-                                      "under answers: in answers.yaml)"))
-                    printed.add(question.key)
+            if question.key in printed:
+                continue
+            printed.add(question.key)
+            if question not in owed:
+                print(answer_line("NOTE", question.key,
+                                  f"{question.reason} ({question.document}) — informational, "
+                                  "not required to run"))
+            elif question.kind == "role":
+                print(answer_line("UNRESOLVED", question.key,
+                                  f"{question.reason} ({question.document}; place it "
+                                  "under answers: in answers.yaml)"))
             else:
                 print(answer_line("QUESTION", question.key,
                                   f"{question.reason} ({question.document}); candidates "
                                   f"{question.candidates}"))
-        print(f"{'NEEDS_ANSWERS':<15} layout — {len(result.questions)} answer(s) owed "
-              "(--require-complete); nothing is wrong with the documents")
-        return EXIT_NEEDS_ANSWERS
+        if owed:
+            print(f"{'NEEDS_ANSWERS':<15} layout — {len(owed)} answer(s) owed "
+                  "(--require-complete); nothing is wrong with the documents")
+            return EXIT_NEEDS_ANSWERS
     return 0
 
 
@@ -754,8 +806,12 @@ def _extract_frd(args: argparse.Namespace, config: Config) -> int:
     print(f"{'EXTRACTED':<15} {args.out} — family {profile.family}, layout source "
           f"{profile.source}, {len(contract.feeds)} feed(s): {feeds}; "
           f"{len(profile.unresolved)} unresolved field(s); status {contract.status}")
+    # On its own, extract-frd cannot tell an answer owed from a field the STTM
+    # or the VDD supplies (the layout stage's gap chain decides): every unread
+    # FRD field is informational here — NOTE, never UNRESOLVED.
     for item in profile.unresolved:
-        print(answer_line("UNRESOLVED", item.field, item.reason))
+        print(answer_line("NOTE", item.field, f"{item.reason} — FRD field not read; the "
+                                              "layout stage fills it or asks"))
     return 0
 
 

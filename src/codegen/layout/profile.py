@@ -292,6 +292,13 @@ def confidence_key(sheet: str, layer: str, role: Role | str) -> str:
     return f"{sheet}/{layer}/{role.value if isinstance(role, Role) else role}"
 
 
+def is_required_role(layer: str, role: str) -> bool:
+    """A REQUIRED role of the layer (``REQUIRED_ROLES``); an ambiguous entry
+    ("a|b") is required when any of its roles is."""
+    required = {r.value for r in REQUIRED_ROLES.get(layer, ())}  # type: ignore[call-overload]
+    return any(part in required for part in role.split("|"))
+
+
 def missing_required_roles(profile: LayoutProfile) -> list[str]:
     """``"<sheet>/<layer>/<role>"`` for every REQUIRED role a role-bearing
     sheet's band does not place (M9.1). Independent of ``profile.unresolved``

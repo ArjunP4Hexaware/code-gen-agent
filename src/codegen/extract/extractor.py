@@ -125,12 +125,17 @@ def extract_contract(
         except NoLayoutError as exc:
             raise WorkbookParseError(str(exc)) from exc
     profile = found.profile
-    if require_complete and profile.unresolved:
+    # --require-complete stops on the REQUIRED roles left open only: an optional
+    # role the layout could not place reads as empty and is no answer owed.
+    from codegen.layout.profile import is_required_role
+
+    owed = [u for u in profile.unresolved if is_required_role(u.layer, u.role)]
+    if require_complete and owed:
         raise UnresolvedLayoutError(
-            f"{workbook_path.name}: layout has {len(profile.unresolved)} unresolved role(s) "
+            f"{workbook_path.name}: layout has {len(owed)} unresolved required role(s) "
             "and --require-complete is set: "
-            + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in profile.unresolved),
-            profile.unresolved,
+            + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in owed),
+            owed,
         )
     if profile.strategy == "segmented_family":
         from codegen.extract.segmented import extract_segmented_contract

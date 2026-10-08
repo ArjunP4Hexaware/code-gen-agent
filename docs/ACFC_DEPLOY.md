@@ -413,23 +413,38 @@ The two branches, so a partial workbook never stops the feeds that are ready:
   the held-back feeds' `QUESTION` lines for information. With `--feed X` where
   `X` is held back, it generates nothing and exits `3`.
 
-Every missing answer is ONE line in the form the ACFC harness parses
-(`docs/acfc/HARNESS_EXIT_CODES.md`, `origin/acfc/harness-exit3`; the key is the
-text between the label and the em-dash): the label padded to 15 columns, the
-answers.yaml key, ` — `, the reason —
+Three labels, ONE line each, all in the same form (the label padded to 15
+columns, the key, ` — `, the reason). Only the first two are answers owed —
+the ACFC harness records their keys (`docs/acfc/HARNESS_EXIT_CODES.md`,
+`origin/acfc/harness-exit3`; its `_NEEDED_KEY_RE` matches QUESTION / UNRESOLVED
+only):
 
 ```
 QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet …; answer under gaps: in answers.yaml)
 UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
+NOTE           <sheet>/source/pii — <reason> — informational, not required to run
 ```
 
-`QUESTION` = a value to answer under `gaps:` (or `pairing:` for `pair.frd` /
-`pair.vdd`); `UNRESOLVED` = a layout role to place under `answers:`. A human
-`NEEDS_ANSWERS` summary line precedes the QUESTION lines; the harness ignores
-it. The harness scans every pair's stdout for these lines at the END of the
-pair, whatever the exit codes (HARNESS_EXIT_CODES.md, 517919c), so the keys of
-a partial extraction (exit `0`) are recorded too and the pair reads
-NEEDS_ANSWERS. The key is printed verbatim (a sheet name's spaces kept; only a
+| Label | Printed when | Answer |
+| --- | --- | --- |
+| `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`), a file pattern, a disagreement between documents, a byte width, the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
+| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) | under `answers:` |
+| `NOTE` | informational — an OPTIONAL column the layout could not place (it reads as empty), an FRD field not read (the gap chain fills it or a QUESTION asks; `extract-frd` on its own always says NOTE), a VDD role (VDD gaps are gate flags), the VDD pairing (`pair.vdd` — a run proceeds without a VDD) | none needed; placing it improves the output |
+
+An FRD field is a QUESTION / UNRESOLVED only while the pair-resolved contract
+still lacks one the run cannot proceed without (format, stage load strategy,
+LOBs, file patterns). `--require-complete` (layout, extract-sttm) stops on the
+owed items only — optional columns never stop a run. A clean pair prints no
+QUESTION / UNRESOLVED line at all (`tests/test_answer_labels.py`: pair 1 —
+layout, extract-frd, extract-sttm, generate; pair 4 — layout, extract-sttm,
+generate).
+
+A human `NEEDS_ANSWERS` summary line precedes the QUESTION lines; the harness
+ignores it. The harness scans every pair's stdout for QUESTION / UNRESOLVED at
+the END of the pair, whatever the exit codes (HARNESS_EXIT_CODES.md, 517919c),
+so the keys of a partial extraction (exit `0`) are recorded too and the pair
+reads NEEDS_ANSWERS — which is why informational items must never use those
+two labels. The key is printed verbatim (a sheet name's spaces kept; only a
 line break becomes a space) — the harness's `_NEEDED_KEY_RE` captures
 everything up to ` — `. `tests/test_harness_answer_lines.py` parses every line
 with that regex, copied verbatim from the harness doc.

@@ -489,48 +489,78 @@ def _frequency_token(text: str) -> str | None:
     return found[0] if len(set(found)) == 1 else None
 
 
-def _frequency(feed: FrdFeed, faq) -> dict:
+_RUN_WORDS_RE = re.compile(r"\b(runs?|running|scheduled?|schedules|refresh(?:ed|es)?)\b",
+                           re.IGNORECASE)
+_SCHEDULE_TAB = "DATA_FACTORY_PIPELINE_SCHEDULE"
+
+
+def _run_cadence(feed: FrdFeed, tpl: MetadataTemplateConfig | None) -> tuple[str, str] | None:
+    """(token, source) of the PIPELINE RUN cadence: the FRD's run / schedule /
+    refresh statements ("Frequency of data refresh – Monthly Run") when they
+    name exactly one token, else the schedule inventory's PIPELINE_FREQUENCY
+    (template_rows of DATA_FACTORY_PIPELINE_SCHEDULE) when it is one token;
+    None when neither states it."""
+    found: dict[str, str] = {}
+    for mention in getattr(feed, "frequency_mentions", None) or []:
+        if not _RUN_WORDS_RE.search(mention):
+            continue
+        for match in _FREQUENCY_TOKEN_RE.finditer(mention):
+            found.setdefault(_FREQUENCY_TOKENS[match.group(1).lower()], mention)
+    if len(found) == 1:
+        token, mention = next(iter(found.items()))
+        return token, f"the FRD's run / schedule statement {mention}"
+    stated = {str(row.get("PIPELINE_FREQUENCY")).strip()
+              for row in (tpl.template_rows.get(_SCHEDULE_TAB, []) if tpl is not None else [])
+              if row.get("PIPELINE_FREQUENCY")}
+    tokens = {_frequency_token(v) for v in stated} - {None}
+    if len(tokens) == 1:
+        return tokens.pop(), (f"the {_SCHEDULE_TAB} inventory's PIPELINE_FREQUENCY "
+                              f"{sorted(stated)} (template_rows)")
+    return None
+
+
+def _frequency(feed: FrdFeed, faq, tpl: MetadataTemplateConfig | None = None) -> dict:
     """FREQUENCY / PIPELINE_FREQUENCY as one framework token (Monthly / Daily
-    / Weekly / Yearly); the stated text stays in the tooltip. No single
-    token -> left open, never guessed."""
+    / Weekly / Yearly) = the PIPELINE RUN cadence (2026-10-08 decision: the SD
+    rows are Monthly with files delivered twice a year; CAQH's ingestion
+    FREQUENCY equals its pipeline schedule frequency). The run cadence comes
+    from the FRD's run / schedule statements or the schedule inventory; the
+    file-delivery cadence (the FRD Frequency field / its File Details fill /
+    the FAQ) goes in the tooltip, and when the two differ the cell is flagged
+    frequency_delivery_differs with both. No run cadence stated: the delivery
+    cadence, as before. No single token -> left open, never guessed."""
     from codegen.metadata_sheet import _frequency_cell
 
     cell = _frequency_cell(feed, faq)
     raw = str(cell["value"] or "").strip()
-    if not raw:
-        return cell
     entry = cell["badge_entry"]
-    token = _frequency_token(raw)
+    delivery = _frequency_token(raw) if raw else None
     source = entry.get("tooltip") or ("FRD Descriptive Metadata → Frequency"
                                       if entry["badge"] == "from_frd" else "stated")
-    if token is None:
+    run = _run_cadence(feed, tpl)
+    if run is not None:
+        token, run_source = run
+        noted = (f"; file delivery: stated as {raw!r} ({source})" if raw
+                 else "; no file-delivery cadence stated")
+        badge = "synthetic" if _SCHEDULE_TAB in run_source else "from_frd"
+        cell = _cell(token, badge, f"pipeline run cadence {token!r} — {run_source}{noted}")
+        if raw and delivery != token:
+            cell["badge_entry"]["note"] = (
+                f"frequency_delivery_differs — FREQUENCY {token!r} is the pipeline run cadence "
+                f"({run_source}); the files are delivered {raw!r} "
+                f"(→ {delivery!r}; {source}) — both kept, the run cadence written")
+        return cell
+    if not raw:
+        return cell
+    if delivery is None:
         return _cell("", "needs_template",
                      f"{source}: stated as {raw!r} — no single framework frequency token "
-                     "(Monthly / Daily / Weekly / Yearly); left open")
-    cell = (cell if token == raw else
-            _cell(token, entry["badge"],
-                  f"{source}: stated as {raw!r} → framework frequency token {token!r}"))
-    return _with_frequency_ambiguity(cell, token, raw, feed)
-
-
-def _with_frequency_ambiguity(cell: dict, token: str, raw: str, feed: FrdFeed) -> dict:
-    """First real-row scorecard (2026-10-08): the delivery statement wins
-    over narrative mentions; when the narrative names a DIFFERENT token the
-    cell keeps the delivery one and says so (frequency_ambiguous, both
-    tokens, the narrative sentences cited)."""
-    others: dict[str, list[str]] = {}
-    for mention in getattr(feed, "frequency_mentions", None) or []:
-        for match in _FREQUENCY_TOKEN_RE.finditer(mention):
-            other = _FREQUENCY_TOKENS[match.group(1).lower()]
-            if other != token:
-                others.setdefault(other, []).append(mention)
-    if others:
-        cited = "; ".join(f"{t!r}: {mentions[0]}" for t, mentions in sorted(others.items()))
-        cell["badge_entry"]["note"] = (
-            f"frequency_ambiguous — the delivery statement {raw!r} gives {token!r} (written); "
-            f"the FRD's narrative also names {sorted(others)} — {cited}; confirm the cadence "
-            "the framework schedules")
-    return cell
+                     "(Monthly / Daily / Weekly / Yearly) and no run / schedule statement; "
+                     "left open")
+    return (cell if delivery == raw else
+            _cell(delivery, entry["badge"],
+                  f"{source}: stated as {raw!r} → framework frequency token {delivery!r} "
+                  "(no run / schedule statement: the delivery cadence)"))
 
 
 def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
@@ -649,7 +679,7 @@ def _pipeline_roles(tab, feed, faq, tpl) -> list[dict]:
                            f"{position[role.parent]} ({role.parent}) — the parent by position")
         parent["badge_entry"]["convention"] = True
         cells["PARENT_PIPELINE_ID"] = parent
-        cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq)
+        cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq, tpl)
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
@@ -667,7 +697,7 @@ def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
             header: _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=tpl.citation))
             for header, value in template_row.items() if not header.startswith("_")
         }
-        cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq)
+        cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq, tpl)
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
@@ -747,7 +777,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "DOMAIN": _cell(feed.domain or "", "from_frd"),
             "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
             "SOURCE": _source_cell(feed),
-            "FREQUENCY": _frequency(feed, faq),
+            "FREQUENCY": _frequency(feed, faq, tpl),
             "LOB": (_lob_cell(tpl, file.lob, f"this file's LOB — {file.provenance}")
                     if file.lob else
                     _lob_cell(tpl, ",".join(spec.lobs),
@@ -903,7 +933,7 @@ def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
         "SOURCE": _source_cell(feed),
-        "FREQUENCY": _frequency(feed, faq),
+        "FREQUENCY": _frequency(feed, faq, tpl),
         "LOB": (_lob_cell(tpl, ",".join(lobs), "the LOBs of the feed's per-LOB files")
                 if lobs else
                 _lob_cell(tpl, ",".join(spec.lobs),

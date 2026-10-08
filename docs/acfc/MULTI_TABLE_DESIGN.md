@@ -576,6 +576,21 @@ sheet's value and `metadata_inserts.sql` writes the walkthrough's (rules 1 and
     `dml.db_null_columns`. Answer → that list (remove `DAY_OF_SCHEDULE` if the
     database expects `0`).
 
+**Confirm, don't ask** (a decision already applied; say "correct" or correct it):
+
+11. **FREQUENCY = run cadence, delivery cadence noted — correct?** Since
+    0.5.8.post22 the ADLS / STGDELTA `FREQUENCY` and the schedule's
+    `PIPELINE_FREQUENCY` are the PIPELINE RUN cadence: the FRD's run / schedule
+    / refresh statement ("Frequency of data refresh – Monthly Run"), else the
+    `DATA_FACTORY_PIPELINE_SCHEDULE` inventory's frequency; the file-delivery
+    cadence (the FRD Frequency field / its File Details fill) goes in the cell's
+    tooltip, and when the two differ the cell is flagged
+    `frequency_delivery_differs` with both. Evidence: the SD real rows are
+    `Monthly` while their files arrive twice a year; the CAQH ingestion
+    FREQUENCY equals its pipeline schedule frequency. With no run statement the
+    delivery cadence is written, as before. If wrong → `_frequency` in
+    `src/codegen/metadata_template.py` (one switch of the source order).
+
 **If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
 whether grand master / master are new rows per feed (Q4), one
 `FILE_ADLS_INGESTION_DETAILS` row per file or per root (Q5), and the header /

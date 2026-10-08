@@ -78,6 +78,15 @@ class NeedsAnswersError(ExtractionError):
             f"answers file — {p.reason}" for p in self.pending))
 
 
+class UnresolvedLayoutError(ExtractionError):
+    """--require-complete and the layout leaves roles open: nothing is
+    extracted; ``unresolved`` names each role the answers file must place."""
+
+    def __init__(self, message: str, unresolved) -> None:
+        self.unresolved = list(unresolved)
+        super().__init__(message)
+
+
 def extract_contract(
     workbook_path: Path,
     frd_path: Path,
@@ -117,10 +126,11 @@ def extract_contract(
             raise WorkbookParseError(str(exc)) from exc
     profile = found.profile
     if require_complete and profile.unresolved:
-        raise ExtractionError(
+        raise UnresolvedLayoutError(
             f"{workbook_path.name}: layout has {len(profile.unresolved)} unresolved role(s) "
             "and --require-complete is set: "
-            + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in profile.unresolved)
+            + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in profile.unresolved),
+            profile.unresolved,
         )
     if profile.strategy == "segmented_family":
         from codegen.extract.segmented import extract_segmented_contract
@@ -512,6 +522,7 @@ def extract_to_file(
 __all__ = [
     "ExtractionError",
     "NeedsAnswersError",
+    "UnresolvedLayoutError",
     "WorkbookParseError",
     "contract_to_json",
     "extract_contract",

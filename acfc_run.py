@@ -145,7 +145,7 @@ for name in documents:
 from codegen.cli import EXIT_FAILED, EXIT_NEEDS_ANSWERS, EXIT_OK  # noqa: E402
 
 STEPS: dict[str, int] = {}             # step -> codegen exit code (the summary below)
-NEEDS_ANSWERS: list[str] = []          # the CLI's NEEDS_ANSWERS lines (answers.yaml keys)
+NEEDS_ANSWERS: list[str] = []          # the CLI's QUESTION / UNRESOLVED lines (answer keys)
 
 
 def run(label: str, *args: str) -> int:
@@ -154,7 +154,7 @@ def run(label: str, *args: str) -> int:
     print(done.stdout + (("\nSTDERR:\n" + done.stderr) if done.stderr.strip() else ""))
     STEPS[label] = done.returncode
     NEEDS_ANSWERS.extend(line for line in done.stdout.splitlines()
-                         if line.startswith("NEEDS_ANSWERS") and line not in NEEDS_ANSWERS)
+                         if line.startswith(("QUESTION", "UNRESOLVED")) and line not in NEEDS_ANSWERS)
     return done.returncode
 
 
@@ -210,7 +210,7 @@ run("extract-sttm", "extract-sttm", "--workbook", str(sttm), "--frd-contract",
     "--layout", str(work / "sttm.layout.json"))
 if not (work / "sttm.contract.json").is_file():
     # Exit 3 with no contract: EVERY feed needs an answer — nothing to generate.
-    raise SystemExit("extract-sttm wrote no contract — see the NEEDS_ANSWERS / FAIL lines "
+    raise SystemExit("extract-sttm wrote no contract — see the QUESTION / UNRESOLVED / FAIL lines "
                      "above; answer the keys in answers.yaml (docs/ACFC_DEPLOY.md §6)")
 vdd_args: list[str] = []
 if vdd is not None:

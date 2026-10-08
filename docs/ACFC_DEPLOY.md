@@ -391,7 +391,7 @@ playbook templates are widgets passed to `generate` (never an edit of
 Use it when the App is stopped or its service principal has no access yet —
 the notebook runs as the user, whose own folders need no sharing.
 Its last cell is a summary of every `codegen` step's exit code (below) and
-lists each `NEEDS_ANSWERS` line together, so a held-back feed is never lost in
+lists every `QUESTION` / `UNRESOLVED` line together, so a held-back feed is never lost in
 the scroll; when every feed needs an answer, `extract-sttm` writes no
 contract and the notebook stops before `generate`, saying so.
 
@@ -399,11 +399,37 @@ contract and the notebook stops before `generate`, saying so.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | ok — every feed generated (PASS / PASS_WITH_FLAGS) |
-| `1` | failed — a feed FAILed its gate, or a command could not complete |
-| `3` | NEEDS_ANSWERS — output written for every feed that could proceed; one or more feeds are held back, each printed as a `NEEDS_ANSWERS <feed> (sheet …) — answer <key> under gaps:` line naming the answers.yaml key (e.g. `feeds[2].stage_target.tables`). Answer them under `gaps:` and re-run (`codegen layout --answers answers.yaml`, then extract / generate) |
+| `0` | ok — every feed the command produced or was asked for is done (PASS / PASS_WITH_FLAGS). A sheet held back for an answer still prints its `QUESTION` lines |
+| `1` | failed — a feed FAILed its gate, or a command could not complete (`1` wins over `3`) |
+| `3` | NEEDS_ANSWERS — **`extract-sttm`**: NO feed produced a usable contract (nothing written: every sheet is held back, or `--require-complete` with layout roles open); **`generate`**: a feed it was asked for (`--feed`) has no contract |
 
-`extract-sttm` and `generate` both use `3`; `1` wins when anything FAILed.
+The two branches, so a partial workbook never stops the feeds that are ready:
+
+- `extract-sttm` with at least one usable feed writes the contract and exits
+  `0`; the held-back sheets are in the contract (`needs_answers`) and printed
+  as `QUESTION` lines. With none, it writes nothing and exits `3`.
+- `generate` processes every feed that has a contract. Without `--feed` it is
+  asked for exactly those, so it exits on their verdicts (`0` / `1`) and prints
+  the held-back feeds' `QUESTION` lines for information. With `--feed X` where
+  `X` is held back, it generates nothing and exits `3`.
+
+Every missing answer is ONE line in the form the ACFC harness parses
+(`docs/acfc/HARNESS_EXIT_CODES.md`, `origin/acfc/harness-exit3`; the key is the
+text between the label and the em-dash): the label padded to 15 columns, the
+answers.yaml key, ` — `, the reason —
+
+```
+QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet …; answer under gaps: in answers.yaml)
+UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
+```
+
+`QUESTION` = a value to answer under `gaps:` (or `pairing:` for `pair.frd` /
+`pair.vdd`); `UNRESOLVED` = a layout role to place under `answers:`. A human
+`NEEDS_ANSWERS` summary line precedes the QUESTION lines; the harness ignores
+it. Note: the harness records `needed_answer_keys` only on an exit `3`, so a
+partial extraction (exit `0`) shows its keys in stdout and the contract notes
+only. `tests/test_harness_answer_lines.py` checks every line against a copy of
+the harness's parse rule.
 
 ## 9. What to compare against the pair-1 golden
 
@@ -503,9 +529,9 @@ Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
      **NEEDS_ANSWERS**: held back with the exact answers-file key
      (`gaps: {"feeds[i].stage_target.schema": {value: …}}`, also `.tables` and
      the `standard_target` pair); the other feeds extract and generate. The CLI
-     prints `NEEDS_ANSWERS <feed> … answer <key>` and exits **3** (nothing
-     FAILED, a feed needs an answer); the App lists the feed as set aside with
-     the key. In a multi-sheet split, a sheet with no table still gets its own
+     prints one `QUESTION` line per key and exits as the "CLI exit codes"
+     section says (since post22: `3` only when no feed is usable / the feed
+     asked for is held back); the App lists the feed as set aside with the key. In a multi-sheet split, a sheet with no table still gets its own
      derived feed (named after the sheet) so its key is precise.
   3. *Path normalisation.* Derived landing / target paths drop trailing
      punctuation, collapse doubled / backslash separators and — when the
@@ -541,9 +567,14 @@ Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
      (`recycle_unstated`): **open** for the engineer to confirm, the
      convention-shaped table / path in the tooltip (shipped default and the SD
      family) — never an asserted N — or `N` (the pair-1 / pair-4 goldens).
-  7. `FREQUENCY`: the delivery statement wins over the FRD's narrative mentions
-     (now recorded on the FRD contract as `frequency_mentions`); a narrative
-     naming a different cadence is flagged `frequency_ambiguous` with both.
+  7. `FREQUENCY` (and the schedule's `PIPELINE_FREQUENCY`) = the PIPELINE RUN
+     cadence (flipped in 0.5.8.post22): the FRD's run / schedule / refresh
+     statement (the FRD reader records the document's cadence sentences as
+     `frequency_mentions`), else the `DATA_FACTORY_PIPELINE_SCHEDULE`
+     inventory's frequency; the file-delivery cadence goes in the tooltip and,
+     when it differs, the cell is flagged `frequency_delivery_differs` with both.
+     No run statement: the delivery cadence, as before. Friday checklist item 11
+     (confirm, not ask).
   8. Gate: a Spark session that cannot be configured (`CANNOT_CONFIGURE_SPARK`)
      makes `generated_tests` CHECK NOT RUN (`spark_unavailable`), never FAIL;
      `ruff format` rewrites every emitted .py before the lint (`ruff_formatted`)

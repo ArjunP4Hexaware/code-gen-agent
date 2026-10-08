@@ -40,7 +40,7 @@ from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import console_summary, write_generation_report
-from codegen.resolve.resolver import ContractMismatchError, resolve_pair
+from codegen.resolve.resolver import ContractMismatchError, normalize_feed_name, resolve_pair
 from codegen.rules.compiler import compile_rules
 
 
@@ -264,19 +264,43 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_NEEDS_ANSWERS = 3
 EXIT_CODES = f"""exit codes:
-  {EXIT_OK}  ok — every feed generated (PASS / PASS_WITH_FLAGS)
+  {EXIT_OK}  ok — every feed it produced or was asked for is done (PASS / PASS_WITH_FLAGS);
+     a sheet held back for an answer still prints its QUESTION line
   {EXIT_FAILED}  failed — a feed FAILed its gate, or a command could not complete
-  {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — output written for every feed that could proceed; one or
-     more feeds are held back, each printed as a NEEDS_ANSWERS line naming the
-     answers.yaml key to answer under `gaps:` (e.g. feeds[2].stage_target.tables);
-     answer them and re-run (`codegen layout --answers answers.yaml`)
+  {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — extract-sttm: NO feed produced a usable contract (none
+     written); generate: a feed it was asked for (--feed) has no contract
+  Every missing answer is one line, label padded to 15 columns, then the
+  answers.yaml key, an em-dash and the reason:
+     QUESTION       feeds[2].stage_target.tables — <reason>
+     UNRESOLVED     <sheet>/<layer>/<role> — <reason>
+  Answer them (`gaps:` / `answers:` in answers.yaml) and re-run
+  (`codegen layout --answers answers.yaml`).
 """
+
+# The ACFC harness (codegen-watch, docs/acfc/HARNESS_EXIT_CODES.md on
+# origin/acfc/harness-exit3) reads the needed answer keys from these lines:
+# the key is the text between the padded label and the em-dash separator.
+ANSWER_LABEL_WIDTH = 15
+
+
+def answer_line(label: str, key: str, reason: str) -> str:
+    """One missing answer in the form the harness parses: ``label`` padded to
+    15 columns, the answers.yaml key, ' — ', the reason — each on one line."""
+    def one(text) -> str:
+        return " ".join(str(text).split())
+
+    return f"{label:<{ANSWER_LABEL_WIDTH}}{one(key)} \u2014 {one(reason)}"
 
 
 def _print_needs_answers(pending) -> None:
+    """One QUESTION line per answer a held-back feed needs (its `gaps:` key)."""
+    if pending:
+        feeds = list(dict.fromkeys(p.feed_name for p in pending))
+        print(f"{'NEEDS_ANSWERS':<15} {len(pending)} answer(s) for {len(feeds)} held-back "
+              f"feed(s): {', '.join(feeds)} — the QUESTION lines below")
     for p in pending:
-        print(f"{'NEEDS_ANSWERS':<15} {p.feed_name} (sheet {p.sheet}) — answer `{p.key}` under "
-              f"`gaps:` in the answers file ({p.reason})")
+        print(answer_line("QUESTION", p.key, f"{p.reason} (feed {p.feed_name}, sheet {p.sheet}; "
+                                             "answer under gaps: in answers.yaml)"))
 
 
 def _run_pairs(
@@ -305,9 +329,13 @@ def _run_pairs(
             print(f"{'FAIL':<15} {frd_path.name} + {sttm_path.name} — {exc}")
             failed = True
             continue
-        if only_feed is None and pending:
-            _print_needs_answers(pending)
-            needs_answers = True
+        # Every feed WITH a contract is generated; a held-back feed's answers are
+        # printed. Exit 3 only when a feed asked for (--feed) is one of them.
+        asked = [p for p in pending if only_feed is not None and (
+            config.feed_aliases.get(p.feed_name) or normalize_feed_name(p.feed_name)) == only_feed]
+        _print_needs_answers(asked if only_feed is not None else pending)
+        if asked:
+            needs_answers = matched_feed = True
         for spec in specs:
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
@@ -334,6 +362,7 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
     from codegen.extract import (
         ExtractionError,
         NeedsAnswersError,
+        UnresolvedLayoutError,
         WorkbookParseError,
         extract_to_file,
     )
@@ -369,17 +398,29 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             width_answers=width_answers,
         )
     except NeedsAnswersError as exc:
+        # NO feed produced a usable contract: nothing written, exit 3.
         _print_needs_answers(exc.pending)
         print(f"{'NOT EXTRACTED':<15} {args.out} — every feed needs an answer (no contract "
               "written)")
+        return EXIT_NEEDS_ANSWERS
+    except UnresolvedLayoutError as exc:
+        # --require-complete and the layout leaves roles open: the answers file
+        # places them; nothing extracted, exit 3.
+        for role in exc.unresolved:
+            print(answer_line("UNRESOLVED", f"{role.sheet}/{role.layer}/{role.role}",
+                              f"{role.reason} (place it under answers: in answers.yaml)"))
+        print(f"{'NOT EXTRACTED':<15} {args.out} — {len(exc.unresolved)} layout role(s) open "
+              "(--require-complete)")
         return EXIT_NEEDS_ANSWERS
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
         print(f"{'FAIL':<15} extract-sttm — {exc}")
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
+    # Some feeds produced a contract: it is written and the exit is 0; the
+    # held-back sheets still print their QUESTION lines.
     _print_needs_answers(contract.needs_answers)
-    return EXIT_NEEDS_ANSWERS if contract.needs_answers else 0
+    return EXIT_OK
 
 
 def _outputs_through_storage(config: Config):
@@ -433,7 +474,7 @@ def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
               f"{answers_path} (source=user)")
         push_cache()
     for question in doc.questions:
-        print(f"{'UNRESOLVED':<15} {question.key} — {question.reason}")
+        print(answer_line("UNRESOLVED", question.key, question.reason))
     return doc.profile
 
 
@@ -483,7 +524,7 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
                   f"{decision.reason}")
         elif decision.ambiguous:
             undecided = True
-            print(f"{'QUESTION':<15} {kind} — {decision.reason}")
+            print(answer_line("QUESTION", f"pair.{kind}", decision.reason))
             for candidate in decision.candidates:
                 print(f"{'CANDIDATE':<15} {candidate.name} score {candidate.score:g} — "
                       f"{candidate.summary()}")
@@ -589,7 +630,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             for item in doc["rejections"]:
                 print(f"{'REJECTED':<15} {item}")
             for item in doc["unresolved"]:
-                print(f"{'UNRESOLVED':<15} {item}")
+                key, _sep, reason = item.partition(": ")
+                print(answer_line("UNRESOLVED", key, reason or item))
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
             print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "
@@ -617,8 +659,9 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
               f"({len(result.gap_fills)} value(s) taken from the other documents)")
     if args.require_complete and result.questions:
         for question in result.questions:
-            print(f"{'QUESTION':<15} {question.document} {question.key} — {question.reason}; "
-                  f"candidates {question.candidates}")
+            print(answer_line("QUESTION", question.key,
+                              f"{question.reason} ({question.document}); candidates "
+                              f"{question.candidates}"))
         return 1
     return 0
 
@@ -691,7 +734,7 @@ def _extract_frd(args: argparse.Namespace, config: Config) -> int:
           f"{profile.source}, {len(contract.feeds)} feed(s): {feeds}; "
           f"{len(profile.unresolved)} unresolved field(s); status {contract.status}")
     for item in profile.unresolved:
-        print(f"{'UNRESOLVED':<15} {item.field} — {item.reason}")
+        print(answer_line("UNRESOLVED", item.field, item.reason))
     return 0
 
 

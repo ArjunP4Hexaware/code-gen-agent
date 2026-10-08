@@ -38,11 +38,11 @@ from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 # likewise (BSA +3).
 INVENTORY = {
     "pair1": {"BSA": 96, "Engineer": 145, "Engineer (confirm)": 143, "Set at load (CI/CD)": 52},
-    # 2026-10-08 (first real-row scorecard): +12 Engineer — the FREQUENCY cells
-    # carry a frequency_ambiguous note (the FRD narrative names another
-    # cadence); +3 Engineer (confirm) — the shipped family leaves RECYCL_* open
-    # (9 cells) instead of writing the NA constants (6 cells).
-    "pair11": {"BSA": 174, "Engineer": 165, "Engineer (confirm)": 156, "Set at load (CI/CD)": 60},
+    # 2026-10-08 (first real-row scorecard): +3 Engineer (confirm) — the shipped
+    # family leaves RECYCL_* open (9 cells) instead of writing the NA constants
+    # (6 cells). (FREQUENCY = the run cadence since post22: pair 11's FRD states
+    # no run statement, so its cells carry no note.)
+    "pair11": {"BSA": 174, "Engineer": 153, "Engineer (confirm)": 156, "Set at load (CI/CD)": 60},
 }
 
 

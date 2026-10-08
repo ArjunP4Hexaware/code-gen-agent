@@ -299,7 +299,8 @@ def test_one_sheet_without_targets_holds_back_its_feed_only(config, tmp_path, mo
     specs = resolve_contracts(frd_json, sttm_json, config)
     assert [s.feed_id for s in specs] == ["vc_enrollment", "vc_individual_risk"]
     assert pending_answers(sttm_json) == contract.needs_answers
-    # The CLI generates the others and names the keys: exit 3, not a FAIL.
+    # The CLI generates the others and prints the held-back feed's keys as
+    # QUESTION lines; it was not asked for that feed (no --feed): exit 0.
     monkeypatch.setenv("CODEGEN_STORAGE_OUTPUTS", f"local:{(tmp_path / 'out').as_posix()}")
     (tmp_path / "out").mkdir()
     monkeypatch.chdir(REPO)
@@ -307,9 +308,8 @@ def test_one_sheet_without_targets_holds_back_its_feed_only(config, tmp_path, mo
     rc = cli.main(["generate", "--frd-contract", str(frd_json), "--sttm-contract",
                    str(sttm_json), "--output-mode", "framework", "--skip-tests", "--dry-run"])
     out = capsys.readouterr().out
-    assert ("NEEDS_ANSWERS   VC_DISENROLLMENT (sheet MAPPING-VC_DISENROLLMENT) — answer "
-            "`feeds[2].stage_target.tables` under `gaps:`") in out
-    assert rc == cli.EXIT_NEEDS_ANSWERS, out
+    assert "QUESTION       feeds[2].stage_target.tables — " in out
+    assert rc == cli.EXIT_OK, out
     # Answered, all three feeds extract.
     answers = {"gaps": {
         "feeds[2].stage_target.tables": {"value": "vc_disenrollment", "layer": None,

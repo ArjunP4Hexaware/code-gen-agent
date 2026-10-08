@@ -59,14 +59,24 @@ def sd_config():
     return load_config(REPO / "config" / "config.yaml", overlays=[ACFC_ENV])
 
 
-def _generate(config, workbook, tmp: Path):
+RUN_STATEMENT = "'Frequency of data refresh \u2013 Monthly Run' (FRD paragraph 9)"
+
+
+def _generate(config, workbook, tmp: Path, run_statement: str | None = None):
     sttm = tmp / "sttm.xlsx"
     sttm.write_bytes(xlsx_bytes(workbook))
     pair = resolve_pair(sttm, PAIR_11_FRD, config, provider=MockLayoutProvider([]),
                         cache_dirs=[], use_cache=False, generated_date=DATE)
     assert pair.questions == []
     frd_json = tmp / "frd.contract.json"
-    frd_json.write_text(frd_to_json(pair.frd_contract), encoding="utf-8")
+    frd = pair.frd_contract
+    if run_statement is not None:
+        # The synthetic stand-in for the FRD's run-cadence sentence (the real SD
+        # FRD says its data refresh runs monthly; pair 11's FRD has no such line).
+        frd = frd.model_copy(update={"feeds": [
+            f.model_copy(update={"frequency_mentions": [*f.frequency_mentions, run_statement]})
+            for f in frd.feeds]})
+    frd_json.write_text(frd_to_json(frd), encoding="utf-8")
     contract = extract_contract(sttm, frd_json, config, generated_date=DATE,
                                 layout=pair.sttm.profile)
     sttm_json = tmp / "sttm.contract.json"
@@ -86,7 +96,8 @@ def _generate(config, workbook, tmp: Path):
 
 @pytest.fixture(scope="module")
 def sd_rows(sd_config, tmp_path_factory):
-    return _generate(sd_config, sttm_fixtures.build_pair11(), tmp_path_factory.mktemp("sd"))
+    return _generate(sd_config, sttm_fixtures.build_pair11(), tmp_path_factory.mktemp("sd"),
+                     run_statement=RUN_STATEMENT)
 
 
 def _blank(value) -> bool:
@@ -99,10 +110,10 @@ def _blank(value) -> bool:
 SD_EXPECTED = {
     "vc_enrollment": {"OBJECT_NAME": "enrollment_package",
                       "SRC_FILE_NAME": "enrollment_package*", "SRC_FILE_DELIMITER": ",",
-                      "FREQUENCY": "Yearly"},
+                      "FREQUENCY": "Monthly"},
     "vc_disenrollment": {"OBJECT_NAME": "disenrollment_package",
                          "SRC_FILE_NAME": "disenrollment_package*", "SRC_FILE_DELIMITER": ",",
-                         "FREQUENCY": "Yearly"},
+                         "FREQUENCY": "Monthly"},
     "vc_individual_risk": {"OBJECT_NAME": "vc_ind_risk_data_package_REGION_A",
                            "SRC_FILE_NAME": "vc_ind_risk_data_package_REGION_A*",
                            "SRC_FILE_DELIMITER": "|", "FREQUENCY": "Monthly"},
@@ -129,13 +140,54 @@ def test_the_sd_family_rows(sd_rows, slug):
     assert gate.verdict == "PASS_WITH_FLAGS"
 
 
-def test_the_delivery_statement_wins_and_a_different_narrative_is_flagged(sd_rows):
-    gate, _rows = sd_rows["vc_enrollment"]
-    (flag,) = [f for f in gate.flags if f.startswith("frequency_ambiguous")]
-    assert "the delivery statement 'Yearly Twice' gives 'Yearly' (written)" in flag
-    assert "'Monthly'" in flag and "FRD" in flag                     # the narrative, cited
-    gate, _rows = sd_rows["vc_individual_risk"]                     # delivery 'Monthly'
-    assert not [f for f in gate.flags if f.startswith("frequency_ambiguous")]
+def test_frequency_is_the_run_cadence_and_a_different_delivery_is_flagged(sd_rows):
+    # Files delivered twice a year (File Details), the pipeline runs monthly.
+    gate, (row,) = sd_rows["vc_enrollment"]
+    assert row["FREQUENCY"] == "Monthly"
+    (flag,) = [f for f in gate.flags if f.startswith("frequency_delivery_differs")]
+    assert "FREQUENCY 'Monthly' is the pipeline run cadence" in flag
+    assert "the files are delivered 'Yearly Twice' (→ 'Yearly'" in flag
+    assert "Monthly Run" in flag                                      # the run statement, cited
+    gate, (row,) = sd_rows["vc_individual_risk"]                     # delivery Monthly too
+    assert row["FREQUENCY"] == "Monthly"
+    assert not [f for f in gate.flags if f.startswith("frequency_delivery_differs")]
+
+
+def _freq_feed(frequency, mentions=()):
+    return SimpleNamespace(frequency=frequency, frequency_mentions=list(mentions))
+
+
+def test_frequency_sources_in_order(config):
+    from codegen.metadata_template import _frequency
+
+    tpl = config.metadata.templates["iig_v2"]
+    # 1. the FRD's run / schedule statement
+    cell = _frequency(_freq_feed("Yearly Twice", [RUN_STATEMENT]), None, tpl)
+    assert cell["value"] == "Monthly"
+    assert "file delivery: stated as 'Yearly Twice'" in cell["badge_entry"]["tooltip"]
+    assert cell["badge_entry"]["note"].startswith("frequency_delivery_differs")
+    # a narrative mention without a run word is not a run statement
+    plain = _frequency(_freq_feed("Yearly Twice", ["'produces the report monthly' (FRD p 1)"]),
+                       None, tpl)
+    assert plain["value"] == "Yearly" and "note" not in plain["badge_entry"]
+    # 2. the schedule inventory's PIPELINE_FREQUENCY (no run statement)
+    inventory = tpl.model_copy(update={"template_rows": {
+        "DATA_FACTORY_PIPELINE_SCHEDULE": [{"PIPELINE_NAME": "PL_X",
+                                            "PIPELINE_FREQUENCY": "Daily"}]}})
+    cell = _frequency(_freq_feed("Monthly"), None, inventory)
+    assert cell["value"] == "Daily" and cell["badge_entry"]["badge"] == "synthetic"
+    assert "DATA_FACTORY_PIPELINE_SCHEDULE inventory" in cell["badge_entry"]["tooltip"]
+    assert cell["badge_entry"]["note"].startswith("frequency_delivery_differs")
+    # same cadence both ways: no flag
+    same = _frequency(_freq_feed("Monthly", [RUN_STATEMENT]), None, tpl)
+    assert same["value"] == "Monthly" and "note" not in same["badge_entry"]
+    # two run statements naming different cadences: no single run cadence ->
+    # the delivery cadence, unflagged
+    split = _frequency(_freq_feed("Yearly Twice", [RUN_STATEMENT, "'runs daily' (FRD p 2)"]),
+                       None, tpl)
+    assert split["value"] == "Yearly" and "note" not in split["badge_entry"]
+    assert "no run / schedule statement: the delivery cadence" in (
+        split["badge_entry"]["tooltip"])
 
 
 def test_open_recycle_cells_offer_the_convention_shape(sd_config, tmp_path):
@@ -359,4 +411,4 @@ def test_the_exit_codes_are_in_codegen_help(capsys):
 def test_the_notebook_fallback_reports_needs_answers():
     text = (REPO / "acfc_run.py").read_text(encoding="utf-8")
     assert "EXIT_NEEDS_ANSWERS: \"needs answers\"" in text
-    assert 'line.startswith("NEEDS_ANSWERS")' in text
+    assert 'line.startswith(("QUESTION", "UNRESOLVED"))' in text

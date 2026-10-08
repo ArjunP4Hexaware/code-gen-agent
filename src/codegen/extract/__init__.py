@@ -3,6 +3,7 @@
 from codegen.extract.extractor import (
     ExtractionError,
     NeedsAnswersError,
+    UnresolvedLayoutError,
     contract_to_json,
     extract_contract,
     extract_to_file,
@@ -13,6 +14,7 @@ __all__ = [
     "ExtractionError",
     "NeedsAnswersError",
     "SegmentedWorkbookError",
+    "UnresolvedLayoutError",
     "WorkbookParseError",
     "contract_to_json",
     "extract_contract",

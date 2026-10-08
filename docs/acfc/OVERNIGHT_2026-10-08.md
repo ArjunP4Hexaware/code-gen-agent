@@ -53,11 +53,10 @@ themselves.
 
 Nothing is red. Not done / still open:
 
-- **`config_inserts_<env>.sql` still gives every row one `@OBJECT_ID` /
-  `@PIPELINE_ID` / `@GROUP_ID`** — the latent primary-key collision (design §2).
-  Chunk B's brief said to leave that file unchanged; the new
-  `metadata_inserts.sql` uses per-row placeholders (`<<OBJECT_ID#3>>`) instead.
-  Decide whether to retire the older file or fix it.
+- ~~**`config_inserts_<env>.sql` still gives every row one `@OBJECT_ID` /
+  `@PIPELINE_ID` / `@GROUP_ID`**~~ — **resolved in the morning cleanup**: the
+  file is retired, its DB-side knowledge ported into `metadata_inserts.sql`
+  (see "Morning cleanup" below).
 - **Pair-1 cells that still differ from the golden** — all open framework
   questions, each pinned with its reason in
   `tests/test_m4_acceptance.py::FULL_DEVIATIONS`: per-pipeline / per-file
@@ -130,4 +129,135 @@ No golden value was changed to make a check pass; the pair-1 golden is untouched
 real STTMs, the d1 standard container, the STGDELTA OBJECT_NAME convention,
 `TGT_PRIMARY_KEY` semantics, which DQ rule classes are standard) and the three
 "confirm which convention is current for new feeds" items (LOB, STGDELTA unknown
-primary key, STGDELTA OBJECT_NAME).
+primary key, STGDELTA OBJECT_NAME), and — added in the morning cleanup — item 9,
+**`ACTIVE_FLAG` `Y` vs `S`** (unconfirmed).
+
+## Morning cleanup (2026-10-08, before the push) — marker 0.5.8.post17
+
+Pushed as one commit on `feature/multi-table`; **not merged into
+`feature/iig-first`** (codegen-watch pulls that one; it stays the stable demo
+branch until after Friday). Verified: full suite **912 passed / 27 skipped**
+(Python 3.11); ruff clean (`src/ tests/ ui/backend/ scripts/iig_scorecard.py`);
+scrub 0 on every changed file.
+
+1. **`metadata_inserts.sql` is written on every framework run**, independent of
+   `emit_dml` / `dml.enabled`; those switches now gate only the runner notebooks
+   `Insert_scripts_config_table_<env>.py` (which run `metadata_inserts.sql` and
+   refuse while a `<<…>>` placeholder is left). ADDITION.md's switch line and the
+   report's DML line say "`metadata_inserts.sql` is written regardless".
+   **Pair 4 regenerated through the CLI with shipped settings**
+   (`extract-sttm` + `generate --output-mode framework --profile acfc_prx
+   --iig-template iig_v2`, overlays `acfc_env.yaml` → the pair-4 overlay, DML
+   switches off): `framework/metadata_inserts.sql` present, 23 INSERTs (= the IIG
+   rows), no runner notebook, gate `metadata_inserts=ok`, `PASS_WITH_FLAGS`.
+   Test: `test_metadata_inserts::test_pair4_with_shipped_settings_writes_metadata_inserts`
+   (+ `test_dml_emit::test_shipped_settings_write_metadata_inserts_and_no_notebook`
+   for pair 1 through `cli._generate_feed`).
+2. **`config_inserts_<env>.sql` retired — after porting its DB-side knowledge**
+   (amended brief). `emit/dml.py` now writes only the notebooks; `config_rows.xlsx`
+   stays the approval artefact; ADDITION.md says `metadata_inserts.sql` replaces
+   the old file and why (one placeholder per row ends the shared `@OBJECT_ID` /
+   `@PIPELINE_ID`). Ported into `metadata_inserts.sql`:
+   - **DB values**, config `dml.db_value_map` (`ACTIVE_FLAG` and
+     `ACTIVE_RULE_FLG`: workbook `Y` → `S`), `dml.db_blank_expressions`
+     (`CREATED_DATE` / `UPDATED_DATE` → `GETDATE()`), `dml.db_null_columns`
+     (`DAY_OF_SCHEDULE`, `UDF2`–`UDF5`, the SLA columns, `CLAIM_TYPE_ID`), blank
+     `CREATED_BY` / `UPDATED_BY` → `@RFC_NUMBER`; a `DB VALUES` header block names
+     every mapping and cites `METADATA_DB_SEMANTICS.md` (§1, §2, §7, §10). The
+     workbook keeps `Y`. Friday checklist item 9 (unconfirmed).
+   - **Guards before the first INSERT**: `@RFC_NUMBER` assigned; every
+     placeholder id not NULL (the old `IS NULL` checks, per row); per schedule row
+     `PIPELINE_ID` unused; per FILE_ADLS / ADLS_DELTA / STGDELTA row `GROUP_ID`
+     unused in its table and the (GROUP_ID, OBJECT_ID, PIPELINE_ID) key unused.
+   - **Connection reuse** (§3): look up the file connection by host + root path
+     (more than one match aborts), else insert it and take `SCOPE_IDENTITY()`;
+     a NULL host with no id given aborts.
+   - **Abort, never half-insert**: `SET XACT_ABORT ON` + `BEGIN TRY` /
+     `BEGIN TRANSACTION` … `COMMIT` / `CATCH` → `ROLLBACK` + `THROW`.
+   Tests: `tests/test_dml_emit.py` (rewritten: DB values, variables + guards +
+   connection lookup, abort structure, FAQ-filled variables, value map is
+   config, notebook refuses placeholders) and `tests/test_metadata_inserts.py`.
+3. **`config/overlays/acfc_env.yaml`** pins `family_conventions` to the CAQH-style
+   (pair-4) family — `lob: codes`, `stgdelta_unknown_primary_key: ""`,
+   `stgdelta_object_name: generalized_file_pattern` — commented as the convention
+   observed in the newest real sheet and on the Friday checklist; a pair-1 family
+   feed selects its own in a feed overlay.
+4. **Scorecard breakdown.** Every score line now ends `| matched M /
+   open-by-design B / open-for-engineer E / diff D; score excl. open-by-design X`.
+   Generated pair 1 vs its golden: `score 57.9 … | matched 347 / open-by-design
+   185 / open-for-engineer 46 / diff 21; score excl. open-by-design 83.8`.
+   How-to updated (`IIG_SCORECARD_2026-10-07.md`, "Reading the score").
+5. **Worktrees / branches deleted:** `worktree-agent-aa12743afd2705dd7` and
+   `worktree-agent-aba6dee66207d7353` (worktrees clean; every commit already on
+   this branch as its cherry-pick — `git cherry` showed all equivalent; never on
+   origin), plus the scratch `.local/old_tree` worktree used for the diff below.
+
+### Old `config_inserts_q1.sql` vs new `metadata_inserts.sql` on pair 1 — every remaining difference
+
+Both generated from the same pair-1 run (old: the tree at `54ecaad` with the DML
+switches on; new: this commit), INSERT cells compared column by column (script:
+`.local/overnight/diff_old_new.py`, gitignored). Row counts per table are equal
+(26 IIG rows + the connection insert). **No ported value differs**: ACTIVE_FLAG /
+ACTIVE_RULE_FLG `'S'`, audit dates `GETDATE()`, audit users `@RFC_NUMBER`, the
+NULL columns and `SRC_CONNECTION_ID` are identical. What still differs (201 cells
+across 71 table.column pairs, by kind):
+
+| # | Old | New | Cells (columns) | Why |
+| --- | --- | --- | ---: | --- |
+| 1 | `@PIPELINE_ID`, `@PARENT_PIPELINE_ID`, `@GROUP_ID` — one script variable for every row | `<<PIPELINE_ID#n>>`, `<<PARENT_PIPELINE_ID#n>>`, `<<GROUP_ID#n>>` — one placeholder per row | 37 (12) | the brief: one placeholder per row fixes the collision (design §2) |
+| 2 | `@OBJECT_ID` on every row | ADLS_DELTA / DQ: the IIG's sequential literal (`N'1'` … `N'n'`); FILE_ADLS / STGDELTA: `<<OBJECT_ID#n>>` | 14 (4) | OBJECT_ID = 1..n within the group (steps 3–4); the old variable collided across ADLS rows |
+| 3 | `@SRC_ADLS_CONNECTION_ID`, `@METADATA_CONNECTION_ID`, `@TGT_CONNECTION_ID` (script variables; FAQ `connection_ids` could fill them) | per-row placeholders (the ACFC overlay's ADLS_DELTA constants fill them on real runs) | 15 (6) | only `SRC_CONNECTION_ID` has a lookup (§3); the other three are IIG cells like any other. **FAQ `connection_ids` now feeds only `SRC_CONNECTION_ID`** |
+| 4 | `NULL` for an open blank cell | `<<COLUMN#n>>` | 107 (38) | step-6 rule: an open cell must be decided (a value or NULL) before the script parses; a decided blank stays NULL |
+| 5 | `CONCAT(@PATH_PREFIX, N'…')` on path columns | `N'…'` (the same literal inside) | 28 (11) | `dml.env_path_prefix` was empty in every environment; environment paths are IIG cells (overlay `path_patterns`) |
+
+Structural differences (not cell values):
+
+- **One file, not three.** `config_inserts_q1/a2/prod.sql` differed only in the
+  variables block (`@ENV`, `@PATH_PREFIX`); `metadata_inserts.sql` has no
+  environment variable — fill its placeholders per environment. The runner
+  notebooks stay one per environment (`dml.environments`).
+- **Variables block.** Old: 13 `DECLARE`s, each flagged `dml_unassigned` when the
+  FAQ left it open (pair 1: 10 flags). New: `@RFC_NUMBER`, `@SRC_HOST_NAME`,
+  `@SRC_ROOT_PATH`, `@SRC_CONNECTION_ID` only (pair 1: 2 flags — `@RFC_NUMBER`,
+  `@SRC_HOST_NAME`; the per-row ids are flagged by the IIG's `iig_blank` flags
+  and the review copy). FAQ answers for `pipeline_id`, `parent_pipeline_id`,
+  `group_id` and `object_id` are no longer read (one value cannot fill several
+  rows).
+- **Guards really abort.** The old preflight `RAISERROR`s (severity 16) ran
+  outside any `TRY` and without `XACT_ABORT`, so the batch carried on into the
+  INSERTs and only the notebook's JDBC rollback undid them. The new guards
+  `THROW` inside the TRY, so nothing runs after a failed guard, whether or not
+  the caller rolls back. New: the per-row key guard (GROUP_ID, OBJECT_ID,
+  PIPELINE_ID) and a guard on every row's GROUP_ID, not just one.
+- **The connection lookup no longer skips a NULL host.** Old: no host → no
+  lookup, `SRC_CONNECTION_ID` left NULL. New: no host and no id given → abort.
+- **No `SELECT … @@ROWCOUNT` lines.** Old: one after each table block — it
+  reported only the LAST INSERT's count (1), not the table's. The gate check
+  `metadata_inserts` asserts the counts at generation time instead (one INSERT
+  per IIG row); the notebook still prints any result set a script returns.
+- **Multi-line cells.** Old: `NULL` + flag `dml_multiline`. New: lossless
+  `+ NCHAR(10) +` concatenation. (No pair-1 cell is multi-line; same output
+  there.)
+- **New in the header:** the `DB VALUES` block, the `TABLE DEFINITIONS` index
+  (each table's stage / standard definition by its mapped three-part name), the
+  per-row `-- table … <- file …` labels, and empty sheets kept as a header line.
+- **Gate checks.** `dml_parse_<env>` and `dml_row_counts` are gone with the old
+  file; `metadata_inserts` (statement count = IIG rows, parses as T-SQL with the
+  placeholders read as NULL) covers both.
+
+### Test expectations changed in the cleanup — each follows from items 1–2
+
+| Test | Change |
+| --- | --- |
+| `test_dml_emit` (rewritten, 12 tests) | the retired script is not written; the notebooks run `metadata_inserts.sql`; DB values / guards / connection / abort / FAQ variables |
+| `test_metadata_inserts` | the cell rule with DB values; written with the switches off; the round trip applies the value map |
+| `test_framework_output::test_framework_mode_tree_and_verdicts` | + `metadata_inserts.sql` in the CV framework tree |
+| `test_iig_review::test_addition_lists_both_workbooks_and_both_switches` | switch text "off — no runner notebook (disabled) …; `metadata_inserts.sql` is written regardless" |
+| `test_m102_location_uri` (2) | read `metadata_inserts.sql` instead of `config_inserts_<env>.sql` |
+| `test_m4_acceptance::PAIR1_GATE_FLAG_KINDS` | `dml_unassigned` 10 → 2 |
+| `test_m4_acceptance::test_pair1_default_profile_writes_two_files_and_no_combined_ddl` | + `metadata_inserts.sql` |
+| `test_m5_rfc_package` (3) | the package carries `metadata_inserts.sql` instead of `config_inserts_*.sql` (SFMC: + `metadata_inserts.sql`) |
+| `test_m7_labels_semantics` (3) | `metadata_inserts.sql` in the DDL group; DML group = 3 notebooks; README / manifest name the new file; its manifest row carries the `dml_*` flags |
+| `test_m9_acfc_findings::test_cli_chain…` | console check `metadata_inserts=ok` instead of `dml_row_counts=ok` |
+
+No golden was changed.

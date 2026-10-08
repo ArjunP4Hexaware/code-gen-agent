@@ -107,7 +107,8 @@ def test_framework_mode_tree_and_verdicts(config, framework_run, tmp_path):
         assert names == ["ADDITION.md", "config_inserts.xlsx",
                          "config_rows.xlsx",
                          f"{spec.feed_slug}_stage_table_creation.txt",
-                         f"{spec.feed_slug}_standard_table_creation.txt"]
+                         f"{spec.feed_slug}_standard_table_creation.txt",
+                         "metadata_inserts.sql"]   # always, framework mode (2026-10-08)
 
 
 @needs_demo_pair

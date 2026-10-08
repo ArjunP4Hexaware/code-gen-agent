@@ -104,7 +104,7 @@ along than the IIG layer.
 | `emit/framework.py::_combined_ddl_text` | dedups the columns of ALL segments into ONE stage `CREATE` (`spec.detail_segment.stage_table`) and ONE standard `CREATE` (`spec.standard_table`); per-segment standard tables ignored | 2 CREATEs instead of 6, both wrong-shaped |
 | `emit/framework.py::_description_map` | column name → description across segments, first wins | HDR / TRL `FILE_NAME` comments collide (cosmetic) |
 | `emit/framework.py::emit_framework` | payload built for `specs=[spec]` and filtered per feed (fine); `frd_tables` banner from segments (fine) | — |
-| `emit/dml.py::_VARIABLE_COLUMNS` / `_cell_sql` | EVERY row of EVERY sheet gets the same `@PIPELINE_ID`, `@GROUP_ID`, `@OBJECT_ID` | 6 ADLS rows share one `OBJECT_ID` → primary-key collision on (GROUP_ID, OBJECT_ID, PIPELINE_ID); 4 schedule rows share one `PIPELINE_ID`. **Latent today:** pair 1's golden has 4 ADLS objects and 4 pipelines, and the DML already collapses them |
+| `emit/dml.py::_VARIABLE_COLUMNS` / `_cell_sql` | EVERY row of EVERY sheet gets the same `@PIPELINE_ID`, `@GROUP_ID`, `@OBJECT_ID` | 6 ADLS rows share one `OBJECT_ID` → primary-key collision on (GROUP_ID, OBJECT_ID, PIPELINE_ID); 4 schedule rows share one `PIPELINE_ID`. **Latent today:** pair 1's golden has 4 ADLS objects and 4 pipelines, and the DML already collapses them. **Resolved 2026-10-08:** `config_inserts_<env>.sql` is retired; `metadata_inserts.sql` writes one `<<COLUMN#n>>` placeholder per row (step 6) |
 | `iig_review.py` | none — it renders whatever rows the payload holds. Its `owner_for(sheet, column, reason)` has no class between "engineer" and "BSA": environment values and engineer-assigned ids are both `engineer` | owner colours cannot tell "fill from the environment overlay" from "engineer assigns" |
 | STTM readers · `extract/generic.py::_band_constant` | the sheet's stage / standard catalog, schema and table = the DOMINANT cell of each band column; per-row catalog / schema were dropped | a row whose catalog or schema differs from the band's dominant value lost it — **fixed in step 1** (`SttmField.stage_catalog` / `stage_schema` / `standard_catalog` / `standard_schema`, written only when the row differs) |
 | STTM readers · `extract/generic.py::_rule_columns` | not-null / mandatory / PHI = the DETAIL segment's fields only | HDR / TRL primary keys and mandatory flags are dropped |
@@ -250,9 +250,12 @@ Generator rules settled in Chunk A:
   | `stgdelta_unknown_primary_key` | `"NA"` | `""` (blank, open) |
   | `stgdelta_object_name` | `literal` — `Accumulator_accumclient`, transcribed from the golden (no input derives it) | `generalized_file_pattern` — the feed's patterns with LOB token and dates as `*`, generalized position by position, wildcards and extension removed (`NWB_COB_RPT`) |
 
-  The shipped default is the pair-1 family's `lob` / primary key and the
-  generalized file pattern (`table_name` is also available). Which convention is
-  current for NEW feeds is on the Friday checklist.
+  The shipped default (`config/config.yaml`) is the pair-1 family's `lob` /
+  primary key and the generalized file pattern (`table_name` is also
+  available). **The ACFC overlay (`config/overlays/acfc_env.yaml`) pins the
+  CAQH-style family explicitly (2026-10-08)** — the convention observed in the
+  newest real sheet; a feed of the pair-1 family selects its own in a feed
+  overlay. Which convention is current for NEW feeds is on the Friday checklist.
 - `FILE_ADLS_INGESTION_DETAILS` applies configured path shapes (pair 4:
   `TGT_ADLS_PATH` = `{landing_rel}`, the landing inside its container).
 - Test isolation: `cli.main()` re-reads the operator's `.env` mid-suite; the
@@ -409,18 +412,44 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    DEFINITIONS` index names every table's stage and standard definition by its
    mapped three-part name with its columns; ADLS rows are labelled `-- table
    <stage> <- file <pattern>`, STGDELTA rows `-- table <src> -> <tgt>`.
-   Written under the DML switches (`emit_dml` + `dml.enabled`), in the DDL
-   artefact group (the M7 labels test pins the DML group at six files), gate
-   check `metadata_inserts` (statement count = IIG rows; parses as T-SQL with
-   the placeholders read as NULL). The CREATE reference text is one block per
+   **Written on every framework run (2026-10-08)**, independent of the DML
+   switches (`emit_dml` + `dml.enabled` now gate only the runner notebooks
+   `Insert_scripts_config_table_<env>.py`, which execute this file and refuse
+   while a placeholder is left); DDL artefact group; gate check
+   `metadata_inserts` (statement count = IIG rows; parses as T-SQL with the
+   placeholders read as NULL). **It replaces `config_inserts_<env>.sql`**
+   (retired 2026-10-08 after its DB-side knowledge was ported):
+   - **DB values** (config `dml.db_value_map` / `db_blank_expressions` /
+     `db_null_columns`, named in the script header with their
+     `METADATA_DB_SEMANTICS.md` section): the IIG workbook keeps what humans
+     hand over, the SQL writes what the framework reads — `ACTIVE_FLAG` (and
+     `ACTIVE_RULE_FLG`) workbook `'Y'` → `'S'` (§1; the goldens print `'Y'`,
+     §10 — UNCONFIRMED, Friday checklist item 9); blank `CREATED_DATE` /
+     `UPDATED_DATE` → `GETDATE()`; blank `CREATED_BY` / `UPDATED_BY` →
+     `@RFC_NUMBER` (FAQ `rfc_number`, else the `<<RFC_NUMBER>>` placeholder +
+     `dml_unassigned:@RFC_NUMBER`); `DAY_OF_SCHEDULE`, `UDF2`–`UDF5`, the SLA
+     columns and `CLAIM_TYPE_ID` → `NULL` (§2, §7).
+   - **Guards**, before the first INSERT: `@RFC_NUMBER` assigned; per schedule
+     row its `PIPELINE_ID` unused; per `FILE_ADLS` / `ADLS_DELTA` / `STGDELTA`
+     row its `GROUP_ID` unused in that table and the (GROUP_ID, OBJECT_ID,
+     PIPELINE_ID) key unused (§2, §5).
+   - **Connection lookup** (§3): `FILE_ADLS_INGESTION_DETAILS.SRC_CONNECTION_ID`
+     = `@SRC_CONNECTION_ID` — reused by host + root path (more than one match
+     aborts), else inserted and taken from `SCOPE_IDENTITY()`; a NULL
+     `@SRC_HOST_NAME` with no id given aborts. Identifiers as spoken in the
+     walkthrough (`dml_unconfirmed:connection_table`).
+   - **Abort, never half-insert:** `SET XACT_ABORT ON` + `BEGIN TRY` /
+     `BEGIN TRANSACTION` … `COMMIT` / `BEGIN CATCH` → `ROLLBACK` + `THROW`.
+   The old-vs-new comparison on pair 1 (every remaining difference) is in
+   `docs/acfc/OVERNIGHT_2026-10-08.md` "Morning cleanup". The CREATE reference text is one block per
    table and layer from `emit.framework.table_definitions` (the same
    derivation): stage blocks, then standard blocks; standard columns = the rows
    carrying a Standard band, named by it (a table with none keeps the stage
    list). Pair 1 byte-identical; pair 4 six CREATEs as in `TABLE_DEFINITIONS`
    (`tests/test_metadata_inserts.py`, incl. a round trip against the clean IIG).
-   **Still open:** the one-`@OBJECT_ID` / `@PIPELINE_ID` / `@GROUP_ID` collision in
-   the older `config_inserts_<env>.sql` (§2) — that file is unchanged; the new
-   file uses per-row placeholders instead.
+   The one-`@OBJECT_ID` / `@PIPELINE_ID` / `@GROUP_ID` collision of the
+   retired `config_inserts_<env>.sql` (§2) is gone with it: one placeholder per
+   row.
 7. **`scripts/iig_scorecard.py --all-sheets` — DONE.** Scores every sheet of the
    real workbook (iig_v2: all eight), pairing rows by key: schedule and notebook
    details by PIPELINE_NAME, ADLS by SRC_FILE_NAME, STGDELTA by table, DQ by
@@ -500,13 +529,25 @@ and where the answer lands (config, not code, wherever possible).
 
 **Confirm which convention is current for NEW feeds** (both are pinned today —
 pair 1's overlay the PRX family, pair 4's the CAQH-style family; the shipped
-default is the PRX family's LOB / key and the generalized OBJECT_NAME):
+default is the PRX family's LOB / key and the generalized OBJECT_NAME; the ACFC
+overlay `acfc_env.yaml` sets the CAQH-style family, seen in the newest real
+sheet):
 
 6. `LOB` — blank (PRX family) or the LOB codes (CAQH-style)?
 7. STGDELTA `TGT_PRIMARY_KEY` with no Primary Key cell — `'NA'` (PRX) or blank
    (CAQH-style)?
 8. STGDELTA `OBJECT_NAME` — the family's own form (PRX) or the generalized
    file pattern (CAQH-style)?
+
+**Unconfirmed DB value:**
+
+9. **`ACTIVE_FLAG` `Y` vs `S`.** The IIG workbooks (and both goldens) carry
+   `'Y'`; the walkthrough (`METADATA_DB_SEMANTICS.md` §1, §10) says the
+   framework selects active rows with `ACTIVE_FLAG = 'S'`. Today the workbook
+   keeps `'Y'` and `metadata_inserts.sql` writes `'S'` through
+   `dml.db_value_map` (`ACTIVE_FLAG` and `DATA_QUALITY_RULES.ACTIVE_RULE_FLG`,
+   the same assumption). Which value does the framework read? Answer → the
+   `dml.db_value_map` entry (drop it if `'Y'`).
 
 **If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
 whether grand master / master are new rows per feed (Q4), one

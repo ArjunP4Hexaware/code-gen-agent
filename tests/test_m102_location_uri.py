@@ -107,10 +107,10 @@ def test_the_uri_is_kept_intact_in_the_iig_and_the_dml(uri_run):
     assert URI_LANDING in values                                    # TGT_ADLS_PATH
     assert not any(v.startswith(("/abfss", "/Archive/abfss", "abfss:/syn")) for v in values)
     assert all(v.count("://") <= 1 for v in values)
-    for env in ("q1", "a2", "prod"):
-        dml = (framework / f"config_inserts_{env}.sql").read_text(encoding="utf-8")
-        assert f"N'{URI_LANDING}'" in dml
-        assert "/abfss" not in dml and "abfss:/syn" not in dml
+    # config_inserts_<env>.sql is retired (2026-10-08): one metadata_inserts.sql
+    dml = (framework / "metadata_inserts.sql").read_text(encoding="utf-8")
+    assert f"N'{URI_LANDING}'" in dml
+    assert "/abfss" not in dml and "abfss:/syn" not in dml
 
 
 def test_archive_and_processed_are_appended_inside_the_uri(uri_run):
@@ -118,9 +118,9 @@ def test_archive_and_processed_are_appended_inside_the_uri(uri_run):
     assert URI_LANDING + "Archive/" in values      # both {landing}Archive/ and /Archive{landing}
     assert URI_LANDING + "Processed/" in values
     assert URI_LANDING + f"Processed/{spec.detail_segment.stage_table.table}" in values
-    q1 = (framework / "config_inserts_q1.sql").read_text(encoding="utf-8")
-    assert f"N'{URI_LANDING}Archive/'" in q1
-    assert f"N'{URI_LANDING}Processed/{spec.detail_segment.stage_table.table}'" in q1
+    sql = (framework / "metadata_inserts.sql").read_text(encoding="utf-8")
+    assert f"N'{URI_LANDING}Archive/'" in sql
+    assert f"N'{URI_LANDING}Processed/{spec.detail_segment.stage_table.table}'" in sql
 
 
 def test_a_template_shape_that_prefixes_the_landing_is_flagged(uri_run):

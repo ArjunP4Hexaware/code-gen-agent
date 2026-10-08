@@ -103,9 +103,11 @@ def _package_dir(tmp: Path, slug: str) -> Path:
     return package
 
 
-# M7: the SQL Server DML deliverable rides the acfc_prx profile into the package.
+# M7: the SQL Server DML deliverable rides the acfc_prx profile into the package —
+# since 2026-10-08 metadata_inserts.sql (config_inserts_<env>.sql retired) plus
+# the runner notebooks.
 DML_FILES = sorted([f"Insert_scripts_config_table_{env}.py" for env in ("q1", "a2", "prod")]
-                   + [f"config_inserts_{env}.sql" for env in ("q1", "a2", "prod")])
+                   + ["metadata_inserts.sql"])
 
 
 def _manifest_files(package: Path) -> list[str]:
@@ -261,7 +263,8 @@ def test_sfmc_ingestion_a_package_file_set(sfmc_rfc, config):
     assert sorted(p.name for p in package.iterdir()) == sorted([
         f"{token}_stage_table_creation.txt", f"{token}_standard_table_creation.txt",
         f"{token}_IIG.xlsx", f"RFC######_{token}_Deployment_Playbook.xlsx",
-        "FILE_LOG_INFORMATION.txt", "MANIFEST.md"])
+        "FILE_LOG_INFORMATION.txt", "MANIFEST.md",
+        "metadata_inserts.sql"])          # written in framework mode for every profile
     # DDL exactly as the edo_sfmc profile emitted it (two files, renamed).
     framework_dir = tmp / "out" / spec.feed_slug / "framework"
     for layer in ("stage", "standard"):

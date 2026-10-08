@@ -7,61 +7,65 @@ Catalog Delta tables FROM them (docs/acfc/MULTI_TABLE_DESIGN.md rule 8); the
 script is rendered from THE SAME CELL VALUES the IIG workbook carries — the
 payload ``codegen.metadata_sheet.metadata_sheet_payload`` built once per feed
 (``emit_framework``) — so the IIG, ``config_rows.xlsx`` and this file can never
-disagree; nothing here derives a value. ``config_inserts_<env>.sql``
-(``emit/dml.py``, the variables / preflight / per-environment runner script) is
-a separate artefact and is left exactly as it is.
-
-Rendering rules:
+disagree. Written on EVERY framework run (2026-10-08); it replaces the retired
+per-environment ``config_inserts_<env>.sql``, whose DB-side knowledge it
+carries (``config dml.*``, docs/acfc/METADATA_DB_SEMANTICS.md):
 
 1. **One block per IIG sheet**, in ``dml.table_order`` order, then any other
    sheet in payload order. Table ``[<dml.schema>].[<framework.tables[sheet]
-   or sheet>]``, identifiers bracketed (``emit/dml.py``'s T-SQL spelling).
-   Each block opens with ``-- <SHEET>: <n> row(s)``; a sheet with no rows
-   gets that header line only.
+   or sheet>]``, identifiers bracketed. Each block opens with
+   ``-- <SHEET>: <n> row(s)`` (a table the walkthrough did not describe says
+   so, flag ``dml_not_described:<SHEET>``); a sheet with no rows gets its
+   header line only.
 2. **One** ``INSERT INTO … (<columns>) VALUES (…);`` **per payload row**, the
    columns in the sheet's header order, one statement per line.
-3. **Cells.**
-   * A non-blank value is a quoted ``N'…'`` literal (``'`` doubled), the value
-     as text (an integer cell such as ``SEQUENCE_NO`` too). A line break never
-     sits inside a literal: a multi-line value is written losslessly as
-     ``N'line 1' + NCHAR(10) + N'line 2'`` (``NCHAR(13)`` for a carriage
-     return), still on the statement's one line — unlike the runner script,
-     which writes NULL there, this file must carry every IIG cell.
-   * A blank cell that is OPEN is a NAMED PLACEHOLDER, unquoted —
-     ``<<COLUMN#n>>``, ``n`` = the row's 1-based number within its sheet — so
-     the script does not parse, let alone run, until the engineer replaces
-     every one. Open means what the BSA's review copy means
-     (``codegen.iig_review``): every blank cell not decided blank — the
-     ``needs_template`` cells, the template's ``always_blank`` columns (ids,
-     connections, audit dates) and any other blank no input states.
-   * A blank cell DECIDED blank (``badge_entry.deliberate_blank`` — e.g. the
-     pair-1 family's LOB) is ``NULL``.
-4. **Catalogs** are written as the cells carry them: already MAPPED by
-   ``conventions.catalog_map`` in the resolver. Nothing is re-mapped or
-   re-derived here.
-5. **Table definitions, by mapped three-part name.** Before the sheet blocks
-   a ``-- TABLE DEFINITIONS`` index lists every table the feed defines (rule 1:
-   one per distinct stage triple) with its stage definition and its standard
-   definition as ``catalog.schema.table`` and their column lists — comments,
-   reference only — from ``emit.framework.table_definitions``, the same
-   derivation as the CREATE reference text. Inside
-   ``ADLS_DELTA_INGESTION_DETAILS`` each INSERT is preceded by
-   ``-- table <stage table> <- file <SRC_FILE_NAME>`` (the stage table the
-   row's ``TGT_DATABASE_NAME`` / ``TGT_TABLE_NAME`` cells name, by its
-   three-part name) and inside ``STGDELTA_STDDELTA_INGESTION_DET`` by
-   ``-- table <src catalog.schema.table> -> <tgt catalog.schema.table>``
-   (the row's own cells).
+3. **Cells** — the workbook keeps what humans hand over; the script writes
+   what the framework reads:
+   * a column in ``dml.db_null_columns`` is ``NULL`` whatever the workbook
+     holds (§2 "not populating", §7 CLAIM_TYPE_ID);
+   * a non-blank value is a quoted ``N'…'`` literal (``'`` doubled), mapped
+     through ``dml.db_value_map`` first (ACTIVE_FLAG ``'Y'`` -> ``'S'``, §1 /
+     §10 — unconfirmed); a line break never sits inside a literal: it is
+     written ``N'a' + NCHAR(10) + N'b'`` (lossless, on the statement's line);
+   * a blank cell DECIDED blank (``badge_entry.deliberate_blank``) is ``NULL``;
+   * a blank cell in ``dml.db_blank_expressions`` is that expression
+     (``CREATED_DATE`` / ``UPDATED_DATE`` -> ``GETDATE()``, §1);
+   * a blank ``CREATED_BY`` / ``UPDATED_BY`` is ``@RFC_NUMBER`` (one variable,
+     §1); a blank ``FILE_ADLS_INGESTION_DETAILS.SRC_CONNECTION_ID`` is
+     ``@SRC_CONNECTION_ID`` (looked up / inserted, §3);
+   * any other blank cell is OPEN: a NAMED PLACEHOLDER, unquoted —
+     ``<<COLUMN#n>>``, ``n`` = the row's 1-based number in its sheet (the
+     variables' own: ``<<RFC_NUMBER>>``, ``<<SRC_HOST_NAME>>``) — so the
+     script does not parse, let alone run, until the engineer replaces every
+     one. One placeholder per row is what fixes the retired script's single
+     ``@OBJECT_ID`` / ``@PIPELINE_ID`` for every row.
+4. **Atomic.** ``SET XACT_ABORT ON`` + ``BEGIN TRY`` / ``BEGIN TRANSACTION`` …
+   ``COMMIT`` / ``BEGIN CATCH`` ``ROLLBACK`` + ``THROW``: a failed guard or
+   insert aborts the whole script, never a half insert.
+5. **Guards, before the first INSERT** (§1, §2, §3, §5): ``@RFC_NUMBER`` set;
+   every schedule row's ``PIPELINE_ID`` unused; every ingestion row's
+   ``GROUP_ID`` unused in its table ("never reused") and its key
+   (``GROUP_ID``, ``OBJECT_ID``, ``PIPELINE_ID``) unused; the source
+   connection looked up by host + root path — 0 rows = insert it and take
+   ``SCOPE_IDENTITY()``, 1 = reuse it, more = abort (identifiers as spoken in
+   the walkthrough: flag ``dml_unconfirmed:connection_table``).
+6. **Catalogs** are written as the cells carry them: already MAPPED by
+   ``conventions.catalog_map`` in the resolver.
+7. **Table definitions, by mapped three-part name.** A ``-- TABLE
+   DEFINITIONS`` index lists every table the feed defines with its stage and
+   standard definitions (``emit.framework.table_definitions``, the CREATE
+   text's derivation); ADLS rows are labelled ``-- table <stage> <- file
+   <pattern>``, STGDELTA rows ``-- table <src> -> <tgt>``.
 
-The file is byte-stable (no timestamps). Gate check ``metadata_inserts``:
-the per-sheet statement counts equal the IIG's and, with every placeholder
-read as ``NULL``, every statement parses as T-SQL
-(``emit.dml.validate_tsql``).
+The file is byte-stable (no timestamps). Gate check ``metadata_inserts``: the
+per-sheet statement counts equal the IIG's and, with every placeholder read
+as ``NULL``, every statement parses as T-SQL (``emit.dml.validate_tsql``).
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -74,10 +78,38 @@ if TYPE_CHECKING:  # pragma: no cover — type hints only (framework imports thi
     from codegen.emit.framework import TableDefinition
 
 FILE_NAME = "metadata_inserts.sql"
-PLACEHOLDER_RE = re.compile(r"<<[A-Za-z0-9_]+#\d+>>")
+PLACEHOLDER_RE = re.compile(r"<<[A-Za-z0-9_]+(?:#\d+)?>>")
 _DESIGN = "docs/acfc/MULTI_TABLE_DESIGN.md"
+_SEMANTICS = "docs/acfc/METADATA_DB_SEMANTICS.md"
 _ADLS = "ADLS_DELTA_INGESTION_DETAILS"
 _STGDELTA = "STGDELTA_STDDELTA_INGESTION_DET"
+_FILE_ADLS = "FILE_ADLS_INGESTION_DETAILS"
+_SCHEDULE = "DATA_FACTORY_PIPELINE_SCHEDULE"
+_GROUP_TABLES = (_FILE_ADLS, _ADLS, _STGDELTA)
+_AUDIT_BY = {"CREATED_BY", "UPDATED_BY", "CRETAED_BY"}          # the iig_v1 header typo is real
+_CONNECTION = (_FILE_ADLS, "SRC_CONNECTION_ID")
+
+
+@dataclass(frozen=True)
+class DbRules:
+    """The DB-side cell rules (``config dml.*``); ``none()`` = plain cells."""
+
+    value_map: dict[str, dict[str, str]] = field(default_factory=dict)
+    blank_expressions: dict[str, str] = field(default_factory=dict)
+    null_columns: frozenset[str] = frozenset()
+    variables: bool = False          # audit-by -> @RFC_NUMBER, the connection -> its variable
+
+    @classmethod
+    def none(cls) -> DbRules:
+        return cls()
+
+    @classmethod
+    def from_config(cls, config: Config) -> DbRules:
+        dml = config.dml
+        return cls(value_map={k.upper(): v for k, v in dml.db_value_map.items()},
+                   blank_expressions={k.upper(): v for k, v in dml.db_blank_expressions.items()},
+                   null_columns=frozenset(c.upper() for c in dml.db_null_columns),
+                   variables=True)
 
 
 @dataclass(frozen=True)
@@ -85,6 +117,7 @@ class MetadataInserts:
     path: Path
     row_counts: dict[str, int]
     check: GateCheck
+    flags: list[str] = field(default_factory=list)
 
 
 def placeholder(column: str, row_number: int) -> str:
@@ -109,12 +142,25 @@ def _blank(value) -> bool:
     return value is None or value == ""
 
 
-def cell_sql(column: str, value, entry: dict, row_number: int) -> str:
-    """One IIG cell as a VALUES item (rule 3)."""
+def cell_sql(column: str, value, entry: dict, row_number: int, rules: DbRules | None = None,
+             sheet: str | None = None) -> str:
+    """One IIG cell as a VALUES item (module docstring, rule 3)."""
+    rules = rules or DbRules.none()
+    upper = column.upper()
+    if upper in rules.null_columns:
+        return "NULL"
     if not _blank(value):
-        return _literal(str(value))
+        text = str(value)
+        mapped = rules.value_map.get(upper, {}).get(text.strip())
+        return _literal(mapped if mapped is not None else text)
     if (entry or {}).get("deliberate_blank"):
         return "NULL"
+    if upper in rules.blank_expressions:
+        return rules.blank_expressions[upper]
+    if rules.variables and upper in _AUDIT_BY:
+        return "@RFC_NUMBER"
+    if rules.variables and (sheet, upper) == _CONNECTION:
+        return "@SRC_CONNECTION_ID"
     return placeholder(column, row_number)
 
 
@@ -164,47 +210,237 @@ def _stgdelta_label(values: dict) -> str:
     return f"-- table {three('SRC')} -> {three('TGT')}"
 
 
+def _faq_value(faq, name: str) -> str | None:
+    answer = getattr(faq, name, None) if faq is not None else None
+    if answer is None or getattr(answer, "source", "unknown") == "unknown":
+        return None
+    text = str(answer.value).strip() if answer.value is not None else ""
+    return text or None
+
+
+def _db_value_lines(config: Config) -> list[str]:
+    dml = config.dml
+    lines = [f"-- DB VALUES ({_SEMANTICS}; config dml.*): the IIG workbook keeps what humans "
+             "hand over, this script writes what the framework reads —"]
+    for column, mapping in dml.db_value_map.items():
+        pairs = ", ".join(f"{k!r} -> {v!r}" for k, v in mapping.items())
+        lines.append(f"--   {column}: workbook {pairs} (§1: the framework selects ACTIVE_FLAG "
+                     "= 'S'; the goldens print 'Y', §10 — UNCONFIRMED, Friday checklist)"
+                     if column.upper() in ("ACTIVE_FLAG", "ACTIVE_RULE_FLG")
+                     else f"--   {column}: workbook {pairs}")
+    for column, expression in dml.db_blank_expressions.items():
+        lines.append(f"--   {column}: blank -> {expression} (§1)")
+    if dml.db_null_columns:
+        lines.append("--   NULL whatever the workbook holds (§2 'not populating', §7): "
+                     + ", ".join(dml.db_null_columns))
+    lines.append("--   CREATED_BY / UPDATED_BY: blank -> @RFC_NUMBER (§1); "
+                 f"{_CONNECTION[0]}.{_CONNECTION[1]}: blank -> @SRC_CONNECTION_ID (§3)")
+    return lines
+
+
+def _guards(schema: str, rendered: dict[str, list[tuple[int, dict[str, str]]]],
+            rfc: bool) -> list[str]:
+    """EXISTS guards before the first INSERT (module docstring, rule 5)."""
+    lines = [f"-- GUARDS — checked before the first INSERT; any failure aborts the whole "
+             f"script and rolls it back ({_SEMANTICS} §1, §2, §5)"]
+    if rfc:
+        lines.append("IF @RFC_NUMBER IS NULL RAISERROR(N'RFC_NUMBER is not assigned (audit "
+                     "columns, §1)', 16, 1);")
+    seen: set[str] = set()
+
+    def add(line: str) -> None:
+        if line not in seen:
+            seen.add(line)
+            lines.append(line)
+
+    def assigned(sheet: str, number: int, items: dict[str, str], *columns: str) -> None:
+        # the retired script's "IS NULL" checks, per placeholder: an id filled
+        # in as NULL aborts instead of reaching the INSERT
+        for column in columns:
+            value = items.get(column, "")
+            if value.startswith("<<"):
+                add(f"IF {value} IS NULL RAISERROR(N'{sheet} row {number}: {column} is not "
+                    "assigned', 16, 1);")
+
+    for number, items in rendered.get(_SCHEDULE, []):
+        assigned(_SCHEDULE, number, items, "PIPELINE_ID")
+        if "PIPELINE_ID" in items:
+            add(f"IF EXISTS (SELECT 1 FROM {_table(schema, _SCHEDULE)} WHERE [PIPELINE_ID] = "
+                f"{items['PIPELINE_ID']}) RAISERROR(N'{_SCHEDULE} row {number}: PIPELINE_ID is "
+                "already used (unique per process, §2)', 16, 1);")
+    for sheet in _GROUP_TABLES:
+        for number, items in rendered.get(sheet, []):
+            table = _table(schema, sheet)
+            assigned(sheet, number, items, "GROUP_ID", "OBJECT_ID", "PIPELINE_ID")
+            if "GROUP_ID" in items:
+                add(f"IF EXISTS (SELECT 1 FROM {table} WHERE [GROUP_ID] = {items['GROUP_ID']}) "
+                    f"RAISERROR(N'{sheet} row {number}: GROUP_ID is already used (never "
+                    "reused, §5)', 16, 1);")
+            if all(k in items for k in ("GROUP_ID", "OBJECT_ID", "PIPELINE_ID")):
+                add(f"IF EXISTS (SELECT 1 FROM {table} WHERE [GROUP_ID] = {items['GROUP_ID']} "
+                    f"AND [OBJECT_ID] = {items['OBJECT_ID']} AND [PIPELINE_ID] = "
+                    f"{items['PIPELINE_ID']}) RAISERROR(N'{sheet} row {number}: the key "
+                    "(GROUP_ID, OBJECT_ID, PIPELINE_ID) is already used (§5, §7)', 16, 1);")
+    return lines
+
+
+def _connection_lines(config: Config) -> list[str]:
+    """The source connection's reuse-or-insert lookup (§3) — the retired
+    script's block, verbatim in shape."""
+    schema, conn = config.dml.schema, config.dml.connection_table
+    return [
+        "-- CONNECTION LOOKUP (§3; table / column identifiers as spoken in the walkthrough — "
+        "confirm: dml_unconfirmed:connection_table): 0 rows = insert and take its identity, "
+        "1 = reuse, more = abort",
+        "DECLARE @CONNECTION_MATCHES INT = 0;",
+        f"SELECT @CONNECTION_MATCHES = COUNT(*) FROM {_table(schema, conn.name)} WHERE "
+        f"{_ident(conn.host_column)} = @SRC_HOST_NAME AND {_ident(conn.root_column)} = "
+        "@SRC_ROOT_PATH;",
+        "IF @CONNECTION_MATCHES > 1 RAISERROR(N'more than one connection matches host + root "
+        "path (expected 0 or 1)', 16, 1);",
+        # the retired script skipped the lookup on a NULL host and left the id
+        # NULL; here a NULL host with no id aborts (a connection row keyed by
+        # a NULL host is never inserted)
+        "IF @SRC_CONNECTION_ID IS NULL AND @SRC_HOST_NAME IS NULL RAISERROR(N'SRC_HOST_NAME "
+        "is not assigned and no SRC_CONNECTION_ID is given (§3)', 16, 1);",
+        "IF @SRC_CONNECTION_ID IS NULL",
+        "BEGIN",
+        f"    SELECT @SRC_CONNECTION_ID = {_ident(conn.id_column)} FROM "
+        f"{_table(schema, conn.name)} WHERE {_ident(conn.host_column)} = @SRC_HOST_NAME AND "
+        f"{_ident(conn.root_column)} = @SRC_ROOT_PATH;",
+        "    IF @SRC_CONNECTION_ID IS NULL",
+        "    BEGIN",
+        f"        INSERT INTO {_table(schema, conn.name)} ({_ident(conn.description_column)}, "
+        f"{_ident(conn.host_column)}, {_ident(conn.root_column)}, "
+        f"{_ident(conn.source_type_column)}, [CREATED_BY], [CREATED_DATE], [UPDATED_BY], "
+        "[UPDATED_DATE]) VALUES (CONCAT(N'File connection for ', @SRC_ROOT_PATH), "
+        "@SRC_HOST_NAME, @SRC_ROOT_PATH, N'File', @RFC_NUMBER, GETDATE(), @RFC_NUMBER, "
+        "GETDATE());",
+        "        SET @SRC_CONNECTION_ID = SCOPE_IDENTITY();",
+        "    END",
+        "END",
+    ]
+
+
 def render_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
                             definitions: list[TableDefinition], config: Config,
-                            banner: list[tuple[str, str]],
-                            ddl_name: str | None = None) -> tuple[str, dict[str, int]]:
-    """The script text and the INSERT count per sheet."""
+                            banner: list[tuple[str, str]], ddl_name: str | None = None,
+                            faq=None, flags: list[str] | None = None,
+                            ) -> tuple[str, dict[str, int]]:
+    """The script text and the INSERT count per sheet (``flags`` collects the
+    dml_* flags)."""
+    flags = flags if flags is not None else []
     schema = config.dml.schema
+    rules = DbRules.from_config(config)
+    tabs = payload.get("tabs", {})
+    order = _sheet_order(payload, config)
+
+    rendered: dict[str, list[tuple[int, dict[str, str]]]] = {}
+    for sheet in order:
+        tab = tabs[sheet]
+        rendered[sheet] = [
+            (number, {h: cell_sql(h, row["values"].get(h), row["badges"].get(h) or {}, number,
+                                  rules, sheet) for h in tab["headers"]})
+            for number, row in enumerate(tab.get("rows", []), start=1)]
+    used = {v for rows in rendered.values() for _n, items in rows for v in items.values()}
+    connection_used = "@SRC_CONNECTION_ID" in used
+    # The connection insert stamps its own audit columns with @RFC_NUMBER too.
+    rfc_used = "@RFC_NUMBER" in used or connection_used
+
     reference = f"`{ddl_name}`" if ddl_name else "the CREATE reference text"
     lines = [
         f"-- {FILE_NAME} — feed {spec.feed_slug}",
         f"-- TARGET SYSTEM = SQL Server metadata DB ({schema} config tables): the rows that "
         f"DEFINE this feed's tables and pipelines — the client's \"DDL\" ({_DESIGN} rule 8). "
         f"The framework creates the Unity Catalog Delta tables from them; {reference} is the "
-        "CREATE reference.",
+        "CREATE reference. It replaces the retired config_inserts_<env>.sql.",
         "-- SOURCE = the same cells as the IIG workbook (config_rows.xlsx / the clean IIG "
-        "copy); nothing here is derived again.",
+        "copy), with the DB values below; nothing else is derived.",
         "-- <<COLUMN#n>> = an OPEN cell (row n of that sheet): replace every one before "
         "running — the script does not parse until then. NULL = a cell decided blank.",
+        "-- RUN = one transaction: any guard or insert that fails rolls back everything.",
         *[f"-- {key}: {_one_line(value)}" for key, value in banner if key != "Layout"],
+        *_db_value_lines(config),
         "",
         *_index_lines(definitions),
+        "",
+        "SET NOCOUNT ON;",
+        "SET XACT_ABORT ON;",
+        "BEGIN TRY",
+        "BEGIN TRANSACTION;",
     ]
-    tabs = payload.get("tabs", {})
+    if rfc_used or connection_used:
+        lines += ["", "-- VARIABLES"]
+    rfc = _faq_value(faq, "rfc_number")
+    if rfc_used:
+        value = _literal(f"RFC{rfc}") if rfc else "<<RFC_NUMBER>>"
+        lines.append(f"DECLARE @RFC_NUMBER NVARCHAR(50) = {value};  -- the RFC / ATMT ticket: "
+                     "CREATED_BY / UPDATED_BY of every row (§1)")
+        if not rfc:
+            flags.append("dml_unassigned:@RFC_NUMBER — the engineer (the RFC / ATMT ticket); "
+                         f"answer FAQ 'rfc_number' or fill <<RFC_NUMBER>> ({_SEMANTICS} §1)")
+    if connection_used:
+        host = _faq_value(faq, "source_host")
+        stated = str((getattr(faq, "connection_ids", None) or {}).get(_CONNECTION[1], "")).strip()
+        known = stated if re.fullmatch(r"-?\d+", stated) else None
+        root = spec.landing_location if spec.landing_location and \
+            "\n" not in spec.landing_location else None
+        lines += [
+            f"DECLARE @SRC_HOST_NAME NVARCHAR(200) = "
+            f"{_literal(host) if host else '<<SRC_HOST_NAME>>'};  -- platform team: the file "
+            "connection's host (§3)",
+            f"DECLARE @SRC_ROOT_PATH NVARCHAR(400) = "
+            f"{_literal(root) if root else '<<SRC_ROOT_PATH>>'};  -- the FRD landing path",
+            f"DECLARE @SRC_CONNECTION_ID INT = {known if known else 'NULL'};  -- set to reuse a "
+            "known connection id (FAQ connection_ids); NULL = looked up by host + root path, "
+            "inserted when absent",
+        ]
+        if not host:
+            flags.append("dml_unassigned:@SRC_HOST_NAME — platform / Azure team; the file "
+                         f"connection's host ({_SEMANTICS} §3); answer FAQ 'source_host' or "
+                         "fill <<SRC_HOST_NAME>>")
+    lines += ["", *_guards(schema, rendered, rfc_used)]
+    if connection_used:
+        flags.append(f"dml_unconfirmed:connection_table — table / column identifiers "
+                     f"{config.dml.connection_table.name}({config.dml.connection_table.id_column}, "
+                     f"{config.dml.connection_table.host_column}, "
+                     f"{config.dml.connection_table.root_column}) are as spoken in the "
+                     f"walkthrough, not printed; confirm before running ({_SEMANTICS} §3)")
+        lines += _connection_lines(config)
+
     counts: dict[str, int] = {}
-    for sheet in _sheet_order(payload, config):
+    for sheet in order:
         tab = tabs[sheet]
         rows = tab.get("rows", [])
         headers = list(tab["headers"])
         table = _table(schema, config.framework.tables.get(sheet, sheet))
         columns = ", ".join(_ident(h) for h in headers)
-        lines += ["", f"-- {sheet}: {len(rows)} row(s)"]
-        for number, row in enumerate(rows, start=1):
+        described = sheet in config.dml.described_tables
+        lines += ["", f"-- {sheet}: {len(rows)} row(s)"
+                  + ("" if described else f" — table not yet described in the framework "
+                                          f"walkthrough ({_SEMANTICS} §8); §1 conventions only")]
+        if rows and not described:
+            flags.append(f"dml_not_described:{sheet} — written from the IIG cells under the §1 "
+                         f"conventions only ({_SEMANTICS} §8)")
+        for (_number, items), row in zip(rendered[sheet], rows, strict=True):
             values = row["values"]
             if sheet == _ADLS:
                 lines.append(_adls_label(values, definitions))
             elif sheet == _STGDELTA:
                 lines.append(_stgdelta_label(values))
-            items = [cell_sql(h, values.get(h), row["badges"].get(h) or {}, number)
-                     for h in headers]
-            lines.append(f"INSERT INTO {table} ({columns}) VALUES ({', '.join(items)});")
+            lines.append(f"INSERT INTO {table} ({columns}) VALUES "
+                         f"({', '.join(items[h] for h in headers)});")
         counts[sheet] = len(rows)
-    lines.append("")
+    lines += [
+        "",
+        "COMMIT TRANSACTION;",
+        "END TRY",
+        "BEGIN CATCH",
+        "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;",
+        "THROW;",
+        "END CATCH;",
+        "",
+    ]
     return "\n".join(lines), counts
 
 
@@ -216,9 +452,10 @@ def placeholders_as_null(text: str) -> str:
 def emit_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
                           definitions: list[TableDefinition], config: Config,
                           framework_dir: Path, banner: list[tuple[str, str]],
-                          ddl_name: str | None = None) -> MetadataInserts:
+                          ddl_name: str | None = None, faq=None) -> MetadataInserts:
+    flags: list[str] = []
     text, counts = render_metadata_inserts(spec, payload, definitions, config, banner,
-                                           ddl_name=ddl_name)
+                                           ddl_name=ddl_name, faq=faq, flags=flags)
     path = framework_dir / FILE_NAME
     path.write_text(text, encoding="utf-8", newline="\n")
     iig_counts = {name: len(tab.get("rows", [])) for name, tab in payload.get("tabs", {}).items()}
@@ -230,8 +467,9 @@ def emit_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
         details="; ".join(problems) if problems else
         f"{FILE_NAME}: one INSERT per IIG row ({sum(counts.values())}); every statement "
         "parses (tsql) with the open-cell placeholders read as NULL")
-    return MetadataInserts(path=path, row_counts=counts, check=check)
+    return MetadataInserts(path=path, row_counts=counts, check=check, flags=flags)
 
 
-__all__ = ["FILE_NAME", "PLACEHOLDER_RE", "MetadataInserts", "cell_sql", "emit_metadata_inserts",
-           "placeholder", "placeholders_as_null", "render_metadata_inserts"]
+__all__ = ["FILE_NAME", "PLACEHOLDER_RE", "DbRules", "MetadataInserts", "cell_sql",
+           "emit_metadata_inserts", "placeholder", "placeholders_as_null",
+           "render_metadata_inserts"]

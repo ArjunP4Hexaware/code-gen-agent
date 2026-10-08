@@ -305,3 +305,41 @@ def test_generated_pair1_against_the_golden_pairs_every_row(pair1_scorecard, cap
     assert _cells(results, "DIFF") <= set(FULL_DEVIATIONS)
     assert _cells(results, "ALIAS") == FULL_SEQUENCE
     assert _cells(results, "OPEN") <= {(s, c) for s, cols in FULL_OPEN.items() for c in cols}
+
+
+BREAKDOWN = re.compile(r"\| matched (?P<m>\d+) / open-by-design (?P<b>\d+) / "
+                       r"open-for-engineer (?P<e>\d+) / diff (?P<d>\d+); "
+                       r"score excl\. open-by-design (?P<x>\d+\.\d)$")
+
+
+@needs_golden
+def test_open_by_design_is_split_from_open_for_engineer(pair1_scorecard, capsys):
+    """2026-10-08: beside the raw score, matched / open-by-design /
+    open-for-engineer / diff and a score without the open-by-design cells —
+    the raw 57.9 is not a defect rate."""
+    generated, real = pair1_scorecard
+    out = _run_all(capsys, generated, real)
+    total = next(line for line in out.splitlines() if line.startswith("TOTAL"))
+    print(total)
+    raw = _summaries(out)["TOTAL"]
+    parts = BREAKDOWN.search(total)
+    assert parts, total
+    m, b, e, d = (int(parts[k]) for k in "mbed")
+    unmatched = int(re.search(r"unmatched (\d+)", total)[1])
+    assert m + b + e + d + unmatched == raw["cells"]
+    assert b > 0 and e > 0
+    assert float(parts["x"]) > float(raw["score"])
+    assert float(parts["x"]) == round(100.0 * m / (raw["cells"] - b), 1)
+    # Open-by-design = the review copy's framework-assigned / audit reasons only.
+    aliases = [tuple(a.split("=", 1)) for a in iig_scorecard.DEFAULT_ALIASES]
+    review = generated.with_name(generated.name.replace("_IIG.xlsx", "_IIG_REVIEW.xlsx"))
+    results, _lines = iig_scorecard.score_all(generated, real, review, aliases)
+    assert sum(r.counts["open_design"] for r in results) == b
+
+
+def test_by_design_falls_back_to_the_column_without_a_review_entry():
+    assert iig_scorecard.by_design("PIPELINE_ID", None)
+    assert iig_scorecard.by_design("CREATED_DATE", "")
+    assert not iig_scorecard.by_design("SRC_ROOT_DIR", None)
+    assert iig_scorecard.by_design("SRC_ROOT_DIR", "framework-assigned id / connection")
+    assert not iig_scorecard.by_design("PIPELINE_ID", "no input states it")

@@ -1233,19 +1233,6 @@ class PlaybookTemplateConfig(BaseModel):
     headers: list[str] = Field(default_factory=list)
 
 
-class DmlVariableConfig(BaseModel):
-    """One variable of the DML variables block (METADATA_DB_SEMANTICS §1–§5):
-    who assigns it, the uniqueness rule, its T-SQL type and the FAQ
-    companion that may supply the value."""
-
-    model_config = _MODEL_CONFIG
-
-    assigned_by: str
-    rule: str
-    sql_type: str = "INT"
-    faq_field: str | None = None
-
-
 class DmlConnectionTableConfig(BaseModel):
     """The file connection table AS SPOKEN in the walkthrough (§3) — not
     printed in the session, so flagged dml_unconfirmed until confirmed."""
@@ -1261,52 +1248,47 @@ class DmlConnectionTableConfig(BaseModel):
 
 
 class DmlConfig(BaseModel):
-    """M7 §3: the SQL Server metadata-DB DML deliverable (emit/dml.py)."""
+    """The SQL Server metadata DB side of ``metadata_inserts.sql`` (written on
+    every framework run since 2026-10-08) and the runner notebooks that
+    execute it (``emit_dml`` + ``enabled`` gate only those). The DB-side
+    knowledge of the retired ``config_inserts_<env>.sql`` lives on here:
+    workbook -> DB value maps, DB expressions for blank cells, DB NULL
+    columns, the described tables and the connection table
+    (docs/acfc/METADATA_DB_SEMANTICS.md)."""
 
     model_config = _MODEL_CONFIG
 
     enabled: bool = True
     environments: list[str] = Field(default_factory=lambda: ["q1", "a2", "prod"])
-    file_name_pattern: str = "config_inserts_{env}.sql"
     notebook_file_name_pattern: str = "Insert_scripts_config_table_{env}.py"
     schema: str = "dbo"
-    # §1: rows the framework picks are ACTIVE_FLAG = 'S'.
-    active_flag: str = "S"
-    # §7: "populated with null only or even NA".
-    claim_type_id_default: str | None = None
-    # §9 dependency order (tables absent from the IIG payload are skipped).
+    # §9 dependency order of the INSERT blocks in metadata_inserts.sql (tables
+    # absent from the IIG payload are skipped).
     table_order: list[str] = Field(default_factory=lambda: [
         "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
         "ADLS_DELTA_INGESTION_DETAILS", "STGDELTA_STDDELTA_INGESTION_DET",
         "ADLS_FIXED_WIDTH_HANDLER", "DATA_QUALITY_RULES", "DATABRICKS_NOTEBOOK_DETAILS",
         "EMAIL_TEMPLATE_CONFIG", "ALL_FILES_STATIC_INFORMATION"])
-    # Tables the walkthrough described (§2, §5, §7); the rest are marked.
+    # Tables the walkthrough described (§2, §5, §7); the others' blocks say so
+    # and raise dml_not_described:<table>.
     described_tables: list[str] = Field(default_factory=lambda: [
         "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
         "ADLS_DELTA_INGESTION_DETAILS"])
+    # Workbook value -> the value the framework reads, per column: the IIG keeps
+    # what humans hand over, the SQL writes what the DB needs (§1: the framework
+    # selects ACTIVE_FLAG = 'S'; the goldens print 'Y' — §10, UNCONFIRMED).
+    db_value_map: dict[str, dict[str, str]] = Field(default_factory=lambda: {
+        "ACTIVE_FLAG": {"Y": "S"}, "ACTIVE_RULE_FLG": {"Y": "S"}})
+    # A blank / open workbook cell written as this SQL expression (§1: the
+    # audit dates are the GETDATE() of the insert).
+    db_blank_expressions: dict[str, str] = Field(default_factory=lambda: {
+        "CREATED_DATE": "GETDATE()", "UPDATED_DATE": "GETDATE()"})
+    # Columns written NULL in the DB whatever the workbook holds (§2 'not
+    # populating', §7 CLAIM_TYPE_ID 'null only or even NA').
+    db_null_columns: list[str] = Field(default_factory=lambda: [
+        "DAY_OF_SCHEDULE", "UDF2", "UDF3", "UDF4", "UDF5", "ESTIMATED_START_TIME",
+        "COMPLETION_SLA", "RUNTIME_SLA", "CRITICAL_PROCESSING_PERIOD", "CLAIM_TYPE_ID"])
     connection_table: DmlConnectionTableConfig = DmlConnectionTableConfig()
-    connection_roles: list[str] = Field(default_factory=lambda: [
-        "SRC_CONNECTION_ID", "SRC_ADLS_CONNECTION_ID", "METADATA_CONNECTION_ID",
-        "TGT_CONNECTION_ID"])
-    variables: dict[str, DmlVariableConfig] = Field(default_factory=lambda: {
-        "RFC_NUMBER": DmlVariableConfig(
-            assigned_by="engineer (the RFC / ATMT ticket)", sql_type="NVARCHAR(50)",
-            rule="CREATED_BY and UPDATED_BY on every row (§1)", faq_field="rfc_number"),
-        "PIPELINE_ID": DmlVariableConfig(
-            assigned_by="engineer", rule="unique across DATA_FACTORY_PIPELINE_SCHEDULE, one per "
-            "process (§2)", faq_field="pipeline_id"),
-        "PARENT_PIPELINE_ID": DmlVariableConfig(
-            assigned_by="engineer", rule="0 for a master pipeline, else the master's "
-            "PIPELINE_ID (§2)", faq_field="parent_pipeline_id"),
-        "GROUP_ID": DmlVariableConfig(
-            assigned_by="engineer", rule="unique across the ingestion tables and never reused "
-            "by another process (§5)", faq_field="group_id"),
-        "OBJECT_ID": DmlVariableConfig(
-            assigned_by="engineer", rule="1..n within the group, one per input file (§5)",
-            faq_field="object_id"),
-    })
-    # Per-environment path prefix ('' = none); the body stays identical.
-    env_path_prefix: dict[str, str] = Field(default_factory=dict)
     # NAMES of the Databricks secret scope and its keys — never values.
     secret_scope: str = "metadata-db"
     jdbc_url_secret: str = "jdbc-url"

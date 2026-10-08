@@ -1001,28 +1001,36 @@ rfc:
     - "[UPDATED_DATE] [datetime] NOT NULL"
 
 dml:
-  # M7 (2026-09-18): the SQL Server metadata-DB DML deliverable
-  # (emit/dml.py), from the SAME config rows as the IIG; every rule cites
-  # docs/acfc/METADATA_DB_SEMANTICS.md. One config_inserts_<env>.sql per
-  # environment (variables block differs, body identical) + the Databricks
-  # notebook source that runs it over JDBC in one transaction.
+  # The SQL Server metadata-DB runner (emit/dml.py). The metadata rows are
+  # framework/metadata_inserts.sql — the client's "DDL" — written on EVERY
+  # framework run from the same cells as the IIG (2026-10-08). These switches
+  # (with the profile's emit_dml) gate only the per-environment Databricks
+  # notebooks that run it over JDBC in one transaction. The per-environment
+  # config_inserts_<env>.sql is RETIRED (its one @OBJECT_ID / @PIPELINE_ID per
+  # script collided on multi-object feeds; metadata_inserts.sql has one
+  # <<COLUMN#n>> placeholder per row instead).
   enabled: true
   environments: [q1, a2, prod]
-  file_name_pattern: "config_inserts_{env}.sql"
   notebook_file_name_pattern: "Insert_scripts_config_table_{env}.py"
   schema: dbo
-  # §1: the framework picks rows WHERE ACTIVE_FLAG = 'S' (the IIG goldens
-  # print 'Y' — kept there for byte-identity; §10).
-  active_flag: "S"
-  claim_type_id_default: null
-  # Per-environment path prefix for path columns (CONCAT(@PATH_PREFIX, …));
-  # '' = none. Fill from the platform team per environment.
-  env_path_prefix: {q1: "", a2: "", prod: ""}
   # Databricks secret scope + key NAMES the notebook reads (never values).
   secret_scope: metadata-db
   jdbc_url_secret: jdbc-url
   user_secret: jdbc-user
   password_secret: jdbc-password
+  # DB-side knowledge ported from the retired script (METADATA_DB_SEMANTICS.md).
+  # The IIG workbook keeps what humans hand over; metadata_inserts.sql writes what
+  # the framework reads. ACTIVE_FLAG 'Y' -> 'S' (§1; the goldens print 'Y', §10):
+  # UNCONFIRMED — on the Friday checklist (MULTI_TABLE_DESIGN §7a).
+  db_value_map:
+    ACTIVE_FLAG: {"Y": "S"}
+    ACTIVE_RULE_FLG: {"Y": "S"}
+  # A blank / open cell written as a SQL expression (§1: audit dates = GETDATE()).
+  db_blank_expressions: {CREATED_DATE: "GETDATE()", UPDATED_DATE: "GETDATE()"}
+  # Written NULL whatever the workbook holds (§2 'not populating'; §7 CLAIM_TYPE_ID).
+  db_null_columns: [DAY_OF_SCHEDULE, UDF2, UDF3, UDF4, UDF5, ESTIMATED_START_TIME, COMPLETION_SLA, RUNTIME_SLA, CRITICAL_PROCESSING_PERIOD, CLAIM_TYPE_ID]
+  # Tables the walkthrough described (§2, §5, §7); the rest are marked + flagged.
+  described_tables: [DATA_FACTORY_PIPELINE_SCHEDULE, FILE_ADLS_INGESTION_DETAILS, ADLS_DELTA_INGESTION_DETAILS]
   # The file connection table as SPOKEN in the walkthrough (§3) — flagged
   # dml_unconfirmed until the framework team confirms the identifiers.
   connection_table:

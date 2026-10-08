@@ -18,9 +18,12 @@ the inserts are plain INSERTs — idempotency belongs to the framework's own
 load path.
 
 Multi-table step 6: the combined CREATE text is one block per table and
-layer (``table_definitions``), and — under the DML's switches —
-``metadata_inserts.sql`` (``codegen.emit.metadata_inserts``) carries the
-metadata rows that define those tables, from the same payload as the IIG.
+layer (``table_definitions``), and ``metadata_inserts.sql``
+(``codegen.emit.metadata_inserts``) carries the metadata rows that define those
+tables — the client's "DDL" — from the same payload as the IIG, on EVERY
+framework run (2026-10-08). The profile's ``emit_dml`` + ``dml.enabled``
+switches now gate only the runner notebooks that execute it; the
+per-environment ``config_inserts_<env>.sql`` it replaced is retired.
 """
 
 from __future__ import annotations
@@ -89,8 +92,6 @@ def artefact_group(name: str) -> str:
         # Multi-table step 6: the client's "DDL" (rule 8) — the metadata rows
         # that define the Unity Catalog tables, beside their CREATE reference.
         return TARGET_DDL
-    if name.startswith("config_inserts_") and name.endswith(".sql"):
-        return TARGET_DML
     if name.startswith("Insert_scripts_config_table_") and name.endswith(".py"):
         return TARGET_DML
     if name.endswith(".xlsx"):
@@ -767,33 +768,32 @@ def emit_framework(
             ddl_names.append(txt_path.name)
         definitions = None
     dml_disabled_reason = _dml_disabled_reason(config, profile, conventions_profile)
-    # Multi-table step 6: the metadata INSERT rows that define the tables
-    # (the client's "DDL", rule 8) from the same payload as the IIG; written
-    # under the DML's switches. The table index reuses the CREATE text's
+    # Multi-table step 6 (2026-10-08: on EVERY framework run): the metadata
+    # INSERT rows that define the tables — the client's "DDL", rule 8 — from
+    # the same payload as the IIG. The table index reuses the CREATE text's
     # definitions (flags raised once); another layout computes them for the
     # index only, its flags discarded (its own DDL path raised them).
-    metadata_inserts = None
-    if dml_disabled_reason is None:
-        if definitions is None:
-            definitions = table_definitions(spec, profile, [], config)
-        metadata_inserts = emit_metadata_inserts(
-            spec, payload, definitions, config, framework_dir, banner,
-            ddl_name=" / ".join(ddl_names) or None)
-        files.append(metadata_inserts.path)
-    # M7 §3: the SQL Server DML deliverable from the same rows.
+    if definitions is None:
+        definitions = table_definitions(spec, profile, [], config)
+    metadata_inserts = emit_metadata_inserts(
+        spec, payload, definitions, config, framework_dir, banner,
+        ddl_name=" / ".join(ddl_names) or None, faq=faq)
+    files.append(metadata_inserts.path)
+    flags.extend(metadata_inserts.flags)
+    # M7 §3, retired SQL 2026-10-08: behind the DML switches, only the runner
+    # notebooks that execute metadata_inserts.sql over JDBC.
     dml_artefacts = None
     if dml_disabled_reason is None:
         from codegen.emit.dml import emit_dml
 
-        dml_artefacts = emit_dml(spec, faq, payload, config, framework_dir, banner)
+        dml_artefacts = emit_dml(config, framework_dir, metadata_inserts.path.name)
         files.extend(dml_artefacts.files)
         flags.extend(dml_artefacts.flags)
     # M7 gate checks: unstated catalog / schema is a FAIL, not a flag.
     checks: list[GateCheck] = []
     if dml_artefacts is not None:
         checks.extend(dml_artefacts.checks)
-    if metadata_inserts is not None:
-        checks.append(metadata_inserts.check)
+    checks.append(metadata_inserts.check)
     unqualified = [f for f in flags if f.startswith(("catalog_unstated:", "schema_unstated:"))]
     if unqualified:
         checks.append(GateCheck(name="qualified_names", passed=False,
@@ -815,12 +815,14 @@ def emit_framework(
     inserts_workbook = _config_inserts_workbook(payload, spec, config, banner)
     if dml_disabled_reason is None:
         # M7 §4: sheet 1 says this workbook is the REVIEW copy; the executable
-        # script is the per-environment .sql next to it.
+        # script is metadata_inserts.sql next to it (config_inserts_<env>.sql
+        # retired 2026-10-08).
         readme = inserts_workbook.create_sheet(title="README", index=0)
-        readme.append(["review copy — executable script is config_inserts_<env>.sql "
-                       f"(environments: {', '.join(config.dml.environments)}); run it from "
-                       f"{config.dml.notebook_file_name_pattern.format(env='<env>')} against "
-                       "the SQL Server metadata DB after the config rows are approved"])
+        readme.append([f"review copy — executable script is {metadata_inserts.path.name} "
+                       "(fill every <<COLUMN#n>> placeholder first); run it from "
+                       f"{config.dml.notebook_file_name_pattern.format(env='<env>')} "
+                       f"(environments: {', '.join(config.dml.environments)}) against the SQL "
+                       "Server metadata DB after the config rows are approved"])
         readme.column_dimensions["A"].width = 140
     inserts_path.write_bytes(stable_workbook_bytes(inserts_workbook))
     files.append(inserts_path)
@@ -853,16 +855,17 @@ def emit_framework(
         "sources sit in `../ddl/`). **Run in the data lake by the "
         "deployment team** — the agent never creates target tables. |"
     )
-    if metadata_inserts is not None:
-        ddl_row += (
-            f"\n| `{metadata_inserts.path.name}` | The client's \"DDL\": one INSERT per IIG "
-            "row, sheet by sheet, from the same cells as the IIG — the metadata rows that "
-            "define the tables in the SQL Server metadata DB (the framework creates the Unity "
-            "Catalog tables from them; the CREATE text above is the reference). A `TABLE "
-            "DEFINITIONS` index names every table by its mapped three-part name. Every open "
-            "cell is a `<<COLUMN#n>>` placeholder: the script does not run until each is "
-            "replaced. |"
-        )
+    ddl_row += (
+        f"\n| `{metadata_inserts.path.name}` | The client's \"DDL\": one INSERT per IIG "
+        "row, sheet by sheet, from the same cells as the IIG — the metadata rows that "
+        "define the tables in the SQL Server metadata DB (the framework creates the Unity "
+        "Catalog tables from them; the CREATE text above is the reference). A `TABLE "
+        "DEFINITIONS` index names every table by its mapped three-part name. Every open "
+        "cell is a `<<COLUMN#n>>` placeholder: the script does not run until each is "
+        "replaced. `config_inserts_<env>.sql` is retired (2026-10-08): this file replaces "
+        "it — one placeholder per row fixes the colliding `@OBJECT_ID` / `@PIPELINE_ID` the "
+        "per-environment script gave every row. |"
+    )
     rows_row = (
         "| `config_rows.xlsx` | The config rows for the framework DB — "
         "**this is the approval artefact**. Every cell carries a provenance "
@@ -903,14 +906,16 @@ def emit_framework(
             TARGET_DML: "run from the Databricks notebook against the SQL Server metadata DB, "
                         "in one transaction, after the review sheets are approved",
             TARGET_REVIEW: "review copies — `config_inserts.xlsx` sheet 1 says so; the "
-                           "executable script is `config_inserts_<env>.sql`",
+                           f"executable script is `{metadata_inserts.path.name}`",
             TARGET_NOTES: "this manifest",
         }
-        if metadata_inserts is not None:
-            notes[TARGET_DDL] += (
-                f" (the CREATE reference text); `{metadata_inserts.path.name}` holds the "
-                "metadata rows that define those tables — run against the SQL Server metadata "
-                "DB once every `<<COLUMN#n>>` placeholder is filled")
+        notes[TARGET_DDL] += (
+            f" (the CREATE reference text); `{metadata_inserts.path.name}` holds the "
+            "metadata rows that define those tables — run against the SQL Server metadata "
+            "DB once every `<<COLUMN#n>>` placeholder is filled")
+        notes[TARGET_DML] = (f"the notebooks that run `{metadata_inserts.path.name}` against "
+                             "the SQL Server metadata DB, in one transaction, after the review "
+                             "sheets are approved")
         for group, names in groups.items():
             target_lines.append(f"- **{group}** — {notes[group]}: "
                                 + ", ".join(f"`{n}`" for n in names))
@@ -963,10 +968,11 @@ def _iig_addition_parts(review_name: str, clean_name: str, config: Config, profi
         "columns, values only — the file the BSA certifies and CI/CD loads. |"
     )
     prefix = f"conventions.profiles.{profile_name}"
-    dml_state = ("off — DML not generated (disabled): " + dml_disabled_reason
+    dml_state = ("off — no runner notebook (disabled): " + dml_disabled_reason
+                 + f"; `{METADATA_INSERTS_FILE}` is written regardless"
                  if dml_disabled_reason is not None else
-                 "on — `config_inserts_<env>.sql`, the runner notebooks and "
-                 f"`{METADATA_INSERTS_FILE}` are written")
+                 f"on — the runner notebooks that execute `{METADATA_INSERTS_FILE}` are "
+                 "written")
     switches = (
         "\n## Switches\n\n"
         f"- `{prefix}.emit_iig_review`: on — the two IIG workbooks above are written.\n"
@@ -976,8 +982,8 @@ def _iig_addition_parts(review_name: str, clean_name: str, config: Config, profi
 
 
 def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> str | None:
-    """None when the DML deliverable is written; else which switch is off.
-    The same switches gate ``metadata_inserts.sql`` (multi-table step 6)."""
+    """None when the runner notebooks are written; else which switch is off.
+    ``metadata_inserts.sql`` is written regardless (2026-10-08)."""
     if not config.dml.enabled:
         return "dml.enabled is false"
     if not profile.emit_dml:
@@ -1021,8 +1027,9 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
     for held in artefacts.held_back:
         lines.append(f"| **HELD BACK** | {held} |")
     if artefacts.dml_disabled_reason is not None:
-        lines.append(f"| DML | DML not generated (disabled) — "
-                     f"{artefacts.dml_disabled_reason} |")
+        lines.append(f"| DML | runner notebooks not generated (disabled) — "
+                     f"{artefacts.dml_disabled_reason}; `metadata_inserts.sql` is written "
+                     "regardless |")
     return "\n".join(lines) + "\n"
 
 

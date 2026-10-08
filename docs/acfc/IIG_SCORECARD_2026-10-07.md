@@ -204,6 +204,33 @@ SEGMENT, email by STATUS); the last line is `TOTAL (8 sheets): score S; paired P
 real-only R, generated-only G; cells …` with score = 100 × (matched + alias) /
 cells.
 
+**Reading the score (2026-10-08).** The raw score is NOT a defect rate: most
+non-matching cells are open on purpose. Every score line (each sheet and TOTAL)
+ends with a breakdown:
+
+```
+… | matched M / open-by-design B / open-for-engineer E / diff D; score excl. open-by-design X
+```
+
+- **matched** = MATCH + ALIAS.
+- **open-by-design** = OPEN cells no input document can state: engineer-assigned
+  ids (PIPELINE_ID, GROUP_ID, OBJECT_ID …), environment connections / containers
+  / workspace handles, and the audit stamps (dates set at load, CREATED_BY /
+  UPDATED_BY = the RFC number). Read from the review copy's reason
+  (`framework-assigned …`, `audit date …`, `audit by …`); a cell with no review
+  entry falls back to the column list `BY_DESIGN_COLUMNS` in the script.
+- **open-for-engineer** = every other OPEN cell — a value someone has to supply
+  (engineer, BSA, or an FAQ answer).
+- **diff** = generated ≠ real — the only class that can be a defect (on the
+  goldens, each one is a pinned, reasoned deviation).
+- **score excl. open-by-design** X = 100 × matched / (cells − open-by-design).
+
+Generated pair 1 against its golden today: `score 57.9 … | matched 347 /
+open-by-design 185 / open-for-engineer 46 / diff 21; score excl. open-by-design
+83.8` — of the 42 % that is not matched, 185 cells are ids / environment /
+audit values no document carries, 46 are cells to supply, 21 are the pinned
+deviations.
+
 `<feed>` is the feed slug `generate` prints on its verdict line (`PASS_WITH_FLAGS
 <feed> — …`); `<generated name>` is that feed's `TGT_TABLE_NAME` — on the real
 documents the STTM stage table, `sd_community_demographic_risk`. Both IIG

@@ -92,10 +92,13 @@ environment's constants and the SDOH path shapes:
 - **Feed-family conventions** (`metadata.templates.iig_v2.family_conventions`,
   2026-10-08): `lob` (blank | codes), `stgdelta_unknown_primary_key` (`"NA"` |
   `""`) and `stgdelta_object_name` (generalized_file_pattern | table_name |
-  literal). The ACFC overlay sets none, so real runs get the shipped default —
-  the PRX family's blank LOB and `'NA'`, and the generalized file pattern.
-  Which convention is current for new feeds is on the Friday checklist
-  (`docs/acfc/MULTI_TABLE_DESIGN.md` §7a); set it in the overlay once answered.
+  literal). **The ACFC overlay pins the CAQH-style family (2026-10-08)** —
+  `lob: codes`, `stgdelta_unknown_primary_key: ""`, `stgdelta_object_name:
+  generalized_file_pattern` — the convention observed in the newest real
+  sheet; the shipped default (no overlay) is the PRX family's blank LOB and
+  `'NA'`. A pair-1 (PRX) family feed selects its own in a feed overlay listed
+  after `acfc_env.yaml` (later wins). Which convention is current for new feeds
+  is on the Friday checklist (`docs/acfc/MULTI_TABLE_DESIGN.md` §7a).
 
 ### Which codegen runs (2026-10-07: a stale wheel shadowed the tree)
 
@@ -420,7 +423,7 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
-## What feature/multi-table adds (0.5.8.post16, 2026-10-08 — not merged, not deployed)
+## What feature/multi-table adds (0.5.8.post17, 2026-10-08 — not merged, not deployed)
 
 Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
 `docs/acfc/OVERNIGHT_2026-10-08.md`; owner questions: its §7a Friday checklist.
@@ -437,17 +440,25 @@ Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
   `catalog_conflict:<layer>`; `conventions.catalog_map` maps the logical catalogs
   (overlay table above).
 - **Feed-family conventions:** `family_conventions` (overlay note above).
-- **New artefact `framework/metadata_inserts.sql`** (with the DML switches on —
-  `conventions.profiles.acfc_prx.emit_dml` and `dml.enabled`): the metadata rows
+- **New artefact `framework/metadata_inserts.sql`** (on EVERY framework run since
+  0.5.8.post17; the DML switches — `conventions.profiles.acfc_prx.emit_dml` and
+  `dml.enabled` — now gate only the runner notebooks
+  `Insert_scripts_config_table_<env>.py` that execute it): the metadata rows
   that define the feed's tables and pipelines in the SQL Server metadata DB — what
   the client calls the "DDL"; the framework creates the Unity Catalog tables from
   them, and `<FEED>_DDL.txt` stays as the CREATE reference, now one block per
   table. Written from the same cells as `<feed>_IIG.xlsx`, one INSERT per IIG row;
   every open cell is a `<<COLUMN#n>>` placeholder (column + row within its sheet),
   so the engineer fills every one before the script parses or runs. It opens with
-  an index of every table by its mapped three-part name. The older
-  `config_inserts_<env>.sql` is unchanged (and still shares one `@OBJECT_ID` per
-  script — see the design doc §6).
+  an index of every table by its mapped three-part name. It writes the DB values
+  the framework reads (`ACTIVE_FLAG` workbook `'Y'` → `'S'`, unconfirmed —
+  `dml.db_value_map`; audit dates `GETDATE()`; audit users `@RFC_NUMBER`), checks
+  before the first INSERT that every PIPELINE_ID / GROUP_ID / key is unused,
+  reuses or inserts the source file connection, and runs as one transaction
+  (`XACT_ABORT` + TRY / CATCH: a failed guard or insert rolls everything back).
+  **`config_inserts_<env>.sql` is retired** (its knowledge ported; one
+  placeholder per row replaces its shared `@OBJECT_ID` / `@PIPELINE_ID`);
+  `config_rows.xlsx` stays the approval artefact.
 - **Scorecard over every sheet:** `python scripts/iig_scorecard.py --all-sheets
   --generated <feed>_IIG.xlsx --real <real IIG>.xlsx [--summary-only]` — rows
   paired by key, a score per sheet and in TOTAL
@@ -676,7 +687,8 @@ names; `codegen generate` honours `--vdd` / `--profile` / `--iig-template` /
 - Earlier (v0.4.2, M7): `docs/acfc/METADATA_DB_SEMANTICS.md`, the one-block /
   many-files F1 reader, the derivation gate, the SQL Server DML deliverable
   (`config_inserts_<env>.sql` + the runner notebook; create the `dml:` secret
-  scope before the first run).
+  scope before the first run). `config_inserts_<env>.sql` was retired
+  2026-10-08 on feature/multi-table — `metadata_inserts.sql` replaces it.
 
 ## Open questions to raise with the document authors
 

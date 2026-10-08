@@ -68,6 +68,17 @@ the unmatched cells, one per real column; OPEN counts against the score). A
 sheet with no row on either side scores 100.0. Generated sheets the real
 workbook lacks are listed, not scored. CREATED_BY / UPDATED_BY values are
 withheld here too.
+
+Each score line also reads ``| matched M / open-by-design B /
+open-for-engineer E / diff D; score excl. open-by-design X`` (2026-10-08), so
+the raw score is not read as a defect rate. An OPEN cell is *by design* when
+no input document can state it — the review copy gives it the reason
+"framework-assigned id / connection", "audit date …" or "audit by …"
+(engineer-assigned ids, environment connections / containers, audit stamps
+set at load or the RFC number); without a review entry, when the column is
+one of ``BY_DESIGN_COLUMNS``. Every other OPEN cell is *for the engineer* (or
+the BSA) to supply. ``matched`` = MATCH + ALIAS; M + B + E + D + unmatched =
+cells; X = 100 × M / (cells − B).
 """
 
 from __future__ import annotations
@@ -95,6 +106,17 @@ CASELESS_COLUMNS = {"SRC_DATA_TYPE", "TGT_DATA_TYPE"}
 FIXTURE_ANONYMISED = {"LOB"}
 # A fixture's masked sequence id (SYN-OBJ-001) = a run's position number (1).
 MASKED_SEQUENCE = re.compile(r"SYN-[A-Z]+-(\d+)")
+# Open cells no input document can state (the review copy's reasons; the
+# columns as the fallback when a cell has no review entry): the iig_v2
+# always_blank ids / connections / containers / handles and the audit columns.
+BY_DESIGN_REASONS = ("framework-assigned", "audit date", "audit by")
+BY_DESIGN_COLUMNS = {
+    "PIPELINE_ID", "PARENT_PIPELINE_ID", "GROUP_ID", "OBJECT_ID", "SRC_CONNECTION_ID",
+    "SRC_ADLS_CONNECTION_ID", "METADATA_CONNECTION_ID", "TGT_CONNECTION_ID",
+    "SRC_CONTAINER_NAME", "TGT_CONTAINER_NAME", "TGT_STORAGE_ACCOUNT_NAME",
+    "DATABRICKS_WORKSPACE_URL", "DATABRICKS_WORKSPACE_SECRET", "DATABRICKS_CLUSTERID",
+    "CLUSTER_DETAILS_ID", "TEMPLATE_ID", "CREATED_BY", "UPDATED_BY", "CRETAED_BY",
+    "CREATED_DATE", "UPDATED_DATE"}
 OWNER_BUCKETS = {"BSA": "BSA", "Engineer": "Engineer", "Engineer (confirm)": "Engineer-confirm",
                  "Set at load (CI/CD)": "CI/CD"}
 WIDTH = 60
@@ -179,11 +201,21 @@ def score(generated: dict, real: dict, owners: dict[str, str],
     return lines, counts
 
 
+def by_design(column: str, reason: str | None) -> bool:
+    """An OPEN cell no input document can state (module docstring)."""
+    if reason:
+        return reason.lower().startswith(BY_DESIGN_REASONS)
+    return column in BY_DESIGN_COLUMNS
+
+
 def _score(generated: dict, real: dict, owners: dict[str, str],
-           aliases: list[tuple[str, str]], fixture: bool) -> tuple[list[str], dict, dict]:
-    """``score`` plus the OPEN cells per owner bucket (the all-sheets totals)."""
+           aliases: list[tuple[str, str]], fixture: bool,
+           reasons: dict[str, str] | None = None) -> tuple[list[str], dict, dict]:
+    """``score`` plus the OPEN cells per owner bucket (the all-sheets totals)
+    and how many of them are open by design (``reasons``: column -> the
+    review copy's reason label)."""
     lines: list[str] = []
-    counts = {"filled": 0, "match": 0, "alias": 0, "open": 0, "diff": 0}
+    counts = {"filled": 0, "match": 0, "alias": 0, "open": 0, "diff": 0, "open_design": 0}
     open_by: dict[str, int] = {}
     columns = list(real)
     for column in columns:
@@ -202,6 +234,8 @@ def _score(generated: dict, real: dict, owners: dict[str, str],
                 open_by[bucket] = open_by.get(bucket, 0) + 1
                 status, detail = "OPEN", f"owner: {owner}"
                 counts["open"] += 1
+                if by_design(column, (reasons or {}).get(column)):
+                    counts["open_design"] += 1
         elif gen_value == real_value or (_is_null(gen_value) and _is_null(real_value)):
             status, detail = "MATCH", ""
             counts["match"] += 1
@@ -263,7 +297,7 @@ SHEET_KEYS: dict[str, tuple[str, ...]] = {
     "EMAIL_TEMPLATE_CONFIG": ("STATUS",),
 }
 SKIPPED_SHEETS = {"REVIEW_SUMMARY"}
-COUNT_KEYS = ("filled", "match", "alias", "open", "diff", "unmatched", "cells")
+COUNT_KEYS = ("filled", "match", "alias", "open", "diff", "unmatched", "cells", "open_design")
 
 
 @dataclass
@@ -315,13 +349,15 @@ def _workbook(path: Path) -> dict[str, Sheet]:
         workbook.close()
 
 
-def _owners_by_sheet(review: Path | None) -> dict[str, dict[str, str]]:
+def _owners_by_sheet(review: Path | None, field_name: str = "Owner"
+                     ) -> dict[str, dict[str, str]]:
+    """sheet -> column -> the review summary's ``field_name`` (Owner / Reason)."""
     if review is None or not review.is_file():
         return {}
     owners: dict[str, dict[str, str]] = {}
     for row in _rows(review, "REVIEW_SUMMARY"):
         sheet = owners.setdefault(_text(row.get("Sheet")), {})
-        sheet.setdefault(_text(row.get("Column")), _text(row.get("Owner")))
+        sheet.setdefault(_text(row.get("Column")), _text(row.get(field_name)))
     return owners
 
 
@@ -419,7 +455,8 @@ def _key_text(keys: tuple[str, ...], values: tuple[str, ...]) -> str:
 
 def score_sheet(name: str, real: Sheet, generated: Sheet | None, real_book: dict,
                 gen_book: dict, owners: dict[str, str], aliases,
-                show_matches: bool = False, summary_only: bool = False) -> SheetScore:
+                show_matches: bool = False, summary_only: bool = False,
+                reasons: dict[str, str] | None = None) -> SheetScore:
     generated = generated or Sheet([], [])
     result = SheetScore(name, SHEET_KEYS.get(name, ()))
     real_keys = _row_keys(name, real, real_book)
@@ -440,8 +477,8 @@ def score_sheet(name: str, real: Sheet, generated: Sheet | None, real_book: dict
         real_table, gen_table = _text(real_row.get("TGT_TABLE_NAME")), _text(
             gen_row.get("TGT_TABLE_NAME"))
         fixture = bool(real_table and gen_table and real_table.lower() != gen_table.lower())
-        lines, counts, open_by = _score(gen_row, real_row, owners, aliases, fixture)
-        for key in ("filled", "match", "alias", "open", "diff"):
+        lines, counts, open_by = _score(gen_row, real_row, owners, aliases, fixture, reasons)
+        for key in ("filled", "match", "alias", "open", "diff", "open_design"):
             result.counts[key] += counts[key]
         result.counts["cells"] += width
         for bucket, n in open_by.items():
@@ -481,11 +518,23 @@ def _summary(results: list[SheetScore]) -> str:
     paired = sum(len(r.pairs) for r in results)
     real_only = sum(len(r.real_only) for r in results)
     generated_only = sum(len(r.generated_only) for r in results)
+    matched = counts["match"] + counts["alias"]
+    design = counts["open_design"]
     return (f"score {_percent(counts):.1f}; paired {paired}, real-only {real_only}, "
             f"generated-only {generated_only}; cells {counts['cells']}, "
             f"filled {counts['filled']}, matched {counts['match']}, alias {counts['alias']}, "
             f"open {counts['open']} ({_open_parts(open_by)}), diff {counts['diff']}, "
-            f"unmatched {counts['unmatched']}")
+            f"unmatched {counts['unmatched']} | matched {matched} / open-by-design {design} / "
+            f"open-for-engineer {counts['open'] - design} / diff {counts['diff']}; "
+            f"score excl. open-by-design {_percent_excl(counts):.1f}")
+
+
+def _percent_excl(counts: dict[str, int]) -> float:
+    """The score with the open-by-design cells left out of the denominator."""
+    cells = counts["cells"] - counts["open_design"]
+    if cells <= 0:
+        return 100.0
+    return 100.0 * (counts["match"] + counts["alias"]) / cells
 
 
 def score_all(generated: Path, real: Path, review: Path | None, aliases,
@@ -494,8 +543,10 @@ def score_all(generated: Path, real: Path, review: Path | None, aliases,
     """Every sheet of the REAL workbook scored; the output lines last."""
     real_book, gen_book = _workbook(real), _workbook(generated)
     owners = _owners_by_sheet(review)
+    reasons = _owners_by_sheet(review, "Reason")
     results = [score_sheet(name, sheet, gen_book.get(name), real_book, gen_book,
-                           owners.get(name, {}), aliases, show_matches, summary_only)
+                           owners.get(name, {}), aliases, show_matches, summary_only,
+                           reasons.get(name, {}))
                for name, sheet in real_book.items()
                if not name.startswith("_") and name not in SKIPPED_SHEETS]
     lines = [line for result in results for line in result.lines]

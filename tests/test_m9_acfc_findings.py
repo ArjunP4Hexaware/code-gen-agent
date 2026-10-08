@@ -496,7 +496,7 @@ def test_cli_chain_layout_contract_out_then_generate_matches_the_golden(tmp_path
                      "--skip-tests", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "PASS_WITH_FLAGS vnd_p_accum_client" in out
-    assert "vdd_positions=ok" in out and "dml_row_counts=ok" in out      # --vdd / --profile used
+    assert "vdd_positions=ok" in out and "metadata_inserts=ok" in out    # --vdd / --profile used
     golden = (SHAPES / "pair_1" / "golden" / "ACCUM_DDL.txt").read_bytes()
     feed_dir = tmp_path / "out" / "vnd_p_accum_client"
     assert (feed_dir / "framework" / "ACCUM_DDL.txt").read_bytes() == golden

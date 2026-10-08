@@ -19,6 +19,18 @@ conventions:
 metadata:
   templates:
     iig_v2:
+      # Feed-family conventions (docs/acfc/MULTI_TABLE_DESIGN.md, 2026-10-08): the
+      # CAQH-style family — LOB codes, an unknown STGDELTA primary key left blank
+      # (open), STGDELTA OBJECT_NAME = the generalized file pattern. This is the
+      # convention observed in the newest real sheet; whether it is current for new
+      # feeds is on the Friday checklist (§7a). The pair-1 (PRX) family stays
+      # selectable per feed: a feed overlay on top of this one sets
+      # {lob: blank, stgdelta_unknown_primary_key: "NA", stgdelta_object_name: ...}.
+      family_conventions:
+        lob: codes
+        stgdelta_unknown_primary_key: ""
+        stgdelta_object_name: generalized_file_pattern
+        citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist)"
       constants:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_CONNECTION_ID: "7"

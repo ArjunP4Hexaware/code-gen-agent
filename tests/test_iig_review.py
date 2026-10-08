@@ -161,8 +161,9 @@ def test_addition_lists_both_workbooks_and_both_switches(pair1_dirs, pair1_spec)
     assert f"| `{pair1_spec.feed_slug}_IIG.xlsx` | The clean copy of the IIG" in addition
     assert "## Switches" in addition
     assert "`conventions.profiles.acfc_prx.emit_iig_review`: on" in addition
-    assert ("`conventions.profiles.acfc_prx.emit_dml` (with `dml.enabled`): off — DML not "
-            "generated (disabled)") in addition
+    assert ("`conventions.profiles.acfc_prx.emit_dml` (with `dml.enabled`): off — no runner "
+            "notebook (disabled)") in addition
+    assert "`metadata_inserts.sql` is written regardless" in addition
 
 
 def test_the_reference_profile_writes_no_iig_workbooks(pair1_config, pair1_spec, tmp_path):

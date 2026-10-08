@@ -6,11 +6,13 @@
 # directory) against the framework's metadata database over JDBC, in ONE
 # transaction: every INSERT lands or none does. Rules: {{ semantics }}.
 #
+# {{ sql_name }} carries one <<COLUMN#n>> placeholder per open cell (an
+# engineer-assigned id, an environment value, an audit stamp): replace every
+# one in the file before running — this notebook refuses to send anything
+# while a placeholder is left.
+#
 # Nothing here is a credential: the JDBC url, user and password are read
 # from the Databricks secret scope named below (config dml.secret_scope).
-# The engineer-assigned ids arrive as widgets; a widget left blank keeps
-# the value the script declares (a FAQ answer) — an id that is still
-# unassigned stops the run before anything is sent.
 
 # COMMAND ----------
 
@@ -23,19 +25,8 @@ SECRET_SCOPE = "{{ secret_scope }}"
 KEY_NAME_JDBC_URL = "{{ jdbc_url_secret }}"
 KEY_NAME_JDBC_USER = "{{ user_secret }}"
 KEY_NAME_JDBC_AUTH = "{{ password_secret }}"
-VARIABLES = [
-{% for name in variables %}
-    "{{ name }}",
-{% endfor %}
-]
-INT_VARIABLES = [
-{% for name in int_variables %}
-    "{{ name }}",
-{% endfor %}
-]
+PLACEHOLDER = re.compile(r"<<[A-Za-z0-9_]+(?:#\d+)?>>")
 
-for name in VARIABLES:
-    dbutils.widgets.text(name, "", f"@{name} (blank = keep the script's value)")  # noqa: F821
 dbutils.widgets.text("sql_dir", "", "directory holding the .sql (blank = notebook dir)")  # noqa: F821
 
 # COMMAND ----------
@@ -48,37 +39,12 @@ if not sql_dir:
 with open(os.path.join(sql_dir, SQL_NAME), encoding="utf-8") as handle:
     script = handle.read()
 
-# Widget values replace the DECLARE line's value. Integers only for the id
-# variables; the RFC number and host / path are validated as plain tokens.
-def _substitute(text: str, name: str, value: str) -> str:
-    value = value.strip()
-    if name in INT_VARIABLES:
-        if not re.fullmatch(r"-?\d+", value):
-            raise ValueError(f"@{name} must be an integer, got {value!r}")
-        rendered = value
-    else:
-        if not re.fullmatch(r"[A-Za-z0-9_./\\:@-]+", value):
-            raise ValueError(f"@{name} may hold only [A-Za-z0-9_./\\:@-], got {value!r}")
-        rendered = "N'" + value.replace("'", "''") + "'"
-    pattern = re.compile(
-        rf"^(DECLARE @{name} \S+(?: ?\(\d+\))? = )(NULL|N'[^']*'|-?\d+);(\s+-- ASSIGN)?",
-        re.MULTILINE)
-    text, n = pattern.subn(rf"\g<1>{rendered};", text)
-    if n != 1:
-        raise ValueError(f"@{name}: expected exactly one DECLARE line, found {n}")
-    return text
-
-for name in VARIABLES:
-    value = dbutils.widgets.get(name)  # noqa: F821
-    if value.strip():
-        script = _substitute(script, name, value)
-
-unassigned = re.findall(r"^DECLARE @(\w+) [^=]+= NULL;\s+-- ASSIGN", script, re.MULTILINE)
-required = [n for n in unassigned if n in ("RFC_NUMBER", "PIPELINE_ID", "GROUP_ID")]
-if required:
-    raise ValueError("unassigned variables (set the widgets or answer the FAQ): "
-                     + ", ".join("@" + n for n in required))
-print(f"{SQL_NAME}: {len(script.splitlines())} lines; unassigned (optional): {unassigned}")
+left = sorted(set(PLACEHOLDER.findall(script)))
+if left:
+    raise ValueError(f"{SQL_NAME}: {len(left)} placeholder(s) not filled — replace every "
+                     "<<COLUMN#n>> before running: " + ", ".join(left[:20])
+                     + (" …" if len(left) > 20 else ""))
+print(f"{SQL_NAME}: {len(script.splitlines())} lines; no placeholder left")
 
 # COMMAND ----------
 

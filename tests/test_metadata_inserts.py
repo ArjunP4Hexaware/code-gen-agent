@@ -7,8 +7,12 @@ workbook. Pinned here, for pair 1 (one table) and pair 4 (three tables):
 
 * one block per sheet, in ``dml.table_order``, one INSERT per payload row;
 * every open cell (blank, not decided) is its ``<<COLUMN#n>>`` placeholder —
-  exactly the blank cells the BSA's review copy lists as open — and every
-  decided blank is NULL; every literal is the cell's value;
+  exactly the blank cells the BSA's review copy lists as open, less the cells a
+  DB rule decides (2026-10-08 port of the retired config_inserts_<env>.sql:
+  audit-by -> @RFC_NUMBER, audit dates -> GETDATE(), the source connection ->
+  @SRC_CONNECTION_ID, ``dml.db_null_columns`` -> NULL) — and every decided
+  blank is NULL; every literal is the cell's value through ``dml.db_value_map``
+  (ACTIVE_FLAG 'Y' -> 'S');
 * catalogs as the cells carry them (mapped), the table index and the row labels
   naming each table by its mapped three-part name;
 * a round trip: the script parsed back equals the clean IIG workbook of the same
@@ -37,6 +41,7 @@ from codegen.emit.framework import (
 )
 from codegen.emit.metadata_inserts import (
     FILE_NAME,
+    DbRules,
     cell_sql,
     placeholder,
     placeholders_as_null,
@@ -71,15 +76,25 @@ class Placeholder:
     row: int
 
 
+@dataclass(frozen=True)
+class Variable:
+    name: str                # @RFC_NUMBER / @SRC_CONNECTION_ID
+
+
+@dataclass(frozen=True)
+class Expression:
+    text: str                # GETDATE()
+
+
 @dataclass
 class Insert:
     table: str
     columns: list[str]
-    values: list            # str (a literal) | None (NULL) | Placeholder
+    values: list            # str (a literal) | None (NULL) | Placeholder | Variable | Expression
     label: str | None
 
 
-_HEADER = re.compile(r"^-- ([A-Z0-9_]+): (\d+) row\(s\)$")
+_HEADER = re.compile(r"^-- ([A-Z0-9_]+): (\d+) row\(s\)(?: — .*)?$")
 _INSERT = re.compile(r"^INSERT INTO \[dbo\]\.\[([A-Za-z0-9_]+)\] \((.*?)\) VALUES \((.*)\);$")
 _INDEX = re.compile(r"^--   (stage|standard)\s+(\S+) — (\d+) column\(s\) \+ (\d+) audit$")
 
@@ -127,6 +142,13 @@ def parse_values(text: str) -> list:
         if text.startswith("NULL", i):
             items.append(None)
             i += 4
+        elif text.startswith("@", i):
+            match = re.match(r"@[A-Za-z0-9_]+", text[i:])
+            items.append(Variable(match.group(0)))
+            i += match.end()
+        elif text.startswith("GETDATE()", i):
+            items.append(Expression("GETDATE()"))
+            i += len("GETDATE()")
         elif text.startswith("<<", i):
             end = text.index(">>", i)
             column, number = text[i + 2:end].split("#")
@@ -166,8 +188,10 @@ def parse_script(text: str) -> tuple[dict[str, int], dict[str, list[Insert]], li
 
 
 def test_the_reader_reads_every_item_kind():
-    assert parse_values("N'a', NULL, <<PIPELINE_ID#3>>, N'it''s' + NCHAR(10) + N'x'") == [
-        "a", None, Placeholder("PIPELINE_ID", 3), "it's\nx"]
+    assert parse_values("N'a', NULL, <<PIPELINE_ID#3>>, N'it''s' + NCHAR(10) + N'x', "
+                        "@RFC_NUMBER, GETDATE()") == [
+        "a", None, Placeholder("PIPELINE_ID", 3), "it's\nx", Variable("@RFC_NUMBER"),
+        Expression("GETDATE()")]
 
 
 # -- the cell rule ------------------------------------------------------------------ #
@@ -185,6 +209,20 @@ def test_cell_rule_literal_placeholder_null():
     assert cell_sql("SOURCE", None, {"badge": "from_frd"}, 4) == placeholder("SOURCE", 4)
     # decided blank (a family convention) -> NULL
     assert cell_sql("LOB", "", {"badge": "from_frd", "deliberate_blank": True}, 1) == "NULL"
+
+
+def test_cell_rule_db_values(config):
+    """The retired script's DB-side knowledge (config dml.*)."""
+    rules = DbRules.from_config(config)
+    assert cell_sql("ACTIVE_FLAG", "Y", {}, 1, rules) == "N'S'"          # workbook Y -> DB S
+    assert cell_sql("ACTIVE_FLAG", "Y", {}, 1) == "N'Y'"                 # no rules: as written
+    assert cell_sql("CREATED_DATE", "", {"badge": "needs_template"}, 2, rules) == "GETDATE()"
+    assert cell_sql("CREATED_BY", "", {"badge": "needs_template"}, 2, rules) == "@RFC_NUMBER"
+    assert cell_sql("CREATED_BY", "RFC1", {}, 2, rules) == "N'RFC1'"     # answered: the cell
+    assert cell_sql("DAY_OF_SCHEDULE", "0", {}, 1, rules) == "NULL"      # §2 not populated
+    assert cell_sql("SRC_CONNECTION_ID", "", {}, 1, rules,
+                    "FILE_ADLS_INGESTION_DETAILS") == "@SRC_CONNECTION_ID"
+    assert cell_sql("SRC_CONNECTION_ID", "", {}, 1, rules, "OTHER") == "<<SRC_CONNECTION_ID#1>>"
 
 
 # -- payload-level rendering (pair 1 and pair 4) --------------------------------------- #
@@ -223,38 +261,61 @@ def test_one_block_per_sheet_in_table_order_one_insert_per_row(rendered, pair):
         assert inserts["ADLS_FIXED_WIDTH_HANDLER"] == []
 
 
+AUDIT_BY = {"CREATED_BY", "UPDATED_BY", "CRETAED_BY"}
+
+
 @pytest.mark.parametrize("pair", ["pair1", "pair4"])
 def test_placeholders_exactly_for_the_open_cells_null_for_decided_blanks(rendered, pair):
     config, payload, _expected, text, _counts = rendered[pair]
+    dml = config.dml
+    null_columns, expressions = set(dml.db_null_columns), dml.db_blank_expressions
     _headers, inserts, _index = parse_script(text)
-    placeholders, nulls = set(), set()
+    placeholders, nulls, decided_by_db = set(), set(), set()
     for sheet, rows in inserts.items():
         for number, (insert, row) in enumerate(zip(rows, payload["tabs"][sheet]["rows"],
                                                    strict=True), start=1):
             for column, item in zip(insert.columns, insert.values, strict=True):
                 value, entry = row["values"][column], row["badges"][column]
-                if isinstance(item, Placeholder):
+                blank = value in ("", None)
+                cell = (sheet, number, column)
+                if column in null_columns:                       # NULL whatever it holds
+                    assert item is None, cell
+                    nulls.add(cell)
+                    decided_by_db.add(cell)
+                elif isinstance(item, Placeholder):
                     assert item == Placeholder(column, number)
-                    assert value in ("", None) and not entry.get("deliberate_blank")
-                    placeholders.add((sheet, number, column))
+                    assert blank and not entry.get("deliberate_blank"), cell
+                    placeholders.add(cell)
                 elif item is None:
-                    assert value in ("", None) and entry.get("deliberate_blank"), \
-                        (sheet, number, column)
-                    nulls.add((sheet, number, column))
+                    assert blank and entry.get("deliberate_blank"), cell
+                    nulls.add(cell)
+                elif isinstance(item, Expression):
+                    assert blank and expressions[column] == item.text, cell
+                    decided_by_db.add(cell)
+                elif isinstance(item, Variable):
+                    assert blank, cell
+                    assert (item.name == "@RFC_NUMBER" and column in AUDIT_BY) or (
+                        item.name == "@SRC_CONNECTION_ID" and column == "SRC_CONNECTION_ID"
+                        and sheet == "FILE_ADLS_INGESTION_DETAILS"), cell
+                    decided_by_db.add(cell)
                 else:
-                    assert item == str(value), (sheet, number, column)
-    # the open cells the BSA's review copy lists, restricted to blank ones
+                    mapped = dml.db_value_map.get(column, {}).get(str(value).strip())
+                    assert item == (mapped if mapped is not None else str(value)), cell
+    # the open cells the BSA's review copy lists, restricted to blank ones, less the
+    # cells a DB rule writes (variables, GETDATE(), NULL columns)
     review_open = {
         (c.sheet, c.row - 1, c.column)
         for c in open_cells(payload, payload["always_blank"], config, "iig_v2")
         if payload["tabs"][c.sheet]["rows"][c.row - 2]["values"][c.column] in ("", None)}
-    assert placeholders == review_open
+    assert placeholders == review_open - decided_by_db
     always_blank = set(payload["always_blank"])
-    assert {(s, n, c) for s, n, c in placeholders if c in always_blank}   # ids, dates …
+    assert {(s, n, c) for s, n, c in placeholders if c in always_blank}   # ids, containers …
+    family = {(s, n, c) for s, n, c in nulls if c not in null_columns}
     if pair == "pair1":     # the pair-1 family's LOB is blank by convention: NULL
-        assert nulls == {(ADLS, n, "LOB") for n in range(1, 5)} | {(STGDELTA, 1, "LOB")}
+        assert family == {(ADLS, n, "LOB") for n in range(1, 5)} | {(STGDELTA, 1, "LOB")}
     else:
-        assert nulls == set()
+        assert family == set()
+    assert {c for _s, _n, c in nulls if c in null_columns} <= null_columns
 
 
 def test_pair4_catalogs_are_the_mapped_ones(rendered):
@@ -369,8 +430,13 @@ def runs(pair1_config, pair1_spec, pair4_config, pair4_spec, tmp_path_factory):
             "pair4": _run(pair4_config, pair4_spec, tmp_path_factory.mktemp("mi_pair4"))}
 
 
+@pytest.fixture(scope="module")
+def runs_config(pair1_config, pair4_config):
+    return {"pair1": pair1_config, "pair4": pair4_config}
+
+
 @pytest.mark.parametrize("pair", ["pair1", "pair4"])
-def test_round_trip_the_script_equals_the_clean_iig_cell_for_cell(runs, pair):
+def test_round_trip_the_script_equals_the_clean_iig_cell_for_cell(runs, runs_config, pair):
     _gate, framework_dir = runs[pair]
     _headers, inserts, _index = parse_script(
         (framework_dir / FILE_NAME).read_text(encoding="utf-8"))
@@ -382,14 +448,18 @@ def test_round_trip_the_script_equals_the_clean_iig_cell_for_cell(runs, pair):
         table = list(workbook[sheet].iter_rows(values_only=True))
         header, body = list(table[0]), table[1:]
         assert len(rows) == len(body), sheet
+        dml = runs_config[pair].dml
         for number, (insert, cells) in enumerate(zip(rows, body, strict=True), start=1):
             assert insert.columns == header, sheet
             for column, item, cell in zip(header, insert.values, cells, strict=True):
                 blank = cell is None or cell == ""
-                if isinstance(item, Placeholder) or item is None:
+                if column in dml.db_null_columns:
+                    ok = item is None                     # NULL whatever the workbook holds
+                elif isinstance(item, (Placeholder, Variable, Expression)) or item is None:
                     ok = blank
                 else:
-                    ok = not blank and item == str(cell)
+                    mapped = dml.db_value_map.get(column, {}).get(str(cell).strip())
+                    ok = not blank and item == (mapped if mapped is not None else str(cell))
                 if not ok:
                     diffs.append((sheet, number, column, item, cell))
     assert diffs == []
@@ -405,13 +475,21 @@ def test_the_artefact_is_listed_grouped_and_checked(runs):
     addition = (framework_dir / "ADDITION.md").read_text(encoding="utf-8")
     assert f"| `{FILE_NAME}` | The client's \"DDL\"" in addition
     assert f"`NB_COB_REPORT_DDL.txt`, `{FILE_NAME}`" in addition         # By target system
-    assert (framework_dir / "config_inserts_q1.sql").is_file()           # the DML is untouched
+    # config_inserts_<env>.sql is retired (2026-10-08); the notebooks run this file
+    assert "config_inserts_<env>.sql` is retired (2026-10-08): this file replaces it" in addition
+    assert not list(framework_dir.glob("config_inserts_*.sql"))
+    assert (framework_dir / "Insert_scripts_config_table_q1.py").is_file()
 
 
-def test_no_metadata_inserts_while_the_dml_switches_are_off(pair4_config, pair4_spec, tmp_path):
+def test_pair4_with_shipped_settings_writes_metadata_inserts(pair4_config, pair4_spec, tmp_path):
+    """2026-10-08: the client's "DDL" is written on every framework run —
+    emit_dml / dml.enabled (off as shipped) gate only the runner notebooks."""
     framework = emit_framework(pair4_spec, LoadPatternFaq(), [], pair4_config, tmp_path,
                                conventions_profile="acfc_prx", iig_template="iig_v2")
-    assert framework.dml_disabled_reason is not None
-    assert FILE_NAME not in [p.name for p in framework.files]
-    assert not (tmp_path / pair4_spec.feed_slug / "framework" / FILE_NAME).exists()
-    assert "metadata_inserts" not in [c.name for c in framework.checks]
+    assert framework.dml_disabled_reason is not None                   # shipped: switches off
+    names = [p.name for p in framework.files]
+    assert FILE_NAME in names
+    assert (tmp_path / pair4_spec.feed_slug / "framework" / FILE_NAME).is_file()
+    assert not any(n.startswith("Insert_scripts_config_table_") for n in names)
+    (check,) = [c for c in framework.checks if c.name == "metadata_inserts"]
+    assert check.passed and "one INSERT per IIG row (23)" in check.details

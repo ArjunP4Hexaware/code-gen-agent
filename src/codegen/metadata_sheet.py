@@ -446,6 +446,15 @@ def _stg_std_row(feed: FrdFeed, config: Config, spec, faq,
     ]
 
 
+def _catalog_tooltip(table) -> str | None:
+    """The catalog_map citation of a mapped catalog (multi-table rule 7), else
+    no tooltip — unmapped cells render exactly as before."""
+    from codegen.metadata_template import catalog_mapping_note
+
+    note = catalog_mapping_note(table)
+    return f"catalog{note}" if note else None
+
+
 def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
                      stage, standard, fields) -> dict[str, dict]:
     stage_schema = stage.schema_name
@@ -458,7 +467,8 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency_cell(feed, faq),
         "LOB": _cell(", ".join(feed.lobs), "from_frd"),
-        "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd"),
+        "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd",
+                                  _catalog_tooltip(stage)),
         "SRC_SCHEMA_NAME": _cell(stage_schema, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage_table, "from_frd"),
         "SRC_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
@@ -468,7 +478,8 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
         "SRC_DATA_TYPE": _cell(
             ",".join(f"{f.stage_datatype}:{f.standard_datatype}" for f in fields),
             "from_sttm"),
-        "TGT_CATALOG_NAME": _cell(standard.catalog or "", "from_frd"),
+        "TGT_CATALOG_NAME": _cell(standard.catalog or "", "from_frd",
+                                  _catalog_tooltip(standard)),
         "TGT_SCHEMA_NAME": _cell(standard.schema_name, "from_frd"),
         "TGT_TABLE_NAME": _cell(standard.table, "from_frd"),
         "TGT_FORMAT": _cell("delta", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),

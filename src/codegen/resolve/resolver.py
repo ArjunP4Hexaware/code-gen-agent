@@ -336,6 +336,29 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
     return feed, flags, errors
 
 
+def map_catalog(catalog: str | None, layer: str, config: Config,
+                flags: list[str]) -> tuple[str | None, str | None]:
+    """Multi-table rule 7: (emitted catalog, logical catalog). The documents
+    state LOGICAL catalogs (PR_DLK); ``conventions.catalog_map`` — an
+    environment value — maps them (case-insensitive key match). An empty map
+    is identity (logical None). With a map, a stated catalog that has no
+    entry is written as stated and flagged ``catalog_unmapped:<layer>`` (once
+    per catalog)."""
+    catalog_map = config.conventions.catalog_map
+    if catalog is None or not catalog_map:
+        return catalog, None
+    mapped = catalog_map.get(catalog)
+    if mapped is None:
+        mapped = next((v for k, v in catalog_map.items() if k.lower() == catalog.lower()), None)
+    if mapped is None:
+        flag = (f"catalog_unmapped:{layer} — {catalog!r} has no conventions.catalog_map entry "
+                f"(keys: {sorted(catalog_map)}); written as stated")
+        if flag not in flags:
+            flags.append(flag)
+        return catalog, None
+    return mapped, catalog
+
+
 def _sttm_segment_names(sttm_feed: SttmFeed) -> list[str]:
     """Header / Detail / Trailer as the STTM's fields declare them, in order."""
     return [s for s in ("Header", "Detail", "Trailer")
@@ -349,6 +372,8 @@ def _resolve_segments(
     errors: list[str],
     segment_names: list[str] | None = None,
     flags: list[str] | None = None,
+    catalog_logical: str | None = None,
+    config: Config | None = None,
 ) -> list[SegmentSpec]:
     flags = flags if flags is not None else []
     # M4: a docx-extracted FRD names no segments (the F1/F2 label families
@@ -378,7 +403,8 @@ def _resolve_segments(
                 f"tables {frd_feed.stage_target.tables}"
             )
         table = ResolvedTable(
-            catalog=catalog, schema_name=stage_schema, table=sttm_feed.stage.table, role="stage"
+            catalog=catalog, schema_name=stage_schema, table=sttm_feed.stage.table, role="stage",
+            catalog_logical=catalog_logical,
         )
         return [SegmentSpec(segment="Detail", stage_table=table, fields=sttm_feed.fields)]
 
@@ -420,12 +446,16 @@ def _resolve_segments(
                 f"{sorted(t for t in seg_standard_tables if t)}"
             )
         elif seg_standard_tables and sttm_feed.standard is not None:
+            standard_catalog, standard_logical = (
+                map_catalog(sttm_feed.standard.catalog or frd_feed.standard_target.catalog,
+                            "standard", config, flags) if config is not None
+                else (sttm_feed.standard.catalog or frd_feed.standard_target.catalog, None))
             standard_table = ResolvedTable(
-                catalog=(sttm_feed.standard.catalog
-                         or frd_feed.standard_target.catalog),
+                catalog=standard_catalog,
                 schema_name=sttm_feed.standard.schema_name,
                 table=next(iter(seg_standard_tables)),
                 role="standard",
+                catalog_logical=standard_logical,
             )
         segment_audit = (
             sttm_feed.segmented.segment_audit.get(segment_name)
@@ -435,7 +465,8 @@ def _resolve_segments(
             SegmentSpec(
                 segment=segment_name,
                 stage_table=ResolvedTable(
-                    catalog=catalog, schema_name=stage_schema, table=seg_table, role="stage"
+                    catalog=catalog, schema_name=stage_schema, table=seg_table, role="stage",
+                    catalog_logical=catalog_logical,
                 ),
                 fields=seg_fields,
                 standard_table=standard_table,
@@ -527,7 +558,9 @@ def _resolve_one(
     # here it covers the CLI path and anything the dialog left blank.
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd)
     errors.extend(gap_errors)
-    catalog = frd_feed.stage_target.catalog
+    catalog_flags: list[str] = []
+    catalog, catalog_logical = map_catalog(frd_feed.stage_target.catalog, "stage", config,
+                                           catalog_flags)
     width_flags: list[str] = []
     sttm_feed = _resolve_widths(
         sttm_feed, vdd, next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0),
@@ -542,7 +575,8 @@ def _resolve_one(
             f"segments_from_sttm: the FRD names no record segments; the STTM's Segment "
             f"column declares {segment_names} (sheet {sttm_feed.mapping_sheet!r})")
     segments = _resolve_segments(frd_feed, sttm_feed, catalog, errors, segment_names,
-                                 provenance_flags)
+                                 provenance_flags, catalog_logical=catalog_logical,
+                                 config=config)
     # docx-extracted FRD contracts (M2) leave unsourced values null; each
     # is a loud stop here, never a default — except the file pattern, which
     # the STTM's meta rows / FILE_DETAILS supply when the FRD names none
@@ -605,6 +639,7 @@ def _resolve_one(
             schema_name=stage_schema,
             table=side_table_name(detail_table_name, suffix),
             role=role,  # type: ignore[arg-type]
+            catalog_logical=catalog_logical,
         )
 
     errors_table = side_table(config.naming.errors_table_suffix, "errors")
@@ -637,6 +672,7 @@ def _resolve_one(
             schema_name=stage_schema,
             table=frd_named[0] if frd_named else derived,
             role="recycle",
+            catalog_logical=catalog_logical,
         )
         resolved_recycle = ResolvedRecycle(
             spec=recycle_spec,
@@ -680,12 +716,15 @@ def _resolve_one(
                 f"STTM standard table '{sttm_feed.standard.table}' is not among FRD "
                 f"standard tables {frd_feed.standard_target.tables}"
             )
+        standard_catalog, standard_logical = map_catalog(
+            frd_feed.standard_target.catalog or sttm_feed.standard.catalog, "standard", config,
+            catalog_flags)
         standard_table = ResolvedTable(
-            catalog=(frd_feed.standard_target.catalog
-                     or sttm_feed.standard.catalog),
+            catalog=standard_catalog,
             schema_name=sttm_feed.standard.schema_name,
             table=sttm_feed.standard.table,
             role="standard",
+            catalog_logical=standard_logical,
         )
         standard_strategy = frd_feed.standard_target.load_strategy
     elif frd_feed.standard_target.tables:
@@ -739,7 +778,7 @@ def _resolve_one(
         source_table=sttm_feed.source_table,
         provenance_flags=list(dict.fromkeys([
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
-            *width_flags, *gap_flags, *provenance_flags])),
+            *width_flags, *gap_flags, *catalog_flags, *provenance_flags])),
     )
 
 

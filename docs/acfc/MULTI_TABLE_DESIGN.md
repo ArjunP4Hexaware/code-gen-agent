@@ -151,7 +151,7 @@ rule 2 (`extractor.lob_tokens`, case-insensitive: `<LOB>`, `{LOB}`,
 pattern carrying the token while no LOB is listed stays ONE file with the
 token unexpanded and the flag `lob_token_without_lobs:<pattern>`.
 
-**Step 2.** `conventions.catalog_map` (logical → environment catalog;
+**Step 2 (done).** `conventions.catalog_map` (logical → environment catalog;
 empty = identity). The resolver maps every catalog it puts on a
 `ResolvedTable` and keeps the stated one on `ResolvedTable.catalog_logical`;
 the IIG catalog cells and the qualified names (DDL, fixed-width `TGT_TABLE`,
@@ -269,7 +269,7 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    grouped by distinct triple; `Feed.files` from the header block per rule 2.
    Unit tests on the pair-1 and pair-4 shapes, a single-pattern-no-LOB case
    and a two-LOB case (`tests/test_multi_table_step1.py`).
-2. **`catalog_map`.** Config + overlays (`config/overlays/acfc_env.yaml`
+2. **`catalog_map` — DONE.** Config + overlays (`config/overlays/acfc_env.yaml`
    d1 map; the pair-1 overlay maps identity so its golden stays byte-identical;
    the pair-4 overlay maps `PR_DLK` / `PR_STD` to `d1_dlk` / `d1_std` and
    carries a DIFFERENT `default_catalog` so the golden proves the fallback is

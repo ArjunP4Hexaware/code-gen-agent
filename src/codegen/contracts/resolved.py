@@ -35,6 +35,10 @@ class ResolvedTable(BaseModel):
     schema_name: str
     table: str
     role: Literal["stage", "standard", "errors", "recycle", "processed_files"]
+    # Multi-table rule 7: the LOGICAL catalog the documents state, when the
+    # environment's conventions.catalog_map mapped it to ``catalog``; None =
+    # no map applied (``catalog`` is as stated, or the config fallback).
+    catalog_logical: str | None = None
 
     @property
     def qualified_name(self) -> str:

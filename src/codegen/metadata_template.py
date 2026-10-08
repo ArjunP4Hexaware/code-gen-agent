@@ -81,6 +81,15 @@ def _qualified(table) -> str:
     return ".".join(p for p in parts if p)
 
 
+def catalog_mapping_note(table) -> str:
+    """Multi-table rule 7: the tooltip citation of a catalog the environment's
+    conventions.catalog_map mapped ('' when no map applied)."""
+    if getattr(table, "catalog_logical", None) is None:
+        return ""
+    return (f"; catalog_map {table.catalog_logical} → {table.catalog} (conventions.catalog_map, "
+            "the environment overlay)")
+
+
 def _landing(feed: FrdFeed) -> str | None:
     if not feed.landing_location:
         return None
@@ -244,7 +253,8 @@ def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
     if table.catalog:
         return _cell(table.catalog, "from_frd",
                      f"{layer} catalog: FRD Target Catalog and Schema label / STTM target "
-                     "band catalog column (the DDL's three-part name)")
+                     "band catalog column (the DDL's three-part name)"
+                     + catalog_mapping_note(table))
     from codegen.emit.framework import _config_default_catalog
 
     default = _config_default_catalog(config, profile, layer) if profile is not None else None
@@ -501,7 +511,9 @@ def _fixed_width_handler(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "COL": _cell(",".join(cols), "from_sttm"),
             "LEN": _cell(",".join(lens), "from_sttm", "STTM source band Length"),
             "start_ind": _cell(",".join(starts), "from_sttm", "STTM source band Start"),
-            "TGT_TABLE": _cell(_qualified(stage), "from_frd"),
+            "TGT_TABLE": _cell(_qualified(stage), "from_frd",
+                               ("qualified stage table" + catalog_mapping_note(stage))
+                               if catalog_mapping_note(stage) else None),
             "TGT_AUDIT_CLMS": _cell(audit, "from_sttm", "STTM audit rows"),
         }
         process = _process_name(faq)
@@ -600,7 +612,8 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
                                     _TEMPLATE_TOOLTIP.format(citation=tpl.citation)),
                 "SOURCE_COLUMN": _cell(joined, "from_sttm", "STTM stage columns typed "
                                        "other than String"),
-                "INPUT_PARAM": _cell(_qualified(stage), "from_frd", "qualified stage table"),
+                "INPUT_PARAM": _cell(_qualified(stage), "from_frd",
+                                     "qualified stage table" + catalog_mapping_note(stage)),
                 "TARGET_COLUMN": _cell(joined, "from_sttm"),
             })
     rows = []

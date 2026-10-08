@@ -8,6 +8,11 @@
 # constants, not per-feed values. always_blank REPLACES the template's list
 # (lists are not merged): the six columns filled below leave it.
 conventions:
+  # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands state
+  # LOGICAL catalogs; this is the d1 environment's map, applied to every
+  # emitted catalog (cited in the cell tooltip). Prod: identity (no map).
+  # default_catalog below is the fallback only for a band with Catalog blank.
+  catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
   profiles:
     acfc_prx:
       default_catalog: {stage: d1_dlk, standard: d1_std}

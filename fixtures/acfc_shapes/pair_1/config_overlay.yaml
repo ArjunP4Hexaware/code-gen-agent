@@ -21,3 +21,8 @@ metadata:
         EMAIL_TEMPLATE_CONFIG:
           - {STATUS: Success}
           - {STATUS: Failed}
+# Multi-table step 2: the pair-1 STTM bands state the (aliased) catalogs
+# pr_dlk_vnd_p / pr_std_vnd_p; this fixture's environment maps them to
+# themselves (identity) — the map is applied, the golden stays byte-identical.
+conventions:
+  catalog_map: {pr_dlk_vnd_p: pr_dlk_vnd_p, pr_std_vnd_p: pr_std_vnd_p}

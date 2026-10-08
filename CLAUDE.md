@@ -1,13 +1,169 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## START HERE — branch `feature/iig-first` (state as of 2026-10-07, end of day)
+## START HERE — branch `feature/multi-table` (state as of 2026-10-08, evening)
+
+**Where things stand.** Three live branches, all pushed, nothing merged
+anywhere (staging / main untouched):
+
+| Branch | Head | Version | What it is |
+| --- | --- | --- | --- |
+| `feature/multi-table` (this checkout) | **0c2ba13** (+ this notes commit) | 0.5.8.post21 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
+| `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
+| `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
+
+Working tree clean after the notes commit on 0c2ba13. Gitignored here (local only, never stage):
+`docs/acfc/denylist_local.txt`, `PROJECT_HANDOFF.md`,
+`CODEGEN_INDEPENDENT_REVIEW.md` (external review artefacts). Still stage files
+explicitly — never `git add -A`.
+
+**FIRST, pick up here (pending, in priority order):**
+1. **Friday 2026-10-09 working session with the framework owners** — the brief
+   is `docs/acfc/FRIDAY_2026-10-09.md` (the model in their words, the pair-1
+   owner map 347 / 185 / 46 / 21, eleven checklist questions, the rehearsed
+   15-minute pair-4 walk-through, known gaps). The checklist is
+   `docs/acfc/MULTI_TABLE_DESIGN.md` §7a: 1–5 the open questions, 6–8a "which
+   family convention is current for new feeds" (LOB, STGDELTA unknown key,
+   STGDELTA OBJECT_NAME, SCHEMA_DRIFT_FLAG), 9–10 "where the client's sheet and
+   the walkthrough disagree, which one does the database honour?"
+   (ACTIVE_FLAG Y vs S, DAY_OF_SCHEDULE 0 vs NULL — 9 / 10 are cited BY NUMBER
+   in the `metadata_inserts.sql` header and its tests; do not renumber). Most
+   answers land as CONFIG: `conventions.catalog_map` keys,
+   `constants.STGDELTA_STDDELTA_INGESTION_DET` (the d1 standard container),
+   `family_conventions.*`, `dml.db_value_map`, `dml.db_null_columns`. Record
+   each answer in §7a.
+2. **Re-run the real documents in ACFC on 0.5.8.post21.** The first ACFC run on
+   real documents (2026-10-08) surfaced four defects — fixed in a376ccf
+   (post20, `tests/test_acfc_run1_defects.py`) — and the first real-row
+   scorecard (the three SD feeds vs their actual config rows) nine rules —
+   0c2ba13 (post21, `tests/test_sd_scorecard_rules.py`); both summarised in
+   `docs/ACFC_DEPLOY.md` "What feature/multi-table adds". Local MOCK run of the
+   real SD pair (gitignored root files, outputs in a scratchpad, scores only):
+   demographic / community-risk diff 4 -> 1, individual-risk diff 6 -> 0 (matched
+   39 -> 46); the 3 recycle cells of the two recycle-less feeds moved MATCH ->
+   OPEN (Engineer-confirm) by rule 6 ("never an asserted N"). **The one DIFF
+   left is FREQUENCY**: the FRD's Frequency field points at File Details
+   ("Yearly Twice" = file delivery) while the real rows say Monthly (the run
+   cadence in the FRD narrative); rule 7 writes the delivery token and flags
+   `frequency_ambiguous` — a question for Soham / the owners (flip = prefer the
+   run cadence). Older harness notes: `origin/acfc-results` (read in
+   place, never check out, never quote names) holds `feature/iig-first` runs
+   only. The last detailed one (2026-10-07, ca6bab8 with
+   `CODEGEN_SKIP_ENV_OVERLAY=1`, commit 784e110): 3 pairs fail the STTM parse,
+   4 the FRD extract, 3 extract and fail at generate with no error text
+   recorded. Its redactions sit INSIDE the harness's own keys (`timestamp`,
+   `runtime_sec`, `flags`, the `sttm_parse` stage, the endpoint state) — leak-gate
+   false positives; the later runs (2c3c6d4, 9da340a) are `LEAK_GATE_BLOCKED`
+   stubs (4 and 6 hits, no pair data). Ask the harness owner to allow-list its
+   own keys and record per-pair error text; then run this branch.
+3. **The `feature/iig-first` pending items still apply** (next section): the
+   four ACFC `app.yaml` paths (never guess them), the after-demo untrack /
+   purge of the real reference files, splitting `acfc_env.yaml` per source
+   family — which matters more now: `acfc_env.yaml` pins the CAQH-style family
+   (incl. `schema_drift_flag: "Y"`) for EVERY feed, so a PRX-shaped real feed
+   needs a feed overlay on top.
+
+**Verified at 0c2ba13**: 980 passed / 27 skipped (Python 3.11; 3.10 / 3.12
+not run on this branch); ruff clean (`src/ tests/ ui/backend/
+scripts/iig_scorecard.py`); scrub 0 over every changed file; no `ui/frontend`
+change on this branch (dist untouched; `ui/backend/demo.py` changed in post20).
+Marker **0.5.8.post21**. `tests/snapshots/notebook_mode.json` was re-based in
+0c2ba13 (37 hashes: `ruff format` now rewrites every emitted .py).
+
+**What the branch does** (design + status: `docs/acfc/MULTI_TABLE_DESIGN.md`;
+the night's and the cleanup's record: `docs/acfc/OVERNIGHT_2026-10-08.md`):
+- **Row rules.** Tables = the distinct (catalog, schema, table) triples of each
+  STTM band; files = the distinct patterns, a `<LOB>` pattern expanded per
+  listed LOB. ADLS rows = files (into the detail table), STGDELTA rows =
+  tables, `DATA_QUALITY_RULES` keyed per file (+ the header / trailer split row
+  only when they are their own tables), schedule = four structural rows when no
+  inventory overlay supplies them, OBJECT_ID = 1..n within the group.
+- **Catalogs.** STTM band → FRD label → `default_catalog`, a disagreement =
+  `catalog_conflict:<layer>`; `conventions.catalog_map` maps logical catalogs
+  (case-insensitive keys, lowercase output; `acfc_env.yaml`: PR_DLK → d1_dlk,
+  PR_STD → d1_std).
+- **Feed families** (`metadata.templates.iig_v2.family_conventions`): `lob`,
+  `stgdelta_unknown_primary_key`, `stgdelta_object_name` (+ `_literal`),
+  `schema_drift_flag` (ADLS; was an overlay constant until 0e7dbc3). Shipped
+  default = the PRX family (blank / `NA` / generalized pattern / `N`); pair 1's
+  overlay pins PRX (+ the literal `Accumulator_accumclient`); pair 4's overlay
+  and `acfc_env.yaml` pin the SD / CAQH-style family (codes / blank /
+  generalized pattern / `Y`). Neither golden is edited to fit the other.
+- **`framework/metadata_inserts.sql` = the client's "DDL"**, written on EVERY
+  framework run: one INSERT per IIG row, an open cell = an unquoted
+  `<<COLUMN#n>>` placeholder (the script does not parse until filled). The
+  header states the three workbook → database rules: (1) value map
+  `dml.db_value_map` (ACTIVE_FLAG / ACTIVE_RULE_FLG Y → S), (2) forced NULL
+  `dml.db_null_columns` (DAY_OF_SCHEDULE, UDF2–5, the SLA columns,
+  CLAIM_TYPE_ID), (3) audit defaults (`GETDATE()`, `@RFC_NUMBER`) +
+  placeholders. Guards before the first INSERT (RFC assigned, every
+  placeholder id not NULL, PIPELINE_ID / GROUP_ID / key unused), the file
+  connection reuse-or-insert (a NULL host with no id aborts), all inside
+  `SET XACT_ABORT ON` + TRY / TRANSACTION / CATCH ROLLBACK THROW. Gate check
+  `metadata_inserts`. `emit_dml` / `dml.enabled` gate ONLY the runner notebooks
+  `Insert_scripts_config_table_<env>.py`. **`config_inserts_<env>.sql` is
+  RETIRED** (e02defa, after its DB-side rules were ported; every remaining
+  old-vs-new difference is in the overnight report); `config_rows.xlsx` stays
+  the approval artefact. The CREATE reference text is one block per table.
+- **Scorecard** `scripts/iig_scorecard.py --all-sheets`: rows paired by key,
+  a score per sheet + TOTAL, each line ending `| matched / open-by-design /
+  open-for-engineer / diff; score excl. open-by-design` (pair 1: 57.9 raw,
+  83.8 excl.); `--real` also reads a golden in the `IIG_EXPECTED.yaml` shape.
+  Both-blank cells count as MATCH.
+- **Fixtures.** Pair 4 = `fixtures/acfc_shapes/pair_4/` (synthetic "Northwind
+  Benefits", feed `nb_cob_report`, three tables, six LOB files), hand-written
+  golden `golden/IIG_EXPECTED.yaml` (`tests/test_pair4_full_golden.py`); its
+  walk-through scores TOTAL 100.0 under the shipped overlay. Pair 1: every IIG
+  cell pinned (`tests/test_m4_acceptance.py` FULL_OPEN / FULL_SEQUENCE /
+  FULL_DEVIATIONS — the 9 deviation columns are the 21 scorecard diffs).
+
+**Commits (oldest first):** e76496a, 79ed3d7 Phase A / B (design doc, pair-4
+fixture, row + catalog rules) · e64539b step 1 · 12a401a step 2 (`catalog_map`)
+· 2a67c91 catalog precedence · 0c85b39 step 3 · 0a6efd7 step 4 · 9685f97 step 5
+(post15) · 8b94b9e chunk A (every cell pinned, family conventions) · 686aad9
+step 7 (scorecard) · 4fa9e78, eb9ff00 step 6 (`metadata_inserts.sql`) · 54ecaad
+chunk D (post16) · e02defa morning cleanup (post17) · ff3c420 Friday brief +
+the three rules + item 10 (post18) · 10806a6, 68fea24, 73f69fa pair-4
+SCHEMA_DRIFT_FLAG Y + a fixture EOL restore · 0e7dbc3 `schema_drift_flag`
+family convention (post19) · d84e2a6 checklist item 8a · a376ccf first ACFC
+run's defects: per-segment key lookup, FILE_DETAILS annotation rows, blank
+targets -> NEEDS_ANSWERS (exit 3), path normalisation, ruff safe fixes (post20)
+· 0c2ba13 first real-row scorecard rules + exit codes in `--help` / acfc_run.py
+(post21).
+
+**Exit codes** (`codegen --help`, `docs/ACFC_DEPLOY.md`): 0 ok, 1 failed, 3
+NEEDS_ANSWERS (output written for the feeds that could proceed; each held-back
+feed printed with its answers.yaml `gaps:` key). acfc_run.py summarises them.
+
+**Gotchas learned on this branch:**
+- **Bash heredocs on this box mangle escapes and backticks** (`\\t` became a
+  tab, `\\n` a newline, a backtick body aborted bash): write patch scripts with
+  the Write tool and run them as files; check `git diff --stat` after.
+- **`fixtures/** -text` commits fixture bytes raw.** Python `write_text` /
+  text-mode `open` writes CRLF on Windows and Git Bash `sed -i` can turn CRLF
+  into LF — either churns a whole fixture file (10806a6 → fixed in 73f69fa).
+  Patch with `read_bytes` / `write_bytes`, keeping each file's own EOL; check
+  `git diff --cached --stat` before committing; read index EOLs with
+  `git ls-files --eol` (`git show rev:path` applies the checkout conversion).
+- **The CLI loads the operator's local `.env`** (only names not already set),
+  and its notification DL carries the client email domain into EMAIL_TO →
+  scrub hits in CLI output. For a shareable run, `export
+  CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example` first.
+- **The suite runs with `CODEGEN_SKIP_ENV_OVERLAY=1`**, so a fixture overlay
+  must carry every environment / family value its golden relies on (the pair-4
+  overlay mirrors `acfc_env.yaml`'s shape); a CLI run applies `acfc_env.yaml`
+  first, then `CODEGEN_CONFIG_OVERLAYS`.
+- **`isolation: "worktree"` agents branch from the default branch**, not HEAD
+  — reset each to the working branch before it starts; cherry-pick its commits
+  back and delete its `worktree-agent-*` branch afterwards.
+
+## Parent branch `feature/iig-first` (state as of 2026-10-07, end of day — the demo branch)
 
 **Where things stand.** Two live branches, both pushed, nothing merged
 anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/iig-first` (this checkout) | **9da340a** | 0.5.8.post13 | cut from `fix/remove-mock-provider-ui-text` at e89a263 (M15e — that branch's notes below still apply); IIG-first M1–M3 (6291cb5 … 3f44dc8) made every `acfc_prx` framework run write `<feed>_IIG.xlsx` (clean) + `<feed>_IIG_REVIEW.xlsx` (review); then the 2026-10-07 work below. `codegen-watch` inside ACFC pulls it |
+| `feature/iig-first` | **9da340a** (be38f05 = this docs block) | 0.5.8.post13 | cut from `fix/remove-mock-provider-ui-text` at e89a263 (M15e — that branch's notes below still apply); IIG-first M1–M3 (6291cb5 … 3f44dc8) made every `acfc_prx` framework run write `<feed>_IIG.xlsx` (clean) + `<feed>_IIG_REVIEW.xlsx` (review); then the 2026-10-07 work below. `codegen-watch` inside ACFC pulls it |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only fallback for the demo: `origin/fix/remove-mock-provider-ui-text` (e89a263, descended from tag `v0.5.8-acfc` 3a5b85d) + version bump + `config/overlays/acfc_env.yaml` with ONLY the `acfc_prx` default_catalog (NO auto-load there — `CODEGEN_CONFIG_OVERLAYS`) + the health probe below. `docs/acfc/BACKUP_DDL_ONLY.md`. Suite 740 passed / 28 skipped |
 
 Working tree clean at 9da340a (only the untracked `docs/acfc/denylist_local.txt`).
@@ -45,6 +201,9 @@ with the main `.venv` + `PYTHONPATH="src;."` (export
    Test: re-run the harness on this branch with `CODEGEN_SKIP_ENV_OVERLAY=1`;
    0 hits → it is a leak-gate allow-list decision; else ask the harness owner
    for the per-pair stages with only the hit terms redacted.
+   **Update 2026-10-09:** that run happened (784e110) — pair-level results and
+   the redactions inside the harness's own keys are summarised in the
+   `feature/multi-table` START HERE above, item 2.
 3. After the demo (scheduled, Soham's call): untrack / purge the real
    reference files (see "Open / scheduled" below); split `acfc_env.yaml` per
    source family.

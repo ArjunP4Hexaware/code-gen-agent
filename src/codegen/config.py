@@ -936,12 +936,14 @@ class ConventionsProfileConfig(BaseModel):
     ddl_file_name_pattern: str = "{feed_abbrev}_DDL.txt"
     # Stage columns typed as the STTM stage band states them (not STRING).
     typed_stage: bool = False
-    # Standard table column LIST and ORDER = the stage list (client
-    # convention). Each column's TYPE still comes from the STTM standard band
-    # (normalised through emit.context.sql_type; a type equal to the stage
-    # type keeps the stage text). Blank -> the stage type, flagged
-    # standard_type_blank; unmappable -> written as stated, flagged
-    # standard_type_unmapped.
+    # Standard-table column TYPES (client convention): each column's type
+    # comes from the STTM standard band, normalised through
+    # emit.context.sql_type; a type equal to the stage type keeps the stage
+    # text. Blank -> the stage type, flagged standard_type_blank; unmappable
+    # -> written as stated, flagged standard_type_unmapped. Multi-table step 6
+    # (emit.framework.table_definitions): per table, the standard columns are
+    # the stage rows that carry a Standard band, in stage order, named by that
+    # band; a table none of whose rows carries one keeps the stage list.
     standard_from_stage: bool = False
     create_statement: str = "CREATE OR REPLACE TABLE"
     using_clause: str = "USING delta"

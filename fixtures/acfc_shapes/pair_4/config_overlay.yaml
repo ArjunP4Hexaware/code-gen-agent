@@ -57,6 +57,7 @@ metadata:
         stgdelta_unknown_primary_key: ""
         stgdelta_object_name: generalized_file_pattern
         schema_drift_flag: "Y"      # both real sheets say Y: the SD file-to-stage row (IIG test cells.xlsx, ADLS_DELTA_INGESTION_DETAILS) and the CAQH IIG
+        recycle_unstated: "N"       # the hand-written golden: N / NA / NA (no recycle stated)
         citation: "CAQH-style family convention (pair-4 overlay)"
       # A header-less pipe file: SRC_COLUMNS is positional (col<N>:<stage column>).
       src_columns_style: positional

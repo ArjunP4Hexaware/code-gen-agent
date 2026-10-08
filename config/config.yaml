@@ -118,6 +118,9 @@ extractor:
   # field is left out of stage and standard and flagged
   # field_unmapped:<field>, citing the cell — never a note only.
   unmapped_markers: ["do not map", "dnm", "not mapped", "n/a", "na", "none"]
+  # A delimiter stated as a word -> the character every artefact writes
+  # (first real-row scorecard, 2026-10-08: never the word in an IIG cell).
+  delimiter_words: {comma: ",", pipe: "|", tab: "\t", semicolon: ";", caret: "^", tilde: "~", colon: ":"}
   # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a header-block file
   # pattern holding one of these LOB-varying tokens (case-insensitive) expands
   # to one file per listed LOB; any other pattern is one file.
@@ -407,6 +410,9 @@ extractor:
       - ["boolean", "bool", "bit"]
     # FRD Object/data Format words that require VDD positions (gate FAIL otherwise).
     fixed_width_tokens: ["fixed width", "fixed-width", "fixedwidth"]
+    # A dictionary missing more than this share of the STTM's fields covers a
+    # different sheet / feed: one vdd_scope_mismatch flag, not one per field.
+    scope_mismatch_ratio: 0.8
 
 reasoning:
   # Layer 2 — only free-text validation rules the deterministic compiler
@@ -907,6 +913,11 @@ metadata:
       # Multi-table step 3: a stated pattern's date placeholder is the framework's
       # '*' in SRC_FILE_NAME ('NWB_COB_RPT_110_CCYYMMDD.txt' -> 'NWB_COB_RPT_110_*.txt').
       file_pattern_wildcards: [CCYYMMDD, YYYYMMDD, MMDDCCYY, MMDDYYYY, CCYYMM, YYYYMM, CCYY, YYYY]
+      # OBJECT_NAME: trailing segments made only of these tokens are dropped
+      # with the extension and the wildcards (first real-row scorecard).
+      object_name_strip_tokens: [CCYY, YYYY, YY, MM, DD, HH, MI, SS]
+      # ADLS SRC_DATA_TYPE source side: file fields are strings.
+      file_source_type: String
       # A per-LOB file's ADLS row partitions on this column, value = its LOB.
       lob_partition_column: LOB
       # Multi-table step 5: the schedule's four structural rows (grand master ->
@@ -929,6 +940,13 @@ metadata:
         stgdelta_unknown_primary_key: "NA"
         stgdelta_object_name: generalized_file_pattern
         schema_drift_flag: "N"      # ADLS; was a template constant until 2026-10-09
+        # First real-row scorecard (2026-10-08): SRC_FILE_NAME form, the
+        # family's audit columns + their casing, RECYCL_* when no document
+        # states a recycle (never an asserted N by default: open).
+        src_file_name: pattern
+        audit_columns: []
+        audit_type_case: configured
+        recycle_unstated: open
         citation: "shipped default — pair-1 family LOB / primary key / SCHEMA_DRIFT_FLAG (docs/acfc/MULTI_TABLE_DESIGN.md §1)"
       # The golden IIG spells the audit types 'String' / 'TIMESTAMP' (its DDL
       # says STRING) — transcribed as the IIG states them.
@@ -1078,6 +1096,11 @@ iig_review:
     ADLS_DELTA_INGESTION_DETAILS.SRC_COL_STRT_END_INDX: engineer
     ADLS_DELTA_INGESTION_DETAILS.SRC_FILE_DELIMITER: engineer
     ADLS_DELTA_INGESTION_DETAILS.SRC_REC_LNGTH: engineer
+    # RECYCL_* left open when no document states a recycle: the engineer
+    # confirms (the convention-shaped table / path is in the tooltip).
+    ADLS_DELTA_INGESTION_DETAILS.RECYCL_ENBL_FLG: engineer_confirms
+    ADLS_DELTA_INGESTION_DETAILS.RECYCL_TBL_NM: engineer_confirms
+    ADLS_DELTA_INGESTION_DETAILS.RECYCL_ADLS_PATH: engineer_confirms
     ADLS_FIXED_WIDTH_HANDLER.EXTENSION: engineer
     ADLS_FIXED_WIDTH_HANDLER.FILE_TYPE: engineer
     ADLS_FIXED_WIDTH_HANDLER.RJCT_RSN_COLUMN_NM: engineer

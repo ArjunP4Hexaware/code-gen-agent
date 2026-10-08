@@ -476,6 +476,9 @@ def test_a_fixed_module_resyncs_the_assembled_notebook(config, tmp_path):
     feed = tmp_path / "out" / spec.feed_slug
     module = feed / "pipeline" / "mapping.py"
     notebook = feed / f"{spec.feed_slug}.ipynb"
+    # The gate formats every emitted .py first (rule 8 of the real-row
+    # scorecard): the CLEAN state is the gated one.
+    assert _ruff_check(feed).passed
     clean_module, clean_notebook = module.read_bytes(), notebook.read_bytes()
     # The cosmetic defect, in the module AND in the notebook assembled from it.
     swapped = clean_module.replace(

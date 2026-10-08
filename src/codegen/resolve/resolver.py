@@ -171,9 +171,46 @@ def _is_fixed_width(file_format: str | None, config: Config) -> bool:
     return any(token.lower() in fmt for token in config.extractor.vdd.fixed_width_tokens)
 
 
+_DELIMITER_CHARS = "|,;^~\t:"
+
+
+def delimiter_char(value: str | None, words: dict[str, str]) -> str | None:
+    """The delimiter CHARACTER a stated value means: a single character as
+    is, a word ("Pipe", "comma delimited", "TAB") through
+    ``extractor.delimiter_words``, a character quoted inside a phrase
+    ("Pipe (|)"); None when the value names none (prose such as "File Data
+    Ingestion"). Every artefact writes the character, never the word."""
+    if value is None or value == "":
+        return None
+    if len(value) == 1:
+        return value
+    text = value.strip()
+    if len(text) == 1:
+        return text
+    if text.lower() in ("\\t", "\t"):
+        return "\t"
+    for word in re.findall(r"[a-z]+", text.lower()):
+        if word in words:
+            return words[word]
+    quoted = [c for c in text if c in _DELIMITER_CHARS]
+    return quoted[0] if len(set(quoted)) == 1 else None
+
+
 def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str],
-                       config: Config | None = None) -> str:
-    explicit = [d for d in (sttm_feed.source_file.delimiter, frd_feed.delimiter) if d]
+                       config: Config | None = None, flags: list[str] | None = None) -> str:
+    flags = flags if flags is not None else []
+    words = config.extractor.delimiter_words if config is not None else {}
+    explicit = []
+    for label, stated in (("STTM", sttm_feed.source_file.delimiter),
+                          ("FRD", frd_feed.delimiter)):
+        if not stated:
+            continue
+        char = delimiter_char(stated, words)
+        if char is None:
+            flags.append(f"delimiter_unreadable:{label} — the {label} states {stated!r}, "
+                         "which names no delimiter character; the file extension decides")
+        else:
+            explicit.append(char)
     if not explicit and config is not None and _is_fixed_width(frd_feed.file_format, config):
         # M3: a fixed-width file has no delimiter by definition (positions
         # come from the VDD / STTM); an empty delimiter is the honest value.
@@ -193,6 +230,9 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
         for pattern in (*frd_feed.file_name_patterns, sttm_feed.source_file.name_pattern or ""):
             implied = _extension_delimiter(pattern)
             if implied is not None:
+                flags.append(f"delimiter_from_extension:{pattern} -> {implied!r} — no document "
+                             "states a delimiter; the file extension implies it (.csv ',', "
+                             ".psv '|', .tsv tab; a .txt / .dat file needs the FRD)")
                 break
     if implied is None:
         errors.append(
@@ -642,7 +682,8 @@ def _resolve_one(
         sttm_feed, vdd, next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0),
         width_flags)
 
-    delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config)
+    delimiter_flags: list[str] = []
+    delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config, delimiter_flags)
     provenance_flags: list[str] = []
     segment_names: list[str] | None = None
     if not frd_feed.is_segmented and sttm_feed.is_segmented:
@@ -870,8 +911,9 @@ def _resolve_one(
         provenance_flags=list(dict.fromkeys([
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
             *width_flags, *gap_flags, *catalog_flags, *provenance_flags, *file_flags,
-            *key_flags])),
+            *key_flags, *delimiter_flags])),
         files=files,
+        frequency_mentions=list(frd_feed.frequency_mentions),
     )
 
 

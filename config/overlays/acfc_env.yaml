@@ -34,7 +34,16 @@ metadata:
         # carry it (fixtures/acfc_shapes/README.md); a family setting, not a
         # constant, since 2026-10-09 — the PRX family (pair 1) is N.
         schema_drift_flag: "Y"
-        citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist)"
+        # First real-row scorecard (2026-10-08, the three SD rows): SRC_FILE_NAME
+        # is the name prefix + '*'; the audit columns are LOB, SRC_FILE_NAME,
+        # REC_CREATION_TIME, REC_UPDATED_TIME, typed in the data columns'
+        # casing; RECYCL_* are never an asserted N — open for the engineer
+        # when no document states a recycle.
+        src_file_name: prefix_star
+        audit_columns: [LOB, SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME]
+        audit_type_case: data
+        recycle_unstated: open
+        citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist); SD rows (first real-row scorecard, 2026-10-08)"
       constants:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_CONNECTION_ID: "7"
@@ -59,6 +68,9 @@ metadata:
           SRC_ADLS_ARCHVL_PATH: "{landing_rel}Archive/"
           TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
           TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
+          # Written only when a document states the recycle (else open, the
+          # shape offered in the tooltip).
+          RECYCL_ADLS_PATH: "/{domain_path}Recycle/{stage_table}"
       path_citations:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_PATH: *acfc

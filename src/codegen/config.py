@@ -370,6 +370,9 @@ class VddExtractorConfig(BaseModel):
     type_equivalence: list[list[str]] = Field(default_factory=list)
     # FRD file-format words that mean fixed width (positions required).
     fixed_width_tokens: list[str] = Field(default_factory=list)
+    # A dictionary missing more than this share of the STTM's fields covers a
+    # different sheet / feed: ONE vdd_scope_mismatch flag, not one per field.
+    scope_mismatch_ratio: float = 0.8
 
 
 class ExtractorConfig(BaseModel):
@@ -388,6 +391,11 @@ class ExtractorConfig(BaseModel):
     # both layers and flagged field_unmapped:<field>, citing the cell. Empty =
     # no marker is recognised (the row then fails loudly for its missing type).
     unmapped_markers: list[str] = Field(default_factory=list)
+    # A delimiter stated as a word ("Pipe", "comma delimited") -> the
+    # character every artefact writes (first real-row scorecard, 2026-10-08).
+    delimiter_words: dict[str, str] = Field(default_factory=lambda: {
+        "comma": ",", "pipe": "|", "tab": "\t", "semicolon": ";", "caret": "^",
+        "tilde": "~", "colon": ":"})
     # Multi-table rule 2 (docs/acfc/MULTI_TABLE_DESIGN.md): a file-pattern
     # token that varies by LOB (matched case-insensitively). A pattern holding
     # one expands to one file per LOB the header block lists.
@@ -1045,6 +1053,24 @@ class FamilyConventionsConfig(BaseModel):
     # ADLS SCHEMA_DRIFT_FLAG (2026-10-09): the pair-1 (PRX) golden 'N'; the SD
     # file-to-stage row and the CAQH IIG 'Y'.
     schema_drift_flag: str = "N"
+    # First real-row scorecard (2026-10-08, the three SD rows):
+    # ADLS SRC_FILE_NAME: "pattern" = the stated pattern, date tokens as '*'
+    # (the pair-1 / pair-4 goldens); "prefix_star" = the OBJECT_NAME prefix + '*'
+    # (date / time tokens and the extension dropped — the SD rows).
+    src_file_name: Literal["pattern", "prefix_star"] = "pattern"
+    # The IIG's audit columns: [] = the STTM's audit rows (the PRX three);
+    # a list = the family's own, in order (SD / CAQH: LOB, SRC_FILE_NAME,
+    # REC_CREATION_TIME, REC_UPDATED_TIME) — a column the STTM types keeps its
+    # type, any other is String; a column already a data column is not repeated.
+    audit_columns: list[str] = Field(default_factory=list)
+    # Audit type casing: "configured" = the template's audit_type_casing (the
+    # pair-1 golden's 'String' / 'TIMESTAMP'); "data" = the data columns' casing.
+    audit_type_case: Literal["configured", "data"] = "configured"
+    # RECYCL_* cells when no document states a recycle: "open" = blank and
+    # open for the engineer to confirm, the convention-shaped table / path in
+    # the tooltip (never an asserted N); "N" = the family writes N / NA / NA
+    # (the pair-1 and pair-4 goldens).
+    recycle_unstated: Literal["open", "N"] = "open"
     citation: str = ""
 
     @model_validator(mode="after")
@@ -1106,6 +1132,15 @@ class MetadataTemplateConfig(BaseModel):
     # path cell (the FRD landing, table names); the shapes' own literals
     # ("Processed/") are written as configured. "preserve" = as stated.
     path_case: Literal["preserve", "lower"] = "preserve"
+    # OBJECT_NAME (and the prefix_star SRC_FILE_NAME): the trailing segments
+    # made only of these date / time tokens are dropped with the extension
+    # and the wildcards ('demographics_YYYY_MM.csv' -> 'demographics').
+    object_name_strip_tokens: list[str] = Field(default_factory=lambda: [
+        "CCYY", "YYYY", "YY", "MM", "DD", "HH", "MI", "SS"])
+    # ADLS SRC_DATA_TYPE source side for a FILE source: file fields are
+    # strings, whatever type the STTM's source band states
+    # (src_type_coerced_string flags the difference).
+    file_source_type: str = "String"
     constants: dict[str, dict[str, str]] = Field(default_factory=dict)
     # Per-cell citation for a constant that does not come from the template
     # itself (an environment overlay): {tab: {header: citation}}; a

@@ -65,9 +65,42 @@ def _named_sources(fields: list[SttmField]) -> bool:
         for f in fields)
 
 
+def _recase(value: str, like: str | None) -> str:
+    """``value`` in the casing style of ``like`` ('String' -> 'Timestamp',
+    'STRING' -> 'TIMESTAMP', 'string' -> 'timestamp')."""
+    if not like or not value:
+        return value
+    if like.isupper():
+        return value.upper()
+    if like.islower():
+        return value.lower()
+    return value[:1].upper() + value[1:].lower()
+
+
+def _family_audit(tpl: MetadataTemplateConfig, stated: list[tuple[str, str]],
+                  data: list[SttmField]) -> list[tuple[str, str]]:
+    """The IIG's audit columns by the family convention (first real-row
+    scorecard, 2026-10-08): the STTM's audit rows (the PRX three), or the
+    family's own list in order — a column the STTM types keeps its type, any
+    other is String, a column already a data column of the table is not
+    repeated. Casing: the template's audit_type_casing, or the data columns'."""
+    convention = tpl.family_conventions
+    if convention.audit_columns:
+        types = {c.upper(): t for c, t in stated}
+        data_columns = {f.stage_column.upper() for f in data}
+        columns = [(c, types.get(c.upper(), "String")) for c in convention.audit_columns
+                   if c.upper() not in data_columns]
+    else:
+        columns = list(stated)
+    if convention.audit_type_case == "data":
+        like = next((f.stage_datatype for f in data if f.stage_datatype), None)
+        return [(c, _recase(t, like)) for c, t in columns]
+    return [(c, tpl.audit_type_casing.get(t, t)) for c, t in columns]
+
+
 def _audit(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) -> list[tuple[str, str]]:
-    return [(a.column, tpl.audit_type_casing.get(a.datatype, a.datatype))
-            for a in spec.audit_columns]
+    return _family_audit(tpl, [(a.column, a.datatype) for a in spec.audit_columns],
+                         spec.detail_segment.fields)
 
 
 @dataclass
@@ -128,9 +161,10 @@ def _group_audit(group: _TableGroup, spec: ResolvedFeedSpec,
         seen: dict[str, str] = {}
         for segment in group.segments:
             for a in segment.audit_columns or []:
-                seen.setdefault(a.column, tpl.audit_type_casing.get(a.datatype, a.datatype))
-        return list(seen.items())
-    return _audit(spec, tpl)
+                seen.setdefault(a.column, a.datatype)
+        return _family_audit(tpl, list(seen.items()), group.fields)
+    return _family_audit(tpl, [(a.column, a.datatype) for a in spec.audit_columns],
+                         group.fields)
 
 
 def _feed_files(spec: ResolvedFeedSpec, config: Config) -> list[FeedFile]:
@@ -326,6 +360,8 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
     uri = location_scheme(feed.landing_location)
     landing_rel = _landing_rel(tpl, tab, landing)
     for header, pattern in tpl.path_patterns.get(tab, {}).items():
+        if header == "RECYCL_ADLS_PATH":
+            continue                     # _recycle_cells: only when a recycle is stated
         if uri and any(p in pattern for p in _RELATIVE_PLACEHOLDERS):
             continue                     # a location URI has no container-relative path
         if uri:
@@ -377,9 +413,52 @@ def _path_tooltip(tpl: MetadataTemplateConfig, tab: str, header: str, pattern: s
             "assigned at deployment")
 
 
-def _object_name(pattern: str) -> str:
+def _object_name(pattern: str, tokens: list[str] | None = None) -> str:
+    """The pattern's name: extension and wildcards removed, then (first
+    real-row scorecard) every TRAILING segment made only of date / time tokens
+    (``object_name_strip_tokens``: 'demographics_YYYY_MM.csv' -> 'demographics',
+    'x_MI_YYYYMMDD_HHMM.psv' -> 'x'). A token inside the name is kept."""
     stem = PurePosixPath(pattern).stem if "." in pattern else pattern
-    return re.sub(r"_\*|\*_|\*", "", stem)
+    stem = re.sub(r"_\*|\*_|\*", "", stem)
+    if tokens:
+        run = "(?:" + "|".join(re.escape(t) for t in sorted(tokens, key=len, reverse=True)) + ")+"
+        trailing = re.compile(rf"[_\-. ]{run}$")
+        while (match := trailing.search(stem)) is not None and match.start() > 0:
+            stem = stem[:match.start()]
+    return stem
+
+
+def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
+                        badge: str) -> dict:
+    """ADLS SRC_FILE_NAME by the family convention: the pattern (date tokens
+    as '*'), or the OBJECT_NAME prefix + '*' (prefix_star — the SD rows)."""
+    if tpl.family_conventions.src_file_name == "prefix_star":
+        value = _object_name(pattern, tpl.object_name_strip_tokens) + "*"
+        return _cell(value, badge, f"stated {stated!r} — the name prefix + '*' (family "
+                                   f"convention src_file_name: prefix_star; "
+                                   f"{_family_citation(tpl)})")
+    return _cell(pattern, badge, f"stated {stated!r}" if pattern != stated else None)
+
+
+# ---- rule 3: SOURCE ------------------------------------------------------------
+_VENDOR_SEPARATOR_RE = re.compile(r"\s*[\u2013\u2014]\s*|\s+-\s+")
+
+
+def _source_cell(feed: FrdFeed) -> dict:
+    """SOURCE = the vendor's display name (first real-row scorecard): a
+    trailing vendor id / code after an en-dash or a spaced hyphen ('Vendor C
+    \u2013 VC 00000') is dropped; the full label stays in the tooltip. A tail
+    that is a word, not a code, is kept."""
+    full = (feed.source_system or "").strip()
+    parts = list(_VENDOR_SEPARATOR_RE.finditer(full))
+    if parts:
+        last = parts[-1]
+        name, tail = full[:last.start()].strip(), full[last.end():].strip()
+        if name and tail and (re.search(r"\d", tail)
+                              or re.fullmatch(r"[A-Z0-9_#/. ]{1,15}", tail)):
+            return _cell(name, "from_frd", f"vendor display name — the FRD states {full!r} "
+                                           f"(trailing vendor id / code {tail!r} dropped)")
+    return _cell(feed.source_system, "from_frd")
 
 
 def _faq_cell(faq, name: str, label: str) -> dict | None:
@@ -422,16 +501,36 @@ def _frequency(feed: FrdFeed, faq) -> dict:
         return cell
     entry = cell["badge_entry"]
     token = _frequency_token(raw)
-    if token == raw:
-        return cell
     source = entry.get("tooltip") or ("FRD Descriptive Metadata → Frequency"
                                       if entry["badge"] == "from_frd" else "stated")
     if token is None:
         return _cell("", "needs_template",
                      f"{source}: stated as {raw!r} — no single framework frequency token "
                      "(Monthly / Daily / Weekly / Yearly); left open")
-    return _cell(token, entry["badge"],
-                 f"{source}: stated as {raw!r} → framework frequency token {token!r}")
+    cell = (cell if token == raw else
+            _cell(token, entry["badge"],
+                  f"{source}: stated as {raw!r} → framework frequency token {token!r}"))
+    return _with_frequency_ambiguity(cell, token, raw, feed)
+
+
+def _with_frequency_ambiguity(cell: dict, token: str, raw: str, feed: FrdFeed) -> dict:
+    """First real-row scorecard (2026-10-08): the delivery statement wins
+    over narrative mentions; when the narrative names a DIFFERENT token the
+    cell keeps the delivery one and says so (frequency_ambiguous, both
+    tokens, the narrative sentences cited)."""
+    others: dict[str, list[str]] = {}
+    for mention in getattr(feed, "frequency_mentions", None) or []:
+        for match in _FREQUENCY_TOKEN_RE.finditer(mention):
+            other = _FREQUENCY_TOKENS[match.group(1).lower()]
+            if other != token:
+                others.setdefault(other, []).append(mention)
+    if others:
+        cited = "; ".join(f"{t!r}: {mentions[0]}" for t, mentions in sorted(others.items()))
+        cell["badge_entry"]["note"] = (
+            f"frequency_ambiguous — the delivery statement {raw!r} gives {token!r} (written); "
+            f"the FRD's narrative also names {sorted(others)} — {cited}; confirm the cadence "
+            "the framework schedules")
+    return cell
 
 
 def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
@@ -604,34 +703,50 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
     audit = _group_audit(detail, spec, tpl)
     stage = detail.stage
     reject = _reject_table(tpl, spec, stage.table)
-    files = (_feed_files(spec, config) if tpl.rows_per_file_pattern
-             else [FeedFile(pattern="; ".join(spec.file_name_patterns), lob=None,
-                            template="; ".join(spec.file_name_patterns),
-                            provenance="every file pattern on one row")])
+    # One row per file pattern ALWAYS (first real-row scorecard): several
+    # patterns are never joined with ';' into one cell.
+    files = _feed_files(spec, config)
     if tpl.src_columns_style == "named" and _named_sources(fields):
         src_columns = ",".join(f"{f.source_column}:{f.source_column}" for f in fields)
     elif tpl.src_columns_style in ("positional", "named"):
         src_columns = ",".join(f"col{i}:{f.stage_column}" for i, f in enumerate(fields, start=1))
     else:
         src_columns = ",".join(f"{f.source_column}:{f.stage_column}" for f in fields)
+    # A FILE source (delimited / fixed width): its fields are strings, whatever
+    # the STTM's source band types them (first real-row scorecard, 2026-10-08).
+    source_type = tpl.file_source_type
     if tpl.data_type_style == "base":
-        src_types = ",".join(f"{f.source_datatype}:{_base_type(f.stage_datatype)}" for f in fields)
+        src_types = ",".join(f"{source_type}:{_base_type(f.stage_datatype)}" for f in fields)
     else:
-        src_types = ",".join(f"{f.source_datatype}:{f.stage_datatype}" for f in fields)
+        src_types = ",".join(f"{source_type}:{f.stage_datatype}" for f in fields)
+    coerced = [f for f in fields if (f.source_datatype or "").strip().lower()
+               not in ("", "unstated", source_type.lower())]
+    src_type_cell = _cell(src_types, "from_sttm",
+                          f"file fields are strings: source side {source_type!r} for every "
+                          "column (template file_source_type)")
+    if coerced:
+        src_type_cell["badge_entry"]["note"] = (
+            f"src_type_coerced_string:{detail.stage.table} — {len(coerced)} source field(s) the "
+            f"STTM types otherwise, written {source_type!r} (file fields are strings): "
+            + ", ".join(f"{f.source_column} {f.source_datatype!r}"
+                        + (f" ({f.provenance.sheet} row {f.provenance.row})"
+                           if f.provenance else "") for f in coerced[:5])
+            + (f" … +{len(coerced) - 5}" if len(coerced) > 5 else ""))
     key_columns = _primary_key(fields, "stage")
     rows = []
     for index, file in enumerate(files, start=1):
         pattern = _wildcarded(file.pattern, tpl)
         cells = {
             "OBJECT_ID": _sequence_cell(index, f"file ({pattern})"),
-            "OBJECT_NAME": (_cell(_object_name(pattern), "from_frd",
-                                  f"derived from the file pattern {pattern!r} (wildcards and "
-                                  "extension removed)")
+            "OBJECT_NAME": (_cell(_object_name(pattern, tpl.object_name_strip_tokens),
+                                  "from_frd",
+                                  f"derived from the file pattern {pattern!r} (wildcards, "
+                                  "trailing date / time tokens and extension removed)")
                             if tpl.object_name_from_pattern
                             else _cell(feed.feed_name, "from_frd")),
             "DOMAIN": _cell(feed.domain or "", "from_frd"),
             "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
-            "SOURCE": _cell(feed.source_system, "from_frd"),
+            "SOURCE": _source_cell(feed),
             "FREQUENCY": _frequency(feed, faq),
             "LOB": (_lob_cell(tpl, file.lob, f"this file's LOB — {file.provenance}")
                     if file.lob else
@@ -639,11 +754,11 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                               "the feed's LOB (FRD / STTM header block) — not a per-LOB "
                               "file (docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")),
             "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl),
-            "SRC_FILE_NAME": _cell(pattern, "from_frd" if feed.file_name_patterns else "from_sttm",
-                                   (f"stated {file.template!r}" if pattern != file.template
-                                    else None)),
+            "SRC_FILE_NAME": _src_file_name_cell(
+                tpl, pattern, file.template,
+                "from_frd" if feed.file_name_patterns else "from_sttm"),
             "SRC_COLUMNS": _cell(src_columns, "from_sttm"),
-            "SRC_DATA_TYPE": _cell(src_types, "from_sttm"),
+            "SRC_DATA_TYPE": src_type_cell,
             "TGT_DATABASE_NAME": _cell(stage.schema_name, "from_frd"),
             "TGT_TABLE_NAME": _cell(stage.table, "from_frd"),
             "TGT_COLUMN_NAMES": _cell(
@@ -655,7 +770,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                 reject, "synthetic" if tpl.reject_table_suffix is not None else "from_sttm",
                 _TEMPLATE_TOOLTIP.format(citation=tpl.citation)
                 if tpl.reject_table_suffix is not None else "stage table + errors suffix"),
-            "RECYCL_ENBL_FLG": _cell("Y" if spec.recycle else "N", "from_frd"),
+            **_recycle_cells(tpl, tab, feed, spec, config, stage.table),
         }
         if config.metadata.claim_type_id_default is not None:
             from codegen.metadata_sheet import _claim_type_cell
@@ -693,6 +808,54 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
     return rows
 
 
+def _recycle_cells(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
+                   spec: ResolvedFeedSpec, config: Config, stage_table: str) -> dict:
+    """RECYCL_* (first real-row scorecard, 2026-10-08): derived when a document
+    states the recycle (the STTM's Recycle Flag cell, the FRD's recycle rule):
+    Y, the resolved recycle table, the template's RECYCL_ADLS_PATH shape, the
+    stated window. Unstated: by the family convention — blank and open for
+    the engineer to confirm, the convention-shaped table / path offered in the
+    tooltip (never an asserted N), or the family's N / NA / NA."""
+    from codegen.resolve.resolver import side_table_name
+
+    shape = tpl.path_patterns.get(tab, {}).get("RECYCL_ADLS_PATH")
+    table = (spec.recycle.recycle_table.table if spec.recycle is not None
+             else side_table_name(stage_table, config.naming.recycle_table_suffix))
+    landing = _landing(feed)
+    path = None
+    if shape and landing is not None and not location_scheme(feed.landing_location):
+        landing_rel = _landing_rel(tpl, tab, landing)
+        path = shape.format(landing=landing, landing_rel=landing_rel,
+                            domain_path=_domain_path(landing_rel), stage_table=stage_table,
+                            reject_table="", recycle_table=table).replace("//", "/")
+    stated = spec.recycle is not None or bool(feed.recycle_rule)
+    if stated:
+        why = ("the STTM's Recycle Flag cell" if spec.recycle is not None
+               else "the FRD's recycle rule")
+        cells = {"RECYCL_ENBL_FLG": _cell("Y", "from_sttm" if spec.recycle else "from_frd",
+                                          f"recycle stated — {why}")}
+        if spec.recycle is not None:
+            cells["RECYCL_TBL_NM"] = _cell(table, "from_sttm", "the resolved recycle table "
+                                           "(stage table + recycle suffix)")
+            cells["RECYCL_RETN_DAYS"] = _cell(str(spec.recycle.spec.recycle_window_days),
+                                              "from_sttm", "the recycle window the STTM states")
+        if path is not None:
+            cells["RECYCL_ADLS_PATH"] = _path_cell(
+                tpl, tab, "RECYCL_ADLS_PATH", path, "synthetic",
+                _path_tooltip(tpl, tab, "RECYCL_ADLS_PATH", shape))
+        return cells
+    if tpl.family_conventions.recycle_unstated == "N":
+        return {"RECYCL_ENBL_FLG": _cell("N", "from_frd", "no document states a recycle; the "
+                                         "family writes N (family convention recycle_unstated: "
+                                         f"N; {_family_citation(tpl)})")}
+    offer = (f"no document states a recycle (FRD reprocessing / recycle rule, STTM Recycle "
+             f"Flag) — confirm; if enabled, the convention-shaped table is {table!r}"
+             + (f" and the path {path!r}" if path else ""))
+    # Blank cells, never the template's NA constants: open, engineer to confirm.
+    return {header: _cell("", "needs_template", offer)
+            for header in ("RECYCL_ENBL_FLG", "RECYCL_TBL_NM", "RECYCL_ADLS_PATH")}
+
+
 def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
     """Rule 4: one row per TABLE with a standard definition — source = its
     stage table, target = its standard table (catalog mapped, step 2)."""
@@ -716,7 +879,7 @@ def _stg_object_name(tpl: MetadataTemplateConfig, table: str, generalized: str) 
     if convention.stgdelta_object_name == "table_name":
         return _cell(table, "from_sttm", f"the table this row moves (family convention; "
                                          f"{citation})")
-    return _cell(_object_name(generalized), "from_frd",
+    return _cell(_object_name(generalized, tpl.object_name_strip_tokens), "from_frd",
                  f"the generalized file pattern {generalized!r} (wildcards and extension "
                  f"removed; family convention, {citation})")
 
@@ -739,7 +902,7 @@ def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
         "OBJECT_NAME": _stg_object_name(tpl, standard.table, generalized),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
-        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "SOURCE": _source_cell(feed),
         "FREQUENCY": _frequency(feed, faq),
         "LOB": (_lob_cell(tpl, ",".join(lobs), "the LOBs of the feed's per-LOB files")
                 if lobs else

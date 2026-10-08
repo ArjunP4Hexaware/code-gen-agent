@@ -142,10 +142,19 @@ for name in documents:
 # COMMAND ----------
 
 # DBTITLE 1,Pair by content, resolve the layout, extract, generate
+from codegen.cli import EXIT_FAILED, EXIT_NEEDS_ANSWERS, EXIT_OK  # noqa: E402
+
+STEPS: dict[str, int] = {}             # step -> codegen exit code (the summary below)
+NEEDS_ANSWERS: list[str] = []          # the CLI's NEEDS_ANSWERS lines (answers.yaml keys)
+
+
 def run(label: str, *args: str) -> int:
     print(f"\n=== {label}")
     done = launch_codegen(REPO, *args)
     print(done.stdout + (("\nSTDERR:\n" + done.stderr) if done.stderr.strip() else ""))
+    STEPS[label] = done.returncode
+    NEEDS_ANSWERS.extend(line for line in done.stdout.splitlines()
+                         if line.startswith("NEEDS_ANSWERS") and line not in NEEDS_ANSWERS)
     return done.returncode
 
 
@@ -199,6 +208,10 @@ if frd.suffix.lower() != ".docx":
 run("extract-sttm", "extract-sttm", "--workbook", str(sttm), "--frd-contract",
     str(frd_contract), "--out", str(work / "sttm.contract.json"),
     "--layout", str(work / "sttm.layout.json"))
+if not (work / "sttm.contract.json").is_file():
+    # Exit 3 with no contract: EVERY feed needs an answer — nothing to generate.
+    raise SystemExit("extract-sttm wrote no contract — see the NEEDS_ANSWERS / FAIL lines "
+                     "above; answer the keys in answers.yaml (docs/ACFC_DEPLOY.md §6)")
 vdd_args: list[str] = []
 if vdd is not None:
     run("extract-vdd", "extract-vdd", "--vdd", str(vdd), "--out", str(work / "vdd.contract.json"))
@@ -214,3 +227,16 @@ run("generate", "generate", "--frd-contract", str(frd_contract), "--sttm-contrac
 sent = stores.outputs.push_tree("")
 print(f"{len(sent)} file(s) stored under {stores.outputs.uri()}" if sent
       else f"outputs are local: {stores.outputs.workdir}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Summary — 0 ok, 1 failed, 3 needs answers (codegen --help)
+MEANING = {EXIT_OK: "ok", EXIT_FAILED: "FAILED", EXIT_NEEDS_ANSWERS: "needs answers"}
+for step, code in STEPS.items():
+    print(f"{step:<14} {MEANING.get(code, f'exit {code}')}")
+if NEEDS_ANSWERS:
+    print("\nNEEDS ANSWERS — the outputs above were written for every feed that could "
+          "proceed; answer these keys under `gaps:` in the pair folder's answers.yaml and "
+          "re-run:")
+    for line in NEEDS_ANSWERS:
+        print("  " + line)

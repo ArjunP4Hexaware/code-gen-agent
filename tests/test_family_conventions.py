@@ -27,6 +27,8 @@ PAIR1_FAMILY = FamilyConventionsConfig(lob="blank", stgdelta_unknown_primary_key
                                        stgdelta_object_name="literal",
                                        stgdelta_object_name_literal="X_FORM",
                                        schema_drift_flag="N",
+                                       # both goldens write N / NA / NA without a recycle
+                                       recycle_unstated="N",
                                        citation="test: the pair-1 family")
 
 

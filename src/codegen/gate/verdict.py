@@ -93,6 +93,13 @@ def compute_verdict(
     if tests_skipped:
         flags.append("generated tests were skipped — PASS cannot be claimed")
     for check in checks:
+        if check.formatted:
+            # First real-row scorecard: `ruff format` rewrote emitted .py files
+            # before the lint (a long line wraps, never an E501 FAIL).
+            shown = ", ".join(check.formatted[:6]) + (
+                f" … +{len(check.formatted) - 6}" if len(check.formatted) > 6 else "")
+            flags.append(f"{check.name}_formatted: {len(check.formatted)} emitted .py file(s) "
+                         f"rewritten by `ruff format` before the check — {shown}")
         if check.fixes:
             # First ACFC run: cosmetic lint the gate fixed itself (ruff's safe
             # fixes) — recorded, never a FAIL.

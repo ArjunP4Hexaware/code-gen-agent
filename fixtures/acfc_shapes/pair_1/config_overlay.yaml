@@ -17,6 +17,7 @@ metadata:
         stgdelta_object_name: literal
         stgdelta_object_name_literal: Accumulator_accumclient
         schema_drift_flag: "N"      # the aliased golden IIG, every ADLS row
+        recycle_unstated: "N"       # the golden writes N / NA / NA for a feed without recycle
         citation: "pair-1 family convention (pair-1 overlay, transcribed from the aliased golden IIG)"
       template_rows:
         DATA_FACTORY_PIPELINE_SCHEDULE:

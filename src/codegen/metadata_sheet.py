@@ -780,6 +780,7 @@ def _feed_from_spec(spec: ResolvedFeedSpec) -> FrdFeed:
         phi_pii_notes=None,
         sttm_reference=None,
         requirement_ids=[],
+        frequency_mentions=list(spec.frequency_mentions),
     )
 
 

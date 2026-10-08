@@ -48,6 +48,9 @@ class GateCheck(BaseModel):
     # The flag kind a not-run check raises (default ``check_not_run:<name>``);
     # e.g. ``ruff_unavailable`` when the ruff module is not installed.
     flag: str | None = None
+    # First real-row scorecard: the emitted .py files `ruff format` rewrote
+    # before the lint (E501 never fails a feed) — the ruff_formatted flag.
+    formatted: list[str] = []
     # First ACFC run: what the check FIXED before it judged (ruff's safe
     # fixes — cosmetic lint never FAILs a feed); the verdict flags it
     # ``ruff_fixed``. One "<file>: <code> xN" entry per fixed kind.
@@ -93,6 +96,40 @@ def _finding_key(item: dict, feed_dir: Path) -> tuple[str, str]:
     with contextlib.suppress(ValueError):
         where = where.resolve().relative_to(feed_dir.resolve())
     return where.as_posix(), str(item.get("code") or "syntax")
+
+
+def _format_emitted(feed_dir: Path) -> tuple[list[str], str]:
+    """`ruff format` over every emitted .py of the feed (the feed's own
+    ruff.toml: line length, target) BEFORE the lint, so a long generated line
+    is wrapped instead of failing E501. Returns (rewritten files relative to
+    the feed, a problem note). The assembled notebook is re-synced when a
+    module or the entrypoint changed."""
+    files = sorted(feed_dir.rglob("*.py"))
+    if not files:
+        return [], ""
+    before = {p: p.read_bytes() for p in files}
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", "format", "--no-cache", str(feed_dir)],
+            capture_output=True, text=True, check=False, env=child_env())
+    except OSError as exc:
+        return [], f"ruff format could not be started: {exc}"
+    if result.returncode != 0:
+        return [], f"ruff format did not run (exit {result.returncode}): " + (
+            (result.stdout + result.stderr).strip()[:200])
+    changed = [p for p in files if p.read_bytes() != before[p]]
+    rewritten = [p.relative_to(feed_dir).as_posix() for p in changed]
+    notebook = feed_dir / f"{feed_dir.name}.ipynb"
+    if notebook.is_file() and any(p.parent.name in ("pipeline", "job") for p in changed):
+        from codegen.emit.context import TemplateGapError
+        from codegen.emit.notebook import resync_notebook
+
+        try:
+            resync_notebook(notebook, feed_dir)
+        except (TemplateGapError, SyntaxError) as exc:
+            return rewritten, (f"the formatted modules no longer assemble into "
+                               f"{notebook.name}: {exc}")
+    return rewritten, ""
 
 
 def _apply_safe_fixes(feed_dir: Path, findings: list) -> tuple[list | None, list[str], str]:
@@ -156,11 +193,22 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
     # remains after them is the finding.
     if importlib.util.find_spec("ruff") is None:
         return _ruff_unavailable(f"the ruff module is not installed for {sys.executable}")
+    formatted, format_problem = _format_emitted(feed_dir)
+    if format_problem and formatted:
+        return GateCheck(name="ruff", passed=False, formatted=formatted,
+                         details=f"ruff format: {format_problem}")
     try:
         findings, result = _ruff_json(feed_dir)
     except OSError as exc:
         return GateCheck(name="ruff", passed=True, not_run=True,
                          details=f"ruff could not be started: {exc}")
+    check = _judge_ruff(feed_dir, findings, result)
+    if formatted:
+        check = check.model_copy(update={"formatted": formatted})
+    return check
+
+
+def _judge_ruff(feed_dir: Path, findings, result) -> GateCheck:
     if findings is None:
         if result.returncode == 0:
             return GateCheck(name="ruff", passed=True, details="ruff clean")

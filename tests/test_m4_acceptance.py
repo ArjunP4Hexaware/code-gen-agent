@@ -194,6 +194,9 @@ PAIR1_GATE_FLAG_KINDS = {
     "Layer-2": 6,                  # "Layer-2 candidate pending engineer approval: …"
     "rule": 1,                     # "rule classified flagged: …"
     "generated": 1,                # "generated tests were skipped — PASS cannot be claimed"
+    # 2026-10-08 (first real-row scorecard): `ruff format` runs over every
+    # emitted .py before the ruff gate and the rewrite is recorded.
+    "ruff_formatted": 1,
 }
 
 

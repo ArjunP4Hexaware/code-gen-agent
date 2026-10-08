@@ -20,7 +20,7 @@ generation path between them never opens a socket (codegen/sharepoint.py).
 Per feed: resolve -> compile rules -> Layer 2 over unmapped rules -> render
 templates -> write candidates artifact -> gate -> report. A feed that fails
 resolution or rendering is reported FAIL and does not stop other feeds.
-Exit code is 0 only when no feed FAILed.
+Exit code is 0 only when no feed FAILed (see EXIT_CODES).
 """
 
 from __future__ import annotations
@@ -260,7 +260,17 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
 # A feed held back because no document states one of its targets (the
 # extractor's NEEDS_ANSWERS): not a FAIL — the run stops short of it and names
 # the answers-file key. Exit code when nothing FAILED but a feed needs answers.
+EXIT_OK = 0
+EXIT_FAILED = 1
 EXIT_NEEDS_ANSWERS = 3
+EXIT_CODES = f"""exit codes:
+  {EXIT_OK}  ok — every feed generated (PASS / PASS_WITH_FLAGS)
+  {EXIT_FAILED}  failed — a feed FAILed its gate, or a command could not complete
+  {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — output written for every feed that could proceed; one or
+     more feeds are held back, each printed as a NEEDS_ANSWERS line naming the
+     answers.yaml key to answer under `gaps:` (e.g. feeds[2].stage_target.tables);
+     answer them and re-run (`codegen layout --answers answers.yaml`)
+"""
 
 
 def _print_needs_answers(pending) -> None:
@@ -1044,7 +1054,8 @@ def _contract_path(value: str, config: Config) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="codegen", description=__doc__)
+    parser = argparse.ArgumentParser(prog="codegen", description=__doc__, epilog=EXIT_CODES,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)

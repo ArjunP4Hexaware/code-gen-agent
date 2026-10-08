@@ -9,7 +9,9 @@ field-count difference adds one summary flag beside the per-field list.
 Flag classes: ``vdd_mismatch:type`` (through the type-equivalence table in
 ``extractor.vdd.type_equivalence`` — CHAR/VARCHAR/String are one class),
 ``vdd_mismatch:length``, ``vdd_mismatch:position``, ``vdd_missing_in_sttm``,
-``vdd_missing_in_vdd``, ``vdd_segment_mismatch``, ``vdd_field_count``.
+``vdd_missing_in_vdd``, ``vdd_segment_mismatch``, ``vdd_field_count``; a dictionary missing
+more than ``extractor.vdd.scope_mismatch_ratio`` of the STTM's fields collapses
+all of them into ONE ``vdd_scope_mismatch`` (it covers another sheet / feed).
 
 The verdict stays PASS_WITH_FLAGS — except when the FRD says fixed-width
 and the VDD supplies no positions: that is a failed gate check naming the
@@ -163,6 +165,17 @@ def vdd_cross_check(spec: ResolvedFeedSpec, config: Config) -> tuple[list[str], 
     if len(sttm_index) != len(vdd_index):
         flags.append(f"vdd_field_count — STTM {len(sttm_index)} source field(s) vs VDD "
                      f"{len(vdd_index)} field(s) on sheet(s) {sheets}")
+    missing = sum(1 for f in flags if f.startswith("vdd_missing_in_vdd"))
+    ratio = config.extractor.vdd.scope_mismatch_ratio
+    if sttm_index and missing / len(sttm_index) > ratio:
+        # First real-row scorecard (2026-10-08): a dictionary that lacks most
+        # of the STTM's fields describes another sheet / feed — ONE flag, not
+        # hundreds of per-field ones that bury the real findings.
+        flags = [f"vdd_scope_mismatch — the VDD sheet(s) {sheets} carry {len(vdd_index)} "
+                 f"field(s) but {missing} of the STTM's {len(sttm_index)} source fields "
+                 f"({missing / len(sttm_index):.0%}, over {ratio:.0%}) have no row there: the "
+                 "dictionary covers a different sheet / feed than the STTM; per-field VDD "
+                 "flags suppressed — pass the dictionary of THIS feed"]
 
     check: GateCheck | None = None
     fixed_tokens = [t.lower() for t in config.extractor.vdd.fixed_width_tokens]

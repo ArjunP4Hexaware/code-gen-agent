@@ -700,6 +700,37 @@ def _parse_target_schema(text: str, config: FrdExtractorConfig) -> tuple[
     return _part(stage), _part(standard)
 
 
+_CADENCE_RE = re.compile(r"\b(daily|weekly|monthly|quarterly|yearly|annual(?:ly)?)\b",
+                         re.IGNORECASE)
+_MENTION_LIMIT = 12
+_MENTION_CHARS = 120
+
+
+def frequency_mentions(content: DocxContent) -> list[str]:
+    """Every sentence of the document that names a cadence, with where it
+    sits ("'Frequency of data refresh – Monthly Run' (FRD paragraph 229)"):
+    body paragraphs first, then table cells; distinct texts, bounded. The
+    FREQUENCY normaliser compares their tokens with the delivery statement."""
+    found: list[str] = []
+    seen: set[str] = set()
+    sources = [(f"FRD paragraph {i}", text) for i, (_t, text) in enumerate(content.paragraphs)]
+    sources += [(f"FRD table {t} row {r}", cell) for t, table in enumerate(content.tables)
+                for r, row in enumerate(table) for cell in row]
+    for where, text in sources:
+        for sentence in re.split(r"(?<=[.;])\s+|\n+", text or ""):
+            sentence = " ".join(sentence.split())
+            key = sentence.lower()
+            if not sentence or key in seen or not _CADENCE_RE.search(sentence):
+                continue
+            seen.add(key)
+            shown = (sentence if len(sentence) <= _MENTION_CHARS
+                     else sentence[:_MENTION_CHARS] + "…")
+            found.append(f"{shown!r} ({where})")
+            if len(found) >= _MENTION_LIMIT:
+                return found
+    return found
+
+
 def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
              document_name: str, generated_date: str, contract_name: str | None = None
              ) -> FrdContract:
@@ -708,6 +739,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     ambiguities: list[str] = []
     structured: dict = {}
     labels = _lookup(frd_config.labels)
+    mentions = frequency_mentions(content)
 
     def get(path: str) -> str:
         source = profile.fields.get(path)
@@ -873,6 +905,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             phi_pii_notes=get(f"{prefix}.phi_pii_notes") or None,
             sttm_reference=get(f"{prefix}.sttm_reference") or None,
             requirement_ids=_split(get(f"{prefix}.requirement_ids"), frd_config.list_separators),
+            frequency_mentions=mentions,
         ))
         if not feed_name:
             ambiguities.append(f"{prefix}.feed_name: unsourced (no Object Name / Name label)")

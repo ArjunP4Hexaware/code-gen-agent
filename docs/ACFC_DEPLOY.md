@@ -390,6 +390,20 @@ playbook templates are widgets passed to `generate` (never an edit of
 `refresh_layout` re-resolves past the cached profiles.
 Use it when the App is stopped or its service principal has no access yet —
 the notebook runs as the user, whose own folders need no sharing.
+Its last cell is a summary of every `codegen` step's exit code (below) and
+lists each `NEEDS_ANSWERS` line together, so a held-back feed is never lost in
+the scroll; when every feed needs an answer, `extract-sttm` writes no
+contract and the notebook stops before `generate`, saying so.
+
+### CLI exit codes (`codegen --help` lists them)
+
+| Code | Meaning |
+| --- | --- |
+| `0` | ok — every feed generated (PASS / PASS_WITH_FLAGS) |
+| `1` | failed — a feed FAILed its gate, or a command could not complete |
+| `3` | NEEDS_ANSWERS — output written for every feed that could proceed; one or more feeds are held back, each printed as a `NEEDS_ANSWERS <feed> (sheet …) — answer <key> under gaps:` line naming the answers.yaml key (e.g. `feeds[2].stage_target.tables`). Answer them under `gaps:` and re-run (`codegen layout --answers answers.yaml`, then extract / generate) |
+
+`extract-sttm` and `generate` both use `3`; `1` wins when anything FAILed.
 
 ## 9. What to compare against the pair-1 golden
 
@@ -503,6 +517,40 @@ Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
      (`--fix`, never `--unsafe-fixes`), re-syncs the assembled notebook from the
      fixed modules, and judges what remains; the fixes are the `ruff_fixed`
      flag (PASS_WITH_FLAGS, never FAIL). A finding without a safe fix still FAILs.
+- **The first real-row scorecard (0.5.8.post21)** — the three SD
+  feeds against their actual config rows; each finding is a general rule or a
+  feed-family convention (`tests/test_sd_scorecard_rules.py`; the pair-1 and
+  pair-4 full-cell goldens unchanged):
+  1. `SRC_FILE_DELIMITER` (and the generated reader) is the character — a stated
+     word goes through `extractor.delimiter_words`; with nothing stated the
+     extension decides (`.csv` `,`, `.psv` `|`, `.tsv` tab; `.txt` needs the FRD),
+     flagged `delimiter_from_extension`.
+  2. `OBJECT_NAME` = the pattern minus wildcards, extension and trailing date /
+     time tokens (`object_name_strip_tokens`); `SRC_FILE_NAME` by family
+     (`src_file_name`: `pattern` — pair 1 / pair 4 — or `prefix_star`, the SD
+     rows: `<name>*`). One ADLS row per pattern, never `;`-joined.
+  3. `SOURCE` = the vendor display name (a trailing id / code after an en-dash or
+     a spaced hyphen dropped; the full label in the tooltip).
+  4. Audit columns by family (`audit_columns`, `audit_type_case`): the SD family
+     (`acfc_env.yaml`) writes `LOB, SRC_FILE_NAME, REC_CREATION_TIME,
+     REC_UPDATED_TIME` in the data columns' casing; PRX keeps the STTM's three.
+  5. `SRC_DATA_TYPE` for a file source is `String:<target>` (`file_source_type`);
+     a different STTM source type is flagged `src_type_coerced_string`.
+  6. `RECYCL_*` are derived when a document states the recycle (Y, the recycle
+     table, the `RECYCL_ADLS_PATH` shape, the window days); otherwise by family
+     (`recycle_unstated`): **open** for the engineer to confirm, the
+     convention-shaped table / path in the tooltip (shipped default and the SD
+     family) — never an asserted N — or `N` (the pair-1 / pair-4 goldens).
+  7. `FREQUENCY`: the delivery statement wins over the FRD's narrative mentions
+     (now recorded on the FRD contract as `frequency_mentions`); a narrative
+     naming a different cadence is flagged `frequency_ambiguous` with both.
+  8. Gate: a Spark session that cannot be configured (`CANNOT_CONFIGURE_SPARK`)
+     makes `generated_tests` CHECK NOT RUN (`spark_unavailable`), never FAIL;
+     `ruff format` rewrites every emitted .py before the lint (`ruff_formatted`)
+     — the notebook-mode snapshot was re-based for exactly that (37 hashes:
+     modules, the notebooks assembled from them, the reports).
+  9. A VDD missing more than `extractor.vdd.scope_mismatch_ratio` (0.8) of the
+     STTM's fields is ONE `vdd_scope_mismatch` flag.
 
 ## What v0.5.8-acfc adds (Generate works right after a restart)
 

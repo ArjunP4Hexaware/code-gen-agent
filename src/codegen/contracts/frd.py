@@ -204,6 +204,11 @@ class FrdFeed(BaseModel):
     phi_pii_notes: str | None
     sttm_reference: str | None
     requirement_ids: list[str]
+    # First real-row scorecard (2026-10-08): the document's OTHER cadence
+    # sentences ("'… report monthly …' (FRD paragraph 64)"), so FREQUENCY can
+    # flag a narrative that names a different token than the delivery
+    # statement. Absent from the JSON when empty.
+    frequency_mentions: list[str] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

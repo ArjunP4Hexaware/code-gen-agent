@@ -164,6 +164,9 @@ class ResolvedFeedSpec(BaseModel):
     # pattern. Empty on a spec built without the resolver (builders then
     # expand file_name_patterns themselves).
     files: list[FeedFile] = Field(default_factory=list)
+    # The FRD's cadence sentences (FrdFeed.frequency_mentions), for the
+    # FREQUENCY normaliser's frequency_ambiguous flag.
+    frequency_mentions: list[str] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

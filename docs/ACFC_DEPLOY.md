@@ -426,10 +426,13 @@ UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in a
 `QUESTION` = a value to answer under `gaps:` (or `pairing:` for `pair.frd` /
 `pair.vdd`); `UNRESOLVED` = a layout role to place under `answers:`. A human
 `NEEDS_ANSWERS` summary line precedes the QUESTION lines; the harness ignores
-it. Note: the harness records `needed_answer_keys` only on an exit `3`, so a
-partial extraction (exit `0`) shows its keys in stdout and the contract notes
-only. `tests/test_harness_answer_lines.py` checks every line against a copy of
-the harness's parse rule.
+it. The harness scans every pair's stdout for these lines at the END of the
+pair, whatever the exit codes (HARNESS_EXIT_CODES.md, 517919c), so the keys of
+a partial extraction (exit `0`) are recorded too and the pair reads
+NEEDS_ANSWERS. The key is printed verbatim (a sheet name's spaces kept; only a
+line break becomes a space) — the harness's `_NEEDED_KEY_RE` captures
+everything up to ` — `. `tests/test_harness_answer_lines.py` parses every line
+with that regex, copied verbatim from the harness doc.
 
 ## 9. What to compare against the pair-1 golden
 

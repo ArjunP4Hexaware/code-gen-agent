@@ -1,18 +1,15 @@
 """The answer lines the ACFC harness parses, and the exit-3 branches.
 
 The harness (``codegen-watch`` / ``pull_and_run`` — not in this repo) reads
-the needed answer keys of a pair from the CLI's stdout. Its contract is
-``docs/acfc/HARNESS_EXIT_CODES.md`` on ``origin/acfc/harness-exit3``:
-
-    QUESTION       sttm stage.schema — reason; candidates [...]
-    UNRESOLVED     stage.schema — reason
-    "The key is the text between the label and the em-dash separator."
-
-``HARNESS_LINE_RE`` below is a COPY of that parse rule (transcribed from the
-document — the harness's own source is not available here; replace it with
-the harness's literal regex when it is). Every line the CLI prints for a
-missing answer must match it AND have the exact form: the label padded to 15
-columns, the answers.yaml key, ' — ', the reason.
+the needed answer keys of a pair from the CLI's stdout, at the end of EVERY
+pair whatever the exit codes. Its contract is
+``docs/acfc/HARNESS_EXIT_CODES.md`` on ``origin/acfc/harness-exit3``, whose
+"Line format" section (517919c) gives the harness's own compiled regex,
+``_NEEDED_KEY_RE`` in ``pull_and_run``. It is copied below VERBATIM; group 1
+is the key. Every line the CLI prints for a missing answer must match it AND
+have the exact form: the label padded to 15 columns, the answers.yaml key,
+' — ', the reason — and the harness must capture the WHOLE key, spaces
+included.
 
 Exit codes (docs/ACFC_DEPLOY.md "CLI exit codes"): extract-sttm exits 3 only
 when NO feed produced a usable contract (else 0, contract written, the
@@ -41,26 +38,42 @@ BLANK_SHEET = "MAPPING-VC_DISENROLLMENT"
 HELD_BACK_KEYS = ["feeds[2].stage_target.schema", "feeds[2].stage_target.tables",
                   "feeds[2].standard_target.schema", "feeds[2].standard_target.tables"]
 
-# COPY of the harness's parse rule (HARNESS_EXIT_CODES.md, "What gets recorded"):
-# label, padding, the key up to the em-dash separator, the reason.
-HARNESS_LINE_RE = re.compile(r"^(?P<label>QUESTION|UNRESOLVED)\s+(?P<key>.+?) — (?P<reason>.+)$")
+# VERBATIM from docs/acfc/HARNESS_EXIT_CODES.md ("Line format") on
+# origin/acfc/harness-exit3 — the harness's _NEEDED_KEY_RE in pull_and_run.
+_NEEDED_KEY_RE = re.compile(r"^(?:QUESTION|UNRESOLVED)\s+(.+?)(?:\s+\u2014\s|$)")
 
 
-def _answer_lines(out: str) -> list[re.Match]:
-    """Every QUESTION / UNRESOLVED line, each asserted against the harness's
-    rule AND the exact column form; returns the matches."""
+def _answer_lines(out: str) -> list[dict]:
+    """Every QUESTION / UNRESOLVED line, each parsed with the harness's own
+    regex AND asserted to the exact column form; returns {label, key} per line
+    (key = what the harness records)."""
     lines = [ln for ln in out.splitlines() if ln.startswith(("QUESTION", "UNRESOLVED"))]
-    matches = []
+    parsed = []
     for line in lines:
-        match = HARNESS_LINE_RE.match(line)
+        match = _NEEDED_KEY_RE.match(line)
         assert match, f"the harness cannot parse {line!r}"
-        label = match["label"]
+        label, key = line.split(" ", 1)[0], match.group(1)
         assert line[:cli.ANSWER_LABEL_WIDTH] == label.ljust(cli.ANSWER_LABEL_WIDTH), line
         assert line[cli.ANSWER_LABEL_WIDTH] != " ", line          # the key starts at column 15
-        assert line[cli.ANSWER_LABEL_WIDTH:].startswith(match["key"] + " — "), line
-        assert "\n" not in line and " — " not in match["key"]
-        matches.append(match)
-    return matches
+        assert line[cli.ANSWER_LABEL_WIDTH:].startswith(key + " — "), line   # the WHOLE key
+        assert "\n" not in line and " — " not in key
+        parsed.append({"label": label, "key": key})
+    return parsed
+
+
+def test_a_key_with_spaces_is_captured_whole():
+    key = "MAPPING- (demographics)/stage/schema"
+    line = cli.answer_line("UNRESOLVED", key, "schema role unplaced (sttm)")
+    assert line == ("UNRESOLVED     MAPPING- (demographics)/stage/schema — "
+                    "schema role unplaced (sttm)")
+    assert _NEEDED_KEY_RE.match(line).group(1) == key
+    assert _answer_lines(line) == [{"label": "UNRESOLVED", "key": key}]
+    # A key is printed verbatim: inner whitespace (a sheet name's double space)
+    # survives; only a line break becomes a space.
+    assert _answer_lines(cli.answer_line("QUESTION", "Sheet  A/stage/table", "r"))[0]["key"] \
+        == "Sheet  A/stage/table"
+    assert _answer_lines(cli.answer_line("QUESTION", "Sheet\nB/stage/table", "r"))[0]["key"] \
+        == "Sheet B/stage/table"
 
 
 def _keys(out: str, label: str = "QUESTION") -> list[str]:

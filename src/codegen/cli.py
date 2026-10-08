@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -285,12 +286,15 @@ ANSWER_LABEL_WIDTH = 15
 
 
 def answer_line(label: str, key: str, reason: str) -> str:
-    """One missing answer in the form the harness parses: ``label`` padded to
-    15 columns, the answers.yaml key, ' — ', the reason — each on one line."""
+    """One missing answer in the form the harness parses (its _NEEDED_KEY_RE
+    captures everything between the padded label and ' \u2014 '): ``label``
+    padded to 15 columns, the answers.yaml key VERBATIM (a sheet name's spaces
+    kept; only a line break becomes a space), ' \u2014 ', the reason on one line."""
     def one(text) -> str:
         return " ".join(str(text).split())
 
-    return f"{label:<{ANSWER_LABEL_WIDTH}}{one(key)} \u2014 {one(reason)}"
+    verbatim = re.sub(r"[\r\n]+", " ", str(key)).strip()
+    return f"{label:<{ANSWER_LABEL_WIDTH}}{verbatim} \u2014 {one(reason)}"
 
 
 def _print_needs_answers(pending) -> None:

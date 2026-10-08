@@ -906,6 +906,16 @@ metadata:
       file_pattern_wildcards: [CCYYMMDD, YYYYMMDD, MMDDCCYY, MMDDYYYY, CCYYMM, YYYYMM, CCYY, YYYY]
       # A per-LOB file's ADLS row partitions on this column, value = its LOB.
       lob_partition_column: LOB
+      # Multi-table step 5: the schedule's four structural rows (grand master ->
+      # master -> file-to-stage, stage-to-standard) when no inventory overlay
+      # gives template_rows. {feed} = FAQ feed_abbreviation, else the feed slug in
+      # capitals. Parent by position; ids / dates / audit stay the engineer's.
+      pipeline_roles:
+        - {role: grand_master, name: "PL_GMSTR_{feed}", description: "Grand master"}
+        - {role: master, name: "PL_MSTR_{feed}", description: "Master", parent: grand_master}
+        - {role: file_to_stage, name: "PL_File_{feed}_ADLS_To_Delta_Incr", description: "File to Stage", parent: master}
+        - {role: stage_to_standard, name: "PL_File_{feed}_Delta_To_STD_Incr", description: "Stage to Standard", parent: master}
+      pipeline_roles_citation: "framework pipeline naming convention (framework owners, 2026-10-07; docs/acfc/MULTI_TABLE_DESIGN.md step 5)"
       # The golden IIG spells the audit types 'String' / 'TIMESTAMP' (its DDL
       # says STRING) — transcribed as the IIG states them.
       audit_type_casing: {String: String, Timestamp: TIMESTAMP}

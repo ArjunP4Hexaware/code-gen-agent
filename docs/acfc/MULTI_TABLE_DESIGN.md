@@ -211,7 +211,18 @@ No other rule class is generated: the review copy's summary lists one
 (`iig_review.dq_review_entries`, Cells = 0 — there is no cell to fill), so the
 sheet is visibly incomplete, never silently so.
 
-Still to come (steps 5–7).
+**Step 5 (done).** Without a client inventory (`template_rows` for the sheet),
+`DATA_FACTORY_PIPELINE_SCHEDULE` is the four structural rows of
+`iig_v2.pipeline_roles`: grand master → master → file-to-stage,
+stage-to-standard. `PIPELINE_NAME` from the naming convention —
+`PL_GMSTR_{feed}`, `PL_MSTR_{feed}`, `PL_File_{feed}_ADLS_To_Delta_Incr`,
+`PL_File_{feed}_Delta_To_STD_Incr`, `{feed}` = the FAQ `feed_abbreviation`,
+else the feed slug in capitals; `PIPELINE_FREQUENCY` from the feed;
+`PARENT_PIPELINE_ID` by position — `0` on the top row (METADATA_DB_SEMANTICS
+§2), blank elsewhere with the tooltip naming the parent row; ids, dates and
+audit left to the engineer. A configured inventory (pair 1's overlay) wins.
+
+Still to come (steps 6–7).
 
 ## 4. Row-count rules per sheet
 
@@ -261,8 +272,8 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 - **per-table:** —
 - **per-feed:** PIPELINE_FREQUENCY
 - **environment:** —
-- **convention:** PIPELINE_DESCRIPTION, NO_OF_CYCLE_PER_DAY, DAY_OF_SCHEDULE, ACTIVE_FLAG, ACTIVE_END_DATE, ESTIMATED_START_TIME, CREATED_DATE, UPDATED_DATE
-- **engineer-assigned:** PIPELINE_ID, PIPELINE_NAME, PARENT_PIPELINE_ID, ACTIVE_START_DATE, APPLICATION_NAME, CREATED_BY, UPDATED_BY
+- **convention:** PIPELINE_NAME, PIPELINE_DESCRIPTION, NO_OF_CYCLE_PER_DAY, DAY_OF_SCHEDULE, ACTIVE_FLAG, ACTIVE_END_DATE, ESTIMATED_START_TIME, CREATED_DATE, UPDATED_DATE
+- **engineer-assigned:** PIPELINE_ID, PARENT_PIPELINE_ID, ACTIVE_START_DATE, APPLICATION_NAME, CREATED_BY, UPDATED_BY
 
 ### ADLS_DELTA_INGESTION_DETAILS
 
@@ -330,9 +341,8 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    `tests/test_multi_table_step3.py`).
 4. **`DATA_QUALITY_RULES` header/trailer row — DONE** (pair 4: 6 rows = the golden;
    pair 1: no split row, its 8 derived rows; `tests/test_multi_table_step4.py`).
-5. **`DATA_FACTORY_PIPELINE_SCHEDULE`: four rows** (grand master, master,
-   file→stage, stage→standard), ids left to the engineer, names from the
-   naming convention.
+5. **`DATA_FACTORY_PIPELINE_SCHEDULE`: four rows — DONE** (pair 4: 4 = the golden;
+   pair 1 keeps its inventory overlay's four; `tests/test_multi_table_step5.py`).
 6. **`metadata_inserts.sql`** — INSERT statements per sheet from the same cells
    as the IIG; the CREATE TABLE text stays as a reference artefact, now one
    block per table labelled with its mapped three-part name. `emit/dml.py`
@@ -353,7 +363,8 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
 3. Does a delimited feed whose stage is all-`String` get a `DataTypeCastRule`
    on the stage → standard leg (where the types change), and on which sheet?
 4. Are the grand master and master new rows per feed, or existing pipelines a
-   feed's children attach to?
+   feed's children attach to? (Step 5 writes all four; an inventory overlay
+   replaces them.)
 5. `FILE_ADLS_INGESTION_DETAILS`: one row per file, or one wildcard row per
    root folder?
 6. `HEADER_FLAG` / `FILE_HEADER_FLAG` / `FILE_FOOTER_FLAG` when header and

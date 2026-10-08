@@ -196,7 +196,10 @@ def test_pipeline_schedule_is_the_four_movement_rows(golden):
     assert roles == ["grand_master", "master", "file_to_stage", "stage_to_standard"]
     assert [r["_parent"] for r in rows] == [None, "grand_master", "master", "master"]
     assert rows[0]["PARENT_PIPELINE_ID"] == "0"
-    assert all(r["PIPELINE_ID"] is None and r["PIPELINE_NAME"] is None for r in rows)
+    assert all(r["PIPELINE_ID"] is None for r in rows)              # the engineer's
+    assert [r["PIPELINE_NAME"] for r in rows] == [
+        "PL_GMSTR_NB_COB_REPORT", "PL_MSTR_NB_COB_REPORT",
+        "PL_File_NB_COB_REPORT_ADLS_To_Delta_Incr", "PL_File_NB_COB_REPORT_Delta_To_STD_Incr"]
     assert {r["PIPELINE_FREQUENCY"] for r in rows} == {pair4_nb.FREQUENCY}
 
 

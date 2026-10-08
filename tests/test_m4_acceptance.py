@@ -374,9 +374,11 @@ def test_pair1_iig_everything_else_is_blank_and_flagged(pair1_run):
 
 @needs_golden
 def test_shipped_config_carries_no_client_pipeline_names(config, pair1_spec, tmp_path):
-    """Without the pair-1 overlay the pipeline/notebook inventory is one row
-    each with the names blank-and-flagged — the shipped config ships no
-    client-shaped vocabulary (M5)."""
+    """Without the pair-1 overlay the shipped config ships no client-shaped
+    vocabulary (M5): the notebook inventory is one row, names blank-and-
+    flagged, and the pipeline schedule is the four structural rows named by the
+    naming convention from the feed itself (multi-table step 5) — none of the
+    overlay's client pipeline / notebook names."""
     rows = config.metadata.templates["iig_v2"].template_rows
     assert set(rows) == {"EMAIL_TEMPLATE_CONFIG"}
     scoped = _scoped(config, tmp_path)
@@ -384,15 +386,26 @@ def test_shipped_config_carries_no_client_pipeline_names(config, pair1_spec, tmp
                               output_mode="framework", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
     ours = load_workbook(tmp_path / "out" / pair1_spec.feed_slug / "framework" / "config_rows.xlsx")
-    assert len(_sheet_rows(ours["DATA_FACTORY_PIPELINE_SCHEDULE"])[1]) == 1
+    headers, schedule = _sheet_rows(ours["DATA_FACTORY_PIPELINE_SCHEDULE"])
+    names = [dict(zip(headers, r, strict=True))["PIPELINE_NAME"] for r in schedule]
+    token = "ACCUM"          # the pair-1 FAQ's feed_abbreviation (as the DDL file name)
+    assert names == [f"PL_GMSTR_{token}", f"PL_MSTR_{token}",
+                     f"PL_File_{token}_ADLS_To_Delta_Incr", f"PL_File_{token}_Delta_To_STD_Incr"]
     assert len(_sheet_rows(ours["DATABRICKS_NOTEBOOK_DETAILS"])[1]) == 1
     blank = blank_columns(gate.flags)
-    assert "PIPELINE_NAME" in blank["DATA_FACTORY_PIPELINE_SCHEDULE"]
+    assert "PIPELINE_NAME" not in blank["DATA_FACTORY_PIPELINE_SCHEDULE"]
     assert "DATABRICKS_NOTEBOOK_NAME" in blank["DATABRICKS_NOTEBOOK_DETAILS"]
+    import yaml
+
+    from conftest import PAIR1_OVERLAY
+
+    inventory = yaml.safe_load(PAIR1_OVERLAY.read_text(encoding="utf-8"))
+    client_names = {v for rows in inventory["metadata"]["templates"]["iig_v2"]
+                    ["template_rows"].values() for row in rows for k, v in row.items()
+                    if "NAME" in k}
     for sheet in ours.worksheets:
         for row in sheet.iter_rows(values_only=True):
-            assert not any(isinstance(v, str) and "VND_P" in v.upper() and "PL_" in v
-                           for v in row)
+            assert not client_names & set(row)
 
 
 @needs_golden

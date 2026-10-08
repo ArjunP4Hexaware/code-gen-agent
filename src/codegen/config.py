@@ -1013,6 +1013,20 @@ class ConventionsConfig(BaseModel):
         return self.profiles[key]
 
 
+class PipelineRoleConfig(BaseModel):
+    """One structural DATA_FACTORY_PIPELINE_SCHEDULE row (multi-table step 5):
+    the pipeline's role, its name from the naming convention ({feed} = the
+    FAQ feed_abbreviation, else the feed slug in capitals), its description,
+    and the role of its parent (None = the top pipeline, parent 0)."""
+
+    model_config = _MODEL_CONFIG
+
+    role: str
+    name: str
+    description: str
+    parent: str | None = None
+
+
 class MetadataTemplateConfig(BaseModel):
     """An IIG workbook template version (M4) other than the default
     ``iig_v1`` (= ``demo.metadata_sheet``): sheets + headers transcribed
@@ -1064,6 +1078,20 @@ class MetadataTemplateConfig(BaseModel):
     file_pattern_wildcards: list[str] = Field(default_factory=list)
     # The partition column a per-LOB file's ADLS row names (its value = the LOB).
     lob_partition_column: str = "LOB"
+    # Multi-table step 5: the pipeline schedule's structural rows when no
+    # inventory (template_rows) is configured; empty = one blank row, as before.
+    pipeline_roles: list[PipelineRoleConfig] = Field(default_factory=list)
+    pipeline_roles_citation: str = ""
+
+    @model_validator(mode="after")
+    def _pipeline_parents_precede(self) -> MetadataTemplateConfig:
+        seen: set[str] = set()
+        for role in self.pipeline_roles:
+            if role.parent is not None and role.parent not in seen:
+                raise ValueError(f"pipeline_roles: {role.role!r} names parent {role.parent!r}, "
+                                 "which is not an earlier role")
+            seen.add(role.role)
+        return self
 
 
 class MetadataConfig(BaseModel):

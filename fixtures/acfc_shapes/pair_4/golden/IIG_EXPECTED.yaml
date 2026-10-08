@@ -36,7 +36,6 @@ _anchors:
 
   schedule_common: &schedule_common
     PIPELINE_ID: null
-    PIPELINE_NAME: null
     PIPELINE_FREQUENCY: Monthly
     NO_OF_CYCLE_PER_DAY: "1"
     DAY_OF_SCHEDULE: "0"
@@ -138,7 +137,7 @@ _anchors:
 DATA_FACTORY_PIPELINE_SCHEDULE:
   columns:
     PIPELINE_ID: engineer
-    PIPELINE_NAME: engineer
+    PIPELINE_NAME: convention
     PARENT_PIPELINE_ID: engineer
     PIPELINE_DESCRIPTION: convention
     PIPELINE_FREQUENCY: per_feed
@@ -158,21 +157,25 @@ DATA_FACTORY_PIPELINE_SCHEDULE:
       _role: grand_master
       _parent: null
       PARENT_PIPELINE_ID: "0"      # METADATA_DB_SEMANTICS §2: a top pipeline's parent is 0
+      PIPELINE_NAME: PL_GMSTR_NB_COB_REPORT
       PIPELINE_DESCRIPTION: Grand master
     - <<: *schedule_common
       _role: master
       _parent: grand_master
       PARENT_PIPELINE_ID: null     # = the grand master's PIPELINE_ID
+      PIPELINE_NAME: PL_MSTR_NB_COB_REPORT
       PIPELINE_DESCRIPTION: Master
     - <<: *schedule_common
       _role: file_to_stage
       _parent: master
       PARENT_PIPELINE_ID: null     # = the master's PIPELINE_ID
+      PIPELINE_NAME: PL_File_NB_COB_REPORT_ADLS_To_Delta_Incr
       PIPELINE_DESCRIPTION: File to Stage
     - <<: *schedule_common
       _role: stage_to_standard
       _parent: master
       PARENT_PIPELINE_ID: null     # = the master's PIPELINE_ID
+      PIPELINE_NAME: PL_File_NB_COB_REPORT_Delta_To_STD_Incr
       PIPELINE_DESCRIPTION: Stage to Standard
 
 ADLS_DELTA_INGESTION_DETAILS:

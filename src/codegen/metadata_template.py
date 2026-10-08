@@ -421,7 +421,58 @@ def _reject_table(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec, stage_tab
 # -- tabs ---------------------------------------------------------------------- #
 
 
+def _feed_token(feed: FrdFeed, faq) -> tuple[str, str]:
+    """{feed} of the pipeline names: the FAQ feed_abbreviation when answered,
+    else the feed slug in capitals — (value, its source)."""
+    answer = getattr(faq, "feed_abbreviation", None) if faq is not None else None
+    if answer is not None and getattr(answer, "source", "unknown") != "unknown":
+        return str(answer.value), "load-pattern FAQ feed_abbreviation"
+    from codegen.resolve.resolver import normalize_feed_name
+
+    return normalize_feed_name(feed.feed_name).upper(), "the feed slug (no FAQ feed_abbreviation)"
+
+
+def _pipeline_roles(tab, feed, faq, tpl) -> list[dict]:
+    """Step 5: the four structural rows (grand master -> master -> file-to-
+    stage, stage-to-standard). Names from the naming convention, parent by
+    position: the top pipeline's parent is 0 (METADATA_DB_SEMANTICS §2), every
+    other row's PARENT_PIPELINE_ID is its parent row's PIPELINE_ID — the
+    engineer's, so blank, the tooltip naming the row."""
+    token, source = _feed_token(feed, faq)
+    position = {role.role: index for index, role in enumerate(tpl.pipeline_roles, start=1)}
+    citation = tpl.pipeline_roles_citation or tpl.citation
+    rows = []
+    for role in tpl.pipeline_roles:
+        name = role.name.format(feed=token)
+        cells = {
+            "PIPELINE_NAME": _cell(name, "synthetic",
+                                   f"template constant — {citation}: {role.name!r} with "
+                                   f"{{feed}} = {token!r} ({source})"),
+            "PIPELINE_DESCRIPTION": _cell(role.description, "synthetic",
+                                          f"template constant — {citation}: the {role.role} "
+                                          "pipeline"),
+        }
+        if role.parent is None:
+            parent = _cell("0", "synthetic",
+                           "template constant — framework convention: the top pipeline's "
+                           "PARENT_PIPELINE_ID is 0 (docs/acfc/METADATA_DB_SEMANTICS.md §2)")
+        else:
+            parent = _cell("", "needs_template",
+                           f"assigned by the engineer: the PIPELINE_ID of row "
+                           f"{position[role.parent]} ({role.parent}) — the parent by position")
+        parent["badge_entry"]["convention"] = True
+        cells["PARENT_PIPELINE_ID"] = parent
+        cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq)
+        process = _process_name(faq)
+        if process is not None:
+            cells["APPLICATION_NAME"] = process
+        rows.append(_with_constants(tpl, tab, cells))
+    return rows
+
+
 def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
+    if not tpl.template_rows.get(tab) and tpl.pipeline_roles:
+        return _pipeline_roles(tab, feed, faq, tpl)
     rows = tpl.template_rows.get(tab) or [{}]
     out = []
     for template_row in rows:

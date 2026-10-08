@@ -1013,6 +1013,38 @@ class ConventionsConfig(BaseModel):
         return self.profiles[key]
 
 
+class FamilyConventionsConfig(BaseModel):
+    """Per-feed-family IIG conventions (2026-10-08 correction): three cells
+    the goldens of two feed families fill differently — neither an error.
+    The pair-1 (PRX) family: LOB blank, an unknown STGDELTA primary key 'NA',
+    its own STGDELTA OBJECT_NAME; the CAQH-style family (pair 4): LOB codes,
+    an unknown primary key blank, the generalized file pattern. Each fixture's
+    overlay pins its family; which is current for NEW feeds is an open
+    question for the framework owners (docs/acfc/MULTI_TABLE_DESIGN.md)."""
+
+    model_config = _MODEL_CONFIG
+
+    # ADLS / STGDELTA LOB: "codes" = a per-LOB file's code, else the feed's
+    # LOB codes (FRD / STTM header); "blank" = left blank (decided, not open).
+    lob: Literal["codes", "blank"] = "blank"
+    # STGDELTA TGT_PRIMARY_KEY when no Primary Key cell states one: the value
+    # written ("NA"), or "" = blank and open.
+    stgdelta_unknown_primary_key: str = "NA"
+    # STGDELTA OBJECT_NAME: the generalized file pattern (wildcards and
+    # extension removed), the table name, or a literal the family's IIG uses.
+    stgdelta_object_name: Literal["generalized_file_pattern", "table_name", "literal"] = (
+        "generalized_file_pattern")
+    stgdelta_object_name_literal: str | None = None
+    citation: str = ""
+
+    @model_validator(mode="after")
+    def _literal_is_given(self) -> FamilyConventionsConfig:
+        if self.stgdelta_object_name == "literal" and not self.stgdelta_object_name_literal:
+            raise ValueError("family_conventions.stgdelta_object_name 'literal' needs "
+                             "stgdelta_object_name_literal")
+        return self
+
+
 class PipelineRoleConfig(BaseModel):
     """One structural DATA_FACTORY_PIPELINE_SCHEDULE row (multi-table step 5):
     the pipeline's role, its name from the naming convention ({feed} = the
@@ -1082,6 +1114,9 @@ class MetadataTemplateConfig(BaseModel):
     # inventory (template_rows) is configured; empty = one blank row, as before.
     pipeline_roles: list[PipelineRoleConfig] = Field(default_factory=list)
     pipeline_roles_citation: str = ""
+    # Per-feed-family cell conventions (LOB, unknown STGDELTA primary key,
+    # STGDELTA OBJECT_NAME) — the overlay of a feed family pins its own.
+    family_conventions: FamilyConventionsConfig = FamilyConventionsConfig()
 
     @model_validator(mode="after")
     def _pipeline_parents_precede(self) -> MetadataTemplateConfig:

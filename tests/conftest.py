@@ -52,6 +52,17 @@ def _strip_machine_local_env():
         os.environ.pop(name, None)
     yield
 
+
+@pytest.fixture(autouse=True)
+def _restrip_machine_local_env_after_each_test():
+    # cli.main() runs load_dotenv() too: a CLI test re-imports the operator's
+    # machine-local overrides mid-session, and a session fixture built after it
+    # (pair1_config / pair4_config) would carry them — the full-cell IIG checks
+    # (EMAIL_TO) caught exactly that (2026-10-08). Strip again after every test.
+    yield
+    for name in _MACHINE_LOCAL_ENV:
+        os.environ.pop(name, None)
+
 FIXTURES_REMOVED = (
     "contract/workbook fixtures are not in the repo (removed 2026-08-22 -- no "
     "client documents in the repository); restore anonymized fixtures to run"

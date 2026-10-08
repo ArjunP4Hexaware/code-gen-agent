@@ -262,7 +262,9 @@ EXPECTED_BLANK = {
         "GROUP_ID", "MAPPING_EXPRESSION", "METADATA_CONNECTION_ID", "PIPELINE_ID",
         "RECYCL_RETN_DAYS", "SRC_ADLS_CONNECTION_ID", "SRC_COL_LNGTH", "SRC_COL_STRT_END_INDX",
         "SRC_CONTAINER_NAME", "SRC_FILE_DELIMITER", "SRC_REC_LNGTH", "TGT_CONNECTION_ID",
-        "TGT_CONTAINER_NAME", "UPDATED_BY", "UPDATED_DATE"],
+        # TGT_PRIMARY_KEY: blank and open when no Primary Key cell states it (instruction
+        # 2026-10-08 — no natural-key fallback; the golden is blank here too).
+        "TGT_CONTAINER_NAME", "TGT_PRIMARY_KEY", "UPDATED_BY", "UPDATED_DATE"],
     "ADLS_FIXED_WIDTH_HANDLER": [
         "CREATED_BY", "CREATED_DATE", "EXTENSION", "FILE_REJECTION", "FILE_TYPE", "PIPELINE_ID",
         "RJCT_RSN_COLUMN_NM", "SEGMNT_TYP", "UPDATED_BY", "UPDATED_DATE", "VERSION"],
@@ -370,6 +372,144 @@ def test_pair1_iig_everything_else_is_blank_and_flagged(pair1_run):
             for value in row:
                 assert not (isinstance(value, str) and (value.startswith("SYN-")
                                                         or value.startswith("RFC#")))
+
+
+
+# -- EVERY cell of EVERY sheet (Chunk A, 2026-10-08) ------------------------------ #
+#
+# Each of the golden's cells is exactly one of:
+#   equal     — ours == the golden (padding stripped, as everywhere in this file);
+#   open      — the golden carries a value no input document states (an engineer-
+#               assigned id, an environment value, an audit stamp, client wording);
+#               ours is BLANK and the column is FLAGGED iig_blank for the sheet;
+#   sequence  — the golden's masked OBJECT_ID SYN-OBJ-<n> == ours <n> (the 1..n
+#               convention within the group);
+#   deviation — ours differs by an open framework question (no input states the
+#               golden's value); ours is PINNED to the value below, with the reason.
+# The pair-1 FAMILY's conventions (LOB blank, STGDELTA unknown primary key 'NA', its
+# own STGDELTA OBJECT_NAME) come from the pair-1 overlay's family_conventions, so
+# those cells are EQUAL — the golden is the authority (correction 2026-10-08).
+# A difference outside these tables fails; so does an entry no cell needs (stale).
+
+_ID = "engineer-assigned framework id"
+_ENV = "environment value (platform / framework team)"
+_RFC = "RFC number — the load-pattern FAQ's rfc_number is unanswered"
+_LOAD = "audit date — set when the config tables are loaded"
+_START = "engineer's schedule / extract choice"
+_PATH = "engineer's notebook / folder path"
+_WORDING = "client wording / sender"
+_AUDIT = {"CREATED_BY": _RFC, "UPDATED_BY": _RFC, "CREATED_DATE": _LOAD,
+          "UPDATED_DATE": _LOAD}
+
+FULL_OPEN = {
+    "DATA_FACTORY_PIPELINE_SCHEDULE": {
+        "PIPELINE_ID": _ID, "PARENT_PIPELINE_ID": _ID, "ACTIVE_START_DATE": _START, **_AUDIT},
+    "FILE_ADLS_INGESTION_DETAILS": {
+        "GROUP_ID": _ID, "OBJECT_ID": _ID, "PIPELINE_ID": _ID, "SRC_CONNECTION_ID": _ENV,
+        "SRC_ROOT_DIR": _PATH, "TGT_CONTAINER_NAME": _ENV, "SRC_EXTRACT_START_TIME": _START,
+        "TGT_STORAGE_ACCOUNT_NAME": _ENV, **_AUDIT},
+    "ADLS_DELTA_INGESTION_DETAILS": {
+        "GROUP_ID": _ID, "PIPELINE_ID": _ID, "SRC_ADLS_CONNECTION_ID": _ENV,
+        "METADATA_CONNECTION_ID": _ENV, "SRC_CONTAINER_NAME": _ENV, "TGT_CONNECTION_ID": _ENV,
+        "TGT_CONTAINER_NAME": _ENV,
+        "SRC_FILE_DELIMITER": "open question: the golden states '|' for a fixed-width file",
+        "FILE_HEADER_FLAG": "open question: header / trailer flag semantics (design Q6)",
+        "FILE_FOOTER_FLAG": "open question: header / trailer flag semantics (design Q6)",
+        **_AUDIT},
+    "STGDELTA_STDDELTA_INGESTION_DET": {
+        "GROUP_ID": _ID, "OBJECT_ID": _ID, "PIPELINE_ID": _ID, "SRC_ADLS_CONNECTION_ID": _ENV,
+        "METADATA_CONNECTION_ID": _ENV, "SRC_CONTAINER_NAME": _ENV, "TGT_CONNECTION_ID": _ENV,
+        "TGT_CONTAINER_NAME": _ENV, **_AUDIT},
+    "ADLS_FIXED_WIDTH_HANDLER": {
+        "VERSION": _START, "SEGMNT_TYP": _START, "FILE_TYPE": _START, "EXTENSION": _START,
+        "PIPELINE_ID": _ID, **_AUDIT},
+    "DATABRICKS_NOTEBOOK_DETAILS": {
+        "PIPELINE_ID": _ID, "GROUP_ID": _ID, "DATABRICKS_WORKSPACE_URL": _ENV,
+        "DATABRICKS_WORKSPACE_SECRET": _ENV, "DATABRICKS_CLUSTERID": _ENV,
+        "CLUSTER_DETAILS_ID": _ENV, "DATABRICKS_NOTEBOOK_PATH": _PATH,
+        "DQ_NOTEBOOK_PATH": _PATH, **_AUDIT},
+    "DATA_QUALITY_RULES": {"GROUP_ID": _ID, **_AUDIT},
+    "EMAIL_TEMPLATE_CONFIG": {
+        "TEMPLATE_ID": _ID, "SUBJECT": _WORDING, "BODY": _WORDING, "BODY_QUERY": _WORDING,
+        "SENDER_NAME": _WORDING, "SENDER_EMAIL": _ENV, **_AUDIT},
+}
+
+FULL_SEQUENCE = {("ADLS_DELTA_INGESTION_DETAILS", "OBJECT_ID"),
+                 ("DATA_QUALITY_RULES", "OBJECT_ID")}
+
+# (sheet, column) -> (reason, ours): ours is a value for every row, or a function of
+# the resolved spec (a value the STTM derives).
+FULL_DEVIATIONS = {
+    ("DATA_FACTORY_PIPELINE_SCHEDULE", "PIPELINE_FREQUENCY"): (
+        "open: the golden's per-pipeline frequency (Monthly / Daily) is not stated — the real "
+        "FRD Frequency is a compound sentence (M9_FINDINGS open item 3)", "Daily"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "FREQUENCY"): (
+        "open: per-file frequency (the golden's F_ files Monthly) is not modelled", "Daily"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "SOURCE"): (
+        "open: the golden's per-file SOURCE (FROM_CLIENT files = the client system) is not "
+        "stated; the FRD names one vendor", "VENDOR_A"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "HEADER_FLAG"): (
+        "open: HEADER_FLAG semantics for a fixed-width file (CLAUDE.md open questions); ours = "
+        "the FAQ has_header answer as given", "no"),
+    ("ADLS_DELTA_INGESTION_DETAILS", "MANDATORY_FIELD_LIST"): (
+        "open: ours = the STTM's not-null detail columns (METADATA_DB_SEMANTICS §7); the "
+        "golden leaves it blank", lambda spec: ",".join(spec.not_null_columns)),
+    ("ADLS_DELTA_INGESTION_DETAILS", "TGT_LOAD_OPTION"): (
+        "open: the golden's first object Overwrite vs the FRD Load Strategy STG Append "
+        "(CLAUDE.md open questions)", "Append"),
+    ("STGDELTA_STDDELTA_INGESTION_DET", "SOURCE"): (
+        "open: the golden's STGDELTA SOURCE is the feed / subdomain word, not the vendor",
+        "VENDOR_A"),
+    ("DATABRICKS_NOTEBOOK_DETAILS", "TGT_REFRESH_TYPE"): (
+        "open: the golden's stage legs Overwrite vs the FRD Load Strategy STG Append",
+        "Append"),
+    ("EMAIL_TEMPLATE_CONFIG", "EMAIL_TO"): (
+        "environment: the EDO standard's prod-support DL (shipped synthetic stand-in) vs the "
+        "golden's recipients", "syn.dl.prodsupport@synthetic.example"),
+}
+
+
+def _sequence_mask(ours: str) -> str:
+    return f"SYN-OBJ-{int(ours):03d}" if ours.isdigit() else "?"
+
+
+@needs_golden
+def test_pair1_every_iig_cell_and_the_ddl_are_pinned(pair1_run, pair1_spec):
+    gate, framework_dir = pair1_run
+    assert (framework_dir / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
+    ours_wb = load_workbook(framework_dir / "config_rows.xlsx")
+    golden_wb = _golden_iig()
+    flagged = blank_columns([f for f in gate.flags if f.startswith("iig_blank:")])
+    unexplained, used = [], set()
+    for sheet in golden_wb.sheetnames:
+        g_headers, g_rows = _sheet_rows(golden_wb[sheet])
+        o_headers, o_rows = _sheet_rows(ours_wb[sheet])
+        assert o_headers == g_headers and len(o_rows) == len(g_rows), sheet
+        for number, (g_row, o_row) in enumerate(zip(g_rows, o_rows, strict=True), start=1):
+            for column, golden, ours in zip(g_headers, g_row, o_row, strict=True):
+                if ours == golden:
+                    continue
+                key = (sheet, column)
+                if column in FULL_OPEN.get(sheet, {}):
+                    used.add(key)
+                    if ours != "" or column not in flagged.get(sheet, []):
+                        unexplained.append((sheet, number, column, "open, not blank+flagged"))
+                elif key in FULL_SEQUENCE:
+                    used.add(key)
+                    if _sequence_mask(ours) != golden:
+                        unexplained.append((sheet, number, column, golden, ours))
+                elif key in FULL_DEVIATIONS:
+                    used.add(key)
+                    pinned = FULL_DEVIATIONS[key][1]
+                    pinned = pinned(pair1_spec) if callable(pinned) else pinned
+                    if ours != pinned:
+                        unexplained.append((sheet, number, column, "deviation moved", ours))
+                else:
+                    unexplained.append((sheet, number, column, golden, ours))
+    assert unexplained == []
+    stale = ({(s, c) for s, cols in FULL_OPEN.items() for c in cols} | FULL_SEQUENCE
+             | set(FULL_DEVIATIONS)) - used
+    assert stale == set(), "classified cells that no longer differ — remove the entries"
 
 
 @needs_golden

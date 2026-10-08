@@ -49,7 +49,7 @@ def test_pair1_four_files_without_lob_and_one_table(pair1_payload, pair1_spec):
     assert len(adls) == 4 and len(stg) == 1
     assert [r["values"]["SRC_FILE_NAME"] for r in adls] == pair1_spec.file_name_patterns
     assert [r["values"]["OBJECT_ID"] for r in adls] == ["1", "2", "3", "4"]
-    assert {r["values"]["LOB"] for r in adls} == {""}
+    assert {r["values"]["LOB"] for r in adls} == {""}       # the pair-1 family: LOB blank
     assert {r["values"]["TGT_PARTITION_COLUMN"] for r in adls} == {"NA"}
     assert {r["values"]["TGT_PARTITION_VALUE"] for r in adls} == {"NA"}
     assert {r["values"]["TGT_TABLE_NAME"] for r in adls} == {"vnd_p_accum_client"}

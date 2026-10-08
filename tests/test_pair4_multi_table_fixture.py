@@ -29,10 +29,14 @@ GOLDEN = PAIR / "golden" / "IIG_EXPECTED.yaml"
 OVERLAY = PAIR / "config_overlay.yaml"
 DESIGN = REPO / "docs" / "acfc" / "MULTI_TABLE_DESIGN.md"
 GOLDENED = ["DATA_FACTORY_PIPELINE_SCHEDULE", "ADLS_DELTA_INGESTION_DETAILS",
-            "STGDELTA_STDDELTA_INGESTION_DET", "DATA_QUALITY_RULES"]
+            "STGDELTA_STDDELTA_INGESTION_DET", "DATA_QUALITY_RULES",
+            "FILE_ADLS_INGESTION_DETAILS", "ADLS_FIXED_WIDTH_HANDLER",
+            "DATABRICKS_NOTEBOOK_DETAILS", "EMAIL_TEMPLATE_CONFIG"]   # all eight (Chunk A)
 NOT_SHEETS = {"TABLE_DEFINITIONS"}
 ROW_COUNTS = {"DATA_FACTORY_PIPELINE_SCHEDULE": 4, "ADLS_DELTA_INGESTION_DETAILS": 6,
-              "STGDELTA_STDDELTA_INGESTION_DET": 3, "DATA_QUALITY_RULES": 6}
+              "STGDELTA_STDDELTA_INGESTION_DET": 3, "DATA_QUALITY_RULES": 6,
+              "FILE_ADLS_INGESTION_DETAILS": 1, "ADLS_FIXED_WIDTH_HANDLER": 0,
+              "DATABRICKS_NOTEBOOK_DETAILS": 1, "EMAIL_TEMPLATE_CONFIG": 2}
 CLASSES = {"per_file", "per_table", "per_feed", "environment", "convention", "engineer"}
 AUDIT_IIG_TYPES = {"String": "String", "Timestamp": "TIMESTAMP"}   # iig_v2 audit_type_casing
 
@@ -168,7 +172,9 @@ def test_stg_to_std_is_one_row_per_table_with_the_reference_sheet_on_the_target(
                                                   + _audit_columns())
         assert row["TGT_DATA_TYPE"] == _joined([f.std_type for f in carried] + _audit_types())
         keys = [f.std_column for f in carried if f.primary_key]
-        assert row["TGT_PRIMARY_KEY"] == (_joined(keys) if keys else "NA")
+        # Chunk A: no Primary Key cell = blank (open); 'NA' is the partition's only.
+        assert row["TGT_PRIMARY_KEY"] == (_joined(keys) if keys else None)
+        assert row["OBJECT_NAME"] == "NWB_COB_RPT"     # the generalized file pattern
         assert row["TGT_RJT_TABLE_NAME"] == f"{table.table}_reject"
         assert row["TGT_LOAD_OPTION"] == pair4_nb.LOAD_STRATEGY
         assert row["LOB"] == _joined(pair4_nb.LOBS)

@@ -64,7 +64,7 @@ def _reason(column: str, value, entry: dict, always_blank: set[str],
     tooltip = entry.get("tooltip") or ""
     if _blank(value):
         if entry.get("deliberate_blank"):
-            return None                  # a stated rule leaves it blank (multi-table rule 2)
+            return None                  # a family convention leaves it blank (e.g. LOB)
         if column in review.audit_date_columns:
             return "audit_date"
         if column in review.audit_by_columns:

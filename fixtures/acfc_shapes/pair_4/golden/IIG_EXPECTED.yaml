@@ -23,9 +23,15 @@
 # logical one (Stage band PR_DLK, Standard band PR_STD) and the overlay's
 # catalog_map maps it; the overlay's default_catalog is never used.
 #
-# Not goldened here: FILE_ADLS_INGESTION_DETAILS (open Q5),
-# DATABRICKS_NOTEBOOK_DETAILS (inventory), EMAIL_TEMPLATE_CONFIG (2 rows,
-# unchanged), ADLS_FIXED_WIDTH_HANDLER (0 rows — a delimited file).
+# All eight IIG sheets are goldened (Chunk A, 2026-10-08 — every cell pinned).
+# FILE_ADLS_INGESTION_DETAILS stays one row per feed (open Q5);
+# DATABRICKS_NOTEBOOK_DETAILS is the one uninventoried row (no notebook
+# inventory overlay); ADLS_FIXED_WIDTH_HANDLER has no row (a delimited file).
+# Pair 4 is the CAQH-style feed FAMILY (family_conventions in its overlay):
+# LOB codes, STGDELTA OBJECT_NAME = the generalized file pattern (wildcards and
+# extension removed), an unknown STGDELTA TGT_PRIMARY_KEY blank (open). The
+# pair-1 family's golden fills those three cells its own way (blank / its own
+# form / 'NA') — both are conventions, neither an error (2026-10-08).
 
 _anchors:
   audit: &audit
@@ -283,7 +289,7 @@ STGDELTA_STDDELTA_INGESTION_DET:
   columns:
     GROUP_ID: engineer
     OBJECT_ID: engineer
-    OBJECT_NAME: per_table
+    OBJECT_NAME: per_feed
     DOMAIN: per_feed
     SUBDOMAIN: per_feed
     PIPELINE_ID: engineer
@@ -327,7 +333,7 @@ STGDELTA_STDDELTA_INGESTION_DET:
   rows:
     - <<: *stgstd_common
       _segment: Header
-      OBJECT_NAME: nb_cob_report_hdr     # open Q8
+      OBJECT_NAME: NWB_COB_RPT           # generalized file pattern (Chunk A)
       SRC_TABLE_NAME: nb_cob_report_hdr
       SRC_COLUMNS: "FILE_NAME:FILE_NAME,FILE_CREATION_DATE:FILE_CREATION_DATE,FILE_CREATION_TIME:FILE_CREATION_TIME,VENDOR_NAME:VENDOR_NAME,LOB:LOB,REPORT_PERIOD_START:REPORT_PERIOD_START_DATE,REPORT_PERIOD_END:REPORT_PERIOD_END_DATE,SRC_FILE_NAME:SRC_FILE_NAME,REC_CREATION_TIME:REC_CREATION_TIME,REC_UPDATED_TIME:REC_UPDATED_TIME"
       SRC_DATA_TYPE: "String:String,String:Date,String:String,String:String,String:String,String:Date,String:Date,String:String,TIMESTAMP:TIMESTAMP,TIMESTAMP:TIMESTAMP"
@@ -337,10 +343,10 @@ STGDELTA_STDDELTA_INGESTION_DET:
       TGT_DATA_TYPE: "String,Date,String,String,String,Date,Date,String,TIMESTAMP,TIMESTAMP"
       TGT_RJT_TABLE_NAME: nb_cob_report_hdr_reject
       TGT_RJT_ADLS_PATH: /membership/cob/northwind_benefits/reject/nb_cob_report_hdr_reject
-      TGT_PRIMARY_KEY: NA
+      TGT_PRIMARY_KEY: null           # no Primary Key cell: blank, open
     - <<: *stgstd_common
       _segment: Detail
-      OBJECT_NAME: nb_cob_report_dtl     # open Q8
+      OBJECT_NAME: NWB_COB_RPT
       SRC_TABLE_NAME: nb_cob_report_dtl
       SRC_COLUMNS: "LOB:LOB,MEMBER_ID:MEMBER_ID,SUBSCRIBER_ID:SUBSCRIBER_ID,MEMBER_LAST_NAME:MEMBER_LAST_NAME,MEMBER_FIRST_NAME:MEMBER_FIRST_NAME,MEMBER_DOB:MEMBER_BIRTH_DATE,MEMBER_GENDER:MEMBER_GENDER,OTHER_CARRIER_ID:OTHER_CARRIER_ID,OTHER_CARRIER_NAME:OTHER_CARRIER_NAME,OTHER_POLICY_NUMBER:OTHER_POLICY_NUMBER,OTHER_GROUP_NUMBER:OTHER_GROUP_NUMBER,COVERAGE_TYPE:COVERAGE_TYPE,COB_ORDER:COB_ORDER,COB_EFF_DATE:COB_EFF_DATE,COB_TERM_DATE:COB_TERM_DATE,MEDICARE_IND:MEDICARE_IND,SOURCE_OF_INFO:SOURCE_OF_INFO,VERIFICATION_DATE:VERIFICATION_DATE,RECORD_STATUS:RECORD_STATUS,SRC_FILE_NAME:SRC_FILE_NAME,REC_CREATION_TIME:REC_CREATION_TIME,REC_UPDATED_TIME:REC_UPDATED_TIME"
       SRC_DATA_TYPE: "String:String,String:String,String:String,String:String,String:String,String:Date,String:String,String:String,String:String,String:String,String:String,String:String,String:Int,String:Date,String:Date,String:String,String:String,String:Date,String:String,String:String,TIMESTAMP:TIMESTAMP,TIMESTAMP:TIMESTAMP"
@@ -353,7 +359,7 @@ STGDELTA_STDDELTA_INGESTION_DET:
       TGT_PRIMARY_KEY: "MEMBER_ID,OTHER_CARRIER_ID,COB_EFF_DATE"
     - <<: *stgstd_common
       _segment: Trailer
-      OBJECT_NAME: nb_cob_report_trl     # open Q8
+      OBJECT_NAME: NWB_COB_RPT
       SRC_TABLE_NAME: nb_cob_report_trl
       SRC_COLUMNS: "FILE_NAME:FILE_NAME,DETAIL_RECORD_COUNT:DETAIL_RECORD_COUNT,TOTAL_RECORD_COUNT:TOTAL_RECORD_COUNT,FILE_CREATION_DATE:FILE_CREATION_DATE,END_OF_FILE_MARKER:END_OF_FILE_MARKER,SRC_FILE_NAME:SRC_FILE_NAME,REC_CREATION_TIME:REC_CREATION_TIME,REC_UPDATED_TIME:REC_UPDATED_TIME"
       SRC_DATA_TYPE: "String:String,String:Int,String:Int,String:Date,String:String,String:String,TIMESTAMP:TIMESTAMP,TIMESTAMP:TIMESTAMP"
@@ -363,7 +369,7 @@ STGDELTA_STDDELTA_INGESTION_DET:
       TGT_DATA_TYPE: "String,Int,Int,Date,String,String,TIMESTAMP,TIMESTAMP"
       TGT_RJT_TABLE_NAME: nb_cob_report_trl_reject
       TGT_RJT_ADLS_PATH: /membership/cob/northwind_benefits/reject/nb_cob_report_trl_reject
-      TGT_PRIMARY_KEY: NA
+      TGT_PRIMARY_KEY: null           # no Primary Key cell: blank, open
 
 DATA_QUALITY_RULES:
   columns:
@@ -389,6 +395,150 @@ DATA_QUALITY_RULES:
     - {<<: *dq_common, _object: 4, OBJECT_ID: "4", INPUT_PARAM: NWB_COB_RPT_220_*.txt}
     - {<<: *dq_common, _object: 5, OBJECT_ID: "5", INPUT_PARAM: NWB_COB_RPT_310_*.txt}
     - {<<: *dq_common, _object: 6, OBJECT_ID: "6", INPUT_PARAM: NWB_COB_RPT_320_*.txt}
+
+FILE_ADLS_INGESTION_DETAILS:
+  columns:
+    GROUP_ID: engineer
+    OBJECT_ID: engineer
+    DOMAIN: per_feed
+    SUBDOMAIN: per_feed
+    PIPELINE_ID: engineer
+    SRC_CONNECTION_ID: environment
+    SRC_ROOT_DIR: engineer
+    TGT_CONTAINER_NAME: environment
+    TGT_ADLS_PATH: convention
+    SOURCE_TYPE: convention
+    SRC_EXTRACT_START_TIME: engineer
+    COPY_START_TIME_OFFSET_IN_MINUTES: convention
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+    TGT_STORAGE_ACCOUNT_NAME: environment
+  # One row per feed (open Q5); the target path = the File Location inside its
+  # container (the overlay's {landing_rel} shape), as ADLS_DELTA reads it.
+  rows:
+    - GROUP_ID: null
+      OBJECT_ID: null
+      DOMAIN: Membership
+      SUBDOMAIN: Coordination of Benefits
+      PIPELINE_ID: null
+      SRC_CONNECTION_ID: null
+      SRC_ROOT_DIR: null
+      TGT_CONTAINER_NAME: null
+      TGT_ADLS_PATH: /inbound/membership/cob/northwind_benefits/
+      SOURCE_TYPE: File
+      SRC_EXTRACT_START_TIME: null
+      COPY_START_TIME_OFFSET_IN_MINUTES: "0"
+      <<: *audit
+      TGT_STORAGE_ACCOUNT_NAME: null
+
+ADLS_FIXED_WIDTH_HANDLER:
+  columns:
+    PROCESS_NAME: engineer
+    VERSION: engineer
+    SEGMNT_TYP: engineer
+    ACTIVE_FLAG: convention
+    SEGMENT: per_table
+    SEGMENT_FILTER: per_table
+    COL: per_table
+    LEN: per_table
+    start_ind: per_table
+    TGT_TABLE: per_table
+    PIPELINE_ID: engineer
+    FILE_TYPE: engineer
+    EXTENSION: engineer
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+    TGT_AUDIT_CLMS: per_table
+    SRC_ADLS_ARCHVL_PATH: convention
+    IS_MANDATORY: convention
+    COLUMN_VALIDATIONS: convention
+    FILE_REJECTION: engineer
+    RJCT_RSN_COLUMN_NM: engineer
+  # A pipe-delimited file: no fixed-width handler row.
+  rows: []
+
+DATABRICKS_NOTEBOOK_DETAILS:
+  columns:
+    PIPELINE_ID: engineer
+    PIPELINE_NAME: engineer
+    GROUP_ID: engineer
+    SEQ_NM: convention
+    PROCESS_NAME: engineer
+    TGT_REFRESH_TYPE: per_feed
+    ACTIVE_FLAG: convention
+    DATABRICKS_WORKSPACE_URL: environment
+    DATABRICKS_WORKSPACE_SECRET: environment
+    DATABRICKS_CLUSTERID: environment
+    DATABRICKS_NOTEBOOK_PATH: engineer
+    DATABRICKS_NOTEBOOK_NAME: engineer
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+    CLUSTER_DETAILS_ID: environment
+    DELETE_DATABRICKS_NOTEBOOK_NAME: engineer
+    DQ_NOTEBOOK_PATH: engineer
+  # No notebook inventory overlay: the one uninventoried row, the stage leg's
+  # refresh type from the FRD Load Strategy STG (Append).
+  rows:
+    - PIPELINE_ID: null
+      PIPELINE_NAME: null
+      GROUP_ID: null
+      SEQ_NM: "1"
+      PROCESS_NAME: null
+      TGT_REFRESH_TYPE: Append
+      ACTIVE_FLAG: "Y"
+      DATABRICKS_WORKSPACE_URL: null
+      DATABRICKS_WORKSPACE_SECRET: null
+      DATABRICKS_CLUSTERID: null
+      DATABRICKS_NOTEBOOK_PATH: null
+      DATABRICKS_NOTEBOOK_NAME: null
+      <<: *audit
+      CLUSTER_DETAILS_ID: null
+      DELETE_DATABRICKS_NOTEBOOK_NAME: null
+      DQ_NOTEBOOK_PATH: null
+
+EMAIL_TEMPLATE_CONFIG:
+  columns:
+    TEMPLATE_ID: engineer
+    TEMPLATE_NAME: engineer
+    PROCESS_NAME: engineer
+    STATUS: convention
+    ACTIVE_FLAG: convention
+    SUBJECT: engineer
+    BODY: engineer
+    BODY_QUERY: engineer
+    SENDER_NAME: environment
+    SENDER_EMAIL: environment
+    EMAIL_TO: environment
+    EMAIL_CC: environment
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+  # The framework's two statuses; EMAIL_TO = the EDO standard's prod-support DL
+  # (the shipped config's synthetic stand-in); no FAQ process name.
+  rows:
+    - &email
+      TEMPLATE_ID: null
+      TEMPLATE_NAME: null
+      PROCESS_NAME: null
+      STATUS: Success
+      ACTIVE_FLAG: "Y"
+      SUBJECT: null
+      BODY: null
+      BODY_QUERY: null
+      SENDER_NAME: null
+      SENDER_EMAIL: null
+      EMAIL_TO: syn.dl.prodsupport@synthetic.example
+      EMAIL_CC: null
+      <<: *audit
+    - <<: *email
+      STATUS: Failed
 
 # Every table definition the feed defines (one stage_def + one standard_def per
 # table), labelled with the MAPPED three-part name — the label the metadata

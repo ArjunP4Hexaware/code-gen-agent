@@ -8,6 +8,15 @@
 metadata:
   templates:
     iig_v2:
+      # The pair-1 (PRX) family's conventions (2026-10-08), as its golden IIG fills
+      # them: LOB blank, an unknown STGDELTA primary key 'NA', and the family's own
+      # STGDELTA OBJECT_NAME — transcribed (no input derives it; open question).
+      family_conventions:
+        lob: blank
+        stgdelta_unknown_primary_key: "NA"
+        stgdelta_object_name: literal
+        stgdelta_object_name_literal: Accumulator_accumclient
+        citation: "pair-1 family convention (pair-1 overlay, transcribed from the aliased golden IIG)"
       template_rows:
         DATA_FACTORY_PIPELINE_SCHEDULE:
           - {PIPELINE_NAME: PARENT_PIPELINE, PIPELINE_DESCRIPTION: PARENT_PIPELINE}

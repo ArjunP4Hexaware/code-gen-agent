@@ -31,10 +31,14 @@ from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 # pair 11 likewise for its three feeds (3 OBJECT_IDs, 3 'NA'). Step 4: the DQ rows' OBJECT_IDs
 # (keyed per file) likewise move to Engineer (confirm) — pair 1: 8. Step 5: pair 11 has no
 # inventory overlay, so its schedule is the four structural rows per feed (was one) — 3 feeds
-# x 3 more rows of open cells (ids, dates, audit, convention names).
+# x 3 more rows of open cells (ids, dates, audit, convention names). Chunk A (2026-10-08):
+# pair 1's 4 ADLS TGT_PRIMARY_KEY cells are blank and open when no Primary Key cell states
+# one (BSA +4; the golden is blank there too) and its STGDELTA OBJECT_NAME is the family's
+# transcribed literal (Engineer (confirm) +1); pair 11's three ADLS TGT_PRIMARY_KEY cells
+# likewise (BSA +3).
 INVENTORY = {
-    "pair1": {"BSA": 92, "Engineer": 145, "Engineer (confirm)": 142, "Set at load (CI/CD)": 52},
-    "pair11": {"BSA": 171, "Engineer": 153, "Engineer (confirm)": 153, "Set at load (CI/CD)": 60},
+    "pair1": {"BSA": 96, "Engineer": 145, "Engineer (confirm)": 143, "Set at load (CI/CD)": 52},
+    "pair11": {"BSA": 174, "Engineer": 153, "Engineer (confirm)": 153, "Set at load (CI/CD)": 60},
 }
 
 

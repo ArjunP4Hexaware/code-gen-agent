@@ -147,12 +147,57 @@ def _wildcarded(pattern: str, tpl: MetadataTemplateConfig) -> str:
     return pattern
 
 
-def _decided_blank(reason: str) -> dict:
-    """A cell a stated rule leaves blank — not an open question: the review
-    copy does not highlight it (iig_review: ``deliberate_blank``)."""
-    cell = _cell("", "from_frd", reason)
+def _family_citation(tpl: MetadataTemplateConfig) -> str:
+    return tpl.family_conventions.citation or "the template's family_conventions"
+
+
+def _lob_cell(tpl: MetadataTemplateConfig, value: str, why: str) -> dict:
+    """LOB by the feed family's convention: "codes" writes ``value`` (a
+    per-LOB file's code, else the feed's LOB codes from the FRD / STTM header);
+    "blank" leaves it blank — decided by the convention, not an open cell."""
+    if tpl.family_conventions.lob == "codes":
+        return _cell(value, "from_frd", f"{why} (family convention lob: codes — "
+                                        f"{_family_citation(tpl)})")
+    cell = _cell("", "from_frd", "family convention lob: blank — "
+                                 f"{_family_citation(tpl)}")
     cell["badge_entry"]["deliberate_blank"] = True
     return cell
+
+
+def _generalized_pattern(files: list[FeedFile], tpl: MetadataTemplateConfig,
+                         tokens: list[str]) -> str:
+    """One pattern covering every file the feed receives (Chunk A, 2026-10-08:
+    STGDELTA OBJECT_NAME is the GENERALIZED file pattern): each stated pattern
+    with its LOB token and date placeholders as '*'; several patterns
+    generalize position by position over their '_' tokens (a token the
+    patterns disagree on is '*'), else to their common leading tokens + '*';
+    the extension is kept when they share one."""
+    from codegen.resolve.files import lob_token
+
+    wild = []
+    for template in dict.fromkeys(f.template for f in files):
+        token = lob_token(template, tokens)
+        wild.append(_wildcarded(template.replace(token, "*") if token else template, tpl))
+    if len(wild) == 1:
+        return wild[0]
+    split = [(str(PurePosixPath(p).with_suffix("")), PurePosixPath(p).suffix) for p in wild]
+    parts = [stem.split("_") for stem, _ext in split]
+    if len({len(p) for p in parts}) == 1:
+        tokens_out = [p0 if all(p[i] == p0 for p in parts) else "*"
+                      for i, p0 in enumerate(parts[0])]
+    else:
+        tokens_out = []
+        for column in zip(*parts, strict=False):
+            if len(set(column)) != 1:
+                break
+            tokens_out.append(column[0])
+        tokens_out.append("*")
+    collapsed: list[str] = []
+    for token in tokens_out:
+        if not (token == "*" and collapsed and collapsed[-1] == "*"):
+            collapsed.append(token)
+    extensions = {ext for _stem, ext in split}
+    return "_".join(collapsed) + (extensions.pop() if len(extensions) == 1 else ".*")
 
 
 def _sequence_cell(index: int, what: str) -> dict:
@@ -496,6 +541,9 @@ def _file_adls(tab, feed, config, spec, faq, tpl) -> list[dict]:
     landing = _landing(feed)
     if landing is not None:
         cells["TGT_ADLS_PATH"] = _cell(landing, *_landing_badge(feed))
+    # A configured shape wins (e.g. {landing_rel}: the landing INSIDE its
+    # container — Chunk A, pair 4); without one the FRD landing as before.
+    cells.update(_paths(tpl, tab, feed, "", ""))
     return [_with_constants(tpl, tab, cells)]
 
 
@@ -539,10 +587,11 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
             "SOURCE": _cell(feed.source_system, "from_frd"),
             "FREQUENCY": _frequency(feed, faq),
-            "LOB": (_cell(file.lob, "from_frd", f"this file's LOB — {file.provenance}")
+            "LOB": (_lob_cell(tpl, file.lob, f"this file's LOB — {file.provenance}")
                     if file.lob else
-                    _decided_blank("not a per-LOB file (no LOB token in its pattern, "
-                                   "docs/acfc/MULTI_TABLE_DESIGN.md rule 2): LOB blank")),
+                    _lob_cell(tpl, ",".join(spec.lobs),
+                              "the feed's LOB (FRD / STTM header block) — not a per-LOB "
+                              "file (docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")),
             "SRC_FILE_NAME": _cell(pattern, "from_frd" if feed.file_name_patterns else "from_sttm",
                                    (f"stated {file.template!r}" if pattern != file.template
                                     else None)),
@@ -579,11 +628,9 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
         if spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
         if key_columns:
+            # Unknown (no Primary Key cell) stays blank and open (Chunk A).
             cells["TGT_PRIMARY_KEY"] = _cell(",".join(key_columns), "from_sttm",
                                              "the detail table's Primary Key cells (Stage band)")
-        elif spec.natural_key_columns:
-            cells["TGT_PRIMARY_KEY"] = _cell(",".join(spec.natural_key_columns), "from_sttm",
-                                             "the mapping contract's natural key columns")
         if file.lob:
             cells["TGT_PARTITION_COLUMN"] = _cell(
                 tpl.lob_partition_column, "synthetic",
@@ -601,13 +648,31 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
     stage table, target = its standard table (catalog mapped, step 2)."""
     if spec is None or spec.standard_table is None:
         return []
-    lobs = [f.lob for f in _feed_files(spec, config) if f.lob]
-    return [_stg_std_row(tab, feed, config, spec, faq, tpl, profile, group, lobs)
+    files = _feed_files(spec, config)
+    lobs = [f.lob for f in files if f.lob]
+    generalized = _generalized_pattern(files, tpl, config.extractor.lob_tokens)
+    return [_stg_std_row(tab, feed, config, spec, faq, tpl, profile, group, lobs, generalized)
             for group in _table_groups(spec) if group.standard is not None]
 
 
+def _stg_object_name(tpl: MetadataTemplateConfig, table: str, generalized: str) -> dict:
+    """STGDELTA OBJECT_NAME by the feed family's convention."""
+    convention = tpl.family_conventions
+    citation = _family_citation(tpl)
+    if convention.stgdelta_object_name == "literal":
+        return _cell(convention.stgdelta_object_name_literal, "synthetic",
+                     f"template constant — the family's own OBJECT_NAME form, transcribed "
+                     f"(no derivation known; {citation})")
+    if convention.stgdelta_object_name == "table_name":
+        return _cell(table, "from_sttm", f"the table this row moves (family convention; "
+                                         f"{citation})")
+    return _cell(_object_name(generalized), "from_frd",
+                 f"the generalized file pattern {generalized!r} (wildcards and extension "
+                 f"removed; family convention, {citation})")
+
+
 def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
-                 lobs: list[str]) -> dict:
+                 lobs: list[str], generalized: str) -> dict:
     fields = [f for f in group.fields if f.standard_column]
     audit = _group_audit(group, spec, tpl)
     stage = group.stage
@@ -621,17 +686,15 @@ def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
         src_types = [f"{f.stage_datatype}:{f.standard_datatype}" for f in fields] + [
             f"{t}:{t}" for _c, t in audit]
     cells = {
-        "OBJECT_NAME": _cell(standard.table, "from_sttm",
-                             "the table this row moves (METADATA_DB_SEMANTICS §7: 'based on the "
-                             "table which we are creating')"),
+        "OBJECT_NAME": _stg_object_name(tpl, standard.table, generalized),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency(feed, faq),
-        "LOB": (_cell(",".join(lobs), "from_frd", "the LOBs of the feed's per-LOB files")
+        "LOB": (_lob_cell(tpl, ",".join(lobs), "the LOBs of the feed's per-LOB files")
                 if lobs else
-                _decided_blank("the feed has no per-LOB file "
-                               "(docs/acfc/MULTI_TABLE_DESIGN.md rule 2): LOB blank")),
+                _lob_cell(tpl, ",".join(spec.lobs),
+                          "the feed's LOB (FRD / STTM header block) — no per-LOB file")),
         "SRC_SCHEMA_NAME": _cell(stage.schema_name, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage.table, "from_frd"),
         "SRC_COLUMNS": _cell(
@@ -658,11 +721,16 @@ def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
     if spec.standard_load_strategy:
         cells["TGT_LOAD_OPTION"] = _load_option_cell(spec.standard_load_strategy, "STD")
     key_columns = _primary_key(fields, "standard")
-    cells["TGT_PRIMARY_KEY"] = (
-        _cell(",".join(key_columns), "from_sttm", "the table's Primary Key cells (Standard band)")
-        if key_columns else
-        _cell("NA", "synthetic", "template constant — no Primary Key cell in the table's "
-                                 f"Standard band; the framework's 'NA' ({tpl.citation})"))
+    unknown = tpl.family_conventions.stgdelta_unknown_primary_key
+    if key_columns:
+        cells["TGT_PRIMARY_KEY"] = _cell(",".join(key_columns), "from_sttm",
+                                         "the table's Primary Key cells (Standard band)")
+    elif unknown:
+        # No Primary Key cell: the family's convention value ('NA' for the
+        # pair-1 family); "" leaves the cell blank and open.
+        cells["TGT_PRIMARY_KEY"] = _cell(
+            unknown, "synthetic", "template constant — no Primary Key cell in the table's "
+            f"Standard band; family convention ({_family_citation(tpl)})")
     cells.update(_paths(tpl, tab, feed, standard.table, reject))
     return _with_constants(tpl, tab, cells)
 

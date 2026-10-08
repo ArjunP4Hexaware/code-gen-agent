@@ -916,6 +916,16 @@ metadata:
         - {role: file_to_stage, name: "PL_File_{feed}_ADLS_To_Delta_Incr", description: "File to Stage", parent: master}
         - {role: stage_to_standard, name: "PL_File_{feed}_Delta_To_STD_Incr", description: "Stage to Standard", parent: master}
       pipeline_roles_citation: "framework pipeline naming convention (framework owners, 2026-10-07; docs/acfc/MULTI_TABLE_DESIGN.md step 5)"
+      # Per-feed-family conventions (2026-10-08): two families' goldens fill three
+      # cells differently. Shipped: the pair-1 (PRX) family's LOB and primary key
+      # (the real golden), the generalized file pattern for OBJECT_NAME (the
+      # pair-1 family's own form has no known derivation). A family overlay pins
+      # its own; WHICH IS CURRENT FOR NEW FEEDS is open (MULTI_TABLE_DESIGN Friday list).
+      family_conventions:
+        lob: blank
+        stgdelta_unknown_primary_key: "NA"
+        stgdelta_object_name: generalized_file_pattern
+        citation: "shipped default — pair-1 family LOB / primary key (docs/acfc/MULTI_TABLE_DESIGN.md §1)"
       # The golden IIG spells the audit types 'String' / 'TIMESTAMP' (its DDL
       # says STRING) — transcribed as the IIG states them.
       audit_type_casing: {String: String, Timestamp: TIMESTAMP}

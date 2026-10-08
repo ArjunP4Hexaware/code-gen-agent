@@ -222,6 +222,43 @@ else the feed slug in capitals; `PIPELINE_FREQUENCY` from the feed;
 §2), blank elsewhere with the tooltip naming the parent row; ids, dates and
 audit left to the engineer. A configured inventory (pair 1's overlay) wins.
 
+**Chunk A (2026-10-08) — every cell pinned, the golden is the authority.**
+`tests/test_m4_acceptance.py::test_pair1_every_iig_cell_and_the_ddl_are_pinned`
+compares EVERY cell of all eight pair-1 sheets with the golden (plus the DDL byte
+for byte): each cell is *equal*, *open* (the golden carries an engineer /
+environment / audit value no input states — ours blank AND flagged), a masked
+*sequence* (`SYN-OBJ-<n>` = our `<n>`), or a *deviation* pinned with its reason
+(open framework questions only: per-file SOURCE / FREQUENCY, HEADER_FLAG on a
+fixed-width file, the first object's Overwrite, STGDELTA SOURCE, the notebooks'
+refresh type, MANDATORY_FIELD_LIST, EMAIL_TO). A difference outside the tables,
+or an entry no cell needs, fails. `tests/test_pair4_full_golden.py` is the
+mirror for pair 4: a real framework run, every cell of all eight sheets equal to
+`IIG_EXPECTED.yaml` (now goldened for all eight sheets).
+
+Generator rules settled in Chunk A:
+
+- **`TGT_PRIMARY_KEY`** = the band's Primary Key cells; none = blank and open
+  (no natural-key fallback — the pair-1 golden is blank there). On STGDELTA the
+  unknown value is a family convention (below).
+- **Feed families** (correction 2026-10-08): two families' goldens fill three
+  cells differently, neither an error. `metadata.templates.iig_v2.
+  family_conventions` carries them; each fixture's overlay pins its own:
+
+  | setting | pair-1 (PRX) family | CAQH-style family (pair 4) |
+  | --- | --- | --- |
+  | `lob` (ADLS, STGDELTA) | `blank` (decided, not an open cell) | `codes` — a per-LOB file's code, else the feed's LOB codes (FRD / STTM header) |
+  | `stgdelta_unknown_primary_key` | `"NA"` | `""` (blank, open) |
+  | `stgdelta_object_name` | `literal` — `Accumulator_accumclient`, transcribed from the golden (no input derives it) | `generalized_file_pattern` — the feed's patterns with LOB token and dates as `*`, generalized position by position, wildcards and extension removed (`NWB_COB_RPT`) |
+
+  The shipped default is the pair-1 family's `lob` / primary key and the
+  generalized file pattern (`table_name` is also available). Which convention is
+  current for NEW feeds is on the Friday checklist.
+- `FILE_ADLS_INGESTION_DETAILS` applies configured path shapes (pair 4:
+  `TGT_ADLS_PATH` = `{landing_rel}`, the landing inside its container).
+- Test isolation: `cli.main()` re-reads the operator's `.env` mid-suite; the
+  suite now strips the machine-local overrides after every test
+  (`tests/conftest.py`), which the full-cell `EMAIL_TO` check exposed.
+
 Still to come (steps 6–7).
 
 ## 4. Row-count rules per sheet
@@ -287,8 +324,8 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 ### STGDELTA_STDDELTA_INGESTION_DET
 
 - **per-file:** —
-- **per-table:** OBJECT_NAME, SRC_TABLE_NAME, SRC_CATALOG_NAME, SRC_SCHEMA_NAME, SRC_COLUMNS, SRC_DATA_TYPE, TGT_CATALOG_NAME, TGT_SCHEMA_NAME, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
-- **per-feed:** DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, LOB, TGT_LOAD_OPTION
+- **per-table:** SRC_TABLE_NAME, SRC_CATALOG_NAME, SRC_SCHEMA_NAME, SRC_COLUMNS, SRC_DATA_TYPE, TGT_CATALOG_NAME, TGT_SCHEMA_NAME, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
+- **per-feed:** OBJECT_NAME, DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, LOB, TGT_LOAD_OPTION
 - **environment:** SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONNECTION_ID, TGT_CONTAINER_NAME
 - **convention:** ACTIVE_FLAG, SRC_ADLS_PATH, SRC_FORMAT, SRC_ADLS_ARCHVL_PATH, TGT_ADLS_PATH, TGT_FORMAT, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, CREATED_DATE, UPDATED_DATE
 - **engineer-assigned:** GROUP_ID, OBJECT_ID, PIPELINE_ID, CREATED_BY, UPDATED_BY
@@ -302,23 +339,41 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 - **convention:** SEQUENCE_NO, RULE_TYPE, RULE_CLASS, ACTIVE_RULE_FLG, CREATED_DATE, UPDATED_DATE
 - **engineer-assigned:** GROUP_ID, CREATED_BY, UPDATED_BY
 
-### Sheets not goldened for pair 4 (classes for Phase C)
+### FILE_ADLS_INGESTION_DETAILS
 
-- `FILE_ADLS_INGESTION_DETAILS` — per-file: OBJECT_ID, SRC_ROOT_DIR (when
-  per file); per-feed: DOMAIN, SUBDOMAIN, TGT_ADLS_PATH; environment:
-  SRC_CONNECTION_ID, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME; convention:
-  SOURCE_TYPE, COPY_START_TIME_OFFSET_IN_MINUTES, audit dates;
-  engineer-assigned: GROUP_ID, PIPELINE_ID, SRC_EXTRACT_START_TIME, audit by.
-- `DATABRICKS_NOTEBOOK_DETAILS` — environment: DATABRICKS_WORKSPACE_URL,
-  DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID;
-  per-feed: TGT_REFRESH_TYPE (by `_layer`); engineer-assigned: PIPELINE_ID,
-  PIPELINE_NAME, GROUP_ID, PROCESS_NAME, DATABRICKS_NOTEBOOK_PATH / NAME,
-  DQ_NOTEBOOK_PATH; convention: SEQ_NM, ACTIVE_FLAG.
-- `EMAIL_TEMPLATE_CONFIG` — convention: STATUS, ACTIVE_FLAG; per-feed:
-  TEMPLATE_NAME, PROCESS_NAME, SUBJECT, BODY; environment: SENDER_EMAIL,
-  EMAIL_TO, EMAIL_CC; engineer-assigned: TEMPLATE_ID.
-- `ADLS_FIXED_WIDTH_HANDLER` — per-table: SEGMENT, COL, LEN, start_ind,
-  TGT_TABLE; convention: the rest (fixed-width files only).
+- **per-file:** —
+- **per-table:** —
+- **per-feed:** DOMAIN, SUBDOMAIN
+- **environment:** SRC_CONNECTION_ID, TGT_CONTAINER_NAME, TGT_STORAGE_ACCOUNT_NAME
+- **convention:** TGT_ADLS_PATH, SOURCE_TYPE, COPY_START_TIME_OFFSET_IN_MINUTES, CREATED_DATE, UPDATED_DATE
+- **engineer-assigned:** GROUP_ID, OBJECT_ID, PIPELINE_ID, SRC_ROOT_DIR, SRC_EXTRACT_START_TIME, CREATED_BY, UPDATED_BY
+
+### ADLS_FIXED_WIDTH_HANDLER
+
+- **per-file:** —
+- **per-table:** SEGMENT, SEGMENT_FILTER, COL, LEN, start_ind, TGT_TABLE, TGT_AUDIT_CLMS
+- **per-feed:** —
+- **environment:** —
+- **convention:** ACTIVE_FLAG, CREATED_DATE, UPDATED_DATE, SRC_ADLS_ARCHVL_PATH, IS_MANDATORY, COLUMN_VALIDATIONS
+- **engineer-assigned:** PROCESS_NAME, VERSION, SEGMNT_TYP, PIPELINE_ID, FILE_TYPE, EXTENSION, CREATED_BY, UPDATED_BY, FILE_REJECTION, RJCT_RSN_COLUMN_NM
+
+### DATABRICKS_NOTEBOOK_DETAILS
+
+- **per-file:** —
+- **per-table:** —
+- **per-feed:** TGT_REFRESH_TYPE
+- **environment:** DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET, DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID
+- **convention:** SEQ_NM, ACTIVE_FLAG, CREATED_DATE, UPDATED_DATE
+- **engineer-assigned:** PIPELINE_ID, PIPELINE_NAME, GROUP_ID, PROCESS_NAME, DATABRICKS_NOTEBOOK_PATH, DATABRICKS_NOTEBOOK_NAME, CREATED_BY, UPDATED_BY, DELETE_DATABRICKS_NOTEBOOK_NAME, DQ_NOTEBOOK_PATH
+
+### EMAIL_TEMPLATE_CONFIG
+
+- **per-file:** —
+- **per-table:** —
+- **per-feed:** —
+- **environment:** SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC
+- **convention:** STATUS, ACTIVE_FLAG, CREATED_DATE, UPDATED_DATE
+- **engineer-assigned:** TEMPLATE_ID, TEMPLATE_NAME, PROCESS_NAME, SUBJECT, BODY, BODY_QUERY, CREATED_BY, UPDATED_BY
 
 ## 6. Phase C — the order, and what each step must show
 
@@ -371,11 +426,12 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    trailer are split by the DQ rule: `N` (pair-1 analogy — a rule does the
    split) or `Y` (the walkthrough: "if your file is having a header")? Left
    open in the golden.
-7. `STGDELTA_STDDELTA_INGESTION_DET.LOB` for a table that holds every LOB:
-   the comma-joined codes (golden), blank (pair-1 golden) or `ALL`?
-8. `STGDELTA_STDDELTA_INGESTION_DET.OBJECT_NAME`: the table name (golden,
-   "based on the table which we are creating", METADATA_DB_SEMANTICS §7) or a
-   free engineer token (pair 1's `Accumulator_accumclient`)?
+7. ~~`STGDELTA_STDDELTA_INGESTION_DET.LOB`~~ — a **family convention** since
+   2026-10-08 (pair-1 family blank, CAQH-style family the codes); which is
+   current for new feeds: Friday checklist.
+8. ~~`STGDELTA_STDDELTA_INGESTION_DET.OBJECT_NAME`~~ — a **family convention**
+   (pair-1 family: its own transcribed form; CAQH-style: the generalized file
+   pattern); Friday checklist.
 9. The real `ForReference` sheet's geometry below the band row (the fixture
    assumes one sub-header row: Field Name | Table / Column / Data Type |
    Schema / Table / Column / Data Type).

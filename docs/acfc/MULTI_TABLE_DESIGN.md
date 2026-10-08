@@ -2,7 +2,7 @@
 
 Branch `feature/multi-table` (cut from `feature/iig-first` at be38f05).
 Status: **Phase A (this document) and Phase B (fixture `fixtures/acfc_shapes/pair_4/`)
-done; Phase C in progress — status per step in §6.** Every Phase C step keeps the
+done; Phase C steps 1–7 done (§6); open items on the Friday checklist (§7a).** Every Phase C step keeps the
 pair-1 acceptance (`tests/test_m4_acceptance.py`) byte-identical, the pair-4
 golden consistent and `tests/test_m5_rfc_package.py` green.
 
@@ -259,7 +259,8 @@ Generator rules settled in Chunk A:
   suite now strips the machine-local overrides after every test
   (`tests/conftest.py`), which the full-cell `EMAIL_TO` check exposed.
 
-Still to come (steps 6–7).
+**Steps 6–7 (done)** — §6: `metadata_inserts.sql` + one CREATE block per table;
+`scripts/iig_scorecard.py --all-sheets`.
 
 ## 4. Row-count rules per sheet
 
@@ -398,14 +399,40 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    pair 1: no split row, its 8 derived rows; `tests/test_multi_table_step4.py`).
 5. **`DATA_FACTORY_PIPELINE_SCHEDULE`: four rows — DONE** (pair 4: 4 = the golden;
    pair 1 keeps its inventory overlay's four; `tests/test_multi_table_step5.py`).
-6. **`metadata_inserts.sql`** — INSERT statements per sheet from the same cells
-   as the IIG; the CREATE TABLE text stays as a reference artefact, now one
-   block per table labelled with its mapped three-part name. `emit/dml.py`
-   already writes `config_inserts_<env>.sql` from the payload; this step must
-   first replace the ONE `@OBJECT_ID` / `@PIPELINE_ID` / `@GROUP_ID` per
-   script with one variable per row role — the latent collision in §2.
-7. **`scripts/iig_scorecard.py` over all sheets**, matching STGDELTA rows by
-   table and ADLS rows by file pattern.
+6. **`metadata_inserts.sql` — DONE.** `codegen.emit.metadata_inserts` renders
+   the client's "DDL" (rule 8) from the same payload as the IIG: one block per
+   sheet in `dml.table_order` (`-- <SHEET>: <n> row(s)`), one INSERT per row,
+   header order. A value is an `N'…'` literal (line breaks as `+ NCHAR(10) +`,
+   lossless); an OPEN blank (what the review copy calls open) is an unquoted
+   `<<COLUMN#n>>` placeholder, so the script does not parse until every one is
+   filled; a decided blank (`deliberate_blank`) is `NULL`. A `TABLE
+   DEFINITIONS` index names every table's stage and standard definition by its
+   mapped three-part name with its columns; ADLS rows are labelled `-- table
+   <stage> <- file <pattern>`, STGDELTA rows `-- table <src> -> <tgt>`.
+   Written under the DML switches (`emit_dml` + `dml.enabled`), in the DDL
+   artefact group (the M7 labels test pins the DML group at six files), gate
+   check `metadata_inserts` (statement count = IIG rows; parses as T-SQL with
+   the placeholders read as NULL). The CREATE reference text is one block per
+   table and layer from `emit.framework.table_definitions` (the same
+   derivation): stage blocks, then standard blocks; standard columns = the rows
+   carrying a Standard band, named by it (a table with none keeps the stage
+   list). Pair 1 byte-identical; pair 4 six CREATEs as in `TABLE_DEFINITIONS`
+   (`tests/test_metadata_inserts.py`, incl. a round trip against the clean IIG).
+   **Still open:** the one-`@OBJECT_ID` / `@PIPELINE_ID` / `@GROUP_ID` collision in
+   the older `config_inserts_<env>.sql` (§2) — that file is unchanged; the new
+   file uses per-row placeholders instead.
+7. **`scripts/iig_scorecard.py --all-sheets` — DONE.** Scores every sheet of the
+   real workbook (iig_v2: all eight), pairing rows by key: schedule and notebook
+   details by PIPELINE_NAME, ADLS by SRC_FILE_NAME, STGDELTA by table, DQ by
+   (file — via the SAME workbook's ADLS OBJECT_ID — and RULE_CLASS) in
+   SEQUENCE_NO order, fixed-width by SEGMENT, email by STATUS, FILE_ADLS by
+   position. Real-only / generated-only rows are reported (key only) and count as
+   unmatched cells; a golden's masked `SYN-OBJ-<n>` against a run's `<n>` is
+   ALIAS. Score per sheet and in TOTAL = 100 × (matched + alias) / cells. Both
+   goldens score 100.0 against themselves; the generated pair 1 scores TOTAL
+   57.9 with every row paired — every DIFF is a pinned Chunk A deviation, every
+   ALIAS a masked OBJECT_ID, and the rest is open cells (engineer / environment /
+   audit values) (`tests/test_iig_scorecard_all.py`).
 
 ## 7. Open questions (for the framework owners)
 
@@ -435,6 +462,56 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
 9. The real `ForReference` sheet's geometry below the band row (the fixture
    assumes one sub-header row: Field Name | Table / Column / Data Type |
    Schema / Table / Column / Data Type).
+
+## 7a. Friday checklist — framework owners, 2026-10-09
+
+To confirm before the next real run. Each item names what the code does today
+and where the answer lands (config, not code, wherever possible).
+
+**The five questions**
+
+1. **Catalog names in the real STTMs.** Do the real Stage / Standard bands
+   state exactly `PR_DLK` / `PR_STD` (the keys of the d1 `catalog_map` in
+   `config/overlays/acfc_env.yaml`), or longer names (the pair-1 alias reads
+   `pr_dlk_<x>`)? Today a stated catalog the map lacks is written as stated and
+   flagged `catalog_unmapped:<layer>`. Answer → the `catalog_map` keys.
+2. **The standard container for d1.** `STGDELTA_STDDELTA_INGESTION_DET`
+   `TGT_CONTAINER_NAME` (and its `SRC_CONTAINER_NAME`, the stage container) for
+   d1. The ACFC overlay carries the ADLS_DELTA connection / container constants
+   only, so these cells are open on real runs. Answer → `acfc_env.yaml`
+   `constants.STGDELTA_STDDELTA_INGESTION_DET`.
+3. **The STGDELTA `OBJECT_NAME` convention.** The pair-1 family's golden prints
+   `Accumulator_accumclient` (no input derives it — transcribed in the pair-1
+   overlay); the CAQH-style family uses the generalized file pattern
+   (`NWB_COB_RPT`). What is the rule? Answer →
+   `family_conventions.stgdelta_object_name` (+ a derivation if there is one).
+4. **`TGT_PRIMARY_KEY` semantics.** ADLS: the Stage band's Primary Key cells,
+   else blank and open. STGDELTA: the Standard band's, else `'NA'` (pair-1
+   family) or blank (CAQH-style). Is `'NA'` meaningful to the framework, and is
+   `MANDATORY_FIELD_LIST` (today: the STTM's not-null detail columns; the pair-1
+   golden leaves it blank; the walkthrough calls it "basically a primary key")
+   the key list or the mandatory list?
+5. **Which DQ rule classes are standard.** Generated today:
+   `LoadHeaderAndTrailerToSeparateTablesRule` (one per file, only when header /
+   trailer are their own tables), `DateFormatRule` and `DataTypeCastRule`
+   (from the STTM's load rules / typed stage columns). The review copy lists
+   "additional DQ rules (not generated)" — Engineer, one entry per file. Which
+   other classes should every feed carry, and from which input?
+
+**Confirm which convention is current for NEW feeds** (both are pinned today —
+pair 1's overlay the PRX family, pair 4's the CAQH-style family; the shipped
+default is the PRX family's LOB / key and the generalized OBJECT_NAME):
+
+6. `LOB` — blank (PRX family) or the LOB codes (CAQH-style)?
+7. STGDELTA `TGT_PRIMARY_KEY` with no Primary Key cell — `'NA'` (PRX) or blank
+   (CAQH-style)?
+8. STGDELTA `OBJECT_NAME` — the family's own form (PRX) or the generalized
+   file pattern (CAQH-style)?
+
+**If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
+whether grand master / master are new rows per feed (Q4), one
+`FILE_ADLS_INGESTION_DETAILS` row per file or per root (Q5), and the header /
+trailer flags when a DQ rule does the split (Q6).
 
 ## 8. Fixture numbering note
 

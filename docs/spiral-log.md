@@ -62,3 +62,12 @@
 - Earliest signal: n/a
 - Approx. time lost: ~2 minutes
 - Proposed refinement (for a retro, not now): treat a later passing run whose command is a superset (same tool, more paths) as clearing an earlier failing one; and ignore edits to files the failing command does not cover.
+
+## 2026-10-07: hook signal (b) — iig_scorecard.py edited 4x while a wc -l command "still failing" (Chunk C worktree agent)
+- Actual cause: not a spiral. The agent's worktree was created at `main` (4c35c61), where `scripts/iig_scorecard.py` does not exist, so the quoted `wc -l` failed; the agent then reset the worktree branch to 8b94b9e and the same command passed. The hook keys on the exact command string and never saw it go green.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~2 minutes
+- Proposed refinement (for a retro, not now): a worktree created at the default branch instead of the caller's HEAD makes every file of the caller's branch "missing" — the Agent worktree base, not the code, was wrong.

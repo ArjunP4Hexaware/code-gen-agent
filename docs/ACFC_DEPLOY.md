@@ -68,7 +68,8 @@ environment's constants and the SDOH path shapes:
 
 | Key | Value | Effect |
 | --- | --- | --- |
-| `conventions.profiles.acfc_prx.default_catalog` | `{stage: d1_dlk, standard: d1_std}` | last link of the catalog chain — clears `catalog_unstated:<layer>`; the DDL gets three-part names |
+| `conventions.catalog_map` | `{PR_DLK: d1_dlk, PR_STD: d1_std}` (d1; prod = identity, no map) | multi-table rule 7: the STTM bands state LOGICAL catalogs; every emitted catalog is mapped (keys case-insensitive, output lowercase) and the cell tooltip cites the mapping; a stated catalog the map lacks is written as stated and flagged `catalog_unmapped:<layer>` |
+| `conventions.profiles.acfc_prx.default_catalog` | `{stage: d1_dlk, standard: d1_std}` | last link of the catalog chain (STTM band → FRD label → this), used only when the band and the FRD state no catalog — clears `catalog_unstated:<layer>`; the DDL gets three-part names |
 | `metadata.templates.iig_v2.constants.ADLS_DELTA_INGESTION_DETAILS` | `SRC_ADLS_CONNECTION_ID 7`, `METADATA_CONNECTION_ID 4`, `TGT_CONNECTION_ID 2`, `SRC_CONTAINER_NAME mftlanding`, `TGT_CONTAINER_NAME z-use-d1-dlk-stage-01`, `SCHEMA_DRIFT_FLAG Y` | filled cells, badge synthetic, tooltip naming the overlay (`constant_citations`) |
 | `metadata.templates.iig_v2.always_blank` | the shipped list minus the five connection / container columns | lists REPLACE on merge — the cells above can only fill once they leave it |
 
@@ -88,6 +89,13 @@ environment's constants and the SDOH path shapes:
   (`<config dir>/overlays/acfc_env.yaml`); a config elsewhere gets no default.
 - Per-feed path shapes (`path_patterns`) go in the same overlay when the
   feed's values are known; the shipped `iig_v2` shapes are unchanged.
+- **Feed-family conventions** (`metadata.templates.iig_v2.family_conventions`,
+  2026-10-08): `lob` (blank | codes), `stgdelta_unknown_primary_key` (`"NA"` |
+  `""`) and `stgdelta_object_name` (generalized_file_pattern | table_name |
+  literal). The ACFC overlay sets none, so real runs get the shipped default —
+  the PRX family's blank LOB and `'NA'`, and the generalized file pattern.
+  Which convention is current for new feeds is on the Friday checklist
+  (`docs/acfc/MULTI_TABLE_DESIGN.md` §7a); set it in the overlay once answered.
 
 ### Which codegen runs (2026-10-07: a stale wheel shadowed the tree)
 
@@ -391,9 +399,14 @@ then check (this is exactly `tests/test_m4_acceptance.py` and
   including the `Decimal(17,2)`→`Decimal(22,2)` run, which the gate flags
   (`drag_fill_suspect`) and never alters.
 - `config_rows.xlsx` / `ACCUM_IIG.xlsx`: eight sheets in the golden's order,
-  identical headers, row counts 4/1/4/1/3/3/8/2; the pinned columns
-  (`PINNED_COLUMNS` in the M4 test) equal the golden verbatim; every other
-  cell blank and listed in the `iig_blank:<SHEET>: …` flags.
+  identical headers, row counts 4/1/4/1/3/3/8/2, and EVERY cell accounted for
+  (`test_pair1_every_iig_cell_and_the_ddl_are_pinned`, 2026-10-08): equal to the
+  golden; or open — blank, flagged `iig_blank:<SHEET>: …`, where the golden
+  carries an engineer / environment / audit value; or the masked OBJECT_ID
+  sequence (`SYN-OBJ-<n>` = `<n>`); or a deviation pinned with its reason (the
+  open framework questions below). The pair-1 overlay pins the PRX feed family
+  (`family_conventions`: LOB blank, STGDELTA unknown key `'NA'`, its own
+  STGDELTA OBJECT_NAME), so those cells equal the golden.
 - Verdict `PASS_WITH_FLAGS` with `segments_from_sttm`, `file_pattern_from_sttm`,
   one `drag_fill_suspect`, eight `iig_blank` (one per sheet), the `playbook_blank`
   set, `rfc_number_unanswered` (until the FAQ answers it) and the six
@@ -406,6 +419,39 @@ Cells the golden fills that the fixture universe cannot determine (per-file
 handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
+
+## What feature/multi-table adds (0.5.8.post16, 2026-10-08 — not merged, not deployed)
+
+Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
+`docs/acfc/OVERNIGHT_2026-10-08.md`; owner questions: its §7a Friday checklist.
+
+- **One STTM, several tables; one feed, several files.** Tables = the distinct
+  (catalog, schema, table) triples of each STTM band (Stage and Standard band
+  per row); files = the distinct patterns, a `<LOB>` pattern expanded per listed
+  LOB. `ADLS_DELTA_INGESTION_DETAILS` = one row per file into the detail table;
+  `STGDELTA_STDDELTA_INGESTION_DET` = one row per table; `DATA_QUALITY_RULES` keyed
+  per file, with the header / trailer split row when they are separate tables;
+  `DATA_FACTORY_PIPELINE_SCHEDULE` = four structural rows when no inventory overlay
+  supplies them. `OBJECT_ID` = 1..n within the group (ADLS / DQ).
+- **Catalogs:** STTM band → FRD label → `default_catalog`, a disagreement flagged
+  `catalog_conflict:<layer>`; `conventions.catalog_map` maps the logical catalogs
+  (overlay table above).
+- **Feed-family conventions:** `family_conventions` (overlay note above).
+- **New artefact `framework/metadata_inserts.sql`** (with the DML switches on —
+  `conventions.profiles.acfc_prx.emit_dml` and `dml.enabled`): the metadata rows
+  that define the feed's tables and pipelines in the SQL Server metadata DB — what
+  the client calls the "DDL"; the framework creates the Unity Catalog tables from
+  them, and `<FEED>_DDL.txt` stays as the CREATE reference, now one block per
+  table. Written from the same cells as `<feed>_IIG.xlsx`, one INSERT per IIG row;
+  every open cell is a `<<COLUMN#n>>` placeholder (column + row within its sheet),
+  so the engineer fills every one before the script parses or runs. It opens with
+  an index of every table by its mapped three-part name. The older
+  `config_inserts_<env>.sql` is unchanged (and still shares one `@OBJECT_ID` per
+  script — see the design doc §6).
+- **Scorecard over every sheet:** `python scripts/iig_scorecard.py --all-sheets
+  --generated <feed>_IIG.xlsx --real <real IIG>.xlsx [--summary-only]` — rows
+  paired by key, a score per sheet and in TOTAL
+  (`docs/acfc/IIG_SCORECARD_2026-10-07.md`).
 
 ## What v0.5.8-acfc adds (Generate works right after a restart)
 

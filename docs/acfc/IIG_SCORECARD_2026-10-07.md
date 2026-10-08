@@ -191,7 +191,18 @@ python scripts/iig_scorecard.py \
     --generated out/<feed>/framework/<feed>_IIG.xlsx \
     --real "IIG test cells.xlsx" --sheet ADLS_DELTA_INGESTION_DETAILS \
     --real-table sd_community_demographic_risk --generated-table <generated name>
+
+# 5. score EVERY sheet (rows paired by key) against a golden or a real full IIG
+#    workbook (multi-table step 7, 2026-10-08)
+python scripts/iig_scorecard.py --all-sheets     --generated out/<feed>/framework/<feed>_IIG.xlsx --real "<real IIG>.xlsx"     [--summary-only | --matches] [--alias generated=real ...]
 ```
+
+In `--all-sheets` mode the review copy next to `--generated` supplies the owners
+of open cells; rows pair by key (schedule / notebooks by PIPELINE_NAME, ADLS by
+SRC_FILE_NAME, STGDELTA by table, DQ by file + RULE_CLASS, fixed-width by
+SEGMENT, email by STATUS); the last line is `TOTAL (8 sheets): score S; paired P,
+real-only R, generated-only G; cells …` with score = 100 × (matched + alias) /
+cells.
 
 `<feed>` is the feed slug `generate` prints on its verdict line (`PASS_WITH_FLAGS
 <feed> — …`); `<generated name>` is that feed's `TGT_TABLE_NAME` — on the real

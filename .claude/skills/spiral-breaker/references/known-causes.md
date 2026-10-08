@@ -88,5 +88,5 @@ Entry format:
   under a broader invocation (more paths), which the hook does not link to the old one.
 - Check: re-run the exact command the signal quotes. Exit 0 = false trigger.
 - Pattern: none (not a spiral)
-- Seen: 2026-10-07
+- Seen: 2026-10-07 (twice — the second in a worktree agent created at main)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.

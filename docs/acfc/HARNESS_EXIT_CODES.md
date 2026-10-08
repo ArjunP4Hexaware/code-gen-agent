@@ -36,18 +36,31 @@ in stdout but are not fatal.
 
 ## Line format
 
-The CLI emits structured lines with the label padded to 15 columns:
+The CLI emits structured lines with the label padded to 15 columns, the key
+VERBATIM (a sheet name's spaces kept; only a line break becomes a space), an
+em-dash, the reason on one line. Three labels share the form; only the first
+two are answers OWED:
 
 ```
 QUESTION       <key> — <reason>
 UNRESOLVED     <key> — <reason>
+NOTE           <key> — <reason>
 ```
 
-The Python f-string producing these lines is:
+| Label | Meaning | The harness |
+| --- | --- | --- |
+| `QUESTION` | the run cannot complete a feed without a VALUE (`gaps:` / `pairing:` key: a held-back feed's target, a file pattern, a document disagreement, a byte width, `pair.frd`) | records the key |
+| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column (`<sheet>/<layer>/<role>`, under `answers:`) | records the key |
+| `NOTE` | informational — an optional column not placed, an FRD field not read, a VDD role, `pair.vdd` | ignores it (the regex does not match `NOTE`) |
+
+A clean pair prints no `QUESTION` / `UNRESOLVED` line on any stage
+(code-gen-agent `tests/test_answer_labels.py`, pairs 1 and 4).
+
+The code producing these lines (code-gen-agent `src/codegen/cli.py`,
+`answer_line`) is:
 
 ```python
-print(f"{'QUESTION':<15} {key} \u2014 {reason}")
-print(f"{'UNRESOLVED':<15} {key} \u2014 {reason}")
+f"{label:<15}{key} \u2014 {reason}"   # label: QUESTION | UNRESOLVED | NOTE
 ```
 
 The harness parses them with the following compiled regex

@@ -1,0 +1,375 @@
+# Pair 4 (nb_cob_report, synthetic vendor "Northwind Benefits") — the IIG rows
+# the multi-table model expects, WRITTEN BY HAND from the owners' model
+# (docs/acfc/MULTI_TABLE_DESIGN.md §1) and the fixture's inputs:
+#   fixtures/acfc_shapes/pair_4/sttm_nb_cob_report.xlsx   (built)
+#   fixtures/acfc_shapes/pair_4/frd_nb_cob_report.contract.json (built)
+#   fixtures/acfc_shapes/pair_4/config_overlay.yaml        (environment values)
+# Template: iig_v2, conventions profile acfc_prx.
+#
+# Cell semantics:
+#   "text"  the expected cell value
+#   ""      deliberately blank (NULL in the metadata DB) by convention
+#   null    OPEN — the column's owner fills it (engineer-assigned ids / names,
+#           the RFC number, or an open question of §7); the generator must
+#           leave it blank and flag it, never invent it
+# Keys starting with "_" are annotations, not IIG columns.
+# `columns` = the owner map (class per column, template header order):
+#   per_file | per_table | per_feed | environment | convention | engineer
+#
+# Not goldened here: FILE_ADLS_INGESTION_DETAILS (open Q5),
+# DATABRICKS_NOTEBOOK_DETAILS (inventory), EMAIL_TEMPLATE_CONFIG (2 rows,
+# unchanged), ADLS_FIXED_WIDTH_HANDLER (0 rows — a delimited file).
+
+_anchors:
+  audit: &audit
+    CREATED_BY: null
+    CREATED_DATE: ""
+    UPDATED_BY: null
+    UPDATED_DATE: ""
+
+  schedule_common: &schedule_common
+    PIPELINE_ID: null
+    PIPELINE_NAME: null
+    PIPELINE_FREQUENCY: Monthly
+    NO_OF_CYCLE_PER_DAY: "1"
+    DAY_OF_SCHEDULE: "0"
+    ACTIVE_FLAG: "Y"
+    ACTIVE_START_DATE: null
+    ACTIVE_END_DATE: "9999-12-31"
+    ESTIMATED_START_TIME: ""
+    APPLICATION_NAME: null
+    <<: *audit
+
+  adls_common: &adls_common
+    GROUP_ID: null
+    OBJECT_ID: null
+    DOMAIN: Membership
+    SUBDOMAIN: Coordination of Benefits
+    PIPELINE_ID: null
+    SOURCE: Northwind Benefits
+    FREQUENCY: Monthly
+    CLAIM_TYPE_ID: ""
+    ACTIVE_FLAG: "Y"
+    SRC_ADLS_CONNECTION_ID: "91"
+    METADATA_CONNECTION_ID: "92"
+    SRC_CONTAINER_NAME: mftlanding
+    SRC_ADLS_PATH: /inbound/membership/cob/northwind_benefits/
+    SRC_FORMAT: txt
+    SRC_COLUMNS: "col1:RECORD_TYPE,col2:LOB,col3:MEMBER_ID,col4:SUBSCRIBER_ID,col5:MEMBER_LAST_NAME,col6:MEMBER_FIRST_NAME,col7:MEMBER_DOB,col8:MEMBER_GENDER,col9:OTHER_CARRIER_ID,col10:OTHER_CARRIER_NAME,col11:OTHER_POLICY_NUMBER,col12:OTHER_GROUP_NUMBER,col13:COVERAGE_TYPE,col14:COB_ORDER,col15:COB_EFF_DATE,col16:COB_TERM_DATE,col17:MEDICARE_IND,col18:SOURCE_OF_INFO,col19:VERIFICATION_DATE,col20:RECORD_STATUS"
+    SRC_DATA_TYPE: "String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String,String:String"
+    SRC_FILE_DELIMITER: "|"
+    SRC_REC_LNGTH: ""
+    SRC_COL_LNGTH: ""
+    SRC_COL_STRT_END_INDX: ""
+    SRC_ADLS_ARCHVL_PATH: /archive/membership/cob/northwind_benefits/
+    SRC_COMPRESSION: "N"
+    HEADER_FLAG: null             # open Q6
+    MULTILINE_FLAG: "N"
+    SCHEMA_DRIFT_FLAG: "N"
+    FILE_HEADER_FLAG: null        # open Q6
+    FILE_FOOTER_FLAG: null        # open Q6
+    MANDATORY_FIELD_LIST: "RECORD_TYPE,LOB,MEMBER_ID,SUBSCRIBER_ID,MEMBER_DOB,OTHER_CARRIER_ID,OTHER_POLICY_NUMBER,COVERAGE_TYPE,COB_ORDER,COB_EFF_DATE,RECORD_STATUS"
+    TGT_CONNECTION_ID: "93"
+    TGT_DATABASE_NAME: stg_nb_cob
+    TGT_TABLE_NAME: nb_cob_report_dtl
+    TGT_CONTAINER_NAME: syn-dlk-stage-01
+    TGT_ADLS_PATH: /membership/cob/northwind_benefits/nb_cob_report_dtl
+    TGT_COLUMN_NAMES: "RECORD_TYPE,LOB,MEMBER_ID,SUBSCRIBER_ID,MEMBER_LAST_NAME,MEMBER_FIRST_NAME,MEMBER_DOB,MEMBER_GENDER,OTHER_CARRIER_ID,OTHER_CARRIER_NAME,OTHER_POLICY_NUMBER,OTHER_GROUP_NUMBER,COVERAGE_TYPE,COB_ORDER,COB_EFF_DATE,COB_TERM_DATE,MEDICARE_IND,SOURCE_OF_INFO,VERIFICATION_DATE,RECORD_STATUS,SRC_FILE_NAME,REC_CREATION_TIME,REC_UPDATED_TIME"
+    TGT_FORMAT: delta
+    TGT_DATA_TYPE: "String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,String,TIMESTAMP,TIMESTAMP"
+    TGT_LOAD_OPTION: Append
+    TGT_RJT_TABLE_NAME: nb_cob_report_dtl_reject
+    TGT_RJT_ADLS_PATH: /membership/cob/northwind_benefits/reject/nb_cob_report_dtl_reject
+    TGT_PARTITION_COLUMN: LOB
+    TGT_PRIMARY_KEY: "MEMBER_ID,OTHER_CARRIER_ID,COB_EFF_DATE"
+    RECYCL_ENBL_FLG: "N"
+    RECYCL_TBL_NM: NA
+    RECYCL_ADLS_PATH: NA
+    RECYCL_RETN_DAYS: ""
+    MAPPING_EXPRESSION: null
+    <<: *audit
+
+  stgstd_common: &stgstd_common
+    GROUP_ID: null
+    OBJECT_ID: null
+    DOMAIN: Membership
+    SUBDOMAIN: Coordination of Benefits
+    PIPELINE_ID: null
+    SOURCE: Northwind Benefits
+    FREQUENCY: Monthly
+    LOB: "110,120,210,220,310,320"   # open Q7
+    ACTIVE_FLAG: "Y"
+    SRC_ADLS_CONNECTION_ID: "94"
+    METADATA_CONNECTION_ID: "92"
+    SRC_CONTAINER_NAME: syn-dlk-stage-01
+    SRC_ADLS_PATH: /membership/cob/northwind_benefits/
+    SRC_CATALOG_NAME: syn_d1_dlk
+    SRC_SCHEMA_NAME: stg_nb_cob
+    SRC_FORMAT: delta
+    SRC_ADLS_ARCHVL_PATH: /archive/membership/cob/northwind_benefits/
+    TGT_CONNECTION_ID: "93"
+    TGT_CATALOG_NAME: syn_d1_std
+    TGT_SCHEMA_NAME: cob
+    TGT_CONTAINER_NAME: syn-dlk-std-01
+    TGT_FORMAT: delta
+    TGT_LOAD_OPTION: Append
+    TGT_PARTITION_COLUMN: NA
+    TGT_PARTITION_VALUE: NA
+    <<: *audit
+
+  dq_common: &dq_common
+    GROUP_ID: null
+    OBJECT_ID: null
+    SEQUENCE_NO: "1"
+    RULE_TYPE: Custom
+    RULE_CLASS: LoadHeaderAndTrailerToSeparateTablesRule
+    ACTIVE_RULE_FLG: "Y"
+    SOURCE_COLUMN: "RECORD_TYPE,FILE_NAME,FILE_CREATION_DATE,FILE_CREATION_TIME,VENDOR_NAME,LOB,REPORT_PERIOD_START,REPORT_PERIOD_END"
+    TARGET_COLUMN: "syn_d1_dlk,stg_nb_cob,nb_cob_report_hdr,nb_cob_report_trl"   # open Q1
+    <<: *audit
+
+DATA_FACTORY_PIPELINE_SCHEDULE:
+  columns:
+    PIPELINE_ID: engineer
+    PIPELINE_NAME: engineer
+    PARENT_PIPELINE_ID: engineer
+    PIPELINE_DESCRIPTION: convention
+    PIPELINE_FREQUENCY: per_feed
+    NO_OF_CYCLE_PER_DAY: convention
+    DAY_OF_SCHEDULE: convention
+    ACTIVE_FLAG: convention
+    ACTIVE_START_DATE: engineer
+    ACTIVE_END_DATE: convention
+    ESTIMATED_START_TIME: convention
+    APPLICATION_NAME: engineer
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+  rows:
+    - <<: *schedule_common
+      _role: grand_master
+      _parent: null
+      PARENT_PIPELINE_ID: "0"      # METADATA_DB_SEMANTICS §2: a top pipeline's parent is 0
+      PIPELINE_DESCRIPTION: Grand master
+    - <<: *schedule_common
+      _role: master
+      _parent: grand_master
+      PARENT_PIPELINE_ID: null     # = the grand master's PIPELINE_ID
+      PIPELINE_DESCRIPTION: Master
+    - <<: *schedule_common
+      _role: file_to_stage
+      _parent: master
+      PARENT_PIPELINE_ID: null     # = the master's PIPELINE_ID
+      PIPELINE_DESCRIPTION: File to Stage
+    - <<: *schedule_common
+      _role: stage_to_standard
+      _parent: master
+      PARENT_PIPELINE_ID: null     # = the master's PIPELINE_ID
+      PIPELINE_DESCRIPTION: Stage to Standard
+
+ADLS_DELTA_INGESTION_DETAILS:
+  columns:
+    GROUP_ID: engineer
+    OBJECT_ID: engineer
+    OBJECT_NAME: per_file
+    DOMAIN: per_feed
+    SUBDOMAIN: per_feed
+    PIPELINE_ID: engineer
+    SOURCE: per_feed
+    FREQUENCY: per_feed
+    LOB: per_file
+    CLAIM_TYPE_ID: convention
+    ACTIVE_FLAG: convention
+    SRC_ADLS_CONNECTION_ID: environment
+    METADATA_CONNECTION_ID: environment
+    SRC_CONTAINER_NAME: environment
+    SRC_ADLS_PATH: per_feed
+    SRC_FILE_NAME: per_file
+    SRC_FORMAT: per_feed
+    SRC_COLUMNS: per_table
+    SRC_DATA_TYPE: per_table
+    SRC_FILE_DELIMITER: per_feed
+    SRC_REC_LNGTH: convention
+    SRC_COL_LNGTH: convention
+    SRC_COL_STRT_END_INDX: convention
+    SRC_ADLS_ARCHVL_PATH: convention
+    SRC_COMPRESSION: convention
+    HEADER_FLAG: per_feed
+    MULTILINE_FLAG: convention
+    SCHEMA_DRIFT_FLAG: convention
+    FILE_HEADER_FLAG: per_feed
+    FILE_FOOTER_FLAG: per_feed
+    MANDATORY_FIELD_LIST: per_table
+    TGT_CONNECTION_ID: environment
+    TGT_DATABASE_NAME: per_feed
+    TGT_TABLE_NAME: per_table
+    TGT_CONTAINER_NAME: environment
+    TGT_ADLS_PATH: convention
+    TGT_COLUMN_NAMES: per_table
+    TGT_FORMAT: convention
+    TGT_DATA_TYPE: per_table
+    TGT_LOAD_OPTION: per_feed
+    TGT_RJT_TABLE_NAME: per_table
+    TGT_RJT_ADLS_PATH: convention
+    TGT_PARTITION_COLUMN: per_feed
+    TGT_PARTITION_VALUE: per_file
+    TGT_PRIMARY_KEY: per_table
+    RECYCL_ENBL_FLG: per_feed
+    RECYCL_TBL_NM: convention
+    RECYCL_ADLS_PATH: convention
+    RECYCL_RETN_DAYS: convention
+    MAPPING_EXPRESSION: engineer
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+  # One row per FILE (6 LOBs, each its own file), all into the DETAIL table.
+  rows:
+    - <<: *adls_common
+      _object: 1
+      OBJECT_NAME: NWB_COB_RPT_110
+      LOB: "110"
+      SRC_FILE_NAME: NWB_COB_RPT_110_*.txt
+      TGT_PARTITION_VALUE: "110"
+    - <<: *adls_common
+      _object: 2
+      OBJECT_NAME: NWB_COB_RPT_120
+      LOB: "120"
+      SRC_FILE_NAME: NWB_COB_RPT_120_*.txt
+      TGT_PARTITION_VALUE: "120"
+    - <<: *adls_common
+      _object: 3
+      OBJECT_NAME: NWB_COB_RPT_210
+      LOB: "210"
+      SRC_FILE_NAME: NWB_COB_RPT_210_*.txt
+      TGT_PARTITION_VALUE: "210"
+    - <<: *adls_common
+      _object: 4
+      OBJECT_NAME: NWB_COB_RPT_220
+      LOB: "220"
+      SRC_FILE_NAME: NWB_COB_RPT_220_*.txt
+      TGT_PARTITION_VALUE: "220"
+    - <<: *adls_common
+      _object: 5
+      OBJECT_NAME: NWB_COB_RPT_310
+      LOB: "310"
+      SRC_FILE_NAME: NWB_COB_RPT_310_*.txt
+      TGT_PARTITION_VALUE: "310"
+    - <<: *adls_common
+      _object: 6
+      OBJECT_NAME: NWB_COB_RPT_320
+      LOB: "320"
+      SRC_FILE_NAME: NWB_COB_RPT_320_*.txt
+      TGT_PARTITION_VALUE: "320"
+
+STGDELTA_STDDELTA_INGESTION_DET:
+  columns:
+    GROUP_ID: engineer
+    OBJECT_ID: engineer
+    OBJECT_NAME: per_table
+    DOMAIN: per_feed
+    SUBDOMAIN: per_feed
+    PIPELINE_ID: engineer
+    SOURCE: per_feed
+    FREQUENCY: per_feed
+    LOB: per_feed
+    ACTIVE_FLAG: convention
+    SRC_ADLS_CONNECTION_ID: environment
+    METADATA_CONNECTION_ID: environment
+    SRC_CONTAINER_NAME: environment
+    SRC_ADLS_PATH: convention
+    SRC_TABLE_NAME: per_table
+    SRC_CATALOG_NAME: environment
+    SRC_SCHEMA_NAME: per_feed
+    SRC_FORMAT: convention
+    SRC_COLUMNS: per_table
+    SRC_DATA_TYPE: per_table
+    SRC_ADLS_ARCHVL_PATH: convention
+    TGT_CONNECTION_ID: environment
+    TGT_CATALOG_NAME: environment
+    TGT_SCHEMA_NAME: per_feed
+    TGT_TABLE_NAME: per_table
+    TGT_CONTAINER_NAME: environment
+    TGT_ADLS_PATH: convention
+    TGT_COLUMN_NAMES: per_table
+    TGT_FORMAT: convention
+    TGT_DATA_TYPE: per_table
+    TGT_LOAD_OPTION: per_feed
+    TGT_RJT_TABLE_NAME: per_table
+    TGT_RJT_ADLS_PATH: convention
+    TGT_PARTITION_COLUMN: convention
+    TGT_PARTITION_VALUE: convention
+    TGT_PRIMARY_KEY: per_table
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+  # One row per TABLE: source = the stage definition, target = the standard
+  # definition from the ForReference (STG→STD) sheet. RECORD_TYPE is not
+  # carried to standard (blank STD cells in ForReference).
+  rows:
+    - <<: *stgstd_common
+      _segment: Header
+      OBJECT_NAME: nb_cob_report_hdr     # open Q8
+      SRC_TABLE_NAME: nb_cob_report_hdr
+      SRC_COLUMNS: "FILE_NAME:FILE_NAME,FILE_CREATION_DATE:FILE_CREATION_DATE,FILE_CREATION_TIME:FILE_CREATION_TIME,VENDOR_NAME:VENDOR_NAME,LOB:LOB,REPORT_PERIOD_START:REPORT_PERIOD_START_DATE,REPORT_PERIOD_END:REPORT_PERIOD_END_DATE,SRC_FILE_NAME:SRC_FILE_NAME,REC_CREATION_TIME:REC_CREATION_TIME,REC_UPDATED_TIME:REC_UPDATED_TIME"
+      SRC_DATA_TYPE: "String:String,String:Date,String:String,String:String,String:String,String:Date,String:Date,String:String,TIMESTAMP:TIMESTAMP,TIMESTAMP:TIMESTAMP"
+      TGT_TABLE_NAME: nb_cob_report_hdr
+      TGT_ADLS_PATH: /membership/cob/northwind_benefits/nb_cob_report_hdr
+      TGT_COLUMN_NAMES: "FILE_NAME,FILE_CREATION_DATE,FILE_CREATION_TIME,VENDOR_NAME,LOB,REPORT_PERIOD_START_DATE,REPORT_PERIOD_END_DATE,SRC_FILE_NAME,REC_CREATION_TIME,REC_UPDATED_TIME"
+      TGT_DATA_TYPE: "String,Date,String,String,String,Date,Date,String,TIMESTAMP,TIMESTAMP"
+      TGT_RJT_TABLE_NAME: nb_cob_report_hdr_reject
+      TGT_RJT_ADLS_PATH: /membership/cob/northwind_benefits/reject/nb_cob_report_hdr_reject
+      TGT_PRIMARY_KEY: NA
+    - <<: *stgstd_common
+      _segment: Detail
+      OBJECT_NAME: nb_cob_report_dtl     # open Q8
+      SRC_TABLE_NAME: nb_cob_report_dtl
+      SRC_COLUMNS: "LOB:LOB,MEMBER_ID:MEMBER_ID,SUBSCRIBER_ID:SUBSCRIBER_ID,MEMBER_LAST_NAME:MEMBER_LAST_NAME,MEMBER_FIRST_NAME:MEMBER_FIRST_NAME,MEMBER_DOB:MEMBER_BIRTH_DATE,MEMBER_GENDER:MEMBER_GENDER,OTHER_CARRIER_ID:OTHER_CARRIER_ID,OTHER_CARRIER_NAME:OTHER_CARRIER_NAME,OTHER_POLICY_NUMBER:OTHER_POLICY_NUMBER,OTHER_GROUP_NUMBER:OTHER_GROUP_NUMBER,COVERAGE_TYPE:COVERAGE_TYPE,COB_ORDER:COB_ORDER,COB_EFF_DATE:COB_EFF_DATE,COB_TERM_DATE:COB_TERM_DATE,MEDICARE_IND:MEDICARE_IND,SOURCE_OF_INFO:SOURCE_OF_INFO,VERIFICATION_DATE:VERIFICATION_DATE,RECORD_STATUS:RECORD_STATUS,SRC_FILE_NAME:SRC_FILE_NAME,REC_CREATION_TIME:REC_CREATION_TIME,REC_UPDATED_TIME:REC_UPDATED_TIME"
+      SRC_DATA_TYPE: "String:String,String:String,String:String,String:String,String:String,String:Date,String:String,String:String,String:String,String:String,String:String,String:String,String:Int,String:Date,String:Date,String:String,String:String,String:Date,String:String,String:String,TIMESTAMP:TIMESTAMP,TIMESTAMP:TIMESTAMP"
+      TGT_TABLE_NAME: nb_cob_report_dtl
+      TGT_ADLS_PATH: /membership/cob/northwind_benefits/nb_cob_report_dtl
+      TGT_COLUMN_NAMES: "LOB,MEMBER_ID,SUBSCRIBER_ID,MEMBER_LAST_NAME,MEMBER_FIRST_NAME,MEMBER_BIRTH_DATE,MEMBER_GENDER,OTHER_CARRIER_ID,OTHER_CARRIER_NAME,OTHER_POLICY_NUMBER,OTHER_GROUP_NUMBER,COVERAGE_TYPE,COB_ORDER,COB_EFF_DATE,COB_TERM_DATE,MEDICARE_IND,SOURCE_OF_INFO,VERIFICATION_DATE,RECORD_STATUS,SRC_FILE_NAME,REC_CREATION_TIME,REC_UPDATED_TIME"
+      TGT_DATA_TYPE: "String,String,String,String,String,Date,String,String,String,String,String,String,Int,Date,Date,String,String,Date,String,String,TIMESTAMP,TIMESTAMP"
+      TGT_RJT_TABLE_NAME: nb_cob_report_dtl_reject
+      TGT_RJT_ADLS_PATH: /membership/cob/northwind_benefits/reject/nb_cob_report_dtl_reject
+      TGT_PRIMARY_KEY: "MEMBER_ID,OTHER_CARRIER_ID,COB_EFF_DATE"
+    - <<: *stgstd_common
+      _segment: Trailer
+      OBJECT_NAME: nb_cob_report_trl     # open Q8
+      SRC_TABLE_NAME: nb_cob_report_trl
+      SRC_COLUMNS: "FILE_NAME:FILE_NAME,DETAIL_RECORD_COUNT:DETAIL_RECORD_COUNT,TOTAL_RECORD_COUNT:TOTAL_RECORD_COUNT,FILE_CREATION_DATE:FILE_CREATION_DATE,END_OF_FILE_MARKER:END_OF_FILE_MARKER,SRC_FILE_NAME:SRC_FILE_NAME,REC_CREATION_TIME:REC_CREATION_TIME,REC_UPDATED_TIME:REC_UPDATED_TIME"
+      SRC_DATA_TYPE: "String:String,String:Int,String:Int,String:Date,String:String,String:String,TIMESTAMP:TIMESTAMP,TIMESTAMP:TIMESTAMP"
+      TGT_TABLE_NAME: nb_cob_report_trl
+      TGT_ADLS_PATH: /membership/cob/northwind_benefits/nb_cob_report_trl
+      TGT_COLUMN_NAMES: "FILE_NAME,DETAIL_RECORD_COUNT,TOTAL_RECORD_COUNT,FILE_CREATION_DATE,END_OF_FILE_MARKER,SRC_FILE_NAME,REC_CREATION_TIME,REC_UPDATED_TIME"
+      TGT_DATA_TYPE: "String,Int,Int,Date,String,String,TIMESTAMP,TIMESTAMP"
+      TGT_RJT_TABLE_NAME: nb_cob_report_trl_reject
+      TGT_RJT_ADLS_PATH: /membership/cob/northwind_benefits/reject/nb_cob_report_trl_reject
+      TGT_PRIMARY_KEY: NA
+
+DATA_QUALITY_RULES:
+  columns:
+    GROUP_ID: engineer
+    OBJECT_ID: engineer
+    SEQUENCE_NO: convention
+    RULE_TYPE: convention
+    RULE_CLASS: convention
+    ACTIVE_RULE_FLG: convention
+    SOURCE_COLUMN: per_table
+    INPUT_PARAM: per_file
+    TARGET_COLUMN: per_table
+    CREATED_BY: engineer
+    CREATED_DATE: convention
+    UPDATED_BY: engineer
+    UPDATED_DATE: convention
+  # One header/trailer split row per ADLS object (open Q2); GROUP_ID /
+  # OBJECT_ID = that ADLS row's (_object).
+  rows:
+    - {<<: *dq_common, _object: 1, INPUT_PARAM: NWB_COB_RPT_110_*.txt}
+    - {<<: *dq_common, _object: 2, INPUT_PARAM: NWB_COB_RPT_120_*.txt}
+    - {<<: *dq_common, _object: 3, INPUT_PARAM: NWB_COB_RPT_210_*.txt}
+    - {<<: *dq_common, _object: 4, INPUT_PARAM: NWB_COB_RPT_220_*.txt}
+    - {<<: *dq_common, _object: 5, INPUT_PARAM: NWB_COB_RPT_310_*.txt}
+    - {<<: *dq_common, _object: 6, INPUT_PARAM: NWB_COB_RPT_320_*.txt}

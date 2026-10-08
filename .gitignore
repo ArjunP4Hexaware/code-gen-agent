@@ -121,6 +121,8 @@ port_kit_audit/
 !fixtures/acfc_shapes/vdd/pair_2_v2_per_file.xlsx
 !fixtures/acfc_shapes/vdd/pair_9_v3_per_table.xlsx
 !fixtures/acfc_shapes/pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx
+!fixtures/acfc_shapes/pair_4/sttm_nb_cob_report.xlsx
+!fixtures/acfc_shapes/pair_4/frd_nb_cob_report.contract.json
 
 # Local raw-term denylist read by scripts/scrub_check.py (raw client terms):
 # NEVER tracked.

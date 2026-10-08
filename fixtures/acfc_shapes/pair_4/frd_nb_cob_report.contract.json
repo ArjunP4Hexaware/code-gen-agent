@@ -1,0 +1,79 @@
+{
+  "contract_name": "nb_cob_report feed-level mapping contract (synthetic)",
+  "generated_from_frd": "FRD_nb_cob_report.docx",
+  "generated_date": "2026-10-07T00:00:00+00:00",
+  "generator": "hand-built synthetic fixture (tests/acfc_shapes/pair4_nb.py)",
+  "status": "PASS",
+  "project": {
+    "project_id": "SYN-PRJ-04",
+    "project_name": "Northwind Benefits COB Report Ingestion",
+    "business_context_summary": "Ingest the monthly coordination-of-benefits report the vendor sends per line of business into the stage and standard layers."
+  },
+  "in_scope": [
+    "One pipe-delimited file per LOB with Header, Detail and Trailer records."
+  ],
+  "out_of_scope": [
+    "Any transformation beyond what the STTM maps."
+  ],
+  "assumptions_constraints_dependencies": [],
+  "feeds": [
+    {
+      "feed_name": "nb_cob_report",
+      "source_system": "Northwind Benefits",
+      "file_name_patterns": [
+        "NWB_COB_RPT_<LOB>_CCYYMMDD.txt"
+      ],
+      "file_format": "txt",
+      "delimiter": "|",
+      "record_segments": [
+        "Header",
+        "Detail",
+        "Trailer"
+      ],
+      "frequency": "Monthly",
+      "load_windows_sla": [],
+      "lobs": [
+        "110",
+        "120",
+        "210",
+        "220",
+        "310",
+        "320"
+      ],
+      "domain": "Membership",
+      "sub_domain": "Coordination of Benefits",
+      "landing_location": "mftlanding/inbound/membership/cob/northwind_benefits/",
+      "stage_target": {
+        "catalog": null,
+        "schema": "stg_nb_cob",
+        "tables": [
+          "nb_cob_report_hdr",
+          "nb_cob_report_dtl",
+          "nb_cob_report_trl"
+        ],
+        "load_strategy": "Append"
+      },
+      "standard_target": {
+        "catalog": null,
+        "schema": "cob",
+        "tables": [
+          "nb_cob_report_hdr",
+          "nb_cob_report_dtl",
+          "nb_cob_report_trl"
+        ],
+        "load_strategy": "Append"
+      },
+      "validation_rules": [],
+      "recycle_rule": null,
+      "history_backfill": null,
+      "archive_retention": null,
+      "phi_pii_notes": "PHI fields included in the mapping document",
+      "sttm_reference": "STTM_nb_cob_report.xlsx",
+      "requirement_ids": [
+        "SYN-REQ-0401"
+      ]
+    }
+  ],
+  "system_interfaces": [],
+  "open_items": []
+}

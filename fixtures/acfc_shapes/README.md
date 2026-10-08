@@ -36,7 +36,23 @@ too, one line per file.
 | `vdd/pair_9_v3_per_table.xlsx` | VDD V3 — DB table (8 cols) | 9 | FILES (Delimiter / Multi Record Type / Record Type Field / Header Row blank); one field sheet per table (3 tables) |
 | `pair_1/golden/ACCUM_DDL.txt` | pair-1 golden, aliased | 1 | the scrubbed golden DDL with `ALIASES.md` applied — the M4 byte-identity target |
 | `pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx` | pair-1 golden, aliased | 1 | the scrubbed golden IIG (8 sheets) with `ALIASES.md` applied, re-serialized byte-stably; sheet order, headers, row counts untouched |
+| `pair_4/sttm_nb_cob_report.xlsx` | multi-table STTM (2026-10-07) | pair 4 (multi-table, synthetic vendor "Northwind Benefits") | `NB_COB_REPORT`: header block r1–r8 (`File(s)` = `NWB_COB_RPT_<LOB>_CCYYMMDD.txt`, `File Generator`, `File Location` = `mftlanding/inbound/…/`, `LOB` = six codes, `File frequency`, `Domain`, `Sub-Domain`, `File type`), column table r10 (`#`, `Field Name`, `Data Type`, `Length`, `Segment`, `Catalog` (`TBD`), `Schema`, `TableName`, `ColumnName`, `DataType`, `Mandatory`, `Primary Key`; NO band row) with Header (8) / Detail (20) / Trailer (6) fields, each block its own `TableName` and its own three `NA` audit rows; `ForReference`: the STG→STD sheet — band r1 `Client - Source` A1 \| `STG - Dest 1` B1:D1 \| `STD - Dest2` E1:H1, headers r2, `RECORD_TYPE` not carried to standard, two columns renamed |
+| `pair_4/frd_nb_cob_report.contract.json` | FRD contract (JSON) | pair 4 (multi-table) | the same facts as the STTM: one feed, the LOB-placeholder file pattern, six LOBs, H/D/T segments, three tables in both layers, `Append` both layers, no catalog |
 
 Not built (out of the documented shapes' scope for this build): STTM pairs'
 1,000,000-row openpyxl artefacts (rows are 10–30 here), the runbook and TDD
 `.docx` of the RFC package.
+
+## pair_4/ — the multi-table model (2026-10-07)
+
+**Not** the documented pair 4 of `docs/acfc/SHAPES_FOR_PORT.md` (that is
+`sttm/pair_4_family_d.xlsx`). `pair_4/` is the synthetic fixture for the framework
+owners' multi-table model — `docs/acfc/MULTI_TABLE_DESIGN.md`. Built inputs:
+`sttm_nb_cob_report.xlsx`, `frd_nb_cob_report.contract.json`
+(`tests/acfc_shapes/pair4_nb.py`). Hand-written: `config_overlay.yaml` (environment
+values — catalogs, connection ids, containers, path shapes) and
+`golden/IIG_EXPECTED.yaml` (the expected rows of four IIG sheets: pipeline schedule 4,
+ADLS→Delta 6 — one per LOB file, all into the Detail table — stage→standard 3, one
+per table, data-quality 6 header/trailer split rows; plus the per-column owner map).
+`tests/test_pair4_multi_table_fixture.py` checks the golden against the builder facts,
+the overlay and the design doc's owner map.

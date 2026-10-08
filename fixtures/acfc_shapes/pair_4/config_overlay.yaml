@@ -1,0 +1,75 @@
+# Pair-4 environment overlay (multi-table fixture, 2026-10-07). SYNTHETIC
+# values only — the shape of config/overlays/acfc_env.yaml, none of its
+# values except the landing container, which the STTM's own File Location
+# names (mftlanding/inbound/…). Tests load it with
+# load_config(path, overlays=[this file]); the suite runs with
+# CODEGEN_SKIP_ENV_OVERLAY=1, so nothing else is merged underneath.
+#
+# Owner map (docs/acfc/MULTI_TABLE_DESIGN.md §5): everything below is an
+# ENVIRONMENT value (catalogs, connection ids, containers) or a CONVENTION
+# (path shapes, SRC_COLUMNS style) — never a per-feed fact.
+conventions:
+  profiles:
+    acfc_prx:
+      # The STTM's Catalog column reads TBD: the catalog is environment-specific.
+      default_catalog: {stage: syn_d1_dlk, standard: syn_d1_std}
+metadata:
+  templates:
+    iig_v2:
+      constants:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_CONNECTION_ID: "91"
+          METADATA_CONNECTION_ID: "92"
+          TGT_CONNECTION_ID: "93"
+          SRC_CONTAINER_NAME: mftlanding
+          TGT_CONTAINER_NAME: syn-dlk-stage-01
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_CONNECTION_ID: "94"
+          METADATA_CONNECTION_ID: "92"
+          TGT_CONNECTION_ID: "93"
+          SRC_CONTAINER_NAME: syn-dlk-stage-01
+          TGT_CONTAINER_NAME: syn-dlk-std-01
+      constant_citations:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_CONNECTION_ID: &env "pair-4 environment overlay (fixtures/acfc_shapes/pair_4/config_overlay.yaml)"
+          METADATA_CONNECTION_ID: *env
+          TGT_CONNECTION_ID: *env
+          SRC_CONTAINER_NAME: *env
+          TGT_CONTAINER_NAME: *env
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_CONNECTION_ID: *env
+          METADATA_CONNECTION_ID: *env
+          TGT_CONNECTION_ID: *env
+          SRC_CONTAINER_NAME: *env
+          TGT_CONTAINER_NAME: *env
+      # A header-less pipe file: SRC_COLUMNS is positional (col<N>:<stage column>).
+      src_columns_style: positional
+      # {landing} = /mftlanding/inbound/membership/cob/northwind_benefits/,
+      # {landing_rel} = the same minus /mftlanding, {domain_path} = minus inbound/.
+      path_patterns:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: "{landing_rel}"
+          SRC_ADLS_ARCHVL_PATH: "/archive/{domain_path}"
+          TGT_ADLS_PATH: "/{domain_path}{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}reject/{reject_table}"
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: "/{domain_path}"
+          SRC_ADLS_ARCHVL_PATH: "/archive/{domain_path}"
+          TGT_ADLS_PATH: "/{domain_path}{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}reject/{reject_table}"
+      path_citations:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_ADLS_PATH: *env
+          SRC_ADLS_ARCHVL_PATH: *env
+          TGT_ADLS_PATH: *env
+          TGT_RJT_ADLS_PATH: *env
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: *env
+          SRC_ADLS_ARCHVL_PATH: *env
+          TGT_ADLS_PATH: *env
+          TGT_RJT_ADLS_PATH: *env
+      # The connection / container columns are environment values here, so
+      # they leave always_blank (lists REPLACE on merge — the full list).
+      always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
+        TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
+        DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

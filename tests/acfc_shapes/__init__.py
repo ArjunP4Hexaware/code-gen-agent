@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import frd, pair1, sttm, vdd
+from . import frd, pair1, pair4_nb, sttm, vdd
 from .common import xlsx_bytes
 
 REPO = Path(__file__).resolve().parents[2]
@@ -41,6 +41,8 @@ FAMILY: dict[str, tuple[str, str]] = {
     "vdd/pair_9_v3_per_table.xlsx": ("VDD pattern V3 — DB table, one sheet per table", "pair 9"),
     "pair_1/golden/ACCUM_DDL.txt": ("pair-1 golden DDL, alias map applied", "pair 1"),
     "pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx": ("pair-1 golden IIG, alias map applied", "pair 1"),
+    pair4_nb.STTM_PATH: ("multi-table STTM — Segment + TableName per row, LOB-per-file header block, ForReference STG→STD sheet", "pair 4 (multi-table, synthetic vendor)"),
+    pair4_nb.FRD_PATH: ("FRD contract (JSON) with the pair-4 multi-table facts", "pair 4 (multi-table, synthetic vendor)"),
 }
 
 
@@ -52,6 +54,10 @@ def build_all() -> dict[str, bytes]:
     for rel, builder in vdd.BUILDERS.items():
         out[rel] = xlsx_bytes(builder())
     for rel, builder in frd.BUILDERS.items():
+        out[rel] = builder()
+    for rel, builder in pair4_nb.XLSX_BUILDERS.items():
+        out[rel] = xlsx_bytes(builder())
+    for rel, builder in pair4_nb.BYTES_BUILDERS.items():
         out[rel] = builder()
     ddl = (GOLDEN_SOURCE / "ACCUM_DDL.txt").read_bytes().decode("utf-8")
     out["pair_1/golden/ACCUM_DDL.txt"] = pair1.alias_golden_ddl(ddl).encode("utf-8")

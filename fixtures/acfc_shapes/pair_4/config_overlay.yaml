@@ -2,8 +2,8 @@
 # values only — the shape of config/overlays/acfc_env.yaml, none of its
 # values except the landing container, which the STTM's own File Location
 # names (mftlanding/inbound/…), the d1 catalog names the catalog_map
-# targets (d1_dlk / d1_std, as the brief states them) and SCHEMA_DRIFT_FLAG
-# Y, which both real sheets carry (2026-10-09, fixtures/acfc_shapes/README.md).
+# targets (d1_dlk / d1_std, as the brief states them) and the family's
+# SCHEMA_DRIFT_FLAG Y, which both real sheets carry (fixtures/acfc_shapes/README.md).
 # Tests load it with
 # load_config(path, overlays=[this file]); the suite runs with
 # CODEGEN_SKIP_ENV_OVERLAY=1, so nothing else is merged underneath.
@@ -31,7 +31,6 @@ metadata:
           TGT_CONNECTION_ID: "93"
           SRC_CONTAINER_NAME: mftlanding
           TGT_CONTAINER_NAME: syn-dlk-stage-01
-          SCHEMA_DRIFT_FLAG: "Y"
         STGDELTA_STDDELTA_INGESTION_DET:
           SRC_ADLS_CONNECTION_ID: "94"
           METADATA_CONNECTION_ID: "92"
@@ -45,7 +44,6 @@ metadata:
           TGT_CONNECTION_ID: *env
           SRC_CONTAINER_NAME: *env
           TGT_CONTAINER_NAME: *env
-          SCHEMA_DRIFT_FLAG: "both real sheets say Y: the SD file-to-stage row (IIG test cells.xlsx, ADLS_DELTA_INGESTION_DETAILS) and the CAQH IIG"
         STGDELTA_STDDELTA_INGESTION_DET:
           SRC_ADLS_CONNECTION_ID: *env
           METADATA_CONNECTION_ID: *env
@@ -58,6 +56,7 @@ metadata:
         lob: codes
         stgdelta_unknown_primary_key: ""
         stgdelta_object_name: generalized_file_pattern
+        schema_drift_flag: "Y"      # both real sheets say Y: the SD file-to-stage row (IIG test cells.xlsx, ADLS_DELTA_INGESTION_DETAILS) and the CAQH IIG
         citation: "CAQH-style family convention (pair-4 overlay)"
       # A header-less pipe file: SRC_COLUMNS is positional (col<N>:<stage column>).
       src_columns_style: positional

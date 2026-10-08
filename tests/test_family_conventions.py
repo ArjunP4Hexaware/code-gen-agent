@@ -1,14 +1,15 @@
 """Per-feed-family IIG conventions (correction 2026-10-08).
 
-Two feed families fill three IIG cells differently — neither is an error:
+Two feed families fill four IIG cells differently — neither is an error:
 
 | cell | pair-1 (PRX) family | CAQH-style family (pair 4) |
 | --- | --- | --- |
 | LOB (ADLS, STGDELTA) | blank | the LOB codes |
 | STGDELTA TGT_PRIMARY_KEY, no Primary Key cell | 'NA' | blank (open) |
 | STGDELTA OBJECT_NAME | the family's own form (transcribed) | the generalized file pattern |
+| ADLS SCHEMA_DRIFT_FLAG (2026-10-09) | 'N' | 'Y' (the SD row and the CAQH IIG) |
 
-``metadata.templates.iig_v2.family_conventions`` carries the three settings; each
+``metadata.templates.iig_v2.family_conventions`` carries the four settings; each
 fixture's overlay pins its own family, so both goldens pass the full-cell checks
 unedited. Switching the family switches exactly these cells.
 """
@@ -25,6 +26,7 @@ from multi_table_golden import REPO
 PAIR1_FAMILY = FamilyConventionsConfig(lob="blank", stgdelta_unknown_primary_key="NA",
                                        stgdelta_object_name="literal",
                                        stgdelta_object_name_literal="X_FORM",
+                                       schema_drift_flag="N",
                                        citation="test: the pair-1 family")
 
 
@@ -47,19 +49,21 @@ def _cells(payload, sheet, column):
 def test_each_fixture_overlay_pins_its_own_family(pair1_config, pair4_config):
     one = pair1_config.metadata.templates["iig_v2"].family_conventions
     four = pair4_config.metadata.templates["iig_v2"].family_conventions
-    assert (one.lob, one.stgdelta_unknown_primary_key, one.stgdelta_object_name) == (
-        "blank", "NA", "literal")
-    assert (four.lob, four.stgdelta_unknown_primary_key, four.stgdelta_object_name) == (
-        "codes", "", "generalized_file_pattern")
+    assert (one.lob, one.stgdelta_unknown_primary_key, one.stgdelta_object_name,
+            one.schema_drift_flag) == ("blank", "NA", "literal", "N")
+    assert (four.lob, four.stgdelta_unknown_primary_key, four.stgdelta_object_name,
+            four.schema_drift_flag) == ("codes", "", "generalized_file_pattern", "Y")
 
 
-def test_switching_the_family_switches_exactly_the_three_cells(pair4_config, pair4_spec,
-                                                               pair4_payload):
+def test_switching_the_family_switches_exactly_the_four_cells(pair4_config, pair4_spec,
+                                                              pair4_payload):
     switched = _payload_with(pair4_config, pair4_spec, PAIR1_FAMILY)
     adls, stg = "ADLS_DELTA_INGESTION_DETAILS", "STGDELTA_STDDELTA_INGESTION_DET"
     assert set(_cells(switched, adls, "LOB")) == {""}
     assert set(_cells(switched, stg, "LOB")) == {""}
     assert _cells(switched, stg, "OBJECT_NAME") == ["X_FORM"] * 3
+    assert _cells(pair4_payload, adls, "SCHEMA_DRIFT_FLAG") == ["Y"] * 6
+    assert _cells(switched, adls, "SCHEMA_DRIFT_FLAG") == ["N"] * 6
     # HDR / TRL state no Primary Key cell -> 'NA'; DTL keeps its keys.
     keys = _cells(switched, stg, "TGT_PRIMARY_KEY")
     assert keys[0] == keys[2] == "NA" and keys[1] == "MEMBER_ID,OTHER_CARRIER_ID,COB_EFF_DATE"
@@ -70,7 +74,8 @@ def test_switching_the_family_switches_exactly_the_three_cells(pair4_config, pai
     for sheet, tab in pair4_payload["tabs"].items():
         for before, after in zip(tab["rows"], switched["tabs"][sheet]["rows"], strict=True):
             moved = {c for c in tab["headers"] if before["values"][c] != after["values"][c]}
-            allowed = {"LOB", "OBJECT_NAME", "TGT_PRIMARY_KEY"} if sheet in (adls, stg) else set()
+            allowed = ({"LOB", "SCHEMA_DRIFT_FLAG"} if sheet == adls
+                       else {"LOB", "OBJECT_NAME", "TGT_PRIMARY_KEY"} if sheet == stg else set())
             assert moved <= allowed, (sheet, moved)
 
 

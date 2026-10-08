@@ -30,6 +30,10 @@ metadata:
         lob: codes
         stgdelta_unknown_primary_key: ""
         stgdelta_object_name: generalized_file_pattern
+        # SCHEMA_DRIFT_FLAG Y: the SD file-to-stage row and the CAQH IIG both
+        # carry it (fixtures/acfc_shapes/README.md); a family setting, not a
+        # constant, since 2026-10-09 — the PRX family (pair 1) is N.
+        schema_drift_flag: "Y"
         citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist)"
       constants:
         ADLS_DELTA_INGESTION_DETAILS:
@@ -38,7 +42,6 @@ metadata:
           TGT_CONNECTION_ID: "2"
           SRC_CONTAINER_NAME: mftlanding
           TGT_CONTAINER_NAME: z-use-d1-dlk-stage-01
-          SCHEMA_DRIFT_FLAG: "Y"
       constant_citations:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
@@ -46,7 +49,6 @@ metadata:
           TGT_CONNECTION_ID: *acfc
           SRC_CONTAINER_NAME: *acfc
           TGT_CONTAINER_NAME: *acfc
-          SCHEMA_DRIFT_FLAG: *acfc
       # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
       # until this overlay is split per source family — a PRX-shaped feed
       # (pair 1) gets these paths too.

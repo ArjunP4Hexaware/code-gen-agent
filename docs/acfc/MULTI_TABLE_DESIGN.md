@@ -240,8 +240,9 @@ Generator rules settled in Chunk A:
 - **`TGT_PRIMARY_KEY`** = the band's Primary Key cells; none = blank and open
   (no natural-key fallback — the pair-1 golden is blank there). On STGDELTA the
   unknown value is a family convention (below).
-- **Feed families** (correction 2026-10-08): two families' goldens fill three
-  cells differently, neither an error. `metadata.templates.iig_v2.
+- **Feed families** (correction 2026-10-08; `SCHEMA_DRIFT_FLAG` joined
+  2026-10-09): two families' goldens fill four cells differently, neither an
+  error. `metadata.templates.iig_v2.
   family_conventions` carries them; each fixture's overlay pins its own:
 
   | setting | pair-1 (PRX) family | CAQH-style family (pair 4) |
@@ -249,6 +250,7 @@ Generator rules settled in Chunk A:
   | `lob` (ADLS, STGDELTA) | `blank` (decided, not an open cell) | `codes` — a per-LOB file's code, else the feed's LOB codes (FRD / STTM header) |
   | `stgdelta_unknown_primary_key` | `"NA"` | `""` (blank, open) |
   | `stgdelta_object_name` | `literal` — `Accumulator_accumclient`, transcribed from the golden (no input derives it) | `generalized_file_pattern` — the feed's patterns with LOB token and dates as `*`, generalized position by position, wildcards and extension removed (`NWB_COB_RPT`) |
+  | `schema_drift_flag` (ADLS) | `N` (the golden, every row) | `Y` — the SD file-to-stage row and the CAQH IIG (`fixtures/acfc_shapes/README.md`); was an overlay constant until 2026-10-09 |
 
   The shipped default (`config/config.yaml`) is the pair-1 family's `lob` /
   primary key and the generalized file pattern (`table_name` is also

@@ -27,7 +27,7 @@ CV_FRD = REPO / "fixtures" / "contracts" / "FRD_demo_cv_golden.contract.json"
 CV_STTM = REPO / "fixtures" / "contracts" / "sttm_mapping_contracts_cv_golden.json"
 OVERLAY_CELLS = {"SRC_ADLS_CONNECTION_ID": "7", "METADATA_CONNECTION_ID": "4",
                  "TGT_CONNECTION_ID": "2", "SRC_CONTAINER_NAME": "mftlanding",
-                 "TGT_CONTAINER_NAME": "z-use-d1-dlk-stage-01", "SCHEMA_DRIFT_FLAG": "Y"}
+                 "TGT_CONTAINER_NAME": "z-use-d1-dlk-stage-01"}
 
 
 def _generate(spec, config, tmp: Path):
@@ -76,6 +76,12 @@ def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_pat
             badge, tooltip = tooltips[header]
             assert badge == "SYNTHETIC"
             assert "config/overlays/acfc_env.yaml" in tooltip
+        # SCHEMA_DRIFT_FLAG is a feed-family setting since 2026-10-09: the
+        # overlay pins the SD / CAQH-style family's Y, not a constant.
+        assert values["SCHEMA_DRIFT_FLAG"] == "Y"
+        badge, tooltip = tooltips["SCHEMA_DRIFT_FLAG"]
+        assert badge == "SYNTHETIC"
+        assert "family convention schema_drift_flag: Y — ACFC environment overlay" in tooltip
 
 
 @pytest.mark.skipif(not (CV_FRD.is_file() and CV_STTM.is_file()),

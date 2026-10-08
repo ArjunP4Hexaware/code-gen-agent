@@ -164,6 +164,14 @@ def _lob_cell(tpl: MetadataTemplateConfig, value: str, why: str) -> dict:
     return cell
 
 
+def _schema_drift_cell(tpl: MetadataTemplateConfig) -> dict:
+    """ADLS SCHEMA_DRIFT_FLAG by the feed family's convention (2026-10-09):
+    the pair-1 (PRX) family 'N', the SD / CAQH-style family 'Y'."""
+    value = tpl.family_conventions.schema_drift_flag
+    return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(
+        citation=f"family convention schema_drift_flag: {value} — {_family_citation(tpl)}"))
+
+
 def _generalized_pattern(files: list[FeedFile], tpl: MetadataTemplateConfig,
                          tokens: list[str]) -> str:
     """One pattern covering every file the feed receives (Chunk A, 2026-10-08:
@@ -592,6 +600,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                     _lob_cell(tpl, ",".join(spec.lobs),
                               "the feed's LOB (FRD / STTM header block) — not a per-LOB "
                               "file (docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")),
+            "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl),
             "SRC_FILE_NAME": _cell(pattern, "from_frd" if feed.file_name_patterns else "from_sttm",
                                    (f"stated {file.template!r}" if pattern != file.template
                                     else None)),

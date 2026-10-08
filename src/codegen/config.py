@@ -1016,11 +1016,13 @@ class ConventionsConfig(BaseModel):
 
 
 class FamilyConventionsConfig(BaseModel):
-    """Per-feed-family IIG conventions (2026-10-08 correction): three cells
-    the goldens of two feed families fill differently — neither an error.
-    The pair-1 (PRX) family: LOB blank, an unknown STGDELTA primary key 'NA',
-    its own STGDELTA OBJECT_NAME; the CAQH-style family (pair 4): LOB codes,
-    an unknown primary key blank, the generalized file pattern. Each fixture's
+    """Per-feed-family IIG conventions (2026-10-08 correction; SCHEMA_DRIFT_FLAG
+    joined 2026-10-09): four cells the goldens of two feed families fill
+    differently — neither an error. The pair-1 (PRX) family: LOB blank, an
+    unknown STGDELTA primary key 'NA', its own STGDELTA OBJECT_NAME,
+    SCHEMA_DRIFT_FLAG 'N'; the SD / CAQH-style family (pair 4): LOB codes, an
+    unknown primary key blank, the generalized file pattern,
+    SCHEMA_DRIFT_FLAG 'Y'. Each fixture's
     overlay pins its family; which is current for NEW feeds is an open
     question for the framework owners (docs/acfc/MULTI_TABLE_DESIGN.md)."""
 
@@ -1037,6 +1039,9 @@ class FamilyConventionsConfig(BaseModel):
     stgdelta_object_name: Literal["generalized_file_pattern", "table_name", "literal"] = (
         "generalized_file_pattern")
     stgdelta_object_name_literal: str | None = None
+    # ADLS SCHEMA_DRIFT_FLAG (2026-10-09): the pair-1 (PRX) golden 'N'; the SD
+    # file-to-stage row and the CAQH IIG 'Y'.
+    schema_drift_flag: str = "N"
     citation: str = ""
 
     @model_validator(mode="after")

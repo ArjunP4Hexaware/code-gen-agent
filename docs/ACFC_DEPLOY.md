@@ -91,12 +91,13 @@ environment's constants and the SDOH path shapes:
   feed's values are known; the shipped `iig_v2` shapes are unchanged.
 - **Feed-family conventions** (`metadata.templates.iig_v2.family_conventions`,
   2026-10-08): `lob` (blank | codes), `stgdelta_unknown_primary_key` (`"NA"` |
-  `""`) and `stgdelta_object_name` (generalized_file_pattern | table_name |
-  literal). **The ACFC overlay pins the CAQH-style family (2026-10-08)** —
-  `lob: codes`, `stgdelta_unknown_primary_key: ""`, `stgdelta_object_name:
-  generalized_file_pattern` — the convention observed in the newest real
-  sheet; the shipped default (no overlay) is the PRX family's blank LOB and
-  `'NA'`. A pair-1 (PRX) family feed selects its own in a feed overlay listed
+  `""`), `stgdelta_object_name` (generalized_file_pattern | table_name |
+  literal) and, since 2026-10-09, `schema_drift_flag` (ADLS; `N` | `Y` — it
+  was an overlay constant). **The ACFC overlay pins the CAQH-style family
+  (2026-10-08)** — `lob: codes`, `stgdelta_unknown_primary_key: ""`,
+  `stgdelta_object_name: generalized_file_pattern`, `schema_drift_flag: "Y"`
+  — the convention observed in the newest real sheet; the shipped default (no
+  overlay) is the PRX family's blank LOB, `'NA'` and `N`. A pair-1 (PRX) family feed selects its own in a feed overlay listed
   after `acfc_env.yaml` (later wins). Which convention is current for new feeds
   is on the Friday checklist (`docs/acfc/MULTI_TABLE_DESIGN.md` §7a).
 
@@ -423,7 +424,7 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
-## What feature/multi-table adds (0.5.8.post18, 2026-10-09 — not merged, not deployed)
+## What feature/multi-table adds (0.5.8.post19, 2026-10-09 — not merged, not deployed)
 
 Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
 `docs/acfc/OVERNIGHT_2026-10-08.md`; owner questions: its §7a Friday checklist.

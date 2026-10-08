@@ -49,9 +49,8 @@ When any stage returns exit code 3:
    The key is the text between the label and the em-dash separator.
    If any keys are found **or** any stage status is `NEEDS_ANSWERS`,
    the pair's final status is overridden to `NEEDS_ANSWERS` (unless
-   the pair timed out).  A consequential exit-1 from a later stage
-   (e.g. `generate` failing because `extract-sttm` wrote nothing) is
-   also overridden — the root cause is the missing answers.
+   the pair timed out, or a stage FAILED for a reason of its own — see
+   "When an exit 1 is reclassified" below).
 3. **Pair state file** is written to
    `codegen-state/<pair_id>/status.json` with:
    ```json
@@ -62,9 +61,65 @@ When any stage returns exit code 3:
      "needed_answer_keys": ["stage.schema", "stage.table", ...]
    }
    ```
+   A pair that stays `FAILED` under the rule below records BOTH the error
+   and the keys:
+   ```json
+   {
+     "status": "FAILED",
+     "sha": "<commit>",
+     "timestamp": "<ISO 8601>",
+     "failed_stage": "generate",
+     "first_error": "FAIL            template gap: …",
+     "needed_answer_keys": ["feeds[2].stage_target.tables", ...]
+   }
+   ```
    The state file is written for every pair on every run (not just
    NEEDS_ANSWERS), keeping the on-disk status in sync with the latest
    result.
+
+## When an exit 1 is reclassified (2026-10-08)
+
+A later stage's exit 1 in a pair that already has a `NEEDS_ANSWERS` stage
+(or `QUESTION` / `UNRESOLVED` keys) is reclassified as `NEEDS_ANSWERS`
+**only when its first-error line says the stage's INPUT is missing because of
+those answers** — the consequence, not a new failure. The first-error line is
+the first stdout line starting `FAIL` (else the first stderr line). It is
+reclassified when it matches one of (case-insensitive):
+
+| Class | First-error line contains | Typical cause |
+| --- | --- | --- |
+| no contract | `contract not found:` | `generate` (or `extract-sttm`, whose FRD contract the layout stage writes) reading a contract an earlier stage did not write because every feed needed answers |
+| no feeds | `no resolved feed matches --feed` / `produced no feeds` | the feeds the stage was given were all held back for answers |
+| missing answers | `under gaps:` (or ``under `gaps:` ``) / `NEEDS_ANSWERS` | the stage stops on a value only the answers file can supply (the line names the key) |
+
+Where the line names a path (`contract not found: <path>`), the path must be
+the output of an earlier stage of the SAME pair — a contract that was never
+going to exist is not a consequence of the missing answers.
+
+**Any other exit 1 stays `FAILED`**, even in a pair that needs answers (a
+gate FAIL, a template gap, a parse error, a traceback — and a MALFORMED
+answers file: `FAIL layout — answers file: …` / `FAIL pair — answers file: …`
+is a failure, not a missing answer, which is why the class keys on
+`under gaps:` and never on the words "answers file" alone): the pair status is
+`FAILED`, the stage's `first_error` AND the pair's `needed_answer_keys` are
+both recorded (state file above, and the run report's per-pair row), so the
+engineer sees the real failure and the answers still owed. Priority below is
+unchanged: `FAILED` wins over `NEEDS_ANSWERS`.
+
+Where each class comes from in the `codegen` CLI (`code-gen-agent`,
+`feature/multi-table`, `src/codegen/cli.py`):
+
+- no contract — `FAIL            contract not found: <path> (also tried …)`
+  (`_contract_path`: `generate` / `extract-sttm` given a contract file that
+  does not exist).
+- no feeds — `FAIL            no resolved feed matches --feed '<feed>'`
+  (`_run_pairs`); the App's `live run produced no feeds — …`.
+- missing answers — a line carrying `NEEDS_ANSWERS` or `under gaps:`. At exit
+  1 the CLI rarely prints one first: the resolver's stops are MULTI-line —
+  `FAIL … — contract mismatch for feed '<x>':` then one `  - <error>` line
+  each — so their first-error line names no class and they stay `FAILED`
+  (keys recorded) by design, even when a bullet names a `gaps:` key: the
+  first-error line rule is deliberately conservative.
 
 ## Overall run status
 

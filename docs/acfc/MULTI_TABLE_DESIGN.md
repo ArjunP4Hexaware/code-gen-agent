@@ -543,15 +543,19 @@ and where the answer lands (config, not code, wherever possible).
 
 **Confirm which convention is current for NEW feeds** (both are pinned today —
 pair 1's overlay the PRX family, pair 4's the CAQH-style family; the shipped
-default is the PRX family's LOB / key and the generalized OBJECT_NAME; the ACFC
-overlay `acfc_env.yaml` sets the CAQH-style family, seen in the newest real
-sheet):
+default is the PRX family's LOB / key / SCHEMA_DRIFT_FLAG and the generalized
+OBJECT_NAME; the ACFC overlay `acfc_env.yaml` sets the CAQH-style family, seen
+in the newest real sheet):
 
 6. `LOB` — blank (PRX family) or the LOB codes (CAQH-style)?
 7. STGDELTA `TGT_PRIMARY_KEY` with no Primary Key cell — `'NA'` (PRX) or blank
    (CAQH-style)?
 8. STGDELTA `OBJECT_NAME` — the family's own form (PRX) or the generalized
    file pattern (CAQH-style)?
+8a. ADLS `SCHEMA_DRIFT_FLAG` — `N` (PRX: the pair-1 golden) or `Y` (SD /
+    CAQH-style: the SD file-to-stage row and the CAQH IIG)? Answer →
+    `family_conventions.schema_drift_flag`. (Numbered 8a so items 9 and 10
+    keep the numbers `metadata_inserts.sql` cites.)
 
 **Where the client's sheet and the framework walkthrough disagree, which one
 does the database actually honour?** That is the real question; the two

@@ -765,6 +765,18 @@ def _resolve_one(
     if errors:
         raise ContractMismatchError(feed_id, errors)
 
+    # Multi-table rule 2: the files the feed receives — the resolved patterns,
+    # expanded per LOB when one carries a LOB token. The LOBs are the STTM
+    # header block's when it lists any, else the FRD's.
+    from codegen.resolve.files import expand_files, split_lobs
+
+    header_lobs = split_lobs(sttm_feed.meta_rows.get("lob"),
+                             config.extractor.discovery.meta_blank_values)
+    files, file_flags = expand_files(
+        file_name_patterns, header_lobs or list(frd_feed.lobs), config.extractor.lob_tokens,
+        provenance=("FRD / STTM file pattern; LOBs from the STTM header block 'LOB'"
+                    if header_lobs else "FRD / STTM file pattern; LOBs from the FRD"))
+
     natural_key = _stage_columns(sttm_feed, sttm_feed.load_rules.not_null_columns, feed_id)
     not_null = natural_key
     phi = _stage_columns(sttm_feed, sttm_feed.load_rules.phi_columns, feed_id)
@@ -807,7 +819,8 @@ def _resolve_one(
         source_table=sttm_feed.source_table,
         provenance_flags=list(dict.fromkeys([
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
-            *width_flags, *gap_flags, *catalog_flags, *provenance_flags])),
+            *width_flags, *gap_flags, *catalog_flags, *provenance_flags, *file_flags])),
+        files=files,
     )
 
 

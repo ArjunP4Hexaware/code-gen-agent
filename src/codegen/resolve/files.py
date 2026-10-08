@@ -13,27 +13,11 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, ConfigDict
-
 from codegen.contracts.sttm import SttmFeed
+from codegen.contracts.tables import FeedFile
 
 _PATTERN_SPLIT = re.compile(r"[\n;,]+")
 _LOB_SPLIT = re.compile(r"[\n;,/]+")
-
-
-class FeedFile(BaseModel):
-    """One file the feed receives — one ADLS_DELTA_INGESTION_DETAILS row."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    pattern: str            # as stated, the LOB token replaced by this file's LOB
-    lob: str | None         # the LOB of an expanded file; None = not a per-LOB file
-    template: str           # the pattern exactly as stated
-    provenance: str
-
-    @property
-    def partition_value(self) -> str | None:
-        return self.lob
 
 
 def lob_token(pattern: str, tokens: list[str]) -> str | None:

@@ -1056,6 +1056,13 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> rows of header -> value; keys starting with '_' steer the
     # builder (e.g. _layer: standard) and never render.
     template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+    # Multi-table step 3 (docs/acfc/MULTI_TABLE_DESIGN.md rule 2): date
+    # placeholder tokens of a stated file pattern written as the framework's
+    # '*' wildcard in SRC_FILE_NAME / INPUT_PARAM (matched case-sensitively,
+    # longest first, not inside a word). Empty = patterns verbatim.
+    file_pattern_wildcards: list[str] = Field(default_factory=list)
+    # The partition column a per-LOB file's ADLS row names (its value = the LOB).
+    lob_partition_column: str = "LOB"
 
 
 class MetadataConfig(BaseModel):

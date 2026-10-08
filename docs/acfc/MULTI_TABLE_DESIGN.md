@@ -170,8 +170,35 @@ stated catalog that has no entry is written as stated and flagged
 `catalog_unmapped:<layer> — <catalog>`. `default_catalog` stays the fallback
 for a blank band (it is already an environment catalog and is not mapped).
 
-Still to come (steps 3–7): `ResolvedFeedSpec.files` / `.tables` from the
-above; the IIG builders iterate them.
+**Step 3 (done).** `ResolvedFeedSpec.files` (the resolver applies rule 2 to the
+resolved patterns; the LOBs are the STTM header block's when it lists any, else
+the FRD's). The iig_v2 builders group the resolved segments by stage triple
+(`metadata_template._table_groups`, the resolved-side twin of
+`feed_tables`):
+
+- `ADLS_DELTA_INGESTION_DETAILS` = one row per file into the detail (or sole)
+  table: `OBJECT_ID` = the file's position (1..n, the framework convention of
+  METADATA_DB_SEMANTICS §5 — a cited convention cell, the one way a builder may
+  fill an `always_blank` column), `OBJECT_NAME` / `SRC_FILE_NAME` from the
+  pattern with its date placeholder written as `*`
+  (`file_pattern_wildcards`: `CCYYMMDD`, `YYYYMMDD`, … → `*`), `LOB` /
+  `TGT_PARTITION_VALUE` = the file's LOB and `TGT_PARTITION_COLUMN` =
+  `lob_partition_column` (`LOB`) for a per-LOB file; a file that is not
+  per-LOB gets `LOB` blank (a *decided* blank — not an open review cell) and
+  the template's `NA` partition. Columns / types / mandatory / key = the
+  detail table's (its Stage-band Primary Key cells; none = the contract's
+  natural key, as before).
+- `STGDELTA_STDDELTA_INGESTION_DET` = one row per table with a standard
+  definition: source = the stage table, target = the standard table (mapped
+  catalog), `OBJECT_NAME` = the table name, `LOB` = the per-LOB files' codes
+  joined (blank, decided, when there are none), `TGT_PRIMARY_KEY` = the
+  Standard band's Primary Key cells, else `NA` (the pair-1 golden's value).
+  `OBJECT_ID` stays blank (the brief sequences ADLS / DQ objects only).
+- `{landing_rel}` / `{domain_path}` strip the LANDING container
+  (`ADLS_DELTA_INGESTION_DETAILS.SRC_CONTAINER_NAME`) first: a stage →
+  standard sheet's own `SRC_CONTAINER_NAME` is the stage container.
+
+Still to come (steps 4–7).
 
 ## 4. Row-count rules per sheet
 
@@ -226,12 +253,12 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 
 ### ADLS_DELTA_INGESTION_DETAILS
 
-- **per-file:** OBJECT_NAME, LOB, SRC_FILE_NAME, TGT_PARTITION_VALUE
+- **per-file:** OBJECT_ID, OBJECT_NAME, LOB, SRC_FILE_NAME, TGT_PARTITION_VALUE
 - **per-table:** SRC_COLUMNS, SRC_DATA_TYPE, MANDATORY_FIELD_LIST, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
 - **per-feed:** DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, SRC_ADLS_PATH, SRC_FORMAT, SRC_FILE_DELIMITER, HEADER_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, TGT_LOAD_OPTION, TGT_PARTITION_COLUMN, RECYCL_ENBL_FLG
 - **environment:** SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONNECTION_ID, TGT_CONTAINER_NAME
 - **convention:** CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, TGT_ADLS_PATH, TGT_FORMAT, TGT_RJT_ADLS_PATH, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, CREATED_DATE, UPDATED_DATE
-- **engineer-assigned:** GROUP_ID, OBJECT_ID, PIPELINE_ID, MAPPING_EXPRESSION, CREATED_BY, UPDATED_BY
+- **engineer-assigned:** GROUP_ID, PIPELINE_ID, MAPPING_EXPRESSION, CREATED_BY, UPDATED_BY
 
 ### STGDELTA_STDDELTA_INGESTION_DET
 
@@ -285,8 +312,9 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    not used). Wired into the resolver's `ResolvedTable` catalogs, hence
    `qualified_names`, the DDL and every IIG catalog cell
    (`tests/test_multi_table_step2.py`).
-3. **ADLS rows = files; STGDELTA rows = tables** with standard_def on the
-   target side.
+3. **ADLS rows = files; STGDELTA rows = tables — DONE** (pair 4: 6 and 3,
+   cell for cell as the golden; pair 1: 4 and 1;
+   `tests/test_multi_table_step3.py`).
 4. **`DATA_QUALITY_RULES` header/trailer row** under rule 5's condition.
 5. **`DATA_FACTORY_PIPELINE_SCHEDULE`: four rows** (grand master, master,
    file→stage, stage→standard), ids left to the engineer, names from the

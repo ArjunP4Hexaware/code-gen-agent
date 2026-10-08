@@ -12,12 +12,14 @@ never guessed.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from codegen.config import Config, MetadataTemplateConfig
 from codegen.contracts.frd import FrdFeed
-from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
+from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
+from codegen.contracts.tables import FeedFile
 from codegen.gate.derivations import join_location, location_scheme
 
 _TEMPLATE_TOOLTIP = "template constant — {citation}"
@@ -76,6 +78,116 @@ def _audit(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) -> list[tuple[st
             for a in spec.audit_columns]
 
 
+@dataclass
+class _TableGroup:
+    """One table the feed defines on the resolved side (multi-table rule 1):
+    the segments whose stage table is the same (catalog, schema, table)."""
+
+    stage: ResolvedTable
+    standard: ResolvedTable | None
+    segments: list[SegmentSpec] = field(default_factory=list)
+
+    @property
+    def fields(self) -> list[SttmField]:
+        """The table's columns, STTM order, a column shared by its segments once."""
+        seen: set[str] = set()
+        out: list[SttmField] = []
+        for segment in self.segments:
+            for f in segment.fields:
+                if f.stage_column not in seen:
+                    seen.add(f.stage_column)
+                    out.append(f)
+        return out
+
+    @property
+    def is_detail(self) -> bool:
+        return any(s.segment == "Detail" for s in self.segments)
+
+
+def _table_groups(spec: ResolvedFeedSpec) -> list[_TableGroup]:
+    """Rule 1 over the resolved segments: one group per distinct stage
+    (catalog, schema, table), first-seen order. A group's standard table is
+    its segments' (the segmented dialect), else — for a feed with ONE table —
+    the feed's standard table."""
+    groups: dict[tuple, _TableGroup] = {}
+    for segment in spec.segments:
+        table = segment.stage_table
+        key = (table.catalog, table.schema_name, table.table)
+        group = groups.setdefault(key, _TableGroup(stage=table, standard=None))
+        group.segments.append(segment)
+        if group.standard is None and segment.standard_table is not None:
+            group.standard = segment.standard_table
+    out = list(groups.values())
+    if len(out) == 1 and out[0].standard is None:
+        out[0].standard = spec.standard_table
+    return out
+
+
+def _detail_group(groups: list[_TableGroup]) -> _TableGroup:
+    """Rule 3: the table holding the Detail segment, else the sole table."""
+    return next((g for g in groups if g.is_detail), groups[0])
+
+
+def _group_audit(group: _TableGroup, spec: ResolvedFeedSpec,
+                 tpl: MetadataTemplateConfig) -> list[tuple[str, str]]:
+    """The table's audit columns: its segments' own audit rows when every
+    segment states them, else the feed's."""
+    if all(s.audit_columns for s in group.segments):
+        seen: dict[str, str] = {}
+        for segment in group.segments:
+            for a in segment.audit_columns or []:
+                seen.setdefault(a.column, tpl.audit_type_casing.get(a.datatype, a.datatype))
+        return list(seen.items())
+    return _audit(spec, tpl)
+
+
+def _feed_files(spec: ResolvedFeedSpec, config: Config) -> list[FeedFile]:
+    """Rule 2: the resolver's files, else the spec's patterns expanded now."""
+    if spec.files:
+        return list(spec.files)
+    from codegen.resolve.files import expand_files
+
+    files, _flags = expand_files(spec.file_name_patterns, list(spec.lobs),
+                                 config.extractor.lob_tokens, provenance="file pattern")
+    return files
+
+
+def _wildcarded(pattern: str, tpl: MetadataTemplateConfig) -> str:
+    """A stated pattern as the framework writes it: each date placeholder of
+    ``file_pattern_wildcards`` (longest first, not inside a word) -> '*'."""
+    for token in sorted(tpl.file_pattern_wildcards, key=len, reverse=True):
+        pattern = re.sub(rf"(?<![A-Za-z]){re.escape(token)}(?![A-Za-z])", "*", pattern)
+    return pattern
+
+
+def _decided_blank(reason: str) -> dict:
+    """A cell a stated rule leaves blank — not an open question: the review
+    copy does not highlight it (iig_review: ``deliberate_blank``)."""
+    cell = _cell("", "from_frd", reason)
+    cell["badge_entry"]["deliberate_blank"] = True
+    return cell
+
+
+def _sequence_cell(index: int, what: str) -> dict:
+    """OBJECT_ID by the framework convention: the object's position within
+    its group (METADATA_DB_SEMANTICS §5: 'one per input file within the group'
+    — 1..n). A convention cell, so it fills the always-blank column."""
+    cell = _cell(str(index), "synthetic",
+                 f"template constant — framework convention: OBJECT_ID = 1..n within the group "
+                 f"(docs/acfc/METADATA_DB_SEMANTICS.md §5); this {what} is object {index}")
+    cell["badge_entry"]["convention"] = True
+    return cell
+
+
+def _primary_key(fields: list[SttmField], layer: str) -> list[str]:
+    """The band's Primary Key columns (step 1: SttmField.primary_key, the
+    Standard band's own when it differs)."""
+    if layer == "stage":
+        return [f.stage_column for f in fields if f.primary_key]
+    return [f.standard_column for f in fields if f.standard_column and (
+        f.standard_primary_key if f.standard_primary_key is not None else f.primary_key)]
+
+
 def _qualified(table) -> str:
     parts = [table.catalog, table.schema_name, table.table]
     return ".".join(p for p in parts if p)
@@ -112,12 +224,15 @@ _RELATIVE_PLACEHOLDERS = ("{landing_rel}", "{domain_path}")
 
 
 def _landing_rel(tpl: MetadataTemplateConfig, tab: str, landing: str) -> str:
-    """{landing_rel}: the landing minus its leading /<SRC_CONTAINER_NAME>
-    (the sheet's constant, else ADLS_DELTA_INGESTION_DETAILS's) — the path
-    INSIDE the source container. Unchanged when it does not start so."""
-    container = (tpl.constants.get(tab, {}).get("SRC_CONTAINER_NAME")
-                 or tpl.constants.get("ADLS_DELTA_INGESTION_DETAILS", {})
-                 .get("SRC_CONTAINER_NAME"))
+    """{landing_rel}: the landing minus its leading /<landing container> —
+    the path INSIDE the container the files land in. The landing container is
+    ADLS_DELTA_INGESTION_DETAILS's SRC_CONTAINER_NAME (the sheet that reads
+    the landed files), else the sheet's own: a stage → standard sheet's
+    SRC_CONTAINER_NAME is the STAGE container, which the landing never starts
+    with (multi-table, pair 4). Unchanged when it does not start so."""
+    container = (tpl.constants.get("ADLS_DELTA_INGESTION_DETAILS", {})
+                 .get("SRC_CONTAINER_NAME")
+                 or tpl.constants.get(tab, {}).get("SRC_CONTAINER_NAME"))
     prefix = f"/{container}/" if container else None
     if prefix and landing.lower().startswith(prefix.lower()):
         return landing[len(prefix) - 1:]
@@ -347,14 +462,20 @@ def _file_adls(tab, feed, config, spec, faq, tpl) -> list[dict]:
 
 
 def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
+    """Rule 3: one row per FILE the feed receives (rule 2), every row into the
+    DETAIL table (or the sole table); per-file cells OBJECT_ID / OBJECT_NAME /
+    SRC_FILE_NAME / LOB / partition, the rest shared."""
     if spec is None:
         return []
-    fields = _distinct_fields(spec)
-    audit = _audit(spec, tpl)
-    stage = spec.detail_segment.stage_table
+    detail = _detail_group(_table_groups(spec))
+    fields = detail.fields
+    audit = _group_audit(detail, spec, tpl)
+    stage = detail.stage
     reject = _reject_table(tpl, spec, stage.table)
-    patterns = (list(spec.file_name_patterns) if tpl.rows_per_file_pattern
-                else ["; ".join(spec.file_name_patterns)])
+    files = (_feed_files(spec, config) if tpl.rows_per_file_pattern
+             else [FeedFile(pattern="; ".join(spec.file_name_patterns), lob=None,
+                            template="; ".join(spec.file_name_patterns),
+                            provenance="every file pattern on one row")])
     if tpl.src_columns_style == "named" and _named_sources(fields):
         src_columns = ",".join(f"{f.source_column}:{f.source_column}" for f in fields)
     elif tpl.src_columns_style in ("positional", "named"):
@@ -365,9 +486,12 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
         src_types = ",".join(f"{f.source_datatype}:{_base_type(f.stage_datatype)}" for f in fields)
     else:
         src_types = ",".join(f"{f.source_datatype}:{f.stage_datatype}" for f in fields)
+    key_columns = _primary_key(fields, "stage")
     rows = []
-    for pattern in patterns:
+    for index, file in enumerate(files, start=1):
+        pattern = _wildcarded(file.pattern, tpl)
         cells = {
+            "OBJECT_ID": _sequence_cell(index, f"file ({pattern})"),
             "OBJECT_NAME": (_cell(_object_name(pattern), "from_frd",
                                   f"derived from the file pattern {pattern!r} (wildcards and "
                                   "extension removed)")
@@ -377,8 +501,13 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
             "SOURCE": _cell(feed.source_system, "from_frd"),
             "FREQUENCY": _frequency(feed, faq),
-            "LOB": _cell(", ".join(feed.lobs), "from_frd"),
-            "SRC_FILE_NAME": _cell(pattern, "from_frd" if feed.file_name_patterns else "from_sttm"),
+            "LOB": (_cell(file.lob, "from_frd", f"this file's LOB — {file.provenance}")
+                    if file.lob else
+                    _decided_blank("not a per-LOB file (no LOB token in its pattern, "
+                                   "docs/acfc/MULTI_TABLE_DESIGN.md rule 2): LOB blank")),
+            "SRC_FILE_NAME": _cell(pattern, "from_frd" if feed.file_name_patterns else "from_sttm",
+                                   (f"stated {file.template!r}" if pattern != file.template
+                                    else None)),
             "SRC_COLUMNS": _cell(src_columns, "from_sttm"),
             "SRC_DATA_TYPE": _cell(src_types, "from_sttm"),
             "TGT_DATABASE_NAME": _cell(stage.schema_name, "from_frd"),
@@ -411,21 +540,41 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
         cells.update(_header_flag_cells(spec, faq))
         if spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
-        if spec.natural_key_columns:
+        if key_columns:
+            cells["TGT_PRIMARY_KEY"] = _cell(",".join(key_columns), "from_sttm",
+                                             "the detail table's Primary Key cells (Stage band)")
+        elif spec.natural_key_columns:
             cells["TGT_PRIMARY_KEY"] = _cell(",".join(spec.natural_key_columns), "from_sttm",
                                              "the mapping contract's natural key columns")
+        if file.lob:
+            cells["TGT_PARTITION_COLUMN"] = _cell(
+                tpl.lob_partition_column, "synthetic",
+                f"template constant — a per-LOB file partitions on {tpl.lob_partition_column} "
+                "(docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")
+            cells["TGT_PARTITION_VALUE"] = _cell(file.lob, "from_frd",
+                                                 f"this file's LOB — {file.provenance}")
         cells.update(_paths(tpl, tab, feed, stage.table, reject))
         rows.append(_with_constants(tpl, tab, cells))
     return rows
 
 
 def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
+    """Rule 4: one row per TABLE with a standard definition — source = its
+    stage table, target = its standard table (catalog mapped, step 2)."""
     if spec is None or spec.standard_table is None:
         return []
-    fields = [f for f in _distinct_fields(spec) if f.standard_column]
-    audit = _audit(spec, tpl)
-    stage = spec.detail_segment.stage_table
-    standard = spec.standard_table
+    lobs = [f.lob for f in _feed_files(spec, config) if f.lob]
+    return [_stg_std_row(tab, feed, config, spec, faq, tpl, profile, group, lobs)
+            for group in _table_groups(spec) if group.standard is not None]
+
+
+def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
+                 lobs: list[str]) -> dict:
+    fields = [f for f in group.fields if f.standard_column]
+    audit = _group_audit(group, spec, tpl)
+    stage = group.stage
+    standard = group.standard
+    assert standard is not None
     reject = _reject_table(tpl, spec, standard.table)
     if tpl.data_type_style == "base":
         src_types = [f"{_base_type(f.stage_datatype)}:{_base_type(f.standard_datatype)}"
@@ -434,12 +583,17 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
         src_types = [f"{f.stage_datatype}:{f.standard_datatype}" for f in fields] + [
             f"{t}:{t}" for _c, t in audit]
     cells = {
-        "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
+        "OBJECT_NAME": _cell(standard.table, "from_sttm",
+                             "the table this row moves (METADATA_DB_SEMANTICS §7: 'based on the "
+                             "table which we are creating')"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency(feed, faq),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "LOB": (_cell(",".join(lobs), "from_frd", "the LOBs of the feed's per-LOB files")
+                if lobs else
+                _decided_blank("the feed has no per-LOB file "
+                               "(docs/acfc/MULTI_TABLE_DESIGN.md rule 2): LOB blank")),
         "SRC_SCHEMA_NAME": _cell(stage.schema_name, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage.table, "from_frd"),
         "SRC_COLUMNS": _cell(
@@ -465,11 +619,14 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
             cells[header] = catalog
     if spec.standard_load_strategy:
         cells["TGT_LOAD_OPTION"] = _load_option_cell(spec.standard_load_strategy, "STD")
-    if spec.natural_key_columns:
-        cells["TGT_PRIMARY_KEY"] = _cell(",".join(spec.natural_key_columns), "from_sttm",
-                                         "the mapping contract's natural key columns")
+    key_columns = _primary_key(fields, "standard")
+    cells["TGT_PRIMARY_KEY"] = (
+        _cell(",".join(key_columns), "from_sttm", "the table's Primary Key cells (Standard band)")
+        if key_columns else
+        _cell("NA", "synthetic", "template constant — no Primary Key cell in the table's "
+                                 f"Standard band; the framework's 'NA' ({tpl.citation})"))
     cells.update(_paths(tpl, tab, feed, standard.table, reject))
-    return [_with_constants(tpl, tab, cells)]
+    return _with_constants(tpl, tab, cells)
 
 
 def _segment_positions(segment: SegmentSpec) -> tuple[list[str], list[str], list[str]] | None:

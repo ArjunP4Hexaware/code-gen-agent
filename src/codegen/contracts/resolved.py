@@ -21,6 +21,7 @@ from codegen.contracts.sttm import (
     SegmentedExtraction,
     SttmField,
 )
+from codegen.contracts.tables import FeedFile
 from codegen.contracts.vdd import VddContract
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -158,6 +159,11 @@ class ResolvedFeedSpec(BaseModel):
     # M4: facts the resolver took from the STTM because the FRD named none
     # (file pattern, record segments) — surfaced as gate flags, never silent.
     provenance_flags: list[str] = Field(default_factory=list)
+    # Multi-table rule 2 (codegen.resolve.files): one entry per file the feed
+    # receives — a LOB-token pattern expanded per listed LOB, else one per
+    # pattern. Empty on a spec built without the resolver (builders then
+    # expand file_name_patterns themselves).
+    files: list[FeedFile] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

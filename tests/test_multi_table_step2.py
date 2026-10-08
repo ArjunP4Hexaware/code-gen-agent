@@ -122,11 +122,13 @@ def test_qualified_names_match_the_golden_table_definitions(pair4_spec):
 
 def test_iig_catalog_cells_carry_the_mapped_catalog_and_cite_the_map(pair4_config, pair4_spec):
     payload = _payload(pair4_config, pair4_spec)
-    (row,) = payload["tabs"]["STGDELTA_STDDELTA_INGESTION_DET"]["rows"]   # one row until step 3
-    assert row["values"]["SRC_CATALOG_NAME"] == "d1_dlk"
-    assert row["values"]["TGT_CATALOG_NAME"] == "d1_std"
-    assert "catalog_map PR_DLK → d1_dlk" in row["badges"]["SRC_CATALOG_NAME"]["tooltip"]
-    assert "catalog_map PR_STD → d1_std" in row["badges"]["TGT_CATALOG_NAME"]["tooltip"]
+    rows = payload["tabs"]["STGDELTA_STDDELTA_INGESTION_DET"]["rows"]   # one per table
+    assert len(rows) == len(pair4_nb.TABLES)
+    for row in rows:
+        assert row["values"]["SRC_CATALOG_NAME"] == "d1_dlk"
+        assert row["values"]["TGT_CATALOG_NAME"] == "d1_std"
+        assert "catalog_map PR_DLK → d1_dlk" in row["badges"]["SRC_CATALOG_NAME"]["tooltip"]
+        assert "catalog_map PR_STD → d1_std" in row["badges"]["TGT_CATALOG_NAME"]["tooltip"]
     cells = [str(r["values"].get(h, "")) for tab in payload["tabs"].values()
              for r in tab["rows"] for h in tab["headers"]]
     assert not [c for c in cells if "PR_DLK" in c or "PR_STD" in c or "syn_fallback" in c]

@@ -141,7 +141,8 @@ def test_adls_delta_is_one_row_per_lob_file_all_into_the_detail_table(golden):
         assert (row["DOMAIN"], row["SUBDOMAIN"]) == (pair4_nb.DOMAIN, pair4_nb.SUB_DOMAIN)
         assert row["SOURCE"] == pair4_nb.VENDOR
         assert row["TGT_LOAD_OPTION"] == pair4_nb.LOAD_STRATEGY
-        assert row["OBJECT_ID"] is None and row["GROUP_ID"] is None   # never invented
+        assert row["OBJECT_ID"] == str(row["_object"])     # the 1..n convention
+        assert row["GROUP_ID"] is None                       # never invented
     header_columns = {f.column for f in pair4_nb.table_by_segment("Header").fields}
     trailer_columns = {f.column for f in pair4_nb.table_by_segment("Trailer").fields}
     only_hdr_trl = (header_columns | trailer_columns) - set(stage_columns)

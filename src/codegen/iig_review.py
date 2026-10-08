@@ -63,6 +63,8 @@ def _reason(column: str, value, entry: dict, always_blank: set[str],
     badge = entry.get("badge")
     tooltip = entry.get("tooltip") or ""
     if _blank(value):
+        if entry.get("deliberate_blank"):
+            return None                  # a stated rule leaves it blank (multi-table rule 2)
         if column in review.audit_date_columns:
             return "audit_date"
         if column in review.audit_by_columns:

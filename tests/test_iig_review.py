@@ -25,9 +25,13 @@ from codegen import cli
 from codegen.config import IigReviewConfig, load_config
 from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 
+# Multi-table step 3 moved pair 1 by: 4 ADLS OBJECT_IDs from Engineer (framework-assigned
+# blank) to Engineer (confirm) (the cited 1..n convention), and the STGDELTA TGT_PRIMARY_KEY
+# 'NA' (no Primary Key cell in the Standard band) to Engineer (confirm) — the golden's value;
+# pair 11 likewise for its three feeds (3 OBJECT_IDs, 3 'NA').
 INVENTORY = {
-    "pair1": {"BSA": 92, "Engineer": 157, "Engineer (confirm)": 129, "Set at load (CI/CD)": 52},
-    "pair11": {"BSA": 132, "Engineer": 141, "Engineer (confirm)": 84, "Set at load (CI/CD)": 42},
+    "pair1": {"BSA": 92, "Engineer": 153, "Engineer (confirm)": 134, "Set at load (CI/CD)": 52},
+    "pair11": {"BSA": 132, "Engineer": 138, "Engineer (confirm)": 90, "Set at load (CI/CD)": 42},
 }
 
 

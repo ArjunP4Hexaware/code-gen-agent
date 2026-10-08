@@ -73,6 +73,22 @@ class TableDef(BaseModel):
         return [c.name for c in self.columns if c.mandatory]
 
 
+class FeedFile(BaseModel):
+    """One file the feed receives — one ADLS_DELTA_INGESTION_DETAILS row
+    (rule 2; built by :mod:`codegen.resolve.files`)."""
+
+    model_config = _MODEL_CONFIG
+
+    pattern: str            # as stated, the LOB token replaced by this file's LOB
+    lob: str | None         # the LOB of an expanded file; None = not a per-LOB file
+    template: str           # the pattern exactly as stated
+    provenance: str
+
+    @property
+    def partition_value(self) -> str | None:
+        return self.lob
+
+
 class SttmTable(BaseModel):
     """A table the feed defines: the segments whose rows land in it, its
     stage definition and (when the Standard band carries any of its rows) its
@@ -187,5 +203,5 @@ def split_tables(tables: list[SttmTable]) -> list[SttmTable]:
             and any(s in ("Header", "Trailer") for s in t.segments)]
 
 
-__all__ = ["ColumnDef", "SttmTable", "TableDef", "TableModelError", "detail_table",
+__all__ = ["ColumnDef", "FeedFile", "SttmTable", "TableDef", "TableModelError", "detail_table",
            "feed_tables", "split_tables"]

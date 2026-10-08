@@ -9,7 +9,8 @@
 # Template: iig_v2, conventions profile acfc_prx.
 #
 # Cell semantics:
-#   "text"  the expected cell value
+#   "text"  the expected cell value (OBJECT_ID: the object's position in its group,
+#           the framework convention — ADLS / DQ per file)
 #   ""      deliberately blank (NULL in the metadata DB) by convention
 #   null    OPEN — the column's owner fills it (engineer-assigned ids / names,
 #           the RFC number, or an open question of §7); the generator must
@@ -177,7 +178,7 @@ DATA_FACTORY_PIPELINE_SCHEDULE:
 ADLS_DELTA_INGESTION_DETAILS:
   columns:
     GROUP_ID: engineer
-    OBJECT_ID: engineer
+    OBJECT_ID: per_file
     OBJECT_NAME: per_file
     DOMAIN: per_feed
     SUBDOMAIN: per_feed
@@ -234,36 +235,42 @@ ADLS_DELTA_INGESTION_DETAILS:
   rows:
     - <<: *adls_common
       _object: 1
+      OBJECT_ID: "1"
       OBJECT_NAME: NWB_COB_RPT_110
       LOB: "110"
       SRC_FILE_NAME: NWB_COB_RPT_110_*.txt
       TGT_PARTITION_VALUE: "110"
     - <<: *adls_common
       _object: 2
+      OBJECT_ID: "2"
       OBJECT_NAME: NWB_COB_RPT_120
       LOB: "120"
       SRC_FILE_NAME: NWB_COB_RPT_120_*.txt
       TGT_PARTITION_VALUE: "120"
     - <<: *adls_common
       _object: 3
+      OBJECT_ID: "3"
       OBJECT_NAME: NWB_COB_RPT_210
       LOB: "210"
       SRC_FILE_NAME: NWB_COB_RPT_210_*.txt
       TGT_PARTITION_VALUE: "210"
     - <<: *adls_common
       _object: 4
+      OBJECT_ID: "4"
       OBJECT_NAME: NWB_COB_RPT_220
       LOB: "220"
       SRC_FILE_NAME: NWB_COB_RPT_220_*.txt
       TGT_PARTITION_VALUE: "220"
     - <<: *adls_common
       _object: 5
+      OBJECT_ID: "5"
       OBJECT_NAME: NWB_COB_RPT_310
       LOB: "310"
       SRC_FILE_NAME: NWB_COB_RPT_310_*.txt
       TGT_PARTITION_VALUE: "310"
     - <<: *adls_common
       _object: 6
+      OBJECT_ID: "6"
       OBJECT_NAME: NWB_COB_RPT_320
       LOB: "320"
       SRC_FILE_NAME: NWB_COB_RPT_320_*.txt

@@ -899,6 +899,11 @@ metadata:
       date_format_rule_regex: '^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$'
       date_format_param_joiner: "--"
       cast_type_order: [Decimal, Date]     # DataTypeCastRule lists decimals, then dates
+      # Multi-table step 3: a stated pattern's date placeholder is the framework's
+      # '*' in SRC_FILE_NAME ('NWB_COB_RPT_110_CCYYMMDD.txt' -> 'NWB_COB_RPT_110_*.txt').
+      file_pattern_wildcards: [CCYYMMDD, YYYYMMDD, MMDDCCYY, MMDDYYYY, CCYYMM, YYYYMM, CCYY, YYYY]
+      # A per-LOB file's ADLS row partitions on this column, value = its LOB.
+      lob_partition_column: LOB
       # The golden IIG spells the audit types 'String' / 'TIMESTAMP' (its DDL
       # says STRING) — transcribed as the IIG states them.
       audit_type_casing: {String: String, Timestamp: TIMESTAMP}

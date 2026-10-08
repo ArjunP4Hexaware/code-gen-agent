@@ -94,10 +94,14 @@ def _row(headers: list[str], always_blank: set[str], cells: dict[str, dict],
     values: dict = {}
     badges: dict = {}
     for header in headers:
-        if header in always_blank:
+        given = cells.get(header)
+        if header in always_blank and not (given and given["badge_entry"].get("convention")):
+            # A builder fills an always-blank column only by a CITED framework
+            # convention (multi-table: OBJECT_ID = the object's position in its
+            # group); everything else stays blank, never invented.
             cell = _cell("", "needs_template", _ALWAYS_BLANK_TOOLTIP)
         else:
-            cell = cells.get(header) or _cell("", "needs_template", None)
+            cell = given or _cell("", "needs_template", None)
         values[header] = cell["value"]
         badges[header] = cell["badge_entry"]
     return {"values": values, "badges": badges, **extra}

@@ -207,10 +207,19 @@ def test_cli_layout_answers_and_report(tmp_path, answers_file, monkeypatch, caps
     monkeypatch.setenv("CODEGEN_STORAGE_STATE", f"local:{state.as_posix()}")
     report = tmp_path / "unresolved_headers.md"
 
-    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run",
-                     "--report-unresolved", str(report), "--require-complete"]) == 1
-    assert "FEED_X_MAPPING" in report.read_text(encoding="utf-8")
     capsys.readouterr()
+    # Unplaced columns are answers owed: exit 3, one UNRESOLVED line each in the
+    # form the ACFC harness parses (tests/test_harness_answer_lines.py).
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run",
+                     "--report-unresolved", str(report),
+                     "--require-complete"]) == cli.EXIT_NEEDS_ANSWERS
+    assert "FEED_X_MAPPING" in report.read_text(encoding="utf-8")
+    from test_harness_answer_lines import _answer_lines
+
+    lines = _answer_lines(capsys.readouterr().out)
+    unresolved = [m["key"] for m in lines if m["label"] == "UNRESOLVED"]
+    assert unresolved and all(k.startswith("FEED_X_MAPPING/") for k in unresolved)
+    assert len(unresolved) == len(set(unresolved))          # each column once
 
     assert cli.main(["layout", "--workbook", str(workbook), "--dry-run",
                      "--answers", str(answers), "--require-complete",

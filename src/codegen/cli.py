@@ -267,8 +267,9 @@ EXIT_CODES = f"""exit codes:
   {EXIT_OK}  ok — every feed it produced or was asked for is done (PASS / PASS_WITH_FLAGS);
      a sheet held back for an answer still prints its QUESTION line
   {EXIT_FAILED}  failed — a feed FAILed its gate, or a command could not complete
-  {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — extract-sttm: NO feed produced a usable contract (none
-     written); generate: a feed it was asked for (--feed) has no contract
+  {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — layout --require-complete: columns left unplaced / questions
+     open; extract-sttm: NO feed produced a usable contract (none written);
+     generate: a feed it was asked for (--feed) has no contract
   Every missing answer is one line, label padded to 15 columns, then the
   answers.yaml key, an em-dash and the reason:
      QUESTION       feeds[2].stage_target.tables — <reason>
@@ -617,6 +618,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         print(f"{'REPORT':<15} {target} — {len(result.questions)} unresolved item(s), "
               "structural labels only")
     report = result.report()
+    printed: set[str] = set()                # UNRESOLVED keys already on stdout
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
@@ -632,6 +634,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             for item in doc["unresolved"]:
                 key, _sep, reason = item.partition(": ")
                 print(answer_line("UNRESOLVED", key, reason or item))
+                printed.add(key)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
             print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "
@@ -658,11 +661,25 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
               f"{[f.feed_name for f in result.frd_contract.feeds]} "
               f"({len(result.gap_fills)} value(s) taken from the other documents)")
     if args.require_complete and result.questions:
+        # Unplaced columns / open questions are answers OWED, not a failure:
+        # exit 3 — layout is the first stage, so this is the only way a pair
+        # with unplaced columns reads NEEDS_ANSWERS instead of FAILED. One
+        # UNRESOLVED line per unplaced column (a role question, placed under
+        # `answers:`), one QUESTION line per other question (`gaps:`).
         for question in result.questions:
-            print(answer_line("QUESTION", question.key,
-                              f"{question.reason} ({question.document}); candidates "
-                              f"{question.candidates}"))
-        return 1
+            if question.kind == "role":
+                if question.key not in printed:
+                    print(answer_line("UNRESOLVED", question.key,
+                                      f"{question.reason} ({question.document}; place it "
+                                      "under answers: in answers.yaml)"))
+                    printed.add(question.key)
+            else:
+                print(answer_line("QUESTION", question.key,
+                                  f"{question.reason} ({question.document}); candidates "
+                                  f"{question.candidates}"))
+        print(f"{'NEEDS_ANSWERS':<15} layout — {len(result.questions)} answer(s) owed "
+              "(--require-complete); nothing is wrong with the documents")
+        return EXIT_NEEDS_ANSWERS
     return 0
 
 

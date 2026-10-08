@@ -7,7 +7,7 @@ anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/multi-table` (this checkout) | **cd18ec1** (+ this notes commit) | 0.5.8.post22 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
+| `feature/multi-table` (this checkout) | (see `git log`) | 0.5.8.post23 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
 | `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
 
@@ -65,7 +65,7 @@ explicitly — never `git add -A`.
 not run on this branch); ruff clean (`src/ tests/ ui/backend/
 scripts/iig_scorecard.py`); scrub 0 over every changed file; no `ui/frontend`
 change on this branch (dist untouched; `ui/backend/demo.py` changed in post20).
-Marker **0.5.8.post22**. `tests/snapshots/notebook_mode.json` was re-based in
+Marker **0.5.8.post23**. `tests/snapshots/notebook_mode.json` was re-based in
 0c2ba13 (37 hashes: `ruff format` now rewrites every emitted .py).
 
 **What the branch does** (design + status: `docs/acfc/MULTI_TABLE_DESIGN.md`;
@@ -131,7 +131,9 @@ targets -> NEEDS_ANSWERS (exit 3), path normalisation, ruff safe fixes (post20)
 when nothing is usable, FREQUENCY = run cadence (post22).
 
 **Exit codes** (`codegen --help`, `docs/ACFC_DEPLOY.md` "CLI exit codes"): 0 ok,
-1 failed, 3 NEEDS_ANSWERS — `extract-sttm` only when NO feed is usable (else 0,
+1 failed, 3 NEEDS_ANSWERS — `layout --require-complete` when columns are left
+unplaced / questions open (post23; the first stage, so the only way such a pair
+reads NEEDS_ANSWERS); `extract-sttm` only when NO feed is usable (else 0,
 contract written, held-back QUESTION lines still printed); `generate` only when
 a feed asked for (`--feed`) is held back. Every missing answer is one line the
 ACFC harness parses: `f"{label:<15}{key} — {reason}"` (`cli.answer_line`;
@@ -140,7 +142,9 @@ QUESTION = `gaps:` / `pairing:` key, UNRESOLVED = `<sheet>/<layer>/<role>`);
 transcribed from `docs/acfc/HARNESS_EXIT_CODES.md` on
 `origin/acfc/harness-exit3` (the harness source is not in this repo — swap in
 its literal regex when available). The harness records `needed_answer_keys`
-only on exit 3. acfc_run.py summarises the codes and the lines.
+only on exit 3. The harness's exit-1 reclassification rule (a later stage's exit 1 becomes
+NEEDS_ANSWERS only for a missing-input first-error line) is in that doc, pushed
+at 7f121ca. acfc_run.py summarises the codes and the lines.
 
 **Gotchas learned on this branch:**
 - **Bash heredocs on this box mangle escapes and backticks** (`\\t` became a

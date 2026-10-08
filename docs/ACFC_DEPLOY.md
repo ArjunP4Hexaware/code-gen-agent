@@ -401,7 +401,7 @@ contract and the notebook stops before `generate`, saying so.
 | --- | --- |
 | `0` | ok — every feed the command produced or was asked for is done (PASS / PASS_WITH_FLAGS). A sheet held back for an answer still prints its `QUESTION` lines |
 | `1` | failed — a feed FAILed its gate, or a command could not complete (`1` wins over `3`) |
-| `3` | NEEDS_ANSWERS — **`extract-sttm`**: NO feed produced a usable contract (nothing written: every sheet is held back, or `--require-complete` with layout roles open); **`generate`**: a feed it was asked for (`--feed`) has no contract |
+| `3` | NEEDS_ANSWERS — **`layout --require-complete`**: columns left unplaced or questions open (one `UNRESOLVED` / `QUESTION` line each — layout is the first stage, so this is how a pair with unplaced columns reads NEEDS_ANSWERS, not FAILED); **`extract-sttm`**: NO feed produced a usable contract (nothing written: every sheet is held back, or `--require-complete` with layout roles open); **`generate`**: a feed it was asked for (`--feed`) has no contract |
 
 The two branches, so a partial workbook never stops the feeds that are ready:
 

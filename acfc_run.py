@@ -200,8 +200,11 @@ layout_rc = run("layout", "layout", "--workbook", str(sttm), "--frd", str(frd),
 # DBTITLE 1,Extract + generate (stops here when the layout is incomplete)
 if layout_rc != 0:
     print((work / "unresolved_headers.md").read_text(encoding="utf-8"))
-    raise SystemExit("layout incomplete: place the roles above in an answers.yaml "
-                     "(docs/ACFC_DEPLOY.md §6), put it in the pair folder and re-run")
+    if layout_rc == EXIT_NEEDS_ANSWERS:          # unplaced columns: answers owed, not a failure
+        raise SystemExit("layout NEEDS ANSWERS: place the roles above (UNRESOLVED / QUESTION "
+                         "lines) in an answers.yaml (docs/ACFC_DEPLOY.md §6), put it in the "
+                         "pair folder and re-run")
+    raise SystemExit("layout FAILED (exit %d) — see its output above" % layout_rc)
 
 if frd.suffix.lower() != ".docx":
     frd_contract = frd

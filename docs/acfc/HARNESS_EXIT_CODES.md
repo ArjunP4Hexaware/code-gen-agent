@@ -34,23 +34,51 @@ a partial contract (some feeds extracted, some blocked on answers) it
 exits 0; the unresolved items appear as `QUESTION` / `UNRESOLVED` lines
 in stdout but are not fatal.
 
+## Line format
+
+The CLI emits structured lines with the label padded to 15 columns:
+
+```
+QUESTION       <key> — <reason>
+UNRESOLVED     <key> — <reason>
+```
+
+The Python f-string producing these lines is:
+
+```python
+print(f"{'QUESTION':<15} {key} \u2014 {reason}")
+print(f"{'UNRESOLVED':<15} {key} \u2014 {reason}")
+```
+
+The harness parses them with the following compiled regex
+(`_NEEDED_KEY_RE` in `pull_and_run`):
+
+```python
+_NEEDED_KEY_RE = re.compile(
+    r"^(?:QUESTION|UNRESOLVED)\s+(.+?)(?:\s+\u2014\s|$)"
+)
+```
+
+Capture group 1 is the **key** (the text between the label and the
+em-dash separator).  Lines without an em-dash (e.g. bare `UNRESOLVED`
+items) match via the `$` alternative.
+
 ## What gets recorded
 
-When any stage returns exit code 3:
+At the **end of every pair** (after all stages have run or the pair has
+been stopped), the harness **always** scans the pair’s accumulated
+stdout for `QUESTION` and `UNRESOLVED` lines using `_NEEDED_KEY_RE`,
+regardless of exit codes.
 
 1. **Stage status** is set to `NEEDS_ANSWERS` (visible in the per-pair
-   Stages table of the run report).  Later stages still run.
-2. At the **end of the pair** (after all stages), the harness scans the
-   accumulated stdout for `QUESTION` and `UNRESOLVED` lines:
-   ```
-   QUESTION       sttm stage.schema — reason; candidates [...]
-   UNRESOLVED     stage.schema — reason
-   ```
-   The key is the text between the label and the em-dash separator.
-   If any keys are found **or** any stage status is `NEEDS_ANSWERS`,
-   the pair's final status is overridden to `NEEDS_ANSWERS` (unless
-   the pair timed out, or a stage FAILED for a reason of its own — see
-   "When an exit 1 is reclassified" below).
+   Stages table of the run report) for any stage that returned exit
+   code 3.  Later stages still run.
+2. **Stdout scan** runs unconditionally.  If any keys are found **or**
+   any stage status is `NEEDS_ANSWERS`, the pair’s final status is
+   overridden to `NEEDS_ANSWERS` — even when every stage exited 0.
+   Exit code 3 is a stage-level signal, not the only trigger.  When a
+   pair is `FAILED` and keys are found, see “When an exit 1 is
+   reclassified” below for the narrowed override.
 3. **Pair state file** is written to
    `codegen-state/<pair_id>/status.json` with:
    ```json

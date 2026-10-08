@@ -74,8 +74,27 @@ def test_the_retired_script_is_not_written_and_the_notebooks_run_metadata_insert
 def test_db_values_header_and_cells(pair1_dml):
     _gate, _dir, text = pair1_dml
     header = text[:text.index("SET NOCOUNT ON;")]
-    assert "-- DB VALUES (docs/acfc/METADATA_DB_SEMANTICS.md; config dml.*)" in header
-    assert "--   ACTIVE_FLAG: workbook 'Y' -> 'S' (§1" in header and "UNCONFIRMED" in header
+    # the three workbook -> database rules (2026-10-09): value map, forced NULL,
+    # audit defaults + placeholders — each stated, with its unconfirmed instances
+    assert ("-- WORKBOOK -> DATABASE — three rules (docs/acfc/METADATA_DB_SEMANTICS.md; "
+            "config dml.*)") in header
+    rules = [ln for ln in header.splitlines() if ln.startswith("--   RULE ")]
+    assert [ln.split(" — ")[0] for ln in rules] == ["--   RULE 1", "--   RULE 2", "--   RULE 3"]
+    assert "--     ACTIVE_FLAG: workbook 'Y' -> 'S' (" in header
+    assert "--     ACTIVE_RULE_FLG: workbook 'Y' -> 'S' (" in header
+    assert "Friday checklist 9" in header
+    assert rules[1].endswith(", ".join(["DAY_OF_SCHEDULE", "UDF2", "UDF3", "UDF4", "UDF5",
+                                        "ESTIMATED_START_TIME", "COMPLETION_SLA",
+                                        "RUNTIME_SLA", "CRITICAL_PROCESSING_PERIOD",
+                                        "CLAIM_TYPE_ID"]))
+    assert ("--     DAY_OF_SCHEDULE: the pair-1 golden prints 0, §2 / §10 say NULL — "
+            "UNCONFIRMED, Friday checklist 10") in header
+    for part in ("CREATED_DATE blank -> GETDATE()", "UPDATED_DATE blank -> GETDATE()",
+                 "CREATED_BY / UPDATED_BY blank -> @RFC_NUMBER",
+                 "FILE_ADLS_INGESTION_DETAILS.SRC_CONNECTION_ID blank -> @SRC_CONNECTION_ID",
+                 "any other OPEN cell -> its <<COLUMN#n>> placeholder",
+                 "a cell decided blank -> NULL"):
+        assert part in rules[2], part
     inserts = _inserts(text)
     assert all("N'S'" in ln for ln in inserts if "[ACTIVE_FLAG]" in ln)
     assert not any("N'Y'" in ln for ln in inserts if "[ACTIVE_FLAG]" in ln)

@@ -67,7 +67,9 @@ score = 100 × (M + A) / C, one decimal (C = the cells of the paired rows +
 the unmatched cells, one per real column; OPEN counts against the score). A
 sheet with no row on either side scores 100.0. Generated sheets the real
 workbook lacks are listed, not scored. CREATED_BY / UPDATED_BY values are
-withheld here too.
+withheld here too. ``--real`` may also be a hand-written golden in the
+IIG_EXPECTED.yaml shape (``fixtures/acfc_shapes/pair_4/golden/``): each
+sheet's ``columns`` and ``rows``, null = blank (2026-10-09).
 
 Each score line also reads ``| matched M / open-by-design B /
 open-for-engineer E / diff D; score excl. open-by-design X`` (2026-10-08), so
@@ -349,6 +351,33 @@ def _workbook(path: Path) -> dict[str, Sheet]:
         workbook.close()
 
 
+def _golden_yaml(path: Path) -> dict[str, Sheet]:
+    """A hand-written golden in the IIG_EXPECTED.yaml shape (pair 4): per
+    sheet ``columns`` (header -> class label, in order) and ``rows``;
+    annotation keys (``_…``) and non-sheet entries are dropped, null = blank."""
+    import yaml
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    sheets: dict[str, Sheet] = {}
+    for name, sheet in data.items():
+        if name.startswith("_") or not isinstance(sheet, dict) or "rows" not in sheet:
+            continue
+        headers = [str(h) for h in (sheet.get("columns") or {})]
+        rows = []
+        for number, row in enumerate(sheet["rows"] or [], start=2):
+            if not headers:
+                headers = [k for k in row if not k.startswith("_")]
+            if all(_text(row.get(h)) == "" for h in headers):
+                continue
+            rows.append((number, {h: row.get(h) for h in headers}))
+        sheets[name] = Sheet(headers, rows)
+    return sheets
+
+
+def _real_book(path: Path) -> dict[str, Sheet]:
+    return _golden_yaml(path) if path.suffix.lower() in (".yaml", ".yml") else _workbook(path)
+
+
 def _owners_by_sheet(review: Path | None, field_name: str = "Owner"
                      ) -> dict[str, dict[str, str]]:
     """sheet -> column -> the review summary's ``field_name`` (Owner / Reason)."""
@@ -541,7 +570,7 @@ def score_all(generated: Path, real: Path, review: Path | None, aliases,
               show_matches: bool = False, summary_only: bool = False,
               ) -> tuple[list[SheetScore], list[str]]:
     """Every sheet of the REAL workbook scored; the output lines last."""
-    real_book, gen_book = _workbook(real), _workbook(generated)
+    real_book, gen_book = _real_book(real), _workbook(generated)
     owners = _owners_by_sheet(review)
     reasons = _owners_by_sheet(review, "Reason")
     results = [score_sheet(name, sheet, gen_book.get(name), real_book, gen_book,
@@ -570,7 +599,9 @@ def total_score(results: list[SheetScore]) -> float:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--generated", required=True, type=Path)
-    parser.add_argument("--real", required=True, type=Path)
+    parser.add_argument("--real", required=True, type=Path,
+                        help="the real / golden IIG workbook (--all-sheets also reads a "
+                             "golden in the IIG_EXPECTED.yaml shape)")
     parser.add_argument("--sheet", default="ADLS_DELTA_INGESTION_DETAILS")
     parser.add_argument("--real-sheet", default=None,
                         help="sheet of the real workbook (default: --sheet, else the first)")

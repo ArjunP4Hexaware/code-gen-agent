@@ -419,16 +419,28 @@ pair-4 golden consistent, `test_m5_rfc_package` green.
    `metadata_inserts` (statement count = IIG rows; parses as T-SQL with the
    placeholders read as NULL). **It replaces `config_inserts_<env>.sql`**
    (retired 2026-10-08 after its DB-side knowledge was ported):
-   - **DB values** (config `dml.db_value_map` / `db_blank_expressions` /
-     `db_null_columns`, named in the script header with their
-     `METADATA_DB_SEMANTICS.md` section): the IIG workbook keeps what humans
-     hand over, the SQL writes what the framework reads — `ACTIVE_FLAG` (and
-     `ACTIVE_RULE_FLG`) workbook `'Y'` → `'S'` (§1; the goldens print `'Y'`,
-     §10 — UNCONFIRMED, Friday checklist item 9); blank `CREATED_DATE` /
-     `UPDATED_DATE` → `GETDATE()`; blank `CREATED_BY` / `UPDATED_BY` →
-     `@RFC_NUMBER` (FAQ `rfc_number`, else the `<<RFC_NUMBER>>` placeholder +
-     `dml_unassigned:@RFC_NUMBER`); `DAY_OF_SCHEDULE`, `UDF2`–`UDF5`, the SLA
-     columns and `CLAIM_TYPE_ID` → `NULL` (§2, §7).
+   - **Workbook → database: three rules** (amended 2026-10-09; stated as
+     `RULE 1`–`RULE 3` in the script header, each with its
+     `METADATA_DB_SEMANTICS.md` section). The IIG workbook keeps what humans
+     hand over; the SQL writes what the framework reads; every other cell is
+     the workbook's value as is.
+     1. **Value map** (`dml.db_value_map`): `ACTIVE_FLAG` and
+        `ACTIVE_RULE_FLG` workbook `'Y'` → `'S'` (§1; the goldens print
+        `'Y'`, §10 — UNCONFIRMED, Friday checklist item 9).
+     2. **Forced NULL** (`dml.db_null_columns`) — columns the framework fills
+        itself / does not use today, NULL whatever the workbook holds:
+        `DAY_OF_SCHEDULE`, `UDF2`–`UDF5`, `ESTIMATED_START_TIME`, the SLA
+        columns (`COMPLETION_SLA`, `RUNTIME_SLA`,
+        `CRITICAL_PROCESSING_PERIOD`) and `CLAIM_TYPE_ID` (§2 "not populating
+        … future purpose", §7). `DAY_OF_SCHEDULE`: the pair-1 golden prints
+        `0`, §2 / §10 say NULL — UNCONFIRMED, Friday checklist item 10.
+     3. **Audit defaults and open cells**: blank `CREATED_DATE` /
+        `UPDATED_DATE` → `GETDATE()` (`dml.db_blank_expressions`); blank
+        `CREATED_BY` / `UPDATED_BY` → `@RFC_NUMBER` (FAQ `rfc_number`, else
+        the `<<RFC_NUMBER>>` placeholder + `dml_unassigned:@RFC_NUMBER`);
+        `FILE_ADLS_INGESTION_DETAILS.SRC_CONNECTION_ID` → `@SRC_CONNECTION_ID`
+        (§3); any other OPEN cell → its `<<COLUMN#n>>` placeholder; a cell
+        decided blank → `NULL`.
    - **Guards**, before the first INSERT: `@RFC_NUMBER` assigned; per schedule
      row its `PIPELINE_ID` unused; per `FILE_ADLS` / `ADLS_DELTA` / `STGDELTA`
      row its `GROUP_ID` unused in that table and the (GROUP_ID, OBJECT_ID,
@@ -539,15 +551,24 @@ sheet):
 8. STGDELTA `OBJECT_NAME` — the family's own form (PRX) or the generalized
    file pattern (CAQH-style)?
 
-**Unconfirmed DB value:**
+**Where the client's sheet and the framework walkthrough disagree, which one
+does the database actually honour?** That is the real question; the two
+columns below are its instances (same evidence pattern: the goldens say one
+thing, `METADATA_DB_SEMANTICS.md` §10 the other). Today the workbook keeps the
+sheet's value and `metadata_inserts.sql` writes the walkthrough's (rules 1 and
+2 of the three workbook → database rules, step 6).
 
 9. **`ACTIVE_FLAG` `Y` vs `S`.** The IIG workbooks (and both goldens) carry
-   `'Y'`; the walkthrough (`METADATA_DB_SEMANTICS.md` §1, §10) says the
-   framework selects active rows with `ACTIVE_FLAG = 'S'`. Today the workbook
-   keeps `'Y'` and `metadata_inserts.sql` writes `'S'` through
+   `'Y'`; the walkthrough (§1, §10) says the framework selects active rows
+   with `ACTIVE_FLAG = 'S'`. Today: workbook `'Y'`, SQL `'S'` through
    `dml.db_value_map` (`ACTIVE_FLAG` and `DATA_QUALITY_RULES.ACTIVE_RULE_FLG`,
-   the same assumption). Which value does the framework read? Answer → the
-   `dml.db_value_map` entry (drop it if `'Y'`).
+   the same assumption). Answer → the `dml.db_value_map` entry (drop it if the
+   database honours `'Y'`).
+10. **`DAY_OF_SCHEDULE` `0` vs NULL.** The pair-1 golden prints `0` on every
+    schedule row; the walkthrough (§2 "as of now, this column, we are not
+    populating", §10) says NULL. Today: workbook `0`, SQL NULL through
+    `dml.db_null_columns`. Answer → that list (remove `DAY_OF_SCHEDULE` if the
+    database expects `0`).
 
 **If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
 whether grand master / master are new rows per feed (Q4), one

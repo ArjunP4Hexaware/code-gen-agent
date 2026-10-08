@@ -122,6 +122,18 @@ def test_pair4_golden_against_itself_scores_100_on_every_sheet(capsys, tmp_path)
     assert _summaries(_run_all(capsys, golden, golden, "--matches")) == _summaries(out)
 
 
+def test_the_pair4_golden_yaml_is_read_as_the_real_side(capsys, tmp_path):
+    """2026-10-09 (the Friday walk-through): ``--real IIG_EXPECTED.yaml``
+    scores exactly like the workbook built from it."""
+    from multi_table_golden import GOLDEN
+
+    golden = _pair4_golden_xlsx(tmp_path / "pair4_IIG.xlsx")
+    from_yaml = _summaries(_run_all(capsys, golden, GOLDEN, "--summary-only"))
+    assert from_yaml == _summaries(_run_all(capsys, golden, golden, "--summary-only"))
+    assert from_yaml["TOTAL"]["score"] == "100.0"
+    assert "TABLE_DEFINITIONS" not in from_yaml and "_anchors" not in from_yaml
+
+
 # -- row matching ---------------------------------------------------------------- #
 
 ADLS = ["GROUP_ID", "OBJECT_ID", "SRC_FILE_NAME", "TGT_TABLE_NAME", "LOB", "CREATED_BY"]

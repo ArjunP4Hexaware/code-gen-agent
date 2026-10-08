@@ -218,23 +218,43 @@ def _faq_value(faq, name: str) -> str | None:
     return text or None
 
 
+# Columns whose workbook value and walkthrough value disagree (§10): the SQL
+# follows the walkthrough, the header names the Friday checklist item.
+_UNCONFIRMED = {
+    "ACTIVE_FLAG": "the goldens print 'Y', §1 says the framework selects 'S' — "
+                   "UNCONFIRMED, Friday checklist 9",
+    "ACTIVE_RULE_FLG": "the same assumption as ACTIVE_FLAG — UNCONFIRMED, Friday checklist 9",
+    "DAY_OF_SCHEDULE": "the pair-1 golden prints 0, §2 / §10 say NULL — UNCONFIRMED, "
+                       "Friday checklist 10",
+}
+
+
 def _db_value_lines(config: Config) -> list[str]:
+    """The three workbook -> database rules, as the script header states them."""
     dml = config.dml
-    lines = [f"-- DB VALUES ({_SEMANTICS}; config dml.*): the IIG workbook keeps what humans "
-             "hand over, this script writes what the framework reads —"]
+    lines = [f"-- WORKBOOK -> DATABASE — three rules ({_SEMANTICS}; config dml.*). The IIG "
+             "workbook keeps what humans hand over; this script writes what the framework "
+             "reads. Every other cell is the workbook's value as is.",
+             "--   RULE 1 — value map (dml.db_value_map): a workbook value the database "
+             "spells differently"]
     for column, mapping in dml.db_value_map.items():
         pairs = ", ".join(f"{k!r} -> {v!r}" for k, v in mapping.items())
-        lines.append(f"--   {column}: workbook {pairs} (§1: the framework selects ACTIVE_FLAG "
-                     "= 'S'; the goldens print 'Y', §10 — UNCONFIRMED, Friday checklist)"
-                     if column.upper() in ("ACTIVE_FLAG", "ACTIVE_RULE_FLG")
-                     else f"--   {column}: workbook {pairs}")
-    for column, expression in dml.db_blank_expressions.items():
-        lines.append(f"--   {column}: blank -> {expression} (§1)")
-    if dml.db_null_columns:
-        lines.append("--   NULL whatever the workbook holds (§2 'not populating', §7): "
-                     + ", ".join(dml.db_null_columns))
-    lines.append("--   CREATED_BY / UPDATED_BY: blank -> @RFC_NUMBER (§1); "
-                 f"{_CONNECTION[0]}.{_CONNECTION[1]}: blank -> @SRC_CONNECTION_ID (§3)")
+        note = _UNCONFIRMED.get(column.upper())
+        lines.append(f"--     {column}: workbook {pairs}" + (f" ({note})" if note else ""))
+    lines.append("--   RULE 2 — forced NULL (dml.db_null_columns): columns the framework fills "
+                 "itself / does not use today, NULL whatever the workbook holds (§2 'not "
+                 "populating … future purpose', §7): " + ", ".join(dml.db_null_columns))
+    for column in dml.db_null_columns:
+        note = _UNCONFIRMED.get(column.upper())
+        if note:
+            lines.append(f"--     {column}: {note}")
+    audit = [f"{column} blank -> {expression}"
+             for column, expression in dml.db_blank_expressions.items()]
+    lines.append("--   RULE 3 — audit defaults and open cells: "
+                 + "; ".join([*audit, "CREATED_BY / UPDATED_BY blank -> @RFC_NUMBER"])
+                 + f" (§1); {_CONNECTION[0]}.{_CONNECTION[1]} blank -> @SRC_CONNECTION_ID "
+                 "(§3); any other OPEN cell -> its <<COLUMN#n>> placeholder (fill before "
+                 "running); a cell decided blank -> NULL")
     return lines
 
 

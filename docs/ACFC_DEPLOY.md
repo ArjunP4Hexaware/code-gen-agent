@@ -423,7 +423,7 @@ handler's `VERSION`/`SEGMNT_TYP`/`FILE_TYPE`/`EXTENSION`, the email wording)
 are expected to differ or be blank — they are the open questions for the
 framework team listed in `CLAUDE.md`.
 
-## What feature/multi-table adds (0.5.8.post17, 2026-10-08 — not merged, not deployed)
+## What feature/multi-table adds (0.5.8.post18, 2026-10-09 — not merged, not deployed)
 
 Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
 `docs/acfc/OVERNIGHT_2026-10-08.md`; owner questions: its §7a Friday checklist.
@@ -450,9 +450,14 @@ Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
   table. Written from the same cells as `<feed>_IIG.xlsx`, one INSERT per IIG row;
   every open cell is a `<<COLUMN#n>>` placeholder (column + row within its sheet),
   so the engineer fills every one before the script parses or runs. It opens with
-  an index of every table by its mapped three-part name. It writes the DB values
-  the framework reads (`ACTIVE_FLAG` workbook `'Y'` → `'S'`, unconfirmed —
-  `dml.db_value_map`; audit dates `GETDATE()`; audit users `@RFC_NUMBER`), checks
+  an index of every table by its mapped three-part name. It differs from the
+  workbook by three rules, stated in its header: (1) a value map
+  (`ACTIVE_FLAG` / `ACTIVE_RULE_FLG` `'Y'` → `'S'`, `dml.db_value_map`), (2) a
+  forced-NULL set for columns the framework fills itself (`DAY_OF_SCHEDULE`,
+  `UDF2`–`UDF5`, the SLA columns, `CLAIM_TYPE_ID` — `dml.db_null_columns`),
+  (3) audit defaults (`GETDATE()`, `@RFC_NUMBER`) plus a placeholder per open
+  cell; `ACTIVE_FLAG` and `DAY_OF_SCHEDULE` are unconfirmed (Friday checklist
+  9, 10). It checks
   before the first INSERT that every PIPELINE_ID / GROUP_ID / key is unused,
   reuses or inserts the source file connection, and runs as one transaction
   (`XACT_ABORT` + TRY / CATCH: a failed guard or insert rolls everything back).

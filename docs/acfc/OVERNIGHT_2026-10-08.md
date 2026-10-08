@@ -130,7 +130,9 @@ real STTMs, the d1 standard container, the STGDELTA OBJECT_NAME convention,
 `TGT_PRIMARY_KEY` semantics, which DQ rule classes are standard) and the three
 "confirm which convention is current for new feeds" items (LOB, STGDELTA unknown
 primary key, STGDELTA OBJECT_NAME), and — added in the morning cleanup — item 9,
-**`ACTIVE_FLAG` `Y` vs `S`** (unconfirmed).
+**`ACTIVE_FLAG` `Y` vs `S`** (unconfirmed); item 10, **`DAY_OF_SCHEDULE` `0` vs
+NULL**, was added 2026-10-09 under the same question (which one does the
+database honour?). Session brief: `docs/acfc/FRIDAY_2026-10-09.md`.
 
 ## Morning cleanup (2026-10-08, before the push) — marker 0.5.8.post17
 

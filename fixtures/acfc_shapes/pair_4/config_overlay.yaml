@@ -1,18 +1,24 @@
 # Pair-4 environment overlay (multi-table fixture, 2026-10-07). SYNTHETIC
 # values only — the shape of config/overlays/acfc_env.yaml, none of its
 # values except the landing container, which the STTM's own File Location
-# names (mftlanding/inbound/…). Tests load it with
+# names (mftlanding/inbound/…), and the d1 catalog names the catalog_map
+# targets (d1_dlk / d1_std, as the brief states them). Tests load it with
 # load_config(path, overlays=[this file]); the suite runs with
 # CODEGEN_SKIP_ENV_OVERLAY=1, so nothing else is merged underneath.
 #
 # Owner map (docs/acfc/MULTI_TABLE_DESIGN.md §5): everything below is an
-# ENVIRONMENT value (catalogs, connection ids, containers) or a CONVENTION
+# ENVIRONMENT value (the catalog map, connection ids, containers) or a CONVENTION
 # (path shapes, SRC_COLUMNS style) — never a per-feed fact.
 conventions:
+  # The STTM bands state LOGICAL catalogs (PR_DLK / PR_STD); this environment
+  # (d1) maps them. Applied to every emitted catalog, cited in the tooltip.
+  catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
   profiles:
     acfc_prx:
-      # The STTM's Catalog column reads TBD: the catalog is environment-specific.
-      default_catalog: {stage: syn_d1_dlk, standard: syn_d1_std}
+      # The fallback for a band whose Catalog is blank — NOT used by pair 4
+      # (both bands state a catalog); deliberately different from the mapped
+      # values so the golden proves the band + catalog_map win.
+      default_catalog: {stage: syn_fallback_dlk, standard: syn_fallback_std}
 metadata:
   templates:
     iig_v2:

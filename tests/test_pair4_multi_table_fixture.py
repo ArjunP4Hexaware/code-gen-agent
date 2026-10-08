@@ -30,6 +30,7 @@ OVERLAY = PAIR / "config_overlay.yaml"
 DESIGN = REPO / "docs" / "acfc" / "MULTI_TABLE_DESIGN.md"
 GOLDENED = ["DATA_FACTORY_PIPELINE_SCHEDULE", "ADLS_DELTA_INGESTION_DETAILS",
             "STGDELTA_STDDELTA_INGESTION_DET", "DATA_QUALITY_RULES"]
+NOT_SHEETS = {"TABLE_DEFINITIONS"}
 ROW_COUNTS = {"DATA_FACTORY_PIPELINE_SCHEDULE": 4, "ADLS_DELTA_INGESTION_DETAILS": 6,
               "STGDELTA_STDDELTA_INGESTION_DET": 3, "DATA_QUALITY_RULES": 6}
 CLASSES = {"per_file", "per_table", "per_feed", "environment", "convention", "engineer"}
@@ -71,7 +72,7 @@ def _audit_types() -> list[str]:
 
 def test_golden_sheets_columns_and_row_counts_follow_the_template(golden, config):
     template = config.metadata.templates["iig_v2"]
-    assert [k for k in golden if not k.startswith("_")] == GOLDENED
+    assert [k for k in golden if not k.startswith("_") and k not in NOT_SHEETS] == GOLDENED
     for sheet in GOLDENED:
         headers = list(template.tabs[sheet].headers)
         assert list(golden[sheet]["columns"]) == headers, sheet
@@ -176,7 +177,7 @@ def test_dq_split_rule_is_one_row_per_adls_object(golden, config):
     adls = {r["_object"]: r for r in _rows(golden, "ADLS_DELTA_INGESTION_DETAILS")}
     header = pair4_nb.table_by_segment("Header")
     trailer = pair4_nb.table_by_segment("Trailer")
-    catalog = config.conventions.profiles["acfc_prx"].default_catalog["stage"]
+    catalog = config.conventions.catalog_map[pair4_nb.STAGE_CATALOG]
     for row in _rows(golden, "DATA_QUALITY_RULES"):
         assert row["RULE_CLASS"] == "LoadHeaderAndTrailerToSeparateTablesRule"
         assert row["INPUT_PARAM"] == adls[row["_object"]]["SRC_FILE_NAME"]
@@ -199,18 +200,38 @@ def test_pipeline_schedule_is_the_four_movement_rows(golden):
 
 def test_environment_cells_are_the_overlay_values(golden, config):
     template = config.metadata.templates["iig_v2"]
-    profile = config.conventions.profiles["acfc_prx"]
     for sheet in ("ADLS_DELTA_INGESTION_DETAILS", "STGDELTA_STDDELTA_INGESTION_DET"):
         constants = template.constants[sheet]
         env_columns = [c for c, cls in golden[sheet]["columns"].items() if cls == "environment"]
         for row in _rows(golden, sheet):
             for column in env_columns:
-                if column in ("SRC_CATALOG_NAME", "TGT_CATALOG_NAME"):
-                    layer = "stage" if column.startswith("SRC") else "standard"
-                    assert row[column] == profile.default_catalog[layer], (sheet, column)
-                else:
-                    assert row[column] == constants[column], (sheet, column)
-                    assert column not in template.always_blank, (sheet, column)
+                assert row[column] == constants[column], (sheet, column)
+                assert column not in template.always_blank, (sheet, column)
+
+
+def test_catalog_cells_are_each_bands_logical_catalog_mapped(golden, config):
+    catalog_map = config.conventions.catalog_map
+    fallback = config.conventions.profiles["acfc_prx"].default_catalog
+    stage = catalog_map[pair4_nb.STAGE_CATALOG]
+    standard = catalog_map[pair4_nb.STANDARD_CATALOG]
+    assert stage != fallback["stage"] and standard != fallback["standard"]
+    for row in _rows(golden, "STGDELTA_STDDELTA_INGESTION_DET"):
+        assert (row["SRC_CATALOG_NAME"], row["TGT_CATALOG_NAME"]) == (stage, standard)
+        assert row["TGT_SCHEMA_NAME"] == pair4_nb.STANDARD_SCHEMA
+    definitions = golden["TABLE_DEFINITIONS"]
+    assert len(definitions) == 2 * len(pair4_nb.TABLES)
+    for entry in definitions:
+        table = pair4_nb.table_by_segment(entry["segment"])
+        if entry["layer"] == "stage":
+            logical = (pair4_nb.STAGE_CATALOG, pair4_nb.STAGE_SCHEMA)
+            columns = len(table.fields)
+        else:
+            logical = (pair4_nb.STANDARD_CATALOG, pair4_nb.STANDARD_SCHEMA)
+            columns = len([f for f in table.fields if f.std_column is not None])
+        assert entry["logical"] == ".".join([*logical, table.table])
+        assert entry["mapped"] == ".".join([catalog_map[logical[0]], logical[1], table.table])
+        assert entry["columns"] == columns
+    assert pair4_nb.STAGE_SCHEMA.removeprefix("stg_") == pair4_nb.STANDARD_SCHEMA
 
 
 def test_path_cells_follow_the_overlay_shapes(golden, config):
@@ -231,7 +252,20 @@ def test_path_cells_follow_the_overlay_shapes(golden, config):
 # ------------------------------------------------------------------ inputs
 
 
-def test_sttm_main_sheet_defines_three_tables_with_audit_rows():
+def _main_data(ws) -> list[dict]:
+    """Data rows as {source header: value, 'stage': {...}, 'standard': {...}}."""
+    width = len(pair4_nb.SOURCE_HEADERS)
+    band = len(pair4_nb.BAND_HEADERS)
+    out = []
+    for r in ws.iter_rows(min_row=pair4_nb.TABLE_HEADER_ROW + 1, values_only=True):
+        row = dict(zip(pair4_nb.SOURCE_HEADERS, r[:width], strict=True))
+        row["stage"] = dict(zip(pair4_nb.BAND_HEADERS, r[width:width + band], strict=True))
+        row["standard"] = dict(zip(pair4_nb.BAND_HEADERS, r[width + band:], strict=True))
+        out.append(row)
+    return out
+
+
+def test_sttm_main_sheet_carries_a_stage_and_a_standard_band_per_row():
     wb = load_workbook(FIXTURE_ROOT / pair4_nb.STTM_PATH)
     assert wb.sheetnames == [pair4_nb.MAIN_SHEET, pair4_nb.REFERENCE_SHEET]
     ws = wb[pair4_nb.MAIN_SHEET]
@@ -239,22 +273,42 @@ def test_sttm_main_sheet_defines_three_tables_with_audit_rows():
              for r in range(1, len(pair4_nb.HEADER_BLOCK) + 1)]
     assert block == pair4_nb.HEADER_BLOCK
     assert ws.cell(row=4, column=2).value.split(", ") == pair4_nb.LOBS
-    rows = list(ws.iter_rows(min_row=pair4_nb.TABLE_HEADER_ROW, values_only=True))
-    assert list(rows[0]) == pair4_nb.MAIN_HEADERS
-    data = [dict(zip(pair4_nb.MAIN_HEADERS, r, strict=True)) for r in rows[1:]]
-    tables: dict[str, set[str]] = {}
+    band = [c.value for c in ws[pair4_nb.BAND_ROW]]
+    assert [v for v in band if v] == ["Source", "Stage Layer", "Standard Layer"]
+    assert sorted(str(m) for m in ws.merged_cells.ranges) == ["A10:E10", "F10:L10", "M10:S10"]
+    assert [c.value for c in ws[pair4_nb.TABLE_HEADER_ROW]] == pair4_nb.MAIN_HEADERS
+    data = _main_data(ws)
+    triples: dict[str, set[tuple]] = {"stage": set(), "standard": set()}
     for r in data:
-        tables.setdefault(r["Segment"], set()).add(r["TableName"])
-    assert tables == {t.segment: {t.table} for t in pair4_nb.TABLES}
+        for layer, found in triples.items():
+            b = r[layer]
+            if b["TableName"]:
+                found.add((b["Catalog"], b["Schema"], b["TableName"]))
+    tables = [t.table for t in pair4_nb.TABLES]
+    assert triples["stage"] == {(pair4_nb.STAGE_CATALOG, pair4_nb.STAGE_SCHEMA, t) for t in tables}
+    assert triples["standard"] == {(pair4_nb.STANDARD_CATALOG, pair4_nb.STANDARD_SCHEMA, t)
+                                   for t in tables}
     for table in pair4_nb.TABLES:
-        mine = [r for r in data if r["TableName"] == table.table]
+        mine = [r for r in data if r["stage"]["TableName"] == table.table]
+        assert {r["Segment"] for r in mine} == {table.segment}
         assert len(mine) == len(table.fields) + len(pair4_nb.AUDIT)
-        assert [r["ColumnName"] for r in mine if r["Field Name"] == "NA"] == _audit_columns()
+        audit = [r for r in mine if r["Field Name"] == "NA"]
+        assert [r["stage"]["ColumnName"] for r in audit] == _audit_columns()
+        assert [r["standard"]["ColumnName"] for r in audit] == _audit_columns()
+        dropped = [r["stage"]["ColumnName"] for r in mine if not r["standard"]["TableName"]]
+        assert dropped == ["RECORD_TYPE"]
     assert {len(t.fields) for t in pair4_nb.TABLES} == {8, 20, 6}
 
 
-def test_reference_sheet_is_the_stg_to_std_band():
-    ws = load_workbook(FIXTURE_ROOT / pair4_nb.STTM_PATH)[pair4_nb.REFERENCE_SHEET]
+def test_reference_sheet_is_a_secondary_source_agreeing_with_the_standard_band():
+    wb = load_workbook(FIXTURE_ROOT / pair4_nb.STTM_PATH)
+    standard_band = {(r["stage"]["TableName"], r["stage"]["ColumnName"]):
+                     (r["standard"]["Schema"], r["standard"]["TableName"],
+                      r["standard"]["ColumnName"], r["standard"]["DataType"])
+                     for r in _main_data(wb[pair4_nb.MAIN_SHEET])}
+    ws = wb[pair4_nb.REFERENCE_SHEET]
+    reference = {(r[1], r[2]): tuple(r[4:8]) for r in ws.iter_rows(min_row=3, values_only=True)}
+    assert reference == standard_band
     band = [c.value for c in ws[1]]
     assert band[:5] == ["Client - Source", "STG - Dest 1", None, None, "STD - Dest2"]
     assert sorted(str(m) for m in ws.merged_cells.ranges) == ["B1:D1", "E1:H1"]
@@ -274,5 +328,7 @@ def test_frd_contract_validates_and_matches_the_sttm():
     assert feed.record_segments == ["Header", "Detail", "Trailer"]
     assert feed.stage_target.tables == [t.table for t in pair4_nb.TABLES]
     assert feed.standard_target.tables == [t.table for t in pair4_nb.TABLES]
+    assert feed.standard_target.schema_name == pair4_nb.STANDARD_SCHEMA
+    assert feed.stage_target.catalog is None and feed.standard_target.catalog is None
     assert feed.landing_location == pair4_nb.FILE_LOCATION
     assert feed.delimiter == pair4_nb.DELIMITER

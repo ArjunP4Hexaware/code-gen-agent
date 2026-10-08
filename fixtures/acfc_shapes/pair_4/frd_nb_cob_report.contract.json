@@ -55,7 +55,7 @@
       },
       "standard_target": {
         "catalog": null,
-        "schema": "cob",
+        "schema": "nb_cob",
         "tables": [
           "nb_cob_report_hdr",
           "nb_cob_report_dtl",

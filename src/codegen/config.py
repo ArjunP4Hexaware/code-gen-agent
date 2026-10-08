@@ -988,6 +988,11 @@ class ConventionsConfig(BaseModel):
     # band -> FRD 'Target Catalog and Schema' -> here, each with provenance;
     # none of the three = the extractor's hard stop. Empty = none.
     default_schema: dict[str, str] = Field(default_factory=dict)
+    # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands
+    # state LOGICAL catalogs (PR_DLK / PR_STD); the deployment environment maps
+    # them (d1: PR_DLK -> d1_dlk; prod: identity). An ENVIRONMENT value — set
+    # it in the environment overlay, never here. Empty = identity.
+    catalog_map: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _profile_exists(self) -> ConventionsConfig:

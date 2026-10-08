@@ -2,9 +2,9 @@
 
 Branch `feature/multi-table` (cut from `feature/iig-first` at be38f05).
 Status: **Phase A (this document) and Phase B (fixture `fixtures/acfc_shapes/pair_4/`)
-done; Phase C (implementation) not started.** Nothing in `src/` changes until
-Phase C, and every Phase C step must keep the pair-1 acceptance
-(`tests/test_m4_acceptance.py`) byte-identical.
+done; Phase C in progress — status per step in §6.** Every Phase C step keeps the
+pair-1 acceptance (`tests/test_m4_acceptance.py`) byte-identical, the pair-4
+golden consistent and `tests/test_m5_rfc_package.py` green.
 
 ## 1. The model (framework owners, 2026-10-07)
 
@@ -16,29 +16,49 @@ The IIG describes three movements:
 | Source → Stage | one inbound file into the stage DETAIL table | `ADLS_DELTA_INGESTION_DETAILS` (+ `FILE_ADLS_INGESTION_DETAILS` for the O-drive → ADLS copy, + the `DATA_QUALITY_RULES` split rule) |
 | Stage → Standard | one stage table into its standard table | `STGDELTA_STDDELTA_INGESTION_DET` |
 
-Rules stated by the owners:
+Rules stated by the owners (2026-10-07; the row rules and the catalog rule were
+amended the same evening and replace the earlier record-type phrasing):
 
-1. **One STTM can define several tables.** Its rows carry a `Segment` column
-   (Header / Detail / Trailer) and a `TableName` column that differs per
-   segment (`<FEED>_HDR` / `_DTL` / `_TRL`).
-2. **`ADLS_DELTA_INGESTION_DETAILS` has ONE ROW PER FILE.** When the STTM
-   header block lists N LOBs and each LOB arrives as its own file there are N
-   rows, each with its own `OBJECT_ID`, `SRC_FILE_NAME` pattern, `LOB` and
-   `TGT_PARTITION_VALUE` = the LOB. **All N rows target the DETAIL table
-   only.**
-3. **Header and trailer are split off by a `DATA_QUALITY_RULES` row** of
-   `RULE_CLASS` `LoadHeaderAndTrailerToSeparateTablesRule`: `SOURCE_COLUMN` =
-   the header columns, `INPUT_PARAM` = the row's `SRC_FILE_NAME`,
-   `TARGET_COLUMN` = `catalog,schema,hdr_table,…`.
-4. **`STGDELTA_STDDELTA_INGESTION_DET` has ONE ROW PER TABLE** (HDR, DTL,
-   TRL): source = the STAGE definition (delta, stage catalog / schema), target
-   = the STANDARD definition (standard catalog / schema, `Append`, the
-   standard container).
-5. **The standard column list and types come from a separate STG→STD sheet**
-   of the STTM workbook (the real one is named `ForReference`; band labels
-   `<client> - Source`, `STG - Dest 1`, blank, blank, `STD - Dest2`) — NOT from
-   the main mapping sheet.
-6. **"DDL" at this client means the metadata INSERT rows** that define a table
+1. **Tables = the distinct (catalog, schema, table) triples found in each STTM
+   band.** A segment never implies a table by itself; the `TableName` cell
+   decides. Pair 1's three segments (HDDR / DET / TRLR) map to one triple →
+   one table; pair 4's three segments map to three triples → three tables.
+2. **Files = the distinct `SRC_FILE_NAME` patterns the feed receives.** If the
+   header block's file pattern contains a LOB-varying token and the block
+   lists N LOBs, it expands to N files (one per LOB, partition = LOB);
+   otherwise there is one file per listed pattern (LOB blank, partition `NA`).
+   Pair 1: four patterns, no LOB → four files. Pair 4: one pattern
+   parameterised by LOB, six LOBs → six files.
+3. **`ADLS_DELTA_INGESTION_DETAILS` rows = files**, each targeting the DETAIL
+   table (or the sole table).
+4. **`STGDELTA_STDDELTA_INGESTION_DET` rows = tables**: source = the table's
+   stage definition (delta, stage catalog / schema), target = its standard
+   definition (standard catalog / schema, `Append`, the standard container).
+5. **The header/trailer split is a `DATA_QUALITY_RULES` row** of `RULE_CLASS`
+   `LoadHeaderAndTrailerToSeparateTablesRule` (`SOURCE_COLUMN` = the header
+   columns, `INPUT_PARAM` = the row's `SRC_FILE_NAME`, `TARGET_COLUMN` =
+   `catalog,schema,hdr_table,…`), emitted ONLY when the header / trailer
+   segments land in a DIFFERENT table from the detail. Pair 1 gets none; pair
+   4 gets one per ADLS object.
+6. **Catalogs come from each table's own band.** The STTM main sheet carries
+   two column bands per row — a Stage band (catalog like `PR_DLK`, schema
+   `stg_*`) and a Standard band (catalog like `PR_STD`, schema without the
+   `stg_` prefix) — each with its own Catalog / Schema / TableName /
+   ColumnName / DataType / Mandatory / Primary Key. A table's stage_def and
+   standard_def take catalog and schema from their own band, never from the
+   other band and never from a profile default when the band states one. The
+   standard_def comes from the Standard band; a `ForReference`-style STG→STD
+   sheet (band labels `<client> - Source`, `STG - Dest 1`, blank, blank,
+   `STD - Dest2`) is a secondary source.
+7. **The STTM states LOGICAL catalogs; the environment maps them.**
+   `conventions.catalog_map` in the environment overlay (d1: `PR_DLK` →
+   `d1_dlk`, `PR_STD` → `d1_std`; prod: identity) is applied to every emitted
+   catalog, and the cell tooltip cites the mapping. `default_catalog` is the
+   fallback only for a band whose Catalog is blank. Every table-definition
+   artefact (metadata inserts, the CREATE reference text) is labelled with its
+   MAPPED three-part name, so stage and standard definitions are never
+   ambiguous.
+8. **"DDL" at this client means the metadata INSERT rows** that define a table
    in SQL Server; the UC Delta tables are created from those. The `CREATE
    TABLE` text stays as a reference artefact.
 
@@ -71,7 +91,7 @@ along than the IIG layer.
 | --- | --- | --- |
 | `metadata_template.py::_distinct_fields` | flattens EVERY segment's fields into ONE column list (dedup by stage column) | HDR / DTL / TRL columns merged into one list; shared names (`RECORD_TYPE`, `FILE_NAME`) collapse |
 | `metadata_template.py::_adls_delta` | `stage = spec.detail_segment.stage_table` (right table) but `SRC_COLUMNS` / `TGT_COLUMN_NAMES` / `TGT_DATA_TYPE` from `_distinct_fields` (all segments); rows = `spec.file_name_patterns` (one per PATTERN, never × LOB); `LOB = ", ".join(feed.lobs)` on every row; `TGT_PARTITION_COLUMN` / `_VALUE` = the template constant `NA` | 1 row instead of 6; every LOB on the one row; header/trailer columns in the DTL column list; no partition |
-| `metadata_template.py::_stg_std` | ONE row: `spec.detail_segment.stage_table` → `spec.standard_table`; standard columns = `f.standard_column` / `f.standard_datatype` from the MAIN sheet's standard band | 1 row instead of 3; standard list from the wrong sheet (pair 4's main sheet has no standard band at all) |
+| `metadata_template.py::_stg_std` | ONE row: `spec.detail_segment.stage_table` → `spec.standard_table`; standard columns = every segment's `f.standard_column` / `f.standard_datatype` merged | 1 row instead of 3; the three tables' standard columns merged into one list |
 | `metadata_template.py::_dq_rules` | rule kinds `date_format` / `data_type_cast` only, computed over `_distinct_fields`; `INPUT_PARAM` = the qualified DETAIL stage table; objects = file patterns | no header/trailer split rule kind exists |
 | `metadata_template.py::_pipeline_schedule`, `_notebook_details` | rows come only from overlay `template_rows` (the client's inventory); no structural rule | pair 4 without an inventory overlay gets ONE blank row, not the four movement rows |
 | `metadata_template.py::_file_adls` | ONE row per feed | per-file copy rows impossible |
@@ -81,10 +101,11 @@ along than the IIG layer.
 | `emit/framework.py::emit_framework` | payload built for `specs=[spec]` and filtered per feed (fine); `frd_tables` banner from segments (fine) | — |
 | `emit/dml.py::_VARIABLE_COLUMNS` / `_cell_sql` | EVERY row of EVERY sheet gets the same `@PIPELINE_ID`, `@GROUP_ID`, `@OBJECT_ID` | 6 ADLS rows share one `OBJECT_ID` → primary-key collision on (GROUP_ID, OBJECT_ID, PIPELINE_ID); 4 schedule rows share one `PIPELINE_ID`. **Latent today:** pair 1's golden has 4 ADLS objects and 4 pipelines, and the DML already collapses them |
 | `iig_review.py` | none — it renders whatever rows the payload holds. Its `owner_for(sheet, column, reason)` has no class between "engineer" and "BSA": environment values and engineer-assigned ids are both `engineer` | owner colours cannot tell "fill from the environment overlay" from "engineer assigns" |
-| STTM readers · `extract/generic.py::_band_constant` | the sheet's stage table = the DOMINANT table cell (provenance in the notes); used for feed matching (`_match_feed`) and `SttmFeed.stage` | works (DTL dominates) but is an accident of row counts |
+| STTM readers · `extract/generic.py::_band_constant` | the sheet's stage / standard catalog, schema and table = the DOMINANT cell of each band column; per-row catalog / schema were dropped | a row whose catalog or schema differs from the band's dominant value lost it — **fixed in step 1** (`SttmField.stage_catalog` / `stage_schema` / `standard_catalog` / `standard_schema`, written only when the row differs) |
 | STTM readers · `extract/generic.py::_rule_columns` | not-null / mandatory / PHI = the DETAIL segment's fields only | HDR / TRL primary keys and mandatory flags are dropped |
-| STTM readers · `extract/generic.py::_read_auxiliary` | every non-mapping sheet is an auxiliary sheet, read by signature and IGNORED by the contract | the `ForReference` STG→STD sheet is never read |
-| STTM readers · `layout/discover.py` | a mapping sheet needs a BAND row naming the stage / standard groups | pair 4's main sheet has NO band row (one target group: Catalog / Schema / TableName / ColumnName / DataType) — discovery must accept a band-less single target group (expected: a layout question today) |
+| STTM readers · `extract/generic.py::_read_auxiliary` | every non-mapping sheet is an auxiliary sheet, read by signature and IGNORED by the contract | the `ForReference` STG→STD sheet is not read — acceptable now that it is a SECONDARY source (rule 6); a cross-check is future work |
+| STTM readers · `extract/generic.py` (primary key) | the Primary Key column of any band was never read; `natural_key_columns` = the not-null columns | **fixed in step 1** (`SttmField.primary_key`, `standard_primary_key` / `standard_mandatory` when the Standard band differs) |
+| STTM readers · `layout/discover.py::_segmented_family` | raised an uncaught `KeyError: 'source'` when a band row shared only SOME of the family's labels (`Stage Layer` under a plain `Source`) instead of falling through as its docstring says | pair 4 crashed discovery — **fixed in step 1** (falls through to content-driven discovery, which reads both bands) |
 | STTM readers · header-block LOB | the meta row `LOB` is read as text and never split; LOBs come from the FRD only (`FrdFeed.lobs`) | the STTM's 6 codes reach nothing |
 | `contracts/resolved.py::ResolvedFeedSpec` | `file_name_patterns: list[str]`, `lobs: list[str]` are FEED-level; no file ↔ LOB association | the files × LOB rows have no model to come from |
 
@@ -94,53 +115,67 @@ along than the IIG layer.
 Feed                                   (one ResolvedFeedSpec — unchanged identity)
 ├── facts            domain, sub_domain, source, frequency, file_format, delimiter,
 │                    landing (File Location), stage / standard load strategy
-├── files[]          ONE per inbound file                         NEW: ResolvedFile
-│     pattern        concrete pattern, e.g. NWB_COB_RPT_110_*.txt
-│     lob            the LOB this file carries (None = the feed's LOB list applies)
-│     object_name    pattern minus wildcards / extension
-│     partition      (column, value) — (LOB, <code>) when the file is per-LOB
-│     target         → the DETAIL table (always)
-├── tables[]         ONE per segment table           = segments[] (SegmentSpec, extended)
-│     segment        Header | Detail | Trailer
-│     stage_def      TableDef (catalog, schema, table, columns[(name, type)], audit, pk, mandatory)
-│     standard_def   TableDef | None   — columns from the STG→STD sheet when present
-└── split_rule       HeaderTrailerSplit | None — present when Header or Trailer is its OWN table
+├── files[]          ONE per SRC_FILE_NAME pattern (rule 2)       codegen.resolve.files.FeedFile
+│     pattern        the pattern as stated, the LOB token substituted
+│     lob            the LOB of an expanded file; None = not a per-LOB file
+│     partition      (LOB, <code>) for an expanded file, else NA
+│     provenance     the cell(s) the file rests on
+└── tables[]         ONE per distinct stage (catalog, schema, table) triple (rule 1)
+      segments       the segments whose rows land in it ([] on a flat sheet)
+      stage_def      TableDef — catalog / schema / table from the STAGE band,
+                     columns (name, type, mandatory, primary key), audit columns
+      standard_def   TableDef | None — from the STANDARD band of the same rows
+                     (rows whose Standard band is blank are not carried)
+                                                      codegen.contracts.tables.SttmTable
 ```
 
-Mapped onto the existing models (additive, every existing contract unchanged):
+**Step 1.** `SttmTable` / `TableDef` / `ColumnDef` are DERIVED from an
+`SttmFeed` (`codegen.contracts.tables.feed_tables`), never stored, so every
+existing STTM contract JSON is byte-identical. What the derivation needs and the
+contract did not carry is on `SttmField`, each written only when it says
+something (`exclude_defaults`): `primary_key`; `stage_catalog` /
+`stage_schema` / `standard_catalog` / `standard_schema` when the row's band
+cell differs from the band's dominant value; `standard_mandatory` /
+`standard_primary_key` when the Standard band's cell differs from the Stage
+band's. A table's audit columns are its segments' (`segmented.segment_audit`)
+when the segmented extractor stated them, else the feed's. A stage triple whose
+rows name two standard triples is an error naming both (one standard_def per
+table). `detail_table(tables)` = the table holding the Detail segment, else
+the sole table; `split_tables(tables)` = the header / trailer tables that are
+NOT the detail table (rule 5's condition).
 
-- `ResolvedFile` (new, frozen): `pattern`, `lob: str | None`, `object_name`,
-  `partition_column: str | None`, `partition_value: str | None`,
-  `provenance: str` (the cell(s) the expansion rests on).
-  `ResolvedFeedSpec.files: list[ResolvedFile]` defaults to one file per
-  `file_name_patterns` entry with `lob=None` — exactly today's rows.
-- **Files × LOB rule:** a pattern that carries a LOB placeholder
-  (`extractor.lob_placeholders`, e.g. `<LOB>`) expands to one file per LOB
-  listed in the header block, the LOB substituted, date placeholders → `*`;
-  a pattern without one is ONE file carrying the feed's LOB list (pair 1).
-  Partition = (`extractor.lob_partition_column`, the LOB) only for an expanded
-  file. FRD and STTM must expand to the same set, else a `choice` question.
-- `SegmentSpec` gains `standard_columns: list[StdColumn] | None`
-  (`stage_column`, `standard_column`, `standard_datatype`, cited cell) — filled
-  from the STG→STD sheet; `None` keeps today's reading of the main sheet's
-  standard band. Per-segment `primary_key` / `mandatory` lists move onto the
-  segment (`_rule_columns` keeps the feed-level Detail lists for the notebook
-  path).
-- `HeaderTrailerSplit` (derived, not stored): header columns = the Header
-  segment's stage columns; targets = the Header / Trailer stage tables.
+Files: `codegen.resolve.files.expand_files(patterns, lobs, tokens)` applies
+rule 2 (`extractor.lob_tokens`, case-insensitive: `<LOB>`, `{LOB}`,
+`[LOB]`); `header_block_files(sttm_feed, …)` reads the header block's
+`File(s)` and `LOB` meta rows (`split_lobs`: `,` `;` `/` or newline). A
+pattern carrying the token while no LOB is listed stays ONE file with the
+token unexpanded and the flag `lob_token_without_lobs:<pattern>`.
+
+**Step 2.** `conventions.catalog_map` (logical → environment catalog;
+empty = identity). The resolver maps every catalog it puts on a
+`ResolvedTable` and keeps the stated one on `ResolvedTable.catalog_logical`;
+the IIG catalog cells and the qualified names (DDL, fixed-width `TGT_TABLE`,
+DQ `INPUT_PARAM`) therefore carry the mapped name, and a catalog cell's
+tooltip cites `catalog_map <logical> → <mapped>`. With a non-empty map, a
+stated catalog that has no entry is written as stated and flagged
+`catalog_unmapped:<layer> — <catalog>`. `default_catalog` stays the fallback
+for a blank band (it is already an environment catalog and is not mapped).
+
+Still to come (steps 3–7): `ResolvedFeedSpec.files` / `.tables` from the
+above; the IIG builders iterate them.
 
 ## 4. Row-count rules per sheet
 
-`F` = files (after the files × LOB rule), `T` = segment tables, `R` = DQ rule
-kinds that fire.
+`F` = files (rule 2), `T` = tables (rule 1), `R` = DQ rule kinds that fire per
+object.
 
 | Sheet | Rule | pair 1 (golden) | pair 4 (golden) |
 | --- | --- | --- | --- |
 | `DATA_FACTORY_PIPELINE_SCHEDULE` | 4: grand master, master, file→stage child, stage→standard child (fewer only when the engineer reuses an existing master — open Q4) | 4 | **4** |
 | `FILE_ADLS_INGESTION_DETAILS` | one per file (F) — or one wildcard row per root (open Q5) | 1 | 6 *(not goldened)* |
-| `ADLS_DELTA_INGESTION_DETAILS` | F; every row targets the DETAIL table | 4 | **6** |
+| `ADLS_DELTA_INGESTION_DETAILS` | F; every row targets the detail (or sole) table | 4 (LOB blank, partition `NA`) | **6** (LOB = partition value) |
 | `STGDELTA_STDDELTA_INGESTION_DET` | T (tables with a standard_def) | 1 | **3** |
-| `DATA_QUALITY_RULES` | F × R; R includes the split rule when Header or Trailer is its own table | 4 × 2 = 8 | **6 × 1 = 6** |
+| `DATA_QUALITY_RULES` | F × R; R includes the split rule only when header / trailer land in a table other than the detail | 4 × 2 = 8 (no split rule) | **6 × 1 = 6** |
 | `ADLS_FIXED_WIDTH_HANDLER` | one per segment, fixed-width files only | 3 | 0 |
 | `DATABRICKS_NOTEBOOK_DETAILS` | one per notebook the children invoke (inventory overlay) | 3 | *(not goldened)* |
 | `EMAIL_TEMPLATE_CONFIG` | 2 (Success, Failed) | 2 | 2 *(not goldened)* |
@@ -161,7 +196,9 @@ conventions — the same for every feed), **engineer-assigned** (ids, names and
 technical choices no document states). A class names who or what determines the
 value: an engineer-assigned id still VARIES per file (ADLS / DQ `OBJECT_ID`) or per
 table (STGDELTA `OBJECT_ID`), and a convention path shape still embeds the table
-name. The machine-readable copy for the four
+name. Catalog and schema cells are **per-table**: each table's own band states them (rule
+6); the catalog value is that LOGICAL catalog mapped by the environment's `catalog_map`
+(rule 7), so the cell has an input (the band) and an environment mapping. The machine-readable copy for the four
 goldened sheets is `fixtures/acfc_shapes/pair_4/golden/IIG_EXPECTED.yaml`
 (`columns:`); a test keeps the lines below and that file in agreement.
 Mapping to today's `iig_review` owners: environment → `engineer` (should be
@@ -181,8 +218,8 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 ### ADLS_DELTA_INGESTION_DETAILS
 
 - **per-file:** OBJECT_NAME, LOB, SRC_FILE_NAME, TGT_PARTITION_VALUE
-- **per-table:** SRC_COLUMNS, SRC_DATA_TYPE, MANDATORY_FIELD_LIST, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
-- **per-feed:** DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, SRC_ADLS_PATH, SRC_FORMAT, SRC_FILE_DELIMITER, HEADER_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, TGT_DATABASE_NAME, TGT_LOAD_OPTION, TGT_PARTITION_COLUMN, RECYCL_ENBL_FLG
+- **per-table:** SRC_COLUMNS, SRC_DATA_TYPE, MANDATORY_FIELD_LIST, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
+- **per-feed:** DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, SRC_ADLS_PATH, SRC_FORMAT, SRC_FILE_DELIMITER, HEADER_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, TGT_LOAD_OPTION, TGT_PARTITION_COLUMN, RECYCL_ENBL_FLG
 - **environment:** SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONNECTION_ID, TGT_CONTAINER_NAME
 - **convention:** CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, TGT_ADLS_PATH, TGT_FORMAT, TGT_RJT_ADLS_PATH, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, CREATED_DATE, UPDATED_DATE
 - **engineer-assigned:** GROUP_ID, OBJECT_ID, PIPELINE_ID, MAPPING_EXPRESSION, CREATED_BY, UPDATED_BY
@@ -190,9 +227,9 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 ### STGDELTA_STDDELTA_INGESTION_DET
 
 - **per-file:** —
-- **per-table:** OBJECT_NAME, SRC_TABLE_NAME, SRC_COLUMNS, SRC_DATA_TYPE, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
-- **per-feed:** DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, LOB, SRC_SCHEMA_NAME, TGT_SCHEMA_NAME, TGT_LOAD_OPTION
-- **environment:** SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_CATALOG_NAME, TGT_CONNECTION_ID, TGT_CATALOG_NAME, TGT_CONTAINER_NAME
+- **per-table:** OBJECT_NAME, SRC_TABLE_NAME, SRC_CATALOG_NAME, SRC_SCHEMA_NAME, SRC_COLUMNS, SRC_DATA_TYPE, TGT_CATALOG_NAME, TGT_SCHEMA_NAME, TGT_TABLE_NAME, TGT_COLUMN_NAMES, TGT_DATA_TYPE, TGT_RJT_TABLE_NAME, TGT_PRIMARY_KEY
+- **per-feed:** DOMAIN, SUBDOMAIN, SOURCE, FREQUENCY, LOB, TGT_LOAD_OPTION
+- **environment:** SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, TGT_CONNECTION_ID, TGT_CONTAINER_NAME
 - **convention:** ACTIVE_FLAG, SRC_ADLS_PATH, SRC_FORMAT, SRC_ADLS_ARCHVL_PATH, TGT_ADLS_PATH, TGT_FORMAT, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, CREATED_DATE, UPDATED_DATE
 - **engineer-assigned:** GROUP_ID, OBJECT_ID, PIPELINE_ID, CREATED_BY, UPDATED_BY
 
@@ -225,35 +262,34 @@ CREATED_DATE / UPDATED_DATE → `set_at_load`.
 
 ## 6. Phase C — the order, and what each step must show
 
-Each step: suite green, pair-1 acceptance byte-identical, pair 4 one sheet
-closer to its golden (a new test per step compares that sheet).
+Each step: tests, ruff, scrub, commit; pair-1 acceptance byte-identical, the
+pair-4 golden consistent, `test_m5_rfc_package` green.
 
-1. **Segment-aware table split in the STTM readers.** `generic.py`: a
-   band-less single target group (Catalog / Schema / TableName / ColumnName /
-   DataType) is a STAGE group; per-segment primary key / mandatory lists;
-   LOB header-block cell split into codes (`extractor.lob_separators`).
-   Pair 4 → three segments, three stage tables, audit rows per table.
-2. **STG→STD sheet reader → `standard_def` per table.** Recognized by its band
-   labels (synonyms: `stg - dest`, `std - dest`, `- source`), never by the
-   sheet name; standard schema / table / column / type per stage column;
-   a stage column whose STD cells are blank (pair 4's `RECORD_TYPE`) or that
-   the sheet omits is NOT carried to standard (flag
-   `std_column_dropped:<table>.<column>` citing the row or the absence).
-3. **ADLS rows = files × LOB** (`ResolvedFile`, §3). Detail table only;
-   `TGT_PARTITION_COLUMN` / `_VALUE` from the file.
-4. **STGDELTA rows = tables**, standard_def on the target side.
-5. **DQ header/trailer split rule row** (`dq_rules: [header_trailer_split, …]`,
-   class name from config, one row per ADLS object).
-6. **Pipeline schedule rows** — four structural rows (roles, parent links as
-   annotations; ids stay engineer-assigned and blank).
-7. **`metadata_inserts.sql`** — INSERT statements per sheet from the same
-   cells as the IIG, next to the CREATE script. `emit/dml.py` already writes
-   `config_inserts_<env>.sql` from the payload; step 7 must first replace the
-   ONE `@OBJECT_ID` / `@PIPELINE_ID` / `@GROUP_ID` per script with one
-   variable per row role (`@OBJECT_ID_1..F`, `@PIPELINE_ID_<role>`, the
-   parent link as a variable reference) — the latent collision in §2.
-8. **Scorecard over all sheets** (`scripts/iig_scorecard.py` reads one sheet
-   today) — pair 4 against `IIG_EXPECTED.yaml`, pair 1 against its golden.
+1. **STTM parser.** Both bands → `SttmTable {stage_def, standard_def}`
+   grouped by distinct triple; `Feed.files` from the header block per rule 2.
+   Unit tests on the pair-1 and pair-4 shapes, a single-pattern-no-LOB case
+   and a two-LOB case (`tests/test_multi_table_step1.py`).
+2. **`catalog_map`.** Config + overlays (`config/overlays/acfc_env.yaml`
+   d1 map; the pair-1 overlay maps identity so its golden stays byte-identical;
+   the pair-4 overlay maps `PR_DLK` / `PR_STD` to `d1_dlk` / `d1_std` and
+   carries a DIFFERENT `default_catalog` so the golden proves the fallback is
+   not used). Wired into the resolver's `ResolvedTable` catalogs, hence
+   `qualified_names`, the DDL and every IIG catalog cell
+   (`tests/test_multi_table_step2.py`).
+3. **ADLS rows = files; STGDELTA rows = tables** with standard_def on the
+   target side.
+4. **`DATA_QUALITY_RULES` header/trailer row** under rule 5's condition.
+5. **`DATA_FACTORY_PIPELINE_SCHEDULE`: four rows** (grand master, master,
+   file→stage, stage→standard), ids left to the engineer, names from the
+   naming convention.
+6. **`metadata_inserts.sql`** — INSERT statements per sheet from the same cells
+   as the IIG; the CREATE TABLE text stays as a reference artefact, now one
+   block per table labelled with its mapped three-part name. `emit/dml.py`
+   already writes `config_inserts_<env>.sql` from the payload; this step must
+   first replace the ONE `@OBJECT_ID` / `@PIPELINE_ID` / `@GROUP_ID` per
+   script with one variable per row role — the latent collision in §2.
+7. **`scripts/iig_scorecard.py` over all sheets**, matching STGDELTA rows by
+   table and ADLS rows by file pattern.
 
 ## 7. Open questions (for the framework owners)
 

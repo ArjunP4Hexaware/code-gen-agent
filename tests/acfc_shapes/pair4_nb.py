@@ -4,8 +4,10 @@
 The framework owners' multi-table model (docs/acfc/MULTI_TABLE_DESIGN.md §1):
 one STTM defines THREE tables (Header / Detail / Trailer, a TableName per
 segment), the header block lists SIX LOBs that each arrive as their own file,
-and a separate STG→STD sheet (``ForReference``) carries the standard column
-list and types. Everything here is invented — vendor, feed, columns, codes.
+and every row carries a Stage band AND a Standard band, each with its own
+LOGICAL catalog (PR_DLK / PR_STD), schema, table, column, type, mandatory and
+key. A separate STG→STD sheet (``ForReference``) repeats the standard side —
+a secondary source the fixture keeps in agreement with the Standard band. Everything here is invented — vendor, feed, columns, codes.
 
 NOT the documented pair 4 of docs/acfc/SHAPES_FOR_PORT.md (that one is
 ``sttm/pair_4_family_d.xlsx``, built by ``sttm.build_pair4``); the directory
@@ -35,8 +37,11 @@ SUB_DOMAIN = "Coordination of Benefits"
 FILE_TYPE = "Pipe delimited text (.txt)"
 DELIMITER = "|"
 STAGE_SCHEMA = "stg_nb_cob"
-STANDARD_SCHEMA = "cob"
-CATALOG_CELL = "TBD"          # environment-specific: the overlay's default_catalog supplies it
+STANDARD_SCHEMA = "nb_cob"    # the stage schema without its stg_ prefix
+# LOGICAL catalogs as the STTM states them; the deployment environment maps
+# them (catalog_map in the overlay).
+STAGE_CATALOG = "PR_DLK"
+STANDARD_CATALOG = "PR_STD"
 LOAD_STRATEGY = "Append"
 
 MAIN_SHEET = "NB_COB_REPORT"
@@ -53,9 +58,17 @@ HEADER_BLOCK: list[tuple[str, str]] = [
     ("Sub-Domain", SUB_DOMAIN),
     ("File type", FILE_TYPE),
 ]
-TABLE_HEADER_ROW = 10
-MAIN_HEADERS = ["#", "Field Name", "Data Type", "Length", "Segment", "Catalog", "Schema",
-                "TableName", "ColumnName", "DataType", "Mandatory", "Primary Key"]
+# Row 10: the band row (Source | Stage | Standard, merged); row 11: headers.
+# Each target band carries its own Catalog / Schema / TableName / ColumnName /
+# DataType / Mandatory / Primary Key.
+BAND_ROW = 10
+TABLE_HEADER_ROW = 11
+SOURCE_HEADERS = ["#", "Field Name", "Data Type", "Length", "Segment"]
+BAND_HEADERS = ["Catalog", "Schema", "TableName", "ColumnName", "DataType", "Mandatory",
+                "Primary Key"]
+MAIN_BANDS = [("Source", len(SOURCE_HEADERS)), ("Stage Layer", len(BAND_HEADERS)),
+              ("Standard Layer", len(BAND_HEADERS))]
+MAIN_HEADERS = SOURCE_HEADERS + BAND_HEADERS + BAND_HEADERS
 
 REFERENCE_BAND = [("Client - Source", 1), ("STG - Dest 1", 3), ("STD - Dest2", 4)]
 REFERENCE_HEADERS = ["Field Name", "Table Name", "Column Name", "Data Type",
@@ -136,18 +149,28 @@ def table_by_segment(segment: str) -> Table:
 # ------------------------------------------------------------------ STTM
 
 
+def _yn(flag: bool) -> str:
+    return "Y" if flag else "N"
+
+
 def _main_rows() -> list[list]:
     rows: list[list] = []
     number = 0
     for table in TABLES:
         for f in table.fields:
             number += 1
-            rows.append([number, f.name, SOURCE_TYPE, f.length, table.segment, CATALOG_CELL,
-                         STAGE_SCHEMA, table.table, f.column, STAGE_TYPE,
-                         "Y" if f.mandatory else "N", "Y" if f.primary_key else "N"])
+            stage = [STAGE_CATALOG, STAGE_SCHEMA, table.table, f.column, STAGE_TYPE,
+                     _yn(f.mandatory), _yn(f.primary_key)]
+            standard = ([STANDARD_CATALOG, STANDARD_SCHEMA, table.table, f.std_column,
+                         f.std_type, _yn(f.mandatory), _yn(f.primary_key)]
+                        if f.std_column is not None else [None] * len(BAND_HEADERS))
+            rows.append([number, f.name, SOURCE_TYPE, f.length, table.segment]
+                        + stage + standard)
         for column, dtype in AUDIT:
-            rows.append([None, "NA", "NA", None, table.segment, CATALOG_CELL, STAGE_SCHEMA,
-                         table.table, column, dtype, "N", "N"])
+            rows.append([None, "NA", "NA", None, table.segment,
+                         STAGE_CATALOG, STAGE_SCHEMA, table.table, column, dtype, "N", "N",
+                         STANDARD_CATALOG, STANDARD_SCHEMA, table.table, column, dtype, "N",
+                         "N"])
     return rows
 
 
@@ -168,7 +191,14 @@ def build_sttm():
     wb = new_workbook()
     main = wb.create_sheet(MAIN_SHEET)
     write_rows(main, [[label, value] for label, value in HEADER_BLOCK])
-    write_rows(main, [MAIN_HEADERS] + _main_rows(), start_row=TABLE_HEADER_ROW)
+    band: list = []
+    for label, width in MAIN_BANDS:
+        band.extend([label] + [None] * (width - 1))
+    write_rows(main, [band, MAIN_HEADERS] + _main_rows(), start_row=BAND_ROW)
+    col = 1
+    for _label, width in MAIN_BANDS:
+        merge_span(main, BAND_ROW, col, col + width - 1)
+        col += width
 
     ref = wb.create_sheet(REFERENCE_SHEET)
     band: list = []

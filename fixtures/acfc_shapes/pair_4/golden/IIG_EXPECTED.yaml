@@ -3,7 +3,9 @@
 # (docs/acfc/MULTI_TABLE_DESIGN.md §1) and the fixture's inputs:
 #   fixtures/acfc_shapes/pair_4/sttm_nb_cob_report.xlsx   (built)
 #   fixtures/acfc_shapes/pair_4/frd_nb_cob_report.contract.json (built)
-#   fixtures/acfc_shapes/pair_4/config_overlay.yaml        (environment values)
+#   fixtures/acfc_shapes/pair_4/config_overlay.yaml        (environment values,
+#                                                           catalog_map PR_DLK -> d1_dlk,
+#                                                           PR_STD -> d1_std)
 # Template: iig_v2, conventions profile acfc_prx.
 #
 # Cell semantics:
@@ -15,6 +17,10 @@
 # Keys starting with "_" are annotations, not IIG columns.
 # `columns` = the owner map (class per column, template header order):
 #   per_file | per_table | per_feed | environment | convention | engineer
+#
+# Catalog cells carry the MAPPED catalog: each table's own band states the
+# logical one (Stage band PR_DLK, Standard band PR_STD) and the overlay's
+# catalog_map maps it; the overlay's default_catalog is never used.
 #
 # Not goldened here: FILE_ADLS_INGESTION_DETAILS (open Q5),
 # DATABRICKS_NOTEBOOK_DETAILS (inventory), EMAIL_TEMPLATE_CONFIG (2 rows,
@@ -103,13 +109,13 @@ _anchors:
     METADATA_CONNECTION_ID: "92"
     SRC_CONTAINER_NAME: syn-dlk-stage-01
     SRC_ADLS_PATH: /membership/cob/northwind_benefits/
-    SRC_CATALOG_NAME: syn_d1_dlk
+    SRC_CATALOG_NAME: d1_dlk
     SRC_SCHEMA_NAME: stg_nb_cob
     SRC_FORMAT: delta
     SRC_ADLS_ARCHVL_PATH: /archive/membership/cob/northwind_benefits/
     TGT_CONNECTION_ID: "93"
-    TGT_CATALOG_NAME: syn_d1_std
-    TGT_SCHEMA_NAME: cob
+    TGT_CATALOG_NAME: d1_std
+    TGT_SCHEMA_NAME: nb_cob
     TGT_CONTAINER_NAME: syn-dlk-std-01
     TGT_FORMAT: delta
     TGT_LOAD_OPTION: Append
@@ -125,7 +131,7 @@ _anchors:
     RULE_CLASS: LoadHeaderAndTrailerToSeparateTablesRule
     ACTIVE_RULE_FLG: "Y"
     SOURCE_COLUMN: "RECORD_TYPE,FILE_NAME,FILE_CREATION_DATE,FILE_CREATION_TIME,VENDOR_NAME,LOB,REPORT_PERIOD_START,REPORT_PERIOD_END"
-    TARGET_COLUMN: "syn_d1_dlk,stg_nb_cob,nb_cob_report_hdr,nb_cob_report_trl"   # open Q1
+    TARGET_COLUMN: "d1_dlk,stg_nb_cob,nb_cob_report_hdr,nb_cob_report_trl"   # open Q1
     <<: *audit
 
 DATA_FACTORY_PIPELINE_SCHEDULE:
@@ -202,7 +208,7 @@ ADLS_DELTA_INGESTION_DETAILS:
     FILE_FOOTER_FLAG: per_feed
     MANDATORY_FIELD_LIST: per_table
     TGT_CONNECTION_ID: environment
-    TGT_DATABASE_NAME: per_feed
+    TGT_DATABASE_NAME: per_table
     TGT_TABLE_NAME: per_table
     TGT_CONTAINER_NAME: environment
     TGT_ADLS_PATH: convention
@@ -280,15 +286,15 @@ STGDELTA_STDDELTA_INGESTION_DET:
     SRC_CONTAINER_NAME: environment
     SRC_ADLS_PATH: convention
     SRC_TABLE_NAME: per_table
-    SRC_CATALOG_NAME: environment
-    SRC_SCHEMA_NAME: per_feed
+    SRC_CATALOG_NAME: per_table
+    SRC_SCHEMA_NAME: per_table
     SRC_FORMAT: convention
     SRC_COLUMNS: per_table
     SRC_DATA_TYPE: per_table
     SRC_ADLS_ARCHVL_PATH: convention
     TGT_CONNECTION_ID: environment
-    TGT_CATALOG_NAME: environment
-    TGT_SCHEMA_NAME: per_feed
+    TGT_CATALOG_NAME: per_table
+    TGT_SCHEMA_NAME: per_table
     TGT_TABLE_NAME: per_table
     TGT_CONTAINER_NAME: environment
     TGT_ADLS_PATH: convention
@@ -373,3 +379,15 @@ DATA_QUALITY_RULES:
     - {<<: *dq_common, _object: 4, INPUT_PARAM: NWB_COB_RPT_220_*.txt}
     - {<<: *dq_common, _object: 5, INPUT_PARAM: NWB_COB_RPT_310_*.txt}
     - {<<: *dq_common, _object: 6, INPUT_PARAM: NWB_COB_RPT_320_*.txt}
+
+# Every table definition the feed defines (one stage_def + one standard_def per
+# table), labelled with the MAPPED three-part name — the label the metadata
+# inserts and the CREATE reference text carry (step 6). `logical` = as the
+# STTM band states it; `columns` = business columns (audit columns excluded).
+TABLE_DEFINITIONS:
+  - {layer: stage, segment: Header, logical: PR_DLK.stg_nb_cob.nb_cob_report_hdr, mapped: d1_dlk.stg_nb_cob.nb_cob_report_hdr, columns: 8}
+  - {layer: stage, segment: Detail, logical: PR_DLK.stg_nb_cob.nb_cob_report_dtl, mapped: d1_dlk.stg_nb_cob.nb_cob_report_dtl, columns: 20}
+  - {layer: stage, segment: Trailer, logical: PR_DLK.stg_nb_cob.nb_cob_report_trl, mapped: d1_dlk.stg_nb_cob.nb_cob_report_trl, columns: 6}
+  - {layer: standard, segment: Header, logical: PR_STD.nb_cob.nb_cob_report_hdr, mapped: d1_std.nb_cob.nb_cob_report_hdr, columns: 7}
+  - {layer: standard, segment: Detail, logical: PR_STD.nb_cob.nb_cob_report_dtl, mapped: d1_std.nb_cob.nb_cob_report_dtl, columns: 19}
+  - {layer: standard, segment: Trailer, logical: PR_STD.nb_cob.nb_cob_report_trl, mapped: d1_std.nb_cob.nb_cob_report_trl, columns: 5}

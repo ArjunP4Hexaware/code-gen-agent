@@ -57,3 +57,9 @@ ADLS→Delta 6 — one per LOB file, all into the Detail table — stage→stand
 per table, data-quality 6 header/trailer split rows; plus the per-column owner map).
 `tests/test_pair4_multi_table_fixture.py` checks the golden against the builder facts,
 the overlay and the design doc's owner map.
+
+**Cells taken from real sheets, not written by hand** (2026-10-09):
+
+| Cell | Value | Evidence |
+| --- | --- | --- |
+| `ADLS_DELTA_INGESTION_DETAILS.SCHEMA_DRIFT_FLAG` (golden + overlay) | `Y` | both real sheets we have: the SD (Socially Determined) file-to-stage row — `IIG test cells.xlsx`, `ADLS_DELTA_INGESTION_DETAILS`, read in place, untracked after the demo — and the CAQH IIG (reported 2026-10-09; no copy in this checkout). Was the hand-written `N`. The ACFC overlay (`acfc_env.yaml`) carries the same `Y`; the pair-1 (PRX) golden says `N`, so the shipped default stays `N` |

@@ -77,7 +77,7 @@ _anchors:
     SRC_COMPRESSION: "N"
     HEADER_FLAG: null             # open Q6
     MULTILINE_FLAG: "N"
-    SCHEMA_DRIFT_FLAG: "N"
+    SCHEMA_DRIFT_FLAG: "Y"        # both real sheets say Y: the SD file-to-stage row (IIG test cells.xlsx, ADLS_DELTA_INGESTION_DETAILS) and the CAQH IIG (fixtures/acfc_shapes/README.md)
     FILE_HEADER_FLAG: null        # open Q6
     FILE_FOOTER_FLAG: null        # open Q6
     MANDATORY_FIELD_LIST: "RECORD_TYPE,LOB,MEMBER_ID,SUBSCRIBER_ID,MEMBER_DOB,OTHER_CARRIER_ID,OTHER_POLICY_NUMBER,COVERAGE_TYPE,COB_ORDER,COB_EFF_DATE,RECORD_STATUS"

@@ -145,6 +145,7 @@ LOOP_LOG.md
 /d1_std.sdoh/
 /sd_community_demographic_risk.lvdash.json
 
-# 2026-10-09: external analysis artefacts (handoff notes written outside this
+# 2026-10-09: external review / analysis artefacts (written outside this
 # repo's workflow) — stay local, never tracked.
 /PROJECT_HANDOFF.md
+/CODEGEN_INDEPENDENT_REVIEW.md

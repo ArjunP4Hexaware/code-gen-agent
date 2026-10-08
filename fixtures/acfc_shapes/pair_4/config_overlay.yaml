@@ -3,7 +3,8 @@
 # values except the landing container, which the STTM's own File Location
 # names (mftlanding/inbound/…), the d1 catalog names the catalog_map
 # targets (d1_dlk / d1_std, as the brief states them) and SCHEMA_DRIFT_FLAG
-# Y, which both real sheets carry (2026-10-09, fixtures/acfc_shapes/README.md). Tests load it with
+# Y, which both real sheets carry (2026-10-09, fixtures/acfc_shapes/README.md).
+# Tests load it with
 # load_config(path, overlays=[this file]); the suite runs with
 # CODEGEN_SKIP_ENV_OVERLAY=1, so nothing else is merged underneath.
 #

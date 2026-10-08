@@ -16,6 +16,11 @@ are what gets approved and inserted. Framework-assigned ID columns
 never invented. DDL stays engineer-run: nothing here creates tables, and
 the inserts are plain INSERTs — idempotency belongs to the framework's own
 load path.
+
+Multi-table step 6: the combined CREATE text is one block per table and
+layer (``table_definitions``), and — under the DML's switches —
+``metadata_inserts.sql`` (``codegen.emit.metadata_inserts``) carries the
+metadata rows that define those tables, from the same payload as the IIG.
 """
 
 from __future__ import annotations
@@ -26,7 +31,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codegen.config import Config
-from codegen.contracts.resolved import ResolvedFeedSpec
+from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
+from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
+from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
 from codegen.gate.derivations import check_iig_derivations, check_sql_literals, join_path
 from codegen.gate.preflight import GateCheck
@@ -77,6 +84,10 @@ DDL_TARGET_HEADER = "-- TARGET SYSTEM = Databricks (Unity Catalog) — run in SQ
 
 def artefact_group(name: str) -> str:
     if name.endswith("_table_creation.txt") or name.endswith("_DDL.txt"):
+        return TARGET_DDL
+    if name == METADATA_INSERTS_FILE:
+        # Multi-table step 6: the client's "DDL" (rule 8) — the metadata rows
+        # that define the Unity Catalog tables, beside their CREATE reference.
         return TARGET_DDL
     if name.startswith("config_inserts_") and name.endswith(".sql"):
         return TARGET_DML
@@ -202,53 +213,149 @@ def _standard_from_stage_type(f, stage_type: str, flags: list[str]) -> str:
     return stage_type if stage == standard else standard
 
 
-def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
-                       config: Config | None = None) -> str | None:
-    """The combined-layout deployment DDL (M4, ``acfc_prx``): stage columns
-    as the STTM stage band types them (distinct across segments, STTM
-    order), audit columns in the profile's casing. With
-    ``standard_from_stage`` the standard table takes the stage column LIST
-    and ORDER, but each column's TYPE from the STTM standard band
-    (``_standard_from_stage_type``). Whitespace comes from the profile.
-    M7: every CREATE is three-part or omitted (``_qualify``); None when no
-    layer qualifies."""
-    from codegen.emit.emitter import _environment
+@dataclass(frozen=True)
+class TableBlock:
+    """One table definition of one layer (multi-table step 6): the resolved
+    table, its MAPPED three-part name (``_qualify``; None = the profile
+    requires three parts and no source states the catalog / schema — no
+    CREATE is written for it), its business columns and its audit columns."""
+
+    layer: str                               # "stage" | "standard"
+    table: ResolvedTable
+    qualified: str | None
+    business: tuple[tuple[str, str], ...]    # (column, type), STTM order
+    audit: tuple[tuple[str, str], ...]
+
+    @property
+    def label(self) -> str:
+        """The name a reader sees: the mapped three-part name, else the
+        resolved table's own (two-part) name."""
+        return self.qualified or self.table.qualified_name
+
+    @property
+    def columns(self) -> list[tuple[str, str]]:
+        return [*self.business, *self.audit]
+
+
+@dataclass(frozen=True)
+class TableDefinition:
+    """One table the feed defines (rule 1: one per distinct stage triple):
+    its stage definition and, when its rows carry a Standard band, its
+    standard definition."""
+
+    segments: tuple[str, ...]
+    stage: TableBlock
+    standard: TableBlock | None
+
+
+def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
+                      config: Config | None = None) -> list[TableDefinition]:
+    """Every table the feed defines, one entry per distinct stage (catalog,
+    schema, table) — ``metadata_template._table_groups`` — in first-seen
+    order. The single derivation behind the combined CREATE reference text
+    AND the metadata inserts' table index (so the two never disagree).
+
+    Per table:
+
+    * stage columns = the table's own rows (a column shared by its segments
+      once, STTM order), typed as the STTM stage band states them under
+      ``typed_stage`` (else ``STRING``);
+    * standard columns = the rows of the same table that carry a Standard
+      band (a row whose Standard band is blank is not carried), named as
+      that band names them; the type is the Standard band's — under
+      ``standard_from_stage`` through ``_standard_from_stage_type`` (the
+      stage text when both normalise to the same SQL type), else as stated;
+      a table NONE of whose rows carries a Standard band keeps the earlier
+      ``standard_from_stage`` reading (the stage list, typed per column);
+    * audit columns = the table's segments' own audit rows when every
+      segment states them, else the feed's, in the profile's casing;
+    * names = ``_qualify`` (the resolved, catalog-MAPPED table; the
+      ``default_catalog`` fallback and the three-part rule raise their
+      flags here, once per table).
+
+    A single-table feed whose Standard band names every stage column as the
+    stage band does (pair 1) is therefore exactly the pre-step-6 output."""
+    from codegen.metadata_template import _table_groups
 
     flags = flags if flags is not None else []
-
-    seen: set[str] = set()
-    stage_columns: list[tuple[str, str]] = []
-    standard_columns: list[tuple[str, str]] = []
-    standard_from_stage: list[tuple[str, str]] = []
-    for segment in spec.segments:
-        for f in segment.fields:
-            if f.stage_column in seen:
-                continue
-            seen.add(f.stage_column)
+    out: list[TableDefinition] = []
+    for group in _table_groups(spec):
+        stage_columns: list[tuple[str, str]] = []
+        standard_columns: list[tuple[str, str]] = []
+        # A table NONE of whose rows carries a Standard band (the standard
+        # table named by the FRD only) keeps the standard_from_stage
+        # convention as it was: the stage list, typed per column.
+        no_band = not any(f.standard_column is not None for f in group.fields)
+        for f in group.fields:
             stage_type = f.stage_datatype if profile.typed_stage else "STRING"
             stage_columns.append((f.stage_column, stage_type))
-            if profile.standard_from_stage:
-                standard_from_stage.append(
+            if no_band and profile.standard_from_stage:
+                standard_columns.append(
                     (f.stage_column, _standard_from_stage_type(f, stage_type, flags)))
-            if f.standard_column is not None:
+                continue
+            if f.standard_column is None:
+                continue
+            if profile.standard_from_stage:
+                standard_columns.append(
+                    (f.standard_column, _standard_from_stage_type(f, stage_type, flags)))
+            else:
                 standard_columns.append((f.standard_column, f.standard_datatype or ""))
-    audit = [(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
-             for a in spec.audit_columns]
-    stage_table = spec.detail_segment.stage_table
-    stage_qualified = _qualify(stage_table, "stage", profile, spec, flags, config)
-    stage = ({"qualified": stage_qualified, "columns": stage_columns + audit}
-             if stage_qualified else None)
-    standard = None
-    if spec.standard_table is not None:
-        columns = standard_from_stage if profile.standard_from_stage else standard_columns
-        standard_qualified = _qualify(spec.standard_table, "standard", profile, spec, flags,
-                                      config)
-        if standard_qualified:
-            standard = {"qualified": standard_qualified, "columns": columns + audit}
-    if stage is None and standard is None:
+        if all(s.audit_columns for s in group.segments):
+            audit_rows = [a for s in group.segments for a in s.audit_columns]
+        else:
+            audit_rows = list(spec.audit_columns)
+        seen: dict[str, str] = {}
+        for a in audit_rows:
+            seen.setdefault(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
+        audit = tuple(seen.items())
+        stage = TableBlock(
+            layer="stage", table=group.stage,
+            qualified=_qualify(group.stage, "stage", profile, spec, flags, config),
+            business=tuple(stage_columns), audit=audit)
+        standard = None
+        if group.standard is not None:
+            standard = TableBlock(
+                layer="standard", table=group.standard,
+                qualified=_qualify(group.standard, "standard", profile, spec, flags, config),
+                business=tuple(standard_columns), audit=audit)
+        out.append(TableDefinition(segments=tuple(s.segment for s in group.segments),
+                                   stage=stage, standard=standard))
+    return out
+
+
+def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
+                       config: Config | None = None,
+                       definitions: list[TableDefinition] | None = None) -> str | None:
+    """The combined-layout deployment DDL (M4, ``acfc_prx``) — the CREATE
+    TABLE REFERENCE text (the client's "DDL" is the metadata INSERT rows,
+    ``metadata_inserts.sql``; MULTI_TABLE_DESIGN rule 8).
+
+    Multi-table step 6: ONE CREATE block per table and layer, each named by
+    its mapped three-part name and carrying its own columns from its own
+    band (``table_definitions``): every table's stage block, then every
+    table's standard block, in table order. Whitespace comes from the
+    profile; a single-table feed is byte-identical to the pre-step-6 file
+    (pair 1's golden). M7: every CREATE is three-part or omitted
+    (``_qualify``); None when no block qualifies. ``definitions`` lets the
+    caller pass the list it already computed (flags raised once)."""
+    from codegen.emit.emitter import _environment
+
+    if definitions is None:
+        definitions = table_definitions(spec, profile, flags, config)
+    blocks = []
+    for layer, banner in (("stage", profile.stage_banner),
+                          ("standard", profile.standard_banner)):
+        for definition in definitions:
+            block = definition.stage if layer == "stage" else definition.standard
+            if block is None or not block.qualified:
+                continue
+            blocks.append({"banner": banner, "qualified": block.qualified,
+                           "columns": block.columns,
+                           "using_prefix": profile.block_using_prefix.get(layer, "")})
+    if not blocks:
         return None
     template = _environment().get_template("framework/combined_ddl.txt.j2")
-    return template.render(ddl=profile, stage=stage, standard=standard)
+    return template.render(ddl=profile, blocks=blocks)
 
 
 def _provenance_banner_rows(spec: ResolvedFeedSpec, faq: LoadPatternFaq,
@@ -636,7 +743,8 @@ def emit_framework(
             flags.append(f"ddl_file_name_from_slug: no feed_abbreviation in the load-pattern "
                          f"FAQ; the combined DDL is named {abbrev!r} from the feed slug")
         ddl_names = [profile.ddl_file_name_pattern.format(feed_abbrev=abbrev)]
-        combined = _combined_ddl_text(spec, profile, flags, config)
+        definitions = table_definitions(spec, profile, flags, config)
+        combined = _combined_ddl_text(spec, profile, flags, config, definitions=definitions)
         if combined is not None:
             if profile.target_system_header:
                 combined = DDL_TARGET_HEADER + "\n" + combined
@@ -657,9 +765,23 @@ def emit_framework(
             txt_path.write_text(text, encoding="utf-8", newline="\n")
             files.append(txt_path)
             ddl_names.append(txt_path.name)
+        definitions = None
+    dml_disabled_reason = _dml_disabled_reason(config, profile, conventions_profile)
+    # Multi-table step 6: the metadata INSERT rows that define the tables
+    # (the client's "DDL", rule 8) from the same payload as the IIG; written
+    # under the DML's switches. The table index reuses the CREATE text's
+    # definitions (flags raised once); another layout computes them for the
+    # index only, its flags discarded (its own DDL path raised them).
+    metadata_inserts = None
+    if dml_disabled_reason is None:
+        if definitions is None:
+            definitions = table_definitions(spec, profile, [], config)
+        metadata_inserts = emit_metadata_inserts(
+            spec, payload, definitions, config, framework_dir, banner,
+            ddl_name=" / ".join(ddl_names) or None)
+        files.append(metadata_inserts.path)
     # M7 §3: the SQL Server DML deliverable from the same rows.
     dml_artefacts = None
-    dml_disabled_reason = _dml_disabled_reason(config, profile, conventions_profile)
     if dml_disabled_reason is None:
         from codegen.emit.dml import emit_dml
 
@@ -670,6 +792,8 @@ def emit_framework(
     checks: list[GateCheck] = []
     if dml_artefacts is not None:
         checks.extend(dml_artefacts.checks)
+    if metadata_inserts is not None:
+        checks.append(metadata_inserts.check)
     unqualified = [f for f in flags if f.startswith(("catalog_unstated:", "schema_unstated:"))]
     if unqualified:
         checks.append(GateCheck(name="qualified_names", passed=False,
@@ -729,6 +853,16 @@ def emit_framework(
         "sources sit in `../ddl/`). **Run in the data lake by the "
         "deployment team** — the agent never creates target tables. |"
     )
+    if metadata_inserts is not None:
+        ddl_row += (
+            f"\n| `{metadata_inserts.path.name}` | The client's \"DDL\": one INSERT per IIG "
+            "row, sheet by sheet, from the same cells as the IIG — the metadata rows that "
+            "define the tables in the SQL Server metadata DB (the framework creates the Unity "
+            "Catalog tables from them; the CREATE text above is the reference). A `TABLE "
+            "DEFINITIONS` index names every table by its mapped three-part name. Every open "
+            "cell is a `<<COLUMN#n>>` placeholder: the script does not run until each is "
+            "replaced. |"
+        )
     rows_row = (
         "| `config_rows.xlsx` | The config rows for the framework DB — "
         "**this is the approval artefact**. Every cell carries a provenance "
@@ -772,6 +906,11 @@ def emit_framework(
                            "executable script is `config_inserts_<env>.sql`",
             TARGET_NOTES: "this manifest",
         }
+        if metadata_inserts is not None:
+            notes[TARGET_DDL] += (
+                f" (the CREATE reference text); `{metadata_inserts.path.name}` holds the "
+                "metadata rows that define those tables — run against the SQL Server metadata "
+                "DB once every `<<COLUMN#n>>` placeholder is filled")
         for group, names in groups.items():
             target_lines.append(f"- **{group}** — {notes[group]}: "
                                 + ", ".join(f"`{n}`" for n in names))
@@ -826,7 +965,8 @@ def _iig_addition_parts(review_name: str, clean_name: str, config: Config, profi
     prefix = f"conventions.profiles.{profile_name}"
     dml_state = ("off — DML not generated (disabled): " + dml_disabled_reason
                  if dml_disabled_reason is not None else
-                 "on — `config_inserts_<env>.sql` and the runner notebooks are written")
+                 "on — `config_inserts_<env>.sql`, the runner notebooks and "
+                 f"`{METADATA_INSERTS_FILE}` are written")
     switches = (
         "\n## Switches\n\n"
         f"- `{prefix}.emit_iig_review`: on — the two IIG workbooks above are written.\n"
@@ -836,7 +976,8 @@ def _iig_addition_parts(review_name: str, clean_name: str, config: Config, profi
 
 
 def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> str | None:
-    """None when the DML deliverable is written; else which switch is off."""
+    """None when the DML deliverable is written; else which switch is off.
+    The same switches gate ``metadata_inserts.sql`` (multi-table step 6)."""
     if not config.dml.enabled:
         return "dml.enabled is false"
     if not profile.emit_dml:

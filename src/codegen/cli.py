@@ -257,6 +257,18 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
     )
 
 
+# A feed held back because no document states one of its targets (the
+# extractor's NEEDS_ANSWERS): not a FAIL — the run stops short of it and names
+# the answers-file key. Exit code when nothing FAILED but a feed needs answers.
+EXIT_NEEDS_ANSWERS = 3
+
+
+def _print_needs_answers(pending) -> None:
+    for p in pending:
+        print(f"{'NEEDS_ANSWERS':<15} {p.feed_name} (sheet {p.sheet}) — answer `{p.key}` under "
+              f"`gaps:` in the answers file ({p.reason})")
+
+
 def _run_pairs(
     pairs: list[tuple[Path, Path]],
     config: Config,
@@ -270,15 +282,22 @@ def _run_pairs(
     iig_template: str | None = None,
     playbook_template: str | None = None,
 ) -> int:
+    from codegen.resolve.resolver import pending_answers
+
     failed = False
     matched_feed = False
+    needs_answers = False
     for frd_path, sttm_path in pairs:
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path)
+            pending = pending_answers(sttm_path)
         except (ContractMismatchError, ValueError) as exc:
             print(f"{'FAIL':<15} {frd_path.name} + {sttm_path.name} — {exc}")
             failed = True
             continue
+        if only_feed is None and pending:
+            _print_needs_answers(pending)
+            needs_answers = True
         for spec in specs:
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
@@ -298,11 +317,16 @@ def _run_pairs(
     if only_feed is not None and not matched_feed:
         print(f"{'FAIL':<15} no resolved feed matches --feed {only_feed!r}")
         failed = True
-    return 1 if failed else 0
+    return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
 
 
 def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
-    from codegen.extract import ExtractionError, WorkbookParseError, extract_to_file
+    from codegen.extract import (
+        ExtractionError,
+        NeedsAnswersError,
+        WorkbookParseError,
+        extract_to_file,
+    )
 
     try:
         workbook_path = Path(args.workbook)
@@ -334,12 +358,18 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             require_complete=bool(getattr(args, "require_complete", False)),
             width_answers=width_answers,
         )
+    except NeedsAnswersError as exc:
+        _print_needs_answers(exc.pending)
+        print(f"{'NOT EXTRACTED':<15} {args.out} — every feed needs an answer (no contract "
+              "written)")
+        return EXIT_NEEDS_ANSWERS
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
         print(f"{'FAIL':<15} extract-sttm — {exc}")
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
-    return 0
+    _print_needs_answers(contract.needs_answers)
+    return EXIT_NEEDS_ANSWERS if contract.needs_answers else 0
 
 
 def _outputs_through_storage(config: Config):

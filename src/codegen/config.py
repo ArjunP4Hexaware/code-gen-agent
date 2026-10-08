@@ -155,6 +155,9 @@ class ExtractorFileDetailsHeaders(BaseModel):
     vendor: list[str]
     file_name: list[str]
     frequency: list[str]
+    # The row's target (stage) table, when the sheet states one: the content-
+    # driven reader's link for a mapping sheet whose TableName cells are blank.
+    target_table: list[str] = Field(default_factory=list)
 
 
 # Logical source-block columns the workbook parser must be able to resolve.
@@ -1099,6 +1102,10 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> header -> path shape with {landing} {stage_table} {reject_table}
     # (the golden spells the archive path differently per sheet).
     path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # The family's path-case convention for the INPUT-derived segments of a
+    # path cell (the FRD landing, table names); the shapes' own literals
+    # ("Processed/") are written as configured. "preserve" = as stated.
+    path_case: Literal["preserve", "lower"] = "preserve"
     constants: dict[str, dict[str, str]] = Field(default_factory=dict)
     # Per-cell citation for a constant that does not come from the template
     # itself (an environment overlay): {tab: {header: citation}}; a

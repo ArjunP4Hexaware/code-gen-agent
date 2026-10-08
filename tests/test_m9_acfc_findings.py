@@ -363,17 +363,30 @@ def _without_schema_role(config):
 
 def test_missing_schema_is_a_hard_stop_after_the_fallback_chain(config, tmp_path):
     """The hotfix let an EMPTY schema through. It does not: the chain is STTM
-    band -> FRD -> conventions.default_schema, each link flagged, then a stop."""
+    band -> FRD -> conventions.default_schema, each link flagged, then a stop —
+    since the first ACFC run a NEEDS_ANSWERS stop naming the answers-file key
+    (NeedsAnswersError, an ExtractionError), never an empty schema."""
+    from codegen.extract import NeedsAnswersError
+
     layout = _without_schema_role(config)
     frd = _frd_json(tmp_path, config)
-    with pytest.raises(ExtractionError, match="no source states the stage schema"):
+    with pytest.raises(NeedsAnswersError, match=r"answer `feeds\[0\]\.stage_target\.schema`"):
         extract_contract(PAIR_1, frd, config, generated_date=DATE, layout=layout)
-    # 2nd link: the FRD states one.
+    # 2nd link: the FRD states the STAGE schema only — the standard one (no
+    # FRD statement, no default) used to reach the contract EMPTY; it is now
+    # the one answer the feed still needs.
     frd = _frd_json(tmp_path, config, schema="stg_from_frd")
+    with pytest.raises(NeedsAnswersError) as held:
+        extract_contract(PAIR_1, frd, config, generated_date=DATE, layout=layout)
+    assert [p.key for p in held.value.pending] == ["feeds[0].standard_target.schema"]
+    data = json.loads(frd.read_text(encoding="utf-8"))
+    data["feeds"][0]["standard_target"]["schema"] = "std_from_frd"
+    frd.write_text(json.dumps(data), encoding="utf-8")
     contract = extract_contract(PAIR_1, frd, config, generated_date=DATE, layout=layout)
     (feed,) = contract.feeds
     assert feed.stage.schema_name == "stg_from_frd"
-    flag = next(f for f in feed.extraction_flags if f.startswith("sttm_unstated:stage.schema"))
+    flag = next(f for f in feed.extraction_flags
+                if f.startswith("sttm_target_missing:stage.schema"))
     assert "source_used:FRD 'Target Catalog and Schema': 'stg_from_frd'" in flag
     assert "stage schema role is not placed" in flag
     # 3rd link: the config default.
@@ -383,7 +396,7 @@ def test_missing_schema_is_a_hard_stop_after_the_fallback_chain(config, tmp_path
                                 generated_date=DATE, layout=layout)
     (feed,) = contract.feeds
     assert (feed.stage.schema_name, feed.standard.schema_name) == ("stg_default", "std_default")
-    assert sum("config_default (conventions.default_schema" in f
+    assert sum("layer convention (conventions.default_schema" in f
                for f in feed.extraction_flags) == 2
 
 

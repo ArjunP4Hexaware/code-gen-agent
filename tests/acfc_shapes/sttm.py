@@ -32,8 +32,16 @@ def _version_sheet(wb, title, header, header_row, rows, merge_a2d2=False):
 # --------------------------------------------------------------- Family A ---
 
 
-def build_pair1(amounts: bool = False, amount_end: bool = False):
-    """``amounts`` (M9.2, a test VARIANT — not the tracked fixture): six more
+def build_pair1(amounts: bool = False, amount_end: bool = False,
+                rec_type_targets: dict[str, str] | None = None, blank_targets: bool = False):
+    """``rec_type_targets`` (a test VARIANT — the first ACFC run's key-lookup
+    defect): the field leading every record is named ``REC_TYPE`` in the
+    header, the detail AND the trailer, and each segment maps it to its OWN
+    target column (``{"HDDR": "REC_TYP_HDR", "DET": …, "TRLR": …}``).
+    ``blank_targets`` (a VARIANT — the first ACFC run's blank Schema /
+    TableName): every data row leaves both bands' schema and table empty.
+
+    ``amounts`` (M9.2, a test VARIANT — not the tracked fixture): six more
     Detail fields whose Length cell reads ``10,2`` (pair1.AMOUNT_FIELDS), with
     no End cell unless ``amount_end``.
 
@@ -108,10 +116,13 @@ def build_pair1(amounts: bool = False, amount_end: bool = False):
     write_rows(ws, [header], start_row=15)
 
     def targets(stage_column, stage_type, standard_column, standard_type):
+        stage_schema, standard_schema, table = (
+            (None, None, None) if blank_targets
+            else (pair1.STAGE_SCHEMA, pair1.STANDARD_SCHEMA, pair1.TABLE))
         return [None,
-                "DLK", pair1.STAGE_CATALOG, pair1.STAGE_SCHEMA, pair1.TABLE,
+                "DLK", pair1.STAGE_CATALOG, stage_schema, table,
                 stage_column, stage_type, None,
-                "DLK", pair1.STANDARD_CATALOG, pair1.STANDARD_SCHEMA, pair1.TABLE,
+                "DLK", pair1.STANDARD_CATALOG, standard_schema, table,
                 standard_column, standard_type]
 
     rows: list[list] = []
@@ -132,11 +143,14 @@ def build_pair1(amounts: bool = False, amount_end: bool = False):
             segment = c.segment
             rows.append([pair1.SEGMENT_BANNERS[segment]])
         sno += 1
+        name = column = c.name
+        if rec_type_targets and c.name == "SEGMENT_IDENTIFIER":
+            name, column = "REC_TYPE", rec_type_targets[c.segment]
         rows.append([
-            sno, c.segment, c.name, c.required, pair1.SOURCE_TYPE, c.start, c.length,
+            sno, c.segment, name, c.required, pair1.SOURCE_TYPE, c.start, c.length,
             c.start + c.length - 1, c.description, None,
             c.description, "N", None, "N", "Y" if c.required == "Y" else "N", c.load_rule,
-            *targets(c.name, c.dtype, c.name, c.dtype),
+            *targets(column, c.dtype, column, c.dtype),
         ])
     for name, dtype in pair1.AUDIT_COLUMNS:
         rows.append([

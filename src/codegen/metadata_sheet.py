@@ -327,8 +327,17 @@ def _landing_cells(feed: FrdFeed, config: Config) -> tuple[dict, dict]:
     container, _, rest = value.partition("/")
     badge = "synthetic" if landing["synthetic"] else "from_frd"
     tooltip = _LANDING_TOOLTIP if landing["synthetic"] else None
-    return (_cell(container, badge, tooltip),
-            _cell("/" + rest if rest else "/", badge, tooltip))
+    path = "/" + rest if rest else "/"
+    # First ACFC run: the FRD's own punctuation never reaches the path cell —
+    # normalised, with a path_normalised note (before / after) for the gate.
+    from codegen.gate.derivations import normalise_path, path_normalised_flag
+
+    normalised, changes = normalise_path(path)
+    path_cell = _cell(normalised, badge, tooltip)
+    if changes:
+        path_cell["badge_entry"]["path_note"] = path_normalised_flag(
+            "SRC_ADLS_PATH", path, normalised, changes)
+    return (_cell(container, badge, tooltip), path_cell)
 
 
 def _stage_names(feed: FrdFeed, spec: ResolvedFeedSpec | None):

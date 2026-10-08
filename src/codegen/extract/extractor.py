@@ -67,6 +67,17 @@ class ExtractionError(ValueError):
     """Workbook and FRD contract cannot be combined; message names the feed."""
 
 
+class NeedsAnswersError(ExtractionError):
+    """Every mapping sheet was held back as NEEDS_ANSWERS (no document states
+    a target): ``pending`` names the answers-file key of each."""
+
+    def __init__(self, pending) -> None:
+        self.pending = list(pending)
+        super().__init__("NEEDS_ANSWERS — " + "; ".join(
+            f"feed {p.feed_name!r} (sheet {p.sheet!r}): answer `{p.key}` under gaps: in the "
+            f"answers file — {p.reason}" for p in self.pending))
+
+
 def extract_contract(
     workbook_path: Path,
     frd_path: Path,
@@ -148,18 +159,36 @@ def extract_contract(
             generated_date=generated_date,
         )
 
+    from codegen.contracts.sttm import PendingAnswer
+    from codegen.extract.generic import NeedsAnswers
+
     skipped = {t for t in skip_stage_tables}
     sheets = [s for s in ir.sheets if s.stage_table not in skipped]
-    feeds = [
-        _build_feed(sheet, _match_frd_feed(sheet, frd), ir, config) for sheet in sheets
-    ]
+    feeds = []
+    pending: list[PendingAnswer] = []
+    for sheet in sheets:
+        try:
+            matched = _match_frd_feed(sheet, frd, sheets)
+            feeds.append(_build_feed(sheet, matched, ir, config, frd.feeds.index(matched)))
+        except NeedsAnswers as held:
+            # One sheet without a stated target holds back ITS feed only.
+            pending.extend(held.pending)
+    if not feeds and pending:
+        raise NeedsAnswersError(pending)
+    if ir.file_details_skipped:
+        from codegen.extract.annotations import flag
 
-    sheet_tables = {s.stage_table for s in sheets}
+        feeds = [f.model_copy(update={"extraction_flags": [
+            *f.extraction_flags, *(flag(e) for e in ir.file_details_skipped)]}) for f in feeds]
+
+    sheet_tables = {f.stage.table for f in feeds}
+    held_back = {p.feed_name for p in pending}
     unmatched_frd = [
         f.feed_name
         for f in frd.feeds
         if not sheet_tables & set(f.stage_target.tables)
         and not set(f.stage_target.tables) <= skipped
+        and f.feed_name not in held_back
     ]
     if unmatched_frd:
         raise ExtractionError(
@@ -180,16 +209,40 @@ def extract_contract(
             "trailing rows whose source-side cells read 'NA'.",
             "Recycle validation text is VERBATIM from the workbook's Recycle Flag cell "
             "(no canonical rewriting; the resolver accepts the client phrasing).",
+            *(f"FILE_DETAILS annotation row skipped (not read as a file): {e}"
+              for e in ir.file_details_skipped),
+            *(f"sheet {p.sheet!r}: feed {p.feed_name!r} NEEDS_ANSWERS — answer `{p.key}` "
+              f"under gaps: ({p.reason})" for p in pending),
         ],
         feeds=feeds,
         layout=LayoutSummary(
             strategy=profile.strategy, source=profile.source, fingerprint=profile.fingerprint,
             unresolved=[f"{u.sheet}/{u.layer}/{u.role}: {u.reason}" for u in profile.unresolved],
         ),
+        needs_answers=pending,
     )
 
 
-def _match_frd_feed(sheet: SheetIR, frd: FrdContract) -> FrdFeed:
+def _match_frd_feed(sheet: SheetIR, frd: FrdContract,
+                    sheets: list[SheetIR] | None = None) -> FrdFeed:
+    if sheet.stage_table is None:
+        # Blank TableName cells (first ACFC run): the feed the layout stage
+        # derived for this sheet (named after it), else the only FRD feed no
+        # table-stating sheet claims — never a guess among several.
+        from codegen.resolve.gapfill import blank_sheet_feed_name
+
+        named = [f for f in frd.feeds
+                 if f.feed_name.lower() == blank_sheet_feed_name(sheet.sheet_name).lower()]
+        if len(named) == 1:
+            return named[0]
+        claimed = {s.stage_table for s in sheets or [] if s.stage_table is not None}
+        free = [f for f in frd.feeds if not claimed & set(f.stage_target.tables)]
+        if len(free) == 1:
+            return free[0]
+        raise ExtractionError(
+            f"sheet {sheet.sheet_name!r}: every TableName cell is blank and "
+            f"{len(free)} FRD feed(s) {[f.feed_name for f in free]} are claimed by no other "
+            "sheet — the sheet cannot be paired; state the table in the STTM")
     matches = [f for f in frd.feeds if sheet.stage_table in f.stage_target.tables]
     if len(matches) != 1:
         raise ExtractionError(
@@ -263,7 +316,54 @@ def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None) -> str:
     return implied
 
 
-def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Config) -> SttmFeed:
+def _resolve_targets(sheet: SheetIR, frd_feed: FrdFeed, file_details: FileDetailsRow,
+                     feed_index: int, config: Config, flags: list[str]) -> SheetIR:
+    """A sheet whose Schema / TableName cells are ALL blank (first ACFC run):
+    table from the feed's File Details row (its target-table cell) or the
+    FRD's only table, schema from the FRD or the layer convention — each a
+    ``sttm_target_missing`` flag naming the source — else NEEDS_ANSWERS with
+    the answers-file key. A sheet stating both is returned unchanged."""
+    if not sheet.blank_targets:
+        return sheet
+    from dataclasses import replace
+
+    from codegen.contracts.sttm import PendingAnswer
+    from codegen.extract.generic import NeedsAnswers, _schema_chain, _table_chain
+
+    cells = dict(sheet.blank_targets)
+    prefix = f"feeds[{feed_index}]."
+    pending: list[PendingAnswer] = []
+    notes: list[str] = []          # the classic contract's notes stay fixed
+    values = {"stage.schema": sheet.stage_schema, "stage.table": sheet.stage_table,
+              "standard.schema": sheet.standard_schema, "standard.table": sheet.standard_table}
+    for key, provenance in sheet.blank_targets:
+        layer, _dot, role = key.partition(".")
+        target = frd_feed.stage_target if layer == "stage" else frd_feed.standard_target
+        if role == "table":
+            details = ((file_details.target_table, f"{file_details.target_cell} (the row of "
+                        "this feed's file)") if layer == "stage" and file_details.target_table
+                       else None)
+            value = _table_chain(layer, None, provenance, details, list(target.tables),
+                                 sheet.sheet_name, notes, flags)
+        else:
+            value = _schema_chain(layer, None, provenance, target.schema_name, config,
+                                  sheet.sheet_name, notes, flags)
+        if value is None:
+            pending.append(PendingAnswer(
+                feed_name=frd_feed.feed_name, sheet=sheet.sheet_name,
+                key=f"{prefix}{layer}_target.{'tables' if role == 'table' else 'schema'}",
+                reason=f"{cells[key]}; no File Details target / FRD statement / layer "
+                       "convention supplies it"))
+        values[key] = value
+    if pending:
+        raise NeedsAnswers(pending)
+    return replace(sheet, stage_schema=values["stage.schema"], stage_table=values["stage.table"],
+                   standard_schema=values["standard.schema"],
+                   standard_table=values["standard.table"])
+
+
+def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Config,
+                feed_index: int = 0) -> SttmFeed:
     if frd_feed.is_segmented:
         raise ExtractionError(
             f"feed {frd_feed.feed_name!r}: FRD declares record segments "
@@ -275,6 +375,8 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
     feed_id = config.feed_aliases.get(frd_feed.feed_name) or normalize_feed_name(
         frd_feed.feed_name
     )
+    flags: list[str] = []
+    sheet = _resolve_targets(sheet, frd_feed, file_details, feed_index, config, flags)
 
     frd_has_standard = bool(frd_feed.standard_target.tables)
     if frd_has_standard != (sheet.standard_table is not None):
@@ -361,6 +463,7 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             ],
             field_count=len(fields),
             fields=fields,
+            extraction_flags=flags,
         )
     except ValueError as exc:  # pydantic ValidationError is a ValueError
         raise ExtractionError(
@@ -408,6 +511,7 @@ def extract_to_file(
 
 __all__ = [
     "ExtractionError",
+    "NeedsAnswersError",
     "WorkbookParseError",
     "contract_to_json",
     "extract_contract",

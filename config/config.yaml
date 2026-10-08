@@ -126,6 +126,9 @@ extractor:
     vendor: ["vendor"]
     file_name: ["filename", "file name"]
     frequency: ["frequency"]
+    # A mapping sheet whose TableName cells are blank takes its stage table
+    # from its File Details row (flag sttm_target_missing) — first ACFC run.
+    target_table: ["target table", "target table name", "stage table", "stage table name"]
   # RecycleSpec boilerplate emitted around the VERBATIM workbook validation
   # text (phrasing mirrors the existing MIDS contract fixture).
   recycle_on_match: "Process record into stage table"

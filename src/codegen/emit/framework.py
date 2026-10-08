@@ -38,7 +38,13 @@ from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
 from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
 from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
-from codegen.gate.derivations import check_iig_derivations, check_sql_literals, join_path
+from codegen.gate.derivations import (
+    check_iig_derivations,
+    check_sql_literals,
+    join_path,
+    normalise_path,
+    path_normalised_flag,
+)
 from codegen.gate.preflight import GateCheck
 from codegen.metadata_sheet import (
     BADGE_LABELS,
@@ -477,11 +483,18 @@ def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:
     return descriptions
 
 
-def _synthetic_location(spec: ResolvedFeedSpec, config: Config, table: str) -> str:
+def _synthetic_location(spec: ResolvedFeedSpec, config: Config, table: str,
+                        flags: list[str] | None = None) -> str:
     # M7: assembled from normalized segments (gate.derivations.join_path) —
-    # never a raw string concatenation; a bad segment is the gate's to FAIL.
-    return join_path(config.framework.synthetic_location_prefix,
-                     spec.landing_location or spec.feed_slug, table)
+    # never a raw string concatenation. First ACFC run: the FRD landing's own
+    # punctuation (a trailing '.') is normalised and flagged path_normalised,
+    # so the literal gate checks what the path IS, not the input's typo.
+    raw = join_path(config.framework.synthetic_location_prefix,
+                    spec.landing_location or spec.feed_slug, table)
+    value, changes = normalise_path(raw)
+    if changes and flags is not None:
+        flags.append(path_normalised_flag(f"DDL LOCATION ({table})", raw, value, changes))
+    return value
 
 
 def _source_fragment(spec: ResolvedFeedSpec) -> str:
@@ -539,7 +552,8 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
             "table_comment": _sql_comment(
                 f"{purpose.capitalize()} for feed {spec.feed_name}"
                 f"{_source_fragment(spec)}"),
-            "location": (_synthetic_location(spec, config, qualified.rsplit(".", 1)[-1])
+            "location": (_synthetic_location(spec, config, qualified.rsplit(".", 1)[-1],
+                                             flags)
                          if layer == "stage" else None),
             "tags": ((spec.domain, spec.sub_domain)
                      if spec.domain and spec.sub_domain else None),
@@ -696,11 +710,12 @@ def emit_framework(
         conventions_profile=conventions_profile,
     )
     payload = _filter_payload_for_feed(payload, spec.feed_slug)
-    if template_cfg is not None:
-        from codegen.metadata_template import blank_flags, shape_flags
+    from codegen.metadata_template import blank_flags, shape_flags
 
+    if template_cfg is not None:
         flags.extend(blank_flags(payload))
-        flags.extend(shape_flags(payload))
+    # Path notes (iig_path_shape_on_uri / path_normalised) for every template.
+    flags.extend(shape_flags(payload))
     banner = _provenance_banner_rows(spec, faq, config,
                                      _faq_sha(spec, config, base_dir))
 

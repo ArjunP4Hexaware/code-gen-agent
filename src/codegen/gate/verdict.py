@@ -93,6 +93,12 @@ def compute_verdict(
     if tests_skipped:
         flags.append("generated tests were skipped — PASS cannot be claimed")
     for check in checks:
+        if check.fixes:
+            # First ACFC run: cosmetic lint the gate fixed itself (ruff's safe
+            # fixes) — recorded, never a FAIL.
+            flags.append(f"{check.name}_fixed: {len(check.fixes)} kind(s) of {check.name} "
+                         f"finding fixed automatically (safe fixes only) before the check — "
+                         + "; ".join(check.fixes))
         if check.not_run:
             # The tool did not run here: nothing was found AND nothing was
             # checked — a human's call, never a FAIL (M9.1b).

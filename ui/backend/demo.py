@@ -1884,15 +1884,34 @@ class DemoRunner:
 
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
+        from codegen.extract import NeedsAnswersError
+
         try:
-            extract_to_file(workbook_path, frd_path, contract_path, config,
-                            layout=resolution.sttm.profile,
-                            skip_stage_tables=sorted(skip_tables),
-                            # M9.2: the dialog's byte-width answers ride on the fields.
-                            width_answers=getattr(resolution, "width_answers", None) or None)
+            contract = extract_to_file(
+                workbook_path, frd_path, contract_path, config,
+                layout=resolution.sttm.profile,
+                skip_stage_tables=sorted(skip_tables),
+                # M9.2: the dialog's byte-width answers ride on the fields.
+                width_answers=getattr(resolution, "width_answers", None) or None)
+        except NeedsAnswersError as exc:
+            raise RuntimeError(f"live run produced no feeds — {exc}") from exc
         except Exception as exc:
             self._attach_pairing_hint(exc, workbook_path, frd_label)
             raise
+        # A feed whose targets no document states is held back (NEEDS_ANSWERS)
+        # with the answers-file key; the others run.
+        for pending in contract.needs_answers:
+            pre_failures.append(FailedRun(
+                label=pending.feed_name,
+                error=(f"NEEDS_ANSWERS: no document states {pending.key} (sheet "
+                       f"{pending.sheet}: {pending.reason}). Answer `{pending.key}` under "
+                       "`gaps:` in the answers file and re-run — the agent never guesses a "
+                       "target."),
+            ))
+        if contract.needs_answers:
+            self._stage("feeds set aside",
+                        f"{len(contract.needs_answers)} answer(s) needed: "
+                        + ", ".join(p.key for p in contract.needs_answers))
 
         self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
         specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)

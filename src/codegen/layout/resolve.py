@@ -918,6 +918,7 @@ def _dominant(values: list[str | None]) -> str | None:
 def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     """What the STTM says about the feed, each with a citation."""
     facts: dict = {"texts": [], "schemas": {}, "meta": {}, "files": [], "sheet_tables": [],
+                   "blank_table_sheets": [],
                    "file_rows": []}
     for ws in workbook.worksheets:
         region = sheet_region(ws)
@@ -939,6 +940,8 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                                         for r in rows])
         if entry["stage_table"]:
             facts["sheet_tables"].append(entry)
+        else:
+            facts["blank_table_sheets"].append(entry)
     for sp in profile.mapping_sheets:
         ws = workbook[sp.name]
         header_row = sp.header_row or 1
@@ -968,6 +971,8 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     for sp in profile.sheets:
         if sp.kind != "file_details" or sp.header_row is None:
             continue
+        from codegen.extract.annotations import annotation_reason
+
         ws = workbook[sp.name]
         headers = [normalize(c) for c in next(ws.iter_rows(min_row=sp.header_row,
                                                             max_row=sp.header_row,
@@ -975,9 +980,13 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
         freq_col = next((i for i, h in enumerate(headers) if "frequency" in h), None)
         name_col = next((i for i, h in enumerate(headers)
                          if "file" in h and "name" in h and "description" not in h), None)
-        for row_index, row in enumerate(ws.iter_rows(min_row=sp.header_row + 1,
-                                                     values_only=True),
-                                        start=sp.header_row + 1):
+        for row_index, styled in enumerate(ws.iter_rows(min_row=sp.header_row + 1),
+                                           start=sp.header_row + 1):
+            row = [c.value for c in styled]
+            # Guidance rows ("DataType = …", notes, italic examples) are not
+            # files (codegen.extract.annotations; the extractor reports them).
+            if annotation_reason([text(v) for v in row], name_col, styled) is not None:
+                continue
             if freq_col is not None and freq_col < len(row) and text(row[freq_col]):
                 facts["meta"].setdefault("frequency", (
                     text(row[freq_col]),
@@ -1399,6 +1408,8 @@ class GapFillResult:
 _GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strategy",
                "standard_target.load_strategy")
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
+_TARGET_FIELDS = ("stage_target.schema", "stage_target.tables", "standard_target.schema",
+                  "standard_target.tables")
 
 
 def _feed_get(feed, dotted: str):
@@ -1503,6 +1514,15 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             seen.add(key)
             candidates.append((name, cell))
     rename = len(sheet_tables) > 1 or garbled_name
+    # First ACFC run: in a split, a sheet whose TableName cells are ALL blank
+    # still gets its feed (named after the sheet, no table) so the extractor
+    # can hold it back as NEEDS_ANSWERS with a precise key — never dropped.
+    from codegen.resolve.gapfill import blank_sheet_feed_name
+
+    blank_sheets = (facts.get("blank_table_sheets") or []) if len(sheet_tables) > 0 else []
+    if len(sheet_tables) + len(blank_sheets) > 1 and blank_sheets:
+        sheet_tables = [*sheet_tables, *blank_sheets]
+        rename = True
     if len(sheet_tables) > 1:
         flags = [f"frd_feeds_split_from_sttm: FRD feed {feed.feed_name[:60]!r} names "
                  f"{feed.stage_target.tables} as target tables — none is an STTM stage table; "
@@ -1519,16 +1539,23 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                          f"({name_reason})")
     questions: list[LayoutQuestion] = []
     feeds = []
-    matched = _mutual_unique_matches([e["stage_table"] for e in sheet_tables],
+    def label(entry: dict) -> str:
+        return entry["stage_table"] or blank_sheet_feed_name(entry["sheet"])
+
+    matched = _mutual_unique_matches([label(e) for e in sheet_tables],
                                      [n for n, _c in candidates])
     # When exactly one table and one file are left over after the unique
     # matches, that file is the dialog's SUGGESTION for it — never its value.
     leftover_files = [n for n, _c in candidates if n not in matched.values()]
-    leftover_tables = [e["stage_table"] for e in sheet_tables if e["stage_table"] not in matched]
+    leftover_tables = [label(e) for e in sheet_tables if label(e) not in matched]
     suggest = leftover_files[0] if len(leftover_files) == 1 and len(leftover_tables) == 1 else None
     for index, entry in enumerate(sheet_tables):
-        table = entry["stage_table"]
+        table = label(entry)
         key = f"feeds[{index}].file_name_patterns"
+        if entry["stage_table"] is None:
+            flags.append(f"frd_unstated:feeds[{index}].stage_target.tables source_used:none — "
+                         f"sheet {entry['sheet']!r} leaves every TableName cell blank and the "
+                         f"FRD names no table for it; feed named {table!r} after the sheet")
         patterns: list[str] = []
         chosen = gaps.get(key)
         if len(sheet_tables) == 1:
@@ -1575,7 +1602,7 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             standard_update["schema_name"] = sheet_std_schema
             flags.append(f"frd_unstated:feeds[{index}].standard_target.schema source_used:STTM "
                          f"standard band {entry['sheet']!r}: {sheet_std_schema!r}")
-        stage_update: dict = {"tables": [table]}
+        stage_update: dict = {"tables": [table] if entry["stage_table"] else []}
         sheet_schema = entry.get("stage_schema")
         frd_schema = feed.stage_target.schema_name
         if sheet_schema and (frd_schema or "").lower() != sheet_schema.lower():
@@ -1738,6 +1765,8 @@ class _FeedGapFiller:
         self.prefix = f"feeds[{index}]."
         self.meta = facts.get("meta", {})
         self.file_rows = facts.get("file_rows", [])
+        self.band_schemas = facts.get("schemas", {})
+        self.band_tables = facts.get("sheet_tables", [])
         self.vdd = vdd
         self.gaps = gaps
         self.config = config
@@ -1828,6 +1857,7 @@ class _FeedGapFiller:
         from codegen.resolve.gapfill import (
             Statement,
             distinct,
+            fill_flag,
             format_statements,
             parse_load_strategy_text,
             same_value,
@@ -1850,6 +1880,19 @@ class _FeedGapFiller:
                 self.result.handled.add(key)
             elif dotted in _GAP_FIELDS:
                 self.record_fill(dotted, statement)
+            elif dotted in _TARGET_FIELDS:
+                # A target the STTM leaves blank (the extractor's NEEDS_ANSWERS
+                # key): written into the FRD feed, which the extractor reads next.
+                layer_target, _dot, part = dotted.partition(".")
+                value = ([t.strip() for t in re.split(r"[;\n,]+", statement.value) if t.strip()]
+                         if part == "tables" else statement.value.strip())
+                self.patched = _feed_set(self.patched, f"{layer_target}."
+                                         f"{'schema_name' if part == 'schema' else part}", value)
+                self.result.fills.append({"field": key, "title": self._title(key),
+                                          "value": statement.value, "source": "user",
+                                          "cell": statement.cell})
+                self.result.flags.append(fill_flag(key, statement))
+                self.result.handled.add(key)
             # feeds[i].file_name_patterns answers are consumed by the split step.
 
         # a'. file patterns (M9.1b): FRD -> STTM meta rows / File Details (the
@@ -1954,9 +1997,20 @@ class _FeedGapFiller:
         # d. the STTM stage band is authoritative for catalog / schema / tables:
         # never a question; flagged when the FRD stated nothing.
         for dotted in _STTM_AUTHORITATIVE:
-            if _feed_get(feed, dotted) in (None, [], ""):
+            if self.handled(dotted):
+                continue                          # the person answered it (step a)
+            band_states = (bool(self.band_tables) if dotted.endswith("tables")
+                           else "stage.schema" in self.band_schemas)
+            if _feed_get(feed, dotted) in (None, [], "") and band_states:
                 self.result.flags.append(f"frd_unstated:{prefix}{dotted} source_used:STTM stage "
                                          "band (authoritative; never asked)")
+            elif _feed_get(feed, dotted) in (None, [], ""):
+                # First ACFC run: the band is blank too — the extractor's chain
+                # (File Details / layer convention) applies, else NEEDS_ANSWERS.
+                self.result.flags.append(f"frd_unstated:{prefix}{dotted} source_used:none — the "
+                                         "STTM stage band leaves it blank too; answer "
+                                         f"`{prefix}{dotted}` under gaps: unless File Details "
+                                         "or the layer convention states it")
             self.result.handled.add(prefix + dotted)
         return self.patched
 

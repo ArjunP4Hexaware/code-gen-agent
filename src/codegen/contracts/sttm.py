@@ -147,6 +147,21 @@ class FieldProvenance(BaseModel):
     source: Literal["synonyms", "model", "user", "cache"]
 
 
+class PendingAnswer(BaseModel):
+    """A mapping sheet the extractor could not turn into a feed because no
+    document states one of its targets (the first ACFC run: blank Schema /
+    TableName cells, nothing in File Details / the FRD / the layer
+    convention). The feed is NEEDS_ANSWERS — reported with the exact
+    answers-file key that unblocks it — instead of failing the whole run."""
+
+    model_config = _MODEL_CONFIG
+
+    feed_name: str        # the FRD feed the sheet pairs with
+    sheet: str
+    key: str              # the answers.yaml `gaps:` key, e.g. feeds[0].stage_target.schema
+    reason: str           # which cells / sources were read and found blank
+
+
 class AuxiliarySheet(BaseModel):
     """A non-mapping sheet recognised by header signature (file details,
     table details, LOB crosswalk, DQ rules, family-C layout) — attached
@@ -347,6 +362,9 @@ class SttmContract(BaseModel):
     # read through. Both default so pre-M1 contract JSON still loads.
     auxiliary_sheets: list[AuxiliarySheet] = Field(default_factory=list)
     layout: LayoutSummary | None = None
+    # Feeds held back as NEEDS_ANSWERS (absent from the JSON when empty, so
+    # every existing contract is byte-identical).
+    needs_answers: list[PendingAnswer] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_unique_feed_ids(self) -> SttmContract:

@@ -21,7 +21,7 @@ from codegen.contracts.resolved import (
     ResolvedTable,
     SegmentSpec,
 )
-from codegen.contracts.sttm import SttmContract, SttmFeed
+from codegen.contracts.sttm import SttmContract, SttmFeed, SttmField
 
 # Format -> implied delimiter when a contract leaves it null.
 _FORMAT_DELIMITERS = {"csv": ",", "psv": "|"}
@@ -518,12 +518,54 @@ def _resolve_segments(
     return segments
 
 
-def _stage_columns(sttm_feed: SttmFeed, source_columns: list[str], feed: str) -> list[str]:
-    by_source = {f.source_column: f.stage_column for f in sttm_feed.fields}
-    missing = [c for c in source_columns if c not in by_source]
-    if missing:
-        raise ContractMismatchError(feed, [f"columns not present in STTM fields: {missing}"])
-    return [by_source[c] for c in source_columns]
+def _key_marked(f: SttmField) -> bool:
+    return not f.nullable or f.primary_key
+
+
+def _detail_key_columns(segments: list[SegmentSpec], source_columns: list[str],
+                        flags: list[str]) -> list[str]:
+    """The Detail table's natural key, resolved by (segment, field name).
+
+    A key names SOURCE fields, and a fixed-width file repeats some of them in
+    every record (``REC_TYPE`` in the header, the detail and the trailer, each
+    mapped to its own target column). The lookup therefore stays inside the
+    Detail segment — the rows the Detail table's MERGE sees — and never
+    crosses into another segment: a name marked only in the header / trailer
+    is THAT table's key (it keeps its Primary Key on its own field, which the
+    per-table IIG reads), not the Detail table's. A listed name that no
+    segment carries after resolution is dropped with ``key_column_not_in_table``."""
+    detail = next((s for s in segments if s.segment == "Detail"), None)
+    if detail is None:
+        return []
+    keys: list[str] = []
+    for name in dict.fromkeys(source_columns):
+        own = [f for f in detail.fields if f.source_column == name]
+        elsewhere = [(s, f) for s in segments if s is not detail
+                     for f in s.fields if f.source_column == name]
+        if own and (any(_key_marked(f) for f in own)
+                    or not any(_key_marked(f) for _s, f in elsewhere)):
+            marked = next((f for f in own if _key_marked(f)), own[0])
+            keys.append(marked.stage_column)
+            continue
+        if elsewhere:
+            continue                 # the key of its own segment's table
+        flags.append(
+            f"key_column_not_in_table:{name} — the STTM lists {name!r} as a key / not-null "
+            f"column (load_rules.not_null_columns), but after per-segment resolution no field "
+            f"of the Detail table {detail.stage_table.table!r} (or of any other resolved "
+            "segment) carries it; dropped from the natural key")
+    return list(dict.fromkeys(keys))
+
+
+def _phi_stage_columns(segments: list[SegmentSpec], source_columns: list[str]) -> list[str]:
+    """Every PHI-flagged field's OWN stage column, resolved by (segment, field
+    name): a name the header, detail and trailer all carry maps to each
+    segment's column that is flagged PHI — never to whichever came last."""
+    columns: list[str] = []
+    for name in source_columns:
+        columns += [f.stage_column for s in segments for f in s.fields
+                    if f.source_column == name and f.phi]
+    return list(dict.fromkeys(columns))
 
 
 def resolve_feeds(
@@ -535,8 +577,12 @@ def resolve_feeds(
     sttm_sha256: str,
     vdd=None,
 ) -> list[ResolvedFeedSpec]:
-    """Join every FRD feed to its STTM feed. Unmatched feeds on either side fail."""
+    """Join every FRD feed to its STTM feed. Unmatched feeds on either side
+    fail — except a feed the extractor held back as NEEDS_ANSWERS
+    (``sttm.needs_answers``): it is reported by the caller
+    (:func:`pending_answers`), never resolved and never an error."""
     sttm_by_id = {f.feed_id: f for f in sttm.feeds}
+    held_back = {p.feed_name for p in sttm.needs_answers}
     matched_sttm_ids: set[str] = set()
     specs: list[ResolvedFeedSpec] = []
     unmatched_frd: list[str] = []
@@ -546,6 +592,8 @@ def resolve_feeds(
             frd_feed.feed_name
         )
         sttm_feed = sttm_by_id.get(feed_id)
+        if sttm_feed is None and frd_feed.feed_name in held_back:
+            continue
         if sttm_feed is None:
             unmatched_frd.append(f"{frd_feed.feed_name!r} (looked for STTM feed_id '{feed_id}')")
             continue
@@ -777,9 +825,11 @@ def _resolve_one(
         provenance=("FRD / STTM file pattern; LOBs from the STTM header block 'LOB'"
                     if header_lobs else "FRD / STTM file pattern; LOBs from the FRD"))
 
-    natural_key = _stage_columns(sttm_feed, sttm_feed.load_rules.not_null_columns, feed_id)
+    key_flags: list[str] = []
+    natural_key = _detail_key_columns(segments, sttm_feed.load_rules.not_null_columns,
+                                      key_flags)
     not_null = natural_key
-    phi = _stage_columns(sttm_feed, sttm_feed.load_rules.phi_columns, feed_id)
+    phi = _phi_stage_columns(segments, sttm_feed.load_rules.phi_columns)
 
     return ResolvedFeedSpec(
         feed_id=feed_id,
@@ -819,7 +869,8 @@ def _resolve_one(
         source_table=sttm_feed.source_table,
         provenance_flags=list(dict.fromkeys([
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
-            *width_flags, *gap_flags, *catalog_flags, *provenance_flags, *file_flags])),
+            *width_flags, *gap_flags, *catalog_flags, *provenance_flags, *file_flags,
+            *key_flags])),
         files=files,
     )
 
@@ -830,6 +881,13 @@ def _frd_extraction_flags(frd: FrdContract, frd_feed: FrdFeed) -> list[str]:
     index = next((i for i, f in enumerate(frd.feeds) if f is frd_feed), None)
     return [f for f in frd.extraction_flags
             if "feeds[" not in f or (index is not None and f"feeds[{index}]" in f)]
+
+
+def pending_answers(sttm_path: Path) -> list:
+    """The feeds an STTM contract holds back as NEEDS_ANSWERS
+    (:class:`~codegen.contracts.sttm.PendingAnswer`), in contract order."""
+    sttm = SttmContract.model_validate(json.loads(Path(sttm_path).read_text(encoding="utf-8")))
+    return list(sttm.needs_answers)
 
 
 def resolve_pair(frd_path: Path, sttm_path: Path, config: Config,

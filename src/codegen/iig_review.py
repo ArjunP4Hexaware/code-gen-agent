@@ -72,7 +72,7 @@ def _reason(column: str, value, entry: dict, always_blank: set[str],
         if column in always_blank:
             return "framework_assigned"
         return "unstated"
-    if entry.get("note"):
+    if entry.get("note") or entry.get("path_note"):
         return "flagged_note"
     if badge in SYNTHETIC_BADGES:
         return "synthetic_path" if tooltip.startswith(PATH_TOOLTIP_PREFIX) else \
@@ -83,7 +83,7 @@ def _reason(column: str, value, entry: dict, always_blank: set[str],
 def _citation(column: str, reason: str, entry: dict, template: str) -> str:
     tooltip = (entry.get("tooltip") or "").strip()
     if reason == "flagged_note":
-        return entry["note"]
+        return "; ".join(n for n in (entry.get("note"), entry.get("path_note")) if n)
     if reason in ("synthetic_path", "template_constant"):
         return tooltip or f"template {template} constant"
     if reason == "framework_assigned":

@@ -20,7 +20,12 @@ from codegen.contracts.frd import FrdFeed
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
 from codegen.contracts.tables import FeedFile
-from codegen.gate.derivations import join_location, location_scheme
+from codegen.gate.derivations import (
+    join_location,
+    location_scheme,
+    normalise_path,
+    path_normalised_flag,
+)
 
 _TEMPLATE_TOOLTIP = "template constant — {citation}"
 _PATH_TOOLTIP = ("synthetic path shape from the template ({citation}); the real "
@@ -253,6 +258,29 @@ def _landing(feed: FrdFeed) -> str | None:
     return "/" + value.strip("/") + "/"
 
 
+def _path_cell(tpl: MetadataTemplateConfig, tab: str, header: str, raw: str, badge: str,
+               tooltip: str | None, lowered: str | None = None) -> dict:
+    """A derived path cell, normalised (first ACFC run): the input's trailing
+    punctuation / doubled separators never reach the cell, and the family's
+    ``path_case`` applies to the input-derived segments (``lowered`` = the
+    value built from lowercased inputs). Any change leaves a ``path_note``
+    with the before / after — a ``path_normalised`` gate flag. A clean path
+    is the cell exactly as before."""
+    value, changes = normalise_path(lowered if lowered is not None else raw)
+    if lowered is not None and lowered != raw:
+        changes = ["input segments lowercased (path_case: lower)", *changes]
+    cell = _cell(value if changes else raw, badge, tooltip)
+    if changes:
+        cell["badge_entry"]["path_note"] = path_normalised_flag(f"{tab}.{header}", raw, value,
+                                                                changes)
+    return cell
+
+
+def _lower_inputs(tpl: MetadataTemplateConfig, uri: bool) -> bool:
+    # A location URI is carried as written (M10.2) — never re-cased.
+    return tpl.path_case == "lower" and not uri
+
+
 def _landing_badge(feed: FrdFeed, folder_badge: str = "from_frd") -> tuple[str, str | None]:
     scheme = location_scheme(feed.landing_location)
     if scheme:
@@ -314,9 +342,9 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
             note = (f"; the template shape {pattern!r} prefixes the landing, which a "
                     "location URI cannot carry — its segments follow the URI instead"
                     if before.strip("/\\") else "")
-            cell = _cell(value, "synthetic",
-                         _path_tooltip(tpl, tab, header, pattern)
-                         + f" (location URI base, {uri}://){note}")
+            cell = _path_cell(tpl, tab, header, value, "synthetic",
+                              _path_tooltip(tpl, tab, header, pattern)
+                              + f" (location URI base, {uri}://){note}")
             if note:
                 cell["badge_entry"]["note"] = (
                     f"iig_path_shape_on_uri:{tab}.{header} — template shape {pattern!r} "
@@ -326,8 +354,15 @@ def _paths(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
         value = pattern.format(landing=landing, landing_rel=landing_rel,
                                domain_path=_domain_path(landing_rel),
                                stage_table=stage_table, reject_table=reject_table)
-        cells[header] = _cell(value.replace("//", "/"), "synthetic",
-                              _path_tooltip(tpl, tab, header, pattern))
+        lowered = (pattern.format(landing=landing.lower(), landing_rel=landing_rel.lower(),
+                                  domain_path=_domain_path(landing_rel).lower(),
+                                  stage_table=stage_table.lower(),
+                                  reject_table=reject_table.lower()).replace("//", "/")
+                   if _lower_inputs(tpl, False) else None)
+        # A shape's own doubled separator ({landing}/x) was always collapsed
+        # silently; the INPUT's punctuation is normalised and flagged.
+        cells[header] = _path_cell(tpl, tab, header, value.replace("//", "/"), "synthetic",
+                                   _path_tooltip(tpl, tab, header, pattern), lowered)
     return cells
 
 
@@ -548,7 +583,10 @@ def _file_adls(tab, feed, config, spec, faq, tpl) -> list[dict]:
     }
     landing = _landing(feed)
     if landing is not None:
-        cells["TGT_ADLS_PATH"] = _cell(landing, *_landing_badge(feed))
+        uri = bool(location_scheme(feed.landing_location))
+        cells["TGT_ADLS_PATH"] = _path_cell(
+            tpl, tab, "TGT_ADLS_PATH", landing, *_landing_badge(feed),
+            lowered=landing.lower() if _lower_inputs(tpl, uri) else None)
     # A configured shape wins (e.g. {landing_rel}: the landing INSIDE its
     # container — Chunk A, pair 4); without one the FRD landing as before.
     cells.update(_paths(tpl, tab, feed, "", ""))
@@ -629,8 +667,11 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                                         else "from_sttm", "file pattern extension")
         landing = _landing(feed)
         if landing is not None:
-            cells["SRC_ADLS_PATH"] = _cell(landing, "from_frd",
-                                           "FRD Structural Metadata → ADLS Location")
+            uri = bool(location_scheme(feed.landing_location))
+            cells["SRC_ADLS_PATH"] = _path_cell(
+                tpl, tab, "SRC_ADLS_PATH", landing, "from_frd",
+                "FRD Structural Metadata → ADLS Location",
+                lowered=landing.lower() if _lower_inputs(tpl, uri) else None)
         if spec.delimiter:
             cells["SRC_FILE_DELIMITER"] = _cell(spec.delimiter, "from_frd")
         cells.update(_header_flag_cells(spec, faq))
@@ -1019,14 +1060,17 @@ def blank_flags(payload: dict) -> list[str]:
 
 
 def shape_flags(payload: dict) -> list[str]:
-    """M10.2: the ``iig_path_shape_on_uri:`` notes the path derivation left
-    on cells (a template shape that prefixes the landing, applied to a
-    location URI). Empty for every folder-path landing."""
-    return [entry["note"]
-            for tab in payload["tabs"].values()
-            for row in tab["rows"]
-            for entry in row["badges"].values()
-            if entry is not None and entry.get("note")]
+    """The notes the path derivation left on cells, once each: M10.2's
+    ``iig_path_shape_on_uri:`` (a template shape that prefixes the landing,
+    applied to a location URI) and the first ACFC run's ``path_normalised:``
+    (an input path normalised — before / after). Empty for a clean
+    folder-path landing."""
+    return list(dict.fromkeys(
+        note
+        for tab in payload["tabs"].values()
+        for row in tab["rows"]
+        for entry in row["badges"].values() if entry is not None
+        for note in (entry.get("note"), entry.get("path_note")) if note))
 
 
 def blank_columns(flags: list[str]) -> dict[str, list[str]]:

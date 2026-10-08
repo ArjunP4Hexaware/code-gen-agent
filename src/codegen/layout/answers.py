@@ -205,13 +205,14 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
                 f"answers[{index}]: column {entry['column']!r} is neither a candidate header "
                 f"of sheet {entry['sheet']!r}, an index nor a column letter")
         out[document][matches[0].key] = column
+    from codegen.resolve.gapfill import TARGET_KEY_RE
     from codegen.resolve.widths import WIDTH_KEY_RE
 
     open_keys = {q.key for q in questions if q.kind in ("choice", "layer", "text")}
     for key, value in answers.gaps.items():
         # A byte-width answer (M9.2) always travels: on a later pass the
         # question is no longer open BECAUSE it was answered.
-        if key in open_keys or WIDTH_KEY_RE.match(key):
+        if key in open_keys or WIDTH_KEY_RE.match(key) or TARGET_KEY_RE.match(key):
             out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
                                 "source": "user"}
         else:

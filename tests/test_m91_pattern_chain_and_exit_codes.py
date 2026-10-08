@@ -412,11 +412,13 @@ def test_ruff_check_tells_findings_from_a_tool_that_did_not_run(tmp_path, monkey
     assert _ruff_check(clean) == GateCheck(name="ruff", passed=True, details="ruff clean")
     dirty = tmp_path / "dirty"
     dirty.mkdir()
-    (dirty / "bad.py").write_text("import os\n", encoding="utf-8")
+    # A finding with no safe fix (an unused import would be fixed first — the
+    # first ACFC run's ruff_fixed rule).
+    (dirty / "bad.py").write_text("VALUE = undefined\n", encoding="utf-8")
     finding = _ruff_check(dirty)
-    assert not finding.passed and not finding.not_run
+    assert not finding.passed and not finding.not_run and finding.fixes == []
     assert finding.details.splitlines()[0] == "1 finding(s)"
-    assert finding.details.splitlines()[1].startswith("bad.py:1:8: F401 ")   # relative path
+    assert finding.details.splitlines()[1].startswith("bad.py:1:9: F821 ")   # relative path
     # The tool cannot run: not a finding.
     import subprocess
 

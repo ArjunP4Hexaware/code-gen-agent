@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import json
+from pathlib import Path
 from typing import Any
 
 from codegen.emit.context import TemplateGapError
@@ -343,6 +344,44 @@ def _entrypoint_cells(entrypoint_source: str) -> list[dict[str, Any]]:
         cells.append(_code_cell(f"entrypoint-{index}", cell_text + "\n"))
         index += 1
     return cells
+
+
+def resync_notebook(notebook_path: Path, feed_dir: Path) -> None:
+    """Rebuild an assembled notebook's module and entrypoint cells from the
+    files on disk — after the gate's ruff safe fixes changed them — so the
+    notebook never drifts from its modules. Every other cell (intro,
+    bootstrap, DDL / prerequisite) is kept exactly; a module whose file did
+    not change renders the identical cells. Raises TemplateGapError when the
+    fixed modules no longer assemble (the same checks as ``build_notebook``)."""
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    cells: list[dict[str, Any]] = notebook["cells"]
+    ids = [cell.get("id") for cell in cells]
+    modules = [i for i in ids if i and f"{i}-md" in ids
+               and (feed_dir / "pipeline" / f"{i}.py").is_file()]
+    sources = {name: (feed_dir / "pipeline" / f"{name}.py").read_text(encoding="utf-8")
+               for name in modules}
+    entrypoint = (feed_dir / "job" / "notebook_entrypoint.py").read_text(encoding="utf-8")
+    bindings = {f"pipeline/{n}.py": _top_level_bindings(f"pipeline/{n}.py", s)
+                for n, s in sources.items()}
+    bindings["job/notebook_entrypoint.py"] = _top_level_bindings(
+        "job/notebook_entrypoint.py", entrypoint)
+    _check_namespace(bindings)
+    _check_import_order(modules, bindings)
+    rebuilt: list[dict[str, Any]] = []
+    for cell in cells:
+        cell_id = cell.get("id") or ""
+        if cell_id in modules:
+            rebuilt.extend(_module_cells(cell_id, sources[cell_id],
+                                         bindings[f"pipeline/{cell_id}.py"]))
+        elif cell_id == "entrypoint-md":
+            rebuilt.extend(_entrypoint_cells(entrypoint))
+        elif cell_id.startswith("entrypoint-") or cell_id.removesuffix("-md") in modules:
+            continue                     # rebuilt with its module / the entrypoint
+        else:
+            rebuilt.append(cell)
+    notebook["cells"] = rebuilt
+    notebook_path.write_text(json.dumps(notebook, ensure_ascii=False, indent=1) + "\n",
+                             encoding="utf-8", newline="\n")
 
 
 def build_notebook(

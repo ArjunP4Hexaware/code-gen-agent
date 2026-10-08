@@ -469,6 +469,40 @@ Design and status: `docs/acfc/MULTI_TABLE_DESIGN.md`; the night's record:
   --generated <feed>_IIG.xlsx --real <real IIG>.xlsx [--summary-only]` — rows
   paired by key, a score per sheet and in TOTAL
   (`docs/acfc/IIG_SCORECARD_2026-10-07.md`).
+- **The first ACFC run on real documents (0.5.8.post20)** — four defects, each
+  reproduced on synthetic documents in `tests/test_acfc_run1_defects.py`:
+  1. *Key lookup by (segment, field name).* A field every record carries
+     (`REC_TYPE` in header, detail and trailer, three target columns) resolved
+     last-wins to the trailer's column → `KeyError` in the emitter. The Detail
+     table's natural key is now resolved inside the Detail segment; a key that
+     no resolved segment carries is dropped with `key_column_not_in_table`.
+  2. *STTM robustness.* (a) A FILE_DETAILS row that does not fit the row schema
+     (`<label> = <value>` text, a note with no file name, prose in the file-name
+     cell, every filled cell italic / coloured) is skipped by every reader and
+     listed in the contract notes + one `file_details_annotation_skipped` flag
+     per row — never read as a file. (b) Blank Schema / TableName cells on a
+     mapping sheet: table from the feed's File Details target-table cell
+     (`extractor.file_details_headers.target_table`) or the FRD's only table,
+     schema from the FRD or the layer convention (`conventions.default_schema`)
+     — each `sttm_target_missing:<layer>.<schema|table> source_used:<source>`
+     (the M9 `sttm_unstated:` flag renamed). Nothing supplies it → the feed is
+     **NEEDS_ANSWERS**: held back with the exact answers-file key
+     (`gaps: {"feeds[i].stage_target.schema": {value: …}}`, also `.tables` and
+     the `standard_target` pair); the other feeds extract and generate. The CLI
+     prints `NEEDS_ANSWERS <feed> … answer <key>` and exits **3** (nothing
+     FAILED, a feed needs an answer); the App lists the feed as set aside with
+     the key. In a multi-sheet split, a sheet with no table still gets its own
+     derived feed (named after the sheet) so its key is precise.
+  3. *Path normalisation.* Derived landing / target paths drop trailing
+     punctuation, collapse doubled / backslash separators and — when the
+     template's `path_case: lower` says so — lowercase the input-derived
+     segments (shape literals such as `Processed/` stay as configured). Every
+     change is a `path_normalised:<cell> — before '…' after '…' (…)` flag; the
+     derivation gate checks the normalised value (also the DDL `LOCATION`).
+  4. *ruff safe fixes before the gate.* The ruff check applies ruff's SAFE fixes
+     (`--fix`, never `--unsafe-fixes`), re-syncs the assembled notebook from the
+     fixed modules, and judges what remains; the fixes are the `ruff_fixed`
+     flag (PASS_WITH_FLAGS, never FAIL). A finding without a safe fix still FAILs.
 
 ## What v0.5.8-acfc adds (Generate works right after a restart)
 

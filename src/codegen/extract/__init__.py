@@ -2,6 +2,7 @@
 
 from codegen.extract.extractor import (
     ExtractionError,
+    NeedsAnswersError,
     contract_to_json,
     extract_contract,
     extract_to_file,
@@ -10,6 +11,7 @@ from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError,
 
 __all__ = [
     "ExtractionError",
+    "NeedsAnswersError",
     "SegmentedWorkbookError",
     "WorkbookParseError",
     "contract_to_json",

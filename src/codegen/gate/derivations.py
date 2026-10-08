@@ -159,6 +159,64 @@ def join_path(*parts: str | None, separator: str = "/") -> str:
     return separator.join(segments)
 
 
+def normalise_path(value: str, *, lowercase: bool = False) -> tuple[str, list[str]]:
+    """(normalised value, what changed) for a DERIVED landing / target path.
+
+    Input documents carry punctuation a path cannot (first ACFC run: an FRD
+    ADLS Location ending ``…/accum.``, ``inbound//vendor``): every segment is
+    whitespace-trimmed and stripped of trailing ``.,;:``, a doubled or
+    backslash separator becomes one ``/``, a segment that was only
+    punctuation is dropped, and — when the convention says so — the segments
+    are lowercased. A location URI keeps its scheme and authority verbatim;
+    only its path is normalised. The leading / trailing separator is kept.
+    Nothing changed → the value is returned exactly as given, with ``[]``,
+    so a clean path is byte-identical. The caller flags ``path_normalised``
+    with the before / after; the gate then checks the normalised value."""
+    text = value.strip()
+    head, path = "", text
+    if location_scheme(text):
+        _scheme, _authority, path = split_location(text)
+        head = text[: len(text) - len(path)] if path and text.endswith(path) else text
+        if not path:
+            return value, []
+    changes: list[str] = []
+    if text != value:
+        changes.append("surrounding whitespace trimmed")
+    if "\\" in path:
+        changes.append("backslash separator(s) made '/'")
+    if re.search(r"[\\/]{2,}", path):
+        changes.append("doubled separator collapsed")
+    inner = path.strip("\\/")
+    lead, trail = path[:1] in ("/", "\\"), path[-1:] in ("/", "\\") and bool(inner)
+    segments: list[str] = []
+    for raw in re.split(r"[\\/]", inner) if inner else []:
+        segment = raw.strip()
+        if segment != raw:
+            changes.append(f"whitespace around segment {raw!r} trimmed")
+        if segment == "":
+            continue                   # a doubled separator / blank segment (noted above)
+        stripped = segment.rstrip(_TRAILING_PUNCT).rstrip()
+        if stripped == "":
+            changes.append(f"punctuation-only segment {segment!r} dropped")
+            continue
+        if stripped != segment:
+            changes.append(f"trailing punctuation stripped from {segment!r}")
+        if lowercase and stripped != stripped.lower():
+            changes.append(f"segment {stripped!r} lowercased (convention)")
+            stripped = stripped.lower()
+        segments.append(stripped)
+    if not changes:
+        return value, []
+    return head + ("/" if lead else "") + "/".join(segments) + ("/" if trail else ""), \
+        list(dict.fromkeys(changes))
+
+
+def path_normalised_flag(where: str, before: str, after: str, changes: list[str]) -> str:
+    """The ``path_normalised`` flag: the cell / literal, before and after."""
+    return (f"path_normalised:{where} — before {before!r} after {after!r} "
+            f"({'; '.join(changes)})")
+
+
 # ----------------------------------------------------------------- names ---
 
 
@@ -311,6 +369,8 @@ __all__ = [
     "check_sql_literals",
     "join_path",
     "literal_violations",
+    "normalise_path",
+    "path_normalised_flag",
     "path_segments",
     "path_violations",
     "short_token",

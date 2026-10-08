@@ -34,6 +34,7 @@ from codegen.contracts.sttm import (
     FieldProvenance,
     LayoutSummary,
     LoadRules,
+    PendingAnswer,
     RecycleSpec,
     SourceFile,
     SttmContract,
@@ -95,6 +96,9 @@ class GenericIR:
     auxiliary: list[AuxiliarySheet]
     version: str | None
     diagnostics: list[str]
+    # FILE_DETAILS rows that do not fit the row schema, skipped (one
+    # extraction-report line each — codegen.extract.annotations).
+    annotations: list[str] = field(default_factory=list)
 
 
 def layout_summary(profile: LayoutProfile) -> LayoutSummary:
@@ -117,6 +121,7 @@ def read_workbook(found: Discovery, name: str, config: Config) -> GenericIR:
     auxiliary: list[AuxiliarySheet] = []
     version: str | None = None
     diagnostics = list(found.diagnostics)
+    annotations: list[str] = []
     for sp in profile.sheets:
         ws = workbook[sp.name]
         if sp.kind == "mapping":
@@ -124,16 +129,31 @@ def read_workbook(found: Discovery, name: str, config: Config) -> GenericIR:
         elif sp.kind == "version":
             version = _last_version(ws, sp) or version
         elif sp.kind != "ignore":
-            auxiliary.append(_read_auxiliary(ws, sp))
+            auxiliary.append(_read_auxiliary(ws, sp, annotations))
     return GenericIR(workbook_name=name, profile=profile, sheets=sheets, auxiliary=auxiliary,
-                     version=version, diagnostics=diagnostics)
+                     version=version, diagnostics=diagnostics, annotations=annotations)
 
 
-def _read_auxiliary(ws, sp: SheetProfile) -> AuxiliarySheet:
+def _read_auxiliary(ws, sp: SheetProfile, annotations: list[str] | None = None
+                    ) -> AuxiliarySheet:
+    from codegen.extract.annotations import annotation_reason, describe, file_name_index
+
     header_row = sp.header_row or 1
+    name_col = (file_name_index([normalize(h) for h in sp.headers])
+                if sp.kind == "file_details" else None)
     rows = []
-    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
-        cells = [text(c) for c in row[: len(sp.headers)]]
+    for row_number, row in enumerate(ws.iter_rows(min_row=header_row + 1),
+                                     start=header_row + 1):
+        styled = row[: len(sp.headers)]
+        cells = [text(c.value) for c in styled]
+        if sp.kind == "file_details":
+            # Guidance written into the table ("DataType = …", a note row, an
+            # italic example) is not a file: skipped and reported.
+            reason = annotation_reason(cells, name_col, styled)
+            if reason is not None:
+                if annotations is not None:
+                    annotations.append(describe(sp.name, row_number, reason, cells))
+                continue
         if any(c is not None for c in cells):
             rows.append(cells + [None] * (len(sp.headers) - len(cells)))
     return AuxiliarySheet(kind=sp.kind, sheet=sp.name, headers=list(sp.headers), rows=rows)
@@ -339,14 +359,77 @@ def _schema_chain(layer: str, band_value: str | None, band_provenance: str, frd_
         return band_value
     default = config.conventions.default_schema.get(layer)
     for value, source in ((frd_value, "FRD 'Target Catalog and Schema'"),
-                          (default, f"config_default (conventions.default_schema[{layer}])")):
+                          (default, f"layer convention (conventions.default_schema[{layer}])")):
         if value:
-            flags.append(f"sttm_unstated:{layer}.schema source_used:{source}: {value!r} — "
+            flags.append(f"sttm_target_missing:{layer}.schema source_used:{source}: {value!r} — "
                          f"{band_provenance}")
             notes.append(f"sheet {sheet!r}: {layer} schema not stated in the STTM "
                          f"({band_provenance}); taken from {source}: {value!r}")
             return value
     return None
+
+
+def _table_chain(layer: str, band_value: str | None, band_provenance: str,
+                 details: tuple[str, str] | None, frd_tables: list[str], sheet: str,
+                 notes: list[str], flags: list[str]) -> str | None:
+    """STTM target band -> this feed's File Details row (its target-table
+    cell; stage only) -> the FRD (when it names exactly ONE table for the
+    layer); every link after the first is a provenance note AND a
+    ``sttm_target_missing`` flag. None = no source."""
+    if band_value is not None:
+        return band_value
+    candidates: list[tuple[str | None, str]] = []
+    if details is not None:
+        candidates.append((details[0], f"File Details {details[1]}"))
+    if len(frd_tables) == 1:
+        candidates.append((frd_tables[0], f"FRD {layer} target (its only table)"))
+    for value, source in candidates:
+        if value:
+            flags.append(f"sttm_target_missing:{layer}.table source_used:{source}: {value!r} — "
+                         f"{band_provenance}")
+            notes.append(f"sheet {sheet!r}: {layer} table not stated in the STTM "
+                         f"({band_provenance}); taken from {source}: {value!r}")
+            return value
+    return None
+
+
+def _details_target(feed: FrdFeed, ir: GenericIR, sheet: SheetData,
+                    config: Config) -> tuple[str, str] | None:
+    """(target table, cell) from the File Details row of THIS feed's file:
+    the row whose file name is one of the FRD's patterns, else — one sheet,
+    one row — the only row. None when the sheet has no target-table column."""
+    wanted = {normalize(h) for h in config.extractor.file_details_headers.target_table}
+    own = [p.strip() for key in ("file_names", "file_name_example")
+           for p in re.split(r"[\n;,]+", sheet.meta.get(key) or "") if p.strip()]
+    canonical = {_canonical_file_name(p) for p in [*feed.file_name_patterns, *own]}
+    for aux in ir.auxiliary:
+        if aux.kind != "file_details":
+            continue
+        headers = [normalize(h) for h in aux.headers]
+        target = next((i for i, h in enumerate(headers) if h in wanted), None)
+        name = next((i for i, h in enumerate(headers)
+                     if h in ("filename", "file name", "inbound file name")), None)
+        if target is None:
+            continue
+        rows = [r for r in aux.rows if name is not None and name < len(r) and r[name]
+                and _canonical_file_name(r[name]) in canonical]
+        if not rows and len(aux.rows) == 1 and len(ir.sheets) == 1:
+            rows = aux.rows
+        values = list(dict.fromkeys(r[target] for r in rows if target < len(r) and r[target]))
+        if len(values) == 1:
+            return values[0], (f"{aux.sheet}!{get_column_letter(target + 1)} "
+                               f"({aux.headers[target]!r}, the row of this feed's file)")
+    return None
+
+
+class NeedsAnswers(GenericExtractionError):
+    """No document states a target of this sheet: the feed is held back as
+    NEEDS_ANSWERS with the answers-file keys that unblock it."""
+
+    def __init__(self, pending: list[PendingAnswer]) -> None:
+        self.pending = pending
+        super().__init__("; ".join(f"{p.sheet}: answer `{p.key}` under gaps: — {p.reason}"
+                                   for p in pending))
 
 
 def _unmapped_markers(config: Config) -> set[str]:
@@ -371,6 +454,17 @@ def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
         notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
                      f"{matches[0].feed_name!r} by file pattern")
         return matches[0]
+    if stage_table is None:
+        # Blank TableName cells (first ACFC run): the feed the layout stage
+        # derived for this sheet, named after it.
+        from codegen.resolve.gapfill import blank_sheet_feed_name
+
+        named = [f for f in frd.feeds if f.feed_name.lower()
+                 == blank_sheet_feed_name(sheet.profile.name).lower()]
+        if len(named) == 1:
+            notes.append(f"sheet {sheet.profile.name!r} (blank TableName cells) paired to FRD "
+                         f"feed {named[0].feed_name!r}, derived for it by the layout stage")
+            return named[0]
     if len(frd.feeds) == 1 and len(ir.sheets) == 1:
         notes.append(f"sheet {sheet.profile.name!r} paired to the FRD's only feed "
                      f"{frd.feeds[0].feed_name!r} (single sheet, single feed)")
@@ -457,8 +551,26 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     disc = config.extractor.discovery
     notes: list[str] = []
     feeds: list[SttmFeed] = []
+    pending: list[PendingAnswer] = []
     for sheet in ir.sheets:
-        feeds.append(_build_feed(sheet, ir, frd, config, disc, notes, width_answers or {}))
+        try:
+            feeds.append(_build_feed(sheet, ir, frd, config, disc, notes, width_answers or {}))
+        except NeedsAnswers as held:
+            # One sheet without a stated target holds back ITS feed only.
+            pending.extend(held.pending)
+            notes.extend(f"sheet {p.sheet!r}: feed {p.feed_name!r} NEEDS_ANSWERS — answer "
+                         f"`{p.key}` under gaps: ({p.reason})" for p in held.pending)
+    if not feeds:
+        from codegen.extract.extractor import NeedsAnswersError
+
+        raise NeedsAnswersError(pending)
+    if ir.annotations:
+        from codegen.extract.annotations import flag
+
+        notes += [f"FILE_DETAILS annotation row skipped (not read as a file): {e}"
+                  for e in ir.annotations]
+        feeds = [f.model_copy(update={"extraction_flags": [
+            *f.extraction_flags, *(flag(e) for e in ir.annotations)]}) for f in feeds]
     return SttmContract(
         contract_name=contract_name or f"STTM mapping contract extracted from {ir.workbook_name}",
         generated_from_workbook=ir.workbook_name,
@@ -475,6 +587,7 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
         feeds=feeds,
         auxiliary_sheets=ir.auxiliary,
         layout=layout_summary(ir.profile),
+        needs_answers=pending,
     )
 
 
@@ -525,43 +638,69 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             f"sheet {name!r}: no field rows could be read "
             f"(skipped: {sheet.skipped[:3]}{'…' if len(sheet.skipped) > 3 else ''}; "
             f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})")
-    missing = [role for role in ("table", "column", "target_type")
+    missing = [role for role in ("column", "target_type")
                if all(r.values.get(f"stage.{role}") is None for r in sheet.fields)]
     if missing:
         raise GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
-            "empty) — a contract needs stage table, column and data type per field")
+            "empty) — a contract needs stage column and data type per field")
     flags: list[str] = []
-    stage_table, table_provenance = _band_constant(sheet, "stage.table")
+    band_table, table_provenance = _band_constant(sheet, "stage.table")
     stage_catalog, _ = _band_constant(sheet, "stage.catalog")
-    if stage_table is None:
-        raise GenericExtractionError(f"sheet {name!r}: stage table cells are empty — "
-                                     f"{table_provenance}")
-    notes.append(f"sheet {name!r}: stage table {stage_table!r} — {table_provenance}")
-    feed = _match_feed(sheet, stage_table, frd, ir, notes)
+    if band_table is not None:
+        notes.append(f"sheet {name!r}: stage table {band_table!r} — {table_provenance}")
+    feed = _match_feed(sheet, band_table, frd, ir, notes)
     feed_id = config.feed_aliases.get(feed.feed_name) or normalize_feed_name(feed.feed_name)
-    # The schema chain (M9.2): STTM band -> FRD -> config default, then the
-    # hard stop — an empty schema never reaches a contract.
+    prefix = f"feeds[{frd.feeds.index(feed)}]."
+    pending: list[PendingAnswer] = []
+
+    def need(dotted: str, reason: str) -> None:
+        pending.append(PendingAnswer(feed_name=feed.feed_name, sheet=name, key=prefix + dotted,
+                                     reason=reason))
+
+    # The table chain (first ACFC run): STTM band -> this feed's File Details
+    # row -> the FRD's only table; then NEEDS_ANSWERS, never a mid-run stop.
+    stage_table = _table_chain("stage", band_table, table_provenance,
+                               _details_target(feed, ir, sheet, config),
+                               list(feed.stage_target.tables), name, notes, flags)
+    if stage_table is None:
+        need("stage_target.tables",
+             f"{table_provenance}; no File Details row states a target table for this feed "
+             f"and the FRD names {len(feed.stage_target.tables)} stage table(s)")
+    # The schema chain (M9.2): STTM band -> FRD -> the layer convention
+    # (conventions.default_schema), then NEEDS_ANSWERS — an empty schema never
+    # reaches a contract.
     band_schema, schema_provenance = _band_constant(sheet, "stage.schema")
     stage_schema = _schema_chain("stage", band_schema, schema_provenance,
                                  feed.stage_target.schema_name, config, name, notes, flags)
     if stage_schema is None:
-        raise GenericExtractionError(
-            f"sheet {name!r}: no source states the stage schema — {schema_provenance}; the FRD "
-            "'Target Catalog and Schema' is blank and conventions.default_schema.stage is unset. "
-            "Place the schema role (`codegen layout --answers`), or state it in the FRD / config")
+        need("stage_target.schema",
+             f"{schema_provenance}; the FRD 'Target Catalog and Schema' is blank and "
+             "conventions.default_schema.stage is unset")
 
     has_standard = any(
         r.values.get("standard.column") for r in sheet.fields
         if normalize(r.values.get("standard.column")) not in _unmapped_markers(config))
-    standard_table, _ = _band_constant(sheet, "standard.table")
+    standard_table, standard_provenance = _band_constant(sheet, "standard.table")
     standard_catalog, _ = _band_constant(sheet, "standard.catalog")
     standard_schema = None
     if has_standard:
+        standard_table = _table_chain("standard", standard_table, standard_provenance, None,
+                                      list(feed.standard_target.tables), name, notes, flags)
+        if standard_table is None:
+            need("standard_target.tables",
+                 f"{standard_provenance}; the FRD names {len(feed.standard_target.tables)} "
+                 "standard table(s)")
         band_schema, schema_provenance = _band_constant(sheet, "standard.schema")
         standard_schema = _schema_chain("standard", band_schema, schema_provenance,
                                         feed.standard_target.schema_name, config, name, notes,
                                         flags)
+        if standard_schema is None:
+            need("standard_target.schema",
+                 f"{schema_provenance}; the FRD 'Target Catalog and Schema' is blank and "
+                 "conventions.default_schema.standard is unset")
+    if pending:
+        raise NeedsAnswers(pending)
 
     segmented = any(r.segment_raw is not None for r in sheet.fields)
     if segmented:

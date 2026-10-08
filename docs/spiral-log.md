@@ -71,3 +71,13 @@
 - Earliest signal: n/a
 - Approx. time lost: ~2 minutes
 - Proposed refinement (for a retro, not now): a worktree created at the default branch instead of the caller's HEAD makes every file of the caller's branch "missing" — the Agent worktree base, not the code, was wrong.
+
+## 2026-10-08: hook signal (b) — derivations.py edited 4x while a `-k missing_schema` pytest "still failing"
+- Actual cause: not a spiral. `pytest tests/test_m9_acfc_findings.py -k missing_schema` failed twice by design while a pinned test was re-stated for the new NEEDS_ANSWERS behaviour (first ACFC run defects, item 2b); it then passed under the broader `pytest tests/test_m9_acfc_findings.py` (24 passed). The four edits were to `src/codegen/gate/derivations.py` — new item-3 code (`normalise_path`) the failing test does not cover.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 1 passed)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~1 minute
+- Proposed refinement (for a retro, not now): same as 2026-10-07 — a superset run going green, and edits to files the failing command does not import, should clear the signal.
+

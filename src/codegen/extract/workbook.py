@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from codegen.config import ExtractorConfig
@@ -129,12 +130,18 @@ class AuditRow:
 @dataclass(frozen=True)
 class SheetIR:
     sheet_name: str
-    stage_schema: str
-    stage_table: str
+    # None = every mapping row leaves the cell blank (first ACFC run): the
+    # extractor's chain (File Details / FRD / layer convention) fills it or
+    # holds the feed back as NEEDS_ANSWERS. ``blank_targets`` cites the
+    # column for each blank one ("stage.schema" -> "<sheet>!<col> ...").
+    stage_schema: str | None
+    stage_table: str | None
     standard_schema: str | None
     standard_table: str | None
     rows: tuple[MappingRow, ...]
     audit: tuple[AuditRow, ...]
+    has_standard: bool = False
+    blank_targets: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -142,6 +149,10 @@ class FileDetailsRow:
     vendor: str
     file_name: str
     frequency: str | None
+    # The row's target table and its cell, when the sheet has such a column
+    # (extractor.file_details_headers.target_table).
+    target_table: str | None = None
+    target_cell: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +172,9 @@ class WorkbookIR:
     sheets: tuple[SheetIR, ...]
     # M1: the layout profile the sheets were read through.
     profile: LayoutProfile | None = None
+    # FILE_DETAILS rows that do not fit the row schema (codegen.extract.
+    # annotations) — skipped, one extraction-report line each.
+    file_details_skipped: tuple[str, ...] = ()
 
 
 def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
@@ -196,13 +210,15 @@ def workbook_ir(found: Discovery, name: str, config: ExtractorConfig) -> Workboo
     """The flat IR read through a ``mapping_prefix`` profile."""
     workbook = found.workbook
     profile = found.profile
+    skipped: list[str] = []
     return WorkbookIR(
         workbook_name=name,
         version=_parse_version_history(workbook, config, name),
-        file_details=_parse_file_details(workbook, config, name),
+        file_details=_parse_file_details(workbook, config, name, skipped),
         sheets=tuple(_parse_mapping_sheet(workbook[s.name], config, s)
                      for s in profile.mapping_sheets),
         profile=profile,
+        file_details_skipped=tuple(skipped),
     )
 
 
@@ -261,7 +277,10 @@ def _reject_segmented_family(workbook, config: ExtractorConfig, name: str) -> No
 # ------------------------------------------------------------- metadata sheets
 
 
-def _parse_file_details(workbook, config: ExtractorConfig, name: str) -> tuple[FileDetailsRow, ...]:
+def _parse_file_details(workbook, config: ExtractorConfig, name: str,
+                        skipped: list[str] | None = None) -> tuple[FileDetailsRow, ...]:
+    from codegen.extract.annotations import annotation_reason, describe
+
     sheet_name = config.file_details_sheet
     if sheet_name not in workbook.sheetnames:
         raise WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing")
@@ -283,9 +302,20 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str) -> tuple[F
     vendor_col = _find("vendor", fd_headers.vendor)
     file_col = _find("file_name", fd_headers.file_name)
     freq_col = _find("frequency", fd_headers.frequency)
+    target_hits = [i for i, h in enumerate(header)
+                   if h in {_norm(s) for s in fd_headers.target_table}]
+    target_col = target_hits[0] if len(target_hits) == 1 else None
 
     rows: list[FileDetailsRow] = []
-    for row_number, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+    for row_number, cells in enumerate(ws.iter_rows(min_row=2), start=2):
+        row = [c.value for c in cells]
+        texts = [_text(v) for v in row]
+        reason = annotation_reason(texts, file_col, cells)
+        if reason is not None:
+            # Guidance written into the table is not a file (never an error).
+            if skipped is not None:
+                skipped.append(describe(sheet_name, row_number, reason, texts))
+            continue
         vendor, file_name = _text(row[vendor_col]), _text(row[file_col])
         if vendor is None and file_name is None:
             continue
@@ -294,8 +324,12 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str) -> tuple[F
                 f"{sheet_name} row {row_number}: Vendor and FileName must both be present "
                 f"(got vendor={vendor!r}, file_name={file_name!r})"
             )
+        target = _text(row[target_col]) if target_col is not None else None
         rows.append(
-            FileDetailsRow(vendor=vendor, file_name=file_name, frequency=_text(row[freq_col]))
+            FileDetailsRow(vendor=vendor, file_name=file_name, frequency=_text(row[freq_col]),
+                           target_table=target,
+                           target_cell=(f"{sheet_name}!{get_column_letter(target_col + 1)}"
+                                        f"{row_number}" if target else None))
         )
     if not rows:
         raise WorkbookParseError(f"{sheet_name}: no data rows")
@@ -554,21 +588,13 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
             continue
 
         source_text = _required_text(ws, row_number, source_column, "source column")
-        stage_ref = (
-            _required_text(ws, row_number, row[stage_cols["schema"]], "stage Schema"),
-            _required_text(ws, row_number, row[stage_cols["tablename"]], "stage TableName"),
-        )
-        stage_refs.add(stage_ref)
+        # Schema / TableName may be blank (first ACFC run): a sheet-wide blank
+        # is the extractor's chain to fill, never a mid-parse stop.
+        stage_refs.add((_text(row[stage_cols["schema"]]), _text(row[stage_cols["tablename"]])))
         standard_column = standard_datatype = None
         if standard_cols is not None:
-            standard_refs.add(
-                (
-                    _required_text(ws, row_number, row[standard_cols["schema"]], "standard Schema"),
-                    _required_text(
-                        ws, row_number, row[standard_cols["tablename"]], "standard TableName"
-                    ),
-                )
-            )
+            standard_refs.add((_text(row[standard_cols["schema"]]),
+                               _text(row[standard_cols["tablename"]])))
             standard_column = _required_text(
                 ws, row_number, row[standard_cols["columnname"]], "standard ColumnName"
             )
@@ -613,31 +639,48 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
 
     if not rows:
         raise WorkbookParseError(f"{ws.title}: no mapping rows found")
-    if len(stage_refs) > 1:
+    stated_stage = {(s, t) for s, t in stage_refs if s is not None or t is not None}
+    stage_schemas = {s for s, _t in stage_refs if s is not None}
+    stage_tables = {t for _s, t in stage_refs if t is not None}
+    if len(stage_schemas) > 1 or len(stage_tables) > 1:
         raise SegmentedWorkbookError(
-            f"{ws.title}: mapping rows land in {len(stage_refs)} stage tables "
-            f"{sorted(t for _, t in stage_refs)} — this is the segmented "
+            f"{ws.title}: mapping rows land in {len(stated_stage)} stage tables "
+            f"{sorted(str(t) for _, t in stated_stage)} — this is the segmented "
             "(Header/Detail/Trailer) STTM dialect, which is not supported by this "
             "extractor (flat dialect only; see CLAUDE.md)"
         )
-    if len(standard_refs) > 1:
+    standard_schemas = {s for s, _t in standard_refs if s is not None}
+    standard_tables = {t for _s, t in standard_refs if t is not None}
+    if len(standard_schemas) > 1 or len(standard_tables) > 1:
+        stated_standard = {(s, t) for s, t in standard_refs if s is not None or t is not None}
         raise WorkbookParseError(
-            f"{ws.title}: mapping rows name {len(standard_refs)} standard tables "
-            f"{sorted(t for _, t in standard_refs)}; expected exactly one"
+            f"{ws.title}: mapping rows name {len(stated_standard)} standard tables "
+            f"{sorted(str(t) for _, t in stated_standard)}; expected exactly one"
         )
 
-    stage_schema, stage_table = next(iter(stage_refs))
-    standard_schema, standard_table = (
-        next(iter(standard_refs)) if standard_refs else (None, None)
-    )
+    def only(values: set[str]) -> str | None:
+        return next(iter(values)) if values else None
+
+    blank: list[tuple[str, str]] = []
+    for key, values, cols, label in (
+            ("stage.schema", stage_schemas, stage_cols, "schema"),
+            ("stage.table", stage_tables, stage_cols, "tablename"),
+            ("standard.schema", standard_schemas, standard_cols, "schema"),
+            ("standard.table", standard_tables, standard_cols, "tablename")):
+        if cols is not None and not values:
+            layer, _dot, role = key.partition(".")
+            blank.append((key, f"{ws.title}!{get_column_letter(cols[label] + 1)}: every mapping "
+                               f"row's {layer} {role} cell is empty"))
     return SheetIR(
         sheet_name=ws.title,
-        stage_schema=stage_schema,
-        stage_table=stage_table,
-        standard_schema=standard_schema,
-        standard_table=standard_table,
+        stage_schema=only(stage_schemas),
+        stage_table=only(stage_tables),
+        standard_schema=only(standard_schemas),
+        standard_table=only(standard_tables),
         rows=tuple(rows),
         audit=tuple(audit),
+        has_standard=standard_cols is not None,
+        blank_targets=tuple(blank),
     )
 
 

@@ -440,9 +440,13 @@ def build_context(
             if trailer_count_stage_column is not None:
                 trailer_count_source_column = config.segments.trailer_count_column
 
+    # The resolver keeps the natural key inside the Detail segment (by
+    # (segment, field name), flagging any key it drops); a key column a
+    # hand-built spec names outside it has no Detail source to sample.
     detail_fields_by_stage = {f.stage_column: f.source_column for f in spec.detail_segment.fields}
     detail_natural_key_source_columns = [
         detail_fields_by_stage[stage_column] for stage_column in spec.natural_key_columns
+        if stage_column in detail_fields_by_stage
     ]
 
     def _standard_type(datatype: str) -> str:

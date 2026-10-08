@@ -148,6 +148,20 @@ def distinct(statements: list[Statement]) -> list[Statement]:
     return out
 
 
+# The answers-file keys of a target the STTM leaves blank (first ACFC run):
+# the extractor reports a held-back feed with one of these (NEEDS_ANSWERS),
+# the layout stage writes the answer into the FRD feed, and the extractor's
+# FRD link then reads it (flag sttm_target_missing).
+TARGET_KEY_RE = re.compile(r"^feeds\[\d+\]\.(stage|standard)_target\.(schema|tables)$")
+
+
+def blank_sheet_feed_name(sheet: str) -> str:
+    """The feed a mapping sheet whose TableName cells are ALL blank stands
+    for, named after the sheet (``MAPPING-VC_X`` -> ``VC_X``): the layout
+    stage derives it, the extractors pair the sheet back to it by this name."""
+    return re.sub(r"^mapping[-_ ]*", "", sheet.strip(), flags=re.IGNORECASE) or sheet.strip()
+
+
 def fill_flag(field: str, statement: Statement) -> str:
     return (f"frd_unstated:{field} source_used:{statement.source} {statement.cell}: "
             f"{statement.value!r}")

@@ -48,6 +48,10 @@ class GateCheck(BaseModel):
     # The flag kind a not-run check raises (default ``check_not_run:<name>``);
     # e.g. ``ruff_unavailable`` when the ruff module is not installed.
     flag: str | None = None
+    # First ACFC run: what the check FIXED before it judged (ruff's safe
+    # fixes — cosmetic lint never FAILs a feed); the verdict flags it
+    # ``ruff_fixed``. One "<file>: <code> xN" entry per fixed kind.
+    fixes: list[str] = []
 
 
 def _generated_text_files(feed_dir: Path) -> list[Path]:
@@ -66,6 +70,78 @@ def _ruff_unavailable(reason: str) -> GateCheck:
                              "codegen-data-engineer-agent — reinstall the package)")
 
 
+def _ruff_json(feed_dir: Path, *extra: str):
+    """(findings list | None, completed process) of ``ruff check`` over the
+    feed with JSON output; ``extra`` = e.g. ``--fix``."""
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--no-cache", *extra, "--output-format",
+         "json", str(feed_dir)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=child_env(),
+    )
+    try:
+        findings = json.loads(result.stdout) if result.stdout.strip() else None
+    except ValueError:
+        findings = None
+    return (findings if isinstance(findings, list) else None), result
+
+
+def _finding_key(item: dict, feed_dir: Path) -> tuple[str, str]:
+    where = Path(str(item.get("filename") or ""))
+    with contextlib.suppress(ValueError):
+        where = where.resolve().relative_to(feed_dir.resolve())
+    return where.as_posix(), str(item.get("code") or "syntax")
+
+
+def _apply_safe_fixes(feed_dir: Path, findings: list) -> tuple[list | None, list[str], str]:
+    """Apply ruff's SAFE fixes (``--fix`` without ``--unsafe-fixes``) when any
+    finding has one. Returns (remaining findings | None when the fix run gave
+    no JSON, "<file>: <code> xN" per fixed kind, a problem note). The
+    assembled notebook is re-synced from the fixed modules."""
+    safe = [f for f in findings if (f.get("fix") or {}).get("applicability") == "safe"]
+    if not safe:
+        return findings, [], ""
+    tracked = [*sorted((feed_dir / "pipeline").glob("*.py")),
+               feed_dir / "job" / "notebook_entrypoint.py"]
+    before = {p: p.read_bytes() for p in tracked if p.is_file()}
+    remaining, _result = _ruff_json(feed_dir, "--fix")
+    if remaining is None:
+        return None, [], "the ruff --fix run returned no JSON"
+    left: dict[tuple[str, str], int] = {}
+    for item in remaining:
+        key = _finding_key(item, feed_dir)
+        left[key] = left.get(key, 0) + 1
+    counts: dict[tuple[str, str], int] = {}
+    for item in safe:
+        key = _finding_key(item, feed_dir)
+        counts[key] = counts.get(key, 0) + 1
+    unsafe: dict[tuple[str, str], int] = {}
+    for item in findings:
+        if item not in safe:
+            key = _finding_key(item, feed_dir)
+            unsafe[key] = unsafe.get(key, 0) + 1
+    fixes = []
+    for key in sorted(counts):
+        # what is left of this kind beyond the findings that had no safe fix
+        unfixed = max(0, left.get(key, 0) - unsafe.get(key, 0))
+        if counts[key] - unfixed > 0:
+            fixes.append(f"{key[0]}: {key[1]} x{counts[key] - unfixed}")
+    notebook = feed_dir / f"{feed_dir.name}.ipynb"
+    changed = any(p.read_bytes() != data for p, data in before.items())
+    if changed and notebook.is_file():
+        from codegen.emit.context import TemplateGapError
+        from codegen.emit.notebook import resync_notebook
+
+        try:
+            resync_notebook(notebook, feed_dir)
+        except (TemplateGapError, SyntaxError) as exc:
+            return remaining, fixes, (f"the fixed modules no longer assemble into "
+                                      f"{notebook.name}: {exc}")
+    return remaining, fixes, ""
+
+
 def _ruff_check(feed_dir: Path) -> GateCheck:
     # --no-cache: ruff would otherwise drop .ruff_cache/ inside out/<feed>/,
     # polluting the generated tree and breaking byte-stability of the output.
@@ -75,25 +151,17 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
     # config it rejects: no JSON — the code was NOT linted, which is a flag,
     # not a verdict on the code). A run inside ACFC came back `ruff=FAIL` with
     # nothing to tell the two apart.
+    # First ACFC run: ruff's SAFE fixes are applied first (and recorded as
+    # the ``ruff_fixed`` flag), so cosmetic lint never FAILs a feed; what
+    # remains after them is the finding.
     if importlib.util.find_spec("ruff") is None:
         return _ruff_unavailable(f"the ruff module is not installed for {sys.executable}")
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "--no-cache", "--output-format", "json",
-             str(feed_dir)],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=child_env(),
-        )
+        findings, result = _ruff_json(feed_dir)
     except OSError as exc:
         return GateCheck(name="ruff", passed=True, not_run=True,
                          details=f"ruff could not be started: {exc}")
-    try:
-        findings = json.loads(result.stdout) if result.stdout.strip() else None
-    except ValueError:
-        findings = None
-    if not isinstance(findings, list):
+    if findings is None:
         if result.returncode == 0:
             return GateCheck(name="ruff", passed=True, details="ruff clean")
         output = (result.stdout + result.stderr).strip()
@@ -104,6 +172,20 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
                                  f"{output or 'no output'}")
     if not findings:
         return GateCheck(name="ruff", passed=True, details="ruff clean")
+    remaining, fixes, problem = _apply_safe_fixes(feed_dir, findings)
+    if remaining is None:
+        # The fix run itself did not report: the code was not judged.
+        return GateCheck(name="ruff", passed=True, not_run=True,
+                         details=f"ruff safe fixes: {problem}")
+    if problem:
+        return GateCheck(name="ruff", passed=False, fixes=fixes,
+                         details=f"ruff safe fixes: {problem}")
+    findings = remaining
+    fixed_note = (f"{sum(int(f.rsplit('x', 1)[1]) for f in fixes)} safe fix(es) applied "
+                  f"first ({'; '.join(fixes)})" if fixes else "")
+    if not findings:
+        return GateCheck(name="ruff", passed=True, fixes=fixes,
+                         details="ruff clean" + (f" after {fixed_note}" if fixed_note else ""))
     lines = []
     for item in findings:
         where = Path(str(item.get("filename") or ""))
@@ -113,8 +195,10 @@ def _ruff_check(feed_dir: Path) -> GateCheck:
         lines.append(f"{where.as_posix()}:{location.get('row', '?')}:"
                      f"{location.get('column', '?')}: {item.get('code') or 'syntax'} "
                      f"{item.get('message', '')}".rstrip())
-    return GateCheck(name="ruff", passed=False,
-                     details=f"{len(findings)} finding(s)\n" + "\n".join(lines))
+    return GateCheck(name="ruff", passed=False, fixes=fixes,
+                     details=f"{len(findings)} finding(s)"
+                     + (f" remain after {fixed_note}" if fixed_note else "")
+                     + "\n" + "\n".join(lines))
 
 
 def _debug_pattern_check(feed_dir: Path, patterns: list[str]) -> GateCheck:

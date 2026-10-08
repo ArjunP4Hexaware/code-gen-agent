@@ -46,14 +46,19 @@ amended the same evening and replace the earlier record-type phrasing):
    `stg_` prefix) — each with its own Catalog / Schema / TableName /
    ColumnName / DataType / Mandatory / Primary Key. A table's stage_def and
    standard_def take catalog and schema from their own band, never from the
-   other band and never from a profile default when the band states one. The
+   other band and never from a profile default when the band states one.
+   **Catalog precedence (decision 2026-10-07): STTM band → FRD label →
+   `default_catalog`**; a band and an FRD label that disagree
+   (case-insensitively) raise `catalog_conflict:<layer>` naming both, and the
+   band is used. The
    standard_def comes from the Standard band; a `ForReference`-style STG→STD
    sheet (band labels `<client> - Source`, `STG - Dest 1`, blank, blank,
    `STD - Dest2`) is a secondary source.
 7. **The STTM states LOGICAL catalogs; the environment maps them.**
    `conventions.catalog_map` in the environment overlay (d1: `PR_DLK` →
    `d1_dlk`, `PR_STD` → `d1_std`; prod: identity) is applied to every emitted
-   catalog, and the cell tooltip cites the mapping. `default_catalog` is the
+   catalog, and the cell tooltip cites the mapping. Keys match
+   case-insensitively; a mapped catalog is emitted in lowercase. `default_catalog` is the
    fallback only for a band whose Catalog is blank. Every table-definition
    artefact (metadata inserts, the CREATE reference text) is labelled with its
    MAPPED three-part name, so stage and standard definitions are never
@@ -152,7 +157,11 @@ pattern carrying the token while no LOB is listed stays ONE file with the
 token unexpanded and the flag `lob_token_without_lobs:<pattern>`.
 
 **Step 2 (done).** `conventions.catalog_map` (logical → environment catalog;
-empty = identity). The resolver maps every catalog it puts on a
+empty = identity; case-insensitive keys, lowercase output). The resolver
+picks each table's stated catalog band-first (`stated_catalog`: band → FRD
+label, `catalog_conflict:<layer>` when both are stated and differ; a segment's
+rows may state their own band catalog / schema), then maps every catalog it
+puts on a
 `ResolvedTable` and keeps the stated one on `ResolvedTable.catalog_logical`;
 the IIG catalog cells and the qualified names (DDL, fixed-width `TGT_TABLE`,
 DQ `INPUT_PARAM`) therefore carry the mapped name, and a catalog cell's

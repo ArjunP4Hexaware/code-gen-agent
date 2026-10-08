@@ -340,10 +340,10 @@ def map_catalog(catalog: str | None, layer: str, config: Config,
                 flags: list[str]) -> tuple[str | None, str | None]:
     """Multi-table rule 7: (emitted catalog, logical catalog). The documents
     state LOGICAL catalogs (PR_DLK); ``conventions.catalog_map`` — an
-    environment value — maps them (case-insensitive key match). An empty map
-    is identity (logical None). With a map, a stated catalog that has no
-    entry is written as stated and flagged ``catalog_unmapped:<layer>`` (once
-    per catalog)."""
+    environment value — maps them (case-insensitive key match) and the mapped
+    name is emitted in lowercase. An empty map is identity (logical None).
+    With a map, a stated catalog that has no entry is written as stated and
+    flagged ``catalog_unmapped:<layer>`` (once per catalog)."""
     catalog_map = config.conventions.catalog_map
     if catalog is None or not catalog_map:
         return catalog, None
@@ -356,7 +356,21 @@ def map_catalog(catalog: str | None, layer: str, config: Config,
         if flag not in flags:
             flags.append(flag)
         return catalog, None
-    return mapped, catalog
+    return mapped.lower(), catalog
+
+
+def stated_catalog(layer: str, band: str | None, frd: str | None,
+                   flags: list[str]) -> str | None:
+    """Multi-table rule 6 precedence: the STTM band's catalog, else the FRD
+    label's (``default_catalog`` is the emitters' last link). Both stated and
+    different (case-insensitively) = ``catalog_conflict:<layer>`` naming both;
+    the band wins."""
+    if band and frd and band.lower() != frd.lower():
+        flag = (f"catalog_conflict:{layer} — STTM band {band!r} vs FRD label {frd!r}; the band "
+                "is used (docs/acfc/MULTI_TABLE_DESIGN.md rule 6)")
+        if flag not in flags:
+            flags.append(flag)
+    return band or frd
 
 
 def _sttm_segment_names(sttm_feed: SttmFeed) -> list[str]:
@@ -429,6 +443,13 @@ def _resolve_segments(
             )
         seg_table = seg_fields[0].stage_table
         assert seg_table is not None  # guaranteed by SttmFeed validation
+        # Rule 6: a table takes catalog / schema from its OWN band — a row
+        # that states a catalog / schema other than the band's carries it.
+        seg_catalog, seg_catalog_logical = catalog, catalog_logical
+        row_catalog = next((f.stage_catalog for f in seg_fields if f.stage_catalog), None)
+        if row_catalog is not None and config is not None:
+            seg_catalog, seg_catalog_logical = map_catalog(row_catalog, "stage", config, flags)
+        seg_schema = next((f.stage_schema for f in seg_fields if f.stage_schema), stage_schema)
         if not _table_in(seg_table, frd_feed.stage_target.tables, "STTM", "FRD", flags):
             errors.append(
                 f"segment '{segment_name}' stage table '{seg_table}' is not among FRD "
@@ -446,13 +467,18 @@ def _resolve_segments(
                 f"{sorted(t for t in seg_standard_tables if t)}"
             )
         elif seg_standard_tables and sttm_feed.standard is not None:
+            stated = stated_catalog(
+                "standard",
+                next((f.standard_catalog for f in seg_fields if f.standard_catalog),
+                     sttm_feed.standard.catalog),
+                frd_feed.standard_target.catalog, flags)
             standard_catalog, standard_logical = (
-                map_catalog(sttm_feed.standard.catalog or frd_feed.standard_target.catalog,
-                            "standard", config, flags) if config is not None
-                else (sttm_feed.standard.catalog or frd_feed.standard_target.catalog, None))
+                map_catalog(stated, "standard", config, flags) if config is not None
+                else (stated, None))
             standard_table = ResolvedTable(
                 catalog=standard_catalog,
-                schema_name=sttm_feed.standard.schema_name,
+                schema_name=next((f.standard_schema for f in seg_fields if f.standard_schema),
+                                 sttm_feed.standard.schema_name),
                 table=next(iter(seg_standard_tables)),
                 role="standard",
                 catalog_logical=standard_logical,
@@ -465,8 +491,8 @@ def _resolve_segments(
             SegmentSpec(
                 segment=segment_name,
                 stage_table=ResolvedTable(
-                    catalog=catalog, schema_name=stage_schema, table=seg_table, role="stage",
-                    catalog_logical=catalog_logical,
+                    catalog=seg_catalog, schema_name=seg_schema, table=seg_table, role="stage",
+                    catalog_logical=seg_catalog_logical,
                 ),
                 fields=seg_fields,
                 standard_table=standard_table,
@@ -559,8 +585,10 @@ def _resolve_one(
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd)
     errors.extend(gap_errors)
     catalog_flags: list[str] = []
-    catalog, catalog_logical = map_catalog(frd_feed.stage_target.catalog, "stage", config,
-                                           catalog_flags)
+    catalog, catalog_logical = map_catalog(
+        stated_catalog("stage", sttm_feed.stage.catalog, frd_feed.stage_target.catalog,
+                       catalog_flags),
+        "stage", config, catalog_flags)
     width_flags: list[str] = []
     sttm_feed = _resolve_widths(
         sttm_feed, vdd, next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0),
@@ -717,8 +745,9 @@ def _resolve_one(
                 f"standard tables {frd_feed.standard_target.tables}"
             )
         standard_catalog, standard_logical = map_catalog(
-            frd_feed.standard_target.catalog or sttm_feed.standard.catalog, "standard", config,
-            catalog_flags)
+            stated_catalog("standard", sttm_feed.standard.catalog,
+                           frd_feed.standard_target.catalog, catalog_flags),
+            "standard", config, catalog_flags)
         standard_table = ResolvedTable(
             catalog=standard_catalog,
             schema_name=sttm_feed.standard.schema_name,

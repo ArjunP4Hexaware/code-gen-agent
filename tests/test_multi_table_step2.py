@@ -183,3 +183,57 @@ def test_pair1_identity_map_is_applied_and_changes_no_name(pair1_spec):
     assert pair1_spec.standard_table.catalog == "pr_std_vnd_p"
     assert pair1_spec.standard_table.catalog_logical == "pr_std_vnd_p"
     assert not [f for f in pair1_spec.provenance_flags if f.startswith("catalog_unmapped")]
+
+
+# ------------------------------------------------------------------ precedence (decision b, c)
+
+
+def _frd_with_catalogs(tmp_path, stage, standard):
+    import json
+
+    data = json.loads((FIXTURE_ROOT / pair4_nb.FRD_PATH).read_text(encoding="utf-8"))
+    data["feeds"][0]["stage_target"]["catalog"] = stage
+    data["feeds"][0]["standard_target"]["catalog"] = standard
+    path = tmp_path / "frd.contract.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def _resolve_with(config, sttm, frd_path, tmp_path):
+    from codegen.extract import contract_to_json
+
+    path = tmp_path / "sttm.contract.json"
+    path.write_text(contract_to_json(sttm), encoding="utf-8")
+    (spec,) = resolve_contracts(frd_path, path, config)
+    return spec
+
+
+def test_the_band_wins_over_a_disagreeing_frd_label_and_says_so(pair4_config, pair4_sttm,
+                                                                tmp_path):
+    frd = _frd_with_catalogs(tmp_path, "PR_FRD_STG", "pr_std")      # standard agrees (case)
+    spec = _resolve_with(pair4_config, pair4_sttm, frd, tmp_path)
+    assert {s.stage_table.catalog for s in spec.segments} == {"d1_dlk"}
+    conflicts = [f for f in spec.provenance_flags if f.startswith("catalog_conflict")]
+    assert conflicts == ["catalog_conflict:stage — STTM band 'PR_DLK' vs FRD label "
+                         "'PR_FRD_STG'; the band is used (docs/acfc/MULTI_TABLE_DESIGN.md "
+                         "rule 6)"]
+
+
+def test_the_frd_label_fills_a_blank_band_before_default_catalog(pair4_config, pair4_sttm,
+                                                                 tmp_path):
+    (feed,) = pair4_sttm.feeds
+    blank = feed.model_copy(update={
+        "stage": feed.stage.model_copy(update={"catalog": None}),
+        "standard": feed.standard.model_copy(update={"catalog": None})})
+    frd = _frd_with_catalogs(tmp_path, "PR_DLK", "PR_STD")
+    spec = _resolve_with(pair4_config, pair4_sttm.model_copy(update={"feeds": [blank]}), frd,
+                         tmp_path)
+    assert {s.stage_table.catalog for s in spec.segments} == {"d1_dlk"}
+    assert {s.standard_table.catalog for s in spec.segments} == {"d1_std"}
+    assert not [f for f in spec.provenance_flags if f.startswith("catalog_conflict")]
+
+
+def test_the_map_emits_lowercase(pair4_config):
+    upper = pair4_config.model_copy(update={"conventions": pair4_config.conventions.model_copy(
+        update={"catalog_map": {"pr_dlk": "D1_DLK"}})})
+    assert map_catalog("PR_DLK", "stage", upper, []) == ("d1_dlk", "PR_DLK")

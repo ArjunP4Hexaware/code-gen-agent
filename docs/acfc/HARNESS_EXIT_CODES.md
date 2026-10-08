@@ -21,9 +21,9 @@ Only exit 1 (or another non-zero, non-3 code) or a timeout stops a pair.
 
 | Stage name | CLI command | When code 3 is expected |
 | --- | --- | --- |
-| `sttm_parse` | `codegen layout` | Workbook layout has unresolved roles that require `answers.yaml` entries |
+| `sttm_parse` | `codegen layout --require-complete` | Workbook layout has unplaced columns (unresolved roles) or open questions that require `answers.yaml` entries — one `UNRESOLVED` / `QUESTION` line each. Layout is the first stage, so this exit 3 is the only way a pair with unplaced columns reads `NEEDS_ANSWERS` instead of `FAILED` |
 | `frd_extract` | `codegen extract-sttm` | Nothing usable was written — the contract requires answers before any feed can be extracted |
-| `vdd_crosscheck` | `codegen extract-vdd` | VDD layout has unresolved roles |
+| `vdd_crosscheck` | `codegen extract-vdd` | **Not today**: `extract-vdd` never exits 3 — VDD role gaps surface as gate flags on the feed (`vdd_*`), not as answers. Exit 3 here is planned, not implemented; treat its non-zero exits as `FAILED` |
 | `generate` | `codegen generate` | Generation cannot proceed without gap values or pairing decisions in `answers.yaml` |
 
 ### CLI rule for `extract-sttm`

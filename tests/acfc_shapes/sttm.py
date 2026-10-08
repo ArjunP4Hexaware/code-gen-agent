@@ -32,9 +32,22 @@ def _version_sheet(wb, title, header, header_row, rows, merge_a2d2=False):
 # --------------------------------------------------------------- Family A ---
 
 
+# The layout-gaps VARIANT (tests/test_layout_gap_labels.py): two source headers
+# a test overlay makes AMBIGUOUS between two OPTIONAL roles each, and the stage
+# band's data-type header renamed to text no synonym knows (a REQUIRED role).
+LAYOUT_GAP_HEADERS = {"ordinal": "Ref", "description": "Remarks",
+                      "stage_target_type": "Value Kind (DL)"}
+
+
 def build_pair1(amounts: bool = False, amount_end: bool = False,
-                rec_type_targets: dict[str, str] | None = None, blank_targets: bool = False):
-    """``rec_type_targets`` (a test VARIANT — the first ACFC run's key-lookup
+                rec_type_targets: dict[str, str] | None = None, blank_targets: bool = False,
+                layout_gaps: bool = False):
+    """``layout_gaps`` (a VARIANT): ``LAYOUT_GAP_HEADERS`` replace the source
+    'S.No' / 'Description' headers and the STAGE band's 'Target Data Type in
+    DL' (the standard band keeps its own) — two optional columns and one
+    required column the layout cannot place on synonyms alone.
+
+    ``rec_type_targets`` (a test VARIANT — the first ACFC run's key-lookup
     defect): the field leading every record is named ``REC_TYPE`` in the
     header, the detail AND the trailer, and each segment maps it to its OWN
     target column (``{"HDDR": "REC_TYP_HDR", "DET": …, "TRLR": …}``).
@@ -109,7 +122,12 @@ def build_pair1(amounts: bool = False, amount_end: bool = False,
                       "End", "Description"]
     rules_headers = ["Data Definition", "PII", "Primary Key", "Critical Data", "Not NULL",
                      "Load Rules"]
-    header = (source_headers + [None] + rules_headers + [None] + layer_headers + [None]
+    stage_headers = list(layer_headers)
+    if layout_gaps:
+        source_headers = [LAYOUT_GAP_HEADERS["ordinal"], *source_headers[1:8],
+                          LAYOUT_GAP_HEADERS["description"]]
+        stage_headers[5] = LAYOUT_GAP_HEADERS["stage_target_type"]
+    header = (source_headers + [None] + rules_headers + [None] + stage_headers + [None]
               + layer_headers)
     assert len([h for h in header if h]) == 27 and len(header) == 30
     assert [i + 1 for i, h in enumerate(header) if h is None] == [10, 17, 24]      # J, Q, X

@@ -7,11 +7,11 @@ anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/multi-table` (this checkout) | **0c2ba13** (+ this notes commit) | 0.5.8.post21 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
+| `feature/multi-table` (this checkout) | **cd18ec1** (+ this notes commit) | 0.5.8.post22 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
 | `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
 
-Working tree clean after the notes commit on 0c2ba13. Gitignored here (local only, never stage):
+Working tree clean after the notes commit on cd18ec1. Gitignored here (local only, never stage):
 `docs/acfc/denylist_local.txt`, `PROJECT_HANDOFF.md`,
 `CODEGEN_INDEPENDENT_REVIEW.md` (external review artefacts). Still stage files
 explicitly — never `git add -A`.
@@ -31,21 +31,20 @@ explicitly — never `git add -A`.
    `constants.STGDELTA_STDDELTA_INGESTION_DET` (the d1 standard container),
    `family_conventions.*`, `dml.db_value_map`, `dml.db_null_columns`. Record
    each answer in §7a.
-2. **Re-run the real documents in ACFC on 0.5.8.post21.** The first ACFC run on
+2. **Re-run the real documents in ACFC on 0.5.8.post22.** The first ACFC run on
    real documents (2026-10-08) surfaced four defects — fixed in a376ccf
    (post20, `tests/test_acfc_run1_defects.py`) — and the first real-row
    scorecard (the three SD feeds vs their actual config rows) nine rules —
    0c2ba13 (post21, `tests/test_sd_scorecard_rules.py`); both summarised in
    `docs/ACFC_DEPLOY.md` "What feature/multi-table adds". Local MOCK run of the
    real SD pair (gitignored root files, outputs in a scratchpad, scores only):
-   demographic / community-risk diff 4 -> 1, individual-risk diff 6 -> 0 (matched
-   39 -> 46); the 3 recycle cells of the two recycle-less feeds moved MATCH ->
-   OPEN (Engineer-confirm) by rule 6 ("never an asserted N"). **The one DIFF
-   left is FREQUENCY**: the FRD's Frequency field points at File Details
-   ("Yearly Twice" = file delivery) while the real rows say Monthly (the run
-   cadence in the FRD narrative); rule 7 writes the delivery token and flags
-   `frequency_ambiguous` — a question for Soham / the owners (flip = prefer the
-   run cadence). Older harness notes: `origin/acfc-results` (read in
+   all three rows diff 0 since post22 (demographic / community-risk matched
+   43, individual-risk 46); the 3 recycle cells of the two recycle-less feeds
+   are OPEN (Engineer-confirm) by rule 6 ("never an asserted N"). FREQUENCY was
+   flipped in cd18ec1 to the PIPELINE RUN cadence (FRD run / schedule / refresh
+   statement, else the schedule inventory), delivery cadence in the tooltip,
+   `frequency_delivery_differs` when they differ — Friday checklist item 11
+   (confirm, not ask). Older harness notes: `origin/acfc-results` (read in
    place, never check out, never quote names) holds `feature/iig-first` runs
    only. The last detailed one (2026-10-07, ca6bab8 with
    `CODEGEN_SKIP_ENV_OVERLAY=1`, commit 784e110): 3 pairs fail the STTM parse,
@@ -62,11 +61,11 @@ explicitly — never `git add -A`.
    (incl. `schema_drift_flag: "Y"`) for EVERY feed, so a PRX-shaped real feed
    needs a feed overlay on top.
 
-**Verified at 0c2ba13**: 980 passed / 27 skipped (Python 3.11; 3.10 / 3.12
+**Verified at cd18ec1**: 985 passed / 27 skipped (Python 3.11; 3.10 / 3.12
 not run on this branch); ruff clean (`src/ tests/ ui/backend/
 scripts/iig_scorecard.py`); scrub 0 over every changed file; no `ui/frontend`
 change on this branch (dist untouched; `ui/backend/demo.py` changed in post20).
-Marker **0.5.8.post21**. `tests/snapshots/notebook_mode.json` was re-based in
+Marker **0.5.8.post22**. `tests/snapshots/notebook_mode.json` was re-based in
 0c2ba13 (37 hashes: `ruff format` now rewrites every emitted .py).
 
 **What the branch does** (design + status: `docs/acfc/MULTI_TABLE_DESIGN.md`;
@@ -128,11 +127,20 @@ family convention (post19) · d84e2a6 checklist item 8a · a376ccf first ACFC
 run's defects: per-segment key lookup, FILE_DETAILS annotation rows, blank
 targets -> NEEDS_ANSWERS (exit 3), path normalisation, ruff safe fixes (post20)
 · 0c2ba13 first real-row scorecard rules + exit codes in `--help` / acfc_run.py
-(post21).
+(post21) · cd18ec1 harness-parseable QUESTION / UNRESOLVED lines, exit 3 only
+when nothing is usable, FREQUENCY = run cadence (post22).
 
-**Exit codes** (`codegen --help`, `docs/ACFC_DEPLOY.md`): 0 ok, 1 failed, 3
-NEEDS_ANSWERS (output written for the feeds that could proceed; each held-back
-feed printed with its answers.yaml `gaps:` key). acfc_run.py summarises them.
+**Exit codes** (`codegen --help`, `docs/ACFC_DEPLOY.md` "CLI exit codes"): 0 ok,
+1 failed, 3 NEEDS_ANSWERS — `extract-sttm` only when NO feed is usable (else 0,
+contract written, held-back QUESTION lines still printed); `generate` only when
+a feed asked for (`--feed`) is held back. Every missing answer is one line the
+ACFC harness parses: `f"{label:<15}{key} — {reason}"` (`cli.answer_line`;
+QUESTION = `gaps:` / `pairing:` key, UNRESOLVED = `<sheet>/<layer>/<role>`);
+`tests/test_harness_answer_lines.py` holds a COPY of the harness's parse rule,
+transcribed from `docs/acfc/HARNESS_EXIT_CODES.md` on
+`origin/acfc/harness-exit3` (the harness source is not in this repo — swap in
+its literal regex when available). The harness records `needed_answer_keys`
+only on exit 3. acfc_run.py summarises the codes and the lines.
 
 **Gotchas learned on this branch:**
 - **Bash heredocs on this box mangle escapes and backticks** (`\\t` became a

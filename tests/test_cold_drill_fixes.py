@@ -237,6 +237,71 @@ def test_the_frd_format_cell_delimiter_is_taken_when_nothing_disagrees(config):
                for f in pair.flags)
 
 
+def _cli_contracts(pair: str, tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    """The pure-CLI path (no layout stage): extract-frd -> extract-sttm with
+    the pair's band placements but NOT its gaps: answers."""
+    import yaml
+
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv("CODEGEN_STORAGE_STATE", f"local:{state.as_posix()}")
+    answers = yaml.safe_load((SHAPES / "cold" / pair / "answers.yaml").read_text(
+        encoding="utf-8"))
+    answers.pop("gaps", None)
+    answers_path = tmp_path / "answers.yaml"
+    answers_path.write_text(yaml.safe_dump(answers), encoding="utf-8")
+    frd, sttm = tmp_path / "frd.json", tmp_path / "sttm.json"
+    assert cli.main(["extract-frd", "--docx", str(_frd(pair)), "--out", str(frd)]) == 0
+    assert cli.main(["extract-sttm", "--workbook", str(_sttm(pair)), "--frd-contract", str(frd),
+                     "--out", str(sttm), "--generated-date", DATE,
+                     "--answers", str(answers_path)]) == 0
+    return frd, sttm
+
+
+def test_the_cli_path_fails_when_the_frd_format_cell_and_the_sttm_disagree(config, tmp_path,
+                                                                          monkeypatch):
+    """B1 (Chunk B review): cold_1's FRD format cell reads "Pipe delimited
+    (|) …", its STTM meta row says ','. Without the layout stage the
+    contract resolver applies the same rule: a contract mismatch naming both
+    cells and the gaps: key - never the STTM ',' filled silently."""
+    from codegen.resolve.resolver import ContractMismatchError
+    from codegen.resolve.resolver import resolve_pair as resolve_contracts
+
+    frd, sttm = _cli_contracts("cold_1", tmp_path, monkeypatch)
+    with pytest.raises(ContractMismatchError) as exc:
+        resolve_contracts(frd, sttm, config)
+    (error,) = [e for e in exc.value.errors if "delimiter" in e]
+    assert "table 2 row 4 ('Object/data Format')" in error and "names '|'" in error
+    assert "CH_CLAIMS_DAILY meta row 'delimiter' says ','" in error
+    assert "answer feeds[0].delimiter under gaps:" in error
+
+
+@pytest.mark.parametrize("sttm_value", ["|", "Pipe", None])
+def test_the_cli_path_takes_the_frd_format_cell_delimiter_when_nothing_disagrees(
+        sttm_value, config, tmp_path, monkeypatch):
+    """B1: the STTM agreeing (as a character or a word) or silent - the FRD
+    format cell's character is taken, flagged citing the FRD cell."""
+    from codegen.resolve.resolver import resolve_pair as resolve_contracts
+
+    frd, sttm = _cli_contracts("cold_1", tmp_path, monkeypatch)
+    data = json.loads(sttm.read_text(encoding="utf-8"))
+    feed = data["feeds"][0]
+    if sttm_value is None:
+        feed["meta_rows"].pop("delimiter")
+    else:
+        feed["meta_rows"]["delimiter"] = sttm_value
+    feed["source_file"]["delimiter"] = None if sttm_value is None else "|"
+    sttm.write_text(json.dumps(data), encoding="utf-8")
+    (spec,) = resolve_contracts(frd, sttm, config)
+    assert spec.delimiter == "|"
+    assert any(f.startswith("frd_unstated:delimiter source_used:FRD table 2 row 4 "
+                            "('Object/data Format'): 'Pipe delimited (|)") and f.endswith(": '|'")
+               for f in spec.provenance_flags)
+    assert not any("source_used:STTM" in f and f.startswith("frd_unstated:delimiter")
+                   for f in spec.provenance_flags)
+
+
 @pytest.mark.parametrize("text,char", [
     ("Pipe delimited (|) text file, extension .psv", "|"),
     ("CSV, comma delimited, first row is a header", ","),

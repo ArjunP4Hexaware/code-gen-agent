@@ -271,7 +271,46 @@ def _frd_window_days(frd_feed: FrdFeed) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
+def _frd_cell(frd: FrdContract | None, feed_index: int, field: str) -> str:
+    """The FRD cell a contract field was read from (its field provenance), as
+    the layout stage cites it; the bare field name when none is recorded."""
+    item = frd.field_provenance.get(f"feeds[{feed_index}].{field}") if frd is not None else None
+    return (f"table {item.table} row {item.row} ({item.label!r})" if item is not None
+            else f"FRD contract field {field!r}")
+
+
+def _delimiter_from_format_text(frd_feed: FrdFeed, others: list, feed_index: int,
+                                frd: FrdContract | None, config: Config
+                                ) -> tuple[str | None, str | None, str | None]:
+    """Chunk B review (B1): the layout stage's FRD-format-cell rule on the
+    CLI path. The FRD states no delimiter cell, but its FORMAT cell names one
+    in so many words ("Pipe delimited (|) text file"): that is the FRD's
+    statement. Returns (character, fill flag, error): the character + a flag
+    citing the FRD cell when the STTM / VDD agree or are silent; an error
+    naming both cells and the remedy when they state another character -
+    never the STTM value silently. (None, None, None) when the format cell
+    names no delimiter."""
+    from codegen.resolve.gapfill import Statement, delimiter_in_format, fill_flag
+
+    words = config.extractor.delimiter_words
+    char = delimiter_in_format(frd_feed.file_format, words)
+    if char is None:
+        return None, None, None
+    cell = f"{_frd_cell(frd, feed_index, 'file_format')}: {frd_feed.file_format!r}"
+    disagreeing = [o for o in others if delimiter_char(o.value, words) not in (None, char)]
+    if disagreeing:
+        key = f"feeds[{feed_index}].delimiter"
+        return None, None, (
+            f"delimiter disagrees: the FRD format cell {cell} names {char!r}, "
+            + "; ".join(f"the {o.source} {o.cell} says {o.value!r}" for o in disagreeing)
+            + f" — answer {key} under gaps: in answers.yaml and re-run `codegen layout "
+            "--answers answers.yaml --frd-contract-out <frd contract>` (then extract-sttm and "
+            "generate on that contract)")
+    return char, fill_flag("delimiter", Statement(char, "FRD", cell)), None
+
+
+def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
+                   *, feed_index: int = 0, frd: FrdContract | None = None
                    ) -> tuple[FrdFeed, list[str], list[str]]:
     """The contract-level gap chain. Returns (patched feed, flags, errors)."""
     from codegen.faq import load_faq
@@ -312,7 +351,16 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd
                           + " — choose one in the layout dialog")
     if feed.delimiter is None:
         others = others_for("delimiter", "delimiter")
-        if len(others) == 1:
+        # The FRD's own format cell first (only the FRD's: a format the STTM
+        # filled above is no FRD statement).
+        char, flag, error = _delimiter_from_format_text(frd_feed, others, feed_index, frd,
+                                                        config)
+        if error is not None:
+            errors.append(error)
+        elif char is not None:
+            feed = feed.model_copy(update={"delimiter": char})
+            flags.append(flag)
+        elif len(others) == 1:
             feed = feed.model_copy(update={"delimiter": others[0].value})
             flags.append(fill_flag("delimiter", others[0]))
     if feed.frequency is None:
@@ -674,7 +722,9 @@ def _resolve_one(
     # FILES sheet or the FAQ — each fill a provenance flag. The layout stage
     # applies the same chain earlier (with the dialog for disagreements);
     # here it covers the CLI path and anything the dialog left blank.
-    frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd)
+    feed_index = next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0)
+    frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd,
+                                                     feed_index=feed_index, frd=frd)
     errors.extend(gap_errors)
     catalog_flags: list[str] = []
     catalog, catalog_logical = map_catalog(
@@ -682,9 +732,7 @@ def _resolve_one(
                        catalog_flags),
         "stage", config, catalog_flags)
     width_flags: list[str] = []
-    sttm_feed = _resolve_widths(
-        sttm_feed, vdd, next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0),
-        width_flags)
+    sttm_feed = _resolve_widths(sttm_feed, vdd, feed_index, width_flags)
 
     delimiter_flags: list[str] = []
     delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config, delimiter_flags)

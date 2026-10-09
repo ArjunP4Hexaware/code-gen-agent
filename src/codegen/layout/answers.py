@@ -252,17 +252,21 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
                 f"of sheet {entry['sheet']!r}, an index nor a column letter")
         out[document][matches[0].key] = column
     from codegen.extract.generic import AUDIT_KEY_RE
+    from codegen.layout.resolve import answerable_frd_field, unanswerable_frd_reason
     from codegen.resolve.gapfill import TARGET_KEY_RE
     from codegen.resolve.widths import WIDTH_KEY_RE
 
     # Chunk B: an FRD field the reader could not place (a role question of the
-    # FRD) is answered with its value under gaps: too.
-    open_keys = {q.key for q in questions
-                 if q.kind in ("choice", "layer", "text") or q.document == "frd"}
+    # FRD) is answered with its value under gaps: too - when the layout stage
+    # applies a value for that field (B2: a feed_name answer used to be
+    # counted as applied and then dropped).
+    open_keys = {q.key for q in questions if q.kind in ("choice", "layer", "text")}
+    frd_fields = {q.key for q in questions if q.kind == "role" and q.document == "frd"}
     for key, value in answers.gaps.items():
         # A byte-width answer (M9.2) always travels: on a later pass the
         # question is no longer open BECAUSE it was answered.
-        if key in open_keys or WIDTH_KEY_RE.match(key) or TARGET_KEY_RE.match(key):
+        if (key in open_keys or (key in frd_fields and answerable_frd_field(key))
+                or WIDTH_KEY_RE.match(key) or TARGET_KEY_RE.match(key)):
             out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
                                 "source": "user"}
         elif AUDIT_KEY_RE.match(key):
@@ -270,6 +274,8 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
             # carried without a note - the layout stage never asks it.
             out["gaps"][key] = {"value": value["value"], "layer": value.get("layer"),
                                 "source": "user"}
+        elif key in frd_fields:
+            notes.append(f"gaps[{key!r}] is not applied - {unanswerable_frd_reason(key)}")
         else:
             notes.append(f"gaps[{key!r}] matches no open question")
     return out, notes

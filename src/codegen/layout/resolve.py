@@ -1507,6 +1507,36 @@ _TARGET_FIELDS = ("stage_target.schema", "stage_target.tables", "standard_target
                   # Chunk B: a catalog no document states (and no conventions
                   # default supplies) is the person's to state.
                   "stage_target.catalog", "standard_target.catalog")
+# Chunk B review (B2): every FRD field a gaps: VALUE sets - the branches of
+# _FeedGapFiller.run, the split step's file choice (file_name_patterns) and
+# the file-pattern text answer. The feed NAME is deliberately not one: the
+# FRD's Name row names a feed, else split_frd_feeds_by_sttm names it after
+# the STTM stage band BEFORE any answer is read - the name is the join key
+# the extractor pairs each sheet by (stage table, file pattern, the derived
+# name of a blank-TableName sheet), so a stated name could not be honoured
+# without breaking that pairing once the FRD splits into several feeds.
+_ANSWERABLE_FRD_FIELDS = frozenset((*_GAP_FIELDS, *_ANSWERED_TEXT_FIELDS,
+                                    *_ANSWERED_LIST_FIELDS, *_TARGET_FIELDS, "load_strategy",
+                                    "file_name_patterns", "file_patterns"))
+_UNANSWERABLE_FRD_REASONS = {
+    "feed_name": "the FRD's Name row names the feed, else the layout stage names it after the "
+                 "STTM stage band - the key each STTM sheet pairs by; an answer cannot rename "
+                 "a feed",
+}
+
+
+def answerable_frd_field(key: str) -> bool:
+    """True when a ``gaps:`` value for ``feeds[i].<field>`` reaches the
+    pair-resolved FRD contract (``_ANSWERABLE_FRD_FIELDS``)."""
+    match = re.match(r"^feeds\[\d+\]\.(.+)$", key)
+    return match is not None and match.group(1) in _ANSWERABLE_FRD_FIELDS
+
+
+def unanswerable_frd_reason(key: str) -> str:
+    """Why a ``gaps:`` value for this FRD field is not applied."""
+    field = key.split("].", 1)[1] if "]." in key else key
+    return _UNANSWERABLE_FRD_REASONS.get(
+        field, "the layout stage takes no answer for this field")
 
 
 def _feed_get(feed, dotted: str):

@@ -220,6 +220,65 @@ def test_frd_field_questions_are_answered_under_gaps():
     assert TARGET_KEY_RE.match("feeds[3].standard_target.catalog")
 
 
+def _frd_question(key: str) -> LayoutQuestion:
+    return LayoutQuestion(document="frd", sheet=None, layer=None, role=key, reason="no label",
+                          header=[], candidates=[])
+
+
+def test_a_feed_name_answer_is_refused_with_a_note_not_counted_as_applied():
+    """B2 (Chunk B review): the layout stage applies no gaps: value for the
+    feed NAME (the FRD's Name row names a feed, else the STTM stage band -
+    the key each sheet pairs by). The answer is kept out of the applied set
+    and a note says why, instead of 'applied' and then dropped."""
+    answers, notes = apply_answers(AnswersFile(gaps={
+        "feeds[0].feed_name": {"value": "some_feed"},
+        "feeds[0].lobs": {"value": "ALL"}}),
+        [_frd_question("feeds[0].feed_name"), _frd_question("feeds[0].lobs")], {})
+    assert set(answers["gaps"]) == {"feeds[0].lobs"}
+    assert notes == ["gaps['feeds[0].feed_name'] is not applied - the FRD's Name row names "
+                     "the feed, else the layout stage names it after the STTM stage band - the "
+                     "key each STTM sheet pairs by; an answer cannot rename a feed"]
+
+
+def test_note_lines_drop_the_answer_hint_for_a_field_the_contract_carries(
+        tmp_path, monkeypatch, capsys):
+    """B2: cold_5's prose FRD places no field; after its answers.yaml the
+    pair-resolved contract carries LOBs, the stage strategy, frequency and
+    domain (answers) and the file format (STTM). Their NOTE lines say so
+    instead of asking for an answer under gaps: again; a field still open
+    keeps the hint, and a feed_name answer is refused by name."""
+    import yaml
+
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv("CODEGEN_STORAGE_STATE", f"local:{state.as_posix()}")
+    answers = yaml.safe_load((SHAPES / "cold" / "cold_5" / "answers.yaml").read_text(
+        encoding="utf-8"))
+    answers["gaps"]["feeds[0].feed_name"] = {"value": "fc_some_other_name"}
+    answers_path = tmp_path / "answers.yaml"
+    answers_path.write_text(yaml.safe_dump(answers), encoding="utf-8")
+    frd_out = tmp_path / "frd.json"
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(_sttm("cold_5")), "--frd", str(_frd("cold_5")),
+                     "--dry-run", "--no-cache", "--answers", str(answers_path),
+                     "--frd-contract-out", str(frd_out)]) == 0
+    out = capsys.readouterr().out
+    notes = {line[cli.ANSWER_LABEL_WIDTH:].split(" — ", 1)[0]: line
+             for line in out.splitlines() if line.startswith("NOTE ") and " — " in line}
+    hint = "answer the value under gaps:"
+    for field in ("lobs", "stage_target.load_strategy", "frequency", "domain"):
+        line = notes[f"feeds[0].{field}"]
+        assert hint not in line
+        assert "the pair-resolved FRD contract carries it, from the answers file" in line
+    assert "carries it, from the STTM (" in notes["feeds[0].file_format"]
+    assert hint not in notes["feeds[0].feed_name"]
+    assert hint in notes["feeds[0].standard_target.load_strategy"]     # still open
+    assert "gaps['feeds[0].feed_name'] is not applied" in out
+    assert json.loads(frd_out.read_text(encoding="utf-8"))["feeds"][0]["feed_name"] != (
+        "fc_some_other_name")
+
+
 def test_the_frd_format_cell_delimiter_disagreeing_with_the_sttm_is_asked(config):
     pair = resolve_pair(_sttm("cold_1"), _frd("cold_1"), config, provider=None,
                         use_cache=False)

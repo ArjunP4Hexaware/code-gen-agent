@@ -344,6 +344,28 @@ def _owed_key(document: str, key: str, kind: str = "role", frd_contract=None) ->
     return False
 
 
+def _frd_answer_hint(key: str, frd_contract=None, gap_fills: list[dict] | None = None) -> str:
+    """The remedy an FRD field's answer line names (Chunk B review B2). A
+    field the pair-resolved FRD contract already carries (an answer applied,
+    another document filled it, the STTM band named it) needs no answer: the
+    line says so and where the value came from. A field no answer sets (the
+    feed name) names no gaps: key. Else: answer the value under gaps:."""
+    from codegen.layout.resolve import _feed_get, answerable_frd_field, unanswerable_frd_reason
+
+    match = re.match(r"^feeds\[(\d+)\]\.(.+)$", key)
+    if match is not None and frd_contract is not None \
+            and int(match.group(1)) < len(frd_contract.feeds) \
+            and _feed_get(frd_contract.feeds[int(match.group(1))],
+                          match.group(2)) not in (None, "", []):
+        fill = next((f for f in gap_fills or [] if f.get("field") == key), None)
+        where = ("" if fill is None else ", from the answers file" if fill["source"] == "user"
+                 else f", from the {fill['source']} ({fill['cell']})")
+        return f" (frd; the pair-resolved FRD contract carries it{where})"
+    if match is not None and not answerable_frd_field(key):
+        return f" (frd; {unanswerable_frd_reason(key)})"
+    return " (frd; answer the value under gaps: in answers.yaml)"
+
+
 def _print_needs_answers(pending) -> None:
     """One line per answer a held-back feed needs: QUESTION for a `gaps:` key,
     UNRESOLVED for a band whose layer is open (Chunk A; under `answers:`)."""
@@ -800,7 +822,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 # Chunk B: an FRD field is answered with its VALUE under gaps:
                 # (a QUESTION); only an STTM column placement is UNRESOLVED.
                 label = "NOTE" if not owed else "QUESTION" if document == "frd" else "UNRESOLVED"
-                where = (" (frd; answer the value under gaps: in answers.yaml)"
+                where = (_frd_answer_hint(key, result.frd_contract, result.gap_fills)
                          if document == "frd" else "")
                 print(answer_line(label, key, (reason or item) + where + (
                     "" if owed else " — informational, not required to run")))

@@ -1106,7 +1106,7 @@ dml:
     DATA_FACTORY_PIPELINE_SCHEDULE: {table: DATA_FACTORY_PIPELINE_SCHEDULE, citation: "framework walkthrough, docs/acfc/METADATA_DB_SEMANTICS.md §2 (the IIG tab of the same name)"}
     FILE_ADLS_INGESTION_DETAILS: {table: FILE_ADLS_INGESTION_DETAILS, citation: "framework walkthrough, docs/acfc/METADATA_DB_SEMANTICS.md §5"}
     ADLS_DELTA_INGESTION_DETAILS: {table: ADLS_DELTA_INGESTION_DETAILS, citation: "framework walkthrough, docs/acfc/METADATA_DB_SEMANTICS.md §7"}
-    STGDELTA_STDDELTA_INGESTION_DET: {table: stg_delta_stddelta_ingestion_details, citation: "owner brief 2026-10-09"}
+    STGDELTA_STDDELTA_INGESTION_DET: {table: stg_delta_stddelta_ingestion_details, citation: "owner brief 2026-10-09 (the first ACFC run's known bug)"}
   # The file connection table as SPOKEN in the walkthrough (§3) — flagged
   # dml_unconfirmed until the framework team confirms the identifiers.
   connection_table:

@@ -401,7 +401,7 @@ def test_the_confirmed_table_names_are_config_the_walkthrough_and_the_owner_brie
         assert names[sheet].table == sheet
         assert f"METADATA_DB_SEMANTICS.md {section}" in names[sheet].citation
     assert names[STGDELTA].table == "stg_delta_stddelta_ingestion_details"
-    assert names[STGDELTA].citation == "owner brief 2026-10-09"
+    assert names[STGDELTA].citation == "owner brief 2026-10-09 (the first ACFC run's known bug)"
     tabs = config.metadata.templates["iig_v2"].tabs
     assert set(names) <= set(tabs)
     assert max(len(t) for t in tabs) == len(STGDELTA) == 31          # the cut tab name

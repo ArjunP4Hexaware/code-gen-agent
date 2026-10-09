@@ -38,6 +38,25 @@ too, one line per file.
 | `pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx` | pair-1 golden, aliased | 1 | the scrubbed golden IIG (8 sheets) with `ALIASES.md` applied, re-serialized byte-stably; sheet order, headers, row counts untouched |
 | `pair_4/sttm_nb_cob_report.xlsx` | multi-table STTM (2026-10-07) | pair 4 (multi-table, synthetic vendor "Northwind Benefits") | `NB_COB_REPORT`: header block r1–r8 (`File(s)` = `NWB_COB_RPT_<LOB>_CCYYMMDD.txt`, `File Generator`, `File Location` = `mftlanding/inbound/…/`, `LOB` = six codes, `File frequency`, `Domain`, `Sub-Domain`, `File type`); band r10 `Source` A10:E10 \| `Stage Layer` F10:L10 \| `Standard Layer` M10:S10; headers r11: `#`, `Field Name`, `Data Type`, `Length`, `Segment`, then per band `Catalog`, `Schema`, `TableName`, `ColumnName`, `DataType`, `Mandatory`, `Primary Key` — LOGICAL catalogs `PR_DLK` (stage, schema `stg_nb_cob`) and `PR_STD` (standard, schema `nb_cob`); Header (8) / Detail (20) / Trailer (6) fields, each block its own `TableName` and its own three `NA` audit rows; `RECORD_TYPE` has a blank Standard band (not carried), two columns renamed in standard; `ForReference`: the STG→STD sheet (band r1 `Client - Source` A1 \| `STG - Dest 1` B1:D1 \| `STD - Dest2` E1:H1, headers r2) — a SECONDARY source that agrees with the Standard band |
 | `pair_4/frd_nb_cob_report.contract.json` | FRD contract (JSON) | pair 4 (multi-table) | the same facts as the STTM: one feed, the LOB-placeholder file pattern, six LOBs, H/D/T segments, three tables in both layers, `Append` both layers, no catalog |
+| `cold/cold_1/STTM_ch_claims_daily.xlsx` | cold drill STTM (Chunk B) | cold_1 (synthetic) | family A inline meta; the Standard band LEFT of the Stage band (titles, PR_STD/PR_DLK and the stg_ prefix agree); target headers `Target ... Name` |
+| `cold/cold_1/FRD_ch_claims_daily.docx` | cold drill FRD (Chunk B) | cold_1 (synthetic) | F1 with a `Ref` column (`DM | Descriptive Metadata` over `DM-1 | Name | ...`); delimiter pipe vs the STTM's `,` |
+| `cold/cold_2/STTM_fc_elig_monthly.xlsx` | cold drill STTM (Chunk B) | cold_2 (synthetic) | fixed width (Start/End/Length), `Header/Detail/Trailer Record` banner rows, titles `Target 1` / `Target 2` (no layer evidence), three stage tables, Detail only to standard, audits `LOAD_TS` / `BATCH_ID` |
+| `cold/cold_2/FRD_fc_elig_monthly.docx` | cold drill FRD (Chunk B) | cold_2 (synthetic) | F2: Heading 1, a 2x2 domain table, three Solution Requirement tables (value merged over columns 2-4) |
+| `cold/cold_3/STTM_nb_provider_roster.xlsx` | cold drill STTM (Chunk B) | cold_3 (synthetic) | family E: three mapping sheets (`Raw Zone` / `Curated Zone` titles, headers `Schema / Table / Column / Type`), File Details, Version History, a code sheet |
+| `cold/cold_3/FRD_nb_provider_roster.docx` | cold drill FRD (Chunk B) | cold_3 (synthetic) | F1 with a `Ref` column, `Target Schema` (no catalog), a three-line Object Name |
+| `cold/cold_4/STTM_ch_rx_claims.xlsx` | cold drill STTM (Chunk B) | cold_4 (synthetic) | family B: FILE_DETAILS + `MAPPING-RX_CLAIM` / `MAPPING-RX_REVERSAL`, a `<LOB>` pattern x 3 LOBs + a reversal file, headers `Target Schema / Target Tbl / Target Col / Target Type` |
+| `cold/cold_4/FRD_ch_rx_claims.docx` | cold drill FRD (Chunk B) | cold_4 (synthetic) | F1 with a `Ref` column, stanza Object Name, `PR_DLK` / `PR_STD` |
+| `cold/cold_5/STTM_fc_provdir.xlsx` | cold drill STTM (Chunk B) | cold_5 (synthetic) | one sheet, no band title row, ONE target band (`... in DL`), no catalog, no audit rows |
+| `cold/cold_5/FRD_fc_provdir.docx` | cold drill FRD (Chunk B) | cold_5 (synthetic) | three prose paragraphs, no table |
+| `cold/cold_6/STTM_ch_member_enroll.xlsx` | cold drill STTM (Chunk B) | cold_6 (synthetic) | family C: vendor `Layout` + `STTM` sheet whose row 1 is a document title, headers `Landing ...` / `Curated ... Nm` (catalog values PR_DLK / PR_STD), rules after both bands, tab delimited |
+| `cold/cold_6/FRD_ch_member_enroll.docx` | cold drill FRD (Chunk B) | cold_6 (synthetic) | F2 with Heading 1 sections |
+
+The six `cold/` pairs (Chunk B, 2026-10-09) are the cold-document drill: shapes designed
+blind to the reader code (`tests/acfc_shapes/COLD_PAIRS.md`, builders
+`tests/acfc_shapes/cold_pairs.py`). Each `cold/<id>/` also holds two hand-written files:
+`answers.yaml` (what a person answers) and `expected_questions.yaml` (the exit code and
+the QUESTION / UNRESOLVED keys of every CLI stage before the answers) -
+`tests/test_cold_pairs.py` runs the chain with the ACFC overlay on and pins both.
 
 Not built (out of the documented shapes' scope for this build): STTM pairs'
 1,000,000-row openpyxl artefacts (rows are 10–30 here), the runbook and TDD

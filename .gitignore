@@ -123,6 +123,20 @@ port_kit_audit/
 !fixtures/acfc_shapes/pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx
 !fixtures/acfc_shapes/pair_4/sttm_nb_cob_report.xlsx
 !fixtures/acfc_shapes/pair_4/frd_nb_cob_report.contract.json
+# Chunk B (2026-10-09): the six SYNTHETIC cold-drill pairs (tests/acfc_shapes/
+# cold_pairs.py, spec tests/acfc_shapes/COLD_PAIRS.md), one line per file.
+!fixtures/acfc_shapes/cold/cold_1/STTM_ch_claims_daily.xlsx
+!fixtures/acfc_shapes/cold/cold_1/FRD_ch_claims_daily.docx
+!fixtures/acfc_shapes/cold/cold_2/STTM_fc_elig_monthly.xlsx
+!fixtures/acfc_shapes/cold/cold_2/FRD_fc_elig_monthly.docx
+!fixtures/acfc_shapes/cold/cold_3/STTM_nb_provider_roster.xlsx
+!fixtures/acfc_shapes/cold/cold_3/FRD_nb_provider_roster.docx
+!fixtures/acfc_shapes/cold/cold_4/STTM_ch_rx_claims.xlsx
+!fixtures/acfc_shapes/cold/cold_4/FRD_ch_rx_claims.docx
+!fixtures/acfc_shapes/cold/cold_5/STTM_fc_provdir.xlsx
+!fixtures/acfc_shapes/cold/cold_5/FRD_fc_provdir.docx
+!fixtures/acfc_shapes/cold/cold_6/STTM_ch_member_enroll.xlsx
+!fixtures/acfc_shapes/cold/cold_6/FRD_ch_member_enroll.docx
 
 # Local raw-term denylist read by scripts/scrub_check.py (raw client terms):
 # NEVER tracked.

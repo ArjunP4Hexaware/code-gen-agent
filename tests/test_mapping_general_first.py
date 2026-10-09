@@ -66,19 +66,32 @@ def test_the_fixture_set_has_mapping_workbooks(tmp_path):
             "sd_mapping.xlsx"} <= names
 
 
+# MAPPING- workbooks of the fixture set the LEGACY reader refuses outright (a
+# header outside family B's vocabulary): there is no legacy reading to compare;
+# the general reader must read them. Named, so none drops out unnoticed.
+LEGACY_REFUSES = {"STTM_ch_rx_claims.xlsx"}          # cold_4: "Source Column"
+
+
 def test_general_and_legacy_readers_place_the_same_roles_in_the_same_columns(config, tmp_path):
-    """Equivalence, every MAPPING- workbook: no difference in header / band
-    rows, source / stage / standard roles, per-row columns, open roles — and
-    discover() returns exactly the legacy profile."""
+    """Equivalence, every MAPPING- workbook both readers read: no difference
+    in header / band rows, source / stage / standard roles, per-row columns,
+    open roles — and discover() returns exactly the legacy profile."""
     ex = config.extractor
+    refused = set()
     for path in _mapping_workbooks(tmp_path):
         wb = load_document(path, ex.used_range_empty_rows)
         names = [n for n in wb.sheetnames if n.startswith(ex.mapping_sheet_prefix)]
-        legacy = discovery._mapping_prefix(wb, ex, path.name, fingerprint(wb), [])
         general = discovery._content(wb, ex, path.name, fingerprint(wb), [])
+        try:
+            legacy = discovery._mapping_prefix(wb, ex, path.name, fingerprint(wb), [])
+        except WorkbookParseError:
+            refused.add(path.name)
+            assert general is not None and general.mapping_sheets, path.name
+            continue
         assert discovery.mapping_differences(legacy, general, names) == [], path.name
         found = discovery.discover(path, ex)
         assert found.profile.model_dump_json() == legacy.model_dump_json(), path.name
+    assert refused == LEGACY_REFUSES
 
 
 # ------------------------------------------------ the shapes of a hand-written sheet

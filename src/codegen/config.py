@@ -1112,6 +1112,13 @@ class FamilyConventionsConfig(BaseModel):
     # the tooltip (never an asserted N); "N" = the family writes N / NA / NA
     # (the pair-1 and pair-4 goldens).
     recycle_unstated: Literal["open", "N"] = "open"
+    # STGDELTA OBJECT_ID (Chunk D, owner brief 2026-10-09): "open" = the
+    # engineer's (always blank, as the pair-1 / pair-4 goldens leave it);
+    # "from_file" = OBJECT_ID is per (group, file): the row takes the OBJECT_ID
+    # of the ADLS_DELTA_INGESTION_DETAILS row of THE file that feeds its table;
+    # when several files feed it, no single file's id applies — left open with
+    # a note (stgdelta_object_id_open).
+    stgdelta_object_id: Literal["open", "from_file"] = "open"
     citation: str = ""
 
     @model_validator(mode="after")

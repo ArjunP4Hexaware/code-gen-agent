@@ -43,6 +43,10 @@ metadata:
         audit_columns: [LOB, SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME]
         audit_type_case: data
         recycle_unstated: open
+        # STGDELTA OBJECT_ID (owner brief 2026-10-09): per (group, file) — the
+        # row takes the ADLS row's OBJECT_ID of the one file that feeds its
+        # table; several files feed it -> open, with a note.
+        stgdelta_object_id: from_file
         citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist); SD rows (first real-row scorecard, 2026-10-08)"
       constants:
         ADLS_DELTA_INGESTION_DETAILS:
@@ -51,6 +55,13 @@ metadata:
           TGT_CONNECTION_ID: "2"
           SRC_CONTAINER_NAME: mftlanding
           TGT_CONTAINER_NAME: z-use-d1-dlk-stage-01
+        # Stage -> standard (Chunk D, 2026-10-09): the source is the STAGE table,
+        # read where the file -> stage row wrote it — the stage container (the
+        # real ADLS rows' TGT_CONTAINER_NAME). The standard container and this
+        # sheet's three connection ids are stated by no real row (IIG test cells
+        # holds ADLS_DELTA rows only): open, Friday checklist 2.
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_CONTAINER_NAME: z-use-d1-dlk-stage-01
       constant_citations:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
@@ -58,6 +69,8 @@ metadata:
           TGT_CONNECTION_ID: *acfc
           SRC_CONTAINER_NAME: *acfc
           TGT_CONTAINER_NAME: *acfc
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_CONTAINER_NAME: "ACFC environment overlay (config/overlays/acfc_env.yaml) — the d1 stage container: the real ADLS_DELTA rows' TGT_CONTAINER_NAME, where the stage table this row reads is written"
       # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
       # until this overlay is split per source family — a PRX-shaped feed
       # (pair 1) gets these paths too.
@@ -71,12 +84,28 @@ metadata:
           # Written only when a document states the recycle (else open, the
           # shape offered in the tooltip).
           RECYCL_ADLS_PATH: "/{domain_path}Recycle/{stage_table}"
+        # Stage -> standard (Chunk D, owner brief 2026-10-09; the first ACFC
+        # run wrote these in the LANDING shape, /<landing container>/inbound/…).
+        # Paths are container-relative — the container is its own column:
+        # source = the stage side's Processed folder (the folder of the ADLS
+        # row's TGT_ADLS_PATH above, no container segment); target / reject in
+        # the standard container, the same shape as the stage container's
+        # ({stage_table} here = this row's target table, {reject_table} = it +
+        # _reject). SRC_ADLS_ARCHVL_PATH keeps the template's shape.
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: "/{domain_path}Processed/"
+          TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
       path_citations:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_PATH: *acfc
           SRC_ADLS_ARCHVL_PATH: *acfc
           TGT_ADLS_PATH: *acfc
           TGT_RJT_ADLS_PATH: *acfc
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_ADLS_PATH: &stgstd "ACFC environment overlay (config/overlays/acfc_env.yaml) — stage -> standard paths, container-relative (owner brief 2026-10-09)"
+          TGT_ADLS_PATH: *stgstd
+          TGT_RJT_ADLS_PATH: *stgstd
       always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
         TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
         DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

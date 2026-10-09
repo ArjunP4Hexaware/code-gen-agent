@@ -894,8 +894,64 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
     files = _feed_files(spec, config)
     lobs = [f.lob for f in files if f.lob]
     generalized = _generalized_pattern(files, tpl, config.extractor.lob_tokens)
-    return [_stg_std_row(tab, feed, config, spec, faq, tpl, profile, group, lobs, generalized)
-            for group in _table_groups(spec) if group.standard is not None]
+    rows = []
+    for group in _table_groups(spec):
+        if group.standard is None:
+            continue
+        row = _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group, lobs, generalized)
+        if tpl.family_conventions.stgdelta_object_id == "from_file":
+            cell = _stg_object_id_cell(tpl, group, files)
+            if cell is not None:
+                row["OBJECT_ID"] = cell
+        rows.append(row)
+    return rows
+
+
+def _feeding_files(group: _TableGroup, files: list[FeedFile]) -> list[FeedFile]:
+    """The files whose rows land in ``group``'s table: every file the feed
+    receives (rule 3: each file's ADLS row loads the DETAIL table; rule 5: a
+    header / trailer table is split off the same files by the DQ rule)."""
+    return list(files)
+
+
+def _stg_object_id_cell(tpl: MetadataTemplateConfig, group: _TableGroup,
+                        files: list[FeedFile]) -> dict | None:
+    """STGDELTA OBJECT_ID by the family convention ``stgdelta_object_id:
+    from_file`` (Chunk D, owner brief 2026-10-09): OBJECT_ID is per (group,
+    file), so the row takes the OBJECT_ID of the ADLS_DELTA_INGESTION_DETAILS
+    row of THE file that feeds its table — that row's position in the group
+    (1..n, ``_adls_delta``). Several files feed it: no single file's id
+    applies — open for the engineer, with a note. Both cells are convention
+    cells (they keep their own tooltip in the always-blank column). No file
+    known: None (the always-blank cell, as without the convention)."""
+    feeding = _feeding_files(group, files)
+    if not feeding:
+        return None
+    citation = _family_citation(tpl)
+    if len(feeding) == 1:
+        (file,) = feeding
+        number = files.index(file) + 1
+        pattern = _wildcarded(file.pattern, tpl)
+        cell = _cell(str(number), "synthetic",
+                     f"template constant — OBJECT_ID is per (group, file): the "
+                     f"ADLS_DELTA_INGESTION_DETAILS row of the one file that feeds "
+                     f"{group.stage.table} ({pattern}) is object {number} (family convention "
+                     f"stgdelta_object_id: from_file; {citation})")
+        cell["badge_entry"]["convention"] = True
+        return cell
+    patterns = [_wildcarded(f.pattern, tpl) for f in feeding]
+    listed = ", ".join(patterns[:4]) + (f" … +{len(patterns) - 4}" if len(patterns) > 4 else "")
+    cell = _cell("", "needs_template",
+                 f"OBJECT_ID is per (group, file) and {len(feeding)} files feed "
+                 f"{group.stage.table} ({listed}): no single file's ADLS OBJECT_ID applies — "
+                 f"assigned by the engineer (family convention stgdelta_object_id: from_file; "
+                 f"{citation})")
+    cell["badge_entry"]["convention"] = True
+    cell["badge_entry"]["note"] = (
+        f"stgdelta_object_id_open:{group.stage.table} — {len(feeding)} files feed it "
+        f"({listed}); OBJECT_ID is per (group, file), so the STGDELTA row takes no file's "
+        "ADLS OBJECT_ID — left open for the engineer")
+    return cell
 
 
 def _stg_object_name(tpl: MetadataTemplateConfig, table: str, generalized: str) -> dict:

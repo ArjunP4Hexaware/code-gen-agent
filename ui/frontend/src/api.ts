@@ -181,6 +181,9 @@ export interface DemoStatus {
   // documents those keys belong to
   needs_answers?: NeedsAnswerItem[];
   needs_answers_inputs?: { sttm: string; frd: string } | null;
+  // true once other documents are selected: the list names that run's sheets
+  // and a re-run is refused (the page hides its controls)
+  needs_answers_stale?: boolean;
   last_run_label: string | null;
   // feeds the last run set aside (no file for the table, question left unanswered)
   set_aside?: { label: string; error: string }[];
@@ -743,6 +746,7 @@ export function normalizeStatus(raw: DemoStatus): DemoStatus {
       ? r.layout_questions.map(normalizeQuestion) : [],
     needs_answers: normalizeNeedsAnswers(r.needs_answers),
     needs_answers_inputs: r.needs_answers_inputs ?? null,
+    needs_answers_stale: r.needs_answers_stale === true,
     error_detail: errorDetail(r.error_detail),
   };
 }

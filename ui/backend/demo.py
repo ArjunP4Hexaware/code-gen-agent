@@ -1542,6 +1542,10 @@ class DemoRunner:
             "needs_answers_inputs": ({"sttm": Path(self._run_inputs[0]).name,
                                       "frd": Path(self._run_inputs[1]).name}
                                      if self.needs_answers and self._run_inputs else None),
+            # True once other documents are selected: the list names THAT run's
+            # sheets and a re-run is refused — the page hides its controls.
+            "needs_answers_stale": bool(self.needs_answers and self._run_inputs is not None
+                                        and self._current_inputs() != self._run_inputs),
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,

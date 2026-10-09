@@ -180,9 +180,30 @@ describe("the Answers-needed list after a run", () => {
       { sttm: { [band.key]: "stage" }, frd: {}, vdd: {}, gaps: {} }, 1);
   });
 
+  it("once other documents are selected, names the run's documents and offers no re-run", () => {
+    expect(status.needs_answers_stale).toBe(false);
+    const stale = normalizeStatus({ ...status, needs_answers_stale: true } as DemoStatus);
+    expect(stale.needs_answers_stale).toBe(true);
+    const onRerun = vi.fn();
+    render(<NeedsAnswersPanel items={stale.needs_answers as NeedsAnswerItem[]}
+                              state="needs_answers" inputs={stale.needs_answers_inputs}
+                              stale={stale.needs_answers_stale} onRerun={onRerun} />);
+    const text = host.textContent ?? "";
+    expect(text).toContain("open answers belong to other documents");
+    expect(text).toContain("STTM_nb.xlsx");
+    expect(text).toContain("frd.contract.json");
+    expect(text).toContain("Choose those documents again");
+    // No controls: the backend would refuse the re-run (the documents changed).
+    expect([...host.querySelectorAll("button")].some((b) =>
+      b.textContent?.startsWith("Re-run"))).toBe(false);
+    expect(host.querySelectorAll("input").length).toBe(0);
+    expect(onRerun).not.toHaveBeenCalled();
+  });
+
   it("a status without the list (older backend) normalizes to an empty one", () => {
     const old = normalizeStatus({ state: "failed", stages: [], error: "x" } as unknown as DemoStatus);
     expect(old.needs_answers).toEqual([]);
+    expect(old.needs_answers_stale).toBe(false);
     expect(old.error_detail).toBeNull();
   });
 });

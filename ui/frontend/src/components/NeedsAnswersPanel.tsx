@@ -32,12 +32,16 @@ export function NeedsAnswersPanel({
   items,
   state,
   inputs,
+  stale,
   disabled,
   onRerun,
 }: {
   items: NeedsAnswerItem[];
   state: DemoStatus["state"];
   inputs?: { sttm: string; frd: string } | null;
+  // Other documents are selected now (status.needs_answers_stale): the keys
+  // name that run's sheets and the backend refuses the re-run — no controls.
+  stale?: boolean;
   disabled?: boolean;
   onRerun: (answers: AnswersPayload, answered: number) => void;
 }) {
@@ -54,6 +58,26 @@ export function NeedsAnswersPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
   if (!items.length) return null;
+  if (stale) {
+    return (
+      <div className="flag-hitl needs-answers" role="region" aria-label="Answers needed"
+           style={{ padding: "10px 12px", marginTop: 8 }}>
+        <strong>The last run's {items.length} open answer{items.length === 1 ? "" : "s"} belong
+          to other documents</strong>
+        <p className="hint" style={{ margin: "4px 0 0" }}>
+          That run read
+          {inputs ? (
+            <>
+              {" "}<code>{inputs.sttm}</code> + <code>{inputs.frd}</code>
+            </>
+          ) : " other documents"}
+          ; other documents are selected now, and its questions name the sheets of the
+          documents it read. Choose those documents again to answer here and re-run, or
+          Generate afresh with the ones selected now.
+        </p>
+      </div>
+    );
+  }
 
   const questions = items.map((i) => i.question);
   const answered = items.filter((i) => hasPick(i.question, picks)).length;

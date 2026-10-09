@@ -154,6 +154,27 @@ def test_rerun_validates_answers_and_refuses_changed_documents(roles):
         runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
 
 
+def test_status_says_when_the_answers_list_no_longer_matches_the_documents(roles):
+    """Other documents selected after a held-back run: the list names THAT
+    run's sheets and a re-run is refused, so the status says it is stale
+    (the page hides the controls and names the run's documents)."""
+    runner, _store = _runner(roles)
+    assert runner.status()["needs_answers_stale"] is False          # nothing listed
+    status = _hold_every_feed_back(runner)
+    assert status["needs_answers_stale"] is False
+    original = runner.selected_workbook
+    other = roles / "other.xlsx"
+    other.write_bytes(xlsx_bytes(bands.three_lookalike()))
+    runner.selected_workbook = other
+    status = runner.status()
+    assert status["needs_answers_stale"] is True
+    assert status["needs_answers_inputs"] == {"sttm": original.name, "frd": "frd.contract.json"}
+    with pytest.raises(ValueError, match="documents changed"):
+        runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    runner.selected_workbook = original                             # chosen again
+    assert runner.status()["needs_answers_stale"] is False
+
+
 def test_a_run_paused_on_its_dialog_refuses_a_second_start(roles):
     runner, _store = _runner(roles)
     runner.start_live()

@@ -1010,6 +1010,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     items={status.needs_answers ?? []}
                     state={status.state}
                     inputs={status.needs_answers_inputs}
+                    stale={status.needs_answers_stale}
                     disabled={liveAvailable !== true || selecting}
                     onRerun={(answers, answered) => {
                       setPendingRerun({ answers, answered });

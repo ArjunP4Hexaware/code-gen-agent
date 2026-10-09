@@ -175,6 +175,22 @@ def _placed_role(entry: dict, index: int, profile, workbook) -> tuple[str, int] 
     return confidence_key(sheet.name, band.layer, entry["role"]), column
 
 
+def band_layer_answers(answers: AnswersFile, names: dict[str, str] | None = None
+                       ) -> dict[str, str]:
+    """The file's band-layer answers (Chunk A) as resolver answers,
+    ``{"<sheet>/band[<n>]/layer": layer}`` — applied FIRST, so the bands they
+    create exist when the file's column entries are mapped onto them."""
+    out: dict[str, str] = {}
+    for entry in answers.entries:
+        if entry.get("document", "sttm") != "sttm" or not _is_band_entry(entry):
+            continue
+        if entry.get("workbook") and names is not None \
+                and entry["workbook"] != names.get("sttm"):
+            continue
+        out[f"{entry['sheet']}/{entry['layer']}/layer"] = entry.get("value", entry.get("column"))
+    return out
+
+
 def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
                   documents: dict[str, tuple] | None = None) -> tuple[dict, list[str]]:
     """Map the file onto the resolution → (the resolver's ``answers`` dict,

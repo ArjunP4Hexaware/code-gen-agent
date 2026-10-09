@@ -107,10 +107,14 @@ A target band is located by its **label group** — a run of `roles.target`
 headers placing at least `layer_evidence.group_min_location_roles` (3) of
 catalog / schema / table / column / data type — wherever it sits in the
 header row: any order, any offset, any count of bands, never a fixed column
-(`discover.label_groups`). A run closes on a repeated role, on a location role
-ranked below the previous one (once it holds two, or with other cells between
-them), or after `group_max_gap` other cells; a rules band's Primary Key beside
-the stage band is never the stage band's first role.
+(`discover.label_groups`); column or data type must be among them (a Table
+Details sheet's Catalog | Schema | Table Name is not a band). Order INSIDE a
+band is free ("TableName | ColumnName | Schema | DataType" is one band). A run
+closes after `group_max_gap` other cells; a REPEATED role splits it at the
+location-rank drop between the two occurrences that restarts lowest ("Data
+Type | Schema | TableName | ColumnName | DataType …": the source's type stays
+with the source), else just before the repeat; a rules band's Primary Key
+beside the stage band is never the stage band's first role.
 
 A band's **layer** comes only from evidence, first that names exactly one
 layer wins (`extractor.discovery.layer_evidence`):
@@ -122,6 +126,7 @@ layer wins (`extractor.discovery.layer_evidence`):
 | `header` | a whole word of the band's own header texts (`header_words`; "in DL" / "DLK" are OFF — pair 1 writes "… in DL" in both bands) |
 | `catalog_value` | the band's Catalog values (`catalog_words`: PR_DLK → stage, PR_STD → standard) |
 | `schema_value` | the band's Schema values (`schema_prefixes`: stg_ → stage) |
+| `elimination` | stage AND standard each held by an evidenced band: the ONE band left open is the source (a layer is claimed once — a database-shaped source band under a title that names no layer) |
 
 **Column order is never evidence.** A band nothing names, or two bands naming
 the same target layer (unless one was answered), is the question
@@ -154,15 +159,25 @@ JSON). The groups rebuild the bands only when the band row contradicts them
 band row (one band only, another title wording, no title row) — runs only
 when pass 1 finds no mapping sheet in the workbook: a reference sheet beside
 real mapping sheets ("STG - Dest 1 | STD - Dest2", pair 4) is never read as a
-feed; the diagnostics name it. A `MAPPING-` sheet the legacy reader refuses
+feed; the diagnostics name it. A pass-2 header row needs two or more label
+groups, or one plus a field-name header outside it (an auxiliary sheet with one
+table-shaped group is not a mapping sheet); the row above it is its title row
+only when sparse, short, not a meta label ("Notes | …") and a cell names a
+layer or sits over a group. A `MAPPING-` sheet the legacy reader refuses
 (another title wording, another band order, an unknown header) falls through
 to content discovery; the flat `parse_workbook` API still raises the legacy
-refusal.
+refusal, and the segmented dialect on a `MAPPING-` sheet keeps its explicit
+`SegmentedWorkbookError`.
 
 **Caches.** A layer read from catalog / schema VALUES is never trusted from a
-cache — the fingerprint hashes headers, not values: on every cache hit
-`stale_value_evidence` re-derives it from the workbook in hand, and a cached
-layer the values no longer support is re-resolved (the report says why).
+cache — the fingerprint hashes headers, not values: on every cache hit (the
+document entry AND the pair entry) `stale_value_evidence` re-runs the value
+chain (Catalog values, then Schema values) on the workbook in hand, and a
+cached layer or evidence kind the values no longer support is re-resolved (the
+report says why). A band-layer question is never put to the advice model.
+**answers.yaml** applies its band layers FIRST (`band_layer_answers`), so a
+column entry for a band that exists only once its layer is answered
+(`{sheet, layer: standard, role: table, column: …}`) finds that band.
 Adding `layer_evidence` to `extractor:` changed the vocabulary hash: every
 runtime cache entry written before re-resolves once.
 

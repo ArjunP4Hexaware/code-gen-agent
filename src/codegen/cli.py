@@ -498,16 +498,23 @@ def _outputs_through_storage(config: Config):
 def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
     """The workbook's layout profile with the answers file applied — cache and
     synonyms first, then the file's placements (source=user); never a model."""
-    from codegen.layout.answers import apply_answers, load_answers
+    from codegen.layout.answers import apply_answers, band_layer_answers, load_answers
     from codegen.layout.resolve import resolve_workbook
     from codegen.storage import runtime_layout_cache
 
     runtime_cache, push_cache = runtime_layout_cache(config, Path("."))
     doc, _wb = resolve_workbook(workbook, config, provider=None,
                                 runtime_cache_dir=runtime_cache)
+    loaded = load_answers(answers_path)
+    bands = band_layer_answers(loaded, {"sttm": workbook.name})
+    if bands:
+        # Chunk A: band layers first — a column entry for a band that exists
+        # only once its layer is answered then finds that band.
+        doc, _wb = resolve_workbook(workbook, config, provider=None,
+                                    runtime_cache_dir=runtime_cache, answers=bands, prior=doc)
     # M9.1: an answer may set any role, open or not — the file is applied even
     # when nothing is open (it then overrides a synonym / cached placement).
-    answers, notes = apply_answers(load_answers(answers_path), doc.questions,
+    answers, notes = apply_answers(loaded, doc.questions,
                                    {"sttm": workbook.name},
                                    documents={"sttm": (doc.profile, _wb)})
     for note in notes:
@@ -606,6 +613,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
     from codegen.layout.answers import (
         AnswersFileError,
         apply_answers,
+        band_layer_answers,
         load_answers,
         unresolved_report,
     )
@@ -638,13 +646,20 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         # synonym / model / cached placement.
         try:
             stop_after = config.extractor.used_range_empty_rows
+            loaded = load_answers(Path(args.answers))
+            bands = band_layer_answers(loaded, names)
+            if bands:
+                # Chunk A: band layers first — the bands they create must exist
+                # before the file's column entries are mapped onto them.
+                result = resolve({"sttm": bands, "frd": {}, "vdd": {}, "gaps": {}},
+                                 refresh=args.refresh, prior=result)
             documents = {"sttm": (result.sttm.profile,
                                   load_workbook_for_answers(workbook, stop_after))}
             if vdd is not None and result.vdd is not None:
                 documents["vdd"] = (result.vdd.profile,
                                     load_workbook_for_answers(vdd, stop_after))
-            answers, notes = apply_answers(load_answers(Path(args.answers)), result.questions,
-                                           names, documents=documents)
+            answers, notes = apply_answers(loaded, result.questions, names,
+                                           documents=documents)
         except (AnswersFileError, OSError) as exc:
             print(f"{'FAIL':<15} layout — answers file: {exc}")
             return 1

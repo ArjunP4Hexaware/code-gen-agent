@@ -415,3 +415,148 @@ def test_header_cells_are_structural_only(config, tmp_path):
     for item in profile.unresolved:
         assert "stg_nb" not in item.reason and "nb_member_risk" not in item.reason
     assert normalize("Schema") == "schema" and text(" x ") == "x"
+
+
+# ------------------------------------- independent review of 14fd40c (fixed)
+
+def _sheet(tmp_path: Path, name: str, rows: list[list], merges=(), sheet: str = SHEET,
+           extra: dict[str, list[list]] | None = None) -> Path:
+    from acfc_shapes.common import new_workbook, write_rows
+
+    wb = new_workbook()
+    ws = wb.create_sheet(sheet)
+    write_rows(ws, rows)
+    for row, first, last in merges:
+        ws.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
+    for title, extra_rows in (extra or {}).items():
+        write_rows(wb.create_sheet(title), extra_rows)
+    return _write(tmp_path, name, wb)
+
+
+TGT = list(bands.TARGET_HEADERS)
+
+
+def test_review1_source_type_right_before_schema_stays_in_the_source_band(config, tmp_path):
+    header = ["Field Name", "Data Type", *TGT, *TGT]
+    titles = ["Source File", None, "Stage Layer", None, None, None, "Standard Layer", None, None,
+              None]
+    rows = [titles, header] + [[n, "String", "stg_nb", "t", n, "String", "nb", "t", n, "String"]
+                               for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r1", rows, [(1, 1, 2), (1, 3, 6), (1, 7, 10)]),
+                       config.extractor).profile
+    got = _bands(profile)
+    assert got["source"][:2] == (1, 2) and got["source"][2]["source_type"] == 2
+    assert got["stage"][:3] == (3, 6, {"schema": 3, "table": 4, "column": 5, "target_type": 6})
+    assert got["standard"][:2] == (7, 10) and profile.unresolved == []
+
+
+def test_review2_database_source_under_an_unnamed_title_is_the_source(config, tmp_path):
+    """Stage and standard each held by a titled band: the one band left is the
+    source by elimination - the profile is exactly the band-row reading."""
+    source = ["Database", "Schema", "Table Name", "Column Name", "Data Type", "Length"]
+    titles = ["Client Extract", None, None, None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, [*source, *TGT, *TGT]] + [
+        ["db", "dbo", "member", n, "varchar", "10", "stg_nb", "t", n, "String", "nb", "t", n,
+         "String"] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r2", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)]),
+                       config.extractor).profile
+    got = _bands(profile)
+    assert profile.unresolved == []
+    assert got["source"][:2] == (1, 6) and got["source"][2]["field_name"] == 4
+    assert all(v[3] is None for v in got.values()), "the band-row reading, unchanged"
+
+
+@pytest.mark.parametrize("order", [["TableName", "ColumnName", "Schema", "DataType"],
+                                   ["Catalog", "TableName", "Schema", "ColumnName", "DataType"]])
+def test_review3_order_inside_a_band_is_free(order, config, tmp_path):
+    values = {"TableName": "nb_member_risk", "Schema": "stg_nb", "DataType": "String",
+              "Catalog": "PR_DLK"}
+    rows = [["Field Name", *order]] + [[n, *(values.get(h, n) for h in order)]
+                                       for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r3", rows), config.extractor).profile
+    stage = _bands(profile)["stage"]
+    assert profile.unresolved == []
+    assert {"schema", "table", "column", "target_type"} <= set(stage[2])
+    assert stage[2]["table"] == order.index("TableName") + 2
+
+
+def test_review4_band_questions_never_reach_the_advice_model():
+    from codegen.layout.model import build_advice_request
+
+    request = build_advice_request([{"key": f"{SHEET}/band[1]/layer", "title": "t"},
+                                    {"key": f"{SHEET}/stage/table", "title": "t"}])
+    assert [q["key"] for q in request["questions"]] == [f"{SHEET}/stage/table"]
+
+
+def test_review5_a_column_answer_reaches_a_band_that_exists_only_after_its_layer(cli_env,
+                                                                                   capsys):
+    wb = bands.three_lookalike()
+    wb[SHEET].cell(row=1, column=10, value="Target Object")      # band 3: no TableName synonym
+    workbook = _write(cli_env, "r5", wb)
+    answers = cli_env / "answers.yaml"
+    answers.write_text(yaml.safe_dump({"answers": [
+        *({"sheet": SHEET, "layer": f"band[{n}]", "role": "layer", "value": layer}
+          for n, layer in ((1, "source"), (2, "stage"), (3, "standard"))),
+        {"sheet": SHEET, "layer": "standard", "role": "table", "column": "Target Object"}]}),
+        encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete", "--answers", str(answers)]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == [] and "not applied" not in out
+
+
+def test_review6_a_meta_row_above_the_header_is_not_a_title_row(config, tmp_path):
+    rows = [["File Name", "nb_member_risk_YYYYMMDD.csv"],
+            ["Notes", "standard tables reload nightly"],
+            ["Field Name", "Description", *TGT, *TGT]]
+    rows += [[n, "d", "stg_nb", "t", n, "String", "std_nb", "t", n, "String"]
+             for n in bands.FIELDS]
+    sp = discover(_sheet(tmp_path, "r6", rows), config.extractor).profile.sheet(SHEET)
+    assert sp.band_row is None and sp.header_row == 3
+    layers = {b.layer: (b.col_start, b.layer_evidence) for b in sp.bands}
+    assert layers["stage"] == (3, "schema_value") and layers["standard"] == (7, "schema_value")
+    assert layers["source"][0] == 1
+    assert [m.key for m in sp.meta_rows] == ["file_names", "notes"]
+
+
+def test_review7_a_table_details_sheet_is_not_a_mapping_sheet(config, tmp_path):
+    details = [["Catalog", "Schema", "Table Name", "Table Description"],
+               ["PR_DLK", "stg_nb", "nb_member_risk", "member risk, stage"],
+               ["PR_STD", "nb", "nb_member_risk", "member risk, standard"]]
+    rows = [["Field Name", "Description", *TGT]] + [
+        [n, "d", "stg_nb", "nb_member_risk", n, "String"] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "r7", rows, extra={"Table Details": details}),
+                       config.extractor).profile
+    assert [s.name for s in profile.mapping_sheets] == [SHEET]
+    assert profile.sheet("Table Details").kind == "table_details"
+    assert profile.unresolved == []
+
+
+def test_review8_a_segmented_mapping_sheet_keeps_its_explicit_refusal(config, tmp_path):
+    from codegen.extract.workbook import SegmentedWorkbookError
+    from test_extractor import _write_minimal_workbook
+
+    path = _write_minimal_workbook(tmp_path / "seg.xlsx", extra_source_header="Record Segment")
+    with pytest.raises(SegmentedWorkbookError, match="segment"):
+        discover(path, config.extractor)
+
+
+def test_review9_the_cache_recheck_runs_the_whole_value_chain(config, tmp_path):
+    """Cached: stage from Schema values (no Catalog value). The same headers
+    with Catalog values naming STANDARD read standard (catalog first) - the
+    cached stage layer is stale."""
+    from codegen.layout.discover import stale_value_evidence
+    from codegen.layout.extent import load_document
+
+    cached = discover(_write(tmp_path, "blank_cat", bands.one_band(schema="stg_nb", catalog="")),
+                      config.extractor).profile
+    assert _bands(cached)["stage"][3] == "schema_value"
+    std = _write(tmp_path, "std_cat", bands.one_band(schema="stg_nb", catalog="PR_STD"))
+    assert _bands(discover(std, config.extractor).profile)["standard"][3] == "catalog_value"
+    reason = stale_value_evidence(cached, load_document(std, 500), config.extractor)
+    assert reason is not None and "standard (catalog_value)" in reason
+    same = load_document(_write(tmp_path, "again", bands.one_band(schema="stg_nb", catalog="")),
+                         500)
+    assert stale_value_evidence(cached, same, config.extractor) is None

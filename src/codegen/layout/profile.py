@@ -181,8 +181,11 @@ ROLE_DEFINITIONS: dict[Role, str] = {
 # layer_evidence``). "title" = the band title row; "header" = a word of the
 # band's own header texts; "catalog_value" / "schema_value" = the band's
 # Catalog / Schema VALUES (never trusted from a cache: re-derived on every
-# hit); "answer" = a person's answer to ``<sheet>/band[<n>]/layer``.
-LayerEvidence = Literal["title", "header", "catalog_value", "schema_value", "answer"]
+# hit); "answer" = a person's answer to ``<sheet>/band[<n>]/layer``;
+# "elimination" = the one band left open when stage AND standard are each
+# held by an evidenced band — a layer is claimed once, so it is the source.
+LayerEvidence = Literal["title", "header", "catalog_value", "schema_value", "answer",
+                        "elimination"]
 VALUE_EVIDENCE: tuple[str, ...] = ("catalog_value", "schema_value")
 # The open question for a band whose layer no evidence names: its layer slot
 # reads ``band[<n>]`` (n = the band's 1-based position among the sheet's

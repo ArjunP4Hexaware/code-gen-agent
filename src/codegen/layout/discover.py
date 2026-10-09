@@ -234,7 +234,11 @@ def discover(path: Path, config: ExtractorConfig,
             else:
                 profile = strategy(workbook, config, path.name, digest, diagnostics)
         except WorkbookParseError as exc:
-            if strategy is not _mapping_prefix:
+            from codegen.extract.workbook import SegmentedWorkbookError
+
+            if strategy is not _mapping_prefix or isinstance(exc, SegmentedWorkbookError):
+                # The segmented dialect on a MAPPING- sheet keeps its explicit
+                # refusal ("segmented ... not supported by this extractor").
                 raise
             # Chunk A: MAPPING- sheets whose band labels / headers the legacy
             # reader refuses (another title wording, another band order, one
@@ -740,68 +744,95 @@ def _span_text(start: int, end: int) -> str:
 def label_groups(header: list, disc: DiscoveryConfig) -> list[LabelGroup]:
     """Every target-shaped band of a header row: a run of ``roles.target``
     headers placing at least ``group_min_location_roles`` of catalog / schema
-    / table / column / data type. A run closes on a repeated role, on a
-    location role ranked below the previous one, or after more than
-    ``group_max_gap`` other header cells; a run's leading non-location roles
-    (a rules band's Primary Key beside the stage band) are not its own."""
+    / table / column / data type, column or data type among them (a Table
+    Details sheet's Catalog | Schema | Table Name is not a band). Order inside
+    a band is free ("TableName | ColumnName | Schema | DataType" is one band);
+    a run closes after more than ``group_max_gap`` other header cells, and a
+    REPEATED role splits it — at the location-rank drop between the two
+    occurrences that restarts lowest ("Data Type | Schema | TableName |
+    ColumnName | DataType": the source's type is not the stage band's), else
+    just before the repeat. A piece's leading non-location roles (a rules
+    band's Primary Key beside the stage band) are not its own."""
     ev = disc.layer_evidence
     table = {role: {normalize(s) for s in spellings}
              for role, spellings in disc.roles.get("target", {}).items()}
     last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
-    groups: list[LabelGroup] = []
-    current: dict[str, int] = {}
+    runs: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
     gap = 0
-    last_rank: int | None = None
-    since_location = 0      # header cells since the run's last LOCATION role
-
-    def close() -> None:
-        located = [c for r, c in current.items() if r in _LOCATION_RANK]
-        if located:
-            kept = {r: c for r, c in current.items() if c >= min(located)}
-            if sum(1 for r in kept if r in _LOCATION_ROLES) >= ev.group_min_location_roles:
-                groups.append(LabelGroup(index=len(groups) + 1, start=min(kept.values()),
-                                         end=max(kept.values()), roles=kept))
-        current.clear()
-
     for col in range(1, last_col + 1):
         value = normalize(header[col - 1]) if col - 1 < len(header) else ""
         matches = [role for role, spellings in table.items() if value and value in spellings]
-        role = matches[0] if len(matches) == 1 else None
-        if role is None:
-            since_location += 1
+        if len(matches) != 1:
             if current:
                 gap += 1
                 if gap > ev.group_max_gap:
-                    close()
-                    last_rank = None
+                    runs.append(current)
+                    current, gap = [], 0
             continue
         gap = 0
-        rank = _LOCATION_RANK.get(role)
-        located = sum(1 for r in current if r in _LOCATION_ROLES)
-        # A location role ranked below the previous one starts the next band
-        # once the run holds two location roles — or when other header cells
-        # sit between them ("Data Type | NULL Check | Mandatory | Schema …":
-        # the source band's type is never the stage band's first role).
-        if role in current or (rank is not None and last_rank is not None and rank < last_rank
-                               and (located >= 2 or since_location > 0)):
-            close()
-            last_rank = None
-        current[role] = col
-        if rank is not None:
-            last_rank = rank
-            since_location = 0
-        else:
-            since_location += 1
-    close()
+        current.append((col, matches[0]))
+    if current:
+        runs.append(current)
+    pieces: list[list[tuple[int, str]]] = []
+    for run in runs:
+        start = 0
+        seen: dict[str, int] = {}
+        for i, (_col, role) in enumerate(run):
+            if role in seen:
+                split = _split_point(run, seen[role], i)
+                pieces.append(run[start:split])
+                start = split
+                seen = {r: k for k, (_c, r) in enumerate(run[start:i], start=start)}
+            seen[role] = i
+        pieces.append(run[start:])
+    groups: list[LabelGroup] = []
+    for piece in pieces:
+        located = [c for c, r in piece if r in _LOCATION_RANK]
+        if not located:
+            continue
+        kept = {r: c for c, r in piece if c >= min(located)}
+        if (sum(1 for r in kept if r in _LOCATION_ROLES) >= ev.group_min_location_roles
+                and {Role.COLUMN.value, Role.TARGET_TYPE.value} & set(kept)):
+            groups.append(LabelGroup(index=len(groups) + 1, start=min(kept.values()),
+                                     end=max(kept.values()), roles=kept))
     return groups
 
 
+def _split_point(run: list[tuple[int, str]], first: int, repeat: int) -> int:
+    """Where the next band starts in ``run`` (first < k <= repeat): the
+    location-rank drop whose restarting rank is lowest (the latest on a tie),
+    else the repeated cell itself."""
+    best: tuple[int, int] | None = None
+    previous: int | None = None
+    for k in range(first, repeat + 1):
+        rank = _LOCATION_RANK.get(run[k][1])
+        if rank is None:
+            continue
+        if previous is not None and rank < previous and k > first and (
+                best is None or rank <= best[1]):
+            best = (k, rank)
+        previous = rank
+    return best[0] if best is not None else repeat
+
+
 def _group_header_row(ws, disc: DiscoveryConfig, rows: list[list] | None = None) -> int | None:
-    """0-based index of the first scanned row carrying a label group."""
+    """0-based index of the first scanned row that reads as a mapping header
+    by its label groups: two or more groups, or one group plus a field-name
+    header outside it (an auxiliary sheet with one table-shaped group — Table
+    Details, a dictionary — is not a mapping sheet)."""
     if rows is None:
         rows = [list(r) for _, r in zip(range(disc.scan_rows),
                                         ws.iter_rows(values_only=True), strict=False)]
-    return next((i for i, row in enumerate(rows) if label_groups(row, disc)), None)
+    fields = {normalize(s) for s in disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])}
+    for i, row in enumerate(rows):
+        groups = label_groups(row, disc)
+        if len(groups) >= 2:
+            return i
+        if groups and any(normalize(cell) in fields for col, cell in enumerate(row, start=1)
+                          if not any(g.start <= col <= g.end for g in groups)):
+            return i
+    return None
 
 
 def _title_spans(ws, band_row: list, band_row_number: int, last_col: int
@@ -845,6 +876,11 @@ def _is_title_row(row: list, groups: list[LabelGroup], disc: DiscoveryConfig) ->
     is sparse and a cell names a layer or sits over a label group."""
     cells = [(i + 1, text(c)) for i, c in enumerate(row) if text(c) is not None]
     if not cells or len(cells) > _MAX_BAND_LABELS + len(groups):
+        return False
+    # A label:value meta row ("Notes | standard tables reload nightly") is
+    # never a title row, nor is a row of prose.
+    meta = {normalize(s) for spellings in disc.meta_synonyms.values() for s in spellings}
+    if normalize(cells[0][1]) in meta or any(len(str(label).split()) > 6 for _, label in cells):
         return False
     if any(_title_layer(str(label), disc) for _, label in cells):
         return True
@@ -943,6 +979,12 @@ def _assign_layers(ws, groups: list[LabelGroup], titles: list[tuple[int, int, st
                 continue
             g.seen.append(f"{refs} each read as {layer} ({kinds}){answered_note}")
             g.layer = g.evidence = None
+    # A layer is claimed once: with stage AND standard each held by an
+    # evidenced band, the ONE band left open is the source (a database-shaped
+    # source band under a title that names no layer).
+    open_groups = [g for g in groups if g.layer is None]
+    if len(open_groups) == 1 and {g.layer for g in groups} >= {"stage", "standard"}:
+        open_groups[0].layer, open_groups[0].evidence = "source", "elimination"
 
 
 def _band_reason(g: LabelGroup, header: list) -> str:
@@ -1044,27 +1086,41 @@ def _bands_from_groups(header: list, last_col: int, groups: list[LabelGroup],
     return bands
 
 
+def value_layer(ws, header_row: int, band: BandProfile, disc: DiscoveryConfig
+                ) -> tuple[str | None, str | None]:
+    """(layer, evidence kind) the band's VALUES name, in evidence order:
+    its Catalog values, then its Schema values; (None, None) when neither
+    names exactly one layer."""
+    for kind, role in (("catalog_value", Role.CATALOG), ("schema_value", Role.SCHEMA)):
+        col = band.column(role)
+        if col is None:
+            continue
+        layers = _value_layers(ws, header_row, col, kind, disc)
+        if len(layers) == 1:
+            return layers.pop(), kind
+    return None, None
+
+
 def stale_value_evidence(profile: LayoutProfile, workbook, config: ExtractorConfig
                          ) -> str | None:
     """Value-derived layer evidence is never trusted from a cache (Chunk A):
     re-derive every ``catalog_value`` / ``schema_value`` band layer from the
-    workbook in hand. A reason string when one no longer holds, else None."""
+    workbook in hand through the SAME value chain discovery uses (Catalog
+    values first, then Schema values). A reason string when the cached layer
+    or its evidence kind no longer holds, else None."""
     disc = config.discovery
     for sp in profile.sheets:
         for band in sp.bands:
             if band.layer_evidence not in VALUE_EVIDENCE:
                 continue
-            role = Role.CATALOG if band.layer_evidence == "catalog_value" else Role.SCHEMA
-            col = band.column(role)
-            if sp.name not in workbook.sheetnames or sp.header_row is None or col is None:
+            if sp.name not in workbook.sheetnames or sp.header_row is None:
                 return (f"cached {band.layer} band of sheet {sp.name!r} took its layer from "
-                        f"{role.value} values that cannot be re-read")
-            layers = _value_layers(workbook[sp.name], sp.header_row, col, band.layer_evidence,
-                                   disc)
-            if layers != {band.layer}:
+                        "values that cannot be re-read")
+            layer, kind = value_layer(workbook[sp.name], sp.header_row, band, disc)
+            if (layer, kind) != (band.layer, band.layer_evidence):
                 return (f"cached {band.layer} band of sheet {sp.name!r} took its layer from "
-                        f"{role.value} values; re-derived from this workbook they name "
-                        f"{sorted(layers) or 'no layer'}")
+                        f"{band.layer_evidence}; re-derived from this workbook the values name "
+                        f"{layer or 'no layer'} ({kind or 'no value evidence'})")
     return None
 
 
@@ -1192,4 +1248,5 @@ __all__ = [
     "normalize",
     "stale_value_evidence",
     "text",
+    "value_layer",
 ]

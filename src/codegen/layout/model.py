@@ -108,9 +108,14 @@ _ADVICE_QUESTION_KEYS = ("key", "document", "kind", "title", "hint", "reason", "
 
 def build_advice_request(questions: list[dict]) -> dict:
     """The ONLY material the model sees for advice: the question texts, the
-    header strips and the candidate labels — never a data row."""
+    header strips and the candidate labels — never a data row. A band-LAYER
+    question (Chunk A) is never put to the model: a layer comes from evidence
+    or a person."""
+    from codegen.layout.profile import is_band_layer_key
+
     return {"kind": "layout_advice",
-            "questions": [{k: q.get(k) for k in _ADVICE_QUESTION_KEYS} for q in questions]}
+            "questions": [{k: q.get(k) for k in _ADVICE_QUESTION_KEYS} for q in questions
+                          if not is_band_layer_key(str(q.get("key") or ""))]}
 
 
 def validate_advice(response: dict, questions: list[dict]) -> dict[str, dict]:

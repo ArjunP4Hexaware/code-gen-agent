@@ -1257,6 +1257,9 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                 if _stale_reason(profile) is not None:
                     raise KeyError("stale pair entry: a required role is missing")
                 workbook = load_document(sttm_path, config.extractor.used_range_empty_rows)
+                if stale_value_evidence(profile, workbook, config.extractor) is not None:
+                    # Value-derived band layers are re-derived on every hit.
+                    raise KeyError("stale pair entry: a band layer read from values")
                 sttm_doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=sttm_fp)
                 if cached.get("frd") is not None:
                     frd_profile = FrdLayoutProfile.model_validate(cached["frd"])

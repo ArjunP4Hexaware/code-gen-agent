@@ -1,0 +1,34 @@
+# cold_1 (ch_claims_daily) - the CLI chain BEFORE answers, the way the ACFC harness
+# runs it (overlay on, mock layout + provider): per stage the exit code and,
+# in printed order, the label and answers.yaml key of every QUESTION /
+# UNRESOLVED line (reason text is not pinned). generate does not run: every
+# sheet is held back, extract-sttm writes no contract. Pinned by
+# tests/test_cold_pairs.py; answers.yaml beside this file settles every key
+# (and the questions those answers open) - the chain then exits 0.
+layout:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/schema"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/table"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/column"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/target_type"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/schema"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/table"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/column"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/target_type"]
+    - [QUESTION, "feeds[0].delimiter"]
+extract_frd:
+  exit: 0
+  lines: []
+extract_sttm:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/schema"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/table"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/column"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/target_type"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/schema"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/table"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/column"]
+    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/target_type"]
+generate: null

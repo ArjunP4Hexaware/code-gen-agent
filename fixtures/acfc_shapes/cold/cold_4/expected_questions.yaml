@@ -1,0 +1,45 @@
+# cold_4 (ch_rx_claims) - the CLI chain BEFORE answers, the way the ACFC harness
+# runs it (overlay on, mock layout + provider): per stage the exit code and,
+# in printed order, the label and answers.yaml key of every QUESTION /
+# UNRESOLVED line (reason text is not pinned). generate does not run: every
+# sheet is held back, extract-sttm writes no contract. Pinned by
+# tests/test_cold_pairs.py; answers.yaml beside this file settles every key
+# (and the questions those answers open) - the chain then exits 0.
+layout:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/source/field_name"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/stage/table"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/stage/column"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/stage/target_type"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/standard/table"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/standard/column"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/standard/target_type"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/source/field_name"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/stage/table"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/stage/column"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/stage/target_type"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/standard/table"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/standard/column"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/standard/target_type"]
+extract_frd:
+  exit: 0
+  lines: []
+extract_sttm:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/source/field_name"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/stage/table"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/stage/column"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/stage/target_type"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/standard/table"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/standard/column"]
+    - [UNRESOLVED, "MAPPING-RX_CLAIM/standard/target_type"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/source/field_name"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/stage/table"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/stage/column"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/stage/target_type"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/standard/table"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/standard/column"]
+    - [UNRESOLVED, "MAPPING-RX_REVERSAL/standard/target_type"]
+generate: null

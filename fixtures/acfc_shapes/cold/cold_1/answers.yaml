@@ -1,0 +1,17 @@
+# cold_1 ch_claims_daily - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# The target headers ("Target Schema Name", "Target Table Name", ...) are no
+# synonym of the shipped vocabulary: with the layout model mocked, each band's
+# columns are placed here (a live layout model would place them). The header
+# texts repeat in both bands, so each placement names its layer.
+answers:
+  - {sheet: CH_CLAIMS_DAILY, layer: stage, role: schema, column: "Target Schema Name"}
+  - {sheet: CH_CLAIMS_DAILY, layer: stage, role: table, column: "Target Table Name"}
+  - {sheet: CH_CLAIMS_DAILY, layer: stage, role: column, column: "Target Column Name"}
+  - {sheet: CH_CLAIMS_DAILY, layer: stage, role: target_type, column: "Target Data Type"}
+  - {sheet: CH_CLAIMS_DAILY, layer: standard, role: schema, column: "Target Schema Name"}
+  - {sheet: CH_CLAIMS_DAILY, layer: standard, role: table, column: "Target Table Name"}
+  - {sheet: CH_CLAIMS_DAILY, layer: standard, role: column, column: "Target Column Name"}
+  - {sheet: CH_CLAIMS_DAILY, layer: standard, role: target_type, column: "Target Data Type"}
+gaps:
+  # FRD SM-4 "Pipe delimited (|)" vs STTM B5 ",": the FRD and the .psv extension agree.
+  "feeds[0].delimiter": {value: "|"}

@@ -1,0 +1,33 @@
+# cold_3 nb_provider_roster - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# No sheet has a band row naming stage AND standard or a target label group
+# ("Schema | Table | Column | Type" is one synonym short of a group): each
+# mapping sheet is read as a CANDIDATE by its band title row (pass 3). "Raw
+# Zone" is stage by its stg_ schema values; "Curated Zone" names no layer and
+# its schema carries no prefix, so the person names it. "Source Field" and
+# "Table / Column / Type" are no synonym: the person places them (a live
+# layout model would). The three sheets share one layout.
+answers:
+  - {sheet: PROV_DEMOG, layer: "band[2]", role: layer, value: standard}
+  - {sheet: PROV_DEMOG, layer: source, role: field_name, column: "Source Field"}
+  - {sheet: PROV_DEMOG, layer: stage, role: table, column: "Table"}
+  - {sheet: PROV_DEMOG, layer: stage, role: column, column: "Column"}
+  - {sheet: PROV_DEMOG, layer: stage, role: target_type, column: "Type"}
+  - {sheet: PROV_DEMOG, layer: standard, role: table, column: "Table"}
+  - {sheet: PROV_DEMOG, layer: standard, role: column, column: "Column"}
+  - {sheet: PROV_DEMOG, layer: standard, role: target_type, column: "Type"}
+  - {sheet: PROV_LOC, layer: "band[2]", role: layer, value: standard}
+  - {sheet: PROV_LOC, layer: source, role: field_name, column: "Source Field"}
+  - {sheet: PROV_LOC, layer: stage, role: table, column: "Table"}
+  - {sheet: PROV_LOC, layer: stage, role: column, column: "Column"}
+  - {sheet: PROV_LOC, layer: stage, role: target_type, column: "Type"}
+  - {sheet: PROV_LOC, layer: standard, role: table, column: "Table"}
+  - {sheet: PROV_LOC, layer: standard, role: column, column: "Column"}
+  - {sheet: PROV_LOC, layer: standard, role: target_type, column: "Type"}
+  - {sheet: PROV_SPEC, layer: "band[2]", role: layer, value: standard}
+  - {sheet: PROV_SPEC, layer: source, role: field_name, column: "Source Field"}
+  - {sheet: PROV_SPEC, layer: stage, role: table, column: "Table"}
+  - {sheet: PROV_SPEC, layer: stage, role: column, column: "Column"}
+  - {sheet: PROV_SPEC, layer: stage, role: target_type, column: "Type"}
+  - {sheet: PROV_SPEC, layer: standard, role: table, column: "Table"}
+  - {sheet: PROV_SPEC, layer: standard, role: column, column: "Column"}
+  - {sheet: PROV_SPEC, layer: standard, role: target_type, column: "Type"}

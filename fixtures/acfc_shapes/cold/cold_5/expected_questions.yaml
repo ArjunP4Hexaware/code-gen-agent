@@ -1,0 +1,21 @@
+# cold_5 (fc_provdir) - the CLI chain BEFORE answers, the way the ACFC harness
+# runs it (overlay on, mock layout + provider): per stage the exit code and,
+# in printed order, the label and answers.yaml key of every QUESTION /
+# UNRESOLVED line (reason text is not pinned). generate does not run: every
+# sheet is held back, extract-sttm writes no contract. Pinned by
+# tests/test_cold_pairs.py; answers.yaml beside this file settles every key
+# (and the questions those answers open) - the chain then exits 0.
+layout:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "Provider Directory/band[1]/layer"]
+    - [QUESTION, "feeds[0].lobs"]
+    - [QUESTION, "feeds[0].stage_target.load_strategy"]
+extract_frd:
+  exit: 0
+  lines: []
+extract_sttm:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "Provider Directory/band[1]/layer"]
+generate: null

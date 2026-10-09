@@ -1,0 +1,12 @@
+# cold_2 fc_elig_monthly - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# The band titles "Target 1" / "Target 2" name no layer and no value carries
+# layer evidence: the person names them (FRD SR2 lands fc_elig_land, SR3
+# publishes fc_elig.fc_elig_dtl). The F2 FRD states format, file and stage
+# strategy only in prose sentences, which no label places.
+answers:
+  - {sheet: FC_ELIG_LAYOUT, layer: "band[1]", role: layer, value: stage}
+  - {sheet: FC_ELIG_LAYOUT, layer: "band[2]", role: layer, value: standard}
+gaps:
+  "feeds[0].file_format": {value: "Fixed Width"}
+  "feeds[0].stage_target.load_strategy": {value: "Append"}
+  "feeds[0].file_patterns": {value: "FC_ELIG_MTH_CCYYMM.dat"}

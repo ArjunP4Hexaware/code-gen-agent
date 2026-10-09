@@ -1,0 +1,15 @@
+# cold_5 fc_provdir - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# The FRD is three prose paragraphs (no table, no label): nothing in it is
+# placeable, so every FRD field the run needs is the person's. The STTM's one
+# band has no title, its "... in DL" headers are no layer evidence (the user's
+# 2026-10-09 rule) and its schema has no stg_ prefix: the person names it.
+answers:
+  - {sheet: Provider Directory, layer: "band[1]", role: layer, value: stage}
+gaps:
+  "feeds[0].lobs": {value: "ALL"}
+  "feeds[0].stage_target.load_strategy": {value: "Truncate and Load"}
+  # informational (NOTE) fields a careful person also answers
+  "feeds[0].frequency": {value: "Weekly"}
+  "feeds[0].domain": {value: "Provider"}
+  # the STTM lists no audit row: the framework set, confirmed by the person (never added silently)
+  "feeds[0].audit_columns": {value: "SRC_FILE_NAME:String; REC_CREATION_TIME:Timestamp; REC_UPDATED_TIME:Timestamp"}

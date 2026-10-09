@@ -1,0 +1,17 @@
+# cold_6 ch_member_enroll - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# The STTM sheet has no band row: its two target bands are runs of headers
+# sharing a qualifier word ("Landing ..." / "Curated ..."), told apart by
+# their Catalog values (PR_DLK / PR_STD). "Landing Table", "Landing Col" and
+# the "... Nm" headers are no synonym of the shipped vocabulary: with the
+# layout model mocked, the person places them.
+answers:
+  - {sheet: STTM, layer: stage, role: table, column: "Landing Table"}
+  - {sheet: STTM, layer: stage, role: column, column: "Landing Col"}
+  - {sheet: STTM, layer: standard, role: schema, column: "Curated Schema Nm"}
+  - {sheet: STTM, layer: standard, role: table, column: "Curated Table Nm"}
+  - {sheet: STTM, layer: standard, role: column, column: "Curated Column Nm"}
+gaps:
+  # The F2 FRD states format, file and LOBs in prose (SR1) / the crosswalk only.
+  "feeds[0].file_format": {value: "Delimited"}
+  "feeds[0].lobs": {value: "MCD, CHIP, MCR"}
+  "feeds[0].file_patterns": {value: "CH_MBR_ENROLL_YYYYMMDD.tsv"}

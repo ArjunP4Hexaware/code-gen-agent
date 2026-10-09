@@ -1,0 +1,35 @@
+# cold_3 (nb_provider_roster) - the CLI chain BEFORE answers, the way the ACFC harness
+# runs it (overlay on, mock layout + provider): per stage the exit code and,
+# in printed order, the label and answers.yaml key of every QUESTION /
+# UNRESOLVED line (reason text is not pinned). generate does not run: every
+# sheet is held back, extract-sttm writes no contract. Pinned by
+# tests/test_cold_pairs.py; answers.yaml beside this file settles every key
+# (and the questions those answers open) - the chain then exits 0.
+layout:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "PROV_DEMOG/band[2]/layer"]
+    - [UNRESOLVED, "PROV_DEMOG/source/field_name"]
+    - [UNRESOLVED, "PROV_DEMOG/stage/table"]
+    - [UNRESOLVED, "PROV_DEMOG/stage/column"]
+    - [UNRESOLVED, "PROV_DEMOG/stage/target_type"]
+    - [UNRESOLVED, "PROV_LOC/band[2]/layer"]
+    - [UNRESOLVED, "PROV_LOC/source/field_name"]
+    - [UNRESOLVED, "PROV_LOC/stage/table"]
+    - [UNRESOLVED, "PROV_LOC/stage/column"]
+    - [UNRESOLVED, "PROV_LOC/stage/target_type"]
+    - [UNRESOLVED, "PROV_SPEC/band[2]/layer"]
+    - [UNRESOLVED, "PROV_SPEC/source/field_name"]
+    - [UNRESOLVED, "PROV_SPEC/stage/table"]
+    - [UNRESOLVED, "PROV_SPEC/stage/column"]
+    - [UNRESOLVED, "PROV_SPEC/stage/target_type"]
+extract_frd:
+  exit: 0
+  lines: []
+extract_sttm:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "PROV_DEMOG/band[2]/layer"]
+    - [UNRESOLVED, "PROV_LOC/band[2]/layer"]
+    - [UNRESOLVED, "PROV_SPEC/band[2]/layer"]
+generate: null

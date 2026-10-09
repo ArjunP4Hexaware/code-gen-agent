@@ -1,0 +1,30 @@
+# cold_6 (ch_member_enroll) - the CLI chain BEFORE answers, the way the ACFC harness
+# runs it (overlay on, mock layout + provider): per stage the exit code and,
+# in printed order, the label and answers.yaml key of every QUESTION /
+# UNRESOLVED line (reason text is not pinned). generate does not run: every
+# sheet is held back, extract-sttm writes no contract. Pinned by
+# tests/test_cold_pairs.py; answers.yaml beside this file settles every key
+# (and the questions those answers open) - the chain then exits 0.
+layout:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "STTM/stage/table"]
+    - [UNRESOLVED, "STTM/stage/column"]
+    - [UNRESOLVED, "STTM/standard/schema"]
+    - [UNRESOLVED, "STTM/standard/table"]
+    - [UNRESOLVED, "STTM/standard/column"]
+    - [QUESTION, "feeds[0].file_format"]
+    - [QUESTION, "feeds[0].lobs"]
+    - [QUESTION, "feeds[0].file_patterns"]
+extract_frd:
+  exit: 0
+  lines: []
+extract_sttm:
+  exit: 3
+  lines:
+    - [UNRESOLVED, "STTM/stage/table"]
+    - [UNRESOLVED, "STTM/stage/column"]
+    - [UNRESOLVED, "STTM/standard/schema"]
+    - [UNRESOLVED, "STTM/standard/table"]
+    - [UNRESOLVED, "STTM/standard/column"]
+generate: null

@@ -1,0 +1,22 @@
+# cold_4 ch_rx_claims - what a person answers (tests/acfc_shapes/COLD_PAIRS.md).
+# "Source Column" and "Target Tbl / Target Col / Target Type" are no synonym of
+# the shipped vocabulary: with the layout model mocked, the columns are placed
+# here (a live layout model would place them). Both MAPPING- sheets share one layout.
+answers:
+  - {sheet: MAPPING-RX_CLAIM, layer: source, role: field_name, column: "Source Column"}
+  - {sheet: MAPPING-RX_CLAIM, layer: stage, role: table, column: "Target Tbl"}
+  - {sheet: MAPPING-RX_CLAIM, layer: stage, role: column, column: "Target Col"}
+  - {sheet: MAPPING-RX_CLAIM, layer: stage, role: target_type, column: "Target Type"}
+  - {sheet: MAPPING-RX_CLAIM, layer: standard, role: table, column: "Target Tbl"}
+  - {sheet: MAPPING-RX_CLAIM, layer: standard, role: column, column: "Target Col"}
+  - {sheet: MAPPING-RX_CLAIM, layer: standard, role: target_type, column: "Target Type"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: source, role: field_name, column: "Source Column"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: stage, role: table, column: "Target Tbl"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: stage, role: column, column: "Target Col"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: stage, role: target_type, column: "Target Type"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: standard, role: table, column: "Target Tbl"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: standard, role: column, column: "Target Col"}
+  - {sheet: MAPPING-RX_REVERSAL, layer: standard, role: target_type, column: "Target Type"}
+gaps:
+  # FILE_DETAILS B2 / the FRD stanza "Pharmacy claims:" name the claim file
+  "feeds[0].file_name_patterns": {value: "CH_RX_CLM_<LOB>_YYYYMMDD.csv"}

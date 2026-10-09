@@ -28,6 +28,7 @@ from ui.backend.demo import (  # noqa: E402
     layout_feed_key,
     merge_answers,
     needs_answer_item,
+    run_feed_answers,
 )
 from ui.backend.service import GenerationStore  # noqa: E402
 
@@ -283,6 +284,106 @@ def test_a_done_run_keeps_the_owed_questions_proceed_left_open(roles):
     assert status["error"] is None
     # The held-back item first (it names its feed), each key once.
     assert status["needs_answers"] == [held, left_open]
+
+
+COLD_5 = REPO / "fixtures" / "acfc_shapes" / "cold" / "cold_5"
+COLD_5_AUDIT = "SRC_FILE_NAME:String; REC_CREATION_TIME:Timestamp; REC_UPDATED_TIME:Timestamp"
+
+
+@pytest.fixture()
+def cold_roles(roles, monkeypatch):
+    """The cold drill's environment (tests/test_cold_pairs.py): the ACFC
+    overlay ON — conftest switches it off for the suite."""
+    monkeypatch.delenv("CODEGEN_SKIP_ENV_OVERLAY", raising=False)
+    monkeypatch.delenv("CODEGEN_CONFIG_OVERLAYS", raising=False)
+    monkeypatch.setenv("CODEGEN_NOTIFICATION_EMAILS", "syn.dl.prodsupport@synthetic.example")
+    return roles
+
+
+def _answer_dialog(runner: DemoRunner, answers: dict | None = None, *,
+                   proceed: bool = False) -> str:
+    """Answer the paused dialog and wait for the run to leave it (a later
+    pause is a NEW dialog: the stage list grows)."""
+    seen = len(runner.stages)
+    runner.answer_layout(answers or {}, proceed=proceed)
+    deadline = time.monotonic() + 300
+    while runner.state == "needs_layout" and len(runner.stages) == seen:
+        assert time.monotonic() < deadline, runner.stages[-3:]
+        time.sleep(0.05)
+    return _wait(runner, "needs_layout", "failed", "done", "needs_answers")
+
+
+def test_a_feed_held_back_on_its_audit_columns_is_answered_inline(cold_roles):
+    """cold_5's shape: an STTM with no 'NA' audit row. The run holds its only
+    feed back on feeds[0].audit_columns — a QUESTION under gaps:, offered as a
+    text item — and the inline answer reaches extraction on the re-run (as
+    answers.yaml's gaps: does on the CLI): the feed completes with the
+    person's audit columns, flagged."""
+    store = GenerationStore(str(REPO / "config" / "config.yaml"))
+    runner = DemoRunner(store, index_warmup=False)
+    runner.selected_workbook = COLD_5 / "STTM_fc_provdir.xlsx"
+    runner.select_frd(COLD_5 / "FRD_fc_provdir.docx", "FRD_fc_provdir.docx")
+    band = "Provider Directory/band[1]/layer"
+
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    assert band in [q["key"] for q in runner.status()["layout_questions"]]
+    # The pair's answers.yaml, given in the dialog — all but the audit list.
+    state = _answer_dialog(runner, {"sttm": {band: "stage"}, "gaps": {
+        "feeds[0].lobs": {"value": "ALL"},
+        "feeds[0].stage_target.load_strategy": {"value": "Truncate and Load"},
+        "feeds[0].frequency": {"value": "Weekly"},
+        "feeds[0].domain": {"value": "Provider"}}})
+    if state == "needs_layout":                     # informational fields only: proceed
+        state = _answer_dialog(runner, proceed=True)
+    assert state == "needs_answers", (runner.error, runner.stages[-3:])
+
+    status = runner.status()
+    [item] = status["needs_answers"]
+    assert (item["key"], item["label"], item["section"], item["answer_as"]) == (
+        "feeds[0].audit_columns", "QUESTION", "gaps", "gap")
+    assert item["feed_name"] == "fc_provider_directory"
+    assert item["question"]["kind"] == "text"
+    assert "NAME:Type" in item["question"]["hint"] and "tables" not in item["question"]["hint"]
+    [held] = status["set_aside"]
+    assert "NEEDS_ANSWERS: feeds[0].audit_columns" in held["error"]
+    assert "answers file: under `gaps:`" in held["error"]
+
+    # A malformed list is refused before anything starts (HTTP 400).
+    with pytest.raises(ValueError, match="NAME:Type"):
+        runner.rerun_with_answers({"gaps": {"feeds[0].audit_columns": {"value": "LOAD_TS:Date"}}})
+    assert runner.state == "needs_answers"
+
+    runner.rerun_with_answers({"gaps": {"feeds[0].audit_columns": {"value": COLD_5_AUDIT}}})
+    state = _wait(runner, "needs_layout", "failed", "done", "needs_answers")
+    if state == "needs_layout":                     # the same informational fields again
+        assert band not in [q["key"] for q in runner.status()["layout_questions"]]
+        state = _answer_dialog(runner, proceed=True)
+    assert state == "done", (runner.error, runner.stages[-5:])
+    status = runner.status()
+    assert status["needs_answers"] == [] and status["set_aside"] == []
+    [contract_path] = (cold_roles / "outputs" / runner.last_run_label).glob(
+        "extracted_sttm.contract.json")
+    sttm = json.loads(contract_path.read_text(encoding="utf-8"))["feeds"][0]
+    assert [a["column"] for a in sttm["audit_columns"]] == [
+        "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME"]
+    assert any(f.startswith("audit_columns_from_user:") for f in sttm["extraction_flags"])
+    assert list(store.runs) and store.mode == "live"
+
+
+def test_answers_keyed_by_the_layout_contract_follow_their_feed_into_the_run():
+    """The inverse of layout_feed_key: a gaps answer for the layout contract's
+    feeds[2] is the run FRD's feeds[1] when feeds[1] was set aside without a
+    file; an answer for a set-aside feed is dropped."""
+    class F:
+        def __init__(self, name):
+            self.feed_name = name
+
+    layout = [F("a"), F("b"), F("c")]
+    run = [layout[0], layout[2]]
+    assert run_feed_answers({2: ["x"], 1: ["y"], 0: ["z"]}, run, layout) == {1: ["x"],
+                                                                              0: ["z"]}
+    assert run_feed_answers({1: ["y"]}, layout, layout) == {1: ["y"]}
 
 
 def test_needs_answer_item_routes_each_key_kind():

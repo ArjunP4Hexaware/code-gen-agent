@@ -149,21 +149,30 @@ def pending_question(pending, key: str, config) -> dict:
     """The question for a held-back key no layout question carries: a band
     layer (source | stage | standard) or a value no document states (text,
     typed by the person — the agent never guesses a target)."""
+    from codegen.extract.generic import AUDIT_KEY_RE
     from codegen.layout.hints import frd_field_help
     from codegen.layout.profile import BAND_LAYER_KEY_RE
     from codegen.layout.resolve import LayoutQuestion, band_layer_question
 
-    band = BAND_LAYER_KEY_RE.match(key)
+    band =BAND_LAYER_KEY_RE.match(key)
     if band is not None:
         return band_layer_question("sttm", band.group("sheet"), f"band[{band.group('n')}]",
                                    pending.reason).as_dict()
     title = frd_field_help(key, [], config)[0]
+    if AUDIT_KEY_RE.match(key):
+        # Chunk B: the STTM lists no audit row — the person's list, in the
+        # shape codegen.extract.generic.parse_audit_answers reads.
+        hint = ("The STTM lists no audit row for this feed. Type its audit columns as "
+                "NAME:Type entries separated by ';' (Type String | Timestamp), as the source "
+                "team confirms them — used with source = you and gate-flagged; the agent never "
+                "adds an audit set silently.")
+    else:
+        hint = ("No document states this value. Type it as the source team confirms it — it "
+                "is used with source = you and gate-flagged; the agent never guesses a "
+                "target. Several tables: separate them with ';'.")
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
-        title=title,
-        hint=("No document states this value. Type it as the source team confirms it — it "
-              "is used with source = you and gate-flagged; the agent never guesses a "
-              "target. Several tables: separate them with ';'.")).as_dict()
+        title=title, hint=hint).as_dict()
 
 
 def layout_feed_key(key: str, run_feeds: list, layout_feeds: list) -> str:
@@ -182,6 +191,19 @@ def layout_feed_key(key: str, run_feeds: list, layout_feeds: list) -> str:
         if feed.feed_name == name:
             return f"feeds[{i}].{match.group(2)}"
     return key
+
+
+def run_feed_answers(answers: dict, run_feeds: list, layout_feeds: list) -> dict:
+    """Per-feed answers keyed by the LAYOUT contract's feed index (the index
+    of a ``gaps:`` key, ``feeds[i].…``) re-keyed to the run FRD contract's —
+    the one the extractor numbers its feeds by, which leaves out the feeds set
+    aside without a file (the inverse of ``layout_feed_key``). An answer for
+    a feed the run does not read is dropped."""
+    if run_feeds is layout_feeds:
+        return dict(answers)
+    by_name = {feed.feed_name: j for j, feed in enumerate(run_feeds)}
+    return {by_name[layout_feeds[i].feed_name]: value for i, value in answers.items()
+            if i < len(layout_feeds) and layout_feeds[i].feed_name in by_name}
 
 
 def _dedup_items(items: list[dict]) -> list[dict]:
@@ -1599,9 +1621,11 @@ class DemoRunner:
         the STTM answers, gaps keys to the gaps answers — the shapes
         ``parse_answers`` validates (ValueError = HTTP 400). Refused while a
         run is in progress and once the documents changed."""
+        from codegen.extract.generic import parse_audit_answers
         from codegen.layout.resolve import parse_answers
 
         parsed = parse_answers(answers or {})
+        parse_audit_answers(parsed["gaps"])    # NAME:Type entries (a ValueError, like the above)
         with self._lock:
             if self.state in ("running", "needs_layout"):
                 raise LiveRunInProgress("a live run is in progress — answer in its dialog, or "
@@ -2104,11 +2128,20 @@ class DemoRunner:
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
         from codegen.extract import NeedsAnswersError
-        from codegen.extract.generic import answers_section
+        from codegen.extract.generic import answers_section, parse_audit_answers
 
         run_feeds = list(resolution.frd_contract.feeds) if resolution.frd_contract else []
         if not set_aside:
             run_feeds = layout_feeds              # the same contract: keys need no mapping
+        # The gaps answers this run's layout used (the dialog's, a re-run's
+        # inline ones) are keyed by the layout contract's feed index; the
+        # extractor numbers the run FRD's feeds. M9.2: byte widths ride on the
+        # fields; Chunk B: feeds[i].audit_columns for a sheet the STTM gives
+        # no audit row (answers.yaml's gaps: on the CLI, cli.extract_sttm).
+        width_answers = run_feed_answers(getattr(resolution, "width_answers", None) or {},
+                                         run_feeds, layout_feeds)
+        audit_answers = run_feed_answers(parse_audit_answers(self.last_answers.get("gaps")),
+                                         run_feeds, layout_feeds)
 
         def hold_back(pending_list) -> None:
             """A feed no document completes is held back (NEEDS_ANSWERS) with
@@ -2132,8 +2165,8 @@ class DemoRunner:
                 workbook_path, frd_path, contract_path, config,
                 layout=resolution.sttm.profile,
                 skip_stage_tables=sorted(skip_tables),
-                # M9.2: the dialog's byte-width answers ride on the fields.
-                width_answers=getattr(resolution, "width_answers", None) or None)
+                width_answers=width_answers or None,
+                audit_answers=audit_answers or None)
         except NeedsAnswersError as exc:
             # EVERY sheet is held back: the run ends as needs-answers with the
             # list — never "live run produced no feeds".

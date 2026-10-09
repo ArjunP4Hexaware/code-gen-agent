@@ -1,72 +1,84 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## START HERE — branch `feature/multi-table` (state as of 2026-10-08, evening)
+## START HERE — branch `feature/multi-table` (state as of 2026-10-08, night)
 
-**Where things stand.** Three live branches, all pushed, nothing merged
+**Where things stand.** Four live branches, all pushed, nothing merged
 anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/multi-table` (this checkout) | (see `git log`) | 0.5.8.post25 | cut from `feature/iig-first` at be38f05: the framework owners' multi-table IIG model (one STTM → several tables, one feed → several files) + `metadata_inserts.sql`. **Never run in ACFC yet** |
+| `feature/multi-table` (this checkout) | **51103de** (+ this notes commit) | 0.5.8.post25 | cut from `feature/iig-first` at be38f05: the multi-table IIG model + `metadata_inserts.sql`, then today's first-ACFC-run fixes, the real-row scorecard rules, the exit-code / answer-line contract. **Not yet re-run in ACFC** |
+| `acfc/harness-exit3` | **9cba013** | docs only | `docs/acfc/HARNESS_EXIT_CODES.md` — the ACFC harness's (codegen-watch / pull_and_run, NOT in this repo) exit-code + answer-line contract. **Genie implements the harness from this doc**; ACFC-side commits land here too (517919c was theirs) — `git fetch` and fast-forward before editing (edit in a scratch worktree, never switch this checkout) |
 | `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
 
-Working tree clean after the notes commit on cd18ec1. Gitignored here (local only, never stage):
-`docs/acfc/denylist_local.txt`, `PROJECT_HANDOFF.md`,
-`CODEGEN_INDEPENDENT_REVIEW.md` (external review artefacts). Still stage files
-explicitly — never `git add -A`.
+Working tree clean after the notes commit on 51103de. The last four commits
+before it are Soham's own from the ACFC side (2026-10-08 17:16–18:12 UTC):
+6f14a2d `app.yaml` ACFC env block (the four storage paths are SET on this
+branch now — `CODEGEN_EXTRA_INPUT_DIRS` / `_STORAGE_INPUTS` / `_STATE` /
+`_OUTPUTS` under a workspace user folder; `CODEGEN_CONFIG_OVERLAYS` dropped,
+`acfc_env.yaml` loads anyway), adac4ec / bb5fa55 / 51103de review
+deliverables of a real SD feed force-added under `docs/acfc/review/` (DDL,
+metadata_inserts, config_rows / config_inserts, IIG + IIG_REVIEW; scrub-clean
+at 51103de; client-derived — read in place, never quote names). Others can
+push here: `git fetch` before work and rebase, never force. Gitignored here
+(local only, never stage): `docs/acfc/denylist_local.txt`, `PROJECT_HANDOFF.md`,
+`CODEGEN_INDEPENDENT_REVIEW.md`. Stage files explicitly — never `git add -A`.
+The real client SD documents + `IIG test cells.xlsx` sit at the repo root
+(gitignored / tracked-before-policy): read in place, mock runs only, outputs to
+a scratchpad, report SCORES only — never copy names into the repo, commits or
+replies.
 
 **FIRST, pick up here (pending, in priority order):**
-1. **Friday 2026-10-09 working session with the framework owners** — the brief
-   is `docs/acfc/FRIDAY_2026-10-09.md` (the model in their words, the pair-1
-   owner map 347 / 185 / 46 / 21, eleven checklist questions, the rehearsed
-   15-minute pair-4 walk-through, known gaps). The checklist is
-   `docs/acfc/MULTI_TABLE_DESIGN.md` §7a: 1–5 the open questions, 6–8a "which
-   family convention is current for new feeds" (LOB, STGDELTA unknown key,
-   STGDELTA OBJECT_NAME, SCHEMA_DRIFT_FLAG), 9–10 "where the client's sheet and
-   the walkthrough disagree, which one does the database honour?"
-   (ACTIVE_FLAG Y vs S, DAY_OF_SCHEDULE 0 vs NULL — 9 / 10 are cited BY NUMBER
-   in the `metadata_inserts.sql` header and its tests; do not renumber). Most
-   answers land as CONFIG: `conventions.catalog_map` keys,
-   `constants.STGDELTA_STDDELTA_INGESTION_DET` (the d1 standard container),
-   `family_conventions.*`, `dml.db_value_map`, `dml.db_null_columns`. Record
-   each answer in §7a.
-2. **Re-run the real documents in ACFC on 0.5.8.post22.** The first ACFC run on
-   real documents (2026-10-08) surfaced four defects — fixed in a376ccf
-   (post20, `tests/test_acfc_run1_defects.py`) — and the first real-row
-   scorecard (the three SD feeds vs their actual config rows) nine rules —
-   0c2ba13 (post21, `tests/test_sd_scorecard_rules.py`); both summarised in
-   `docs/ACFC_DEPLOY.md` "What feature/multi-table adds". Local MOCK run of the
-   real SD pair (gitignored root files, outputs in a scratchpad, scores only):
-   all three rows diff 0 since post22 (demographic / community-risk matched
-   43, individual-risk 46); the 3 recycle cells of the two recycle-less feeds
-   are OPEN (Engineer-confirm) by rule 6 ("never an asserted N"). FREQUENCY was
-   flipped in cd18ec1 to the PIPELINE RUN cadence (FRD run / schedule / refresh
-   statement, else the schedule inventory), delivery cadence in the tooltip,
-   `frequency_delivery_differs` when they differ — Friday checklist item 11
-   (confirm, not ask). Older harness notes: `origin/acfc-results` (read in
-   place, never check out, never quote names) holds `feature/iig-first` runs
-   only. The last detailed one (2026-10-07, ca6bab8 with
-   `CODEGEN_SKIP_ENV_OVERLAY=1`, commit 784e110): 3 pairs fail the STTM parse,
-   4 the FRD extract, 3 extract and fail at generate with no error text
-   recorded. Its redactions sit INSIDE the harness's own keys (`timestamp`,
-   `runtime_sec`, `flags`, the `sttm_parse` stage, the endpoint state) — leak-gate
-   false positives; the later runs (2c3c6d4, 9da340a) are `LEAK_GATE_BLOCKED`
-   stubs (4 and 6 hits, no pair data). Ask the harness owner to allow-list its
-   own keys and record per-pair error text; then run this branch.
-3. **The `feature/iig-first` pending items still apply** (next section): the
-   four ACFC `app.yaml` paths (never guess them), the after-demo untrack /
+1. **Friday 2026-10-09 working session with the framework owners** — brief
+   `docs/acfc/FRIDAY_2026-10-09.md`; checklist `docs/acfc/MULTI_TABLE_DESIGN.md`
+   §7a: 1–5 open questions, 6–8a which family convention is current for new
+   feeds, 9–10 sheet vs walkthrough (ACTIVE_FLAG Y/S, DAY_OF_SCHEDULE 0/NULL —
+   cited BY NUMBER in `metadata_inserts.sql` and its tests; never renumber),
+   **11 (confirm, not ask): "FREQUENCY = run cadence, delivery cadence noted —
+   correct?"** Most answers land as CONFIG (`catalog_map`,
+   `constants.STGDELTA_STDDELTA_INGESTION_DET`, `family_conventions.*`,
+   `dml.db_value_map`, `dml.db_null_columns`). Record each answer in §7a.
+2. **Re-run the real documents in ACFC on 0.5.8.post25** (the harness pairs).
+   Expectation from a local MOCK run of the real SD pair: all three SD rows
+   diff 0 (demographic / community-risk matched 43, individual-risk 46); the
+   3 RECYCL cells of the two recycle-less feeds are OPEN (Engineer-confirm) by
+   design ("never an asserted N"). Re-run recipe (scratchpad scripts are gone
+   with the session — rebuild): layout --frd-contract-out --answers (the one
+   open question: `gaps: feeds[1].file_name_patterns` = the community-risk
+   file) → extract-sttm → generate `--output-mode framework --profile acfc_prx
+   --iig-template iig_v2 --skip-tests --dry-run`, env PYTHONUTF8=1,
+   CODEGEN_FORCE_MOCK_LAYOUT/PROVIDER=1, CODEGEN_STORAGE_OUTPUTS/STATE to a
+   scratch dir; then `scripts/iig_scorecard.py --generated <feed>_IIG.xlsx
+   --real "IIG test cells.xlsx" --real-table <table>` per feed.
+3. **Harness side (Genie, from the doc on `acfc/harness-exit3`)**: exit 3 never
+   stops a pair; stdout scanned for QUESTION / UNRESOLVED at the end of every
+   pair; a later stage's exit 1 reclassified as NEEDS_ANSWERS ONLY for a
+   missing-input first-error line (`contract not found:`, `no resolved feed
+   matches --feed` / `produced no feeds`, `under gaps:` / `NEEDS_ANSWERS`),
+   else FAILED with first_error + needed keys. Ask the harness owner also to
+   allow-list its own keys in the leak gate (older runs on
+   `origin/acfc-results` were `LEAK_GATE_BLOCKED` false positives — read in
+   place, never check out, never quote names).
+4. **Open choices left for Soham:** `extract-vdd` exit 3 (doc says planned, not
+   implemented — VDD gaps are flags); optional-column ambiguity can only arise
+   once client headers are added to the synonym tables (the shipped vocabulary
+   has no shared synonym).
+5. **The `feature/iig-first` pending items still apply** (next section): the
+   four ACFC `app.yaml` paths — DONE on this branch (6f14a2d), still pending on
+   `feature/iig-first` / `backup/ddl-only` (never guess them) — the after-demo untrack /
    purge of the real reference files, splitting `acfc_env.yaml` per source
-   family — which matters more now: `acfc_env.yaml` pins the CAQH-style family
-   (incl. `schema_drift_flag: "Y"`) for EVERY feed, so a PRX-shaped real feed
+   family — `acfc_env.yaml` now pins the SD / CAQH family for EVERY feed
+   (SCHEMA_DRIFT_FLAG Y, `src_file_name: prefix_star`, the four SD audit
+   columns, recycle open, the RECYCL path shape), so a PRX-shaped real feed
    needs a feed overlay on top.
 
-**Verified at cd18ec1**: 985 passed / 27 skipped (Python 3.11; 3.10 / 3.12
+**Verified at 0e7358e** (51103de adds no code): 1004 passed / 27 skipped (Python 3.11; 3.10 / 3.12
 not run on this branch); ruff clean (`src/ tests/ ui/backend/
 scripts/iig_scorecard.py`); scrub 0 over every changed file; no `ui/frontend`
-change on this branch (dist untouched; `ui/backend/demo.py` changed in post20).
-Marker **0.5.8.post25**. `tests/snapshots/notebook_mode.json` was re-based in
-0c2ba13 (37 hashes: `ruff format` now rewrites every emitted .py).
+change (dist untouched; `ui/backend/demo.py` changed in post20). Marker
+**0.5.8.post25**. `tests/snapshots/notebook_mode.json` re-based in 0c2ba13 (37
+hashes: `ruff format` rewrites every emitted .py before the ruff gate).
 
 **What the branch does** (design + status: `docs/acfc/MULTI_TABLE_DESIGN.md`;
 the night's and the cleanup's record: `docs/acfc/OVERNIGHT_2026-10-08.md`):
@@ -115,46 +127,56 @@ the night's and the cleanup's record: `docs/acfc/OVERNIGHT_2026-10-08.md`):
   cell pinned (`tests/test_m4_acceptance.py` FULL_OPEN / FULL_SEQUENCE /
   FULL_DEVIATIONS — the 9 deviation columns are the 21 scorecard diffs).
 
-**Commits (oldest first):** e76496a, 79ed3d7 Phase A / B (design doc, pair-4
-fixture, row + catalog rules) · e64539b step 1 · 12a401a step 2 (`catalog_map`)
-· 2a67c91 catalog precedence · 0c85b39 step 3 · 0a6efd7 step 4 · 9685f97 step 5
-(post15) · 8b94b9e chunk A (every cell pinned, family conventions) · 686aad9
-step 7 (scorecard) · 4fa9e78, eb9ff00 step 6 (`metadata_inserts.sql`) · 54ecaad
-chunk D (post16) · e02defa morning cleanup (post17) · ff3c420 Friday brief +
-the three rules + item 10 (post18) · 10806a6, 68fea24, 73f69fa pair-4
-SCHEMA_DRIFT_FLAG Y + a fixture EOL restore · 0e7dbc3 `schema_drift_flag`
-family convention (post19) · d84e2a6 checklist item 8a · a376ccf first ACFC
-run's defects: per-segment key lookup, FILE_DETAILS annotation rows, blank
-targets -> NEEDS_ANSWERS (exit 3), path normalisation, ruff safe fixes (post20)
-· 0c2ba13 first real-row scorecard rules + exit codes in `--help` / acfc_run.py
-(post21) · cd18ec1 harness-parseable QUESTION / UNRESOLVED lines, exit 3 only
-when nothing is usable, FREQUENCY = run cadence (post22).
+**Commits (oldest first):** e76496a, 79ed3d7 Phase A / B · e64539b step 1 ·
+12a401a step 2 (`catalog_map`) · 2a67c91 catalog precedence · 0c85b39 step 3 ·
+0a6efd7 step 4 · 9685f97 step 5 (post15) · 8b94b9e chunk A · 686aad9 step 7
+(scorecard) · 4fa9e78, eb9ff00 step 6 (`metadata_inserts.sql`) · 54ecaad chunk D
+(post16) · e02defa cleanup (post17) · ff3c420 Friday brief (post18) · 10806a6,
+68fea24, 73f69fa pair-4 SCHEMA_DRIFT_FLAG Y · 0e7dbc3 `schema_drift_flag`
+convention (post19) · d84e2a6 item 8a · **2026-10-08:** a376ccf first ACFC
+run's four defects (post20) · 0c2ba13 real-row scorecard's nine rules (post21)
+· cd18ec1 answer lines + exit-3 branches + FREQUENCY = run cadence (post22) ·
+2bece72 `layout --require-complete` exits 3 (post23) · 84edab9 the harness's
+own `_NEEDED_KEY_RE`, keys verbatim (post24) · 5192895 QUESTION / UNRESOLVED
+reserved for answers owed, NOTE informational (post25) · 0e7358e layout-gaps
+test (2 optional + 1 required unplaced).
 
-**Exit codes** (`codegen --help`, `docs/ACFC_DEPLOY.md` "CLI exit codes"): 0 ok,
-1 failed, 3 NEEDS_ANSWERS — `layout --require-complete` when columns are left
-unplaced / questions open (post23; the first stage, so the only way such a pair
-reads NEEDS_ANSWERS); `extract-sttm` only when NO feed is usable (else 0,
-contract written, held-back QUESTION lines still printed); `generate` only when
-a feed asked for (`--feed`) is held back. Every missing answer is one line the
-ACFC harness parses: `f"{label:<15}{key} — {reason}"` (`cli.answer_line`;
-QUESTION = `gaps:` / `pairing:` key, UNRESOLVED = `<sheet>/<layer>/<role>`);
-`tests/test_harness_answer_lines.py` parses every line with the harness's own
-`_NEEDED_KEY_RE`, copied VERBATIM from the "Line format" section of
-`docs/acfc/HARNESS_EXIT_CODES.md` on `origin/acfc/harness-exit3` (517919c) —
-keys print verbatim, a sheet name's spaces kept. The harness scans stdout for
-these lines at the end of EVERY pair, whatever the exit codes — so QUESTION /
-UNRESOLVED are RESERVED for answers owed (post25, `cli._owed_key`: a REQUIRED
-STTM role, a still-missing format / load strategy / LOBs / file pattern, a gap
-question, `pair.frd`); everything informational (optional column, unread FRD
-field, VDD role, `pair.vdd`) is `NOTE` in the same form. A clean pair 1 / 4
-prints none (`tests/test_answer_labels.py`). The harness's exit-1 reclassification rule (a later stage's exit 1 becomes
-NEEDS_ANSWERS only for a missing-input first-error line) is in that doc, pushed
-at 7f121ca. acfc_run.py summarises the codes and the lines.
+**Today's rules in one place** (details: `docs/ACFC_DEPLOY.md` "What
+feature/multi-table adds" + "CLI exit codes"):
+- *First ACFC run (post20):* the Detail key resolved by (segment, field name),
+  `key_column_not_in_table`; FILE_DETAILS annotation rows skipped
+  (`file_details_annotation_skipped`); blank Schema / TableName → File Details
+  target / FRD / layer convention (`sttm_target_missing`), else the feed is
+  held back NEEDS_ANSWERS with its `gaps:` key (`SttmContract.needs_answers`);
+  paths normalised (`path_normalised`); ruff safe fixes (`ruff_fixed`).
+- *Real-row scorecard (post21/22):* delimiter is a character
+  (`delimiter_from_extension`); OBJECT_NAME drops trailing date tokens;
+  SRC_FILE_NAME / audit columns / RECYCL by family convention
+  (`src_file_name`, `audit_columns`, `audit_type_case`, `recycle_unstated`);
+  SOURCE = vendor display name; SRC_DATA_TYPE `String:<target>`
+  (`src_type_coerced_string`); FREQUENCY = run cadence
+  (`frequency_delivery_differs`); `spark_unavailable`; `ruff format` before the
+  gate (`ruff_formatted`); one `vdd_scope_mismatch`.
+- *Exit codes:* 0 ok, 1 failed, 3 NEEDS_ANSWERS — `layout --require-complete`
+  with an owed item open; `extract-sttm` only when NO feed is usable (else 0,
+  contract written, QUESTION lines still printed); `generate` only when a feed
+  asked for (`--feed`) is held back. acfc_run.py summarises codes + lines.
+- *Answer lines:* `f"{label:<15}{key} — {reason}"` (`cli.answer_line`, key
+  verbatim). QUESTION (a `gaps:` / `pairing:` value) and UNRESOLVED (a
+  REQUIRED column, `<sheet>/<layer>/<role>`) ONLY for answers owed
+  (`cli._owed_key`); everything informational is `NOTE`. The harness's
+  `_NEEDED_KEY_RE` (copied verbatim in `tests/test_harness_answer_lines.py`)
+  matches QUESTION / UNRESOLVED only. Clean pairs 1 / 4 print none
+  (`tests/test_answer_labels.py`); `tests/test_layout_gap_labels.py` pins
+  2 NOTE + 1 UNRESOLVED → exit 3, answered → 2 NOTE, exit 0, zero keys.
 
 **Gotchas learned on this branch:**
-- **Bash heredocs on this box mangle escapes and backticks** (`\\t` became a
-  tab, `\\n` a newline, a backtick body aborted bash): write patch scripts with
-  the Write tool and run them as files; check `git diff --stat` after.
+- **Bash heredocs on this box mangle escapes and backticks** (an escaped tab /
+  newline became a real one, a backtick body aborted bash): write patch scripts
+  with the Write tool and run them as files; check `git diff --stat` after.
+  **Commit messages too:** a backtick inside `git commit -m "…"` runs as a
+  command (5192895's message lost a phrase) — write the message to a file and
+  use `git commit -F`.
 - **`fixtures/** -text` commits fixture bytes raw.** Python `write_text` /
   text-mode `open` writes CRLF on Windows and Git Bash `sed -i` can turn CRLF
   into LF — either churns a whole fixture file (10806a6 → fixed in 73f69fa).

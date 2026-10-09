@@ -90,3 +90,14 @@ Entry format:
 - Pattern: none (not a spiral)
 - Seen: 2026-10-07 (twice — the second in a worktree agent created at main)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
+
+## Hook (a) false positive: one test name, a different failure each run
+- Signature: spiral-detector signal (a) — the same pytest command "failed 2 times in a row with
+  the same error signature" while each run failed at a later assertion of the same test.
+- Usual cause: the signature keys on the failing test's name; a new end-to-end test advancing
+  through fixture gaps (audit rows, matching schemas, known names) fails under one name each time.
+- Check: compare the first `E ` lines / failing line numbers of the two runs. Different = new
+  information each run, not a spiral; diagnose the current failure before changing anything.
+- Pattern: none (not a spiral)
+- Seen: 2026-10-09
+- Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.

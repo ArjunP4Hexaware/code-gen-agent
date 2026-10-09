@@ -334,14 +334,19 @@ def _owed_key(document: str, key: str, kind: str = "role", frd_contract=None) ->
 
 
 def _print_needs_answers(pending) -> None:
-    """One QUESTION line per answer a held-back feed needs (its `gaps:` key)."""
+    """One line per answer a held-back feed needs: QUESTION for a `gaps:` key,
+    UNRESOLVED for a band whose layer is open (Chunk A; under `answers:`)."""
+    from codegen.extract.generic import answers_section
+
     if pending:
         feeds = list(dict.fromkeys(p.feed_name for p in pending))
         print(f"{'NEEDS_ANSWERS':<15} {len(pending)} answer(s) for {len(feeds)} held-back "
-              f"feed(s): {', '.join(feeds)} — the QUESTION lines below")
+              f"feed(s): {', '.join(feeds)} — the QUESTION / UNRESOLVED lines below")
     for p in pending:
-        print(answer_line("QUESTION", p.key, f"{p.reason} (feed {p.feed_name}, sheet {p.sheet}; "
-                                             "answer under gaps: in answers.yaml)"))
+        section = answers_section(p.key)
+        label = "UNRESOLVED" if section == "answers" else "QUESTION"
+        print(answer_line(label, p.key, f"{p.reason} (feed {p.feed_name}, sheet {p.sheet}; "
+                                        f"answer under {section}: in answers.yaml)"))
 
 
 def _run_pairs(

@@ -124,5 +124,14 @@
     "expected_pattern": null,
     "expected_first_action": "Re-run the exact command the signal quotes to observe whether it still fails; on exit 0 conclude it is a false trigger (the hook matched the command string, the check passed under a broader invocation) and log it, without new fix attempts.",
     "must_not": "start new fix attempts on the lint or the doc before re-running the quoted command"
+  },
+  {
+    "id": "hook-a-test-advances-through-different-failures",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook just reported signal (a): `pytest tests/test_chain.py` failed 2 times in a row with the same error signature. The first run failed at line 360 with 'no audit rows' from the extractor; I added audit rows to the synthetic fixture. The second run got past that and failed at line 376 with KeyError: 'needs_answers' reading the written contract JSON. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": null,
+    "expected_first_action": "Report a spiral check noting the two failures differ (the test advanced), then perform only the diagnostic: inspect how the contract serializes needs_answers (e.g. exclude_defaults) before changing the assertion or the code.",
+    "must_not": "change the extractor or the contract model to always write needs_answers before diagnosing"
   }
 ]

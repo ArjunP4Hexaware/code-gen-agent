@@ -48,7 +48,14 @@ from pydantic import ValidationError
 
 from codegen.config import Config
 from codegen.contracts.frd import FrdContract
-from codegen.layout.discover import Discovery, discover, discover_vdd, normalize, text
+from codegen.layout.discover import (
+    Discovery,
+    discover,
+    discover_vdd,
+    normalize,
+    stale_value_evidence,
+    text,
+)
 from codegen.layout.extent import load_document
 from codegen.layout.fingerprint import fingerprint, render_region, sheet_region
 from codegen.layout.frd_profile import (
@@ -65,11 +72,15 @@ from codegen.layout.model import (
     build_sttm_request,
 )
 from codegen.layout.profile import (
+    BAND_LAYER_CHOICES,
+    BAND_LAYER_ROLE,
+    BAND_REF_RE,
     REQUIRED_ROLES,
     LayoutProfile,
     Role,
     UnresolvedRole,
     confidence_key,
+    is_band_layer_key,
     missing_required_roles,
 )
 from codegen.layout.validate import Rejection, validate_profile
@@ -385,6 +396,19 @@ def _questions_for(profile: LayoutProfile, workbook,
         ws = workbook[item.sheet]
         header = next(ws.iter_rows(min_row=sheet.header_row, max_row=sheet.header_row,
                                    values_only=True))
+        if BAND_REF_RE.match(str(item.layer)) and item.role == BAND_LAYER_ROLE:
+            # Chunk A: a band nothing names - answered with a LAYER, not a column.
+            questions.append(LayoutQuestion(
+                document=document, sheet=item.sheet, layer=item.layer, role=item.role,
+                reason=item.reason, header=_header_strip(ws, sheet.header_row),
+                candidates=[{"value": layer, "label": layer} for layer in BAND_LAYER_CHOICES],
+                title=f"Which layer is {item.layer} of sheet {item.sheet!r}?",
+                hint=("These columns are shaped like a target band (schema / table / column / "
+                      "data type) but nothing in the document names their layer: no band "
+                      "title over them, no layer word in their headers, no catalog or schema "
+                      "value that says stage or standard. Column order is not evidence. "
+                      "Answer source, stage or standard; the sheet's feed waits for it.")))
+            continue
         band = sheet.band(item.layer)  # type: ignore[arg-type]
         claimed = set(band.roles.values()) if band else set()
         span = range(band.col_start, band.col_end + 1) if band else range(1, len(header) + 1)
@@ -497,7 +521,8 @@ def _strip_unknown_roles(model_profile: LayoutProfile) -> tuple[LayoutProfile, i
         for band in sp.bands:
             roles = {r: c for r, c in band.roles.items() if r in vocabulary}
             dropped += len(band.roles) - len(roles)
-            bands.append(band.model_copy(update={"roles": roles, "label": None}))
+            bands.append(band.model_copy(update={"roles": roles, "label": None,
+                                                 "layer_evidence": None}))
         sheets.append(sp.model_copy(update={"bands": bands, "notes": []}))
     return model_profile.model_copy(update={"sheets": sheets, "notes": [], "unresolved": []}), \
         dropped
@@ -534,9 +559,15 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     rejections: list[Rejection] = []
     schema_errors: list[dict] = []
     calls = 0
+    # Chunk A: an answer to <sheet>/band[<n>]/layer is a LAYER, applied by
+    # discovering again with it (the band then exists and its roles resolve);
+    # every other answer places a column.
+    band_answers = {k: v for k, v in (answers or {}).items() if is_band_layer_key(k)}
+    answers = {k: v for k, v in (answers or {}).items() if not is_band_layer_key(k)} or None
+    band_layers = {k.rsplit("/", 1)[0]: str(v) for k, v in band_answers.items()}
 
     if (prior is not None and isinstance(prior.profile, LayoutProfile)
-            and prior.fingerprint == digest):
+            and prior.fingerprint == digest and not band_answers):
         profile = prior.profile
         rejections = list(prior.rejections)
         if answers:
@@ -559,11 +590,16 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
         return doc, workbook
 
-    cached = _load_cached(digest, caches) if use_cache and not refresh else None
+    cached = (_load_cached(digest, caches)
+              if use_cache and not refresh and not band_answers else None)
     if cached is not None:
         try:
             profile = _as_cache(LayoutProfile.model_validate(cached))
-            stale = _stale_reason(profile)
+            # A layer read from catalog / schema VALUES is never trusted from
+            # a cache (the fingerprint hashes headers, not values): re-derived.
+            stale = _stale_reason(profile) or (
+                stale_value_evidence(profile, workbook, config.extractor)
+                if document == "sttm" else None)
             if stale is not None:
                 raise _StaleCache(stale)
             doc = DocumentResolution(document, profile, cache_hit=True, fingerprint=digest)
@@ -588,16 +624,35 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             rejections.append(Rejection(document, None, None, None, str(exc)))
 
     found: Discovery = (discover_vdd(path, config.extractor, sttm_tables=sttm_tables)
-                        if document == "vdd" else discover(path, config.extractor))
+                        if document == "vdd"
+                        else discover(path, config.extractor, band_layers=band_layers or None))
     profile = found.profile
     keys = [confidence_key(s.name, b.layer, r) for s in profile.sheets for b in s.bands
             for r in b.roles]
     profile = profile.model_copy(update={"role_sources": {k: "synonyms" for k in keys}})
+    model_allowed = True
+    if (band_answers and prior is not None and isinstance(prior.profile, LayoutProfile)
+            and prior.fingerprint == digest):
+        # The second pass of one invocation, now with band layers answered: no
+        # second model call - the first pass's model placements carry over.
+        carried = {confidence_key(s.name, b.layer, r): c
+                   for s in prior.profile.sheets for b in s.bands for r, c in b.roles.items()
+                   if prior.profile.role_sources.get(confidence_key(s.name, b.layer, r))
+                   == "model"}
+        if carried:
+            profile = _merge_columns(profile, carried, "model", config.layout.model_confidence)
+        rejections = list(prior.rejections)
+        calls = prior.provider_calls
+        model_allowed = False
 
     model_from = len(rejections)
-    if profile.unresolved and provider is not None:
+    # A band's LAYER is never the model's to place (evidence only): the model
+    # is asked about column roles only.
+    role_gaps = [u for u in profile.unresolved
+                 if not (BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE)]
+    if role_gaps and provider is not None and model_allowed:
         regions = [render_region(sheet_region(workbook[name])) for name in workbook.sheetnames]
-        request = build_sttm_request(digest, regions, profile, profile.unresolved, config)
+        request = build_sttm_request(digest, regions, profile, role_gaps, config)
         if document == "vdd":
             request["kind"] = "vdd_layout"
             request["synonym_hints"] = {"files": config.extractor.vdd.files_roles,
@@ -672,7 +727,8 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     if not profile.unresolved:
         # Never reached by a profile with a required role missing (it is in
         # ``unresolved``). A refresh overwrites even a synonyms-only result.
-        if caches.runtime is not None and (refresh or calls + len(answers or {})):
+        if caches.runtime is not None and (refresh or calls + len(answers or {})
+                                           + len(band_answers)):
             _save_runtime({**profile.model_dump(mode="json"), "vocabulary": caches.vocabulary},
                           caches.runtime, f"{digest}.json")
     elif refresh:
@@ -923,8 +979,14 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     for ws in workbook.worksheets:
         region = sheet_region(ws)
         facts["texts"] += [(f"{ws.title}!{coord}", value) for coord, value in region.cells]
+    open_band_sheets = {u.sheet for u in profile.unresolved
+                        if BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE}
     for sp in profile.mapping_sheets:
         # Per mapping sheet: the dominant stage / standard table and stage schema.
+        # A sheet with a band whose layer is open says nothing yet (Chunk A):
+        # its band question comes first, never a table question built on it.
+        if sp.name in open_band_sheets:
+            continue
         ws = workbook[sp.name]
         rows = list(ws.iter_rows(min_row=(sp.header_row or 1) + 1, values_only=True))
         entry = {"sheet": sp.name, "stage_table": None, "standard_table": None,
@@ -2039,6 +2101,13 @@ def parse_answers(raw: dict) -> dict:
     out: dict = {"sttm": {}, "frd": {}, "vdd": {}}
     for document in ("sttm", "vdd"):
         for key, col in (raw.get(document) or {}).items():
+            if document == "sttm" and is_band_layer_key(str(key)):
+                # Chunk A: <sheet>/band[<n>]/layer is answered with a layer.
+                if col not in BAND_LAYER_CHOICES:
+                    raise ValueError(f"bad STTM answer {key!r}: {col!r} - a band layer is one "
+                                     f"of {' | '.join(BAND_LAYER_CHOICES)}")
+                out[document][str(key)] = col
+                continue
             if not _ANSWER_KEY_RE.match(str(key)) or not isinstance(col, int) or col < 1:
                 raise ValueError(f"bad {document.upper()} answer {key!r}: {col!r}")
             out[document][key] = col

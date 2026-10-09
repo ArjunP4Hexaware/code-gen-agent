@@ -256,6 +256,38 @@ extractor:
       type_like: 0.8
       yes_no_like: 0.8
       field_name_non_empty: 0.9
+    # Chunk A (2026-10-09): a target band is located by its LABEL GROUP
+    # (catalog / schema / table / column / data type — the roles.target
+    # synonyms) anywhere in the header row; its LAYER only from evidence, in
+    # this order: an answer, the band title row, a word of its own headers,
+    # its Catalog values, its Schema values. Column order is never evidence:
+    # a band nothing names (or two bands naming one layer) is the question
+    # UNRESOLVED <sheet>/band[<n>]/layer. Whole-word matches; prefixes on the
+    # lowercased value.
+    layer_evidence:
+      titles:
+        source: ["source", "src"]
+        stage: ["stage", "staging", "stg"]
+        standard: ["standard", "std"]
+        rules: ["rules"]
+      # "in DL" / "DLK" in a header is OFF as stage evidence (2026-10-09:
+      # pair 1 writes "… in DL" in BOTH its stage and standard bands — an
+      # untitled one-band sheet with "in DL" asks). To turn it on, add
+      # "dl", "dlk" to header_words.stage.
+      header_words:
+        stage: ["stage", "staging", "stg"]
+        standard: ["standard", "std"]
+      # Catalog VALUES: PR_DLK -> stage, PR_STD -> standard (and the
+      # environment names catalog_map produces: d1_dlk / d1_std).
+      catalog_words:
+        stage: ["dlk"]
+        standard: ["std"]
+      schema_prefixes:
+        stage: ["stg_", "stage_", "staging_"]
+        standard: ["std_", "standard_"]
+      group_min_location_roles: 3
+      group_max_gap: 2
+      value_scan_rows: 200
 
   # ---- FRD .docx extractor (M2, 2026-09-18) ----------------------------
   # codegen.extract.frd_docx: section titles and label synonyms, populated

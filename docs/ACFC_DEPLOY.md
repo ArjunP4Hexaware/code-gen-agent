@@ -428,7 +428,7 @@ NOTE           <sheet>/source/pii — <reason> — informational, not required t
 | Label | Printed when | Answer |
 | --- | --- | --- |
 | `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`), a file pattern, a disagreement between documents, a byte width, the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
-| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) | under `answers:` |
+| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) — or without a band's LAYER no evidence names (`<sheet>/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line) | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
 | `NOTE` | informational — an OPTIONAL column the layout could not place (it reads as empty), an FRD field not read (the gap chain fills it or a QUESTION asks; `extract-frd` on its own always says NOTE), a VDD role (VDD gaps are gate flags), the VDD pairing (`pair.vdd` — a run proceeds without a VDD) | none needed; placing it improves the output |
 
 An FRD field is a QUESTION / UNRESOLVED only while the pair-resolved contract

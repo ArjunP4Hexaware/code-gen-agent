@@ -191,6 +191,10 @@ def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
     profile = found.profile
     if profile.strategy == "mapping_prefix":
         return workbook_ir(found, path.name, config)
+    if found.refused is not None:
+        # The flat parser is the MAPPING- reader: its own refusal is the
+        # answer here (extract_contract reads the workbook by content).
+        raise found.refused
     family = [d for d in found.diagnostics if SEGMENTED_FAMILY_NOTE in d]
     if profile.strategy == "segmented_family" or family:
         routed = ("" if profile.strategy == "segmented_family"

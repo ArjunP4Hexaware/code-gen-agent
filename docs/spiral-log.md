@@ -81,3 +81,11 @@
 - Approx. time lost: ~1 minute
 - Proposed refinement (for a retro, not now): same as 2026-10-07 — a superset run going green, and edits to files the failing command does not import, should clear the signal.
 
+## 2026-10-09: hook signal (a) — a new end-to-end test failed 2x on the same test name (Chunk A, band detection)
+- Actual cause: not a spiral. `pytest tests/test_band_detection.py` failed on `test_cli_chain_asks_per_band_then_completes_after_answers` each run, but at a LATER step each time, each failure a different, understood cause: (1) the synthetic STTM had no audit rows (extract-sttm refuses), (2) the test read `needs_answers` that `contract_to_json` omits when empty (`exclude_defaults=True` - diagnosed by reading the serializer before any change), (3) the synthetic FRD's stage schema disagreed with the sheet's, (4) `LOAD_TS` is an audit column no template knows, (5) no catalog stated with the ACFC overlay off. (1), (4), (5) are real cold-document findings carried to Chunk B; (2), (3) were test / fixture errors. The hook's error signature is the failing test name, so a test advancing through new failures reads as "the same error".
+- Pattern: none (every attempt produced new information - the definition's opposite)
+- Caught by skill: false trigger (diagnostic: read `SttmContract` serialization before changing the assertion; the exact command then passed, 35 passed)
+- Hook signal: a, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): signal (a) could hash the first `E ` line / the failing assertion's line number rather than the test name, so a test that advances through different failures is not one signature.

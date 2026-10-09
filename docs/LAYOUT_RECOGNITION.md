@@ -101,6 +101,79 @@ section-prefix column and the label column), never a value cell.
 6. A profile with unresolved roles still extracts: those values read empty
    and the gate flags `layout_unresolved:…`.
 
+## Band location by label group, layer by evidence (Chunk A, 2026-10-09)
+
+A target band is located by its **label group** — a run of `roles.target`
+headers placing at least `layer_evidence.group_min_location_roles` (3) of
+catalog / schema / table / column / data type — wherever it sits in the
+header row: any order, any offset, any count of bands, never a fixed column
+(`discover.label_groups`). A run closes on a repeated role, on a location role
+ranked below the previous one (once it holds two, or with other cells between
+them), or after `group_max_gap` other cells; a rules band's Primary Key beside
+the stage band is never the stage band's first role.
+
+A band's **layer** comes only from evidence, first that names exactly one
+layer wins (`extractor.discovery.layer_evidence`):
+
+| Evidence (`BandProfile.layer_evidence`) | Read from |
+| --- | --- |
+| `answer` | `<sheet>/band[<n>]/layer` answered source / stage / standard |
+| `title` | the band title row over the group's location columns (`titles` words, or a `band_tokens` token) |
+| `header` | a whole word of the band's own header texts (`header_words`; "in DL" / "DLK" are OFF — pair 1 writes "… in DL" in both bands) |
+| `catalog_value` | the band's Catalog values (`catalog_words`: PR_DLK → stage, PR_STD → standard) |
+| `schema_value` | the band's Schema values (`schema_prefixes`: stg_ → stage) |
+
+**Column order is never evidence.** A band nothing names, or two bands naming
+the same target layer (unless one was answered), is the question
+`UNRESOLVED <sheet>/band[<n>]/layer — <what was seen>; answer under answers:
+with source | stage | standard` (`n` = the band's position among the sheet's
+label groups), and the sheet's feed is held back (`extract-sttm`: NEEDS_ANSWERS,
+the same line) until it is answered — in answers.yaml:
+
+```yaml
+answers:
+  - sheet: "Mapping"
+    layer: band[2]
+    role: layer
+    value: stage          # source | stage | standard
+```
+
+(the App: `{"sttm": {"Mapping/band[2]/layer": "stage"}}`). A band answered
+`source` is the source band (its Schema / TableName / ColumnName / DataType
+read as the source's schema / table / field name / type). A model never
+places a layer: band questions are not in its request.
+
+**What did not change.** Pass 1 is the reading of every workbook before
+2026-10-09 (a band row naming stage AND standard, or layer prefixes in the
+header texts). When its bands agree with the label groups and their evidence,
+the profile is exactly the one read before — every pinned profile in
+`fixtures/layout_profiles/` and `tests/test_layout_discovery.py` is
+byte-identical, and such bands carry no `layer_evidence` (absent from the
+JSON). The groups rebuild the bands only when the band row contradicts them
+(a title merged over part of a band). Pass 2 — header-row groups with no such
+band row (one band only, another title wording, no title row) — runs only
+when pass 1 finds no mapping sheet in the workbook: a reference sheet beside
+real mapping sheets ("STG - Dest 1 | STD - Dest2", pair 4) is never read as a
+feed; the diagnostics name it. A `MAPPING-` sheet the legacy reader refuses
+(another title wording, another band order, an unknown header) falls through
+to content discovery; the flat `parse_workbook` API still raises the legacy
+refusal.
+
+**Caches.** A layer read from catalog / schema VALUES is never trusted from a
+cache — the fingerprint hashes headers, not values: on every cache hit
+`stale_value_evidence` re-derives it from the workbook in hand, and a cached
+layer the values no longer support is re-resolved (the report says why).
+Adding `layer_evidence` to `extractor:` changed the vocabulary hash: every
+runtime cache entry written before re-resolves once.
+
+**Classification.** A workbook is an STTM only when a band carries evidence of
+a TARGET layer; target-shaped columns nothing names (a dictionary or an IIG
+sheet looks the same) classify as `unclassified` with a reason starting
+`confirm:` — never silently an STTM; a person can still pick it as the STTM
+and answer the band questions.
+
+Tests: `tests/test_band_detection.py` (shapes: `tests/acfc_shapes/bands.py`).
+
 ## Pair-level resolution and cross-checks
 
 `resolve_pair` resolves the STTM and the FRD (a `.docx` through its own

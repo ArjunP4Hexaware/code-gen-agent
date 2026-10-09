@@ -244,6 +244,11 @@ def _validate_band_spans(sp: SheetProfile, ws, header: list, disc, reject) -> li
         for band in bands:
             if band.layer not in ("stage", "standard"):
                 continue
+            if band.layer_evidence not in (None, "title"):
+                # Chunk A: a band whose layer an answer / its headers / its
+                # catalog or schema values established - the band row is not
+                # its evidence, so a title row without the token proves nothing.
+                continue
             covering = [normalize(c) for i, c in enumerate(band_cells, start=1)
                         if c and (band.col_start <= i <= band.col_end
                                   or (i in merged and i <= band.col_start <= merged[i]))]

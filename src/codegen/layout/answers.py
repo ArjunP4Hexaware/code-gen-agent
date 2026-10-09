@@ -12,6 +12,10 @@ dialog for a terminal / a notebook, where no UI can ask.
         layer: stage                   # optional when (sheet, role) is unambiguous
         role: table
         column: "Target Table Name"    # header text | 3 | "C"
+      - sheet: "Mapping - Daily File"  # Chunk A: a band nothing names (the
+        layer: band[2]                 # question <sheet>/band[2]/layer) is
+        role: layer                    # answered with its LAYER:
+        value: stage                   # source | stage | standard
     gaps:                              # choice / layer questions, by question key
       "feeds[0].file_format": {value: "Delimited"}
     pairing:                           # an undecided content pairing
@@ -53,7 +57,14 @@ class AnswersFile:
     pairing: dict[str, dict] = field(default_factory=dict)
 
 
-_ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column"}
+_ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value"}
+
+
+def _is_band_entry(entry: dict) -> bool:
+    from codegen.layout.profile import BAND_LAYER_ROLE, BAND_REF_RE
+
+    return (entry.get("role") == BAND_LAYER_ROLE
+            and BAND_REF_RE.match(str(entry.get("layer") or "")) is not None)
 
 
 def load_answers(path: Path) -> AnswersFile:
@@ -66,6 +77,16 @@ def load_answers(path: Path) -> AnswersFile:
         if not isinstance(entry, dict) or set(entry) - _ENTRY_KEYS:
             raise AnswersFileError(f"{path}: answers[{index}] has unknown keys "
                                    f"{sorted(set(entry) - _ENTRY_KEYS)}")
+        if _is_band_entry(entry):
+            from codegen.layout.profile import BAND_LAYER_CHOICES
+
+            layer = entry.get("value", entry.get("column"))
+            if "sheet" not in entry or layer not in BAND_LAYER_CHOICES:
+                raise AnswersFileError(
+                    f"{path}: answers[{index}] answers {entry.get('layer')} of sheet "
+                    f"{entry.get('sheet')!r}: it needs `sheet:` and `value:` "
+                    f"{' | '.join(BAND_LAYER_CHOICES)}")
+            continue
         missing = {"sheet", "role", "column"} - set(entry)
         if missing:
             raise AnswersFileError(f"{path}: answers[{index}] is missing {sorted(missing)}")
@@ -169,6 +190,15 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
         document = entry.get("document", "sttm")
         if entry.get("workbook") and entry["workbook"] != names.get(document):
             continue
+        if _is_band_entry(entry):
+            # Chunk A: a band LAYER always travels (re-discovery applies it); a
+            # band that is no longer open just reads the same layer again.
+            key = f"{entry['sheet']}/{entry['layer']}/layer"
+            if not any(q.key == key for q in questions):
+                notes.append(f"answers[{index}] ({key}) matches no open question - applied to "
+                             "discovery as given (no effect if the sheet has no such band)")
+            out["sttm"][key] = entry.get("value", entry.get("column"))
+            continue
         matches = [q for q in open_role
                    if q.document == document and q.sheet == entry["sheet"]
                    and q.role == entry["role"]
@@ -250,6 +280,14 @@ def unresolved_report(questions: list, names: dict[str, str]) -> str:
                          "is not an integer (field name and cell value withheld)")
         else:
             lines.append(f"- role: `{question.role}` — {question.title or question.reason}")
+        if question.kind == "role" and question.role == "layer" and str(
+                question.layer or "").startswith("band["):
+            lines.append("- answer: under `answers:` - `sheet`, `layer: "
+                         f"{question.layer}`, `role: layer`, `value: source | stage | standard`")
+            if question.header:
+                lines.append("- header row: " + " | ".join(f"`{h}`" for h in question.header))
+            lines.append("")
+            continue
         if question.kind != "role":
             # choice / layer questions carry document VALUES: name the question only.
             lines.append(f"- kind: `{question.kind}` — answer under `gaps:` with the question key")

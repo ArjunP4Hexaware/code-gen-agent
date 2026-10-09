@@ -428,8 +428,30 @@ class NeedsAnswers(GenericExtractionError):
 
     def __init__(self, pending: list[PendingAnswer]) -> None:
         self.pending = pending
-        super().__init__("; ".join(f"{p.sheet}: answer `{p.key}` under gaps: — {p.reason}"
-                                   for p in pending))
+        super().__init__("; ".join(f"{p.sheet}: answer `{p.key}` under "
+                                   f"{answers_section(p.key)}: — {p.reason}" for p in pending))
+
+
+def answers_section(key: str) -> str:
+    """Where an answers.yaml answer for ``key`` goes: a band layer (Chunk A)
+    under ``answers:``, every other held-back key under ``gaps:``."""
+    from codegen.layout.profile import is_band_layer_key
+
+    return "answers" if is_band_layer_key(key) else "gaps"
+
+
+
+def _open_band_layers(sheet: SheetData, ir: GenericIR) -> list[PendingAnswer]:
+    """Chunk A: a sheet with a band whose layer no evidence names is not
+    read into a feed until the band is answered (source | stage | standard)
+    — its stage / standard bands may be the wrong columns."""
+    from codegen.layout.profile import BAND_LAYER_ROLE, BAND_REF_RE
+
+    name = sheet.profile.name
+    return [PendingAnswer(feed_name=name, sheet=name, key=f"{name}/{u.layer}/{u.role}",
+                          reason=u.reason)
+            for u in ir.profile.unresolved_for(name)
+            if BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE]
 
 
 def _unmapped_markers(config: Config) -> set[str]:
@@ -554,12 +576,16 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     pending: list[PendingAnswer] = []
     for sheet in ir.sheets:
         try:
+            open_bands = _open_band_layers(sheet, ir)
+            if open_bands:
+                raise NeedsAnswers(open_bands)
             feeds.append(_build_feed(sheet, ir, frd, config, disc, notes, width_answers or {}))
         except NeedsAnswers as held:
             # One sheet without a stated target holds back ITS feed only.
             pending.extend(held.pending)
             notes.extend(f"sheet {p.sheet!r}: feed {p.feed_name!r} NEEDS_ANSWERS — answer "
-                         f"`{p.key}` under gaps: ({p.reason})" for p in held.pending)
+                         f"`{p.key}` under {answers_section(p.key)}: ({p.reason})"
+                         for p in held.pending)
     if not feeds:
         from codegen.extract.extractor import NeedsAnswersError
 
@@ -894,6 +920,7 @@ __all__ = [
     "GenericExtractionError",
     "GenericIR",
     "SheetData",
+    "answers_section",
     "build_generic_contract",
     "extract_generic_contract",
     "layout_summary",

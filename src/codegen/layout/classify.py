@@ -8,7 +8,9 @@ tell the two apart:
 
 * **sttm** — a mapping sheet is discoverable: a band row carrying a stage AND
   a standard token (content-driven), ``MAPPING-`` sheets, or the segmented
-  family (``codegen.layout.discover.discover``);
+  family (``codegen.layout.discover.discover``) — and (Chunk A, 2026-10-09)
+  one of its bands carries EVIDENCE of a target layer; target-shaped columns
+  nothing names are ``unclassified`` with a reason starting ``confirm:``;
 * **vdd** — a FILES sheet or a field sheet by header signature
   (``discover_vdd``; checked second — an STTM's "Layout" sheet may carry
   field-sheet-like headers);
@@ -42,12 +44,19 @@ class WorkbookClass:
 
 
 def classify_workbook(path: Path, extractor: ExtractorConfig) -> WorkbookClass:
+    unconfirmed: list[str] = []
     try:
         found = discover(path, extractor)
-        mapping = [s.name for s in found.profile.mapping_sheets]
+        # Chunk A: an STTM only when a band carries EVIDENCE of a target layer
+        # (a stage / standard band). Target-shaped columns nothing names — a
+        # dictionary or IIG sheet looks the same — are "unclassified —
+        # confirm", never silently an STTM.
+        mapping = [s.name for s in found.profile.mapping_sheets
+                   if any(b.layer in ("stage", "standard") for b in s.bands)]
         if mapping:
             return WorkbookClass("sttm", f"mapping sheet(s) {mapping} "
                                          f"({found.profile.strategy} discovery)")
+        unconfirmed = [s.name for s in found.profile.mapping_sheets]
     except NoLayoutError:
         pass
     except Exception as exc:  # noqa: BLE001 — a workbook that cannot be opened is a fact to show
@@ -61,6 +70,12 @@ def classify_workbook(path: Path, extractor: ExtractorConfig) -> WorkbookClass:
         pass
     except Exception as exc:  # noqa: BLE001
         return WorkbookClass("unclassified", f"could not be read: {type(exc).__name__}: {exc}")
+    if unconfirmed:
+        return WorkbookClass(
+            "unclassified",
+            f"confirm: sheet(s) {unconfirmed} carry target-shaped columns (schema / table / "
+            "column / data type) but no band title, header word, catalog or schema value names "
+            "a stage or standard layer — pick it as the STTM to answer the band questions")
     return WorkbookClass(
         "unclassified",
         "no band row with stage + standard labels (STTM) and no FILES / field-sheet header "

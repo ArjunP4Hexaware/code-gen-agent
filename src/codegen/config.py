@@ -250,6 +250,45 @@ class ValidateConfig(BaseModel):
         r"|s?9\(\d+\)(?:v9+|v\d+)?|x\(\d+\)|an|n|x|9)")
 
 
+class LayerEvidenceConfig(BaseModel):
+    """Which layer a target-shaped band belongs to — EVIDENCE only, never
+    column order (Chunk A, 2026-10-09; ``codegen.layout.discover``). A band
+    is located by its label group (Catalog / Schema / TableName / ColumnName /
+    DataType …) wherever it sits in the header row; its layer comes from, in
+    this order: a person's answer, the band title row above the headers
+    (``titles``), a whole word of the band's own header texts
+    (``header_words``), the band's Catalog VALUES (``catalog_words``), its
+    Schema VALUES (``schema_prefixes``). A band nothing names — or two bands
+    naming the same layer — is the question ``<sheet>/band[<n>]/layer``.
+    Words are matched whole (a header / title / value split on every
+    non-alphanumeric run, lowercased); prefixes against the lowercased value.
+    Empty defaults = no evidence at all: every unlabelled band is asked."""
+
+    model_config = _MODEL_CONFIG
+
+    titles: dict[str, list[str]] = Field(default_factory=dict)
+    header_words: dict[str, list[str]] = Field(default_factory=dict)
+    catalog_words: dict[str, list[str]] = Field(default_factory=dict)
+    schema_prefixes: dict[str, list[str]] = Field(default_factory=dict)
+    # A run of header cells is a target-shaped band when it places at least
+    # this many of catalog / schema / table / column / target_type.
+    group_min_location_roles: int = Field(default=3, ge=2)
+    # Non-target header cells tolerated inside one band before it closes.
+    group_max_gap: int = Field(default=2, ge=0)
+    # Data rows read below the header for catalog / schema value evidence.
+    value_scan_rows: int = Field(default=200, gt=0)
+
+    @model_validator(mode="after")
+    def _check_layers(self) -> LayerEvidenceConfig:
+        layers = {"source", "rules", "stage", "standard"}
+        problems = [f"{name}: unknown layer {layer!r}"
+                    for name in ("titles", "header_words", "catalog_words", "schema_prefixes")
+                    for layer in getattr(self, name) if layer not in layers]
+        if problems:
+            raise ValueError("extractor.discovery.layer_evidence: " + "; ".join(problems))
+        return self
+
+
 class DiscoveryConfig(BaseModel):
     """Content-driven layout discovery vocabulary (M1) — the synonym tables
     behind ``codegen.layout.discover``. EVERYTHING here is data: band-label
@@ -283,6 +322,8 @@ class DiscoveryConfig(BaseModel):
     no_values: list[str] = Field(default_factory=list)
     # Validator thresholds (M2.5 §4).
     validate: ValidateConfig = ValidateConfig()
+    # Chunk A (2026-10-09): band location by label group + layer evidence.
+    layer_evidence: LayerEvidenceConfig = LayerEvidenceConfig()
 
     @model_validator(mode="after")
     def _check_vocabulary(self) -> DiscoveryConfig:

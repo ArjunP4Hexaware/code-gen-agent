@@ -2021,10 +2021,23 @@ class _FeedGapFiller:
         self.result.fills.append({"field": key, "title": self._title(key), "value": value,
                                   "source": "STTM", "cell": cell})
         self.result.flags.append(
-            f"frd_frequency_per_file:{key} — the FRD "
-            f"{self.frd_stmt('frequency', current).cell} names several cadences "
-            f"({current!r}); this feed's File Details row {cell} states {value!r}: taken")
+            f"frd_frequency_per_file:{key} — the FRD {self._frequency_cell(current)} names "
+            f"several cadences ({current!r}); this feed's File Details row {cell} states "
+            f"{value!r}: taken")
         self.result.handled.add(key)
+
+    def _frequency_cell(self, current: str) -> str:
+        """The FRD cell the compound Frequency text was read from. A feed the
+        split step derived from the FRD's one metadata block carries that
+        block's text, recorded under feeds[0]: cite that cell, never a bare
+        "FRD contract" (Chunk B review)."""
+        item = self.contract.field_provenance.get(self.prefix + "frequency")
+        if item is None and self.contract.feeds \
+                and _feed_get(self.contract.feeds[0], "frequency") == current:
+            item = self.contract.field_provenance.get("feeds[0].frequency")
+        if item is None:
+            return f"contract field {self.prefix}frequency"
+        return f"table {item.table} row {item.row} ({item.label!r})"
 
     def _delimiter_in_format_text(self) -> bool:
         """Chunk B (cold drill): the FRD states no delimiter cell but its

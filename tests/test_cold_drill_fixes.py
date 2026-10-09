@@ -406,6 +406,91 @@ def test_one_frd_feed_naming_two_sheet_tables_becomes_two_feeds(config):
     assert any(f.startswith("frd_frequency_per_file:feeds[1].frequency") for f in pair.flags)
 
 
+_COLD4_ROLES = {f"{sheet}/{layer}/{role}": col
+                for sheet in ("MAPPING-RX_CLAIM", "MAPPING-RX_REVERSAL")
+                for layer, role, col in (("source", "field_name", 1), ("stage", "table", 9),
+                                         ("stage", "column", 10), ("stage", "target_type", 11),
+                                         ("standard", "table", 13), ("standard", "column", 14),
+                                         ("standard", "target_type", 15))}
+
+
+def test_a_compound_frequency_gives_way_to_each_feeds_own_file_details_row(config):
+    """B4 (Chunk B review): cold_4's FRD Frequency cell names two cadences
+    ("Claims daily; reversals weekly") for the two files of one block. With
+    the claim file answered, EACH derived feed takes its own File Details
+    row, flagged citing the FRD cell (the block's, for the derived feed too)
+    and the row's cell."""
+    gaps = {"feeds[0].file_name_patterns": {"value": "CH_RX_CLM_<LOB>_YYYYMMDD.csv",
+                                            "source": "user"}}
+    pair = resolve_pair(_sttm("cold_4"), _frd("cold_4"), config, provider=None,
+                        use_cache=False, answers={"sttm": _COLD4_ROLES, "gaps": gaps})
+    assert [f.frequency for f in pair.frd_contract.feeds] == ["Daily", "Weekly"]
+    flags = [f for f in pair.flags if f.startswith("frd_frequency_per_file:")]
+    assert flags == [
+        "frd_frequency_per_file:feeds[0].frequency — the FRD table 0 row 6 ('Frequency') names "
+        "several cadences ('Claims daily; reversals weekly'); this feed's File Details row "
+        "FILE_DETAILS!E2 states 'Daily': taken",
+        "frd_frequency_per_file:feeds[1].frequency — the FRD table 0 row 6 ('Frequency') names "
+        "several cadences ('Claims daily; reversals weekly'); this feed's File Details row "
+        "FILE_DETAILS!E3 states 'Weekly': taken"]
+    fills = {f["field"]: (f["value"], f["source"], f["cell"]) for f in pair.gap_fills}
+    assert fills["feeds[0].frequency"] == ("Daily", "STTM", "FILE_DETAILS!E2")
+    assert fills["feeds[1].frequency"] == ("Weekly", "STTM", "FILE_DETAILS!E3")
+
+
+def test_a_compound_frequency_stays_when_the_feeds_rows_state_several(config):
+    """B4: before the claim file is answered, feed 0 still lists both files -
+    its File Details rows state two cadences, so the FRD text stays (no
+    single value to take, nothing flagged for it)."""
+    pair = resolve_pair(_sttm("cold_4"), _frd("cold_4"), config, provider=None,
+                        use_cache=False, answers={"sttm": _COLD4_ROLES})
+    assert pair.frd_contract.feeds[0].frequency == "Claims daily; reversals weekly"
+    assert not any(f.startswith("frd_frequency_per_file:feeds[0]") for f in pair.flags)
+
+
+@pytest.mark.parametrize("frequency,patterns,rows,taken", [
+    # two cadences, this feed's own row states one: taken
+    ("Claims daily; reversals weekly", ["CLM_YYYYMMDD.csv"],
+     [("CLM_YYYYMMDD.csv", "Daily"), ("REV_YYYYMMDD.csv", "Weekly")], ("Daily", "E2")),
+    # the date placeholder is canonicalised (CCYY = YYYY)
+    ("Claims daily; reversals weekly", ["REV_CCYYMMDD.csv"],
+     [("CLM_YYYYMMDD.csv", "Daily"), ("REV_YYYYMMDD.csv", "Weekly")], ("Weekly", "E3")),
+    # ONE cadence is a single value: the FRD text stays
+    ("Daily by 6 AM", ["CLM_YYYYMMDD.csv"], [("CLM_YYYYMMDD.csv", "Weekly")], None),
+    # the feed's own rows disagree: the FRD text stays
+    ("Daily or weekly", ["CLM_YYYYMMDD.csv"],
+     [("CLM_YYYYMMDD.csv", "Daily"), ("CLM_YYYYMMDD.csv", "Weekly")], None),
+    # no File Details row names this feed's file: the FRD text stays
+    ("Claims daily; reversals weekly", ["OTHER_YYYYMMDD.csv"],
+     [("CLM_YYYYMMDD.csv", "Daily")], None),
+])
+def test_the_compound_frequency_rule(frequency, patterns, rows, taken, config):
+    from codegen.contracts.frd import FrdContract
+    from codegen.layout.resolve import GapFillResult, _FeedGapFiller
+
+    data = bands.frd_contract()
+    data["feeds"][0].update({"frequency": frequency, "file_name_patterns": patterns})
+    contract = FrdContract.model_validate(data)
+    facts = {"meta": {}, "file_rows": [
+        {"name": name, "cell": f"FILE_DETAILS!A{row}", "frequency": cadence,
+         "frequency_cell": f"FILE_DETAILS!E{row}"}
+        for row, (name, cadence) in enumerate(rows, start=2)]}
+    result = GapFillResult(contract=contract)
+    filler = _FeedGapFiller(contract, 0, facts, {}, {}, config, REPO, result)
+    filler._compound_frequency()
+    if taken is None:
+        assert filler.patched.frequency == frequency
+        assert result.flags == [] and "feeds[0].frequency" not in result.handled
+        return
+    value, cell = taken
+    assert filler.patched.frequency == value
+    assert result.flags == [
+        f"frd_frequency_per_file:feeds[0].frequency — the FRD contract field "
+        f"feeds[0].frequency names several cadences ({frequency!r}); this feed's File Details "
+        f"row FILE_DETAILS!{cell} states {value!r}: taken"]
+    assert "feeds[0].frequency" in result.handled
+
+
 def test_a_stated_catalog_answer_reaches_the_frd_contract(config, tmp_path):
     sttm = tmp_path / "one.xlsx"
     sttm.write_bytes(xlsx_bytes(bands.one_band(title="Staging Layer", schema="stg_nb")))

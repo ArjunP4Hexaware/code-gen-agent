@@ -1335,6 +1335,17 @@ class DmlConnectionTableConfig(BaseModel):
     source_type_column: str = "SOURCE_TYPE"
 
 
+class DmlTableNameConfig(BaseModel):
+    """One IIG sheet's metadata-DB table, CONFIRMED by its citation (the
+    framework walkthrough or the owners). An IIG tab name is not a table name:
+    Excel cuts tab names at 31 characters."""
+
+    model_config = _MODEL_CONFIG
+
+    table: str
+    citation: str
+
+
 class DmlConfig(BaseModel):
     """The SQL Server metadata DB side of ``metadata_inserts.sql`` (written on
     every framework run since 2026-10-08) and the runner notebooks that
@@ -1362,6 +1373,11 @@ class DmlConfig(BaseModel):
     described_tables: list[str] = Field(default_factory=lambda: [
         "DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
         "ADLS_DELTA_INGESTION_DETAILS"])
+    # IIG sheet -> its metadata-DB table, CONFIRMED (2026-10-09; the values live
+    # in config.yaml). A sheet not listed inserts into a table named after the
+    # sheet (framework.tables may override) and its block is marked
+    # "-- unconfirmed" in metadata_inserts.sql.
+    table_names: dict[str, DmlTableNameConfig] = Field(default_factory=dict)
     # Workbook value -> the value the framework reads, per column: the IIG keeps
     # what humans hand over, the SQL writes what the DB needs (§1: the framework
     # selects ACTIVE_FLAG = 'S'; the goldens print 'Y' — §10, UNCONFIRMED).

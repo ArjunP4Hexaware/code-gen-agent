@@ -163,6 +163,18 @@ def parse_values(text: str) -> list:
     return items
 
 
+def _table_names() -> dict[str, str]:
+    """Sheet -> the metadata-DB table its INSERTs target (dml.table_names, the
+    confirmed names; any other sheet keeps its own name — 2026-10-09)."""
+    from codegen.config import load_config
+
+    config = load_config(Path(__file__).resolve().parents[1] / "config" / "config.yaml")
+    return {sheet: entry.table for sheet, entry in config.dml.table_names.items()}
+
+
+TABLE_NAMES = _table_names()
+
+
 def parse_script(text: str) -> tuple[dict[str, int], dict[str, list[Insert]], list[tuple]]:
     """(block header counts in order, INSERTs per sheet, table index entries)."""
     headers: dict[str, int] = {}
@@ -180,7 +192,7 @@ def parse_script(text: str) -> tuple[dict[str, int], dict[str, list[Insert]], li
         elif line.startswith("-- table ") and sheet is not None:
             label = line
         elif (match := _INSERT.match(line)) is not None:
-            assert match.group(1) == sheet, (match.group(1), sheet)
+            assert match.group(1) == TABLE_NAMES.get(sheet, sheet), (match.group(1), sheet)
             columns = [c.strip()[1:-1] for c in match.group(2).split(",")]
             inserts[sheet].append(Insert(sheet, columns, parse_values(match.group(3)), label))
             label = None
@@ -371,6 +383,66 @@ def test_with_placeholders_read_as_null_every_statement_parses_as_tsql(rendered,
     assert validate_tsql(placeholders_as_null(text)) == []
     # … and not before: an open cell keeps the script from parsing, let alone running
     assert validate_tsql(text)
+
+
+# -- sheet -> table names (2026-10-09) ------------------------------------------------- #
+
+WALKTHROUGH_TABLES = {"DATA_FACTORY_PIPELINE_SCHEDULE": "§2", "FILE_ADLS_INGESTION_DETAILS": "§5",
+                      "ADLS_DELTA_INGESTION_DETAILS": "§7"}
+
+
+def test_the_confirmed_table_names_are_config_the_walkthrough_and_the_owner_brief(config):
+    """Only the walkthrough's IIG tables (METADATA_DB_SEMANTICS §2 / §5 / §7 — its
+    other three tables are not IIG sheets) and the owner-stated STGDELTA table are
+    confirmed; an Excel tab name (31 characters at most) is not a table name."""
+    names = config.dml.table_names
+    assert set(names) == {*WALKTHROUGH_TABLES, STGDELTA}
+    for sheet, section in WALKTHROUGH_TABLES.items():
+        assert names[sheet].table == sheet
+        assert f"METADATA_DB_SEMANTICS.md {section}" in names[sheet].citation
+    assert names[STGDELTA].table == "stg_delta_stddelta_ingestion_details"
+    assert names[STGDELTA].citation == "owner brief 2026-10-09"
+    tabs = config.metadata.templates["iig_v2"].tabs
+    assert set(names) <= set(tabs)
+    assert max(len(t) for t in tabs) == len(STGDELTA) == 31          # the cut tab name
+
+
+@pytest.mark.parametrize("pair", ["pair1", "pair4"])
+def test_insert_targets_are_the_confirmed_names_else_the_sheet_marked_unconfirmed(rendered,
+                                                                                  pair):
+    config, payload, _expected, text, _counts = rendered[pair]
+    lines = text.splitlines()
+    for sheet, tab in payload["tabs"].items():
+        if not tab["rows"]:
+            continue
+        start = next(i for i, ln in enumerate(lines) if ln.startswith(f"-- {sheet}: "))
+        block = lines[start + 1:lines.index("", start)]          # a block ends at a blank line
+        inserts = [ln for ln in block if ln.startswith("INSERT INTO")]
+        assert len(inserts) == len(tab["rows"]), sheet
+        confirmed = config.dml.table_names.get(sheet)
+        table = confirmed.table if confirmed else sheet
+        assert inserts and all(ln.startswith(f"INSERT INTO [dbo].[{table}] (") for ln in inserts)
+        if confirmed is None:
+            assert block[0] == (
+                f"-- unconfirmed: target table [dbo].[{sheet}] = the IIG sheet name; a tab name "
+                "(Excel cuts it at 31 characters) is not the framework's table name until "
+                "confirmed (Friday checklist 12; dml.table_names)"), sheet
+        elif table != sheet:
+            assert block[0].startswith(f"-- target table [dbo].[{table}], not the IIG sheet ")
+            assert block[0].endswith(f"confirmed: {confirmed.citation} (dml.table_names)")
+        else:
+            assert not block[0].startswith(("-- unconfirmed", "-- target table")), sheet
+    # STGDELTA: its INSERTs and its guards name the confirmed table, never the cut tab name
+    assert "[dbo].[STGDELTA_STDDELTA_INGESTION_DET]" not in text
+    assert ("IF EXISTS (SELECT 1 FROM [dbo].[stg_delta_stddelta_ingestion_details] WHERE "
+            "[GROUP_ID] = <<GROUP_ID#1>>) RAISERROR(N'STGDELTA_STDDELTA_INGESTION_DET row 1: "
+            "GROUP_ID is already used") in text
+    unconfirmed = [s for s, tab in payload["tabs"].items()
+                   if tab["rows"] and s not in config.dml.table_names]
+    assert set(unconfirmed) <= {"ADLS_FIXED_WIDTH_HANDLER", "DATABRICKS_NOTEBOOK_DETAILS",
+                                "DATA_QUALITY_RULES", "EMAIL_TEMPLATE_CONFIG"}
+    assert len(unconfirmed) == (4 if pair == "pair1" else 3)   # pair 4: no fixed-width row
+    assert text.count("-- unconfirmed: target table ") == len(unconfirmed)
 
 
 # -- the CREATE reference text, one block per table ------------------------------------ #

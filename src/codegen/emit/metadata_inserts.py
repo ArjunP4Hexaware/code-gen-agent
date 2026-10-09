@@ -12,11 +12,15 @@ per-environment ``config_inserts_<env>.sql``, whose DB-side knowledge it
 carries (``config dml.*``, docs/acfc/METADATA_DB_SEMANTICS.md):
 
 1. **One block per IIG sheet**, in ``dml.table_order`` order, then any other
-   sheet in payload order. Table ``[<dml.schema>].[<framework.tables[sheet]
-   or sheet>]``, identifiers bracketed. Each block opens with
-   ``-- <SHEET>: <n> row(s)`` (a table the walkthrough did not describe says
-   so, flag ``dml_not_described:<SHEET>``); a sheet with no rows gets its
-   header line only.
+   sheet in payload order. Table ``[<dml.schema>].[<table>]``, identifiers
+   bracketed: ``<table>`` = the CONFIRMED name in ``dml.table_names`` (an IIG
+   tab name is not a table name — Excel cuts tab names at 31 characters:
+   ``STGDELTA_STDDELTA_INGESTION_DET`` -> ``stg_delta_stddelta_ingestion_details``,
+   owner brief 2026-10-09), else ``framework.tables[sheet]`` or the sheet
+   name, the block then marked ``-- unconfirmed`` (Friday checklist 12). Each
+   block opens with ``-- <SHEET>: <n> row(s)`` (a table the walkthrough did
+   not describe says so, flag ``dml_not_described:<SHEET>``); a sheet with no
+   rows gets its header line only.
 2. **One** ``INSERT INTO … (<columns>) VALUES (…);`` **per payload row**, the
    columns in the sheet's header order, one statement per line.
 3. **Cells** — the workbook keeps what humans hand over; the script writes
@@ -164,6 +168,37 @@ def cell_sql(column: str, value, entry: dict, row_number: int, rules: DbRules | 
     return placeholder(column, row_number)
 
 
+FRIDAY_TABLE_NAMES = "Friday checklist 12"
+
+
+def table_name(sheet: str, config: Config) -> tuple[str, str | None]:
+    """(the metadata-DB table a sheet's rows go to, the citation that confirms
+    it — None when unconfirmed). ``dml.table_names`` holds the confirmed names
+    (an IIG tab name is not a table name: Excel cuts tab names at 31
+    characters); any other sheet keeps its name (``framework.tables`` may
+    override), unconfirmed."""
+    confirmed = config.dml.table_names.get(sheet)
+    if confirmed is not None:
+        return confirmed.table, confirmed.citation
+    return config.framework.tables.get(sheet, sheet), None
+
+
+def _table_name_lines(sheet: str, config: Config) -> list[str]:
+    """The block's table-name comment: a confirmed name that is not the
+    sheet's own says so; an unconfirmed one is marked ``-- unconfirmed``."""
+    name, citation = table_name(sheet, config)
+    if citation is None:
+        return [f"-- unconfirmed: target table {_table(config.dml.schema, name)} = the IIG "
+                f"sheet name; a tab name (Excel cuts it at 31 characters) is not the "
+                f"framework's table name until confirmed ({FRIDAY_TABLE_NAMES}; "
+                f"dml.table_names)"]
+    if name != sheet:
+        return [f"-- target table {_table(config.dml.schema, name)}, not the IIG sheet name "
+                f"(a tab name is cut at 31 characters) — confirmed: {citation} "
+                f"(dml.table_names)"]
+    return []
+
+
 def _sheet_order(payload: dict, config: Config) -> list[str]:
     tabs = payload.get("tabs", {})
     order = config.dml.table_order
@@ -258,9 +293,11 @@ def _db_value_lines(config: Config) -> list[str]:
     return lines
 
 
-def _guards(schema: str, rendered: dict[str, list[tuple[int, dict[str, str]]]],
+def _guards(config: Config, rendered: dict[str, list[tuple[int, dict[str, str]]]],
             rfc: bool) -> list[str]:
-    """EXISTS guards before the first INSERT (module docstring, rule 5)."""
+    """EXISTS guards before the first INSERT (module docstring, rule 5), each
+    against the sheet's metadata-DB table (``table_name``)."""
+    schema = config.dml.schema
     lines = [f"-- GUARDS — checked before the first INSERT; any failure aborts the whole "
              f"script and rolls it back ({_SEMANTICS} §1, §2, §5)"]
     if rfc:
@@ -285,12 +322,13 @@ def _guards(schema: str, rendered: dict[str, list[tuple[int, dict[str, str]]]],
     for number, items in rendered.get(_SCHEDULE, []):
         assigned(_SCHEDULE, number, items, "PIPELINE_ID")
         if "PIPELINE_ID" in items:
-            add(f"IF EXISTS (SELECT 1 FROM {_table(schema, _SCHEDULE)} WHERE [PIPELINE_ID] = "
+            add(f"IF EXISTS (SELECT 1 FROM {_table(schema, table_name(_SCHEDULE, config)[0])} "
+                f"WHERE [PIPELINE_ID] = "
                 f"{items['PIPELINE_ID']}) RAISERROR(N'{_SCHEDULE} row {number}: PIPELINE_ID is "
                 "already used (unique per process, §2)', 16, 1);")
     for sheet in _GROUP_TABLES:
         for number, items in rendered.get(sheet, []):
-            table = _table(schema, sheet)
+            table = _table(schema, table_name(sheet, config)[0])
             assigned(sheet, number, items, "GROUP_ID", "OBJECT_ID", "PIPELINE_ID")
             if "GROUP_ID" in items:
                 add(f"IF EXISTS (SELECT 1 FROM {table} WHERE [GROUP_ID] = {items['GROUP_ID']}) "
@@ -419,7 +457,7 @@ def render_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
             flags.append("dml_unassigned:@SRC_HOST_NAME — platform / Azure team; the file "
                          f"connection's host ({_SEMANTICS} §3); answer FAQ 'source_host' or "
                          "fill <<SRC_HOST_NAME>>")
-    lines += ["", *_guards(schema, rendered, rfc_used)]
+    lines += ["", *_guards(config, rendered, rfc_used)]
     if connection_used:
         flags.append(f"dml_unconfirmed:connection_table — table / column identifiers "
                      f"{config.dml.connection_table.name}({config.dml.connection_table.id_column}, "
@@ -433,12 +471,14 @@ def render_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
         tab = tabs[sheet]
         rows = tab.get("rows", [])
         headers = list(tab["headers"])
-        table = _table(schema, config.framework.tables.get(sheet, sheet))
+        table = _table(schema, table_name(sheet, config)[0])
         columns = ", ".join(_ident(h) for h in headers)
         described = sheet in config.dml.described_tables
         lines += ["", f"-- {sheet}: {len(rows)} row(s)"
                   + ("" if described else f" — table not yet described in the framework "
                                           f"walkthrough ({_SEMANTICS} §8); §1 conventions only")]
+        if rows:
+            lines += _table_name_lines(sheet, config)
         if rows and not described:
             flags.append(f"dml_not_described:{sheet} — written from the IIG cells under the §1 "
                          f"conventions only ({_SEMANTICS} §8)")
@@ -490,6 +530,6 @@ def emit_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
     return MetadataInserts(path=path, row_counts=counts, check=check, flags=flags)
 
 
-__all__ = ["FILE_NAME", "PLACEHOLDER_RE", "DbRules", "MetadataInserts", "cell_sql",
-           "emit_metadata_inserts", "placeholder", "placeholders_as_null",
-           "render_metadata_inserts"]
+__all__ = ["FILE_NAME", "FRIDAY_TABLE_NAMES", "PLACEHOLDER_RE", "DbRules", "MetadataInserts",
+           "cell_sql", "emit_metadata_inserts", "placeholder", "placeholders_as_null",
+           "render_metadata_inserts", "table_name"]

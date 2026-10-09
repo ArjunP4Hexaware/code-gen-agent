@@ -521,7 +521,10 @@ and where the answer lands (config, not code, wherever possible).
 2. **The standard container for d1.** `STGDELTA_STDDELTA_INGESTION_DET`
    `TGT_CONTAINER_NAME` (and its `SRC_CONTAINER_NAME`, the stage container) for
    d1. The ACFC overlay carries the ADLS_DELTA connection / container constants
-   only, so these cells are open on real runs. Answer → `acfc_env.yaml`
+   and, since 2026-10-09, the STGDELTA `SRC_CONTAINER_NAME` (the stage
+   container, the real ADLS rows' `TGT_CONTAINER_NAME`); `TGT_CONTAINER_NAME`
+   and this sheet's three connection ids stay open on real runs (no real
+   STGDELTA row states them). Answer → `acfc_env.yaml`
    `constants.STGDELTA_STDDELTA_INGESTION_DET`.
 3. **The STGDELTA `OBJECT_NAME` convention.** The pair-1 family's golden prints
    `Accumulator_accumclient` (no input derives it — transcribed in the pair-1
@@ -590,6 +593,28 @@ sheet's value and `metadata_inserts.sql` writes the walkthrough's (rules 1 and
     FREQUENCY equals its pipeline schedule frequency. With no run statement the
     delivery cadence is written, as before. If wrong → `_frequency` in
     `src/codegen/metadata_template.py` (one switch of the source order).
+
+**Added 2026-10-09 (Chunk D)** — appended; nothing above is renumbered:
+
+12. **Metadata-DB table names of the sheets the walkthrough did not name.**
+    An Excel tab name is cut at 31 characters, so a tab name is not a table
+    name: `STGDELTA_STDDELTA_INGESTION_DET` inserts into
+    `stg_delta_stddelta_ingestion_details` (owner brief 2026-10-09). Confirmed
+    today (`dml.table_names`): that one and the walkthrough's own IIG tables
+    (`DATA_FACTORY_PIPELINE_SCHEDULE` §2, `FILE_ADLS_INGESTION_DETAILS` §5,
+    `ADLS_DELTA_INGESTION_DETAILS` §7). `ADLS_FIXED_WIDTH_HANDLER`,
+    `DATA_QUALITY_RULES`, `DATABRICKS_NOTEBOOK_DETAILS` and
+    `EMAIL_TEMPLATE_CONFIG` keep the sheet name, each INSERT block marked
+    `-- unconfirmed` in `metadata_inserts.sql`. Answer → `dml.table_names`.
+13. **Confirm the stage → standard row** (applied under the ACFC overlay,
+    owner brief 2026-10-09): `SRC_ADLS_PATH` = the stage side's Processed
+    folder without the container segment (`/{domain_path}Processed/`),
+    `TGT_ADLS_PATH` / `TGT_RJT_ADLS_PATH` container-relative in the standard
+    container (`…/Processed/<table>`, `…/Reject/<table>_reject`),
+    `SRC_CONTAINER_NAME` = the stage container, `OBJECT_ID` per (group, file)
+    — the ADLS row's of the one file that feeds the table, open with a note
+    when several do (`family_conventions.stgdelta_object_id: from_file`). The
+    d1 standard container and this sheet's connection ids stay open (item 2).
 
 **If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
 whether grand master / master are new rows per feed (Q4), one

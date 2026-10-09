@@ -64,14 +64,19 @@ prod-support DL is `CODEGEN_NOTIFICATION_EMAILS` in the App env.
 `config/overlays/acfc_env.yaml` is COMMITTED and ALWAYS applied first by
 `load_config` itself — so the CLI, the App backend, harness jobs and
 `acfc_run.py` all pick it up with no env change. It carries the ACFC
-environment's constants and the SDOH path shapes:
+environment's constants and the SDOH path shapes — and, since Chunk D
+(2026-10-09), the DEFAULT conventions profile and IIG template:
 
 | Key | Value | Effect |
 | --- | --- | --- |
+| `conventions.profile` / `metadata.template` | `acfc_prx` / `iig_v2` | the defaults of every run that loads the overlay: the App's Generate selectors show `default (acfc_prx)` / `default (iig_v2)`, and `codegen generate` without `--profile` / `--iig-template` writes the acfc_prx / iig_v2 artefacts (one combined `<ABBREV>_DDL.txt`, the 8-sheet IIG, `metadata_inserts.sql`, the runner notebooks). The shipped config (and the suite, `CODEGEN_SKIP_ENV_OVERLAY=1`) stays `edo_sfmc` / `iig_v1`. A local CLI run in a checkout therefore produces ACFC artefacts — its first line says so (below) |
 | `conventions.catalog_map` | `{PR_DLK: d1_dlk, PR_STD: d1_std}` (d1; prod = identity, no map) | multi-table rule 7: the STTM bands state LOGICAL catalogs; every emitted catalog is mapped (keys case-insensitive, output lowercase) and the cell tooltip cites the mapping; a stated catalog the map lacks is written as stated and flagged `catalog_unmapped:<layer>` |
 | `conventions.profiles.acfc_prx.default_catalog` | `{stage: d1_dlk, standard: d1_std}` | last link of the catalog chain (STTM band → FRD label → this), used only when the band and the FRD state no catalog — clears `catalog_unstated:<layer>`; the DDL gets three-part names |
 | `metadata.templates.iig_v2.constants.ADLS_DELTA_INGESTION_DETAILS` | `SRC_ADLS_CONNECTION_ID 7`, `METADATA_CONNECTION_ID 4`, `TGT_CONNECTION_ID 2`, `SRC_CONTAINER_NAME mftlanding`, `TGT_CONTAINER_NAME z-use-d1-dlk-stage-01`, `SCHEMA_DRIFT_FLAG Y` | filled cells, badge synthetic, tooltip naming the overlay (`constant_citations`) |
 | `metadata.templates.iig_v2.always_blank` | the shipped list minus the five connection / container columns | lists REPLACE on merge — the cells above can only fill once they leave it |
+| `metadata.templates.iig_v2.constants.STGDELTA_STDDELTA_INGESTION_DET` | `SRC_CONTAINER_NAME z-use-d1-dlk-stage-01` | the stage -> standard row reads the stage table where the file -> stage row wrote it: the stage container (the real ADLS rows' `TGT_CONTAINER_NAME`). Its `TGT_CONTAINER_NAME` (the d1 standard container) and its three connection ids are stated by no real row — open, Friday checklist 2 |
+| `…path_patterns.STGDELTA_STDDELTA_INGESTION_DET` | `SRC_ADLS_PATH /{domain_path}Processed/`, `TGT_ADLS_PATH /{domain_path}Processed/{stage_table}`, `TGT_RJT_ADLS_PATH /{domain_path}Reject/{reject_table}` | Chunk D (owner brief 2026-10-09): container-relative paths — the source is the stage side's Processed folder (no container segment; the first ACFC run wrote `/<landing container>/inbound/…`), target and reject in the standard container in the same shape (`{stage_table}` = the row's target table). `SRC_ADLS_ARCHVL_PATH` keeps the template's shape |
+| `…family_conventions.stgdelta_object_id` | `from_file` | STGDELTA `OBJECT_ID` is per (group, file): the row takes the `OBJECT_ID` of the ADLS row of THE file that feeds its table; several files feed it -> open, cell note + gate flag `stgdelta_object_id_open:<table>`. Shipped default `open` (the pair-1 / pair-4 goldens) |
 
 | `metadata.templates.iig_v2.src_columns_style` / `path_patterns` / `path_citations` | `named`; the four ADLS_DELTA path shapes (`{landing_rel}` / `{domain_path}`) | SDOH-shaped — **applies to every ACFC feed**, so PRX-shaped feeds (pair 1) get SDOH paths until the overlay is split per source family |
 
@@ -124,8 +129,15 @@ runs the checkout's own `src/` and says so:
   <path>`; the same line is in the startup error the UI shows and in
   `GET /api/health` (`codegen_source`, `codegen_file`).
 - **CLI**: every command's first line is `codegen <version> from <file> ·
-  overlays: <list>` (stderr under `--json`). `python -m codegen.cli doctor`
-  adds the python executable, `sys.path[0:3]` and `iig_review supported`.
+  profile: <p> · IIG template: <t> · overlays: <list>` (stderr under
+  `--json`) — since Chunk D (2026-10-09) it names the conventions profile and
+  IIG template in effect (read from the config + overlays before
+  `load_config`; a value `generate --profile` / `--iig-template` set is
+  marked `(--profile)` / `(--iig-template)`), so a local run the overlay
+  switched to `acfc_prx` / `iig_v2` is explained in its first line.
+  `python -m codegen.cli doctor` prints the same line, then `conventions
+  profile: …` and `IIG template: …` on lines of their own, the python
+  executable, `sys.path[0:3]` and `iig_review supported`.
 - **acfc_run.py**: `launch_codegen` runs `python -m codegen.cli` with
   `PYTHONPATH=<repo>/src` prepended (existing entries kept); the repo root
   comes from the notebook's own location, never the cwd.

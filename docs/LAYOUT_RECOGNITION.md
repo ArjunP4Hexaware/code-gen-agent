@@ -163,10 +163,25 @@ feed; the diagnostics name it. A pass-2 header row needs two or more label
 groups, or one plus a field-name header outside it (an auxiliary sheet with one
 table-shaped group is not a mapping sheet); the row above it is its title row
 only when sparse, short, not a meta label ("Notes | …") and a cell names a
-layer or sits over a group. A `MAPPING-` sheet the legacy reader refuses
-(another title wording, another band order, an unknown header) falls through
-to content discovery; the flat `parse_workbook` API still raises the legacy
-refusal, and the segmented dialect on a `MAPPING-` sheet keeps its explicit
+layer or sits over a group. **`MAPPING-` sheets are read by the general reader first** (addendum,
+2026-10-09; `discover._mapping_general_first`): band row / label groups,
+layers by evidence, the band question, and family B's own source vocabulary
+on those sheets (`extractor.header_synonyms` — "Mandatory" is `mandatory`
+there, `required` on the content families); the per-row Recycle Flag column by
+its header PREFIX everywhere. The legacy reader is the fallback when the
+general reader finds nothing, and the reference it is proven equal to: on
+every `MAPPING-` workbook of the fixture set (pairs 2 and 11, the CV golden,
+the tests' minimal and SD-shaped sheets — and the real SD workbook) both place
+the same roles in the same columns (`mapping_differences` is empty), so
+`discover` returns the legacy profile byte for byte and every contract stays
+byte-identical. Where they disagree, or the legacy reader refuses (another
+title wording, titles in row 2, an unknown header), the general reader's
+bands are used, each difference a diagnostic; the legacy extractor still
+reads the rows when every column it requires is placed (data from the
+profile's header row + 1), else the generic extractor does (strategy
+`content`, which also holds a sheet with an open band back). The flat
+`parse_workbook` API is the legacy reader only (its errors stand), and the
+segmented dialect on a `MAPPING-` sheet keeps its explicit
 `SegmentedWorkbookError`.
 
 **Caches.** A layer read from catalog / schema VALUES is never trusted from a

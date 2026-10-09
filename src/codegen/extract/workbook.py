@@ -52,6 +52,9 @@ LEGACY_SOURCE_ROLES = {
     "mandatory": Role.MANDATORY,
     "value_spec": Role.COMMENTS,
 }
+# The source columns the legacy MAPPING- extractor cannot read a row without.
+LEGACY_REQUIRED_SOURCE = ("source_column", "description", "sample_value", "source_datatype",
+                          "null_check", "phi", "mandatory")
 LEGACY_TABLE_ROLES = {
     "schema": Role.SCHEMA,
     "tablename": Role.TABLE,
@@ -185,7 +188,8 @@ def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
     from codegen.layout.discover import SEGMENTED_FAMILY_NOTE, NoLayoutError, discover
 
     try:
-        found = discover(path, config)
+        # The flat API is the legacy MAPPING- reader: its own errors stand.
+        found = discover(path, config, legacy_mapping=True)
     except NoLayoutError as exc:
         raise WorkbookParseError(str(exc)) from exc
     profile = found.profile
@@ -472,15 +476,7 @@ def _resolve_source_headers(
             )
         resolved[logical] = index
 
-    missing = {
-        "source_column",
-        "description",
-        "sample_value",
-        "source_datatype",
-        "null_check",
-        "phi",
-        "mandatory",
-    } - set(resolved)
+    missing = set(LEGACY_REQUIRED_SOURCE) - set(resolved)
     if missing:
         raise WorkbookParseError(
             f"{ws.title}: source block is missing required column(s) {sorted(missing)}; "
@@ -582,7 +578,10 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
     stage_refs: set[tuple[str, str]] = set()
     standard_refs: set[tuple[str, str]] = set()
 
-    for row_number, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
+    # Data starts below the profile's header row (row 3 on every sheet the
+    # legacy reader itself reads; the general reader may find it lower).
+    first = (sheet_profile.header_row or 2) + 1
+    for row_number, row in enumerate(ws.iter_rows(min_row=first, values_only=True), start=first):
         if all(_text(cell) is None for cell in row):
             continue
         source_column = row[source_cols["source_column"]]

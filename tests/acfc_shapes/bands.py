@@ -189,6 +189,67 @@ def catalog_values():
     return wb
 
 
+MAPPING_SHEET = "MAPPING-NB_MEMBER_RISK"
+MAPPING_SOURCE = ["Client Data Table Column Name", "Description", "Comment", "Example Values",
+                  "Data Type", "NULL Check", "PHI/PII Field", "Mandatory"]
+
+
+def sd_mapping(variant: str = "base"):
+    """The SD shape on a family-B ``MAPPING-`` sheet (FILE_DETAILS +
+    VERSION_HISTORY beside it) — the shapes a hand-written sheet produces:
+    ``base`` titles in row 1 (the legacy reader's labels), headers in row 2;
+    ``titles`` other title wording ("Vendor File | Landing (STG) | Curated
+    (STD)"); ``row3`` a document title in row 1, titles in row 2, headers in
+    row 3; ``unknown`` one unknown source header ("Analyst Remarks" for
+    "Comment"); ``unknown_required`` an unknown header where the legacy reader
+    requires one ("Nullability Rule" for "NULL Check"); ``untitled`` no title
+    row and no layer evidence (the band question applies)."""
+    wb = new_workbook()
+    details = wb.create_sheet("FILE_DETAILS")
+    write_rows(details, [["Vendor", "FileName", "File Description", "Location", "Frequency"],
+                         ["Northwind Benefits", f"{FEED}_YYYYMMDD.csv", "Daily member risk",
+                          "inbound/northwind/member_risk", "Daily"]])
+    history = wb.create_sheet("VERSION_HISTORY")
+    write_rows(history, [["Version", "Date", "Author", "Change Description"],
+                         ["1.0", "2026-10-09", "Synthetic Author", "Initial"]])
+    ws = wb.create_sheet(MAPPING_SHEET)
+    source = list(MAPPING_SOURCE)
+    if variant == "unknown":
+        source[2] = "Analyst Remarks"
+    if variant == "unknown_required":
+        source[5] = "Nullability Rule"
+    header = [*source, *TARGET_HEADERS, None, *TARGET_HEADERS, "Recycle Flag ( Enabled for 7 Days)"]
+    words = (("Vendor File", "Landing (STG)", "Curated (STD)") if variant == "titles"
+             else ("Source File Layout", "Stage Layer", "Standard Layer"))
+    titles = [None] * len(header)
+    titles[0], titles[8], titles[13] = words
+    stage_schema = "nb_land" if variant == "untitled" else "stg_nb"
+    rows = []
+    if variant == "row3":
+        rows.append(["Northwind Benefits member risk mapping"])
+    if variant != "untitled":
+        rows.append(titles)
+    rows.append(header)
+    for i, name in enumerate(FIELDS):
+        rows.append([name, f"{name.replace('_', ' ')} of the member", "string", str(i + 1),
+                     "String", "Not NULL" if i == 0 else "NULL", "No", "Yes" if i == 0 else "No",
+                     *_target_cells(stage_schema, FEED, name), None,
+                     *_target_cells("nb", FEED, name,
+                                    "Decimal(10,2)" if name == "risk_score" else "String"),
+                     None])
+    for column, datatype in AUDIT:
+        rows.append(["NA", None, None, None, None, None, None, None,
+                     *_target_cells(stage_schema, FEED, column, datatype), None,
+                     *_target_cells("nb", FEED, column, datatype), None])
+    write_rows(ws, rows)
+    if variant != "untitled":
+        title_row = 2 if variant == "row3" else 1
+        _merge(ws, title_row, 1, 8)
+        _merge(ws, title_row, 9, 12)
+        _merge(ws, title_row, 14, 17)
+    return wb
+
+
 FEED = "nb_member_risk"
 
 

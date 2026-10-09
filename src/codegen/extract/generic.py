@@ -542,8 +542,10 @@ def _file_details_row(feed: FrdFeed, ir: GenericIR) -> dict[str, str] | None:
 
 
 def _recycle(sheet: SheetData, config: Config, disc: DiscoveryConfig) -> RecycleSpec | None:
-    flagged = [(row, row.values.get("rules.recycle_flag")) for row in sheet.fields
-               if row.values.get("rules.recycle_flag")]
+    # The recycle column is per row; the band that carries it is a layout detail.
+    flagged = [(row, value) for row in sheet.fields
+               if (value := _first(row, "rules.recycle_flag", "standard.recycle_flag",
+                                   "stage.recycle_flag", "source.recycle_flag"))]
     if not flagged:
         return None
     row, raw = flagged[0]

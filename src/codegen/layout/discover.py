@@ -216,16 +216,31 @@ def _resolve_flat_roles(sheet: str, layer: str, header: list, synonyms: dict[str
 
 
 def discover(path: Path, config: ExtractorConfig,
-             band_layers: dict[str, str] | None = None) -> Discovery:
+             band_layers: dict[str, str] | None = None, *,
+             legacy_mapping: bool = False) -> Discovery:
     """``band_layers`` (Chunk A): a person's answers to the band-layer
     questions, ``{"<sheet>/band[<n>]": "source" | "stage" | "standard"}`` —
-    the only evidence that outranks a band title."""
+    the only evidence that outranks a band title.
+
+    A workbook with ``MAPPING-`` sheets is read by the GENERAL reader first
+    (``_mapping_general_first``): the legacy MAPPING- reader is a fallback for
+    when the general reader finds nothing, and the reference its result is
+    proven equal to. ``legacy_mapping`` = the legacy reader only, its errors
+    raised as they are (the flat ``parse_workbook`` API)."""
     from codegen.extract.workbook import WorkbookParseError
 
     workbook = load_document(path, config.used_range_empty_rows)
     digest = fingerprint(workbook)
     diagnostics: list[str] = []
     refused: WorkbookParseError | None = None
+    if not legacy_mapping and any(n.startswith(config.mapping_sheet_prefix)
+                                  for n in workbook.sheetnames):
+        unified = _mapping_general_first(workbook, config, path.name, digest, diagnostics,
+                                         band_layers or {})
+        if unified is not None:
+            profile, refused = unified
+            return Discovery(profile=profile, workbook=workbook, diagnostics=diagnostics,
+                             refused=refused)
     for strategy in (_mapping_prefix, _segmented_family, _content):
         try:
             if strategy is _content:
@@ -236,7 +251,8 @@ def discover(path: Path, config: ExtractorConfig,
         except WorkbookParseError as exc:
             from codegen.extract.workbook import SegmentedWorkbookError
 
-            if strategy is not _mapping_prefix or isinstance(exc, SegmentedWorkbookError):
+            if (strategy is not _mapping_prefix or legacy_mapping
+                    or isinstance(exc, SegmentedWorkbookError)):
                 # The segmented dialect on a MAPPING- sheet keeps its explicit
                 # refusal ("segmented ... not supported by this extractor").
                 raise
@@ -330,6 +346,122 @@ def _mapping_prefix(workbook, config: ExtractorConfig, name: str, digest: str,
             sheets.append(SheetProfile(name=sheet_name, kind="ignore"))
     return LayoutProfile(fingerprint=digest, sheets=sheets, confidence=confidence,
                          source="synonyms", strategy="mapping_prefix")
+
+
+# ------------------------- Chunk A addendum: MAPPING- sheets, general reader first
+
+# Per-row columns outside the stage / standard label groups; which band the
+# legacy reader hangs them on (the last band's span runs to max_column) is a
+# representation, not a reading — compared as (role, column) pairs per sheet.
+_TRAILING_ROLES = frozenset({Role.RECYCLE_FLAG.value, Role.DQ_MANDATORY.value})
+
+
+def _mapping_general_first(workbook, config: ExtractorConfig, name: str, digest: str,
+                           diagnostics: list[str], band_layers: dict[str, str]
+                           ) -> tuple[LayoutProfile, Exception | None] | None:
+    """The general reader reads a workbook's ``MAPPING-`` sheets first: band
+    location by band row / label groups, layers by evidence (the band question
+    included), family B's own source vocabulary on those sheets. When the
+    legacy reader also reads them and both agree on every role and column, the
+    profile is the legacy one exactly (byte-identical for every pinned
+    workbook — proven, not assumed: ``mapping_differences``). When they
+    disagree or the legacy reader refuses, the general reader's bands are used
+    and every difference is a diagnostic. ``None`` = the general reader finds
+    nothing (or a segment column: the segmented dialect keeps the legacy
+    reader's explicit refusal) — the legacy reader decides."""
+    from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError
+
+    names = [n for n in workbook.sheetnames if n.startswith(config.mapping_sheet_prefix)]
+    general_notes: list[str] = []
+    general = _content(workbook, config, name, digest, general_notes, band_layers=band_layers)
+    found = [s for s in (general.sheets if general is not None else [])
+             if s.kind == "mapping" and s.name in names]
+    if general is None or not found:
+        diagnostics.append("MAPPING- sheets: the general reader finds no band on them; the "
+                           "legacy MAPPING- reader reads the workbook")
+        return None
+    if any(s.segment_column is not None or s.segment_strategy == "banner" for s in found):
+        return None
+    legacy_notes: list[str] = []
+    refused: Exception | None = None
+    try:
+        legacy = _mapping_prefix(workbook, config, name, digest, legacy_notes)
+    except SegmentedWorkbookError:
+        raise
+    except WorkbookParseError as exc:
+        legacy, refused = None, exc
+    if legacy is not None:
+        differences = mapping_differences(legacy, general, names)
+        if not differences:
+            diagnostics.extend(legacy_notes)
+            return legacy, None
+        diagnostics.extend(f"MAPPING- readers disagree (the general reader's bands are used): "
+                           f"{d}" for d in differences)
+    else:
+        diagnostics.append(f"{MAPPING_PREFIX_REFUSED}{refused}; the general reader's bands "
+                           "are used")
+    diagnostics.extend(general_notes)
+    strategy = "mapping_prefix" if legacy_readable(general, names) else "content"
+    return general.model_copy(update={"strategy": strategy}), refused
+
+
+def mapping_differences(legacy: LayoutProfile, general: LayoutProfile,
+                        names: list[str]) -> list[str]:
+    """Every difference between the legacy MAPPING- reader's profile and the
+    general reader's on ``names``: header / band rows, the source, stage and
+    standard roles (role -> column), the per-row trailing columns, and any
+    role the general reader leaves open. Empty = the same reading."""
+    out: list[str] = []
+    for n in names:
+        ls, gs = legacy.sheet(n), general.sheet(n)
+        if ls is None or ls.kind != "mapping":
+            continue
+        if gs is None or gs.kind != "mapping":
+            out.append(f"{n}: the general reader reads no mapping sheet")
+            continue
+        if (ls.header_row, ls.band_row) != (gs.header_row, gs.band_row):
+            out.append(f"{n}: header / band row legacy {(ls.header_row, ls.band_row)}, "
+                       f"general {(gs.header_row, gs.band_row)}")
+        for layer in ("source", "stage", "standard"):
+            lb, gb = ls.band(layer), gs.band(layer)  # type: ignore[arg-type]
+            lr = {r: c for r, c in (lb.roles if lb else {}).items() if r not in _TRAILING_ROLES}
+            gr = {r: c for r, c in (gb.roles if gb else {}).items() if r not in _TRAILING_ROLES}
+            if lr != gr:
+                out.append(f"{n}/{layer}: legacy {lr}, general {gr}")
+        lt = sorted((r, c) for b in ls.bands for r, c in b.roles.items() if r in _TRAILING_ROLES)
+        gt = sorted((r, c) for b in gs.bands for r, c in b.roles.items() if r in _TRAILING_ROLES)
+        if lt != gt:
+            out.append(f"{n}: per-row columns legacy {lt}, general {gt}")
+        open_roles = [f"{u.layer}/{u.role}" for u in general.unresolved_for(n)]
+        if open_roles:
+            out.append(f"{n}: the general reader leaves {open_roles} open")
+    return out
+
+
+def legacy_readable(profile: LayoutProfile, names: list[str]) -> bool:
+    """The legacy MAPPING- extractor can read through ``profile``: every
+    MAPPING- mapping sheet places the source roles it requires and the four
+    target roles per band, and nothing is open (a band question holds the
+    workbook on the generic extractor, which holds the sheet back)."""
+    from codegen.extract.workbook import (
+        LEGACY_REQUIRED_SOURCE,
+        LEGACY_SOURCE_ROLES,
+        LEGACY_TABLE_ROLES,
+    )
+
+    source_roles = {LEGACY_SOURCE_ROLES[k].value for k in LEGACY_REQUIRED_SOURCE}
+    table_roles = {r.value for r in LEGACY_TABLE_ROLES.values()}
+    sheets = [s for s in profile.mapping_sheets if s.name in names]
+    if not sheets or profile.unresolved:
+        return False
+    for sp in sheets:
+        source, stage = sp.band("source"), sp.band("stage")
+        if source is None or stage is None or not source_roles <= set(source.roles):
+            return False
+        for band in (stage, sp.band("standard")):
+            if band is not None and not table_roles <= set(band.roles):
+                return False
+    return True
 
 
 # ------------------------------------------ strategy 2: segmented (CAQH) family
@@ -606,7 +738,8 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
     for band in bands:
         resolved_bands.append(_resolve_band_roles(ws.title, band, header, disc, confidence,
                                                   unresolved, diagnostics,
-                                                  bands_before=list(resolved_bands)))
+                                                  bands_before=list(resolved_bands),
+                                                  extractor=config))
     meta_rows = _meta_rows(rows[: (band_index if band_index is not None else header_index)], disc,
                            ws.title, diagnostics)
     source = next((b for b in resolved_bands if b.layer == "source"), None)
@@ -1134,18 +1267,49 @@ def _roles_group(band: BandProfile, bands_before: list[BandProfile]) -> str:
     return "trailing" if any(b.layer in ("stage", "standard") for b in bands_before) else "rules"
 
 
+def _mapping_source_vocabulary(table: dict[str, set[str]], extractor: ExtractorConfig
+                               ) -> dict[str, set[str]]:
+    """A ``MAPPING-`` sheet's source band speaks family B's vocabulary
+    (``extractor.header_synonyms``, the legacy reader's table): its spellings
+    name the legacy role and no other ("Mandatory" is ``mandatory`` there,
+    ``required`` on the content families)."""
+    from codegen.extract.workbook import LEGACY_SOURCE_ROLES
+
+    out = {role: set(spellings) for role, spellings in table.items()}
+    for logical, spellings in extractor.header_synonyms.items():
+        role = LEGACY_SOURCE_ROLES.get(logical)
+        if role is None:
+            continue
+        for spelling in (normalize(s) for s in spellings):
+            for others in out.values():
+                others.discard(spelling)
+            out.setdefault(role.value, set()).add(spelling)
+    return out
+
+
 def _resolve_band_roles(sheet: str, band: BandProfile, header: list, disc: DiscoveryConfig,
                         confidence: dict[str, float], unresolved: list[UnresolvedRole],
-                        diagnostics: list[str], bands_before: list[BandProfile] | None = None
-                        ) -> BandProfile:
+                        diagnostics: list[str], bands_before: list[BandProfile] | None = None,
+                        extractor: ExtractorConfig | None = None) -> BandProfile:
     group = _roles_group(band, bands_before or [])
     table = {role: {normalize(s) for s in spellings}
              for role, spellings in disc.roles.get(group, {}).items()}
+    if (extractor is not None and group == "source"
+            and sheet.startswith(extractor.mapping_sheet_prefix)):
+        table = _mapping_source_vocabulary(table, extractor)
+    # The per-row recycle column: its header STARTS with the prefix ("Recycle
+    # Flag ( Enabled for 7 Days)") — the legacy reader's rule, wherever it sits.
+    recycle = normalize(extractor.recycle_header_prefix) if extractor is not None else ""
     roles: dict[str, int] = {}
     for col in range(band.col_start, band.col_end + 1):
         raw = header[col - 1] if col - 1 < len(header) else None
         value = normalize(raw)
         if not value:
+            continue
+        if recycle and value.startswith(recycle) and Role.RECYCLE_FLAG.value not in roles \
+                and not any(value in spellings for spellings in table.values()):
+            roles[Role.RECYCLE_FLAG.value] = col
+            confidence[confidence_key(sheet, band.layer, Role.RECYCLE_FLAG)] = _SYNONYM_CONFIDENCE
             continue
         matches = [role for role, spellings in table.items() if value in spellings]
         if len(matches) == 1:
@@ -1245,6 +1409,8 @@ __all__ = [
     "SEGMENTED_TABLE_ROLES",
     "discover",
     "label_groups",
+    "legacy_readable",
+    "mapping_differences",
     "normalize",
     "stale_value_evidence",
     "text",

@@ -72,10 +72,12 @@ class NeedsAnswersError(ExtractionError):
     a target): ``pending`` names the answers-file key of each."""
 
     def __init__(self, pending) -> None:
+        from codegen.extract.generic import answers_section
+
         self.pending = list(pending)
         super().__init__("NEEDS_ANSWERS — " + "; ".join(
-            f"feed {p.feed_name!r} (sheet {p.sheet!r}): answer `{p.key}` under gaps: in the "
-            f"answers file — {p.reason}" for p in self.pending))
+            f"feed {p.feed_name!r} (sheet {p.sheet!r}): answer `{p.key}` under "
+            f"{answers_section(p.key)}: in the answers file — {p.reason}" for p in self.pending))
 
 
 class UnresolvedLayoutError(ExtractionError):

@@ -1,18 +1,50 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## START HERE — branch `feature/multi-table` (state as of 2026-10-08, night)
+## START HERE — branch `feature/multi-table` (state as of 2026-10-09, early morning — after the overnight robustness run)
 
 **Where things stand.** Four live branches, all pushed, nothing merged
 anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/multi-table` (this checkout) | **51103de** (+ this notes commit) | 0.5.8.post25 | cut from `feature/iig-first` at be38f05: the multi-table IIG model + `metadata_inserts.sql`, then today's first-ACFC-run fixes, the real-row scorecard rules, the exit-code / answer-line contract. **Not yet re-run in ACFC** |
-| `acfc/harness-exit3` | **9cba013** | docs only | `docs/acfc/HARNESS_EXIT_CODES.md` — the ACFC harness's (codegen-watch / pull_and_run, NOT in this repo) exit-code + answer-line contract. **Genie implements the harness from this doc**; ACFC-side commits land here too (517919c was theirs) — `git fetch` and fast-forward before editing (edit in a scratch worktree, never switch this checkout) |
+| `feature/multi-table` (this checkout) | **the overnight report commit** (on 1bb8302) — **LOCAL, NOT PUSHED** (27 commits since 1ecbacd) | 0.5.8.post26 | cut from `feature/iig-first` at be38f05: the multi-table IIG model + `metadata_inserts.sql`, the first-ACFC-run fixes, the real-row scorecard rules, the exit-code / answer-line contract, then the **2026-10-09 overnight robustness run** (below). **Not yet re-run in ACFC** |
+| `acfc/harness-exit3` | **9cba013** on origin; local **a6b8002** (the `band[n]` key form, NOT pushed — Soham pushes it with the Genie-side regex change) | docs only | `docs/acfc/HARNESS_EXIT_CODES.md` — the ACFC harness's (codegen-watch / pull_and_run, NOT in this repo) exit-code + answer-line contract. **Genie implements the harness from this doc**; ACFC-side commits land here too (517919c was theirs) — `git fetch` and fast-forward before editing (edit in a scratch worktree, never switch this checkout) |
 | `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
 
-Working tree clean after the notes commit on 51103de. The last four commits
+**Overnight 2026-10-08 → 10-09 (read `docs/acfc/OVERNIGHT_2026-10-09.md` first).**
+Robustness to unseen documents, four chunks + an addendum, all local:
+- **Chunk A** — STTM target bands located by their LABEL GROUP anywhere in the
+  header row; a band's layer ONLY from evidence (answer > band title > header
+  word > Catalog values PR_DLK/PR_STD > Schema prefix stg_ > elimination;
+  "in DL"/"DLK" OFF — `extractor.discovery.layer_evidence`); a band nothing
+  names = `UNRESOLVED <sheet>/band[<n>]/layer` (answers: `{sheet, layer:
+  band[n], role: layer, value: source|stage|standard}`), its feed held back;
+  value-derived layers re-derived on every cache hit; classifier = STTM only
+  with target-layer evidence ("unclassified — confirm" otherwise). Pass 1 (the
+  old band-row reading) wins when it agrees, pass 2 only when pass 1 finds no
+  mapping sheet — every pinned profile byte-identical. `MAPPING-` sheets read
+  by the GENERAL reader first, proven equal to the legacy reader on every
+  fixture (`tests/test_mapping_general_first.py`); legacy text only at
+  `parse_workbook`. `docs/LAYOUT_RECOGNITION.md` "Band location by label group".
+- **Chunk B** — six cold pairs (`fixtures/acfc_shapes/cold/`, designed blind to
+  the reader) + the generator fixes they forced (pass-3 candidate sheets,
+  prose FRDs, held-back instead of FAIL, answer ROUNDS in layout /
+  extract-sttm, FRD format-cell delimiter, `feeds[i].audit_columns`, …);
+  `tests/test_cold_pairs.py` pins every owed line and that answers complete.
+- **Chunk C** — the App: run state `needs_answers` with an inline answer list
+  + `POST /api/demo/rerun-with-answers`; band questions answerable in the
+  dialog; every error a readable card (JSON: type, `where`, health line).
+- **Chunk D** — `metadata_inserts.sql` table names via `dml.table_names` (STGDELTA →
+  `stg_delta_stddelta_ingestion_details` confirmed from Soham's brief; the
+  rest `-- unconfirmed` + Friday 12); STGDELTA row paths container-relative,
+  OBJECT_ID per (group, file) with notes, SRC_CONTAINER_NAME left OPEN (offered
+  candidate only); `acfc_env.yaml` makes acfc_prx + iig_v2 the defaults and the
+  CLI's first line / `codegen doctor` name the active profile + template.
+- Every chunk independently reviewed; every verified finding fixed (one commit
+  each). Decisions left for Soham: the report's "Decisions for you" (1–5).
+
+Working tree clean after the overnight report commit. Before tonight: the last four commits
 before it are Soham's own from the ACFC side (2026-10-08 17:16–18:12 UTC):
 6f14a2d `app.yaml` ACFC env block (the four storage paths are SET on this
 branch now — `CODEGEN_EXTRA_INPUT_DIRS` / `_STORAGE_INPUTS` / `_STATE` /
@@ -39,7 +71,11 @@ replies.
    correct?"** Most answers land as CONFIG (`catalog_map`,
    `constants.STGDELTA_STDDELTA_INGESTION_DET`, `family_conventions.*`,
    `dml.db_value_map`, `dml.db_null_columns`). Record each answer in §7a.
-2. **Re-run the real documents in ACFC on 0.5.8.post25** (the harness pairs).
+   NEW tonight: items **12** (the unconfirmed metadata-DB table names) and **13**
+   (STGDELTA source path form, the offered stage container, OBJECT_ID per
+   file vs per table), plus the report's "Decisions for you".
+2. **Re-run the real documents in ACFC on 0.5.8.post26** (the harness pairs;
+   push first — on Soham's word).
    Expectation from a local MOCK run of the real SD pair: all three SD rows
    diff 0 (demographic / community-risk matched 43, individual-risk 46); the
    3 RECYCL cells of the two recycle-less feeds are OPEN (Engineer-confirm) by
@@ -73,11 +109,12 @@ replies.
    columns, recycle open, the RECYCL path shape), so a PRX-shaped real feed
    needs a feed overlay on top.
 
-**Verified at 0e7358e** (51103de adds no code): 1004 passed / 27 skipped (Python 3.11; 3.10 / 3.12
-not run on this branch); ruff clean (`src/ tests/ ui/backend/
-scripts/iig_scorecard.py`); scrub 0 over every changed file; no `ui/frontend`
-change (dist untouched; `ui/backend/demo.py` changed in post20). Marker
-**0.5.8.post25**. `tests/snapshots/notebook_mode.json` re-based in 0c2ba13 (37
+**Verified at 1bb8302 (overnight, marker 0.5.8.post26):** 1164 passed / 27 skipped
+(Python 3.11) and 1163 / 28 (Python 3.10); ruff clean (`src/ tests/ ui/backend/
+scripts/iig_scorecard.py`); tsc clean, vitest 29 passed, `ui/frontend/dist`
+identical to a fresh build (`index-CHt2wtuJ.js`); scrub 0 on every line added
+since 1ecbacd (+ the binary fixtures' text); the real SD pair (mock) unchanged
+— matched 43 / 43 / 46, diff 0. (Before tonight, at 0e7358e: 1004 / 27, marker post25.) `tests/snapshots/notebook_mode.json` re-based in 0c2ba13 (37
 hashes: `ruff format` rewrites every emitted .py before the ruff gate).
 
 **What the branch does** (design + status: `docs/acfc/MULTI_TABLE_DESIGN.md`;

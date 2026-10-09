@@ -621,6 +621,15 @@ sheet's value and `metadata_inserts.sql` writes the walkthrough's (rules 1 and
     reads)? That is an inference, not a stated value: the cell stays open with
     the candidate in its tooltip (`open_offers` in `acfc_env.yaml`; review of
     2026-10-09). Answer → a `constants.STGDELTA_…` entry replacing the offer.
+    **And ask:** is STGDELTA `OBJECT_ID` per file or per table? When ONE file
+    feeds several tables (a single-file segmented feed whose H / D / T
+    segments are tables) every row takes that file's ADLS `OBJECT_ID`; under
+    one `GROUP_ID` + `PIPELINE_ID` the key (`GROUP_ID`, `OBJECT_ID`,
+    `PIPELINE_ID`) — assumed for this table, `METADATA_DB_SEMANTICS.md` open
+    question 7 — repeats, and a unique key would roll `metadata_inserts.sql`
+    back. Today the value is kept and every such cell carries the note
+    `stgdelta_object_id_shared:<tables>`. Answer "per table" → a
+    `stgdelta_object_id` convention value numbering the tables 1..n.
 
 **If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
 whether grand master / master are new rows per feed (Q4), one

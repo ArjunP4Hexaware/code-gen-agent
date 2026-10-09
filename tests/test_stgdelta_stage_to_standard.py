@@ -15,7 +15,9 @@ b. TGT_ADLS_PATH / TGT_RJT_ADLS_PATH in the standard container, the same
    container-relative shape (``Processed/<table>``, ``Reject/<table>_reject``);
 c. OBJECT_ID is per (group, file) — family convention ``stgdelta_object_id:
    from_file``: the ADLS row's OBJECT_ID of THE file that feeds the table;
-   several files feed it -> open, with a note (``stgdelta_object_id_open``).
+   several files feed it -> open, with a note (``stgdelta_object_id_open``);
+   one file feeds several tables -> each row keeps its id, noted
+   (``stgdelta_object_id_shared``, review D2).
 
 Pinned on SYNTHETIC inputs only: pair 11 (the SD-shaped synthetic feeds,
 one file each) and pair 4 (six LOB files into three tables). The shipped
@@ -190,10 +192,29 @@ def test_several_files_feeding_a_table_leave_it_open_with_a_note(pair4_config, p
             assert before["values"] == after["values"], sheet
 
 
-def test_one_file_feeding_three_tables_gives_each_row_that_files_object_id(pair4_config,
-                                                                           pair4_spec):
+def test_one_file_feeding_three_tables_gives_each_row_that_files_object_id_noted(
+        pair4_config, pair4_spec):
+    """One file, three tables (a single-file segmented feed whose segments are
+    tables): every STGDELTA row keeps the file's ADLS OBJECT_ID — and says it
+    is shared, since one GROUP_ID + PIPELINE_ID over those rows repeats the key
+    (review D2; Friday checklist 13 asks per file or per table)."""
     one = pair4_spec.model_copy(update={"files": pair4_spec.files[:1]})
     payload = _pair4_payload(pair4_config, one, "from_file")
     assert _cells(payload, ADLS, "OBJECT_ID") == ["1"]
     assert _cells(payload, STG, "OBJECT_ID") == ["1", "1", "1"]
-    assert not [f for f in shape_flags(payload) if "stgdelta_object_id" in f]
+    tables = [r["values"]["SRC_TABLE_NAME"] for r in payload["tabs"][STG]["rows"]]
+    assert len(set(tables)) == 3
+    notes = [f for f in shape_flags(payload) if "stgdelta_object_id" in f]
+    (note,) = notes                                   # one note, deduplicated over the rows
+    assert note.split(" — ")[0] == f"stgdelta_object_id_shared:{','.join(tables)}"
+    assert "ADLS OBJECT_ID 1" in note and "(GROUP_ID, OBJECT_ID, PIPELINE_ID)" in note
+    assert "Friday checklist 13" in note
+    for row in payload["tabs"][STG]["rows"]:
+        entry = row["badges"]["OBJECT_ID"]
+        assert entry["badge"] == "synthetic" and entry["note"] == note
+
+
+def test_one_file_one_table_has_no_shared_note(sd_run):
+    _config, runs = sd_run
+    for _slug, (gate, _book) in runs.items():
+        assert not [f for f in gate.flags if f.startswith("stgdelta_object_id_shared")]

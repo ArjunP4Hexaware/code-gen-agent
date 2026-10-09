@@ -903,6 +903,7 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
     lobs = [f.lob for f in files if f.lob]
     generalized = _generalized_pattern(files, tpl, config.extractor.lob_tokens)
     rows = []
+    object_ids: list[tuple[_TableGroup, dict]] = []
     for group in _table_groups(spec):
         if group.standard is None:
             continue
@@ -911,15 +912,45 @@ def _stg_std(tab, feed, config, spec, faq, tpl, profile=None) -> list[dict]:
             cell = _stg_object_id_cell(tpl, group, files)
             if cell is not None:
                 row["OBJECT_ID"] = cell
+                object_ids.append((group, cell))
         rows.append(row)
+    _note_shared_object_ids(object_ids)
     return rows
 
 
-def _feeding_files(group: _TableGroup, files: list[FeedFile]) -> list[FeedFile]:
-    """The files whose rows land in ``group``'s table: every file the feed
-    receives (rule 3: each file's ADLS row loads the DETAIL table; rule 5: a
-    header / trailer table is split off the same files by the DQ rule)."""
+def _feeding_files(files: list[FeedFile]) -> list[FeedFile]:
+    """The files whose rows land in a table of the feed: every file the feed
+    receives, for EVERY table (rule 3: each file's ADLS row loads the DETAIL
+    table; rule 5: a header / trailer table is split off the same files by the
+    DQ rule) — no file feeds only some of the tables."""
     return list(files)
+
+
+def _note_shared_object_ids(object_ids: list[tuple[_TableGroup, dict]]) -> None:
+    """One file's ADLS OBJECT_ID written on SEVERAL STGDELTA rows (one file,
+    several tables — e.g. a single-file segmented feed whose H / D / T segments
+    are tables): the value stays (OBJECT_ID is per (group, file)), and every
+    such cell carries one note, ``stgdelta_object_id_shared:<tables>``. If one
+    GROUP_ID and PIPELINE_ID serve those rows, their (GROUP_ID, OBJECT_ID,
+    PIPELINE_ID) repeats — the key METADATA_DB_SEMANTICS §5 / §7 states for the
+    ADLS tables and only assumes for this one (its open question 7) — and a
+    unique key there rejects the second INSERT, rolling the script back."""
+    by_number: dict[str, list[tuple[_TableGroup, dict]]] = {}
+    for group, cell in object_ids:
+        if cell["value"]:
+            by_number.setdefault(cell["value"], []).append((group, cell))
+    for number, entries in by_number.items():
+        if len(entries) < 2:
+            continue
+        tables = ",".join(group.stage.table for group, _shared in entries)
+        note = (f"stgdelta_object_id_shared:{tables} — one file feeds {len(entries)} tables, so "
+                f"each STGDELTA row takes its ADLS OBJECT_ID {number} (per (group, file)); "
+                "under one GROUP_ID + PIPELINE_ID the key (GROUP_ID, OBJECT_ID, PIPELINE_ID) "
+                "repeats and a unique key rejects the second INSERT (metadata_inserts.sql "
+                "rolls back) — engineer: a group / pipeline per table, or confirm OBJECT_ID "
+                "per table (Friday checklist 13)")
+        for _group, cell in entries:
+            cell["badge_entry"]["note"] = note
 
 
 def _stg_object_id_cell(tpl: MetadataTemplateConfig, group: _TableGroup,
@@ -931,8 +962,10 @@ def _stg_object_id_cell(tpl: MetadataTemplateConfig, group: _TableGroup,
     (1..n, ``_adls_delta``). Several files feed it: no single file's id
     applies — open for the engineer, with a note. Both cells are convention
     cells (they keep their own tooltip in the always-blank column). No file
-    known: None (the always-blank cell, as without the convention)."""
-    feeding = _feeding_files(group, files)
+    known: None (the always-blank cell, as without the convention). One file
+    feeding several tables: each row gets its id, noted by
+    ``_note_shared_object_ids``."""
+    feeding = _feeding_files(files)
     if not feeding:
         return None
     citation = _family_citation(tpl)

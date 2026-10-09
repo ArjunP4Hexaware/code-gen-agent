@@ -366,6 +366,20 @@ def _frd_answer_hint(key: str, frd_contract=None, gap_fills: list[dict] | None =
     return " (frd; answer the value under gaps: in answers.yaml)"
 
 
+def _print_elimination_notes(profile) -> None:
+    """One NOTE line per band whose layer is source by elimination (the one
+    band left of both evidenced target bands) — informational, never owed."""
+    from codegen.layout.discover import ELIMINATION_NOTE
+
+    for sheet in profile.mapping_sheets:
+        for note in sheet.notes:
+            if ELIMINATION_NOTE not in note:
+                continue
+            ref, _sep, rest = note.partition(" ")
+            print(answer_line("NOTE", f"{sheet.name}/{ref}/layer",
+                              f"{ref} {rest} — informational, not required to run"))
+
+
 def _print_needs_answers(pending) -> None:
     """One line per answer a held-back feed needs: QUESTION for a `gaps:` key,
     UNRESOLVED for a band whose layer is open (Chunk A; under `answers:`)."""
@@ -607,6 +621,7 @@ def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
         owed = _owed_key("sttm", question.key)
         print(answer_line("UNRESOLVED" if owed else "NOTE", question.key, question.reason
                           + ("" if owed else " — optional role, not required to run")))
+    _print_elimination_notes(doc.profile)
     return doc.profile
 
 
@@ -827,6 +842,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 print(answer_line(label, key, (reason or item) + where + (
                     "" if owed else " — informational, not required to run")))
                 printed.add(key)
+            if document == "sttm":
+                _print_elimination_notes(result.sttm.profile)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
             print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "

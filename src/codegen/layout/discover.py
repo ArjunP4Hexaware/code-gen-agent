@@ -57,6 +57,9 @@ _AUX_SCAN_ROWS = 12
 _MIN_HEADER_CELLS = 3
 # A band row carries a few group labels, never a full header's worth.
 _MAX_BAND_LABELS = 5
+# The sheet note (and the layout NOTE line) of a band whose layer is source
+# by elimination: "<band[n]> (columns ..): source - layer by elimination (...)".
+ELIMINATION_NOTE = "layer by elimination"
 # Diagnostic prefix: the legacy MAPPING- reader refused the workbook and the
 # other strategies read it (parse_workbook re-raises the legacy text).
 MAPPING_PREFIX_REFUSED = "MAPPING- reader refused the workbook: "
@@ -765,8 +768,14 @@ def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,
                        if band_index is not None else f"no band row; header row {header_index + 1}")
                      + "; bands located by their label groups (Chunk A)")
         for g in groups:
-            notes.append(f"{band_ref(g.index)} {_span_text(g.start, g.end)}: "
-                         + (f"{g.layer} ({g.evidence})" if g.layer else "layer unresolved"))
+            if g.evidence != "elimination":
+                notes.append(f"{band_ref(g.index)} {_span_text(g.start, g.end)}: "
+                             + (f"{g.layer} ({g.evidence})" if g.layer else "layer unresolved"))
+    # Whichever reading is kept, a source by elimination is said (layout NOTE).
+    notes.extend(f"{band_ref(g.index)} {_span_text(g.start, g.end)}: source - "
+                 f"{ELIMINATION_NOTE} (stage and standard are each named by another band's "
+                 "own evidence; it is the one band left, left of both)"
+                 for g in groups if g.evidence == "elimination")
     if not _has_token([normalize(c) for c in header],
                       disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])):
         notes.append("header row carries no field-name synonym; field_name unresolved")
@@ -893,6 +902,9 @@ class LabelGroup:
     layer: str | None = None       # source | rules | stage | standard; None = open
     evidence: str | None = None    # profile.LayerEvidence
     seen: list[str] = field(default_factory=list)
+    # Its own evidence named a target layer another band also claims (the
+    # conflict left it open): never "left over" for elimination - it is asked.
+    contested: bool = False
 
     @property
     def location_columns(self) -> list[int]:
@@ -1090,7 +1102,12 @@ def _assign_layers(ws, groups: list[LabelGroup], titles: list[tuple[int, int, st
     its location columns, a word of its headers, its Catalog values, its
     Schema values (first that names exactly one layer wins). Two bands
     naming the same target layer both stay open (unless one was answered).
-    Column order is never evidence."""
+    Column order is never evidence of a layer. Elimination (owner rule,
+    2026-10-09) makes ONE band the source only when stage and standard are
+    each claimed by a band's own evidence, it is the only band left over
+    (no evidence at all - not one whose claim lost a conflict), it sits left
+    of both target bands, and source is not already claimed (a band, a
+    "Source" title elsewhere, a field-name column outside the bands)."""
     words_by_layer = {layer: {normalize(t) for t in tokens}
                       for layer, tokens in disc.layer_evidence.header_words.items()}
     for g in groups:
@@ -1148,12 +1165,51 @@ def _assign_layers(ws, groups: list[LabelGroup], titles: list[tuple[int, int, st
                 continue
             g.seen.append(f"{refs} each read as {layer} ({kinds}){answered_note}")
             g.layer = g.evidence = None
-    # A layer is claimed once: with stage AND standard each held by an
-    # evidenced band, the ONE band left open is the source (a database-shaped
-    # source band under a title that names no layer).
+            g.contested = True
+    # Elimination (owner rule, 2026-10-09): a layer is claimed once, so with
+    # stage AND standard each held by a band with its OWN evidence, exactly
+    # one band left over, and that band LEFT of both target bands (the source
+    # precedes the targets in every real layout), it is the source - said in a
+    # NOTE line. Any other leftover (right of a target band, or more than one)
+    # stays the band question.
     open_groups = [g for g in groups if g.layer is None]
-    if len(open_groups) == 1 and {g.layer for g in groups} >= {"stage", "standard"}:
-        open_groups[0].layer, open_groups[0].evidence = "source", "elimination"
+    targets = [g for g in groups if g.layer in ("stage", "standard")]
+    if open_groups and {g.layer for g in targets} == {"stage", "standard"}:
+        first_target = min(g.start for g in targets)
+        claimed = _source_claimed(groups, open_groups, titles, header, disc)
+        why = ("its own evidence named a target layer another band also claims"
+               if open_groups[0].contested
+               else f"{len(open_groups)} bands are left over" if len(open_groups) > 1
+               else "it sits right of a target band" if open_groups[0].end >= first_target
+               else f"source is already claimed ({claimed})" if claimed else "")
+        if not why:
+            open_groups[0].layer, open_groups[0].evidence = "source", "elimination"
+        else:
+            for g in open_groups:
+                g.seen.append(f"stage and standard are named by other bands, but {why} - "
+                              "elimination applies only to ONE band with no evidence, left of "
+                              "both, while source is unclaimed")
+
+
+def _source_claimed(groups: list[LabelGroup], open_groups: list[LabelGroup],
+                    titles: list[tuple[int, int, str]], header: list,
+                    disc: DiscoveryConfig) -> str:
+    """What already claims the source layer ('' = nothing): another band, a
+    band title naming source over other columns, a field-name header outside
+    every band's label group."""
+    owned = next((g for g in groups if g.layer == "source"), None)
+    if owned is not None:
+        return f"{band_ref(owned.index)} reads as source ({owned.evidence})"
+    leftover = open_groups[0]
+    for start, end, label in titles:
+        if _title_layer(label, disc) == "source" and not any(
+                start <= c <= end for c in leftover.location_columns):
+            return f"the band title {label!r} names source over other columns"
+    fields = {normalize(s) for s in disc.roles.get("source", {}).get(Role.FIELD_NAME.value, [])}
+    for col, cell in enumerate(header, start=1):
+        if normalize(cell) in fields and not any(g.start <= col <= g.end for g in groups):
+            return f"the field-name column {_span_text(col, col)} sits outside the bands"
+    return ""
 
 
 def _band_reason(g: LabelGroup, header: list) -> str:
@@ -1522,9 +1578,16 @@ def stale_value_evidence(profile: LayoutProfile, workbook, config: ExtractorConf
     """Value-derived layer evidence is never trusted from a cache (Chunk A):
     re-derive every ``catalog_value`` / ``schema_value`` band layer from the
     workbook in hand through the SAME value chain discovery uses (Catalog
-    values first, then Schema values). A reason string when the cached layer
-    or its evidence kind no longer holds, else None."""
+    values first, then Schema values). A layer by ELIMINATION is never
+    trusted from a cache either (the rule is code, not config - a profile an
+    older rule wrote must not outlive it): any such band re-resolves. A
+    reason string when the cached profile must re-resolve, else None."""
     disc = config.discovery
+    for sp in profile.sheets:
+        if any(b.layer_evidence == "elimination" for b in sp.bands) or any(
+                "elimination" in note for note in sp.notes):
+            return (f"cached profile of sheet {sp.name!r} carries a layer by elimination; "
+                    "re-derived on every hit")
     for sp in profile.sheets:
         for band in sp.bands:
             if band.layer_evidence not in VALUE_EVIDENCE:
@@ -1683,6 +1746,7 @@ def _classify_auxiliary(ws, disc: DiscoveryConfig, diagnostics: list[str]) -> Sh
 
 __all__ = [
     "CANDIDATE_SHEET_NOTE",
+    "ELIMINATION_NOTE",
     "MAPPING_PREFIX_REFUSED",
     "Discovery",
     "LabelGroup",

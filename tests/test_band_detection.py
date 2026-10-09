@@ -560,3 +560,174 @@ def test_review9_the_cache_recheck_runs_the_whole_value_chain(config, tmp_path):
     same = load_document(_write(tmp_path, "again", bands.one_band(schema="stg_nb", catalog="")),
                          500)
     assert stale_value_evidence(cached, same, config.extractor) is None
+
+
+# ------------------------- elimination (owner rule, 2026-10-09): left of both only
+
+DB_SOURCE = ["Database", "Schema", "Table Name", "Column Name", "Data Type", "Length"]
+
+
+def _db_row(n: str) -> list:
+    return ["db", "dbo", "member", n, "varchar", "10"]
+
+
+def _target_row(n: str) -> list:
+    return ["stg_nb", "t", n, "String", "nb", "t", n, "String"]
+
+
+def test_elimination_left_of_both_targets_is_source_and_says_so(config, tmp_path):
+    titles = ["Client Extract", None, None, None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, [*DB_SOURCE, *TGT, *TGT]] + [[*_db_row(n), *_target_row(n)]
+                                                 for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "left", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)]),
+                       config.extractor).profile
+    assert profile.unresolved == [] and _bands(profile)["source"][:2] == (1, 6)
+    notes = [n for n in profile.sheet(SHEET).notes if "layer by elimination" in n]
+    # the note names the band's label group (Schema .. Data Type, columns B-E)
+    assert len(notes) == 1 and notes[0].startswith("band[1] (columns B–E): source")
+
+
+def test_elimination_note_line_in_the_layout_output(cli_env, capsys):
+    titles = ["Client Extract", None, None, None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, [*DB_SOURCE, *TGT, *TGT]] + [[*_db_row(n), *_target_row(n)]
+                                                 for n in bands.FIELDS]
+    workbook = _sheet(cli_env, "left_cli", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)])
+    capsys.readouterr()
+    assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
+                     "--require-complete"]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert _keys(out, "UNRESOLVED") == [] and _keys(out, "QUESTION") == []
+    notes = [ln for ln in out.splitlines()
+             if ln.startswith("NOTE ") and "layer by elimination" in ln]
+    assert len(notes) == 1
+    assert notes[0][cli.ANSWER_LABEL_WIDTH:].split(" — ", 1)[0] == f"{SHEET}/band[1]/layer"
+    assert not _NEEDED_KEY_RE.match(notes[0])       # informational: the harness ignores it
+
+
+def test_a_leftover_right_of_the_targets_still_asks(config, tmp_path):
+    """The same database-shaped band, but RIGHT of both target bands: no
+    elimination - the band question, as before."""
+    titles = ["Source Data", None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None, "Client Extract", None, None, None, None, None]
+    header = [*bands.SOURCE_HEADERS, *TGT, *TGT, *DB_SOURCE]
+    rows = [titles, header] + [[n, "d", "String", "No", *_target_row(n), *_db_row(n)]
+                               for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "right", rows,
+                              [(1, 1, 4), (1, 5, 8), (1, 9, 12), (1, 13, 18)]),
+                       config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[3]/layer"]
+    assert "right of a target band" in profile.unresolved[0].reason
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def test_more_than_one_leftover_still_asks(config, tmp_path):
+    """Two database-shaped bands left of the titled targets: elimination needs
+    exactly one - both are asked."""
+    titles = ["Client Extract", None, None, None, None, None, "Lookup", None, None, None, None,
+              None, "Stage Layer", None, None, None, "Standard Layer", None, None, None]
+    rows = [titles, [*DB_SOURCE, *DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "two", rows,
+                              [(1, 1, 6), (1, 7, 12), (1, 13, 16), (1, 17, 20)]),
+                       config.extractor).profile
+    open_keys = _open(profile)
+    assert {f"{SHEET}/band[1]/layer", f"{SHEET}/band[2]/layer"} <= set(open_keys)
+    assert all("2 bands are left over" in u.reason for u in profile.unresolved
+               if u.role == "layer")
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def _target_cells_titled() -> list:
+    return ["Stage Layer", None, None, None, "Standard Layer", None, None, None]
+
+
+def test_no_elimination_while_source_is_claimed_by_a_title(config, tmp_path):
+    """'Source Data' over one database-shaped band, 'Lookup' over another, both
+    left of the titled targets: source is taken - the Lookup band is asked."""
+    titles = ["Source Data", None, None, None, None, None, "Lookup", None, None, None, None,
+              None, *_target_cells_titled()]
+    rows = [titles, [*DB_SOURCE, *DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "src_title", rows,
+                              [(1, 1, 6), (1, 7, 12), (1, 13, 16), (1, 17, 20)]),
+                       config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[2]/layer"]
+    assert "source is already claimed (band[1] reads as source (title))" in \
+        profile.unresolved[0].reason
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def test_answering_one_of_two_leftovers_source_does_not_eliminate_the_other(config, tmp_path):
+    titles = ["Client Extract", None, None, None, None, None, "Lookup", None, None, None, None,
+              None, *_target_cells_titled()]
+    rows = [titles, [*DB_SOURCE, *DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    path = _sheet(tmp_path, "answer_one", rows, [(1, 1, 6), (1, 7, 12), (1, 13, 16), (1, 17, 20)])
+    profile = discover(path, config.extractor,
+                       band_layers={f"{SHEET}/band[1]": "source"}).profile
+    assert _open(profile) == [f"{SHEET}/band[2]/layer"]
+    assert "source is already claimed" in profile.unresolved[0].reason
+
+
+def test_no_elimination_while_a_field_name_column_sits_outside_the_bands(config, tmp_path):
+    titles = ["Source Data", None, None, None, "Lookup", None, None, None, None, None,
+              *_target_cells_titled()]
+    rows = [titles, [*bands.SOURCE_HEADERS, *DB_SOURCE, *TGT, *TGT]] + [
+        [n, "d", "String", "No", *_db_row(n), *_target_row(n)] for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "field_out", rows,
+                              [(1, 1, 4), (1, 5, 10), (1, 11, 14), (1, 15, 18)]),
+                       config.extractor).profile
+    assert _open(profile) == [f"{SHEET}/band[1]/layer"]
+    assert "source is already claimed" in profile.unresolved[0].reason
+
+
+def test_a_band_that_lost_a_stage_conflict_is_not_left_over(config, tmp_path):
+    """Two bands titled 'Stage Layer'; band[2] answered stage: band[1]'s own
+    title named stage - it keeps its question, it never becomes the source."""
+    titles = ["Stage Layer", None, None, None, "Stage Layer", None, None, None,
+              "Standard Layer", None, None, None]
+    rows = [titles, TGT * 3] + [[*bands._target_cells("stg_a", "t", n), *bands._target_cells(
+        "stg_b", "t", n), *bands._target_cells("nb", "t", n)] for n in bands.FIELDS]
+    path = _sheet(tmp_path, "contested", rows, [(1, 1, 4), (1, 5, 8), (1, 9, 12)])
+    profile = discover(path, config.extractor, band_layers={f"{SHEET}/band[2]": "stage"}).profile
+    assert f"{SHEET}/band[1]/layer" in _open(profile)
+    assert "another band also claims" in next(u.reason for u in profile.unresolved
+                                              if u.layer == "band[1]")
+    assert not any("layer by elimination" in n for n in profile.sheet(SHEET).notes)
+
+
+def test_elimination_on_the_label_group_path_says_so(config, tmp_path):
+    """No band row at all: the targets read by their Schema values (stg_ /
+    std_), the database-shaped band left of both is the source by elimination."""
+    rows = [[*DB_SOURCE, *TGT, *TGT]] + [
+        [*_db_row(n), *bands._target_cells("stg_nb", "t", n),
+         *bands._target_cells("std_nb", "t", n)]
+        for n in bands.FIELDS]
+    profile = discover(_sheet(tmp_path, "rebuilt", rows), config.extractor).profile
+    sp = profile.sheet(SHEET)
+    assert profile.unresolved == [] and sp.band_row is None
+    layers = {b.layer: (b.col_start, b.layer_evidence) for b in sp.bands}
+    assert layers["source"] == (1, "elimination")
+    assert layers["stage"][1] == "schema_value" and layers["standard"][1] == "schema_value"
+    assert sum("layer by elimination" in n for n in sp.notes) == 1
+
+
+def test_a_layer_by_elimination_is_never_trusted_from_the_cache(config, tmp_path):
+    from codegen.layout.discover import stale_value_evidence
+    from codegen.layout.extent import load_document
+
+    titles = ["Client Extract", None, None, None, None, None, *_target_cells_titled()]
+    rows = [titles, [*DB_SOURCE, *TGT, *TGT]] + [[*_db_row(n), *_target_row(n)]
+                                                 for n in bands.FIELDS]
+    path = _sheet(tmp_path, "cached", rows, [(1, 1, 6), (1, 7, 10), (1, 11, 14)])
+    profile = discover(path, config.extractor).profile
+    assert "elimination" in (stale_value_evidence(profile, load_document(path, 500),
+                                                  config.extractor) or "")
+    runtime = tmp_path / "runtime"
+    first, _ = resolve_workbook(path, config, runtime_cache_dir=runtime, refresh=True)
+    assert first.complete and list(runtime.glob("*.json"))
+    again, _ = resolve_workbook(path, config, runtime_cache_dir=runtime)
+    assert not again.cache_hit and again.complete       # re-derived, never served
+    assert any("elimination" in r.reason for r in again.rejections)

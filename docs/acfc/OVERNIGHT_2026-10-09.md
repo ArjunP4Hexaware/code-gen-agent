@@ -46,14 +46,18 @@ the full suite once each, at the end.
   3. a whole word of the band's own headers (`header_words`)
   4. the band's Catalog values (PR_DLK → stage, PR_STD → standard)
   5. the band's Schema values (`stg_` → stage)
-  6. elimination: with stage and standard each held by an evidenced band, the one band left is the source
+  6. elimination, after your follow-up rule: stage and standard each claimed with their own evidence, exactly one band left over, and it sits LEFT of both target bands. It is the source, and layout (and extract-sttm `--answers`) prints a `NOTE <sheet>/band[<n>]/layer — … layer by elimination` line. A leftover to the right, or more than one, still asks. An independent check of the rule added three guards:
+     - source must not already be claimed (by another band, a "Source…" title elsewhere, or a field-name column outside the bands);
+     - a band whose own evidence lost a same-layer conflict is never "left over";
+     - a layer by elimination is never trusted from the layout cache.
 
   Column order is never evidence. "in DL" / "DLK" are **OFF** as stage evidence (your call; one list in `extractor.discovery.layer_evidence.header_words`, flippable).
 - **The question.** A band nothing names, or two bands naming one layer, gets one line per band:
   `UNRESOLVED <sheet>/band[<n>]/layer — band[<n>] (columns H–K): Schema | TableName | ColumnName | DataType — <what was seen>; answer under answers: with source | stage | standard`.
   `extract-sttm` holds that sheet's feed back with the same line, and the App shows it in the dialog. Answer it in answers.yaml with `{sheet, layer: band[2], role: layer, value: stage}`.
 - **Missing TableName** stays `UNRESOLVED <sheet>/<layer>/table`, never a blank.
-- **Nothing read before moves.** 23 workbooks were dumped before and after (all fixtures plus the real ones at the root, read in place); every profile is byte-identical. The only difference is a diagnostic note on pair 4, naming its ForReference sheet as "not read as a mapping sheet".
+- **Nothing read before moves.** 23 workbooks were dumped before tonight and again on the final tree (all fixtures plus the real ones at the root, read in place). Every STTM profile is byte-identical, apart from a diagnostic note on pair 4 naming its ForReference sheet as "not read as a mapping sheet".
+  - The three IIG workbooks (the pair-1 golden IIG, the SFMC IIG and the real one at the root) used to stop with "no mapping sheets found". Chunk B's candidate-sheet pass now reads them as candidates, by design. They still classify as `unclassified` ("confirm: …"), never as an STTM.
   - Pass 1, the band-row reading, wins when the label groups agree with it.
   - The groups rebuild spans only when the title row contradicts them (titles merged over part of a band).
   - Pass 2 (header-row groups) runs only when pass 1 finds no mapping sheet in the workbook.

@@ -126,7 +126,7 @@ layer wins (`extractor.discovery.layer_evidence`):
 | `header` | a whole word of the band's own header texts (`header_words`; "in DL" / "DLK" are OFF — pair 1 writes "… in DL" in both bands) |
 | `catalog_value` | the band's Catalog values (`catalog_words`: PR_DLK → stage, PR_STD → standard) |
 | `schema_value` | the band's Schema values (`schema_prefixes`: stg_ → stage) |
-| `elimination` | stage AND standard each held by an evidenced band: the ONE band left open is the source (a layer is claimed once — a database-shaped source band under a title that names no layer) |
+| `elimination` | stage AND standard each claimed by a band with its OWN (non-elimination) evidence, EXACTLY ONE band left over, and that band LEFT of both target bands (the source precedes the targets in every real layout): it is the source, said in a layout `NOTE <sheet>/band[<n>]/layer — … source - layer by elimination …` line. A leftover right of a target band, or more than one, stays the band question (owner rule, 2026-10-09). Also never when source is already claimed (another band, a "Source" title elsewhere, a field-name column outside the bands), never for a band whose own evidence lost a same-layer conflict, and never trusted from a cache |
 
 **Column order is never evidence.** A band nothing names, or two bands naming
 the same target layer (unless one was answered), is the question

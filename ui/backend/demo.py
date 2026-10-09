@@ -234,9 +234,11 @@ class DemoRunner:
         # The readable form of the error that ended the last run (errors.py):
         # type, message, the traceback's innermost frame, the health line.
         self.error_detail: dict | None = None
-        # Answers carried INTO the next run's layout resolution (one shot) and
-        # the answers the last run's layout used, so a re-run never re-asks
-        # what the dialog already answered.
+        # Answers carried INTO the run a re-run starts ({inputs, answers}: the
+        # (STTM, FRD) they were given for), set by every run start (None for
+        # an ordinary Generate) and dropped when the run ends — never armed
+        # for a later run; and the answers the last run's layout used, so a
+        # re-run never re-asks what the dialog already answered.
         self._seed_answers: dict | None = None
         self.last_answers: dict = _empty_answers()
         # (sttm, frd) the last run read — a re-run with answers is refused
@@ -1607,12 +1609,10 @@ class DemoRunner:
         if self._run_inputs is not None and self._current_inputs() != self._run_inputs:
             raise ValueError("the documents changed since that run — its questions name the "
                              "sheets of the documents it read; Generate afresh instead")
-        self._seed_answers = merge_answers(self.last_answers, parsed)
-        try:
-            self.start_live()
-        except Exception:
-            self._seed_answers = None
-            raise
+        # Bound to the documents they answer: the run drops them when its own
+        # inputs differ (a run-start pairing question may change the FRD).
+        self.start_live(seed={"inputs": self._current_inputs(),
+                              "answers": merge_answers(self.last_answers, parsed)})
 
     def set_layout_refresh(self, enabled: bool) -> None:
         """Arm / disarm "re-resolve layout" for the NEXT run (one shot)."""
@@ -1633,9 +1633,16 @@ class DemoRunner:
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
         self._layout_providers.append(provider)
         runtime_cache = ui_stores.layout_cache_dir(config)
-        # A re-run with answers (rerun_with_answers) starts from them — one shot.
+        # A re-run with answers (rerun_with_answers) starts from them — one
+        # shot, and only for the documents they were given for.
         seed, self._seed_answers = self._seed_answers, None
-        answers: dict = merge_answers(_empty_answers(), seed)
+        if seed and tuple(seed["inputs"]) != (str(workbook_path), str(frd_path)):
+            self._stage("answers not carried",
+                        f"they were given for {Path(seed['inputs'][0]).name} + "
+                        f"{Path(seed['inputs'][1]).name}; this run reads {workbook_path.name} "
+                        f"+ {frd_path.name} — its questions are asked afresh")
+            seed = None
+        answers: dict = merge_answers(_empty_answers(), seed["answers"] if seed else None)
         if seed:
             self._stage("answers carried", f"{sum(len(v) for v in answers.values())} answer(s) "
                                            "from the Answers-needed list and the last run's "
@@ -1697,7 +1704,10 @@ class DemoRunner:
         return [needs_answer_item(q.as_dict()) for q in result.questions
                 if _owed_key(q.document, q.key, q.kind, result.frd_contract)]
 
-    def start_live(self) -> None:
+    def start_live(self, *, seed: dict | None = None) -> None:
+        """Start a live run. ``seed`` ({inputs, answers}) is a re-run's answers
+        (``rerun_with_answers``) for THIS run only; an ordinary Generate
+        carries none — every start replaces what an earlier one left."""
         if self.output_parts == []:
             raise ValueError("no output selected — choose Notebook, Framework artefacts, "
                              "or both")
@@ -1725,6 +1735,7 @@ class DemoRunner:
             if self._clearing:
                 raise LiveRunInProgress("past runs are being cleared — generate when it finishes")
             self.state = "running"
+            self._seed_answers = seed
             self.stages = []
             self.error = None
             self.error_detail = None
@@ -1828,6 +1839,9 @@ class DemoRunner:
             self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "failed"
         finally:
+            # A re-run's answers the run never reached (it failed before its
+            # layout) are not carried to a later run.
+            self._seed_answers = None
             # M15d.3: a VDD re-scored while the run was in progress lands now —
             # that run was not affected; the next one is.
             with self._lock:

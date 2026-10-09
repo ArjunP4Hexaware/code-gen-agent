@@ -171,6 +171,64 @@ def test_a_run_paused_on_its_dialog_refuses_a_second_start(roles):
     assert detail["health_line"].startswith("version ")
 
 
+def _cancel_at_pairing(runner: DemoRunner) -> None:
+    """The run-start pairing question, cancelled by the person: the run fails
+    BEFORE its layout is resolved (where a re-run's answers are applied)."""
+    def cancelled() -> None:
+        raise RuntimeError("pairing cancelled by the user")
+
+    runner._ask_pairing = cancelled
+
+
+def test_a_rerun_that_fails_before_layout_never_seeds_the_next_run(roles):
+    """A re-run's answers belong to THAT run: one cancelled before its layout
+    is resolved leaves nothing armed, so the next ordinary Generate — here on
+    another workbook whose sheet has the same name — asks its own questions
+    instead of taking answers given for the first workbook."""
+    runner, _store = _runner(roles)
+    _hold_every_feed_back(runner)
+    _cancel_at_pairing(runner)
+    runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    assert _wait(runner, "failed", "done", "needs_answers", "needs_layout") == "failed"
+    assert "pairing cancelled" in runner.status()["error"]
+    del runner._ask_pairing                                  # the real one again
+
+    other = roles / "other.xlsx"
+    other.write_bytes(xlsx_bytes(bands.three_lookalike()))
+    runner.selected_workbook = other
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done", "needs_answers") == "needs_layout", (
+        runner.error, runner.stages[-3:])
+    assert not any(s["stage"] == "answers carried" for s in runner.stages)
+    assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
+    runner.answer_layout({}, cancel=True)
+    assert _wait(runner, "failed") == "failed"
+
+
+def test_a_rerun_whose_documents_change_at_run_start_drops_its_answers(roles):
+    """The answers are bound to the documents the re-run was asked for: when
+    the run-start pairing hands the run another FRD, they name the old pair's
+    sheets — dropped (said as a stage), the questions asked afresh."""
+    runner, _store = _runner(roles)
+    _hold_every_feed_back(runner)
+    other_frd = roles / "frd_other.contract.json"
+    other_frd.write_bytes(runner.effective_frd().read_bytes())
+
+    def pairing_picks_another_frd() -> None:
+        runner.selected_frd = other_frd
+        runner.selected_frd_label = other_frd.name
+
+    runner._ask_pairing = pairing_picks_another_frd
+    runner.rerun_with_answers({"sttm": dict(BAND_ANSWERS)})
+    assert _wait(runner, "needs_layout", "failed", "done", "needs_answers") == "needs_layout", (
+        runner.error, runner.stages[-3:])
+    stages = [s["stage"] for s in runner.stages]
+    assert "answers not carried" in stages and "answers carried" not in stages
+    assert [q["key"] for q in runner.status()["layout_questions"]] == BAND_KEYS
+    runner.answer_layout({}, cancel=True)
+    assert _wait(runner, "failed") == "failed"
+
+
 def test_some_feeds_held_back_end_done_and_a_failure_keeps_the_open_questions(roles):
     """Some feeds held back: the run is DONE and the list says what the others
     need. A run that fails after "Proceed with unresolved" keeps the questions

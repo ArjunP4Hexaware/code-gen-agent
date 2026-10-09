@@ -1207,6 +1207,12 @@ class MetadataTemplateConfig(BaseModel):
     # The same for a path_patterns shape an overlay supplies: {tab: {header:
     # citation}}; a shape without one cites ``citation`` (the template).
     path_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # Candidate values for OPEN cells (2026-10-09): {tab: {header: text}}. A
+    # cell no input states and no constant fills stays blank (needs_template);
+    # its tooltip carries this text — a candidate the engineer confirms, never
+    # written as the value (an inference is not a constant). A header may not
+    # be both a constant and an offer.
+    open_offers: dict[str, dict[str, str]] = Field(default_factory=dict)
     # tab -> rows of header -> value; keys starting with '_' steer the
     # builder (e.g. _layer: standard) and never render.
     template_rows: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
@@ -1233,6 +1239,15 @@ class MetadataTemplateConfig(BaseModel):
                 raise ValueError(f"pipeline_roles: {role.role!r} names parent {role.parent!r}, "
                                  "which is not an earlier role")
             seen.add(role.role)
+        return self
+
+    @model_validator(mode="after")
+    def _offers_are_not_constants(self) -> MetadataTemplateConfig:
+        for tab, offers in self.open_offers.items():
+            both = sorted(set(offers) & set(self.constants.get(tab, {})))
+            if both:
+                raise ValueError(f"open_offers.{tab}: {', '.join(both)} also a constant — an "
+                                 "offered (open) cell is never filled")
         return self
 
 

@@ -64,13 +64,6 @@ metadata:
           TGT_CONNECTION_ID: "2"
           SRC_CONTAINER_NAME: mftlanding
           TGT_CONTAINER_NAME: z-use-d1-dlk-stage-01
-        # Stage -> standard (Chunk D, 2026-10-09): the source is the STAGE table,
-        # read where the file -> stage row wrote it — the stage container (the
-        # real ADLS rows' TGT_CONTAINER_NAME). The standard container and this
-        # sheet's three connection ids are stated by no real row (IIG test cells
-        # holds ADLS_DELTA rows only): open, Friday checklist 2.
-        STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_CONTAINER_NAME: z-use-d1-dlk-stage-01
       constant_citations:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
@@ -78,8 +71,15 @@ metadata:
           TGT_CONNECTION_ID: *acfc
           SRC_CONTAINER_NAME: *acfc
           TGT_CONTAINER_NAME: *acfc
+      # Stage -> standard (2026-10-09): no document and no real row states this
+      # sheet's containers or connection ids (IIG test cells holds ADLS_DELTA
+      # rows only), so all five stay OPEN (Friday checklist 2 / 13). The source
+      # container's candidate — the stage container, where the file -> stage row
+      # writes the stage table this row reads — is an INFERENCE: it rides in the
+      # open cell's tooltip, never as the value.
+      open_offers:
         STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_CONTAINER_NAME: "ACFC environment overlay (config/overlays/acfc_env.yaml) — the d1 stage container: the real ADLS_DELTA rows' TGT_CONTAINER_NAME, where the stage table this row reads is written"
+          SRC_CONTAINER_NAME: "the d1 stage container z-use-d1-dlk-stage-01 (the ADLS_DELTA rows' TGT_CONTAINER_NAME, where the file -> stage row writes the stage table this row reads) — an inference, stated by no document or real row; Friday checklist 13 (ACFC environment overlay, config/overlays/acfc_env.yaml)"
       # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
       # until this overlay is split per source family — a PRX-shaped feed
       # (pair 1) gets these paths too.

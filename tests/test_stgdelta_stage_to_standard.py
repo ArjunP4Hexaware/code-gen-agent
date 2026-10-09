@@ -8,8 +8,9 @@ OBJECT_ID open. Under the overlay now:
 
 a. SRC_ADLS_PATH = the stage side's Processed folder — the folder of the
    ADLS row's TGT_ADLS_PATH, no container segment (the container is its own
-   column: SRC_CONTAINER_NAME = the stage container, the ADLS row's
-   TGT_CONTAINER_NAME);
+   column: SRC_CONTAINER_NAME stays OPEN — no document or real row states
+   it; the stage container, the ADLS row's TGT_CONTAINER_NAME, is only an
+   inferred candidate, offered in the open cell's tooltip — review D1);
 b. TGT_ADLS_PATH / TGT_RJT_ADLS_PATH in the standard container, the same
    container-relative shape (``Processed/<table>``, ``Reject/<table>_reject``);
 c. OBJECT_ID is per (group, file) — family convention ``stgdelta_object_id:
@@ -69,10 +70,13 @@ def test_the_overlay_selects_the_sd_family_stage_to_standard_settings(sd_run):
     config, _runs = sd_run
     template = config.metadata.templates["iig_v2"]
     assert template.family_conventions.stgdelta_object_id == "from_file"
-    assert template.constants[STG]["SRC_CONTAINER_NAME"] == STAGE_CONTAINER
+    # No STGDELTA constant: the source container is an inference, offered only.
+    assert "SRC_CONTAINER_NAME" not in template.constants.get(STG, {})
+    assert "SRC_CONTAINER_NAME" not in template.constant_citations.get(STG, {})
+    offer = template.open_offers[STG]["SRC_CONTAINER_NAME"]
+    assert STAGE_CONTAINER in offer and "Friday checklist 13" in offer
+    assert "config/overlays/acfc_env.yaml" in offer
     assert template.path_patterns[STG]["SRC_ADLS_PATH"] == "/{domain_path}Processed/"
-    for column in ("SRC_CONTAINER_NAME",):
-        assert "config/overlays/acfc_env.yaml" in template.constant_citations[STG][column]
     for column in ("SRC_ADLS_PATH", "TGT_ADLS_PATH", "TGT_RJT_ADLS_PATH"):
         assert "config/overlays/acfc_env.yaml" in template.path_citations[STG][column]
 
@@ -88,7 +92,7 @@ def test_stage_to_standard_paths_are_container_relative(sd_run):
         assert processed.endswith("/Processed/")
         # a. the source = the stage side's Processed folder, no container segment
         assert stg["SRC_ADLS_PATH"] == processed, slug
-        assert stg["SRC_CONTAINER_NAME"] == adls["TGT_CONTAINER_NAME"] == STAGE_CONTAINER
+        assert adls["TGT_CONTAINER_NAME"] == STAGE_CONTAINER
         # b. target and reject: the standard container, the same relative shape
         assert stg["TGT_ADLS_PATH"] == f"{processed}{stg['TGT_TABLE_NAME']}", slug
         assert stg["TGT_RJT_ADLS_PATH"] == (
@@ -103,13 +107,30 @@ def test_stage_to_standard_paths_are_container_relative(sd_run):
         assert gate.verdict == "PASS_WITH_FLAGS"
 
 
-def test_no_document_states_the_standard_container_or_this_sheets_connections(sd_run):
+def test_no_document_states_this_sheets_containers_or_connections(sd_run):
     _config, runs = sd_run
-    for _slug, (_gate, book) in runs.items():
+    for _slug, (gate, book) in runs.items():
         (stg,) = _sheet(book, STG)
-        for column in ("TGT_CONTAINER_NAME", "SRC_ADLS_CONNECTION_ID",
+        for column in ("SRC_CONTAINER_NAME", "TGT_CONTAINER_NAME", "SRC_ADLS_CONNECTION_ID",
                        "METADATA_CONNECTION_ID", "TGT_CONNECTION_ID"):
-            assert stg[column] in (None, ""), column          # open: Friday checklist 2
+            assert stg[column] in (None, ""), column          # open: Friday checklist 2 / 13
+        # the source container's candidate (an inference) rides in the open cell's tooltip
+        badge, tooltip = _tooltips(book, STG)[2]["SRC_CONTAINER_NAME"]
+        assert badge == "NEEDS CLIENT TEMPLATE"
+        assert tooltip.startswith("open — no input states it; candidate, NOT written")
+        assert STAGE_CONTAINER in tooltip and "Friday checklist 13" in tooltip
+        (blank,) = [f for f in gate.flags if f.startswith(f"iig_blank:{STG}: ")]
+        assert "SRC_CONTAINER_NAME" in blank.split(": ", 1)[1].split(", ")
+
+
+def test_an_offered_cell_can_never_also_be_a_constant():
+    from pydantic import ValidationError
+
+    from codegen.config import MetadataTemplateConfig
+
+    with pytest.raises(ValidationError, match="SRC_CONTAINER_NAME also a constant"):
+        MetadataTemplateConfig(tabs={}, constants={STG: {"SRC_CONTAINER_NAME": "x"}},
+                               open_offers={STG: {"SRC_CONTAINER_NAME": "x, by inference"}})
 
 
 def test_one_file_one_table_carries_the_files_adls_object_id(sd_run):

@@ -46,10 +46,18 @@ def _const(tpl: MetadataTemplateConfig, tab: str, header: str) -> dict | None:
     return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=citation))
 
 
+_OPEN_OFFER_TOOLTIP = ("open — no input states it; candidate, NOT written (confirm before "
+                       "filling): {offer}")
+
+
 def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
     for header in tpl.constants.get(tab, {}):
         if header not in cells:
             cells[header] = _const(tpl, tab, header)
+    # An offered candidate stays a tooltip on the OPEN cell (config open_offers).
+    for header, offer in tpl.open_offers.get(tab, {}).items():
+        if header not in cells:
+            cells[header] = _cell("", "needs_template", _OPEN_OFFER_TOOLTIP.format(offer=offer))
     return cells
 
 

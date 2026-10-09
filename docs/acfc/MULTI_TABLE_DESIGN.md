@@ -196,7 +196,8 @@ the FRD's). The iig_v2 builders group the resolved segments by stage triple
   `OBJECT_ID` stays blank (the brief sequences ADLS / DQ objects only).
 - `{landing_rel}` / `{domain_path}` strip the LANDING container
   (`ADLS_DELTA_INGESTION_DETAILS.SRC_CONTAINER_NAME`) first: a stage →
-  standard sheet's own `SRC_CONTAINER_NAME` is the stage container.
+  standard sheet's own `SRC_CONTAINER_NAME` is presumably the stage container
+  (an inference — open, §7a item 13).
 
 **Step 4 (done).** `DATA_QUALITY_RULES` is keyed per FILE (decision (a),
 2026-10-07): for each ADLS object, in `dq_rules` order —
@@ -519,13 +520,13 @@ and where the answer lands (config, not code, wherever possible).
    `pr_dlk_<x>`)? Today a stated catalog the map lacks is written as stated and
    flagged `catalog_unmapped:<layer>`. Answer → the `catalog_map` keys.
 2. **The standard container for d1.** `STGDELTA_STDDELTA_INGESTION_DET`
-   `TGT_CONTAINER_NAME` (and its `SRC_CONTAINER_NAME`, the stage container) for
-   d1. The ACFC overlay carries the ADLS_DELTA connection / container constants
-   and, since 2026-10-09, the STGDELTA `SRC_CONTAINER_NAME` (the stage
-   container, the real ADLS rows' `TGT_CONTAINER_NAME`); `TGT_CONTAINER_NAME`
-   and this sheet's three connection ids stay open on real runs (no real
-   STGDELTA row states them). Answer → `acfc_env.yaml`
-   `constants.STGDELTA_STDDELTA_INGESTION_DET`.
+   `TGT_CONTAINER_NAME` (and its `SRC_CONTAINER_NAME`) for d1. The ACFC overlay
+   carries the ADLS_DELTA connection / container constants only; this sheet's
+   two containers and three connection ids stay open on real runs (no real
+   STGDELTA row states them). `SRC_CONTAINER_NAME`'s candidate — the stage
+   container, the real ADLS rows' `TGT_CONTAINER_NAME` — is an inference, so it
+   rides in the open cell's tooltip (`open_offers`), never as the value (item
+   13). Answer → `acfc_env.yaml` `constants.STGDELTA_STDDELTA_INGESTION_DET`.
 3. **The STGDELTA `OBJECT_NAME` convention.** The pair-1 family's golden prints
    `Accumulator_accumclient` (no input derives it — transcribed in the pair-1
    overlay); the CAQH-style family uses the generalized file pattern
@@ -611,10 +612,15 @@ sheet's value and `metadata_inserts.sql` writes the walkthrough's (rules 1 and
     folder without the container segment (`/{domain_path}Processed/`),
     `TGT_ADLS_PATH` / `TGT_RJT_ADLS_PATH` container-relative in the standard
     container (`…/Processed/<table>`, `…/Reject/<table>_reject`),
-    `SRC_CONTAINER_NAME` = the stage container, `OBJECT_ID` per (group, file)
+    `OBJECT_ID` per (group, file)
     — the ADLS row's of the one file that feeds the table, open with a note
     when several do (`family_conventions.stgdelta_object_id: from_file`). The
     d1 standard container and this sheet's connection ids stay open (item 2).
+    **Also ask:** is `SRC_CONTAINER_NAME` the stage container (the ADLS rows'
+    `TGT_CONTAINER_NAME`, where the file → stage row writes the table this row
+    reads)? That is an inference, not a stated value: the cell stays open with
+    the candidate in its tooltip (`open_offers` in `acfc_env.yaml`; review of
+    2026-10-09). Answer → a `constants.STGDELTA_…` entry replacing the offer.
 
 **If time allows** (§7): the split rule's `TARGET_COLUMN` continuation (Q1),
 whether grand master / master are new rows per feed (Q4), one

@@ -260,6 +260,31 @@ def test_some_feeds_held_back_end_done_and_a_failure_keeps_the_open_questions(ro
     assert detail["where"].endswith(" in work")
 
 
+def test_a_done_run_keeps_the_owed_questions_proceed_left_open(roles):
+    """Some feeds generated, one failed for want of an answer the person
+    skipped with "Proceed with unresolved": the run is DONE and the owed
+    question is still listed (beside the held-back feeds' keys), so the failed
+    feed can be answered inline and re-run — as the CLI prints its QUESTION /
+    UNRESOLVED line whatever the exit code."""
+    runner, _store = _runner(roles)
+    held = needs_answer_item({"key": "feeds[1].stage_target.schema", "kind": "text",
+                              "document": "frd", "reason": "blank"}, feed_name="nb_second")
+    left_open = needs_answer_item({"key": f"{SHEET}/stage/table", "kind": "role",
+                                   "document": "sttm", "reason": "no TableName header"})
+
+    def work():
+        runner._open_owed = [left_open, held]           # one key owed AND held back
+        runner._run_items.append(held)
+
+    runner._work = work
+    runner.start_live()
+    assert _wait(runner, "done", "failed") == "done"
+    status = runner.status()
+    assert status["error"] is None
+    # The held-back item first (it names its feed), each key once.
+    assert status["needs_answers"] == [held, left_open]
+
+
 def test_needs_answer_item_routes_each_key_kind():
     band = needs_answer_item({"key": "S/band[2]/layer", "kind": "role", "document": "sttm"})
     role = needs_answer_item({"key": "S/stage/table", "kind": "role", "document": "sttm"})

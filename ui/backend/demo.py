@@ -1697,8 +1697,8 @@ class DemoRunner:
     def _owed_open_questions(self, result) -> list[dict]:
         """The questions "Proceed with unresolved" left open that the run
         cannot complete a feed without (the CLI's QUESTION / UNRESOLVED lines,
-        ``codegen.cli._owed_key``) — listed for a re-run when the run then
-        holds every feed back or fails."""
+        ``codegen.cli._owed_key``) — listed for a re-run whatever the run's
+        outcome (done, every feed held back, failed)."""
         from codegen.cli import _owed_key
 
         return [needs_answer_item(q.as_dict()) for q in result.questions
@@ -1825,8 +1825,11 @@ class DemoRunner:
             self._await_pairing()
             self._note_undecided_vdd()
             self._work()
-            # Some feeds held back: the run is done, the list says what they need.
-            self.needs_answers = _dedup_items(self._run_items)
+            # Some feeds held back: the run is done, the list says what they
+            # need — and the owed questions "Proceed with unresolved" left
+            # open (a feed that failed without one is answered inline too;
+            # the CLI prints their QUESTION / UNRESOLVED lines at exit 0).
+            self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "done"
         except RunNeedsAnswers:
             # EVERY feed held back: not a failure — the list is the outcome.

@@ -954,7 +954,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 <input
                   type="checkbox"
                   checked={Boolean(status.layout_refresh)}
-                  onChange={(e) => api.layoutRefresh(e.target.checked).then(setStatus).catch(() => {})}
+                  onChange={(e) => api.layoutRefresh(e.target.checked).then(setStatus).catch(setError)}
                 />{" "}
                 Re-resolve layout (ignore the cached layout profile)
               </label>
@@ -1269,6 +1269,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
           <div className="modal">
            <ErrorBoundary label="The document chooser">
             <h2>Choose documents</h2>
+            {error ? (
+              // The chooser covers the page's card: a call that failed in here
+              // (Retry, a choice the backend refused) is shown here too.
+              <ErrorCard error={error} title="The last action failed.">
+                <div style={{ marginTop: 6 }}>
+                  <button className="btn" onClick={() => setError(null)}>Dismiss</button>
+                </div>
+              </ErrorCard>
+            ) : null}
             <p className="hint">
               Scanned live from the local fixtures directory and the{" "}
               <code>inputs/sharepoint</code>, <code>inputs/databricks</code> and{" "}
@@ -1355,7 +1364,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       title={`${w.kind_reason ?? ""} — read it again`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        api.reclassifyWorkbook(w.name).then((r) => setWorkbooks(r.workbooks)).catch(() => {});
+                        api.reclassifyWorkbook(w.name).then((r) => setWorkbooks(r.workbooks)).catch(setError);
                       }}
                     >
                       Retry

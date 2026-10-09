@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { ErrorCard } from "../components/ErrorCard";
+import {
+  answersPayload,
+  applyAdvicePicks,
+  countPicks,
+  emptyPicks,
+  mergePicks,
+  QuestionItem,
+  suggestedPicks,
+  type AnswerPicks,
+} from "../components/LayoutQuestions";
 import { ModelUsageList } from "../components/ModelUsage";
+import { NeedsAnswersPanel, type AnswersPayload } from "../components/NeedsAnswersPanel";
 import { OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
 import { fmtKb, fmtNumber } from "../format";
-import type { LayoutQuestion } from "../api";
 import {
   api,
   ApiError,
@@ -92,7 +103,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     try {
       setClearList((await api.pastRuns()).runs);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
   const confirmClearRuns = async () => {
@@ -104,7 +115,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setStatus(await api.demoStatus());
       if (result.unloaded_current) await onFeedsChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     } finally {
       setClearing(false);
     }
@@ -134,7 +145,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [requirements, setRequirements] = useState<InputRequirementsResponse | null>(null);
   const [governance, setGovernance] = useState<GovernanceChecksResponse | null>(null);
   const [loadingSet, setLoadingSet] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The last failed call, as thrown (an ApiError carries the backend's
+  // readable error) — rendered by the error card, never a bare string.
+  const [error, setError] = useState<unknown>(null);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -147,9 +160,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setLiveAvailable(false);
       setLiveReason(e instanceof Error ? e.message : String(e));
     });
-    api.demoStatus().then(setStatus).catch(() => setStatus(null));
+    api.demoStatus().then((s) => {
+      setStatus(s);
+      // A page reload while a run is in progress (or paused on its dialog)
+      // picks the run up again.
+      if (s.state === "running" || s.state === "needs_layout") startPollRef.current?.();
+    }).catch((e) => { setStatus(null); setError(e); });
     api.outputOptions().then(setOutputOptions).catch((e) => {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     });
     // The source-files panel and the request-time checks render on load —
     // live reads on the backend, nothing is cached to disk.
@@ -167,7 +185,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       try {
         const s = await api.demoStatus();
         setStatus(s);
-        if (s.state === "done" || s.state === "failed") {
+        if (s.state === "done" || s.state === "failed" || s.state === "needs_answers") {
           if (pollRef.current !== null) window.clearInterval(pollRef.current);
           pollRef.current = null;
           if (s.state === "done") {
@@ -181,17 +199,24 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       }
     }, 1000);
   }, [onFeedsChanged]);
+  const startPollRef = useRef<(() => void) | null>(null);
+  startPollRef.current = poll;
 
+  // "Re-run with N answers…" from the Answers-needed list: the payload waits
+  // here while the person confirms the run (the same confirm as Generate).
+  const [pendingRerun, setPendingRerun] = useState<{ answers: AnswersPayload; answered: number } | null>(null);
   const fireLive = useCallback(async () => {
     setConfirming(false);
     setError(null);
+    const rerun = pendingRerun;
+    setPendingRerun(null);
     try {
-      setStatus(await api.runLive());
+      setStatus(rerun ? await api.rerunWithAnswers(rerun.answers) : await api.runLive());
       poll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
-  }, [poll]);
+  }, [poll, pendingRerun]);
 
   // Restore a completed live run's results as LIVE state (the View-results
   // button after a run whose results are not the store's current ones).
@@ -204,7 +229,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         await onFeedsChanged();
         navigate("/");
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
       } finally {
         setLoadingSet(null);
       }
@@ -250,7 +275,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     try {
       setStatus(await api.setOutputParts(parts));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
   const toggleOutputPart = (part: OutputPart) => {
@@ -281,7 +306,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setGenOptions(await api.setGenerationOptions(body));
       setStatus(await api.demoStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
   // M3/M6: the optional Vendor Data Dictionary — any listed workbook can be
@@ -292,7 +317,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       else await api.selectVdd(name);
       setStatus(await api.demoStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
 
@@ -310,7 +335,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         setStatus(s);
         api.frdChoices().then(setFrdChoices).catch(() => {});
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
       } finally {
         setUploading(null);
       }
@@ -326,7 +351,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setStatus(await api.demoStatus());
       api.frdChoices().then(setFrdChoices).catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
       api.demoStatus().then(setStatus).catch(() => {});
     }
   }, []);
@@ -338,7 +363,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setStatus(await api.demoStatus());
       api.frdChoices().then(setFrdChoices).catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, []);
 
@@ -361,7 +386,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         setWorkbooks(wb.workbooks);
         loadDbDocs();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
       } finally {
         setFetching(null);
       }
@@ -434,7 +459,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       await api.selectWorkbook(name);
     } catch (e) {
       // 409: a run or another selection is in progress.
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
     // No one-shot status read here (M15b.4): the chooser's poll delivers the
     // next status; a second in-flight response raced the poll's.
@@ -447,18 +472,16 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       await api.clearWorkbook();
       setStatus(await api.demoStatus());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, []);
 
   const running = status?.state === "running" || status?.state === "needs_layout";
-  // M2.5 layout dialog: one choice per unresolved role, keyed "<sheet>/<layer>/<role>"
-  // (STTM / VDD: a column number); FRD questions (M6) pick a candidate table
-  // cell — the claim {table,row,col,label,section} the merge step re-validates.
-  const [layoutPicks, setLayoutPicks] = useState<Record<string, number>>({});
-  const [frdPicks, setFrdPicks] = useState<Record<string, Record<string, unknown>>>({});
-  // Answers to "choice" / "layer" questions: {key: {value, layer?, source}}.
-  const [gapPicks, setGapPicks] = useState<Record<string, { value: string; layer?: string; source: string }>>({});
+  // M2.5 layout dialog: one answer per open question (components/
+  // LayoutQuestions): a column for an STTM / VDD role, a layer for a band
+  // (Chunk A: source | stage | standard), a table cell for an FRD field, a
+  // value for a choice / layer / text question. Posted as {sttm, frd, vdd, gaps}.
+  const [picks, setPicks] = useState<AnswerPicks>(emptyPicks());
   const preselectedRef = useRef<string | null>(null);
   useEffect(() => {
     // Pre-select each question's suggested candidate (still confirmed by the
@@ -467,57 +490,22 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     if (status?.state !== "needs_layout" || !qs.length) return;
     // The status poll hands back a NEW array each tick; pre-select once per
     // question SET, or a cleared pick would snap back a few seconds later.
-    const signature = qs.map((q) => q.key).join(" ");
+    const signature = qs.map((q) => q.key).join("\u0000");
     if (preselectedRef.current === signature) return;
     preselectedRef.current = signature;
-    const picks: Record<string, number> = {};
-    const frd: Record<string, Record<string, unknown>> = {};
-    const gaps: Record<string, { value: string; layer?: string; source: string }> = {};
-    for (const q of qs) {
-      if (q.suggested === null || q.suggested === undefined) continue;
-      const c = q.candidates[q.suggested];
-      if (!c) continue;
-      if (q.kind === "choice" || q.kind === "layer") {
-        gaps[q.key] = gapPickFor(q, c);
-      } else if (q.document === "frd") {
-        if (c.table !== undefined && c.row !== undefined)
-          frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
-      } else if (c.col !== undefined) {
-        picks[q.key] = c.col;
-      }
-    }
-    setLayoutPicks((prev) => ({ ...picks, ...prev }));
-    setFrdPicks((prev) => ({ ...frd, ...prev }));
-    setGapPicks((prev) => ({ ...gaps, ...prev }));
+    setPicks((prev) => mergePicks(suggestedPicks(qs), prev));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.state, status?.layout_questions]);
-  const gapPickFor = (q: LayoutQuestion, c: LayoutQuestion["candidates"][number]) => ({
-    value: c.value ?? "",
-    ...(q.kind === "layer" ? { layer: c.layer } : {}),
-    source: c.source ?? "STTM",
-  });
   const submitLayout = async (proceed: boolean) => {
-    const sttm: Record<string, number> = {};
-    for (const [key, col] of Object.entries(layoutPicks)) sttm[key] = col;
     try {
-      const vdd: Record<string, number> = {};
-      const sttmOnly: Record<string, number> = {};
-      for (const [key, col] of Object.entries(sttm)) {
-        ((status?.layout_questions ?? []).find((q) => q.key === key)?.document === "vdd" ? vdd : sttmOnly)[key] = col;
-      }
-      const frd: Record<string, unknown> = {};
-      for (const [field, claim] of Object.entries(frdPicks)) frd[field] = { ...claim, source: "user" };
-      const s = await api.layoutAnswers({ answers: { sttm: sttmOnly, frd, vdd, gaps: gapPicks }, proceed });
+      const s = await api.layoutAnswers({
+        answers: answersPayload(status?.layout_questions ?? [], picks), proceed });
       setStatus(s);
-      setLayoutPicks({});
-      setFrdPicks({});
-      setGapPicks({});
+      setPicks(emptyPicks());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   };
-  const frdPickKey = (c: { table?: number; row?: number; col?: number }) =>
-    `${c.table}/${c.row}/${c.col}`;
   // Model advice on the pending questions: an explicit, confirmed model call
   // over the question texts + candidate labels; then the person can adopt
   // the model's picks as the pre-selection in one click.
@@ -530,7 +518,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       setStatus(s);
       applyAdvice(s);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     } finally {
       setAdvising(null);
     }
@@ -542,54 +530,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const applyAdvice = (s: DemoStatus | null) => {
     const advice = s?.layout_advice?.advice;
     if (!advice) return;
-    const picks: Record<string, number> = { ...layoutPicks };
-    const frd: Record<string, Record<string, unknown>> = { ...frdPicks };
-    const gaps = { ...gapPicks };
-    for (const q of s?.layout_questions ?? []) {
-      const a = advice[q.key];
-      if (!a) continue;
-      const c = a.index === null || a.index === undefined ? undefined : q.candidates[a.index];
-      if (q.kind === "choice" || q.kind === "layer") {
-        if (c) gaps[q.key] = gapPickFor(q, c);
-        else delete gaps[q.key];
-      } else if (q.document === "frd") {
-        if (c && c.table !== undefined && c.row !== undefined)
-          frd[q.key] = { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" };
-        else delete frd[q.key];
-      } else if (c && c.col !== undefined) {
-        picks[q.key] = c.col;
-      } else {
-        delete picks[q.key];
-      }
-    }
-    setLayoutPicks(picks);
-    setFrdPicks(frd);
-    setGapPicks(gaps);
+    setPicks(applyAdvicePicks(s?.layout_questions ?? [], advice, picks));
   };
-  // "None of these": clear the pick for one question (a radio cannot be
-  // un-clicked); the question then stays unanswered — Continue re-asks it,
-  // Proceed unresolved reads it empty.
-  const clearPick = (q: LayoutQuestion) => {
-    if (q.kind === "choice" || q.kind === "layer") {
-      const next = { ...gapPicks };
-      delete next[q.key];
-      setGapPicks(next);
-    } else if (q.document === "frd") {
-      const next = { ...frdPicks };
-      delete next[q.key];
-      setFrdPicks(next);
-    } else {
-      const next = { ...layoutPicks };
-      delete next[q.key];
-      setLayoutPicks(next);
-    }
-  };
-  const hasPick = (q: LayoutQuestion) =>
-    q.kind === "choice" || q.kind === "layer" || q.kind === "text"
-      ? gapPicks[q.key] !== undefined
-      : q.document === "frd"
-        ? frdPicks[q.key] !== undefined
-        : layoutPicks[q.key] !== undefined;
   const est = status?.estimates;
 
   return (
@@ -604,7 +546,13 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
         </div>
       </div>
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? (
+        <ErrorCard error={error} title="The last action failed.">
+          <div style={{ marginTop: 6 }}>
+            <button className="btn" onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        </ErrorCard>
+      ) : null}
 
       <div className="mode-cards">
         <div className="panel">
@@ -1031,11 +979,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       ))}
                     </ul>
                   ) : null}
-                  {status.state === "failed" && "Last live run FAILED — nothing was published."}
+                  {status.state === "needs_answers" &&
+                    "Last live run is waiting for answers — every feed is held back; nothing was published."}
                 </div>
-                {status.state === "failed" && status.error ? (
-                  <div className="error-banner" style={{ marginTop: 8 }}>
-                    {status.error}
+                {status.state === "failed" ? (
+                  <ErrorCard
+                    error={status.error_detail ?? status.error ?? "the run failed without a message"}
+                    title="Last live run FAILED — nothing was published."
+                  >
                     {status.error_hint ? (
                       <div style={{ marginTop: 8 }}>
                         <div className="hint">{status.error_hint.message}</div>
@@ -1052,7 +1003,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                         </button>
                       </div>
                     ) : null}
-                  </div>
+                  </ErrorCard>
+                ) : null}
+                {!running && (status.needs_answers ?? []).length ? (
+                  <NeedsAnswersPanel
+                    items={status.needs_answers ?? []}
+                    state={status.state}
+                    inputs={status.needs_answers_inputs}
+                    disabled={liveAvailable !== true || selecting}
+                    onRerun={(answers, answered) => {
+                      setPendingRerun({ answers, answered });
+                      setConfirming(true);
+                    }}
+                  />
                 ) : null}
                 {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
                   <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
@@ -1087,174 +1050,34 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                             {doc === "sttm" ? "STTM workbook" : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
                           </strong>
                           {qs.map((q) => (
-                            <div key={q.key} style={{ marginTop: 8 }}>
-                              <div>
-                                <strong>{q.title || q.key}</strong>{" "}
-                                <code style={{ fontSize: 11 }}>{q.key}</code>
-                              </div>
-                              {q.hint ? (
-                                <div className="hint" style={{ marginTop: 2 }}>{q.hint}</div>
-                              ) : null}
-                              <div className="hint" style={{ marginTop: 2, fontSize: 11 }}>
-                                Why it is asked: {q.reason}.{" "}
-                                {q.suggested !== null && q.suggested !== undefined
-                                  ? q.suggested_reason
-                                    ? `Pre-selected because it is ${q.suggested_reason} — confirm, pick another, or choose none.`
-                                    : "The most likely match is pre-selected — confirm, pick another, or choose none."
-                                  : q.kind === "choice"
-                                    ? "No document value uniquely names this — pick the one the source team confirms; proceeding without it leaves the feed with no file and the run stops at extraction."
-                                    : "No candidate matches the usual labels — pick the one that states it, or proceed without."}
-                              </div>
-                              {status.layout_advice?.advice[q.key] ? (
-                                <div className="flag-hitl" style={{ padding: "4px 8px", marginTop: 4, fontSize: 12 }}>
-                                  <strong>Model advice</strong>{" "}
-                                  <span className="hint">
-                                    ({status.layout_advice.usage?.label ?? status.layout_advice.provider})
-                                  </span>:{" "}
-                                  {status.layout_advice.advice[q.key].rationale}
-                                  {status.layout_advice.advice[q.key].index === null
-                                    ? " — no candidate picked."
-                                    : ""}
-                                </div>
-                              ) : null}
-                              {q.header.length ? (
-                                <div className="hint" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                                  {q.header.map((h) => (
-                                    <code key={h} style={{ padding: "1px 4px", border: "1px solid var(--line, #ccc)" }}>
-                                      {h}
-                                    </code>
-                                  ))}
-                                </div>
-                              ) : null}
-                              {q.kind === "text" ? (
-                                // M9.1b: a value no document states (the file name
-                                // patterns) — typed, lands as source=user under gaps.
-                                <input
-                                  type="text"
-                                  style={{ width: "100%", marginTop: 4 }}
-                                  placeholder="pattern_1_*.txt; pattern_2_*.txt"
-                                  value={gapPicks[q.key]?.value ?? ""}
-                                  onChange={(e) => {
-                                    const next = { ...gapPicks };
-                                    if (e.target.value.trim()) next[q.key] = { value: e.target.value, source: "user" };
-                                    else delete next[q.key];
-                                    setGapPicks(next);
-                                  }}
-                                />
-                              ) : null}
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
-                                {q.candidates.map((c) =>
-                                  q.kind === "choice" || q.kind === "layer" ? (
-                                    <label key={`${q.key}-${c.layer ?? c.source}-${c.value}`} style={{ fontSize: 12 }}>
-                                      <input
-                                        type="radio"
-                                        name={q.key}
-                                        checked={
-                                          gapPicks[q.key] !== undefined &&
-                                          gapPicks[q.key].value === c.value &&
-                                          (q.kind === "layer" ? gapPicks[q.key].layer === c.layer : gapPicks[q.key].source === c.source)
-                                        }
-                                        onChange={() => setGapPicks({ ...gapPicks, [q.key]: gapPickFor(q, c) })}
-                                      />{" "}
-                                      {q.kind === "layer" ? (
-                                        <>
-                                          apply <code>{c.value}</code> to{" "}
-                                          <strong>{c.layer === "both" ? "stage and standard" : c.layer}</strong>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <strong>{c.source}</strong> <span className="hint">{c.cell}</span>:{" "}
-                                          <code>{c.value}</code>
-                                        </>
-                                      )}
-                                      {q.suggested === q.candidates.indexOf(c) ? (
-                                        <span className="hint"> (suggested)</span>
-                                      ) : null}
-                                      {status.layout_advice?.advice[q.key]?.index === q.candidates.indexOf(c) ? (
-                                        <span className="hint"> (model's pick)</span>
-                                      ) : null}
-                                    </label>
-                                  ) : doc === "frd" ? (
-                                    <label key={`${q.key}-${frdPickKey(c)}`} style={{ fontSize: 12 }}>
-                                      <input
-                                        type="radio"
-                                        name={q.key}
-                                        disabled={c.table === undefined || c.row === undefined}
-                                        checked={
-                                          frdPicks[q.key] !== undefined &&
-                                          frdPickKey(frdPicks[q.key] as { table?: number; row?: number; col?: number }) === frdPickKey(c)
-                                        }
-                                        onChange={() =>
-                                          c.table !== undefined &&
-                                          c.row !== undefined &&
-                                          setFrdPicks({
-                                            ...frdPicks,
-                                            [q.key]: { table: c.table, row: c.row, col: c.col ?? 0, label: c.label ?? "" },
-                                          })
-                                        }
-                                      />{" "}
-                                      {c.table !== undefined ? `table ${c.table} row ${c.row}: ` : ""}
-                                      {c.label ?? c.header}
-                                      {q.suggested === q.candidates.indexOf(c) ? (
-                                        <span className="hint"> (suggested)</span>
-                                      ) : null}
-                                      {status.layout_advice?.advice[q.key]?.index === q.candidates.indexOf(c) ? (
-                                        <span className="hint"> (model's pick)</span>
-                                      ) : null}
-                                    </label>
-                                  ) : (
-                                    <label key={`${q.key}-${c.col ?? c.label}`} style={{ fontSize: 12 }}>
-                                      <input
-                                        type="radio"
-                                        name={q.key}
-                                        disabled={c.col === undefined}
-                                        checked={c.col !== undefined && layoutPicks[q.key] === c.col}
-                                        onChange={() =>
-                                          c.col !== undefined &&
-                                          setLayoutPicks({ ...layoutPicks, [q.key]: c.col })
-                                        }
-                                      />{" "}
-                                      {c.col !== undefined ? `col ${c.col}: ` : ""}
-                                      {c.header ?? c.label}
-                                      {q.suggested === q.candidates.indexOf(c) ? (
-                                        <span className="hint"> (suggested)</span>
-                                      ) : null}
-                                      {status.layout_advice?.advice[q.key]?.index === q.candidates.indexOf(c) ? (
-                                        <span className="hint"> (model's pick)</span>
-                                      ) : null}
-                                    </label>
-                                  ),
-                                )}
-                                <label key={`${q.key}-none`} style={{ fontSize: 12 }}>
-                                  <input type="radio" name={q.key} checked={!hasPick(q)} onChange={() => clearPick(q)} />{" "}
-                                  <em>None of these</em>
-                                  <span className="hint"> (leave unanswered)</span>
-                                  {status.layout_advice?.advice[q.key] &&
-                                  status.layout_advice.advice[q.key].index === null ? (
-                                    <span className="hint"> (model's pick)</span>
-                                  ) : null}
-                                </label>
-                              </div>
-                            </div>
+                            <QuestionItem
+                              key={q.key}
+                              q={q}
+                              picks={picks}
+                              onChange={setPicks}
+                              scope="dialog"
+                              advice={status.layout_advice?.advice[q.key]}
+                              adviceLabel={status.layout_advice?.usage?.label ?? status.layout_advice?.provider}
+                            />
                           ))}
                         </div>
                       );
                     })}
                     <div className="decision-row" style={{ marginTop: 10 }}>
                       <button className="btn" onClick={() => submitLayout(false)}
-                              disabled={!Object.keys(layoutPicks).length && !Object.keys(frdPicks).length && !Object.keys(gapPicks).length}>
+                              disabled={countPicks(picks) === 0}>
                         Continue
                       </button>
                       <button className="btn" onClick={() => submitLayout(true)}
                               title="Continue with the remaining roles read as empty (gate-flagged)">
                         Proceed with unresolved
                       </button>
-                      <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(() => {})}>
+                      <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(setError)}>
                         Cancel run
                       </button>
                       <button className="btn"
                               title="Resolve the layout again past every cached profile (synonyms, then the model); the cached entries are overwritten and the questions asked afresh"
-                              onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(() => {})}>
+                              onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(setError)}>
                         Re-resolve layout
                       </button>
                       <span style={{ flex: 1 }} />
@@ -1803,9 +1626,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       {confirming ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
-            <h2>Generate a pipeline from this STTM?</h2>
+            <h2>
+              {pendingRerun
+                ? `Re-run with ${pendingRerun.answered} answer${pendingRerun.answered === 1 ? "" : "s"}?`
+                : "Generate a pipeline from this STTM?"}
+            </h2>
             <p>
               Input: <code>{status?.sttm_workbook ?? "the configured STTM workbook"}</code>
+              {pendingRerun ? (
+                <span className="hint">
+                  {" "}— the same documents, with your answers and the ones the last run's
+                  layout dialog received applied.
+                </span>
+              ) : null}
             </p>
             {transport && transport.kind !== "databricks_fmapi" && transport.kind !== "anthropic" ? (
               <p>
@@ -1838,9 +1671,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             </p>
             <div className="decision-row" style={{ marginTop: 14 }}>
               <button className="btn primary" onClick={fireLive}>
-                Confirm — run live
+                {pendingRerun ? "Confirm — re-run live" : "Confirm — run live"}
               </button>
-              <button className="btn" onClick={() => setConfirming(false)}>
+              <button className="btn" onClick={() => { setConfirming(false); setPendingRerun(null); }}>
                 Cancel
               </button>
             </div>

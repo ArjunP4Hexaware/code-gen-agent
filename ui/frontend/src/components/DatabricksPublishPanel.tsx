@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ErrorCard } from "./ErrorCard";
 import { api, type DatabricksPublishResult, type DatabricksPublishTarget } from "../api";
 
 // The human-gated outbound half of the volumes seam: the reviewer picks the
@@ -16,7 +17,7 @@ export function DatabricksPublishPanel({ feedSlugs }: { feedSlugs: string[] }) {
   const [confirming, setConfirming] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState<DatabricksPublishResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     api
@@ -54,7 +55,7 @@ export function DatabricksPublishPanel({ feedSlugs }: { feedSlugs: string[] }) {
       setResult(res);
       setConfirming(false);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : String(exc));
+      setError(exc);
       setConfirming(false);
     } finally {
       setPublishing(false);
@@ -126,11 +127,7 @@ export function DatabricksPublishPanel({ feedSlugs }: { feedSlugs: string[] }) {
           </div>
         )}
 
-        {error ? (
-          <div className="error-banner" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        ) : null}
+        {error ? <ErrorCard error={error} title="Publishing failed." /> : null}
 
         {result ? (
           <div className="hint" style={{ marginTop: 10 }}>

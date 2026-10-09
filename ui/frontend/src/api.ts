@@ -138,10 +138,49 @@ export interface LayoutQuestion {
 
 export type PairRule = "pairing_map" | "content" | "ticket" | "name_stem";
 
+// One answer a held-back feed needs (status.needs_answers): the answers-file
+// key, its label as the CLI prints it, how the answer is posted
+// (band_layer: sttm layer string · column: sttm / vdd column · frd_cell: an
+// FRD table cell · gap: gaps {value, layer?}) and the question itself, in the
+// layout dialog's shape — rendered with the same controls.
+export interface NeedsAnswerItem {
+  key: string;
+  label: "QUESTION" | "UNRESOLVED";
+  section: "gaps" | "answers";
+  answer_as: "band_layer" | "column" | "frd_cell" | "gap";
+  feed_name: string | null;
+  sheet: string | null;
+  reason: string;
+  question: LayoutQuestion;
+}
+
+// The readable form of an error (ui/backend/errors.py): the API's unhandled-
+// exception response ("error") and a crashed run's status.error_detail.
+export interface ErrorDetail {
+  type: string;
+  message: string;
+  // the traceback's innermost frame: "file:line in function"
+  where: string;
+  cause?: string | null;
+  health?: Record<string, unknown>;
+  // version · codegen source · overlays · startup error
+  health_line?: string;
+  // "GET /api/demo/status" — set by the API handler
+  request?: string;
+}
+
 export interface DemoStatus {
-  state: "idle" | "running" | "needs_layout" | "done" | "failed";
+  // needs_answers: EVERY feed of the last run is held back — the list below
+  // is the outcome (answered inline and re-run), never a generic failure.
+  state: "idle" | "running" | "needs_layout" | "done" | "failed" | "needs_answers";
   stages: DemoStage[];
   error: string | null;
+  error_detail?: ErrorDetail | null;
+  // what the last run's held-back feeds need (state needs_answers: all of
+  // them; done: some; failed: the questions "Proceed" left open) and the
+  // documents those keys belong to
+  needs_answers?: NeedsAnswerItem[];
+  needs_answers_inputs?: { sttm: string; frd: string } | null;
   last_run_label: string | null;
   // feeds the last run set aside (no file for the table, question left unanswered)
   set_aside?: { label: string; error: string }[];
@@ -518,14 +557,50 @@ export interface FeedDetail extends FeedSummary {
 // A failed call carries its HTTP status: callers tell "not configured" (503,
 // render nothing) from "the workspace refused" (502, say so) — the two used
 // to collapse into one silent absence on the Databricks App.
+// ``detail``: the backend's readable error (an unhandled exception's JSON);
+// ``request``: "METHOD /path" of the call that failed — the card's "where" for
+// an HTTP error that carries no traceback.
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  detail: ErrorDetail | null;
+  request: string | null;
+  constructor(message: string, status: number, detail: ErrorDetail | null = null,
+              request: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
+    this.request = request;
   }
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// The message of a failed response: FastAPI's ``detail`` string, a 422's
+// validation list condensed to "field: msg" lines, else the status line.
+function errorMessage(body: any, res: Response): string {
+  const detail = body?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => `${Array.isArray(d?.loc) ? d.loc.join(".") : "request"}: ${d?.msg ?? ""}`)
+      .join("; ");
+  }
+  return `${res.status} ${res.statusText || "error"}`.trim();
+}
+
+export function errorDetail(raw: any): ErrorDetail | null {
+  if (!raw || typeof raw !== "object" || typeof raw.type !== "string") return null;
+  return {
+    type: raw.type,
+    message: typeof raw.message === "string" ? raw.message : "",
+    where: typeof raw.where === "string" ? raw.where : "",
+    cause: typeof raw.cause === "string" ? raw.cause : null,
+    health: raw.health && typeof raw.health === "object" ? raw.health : undefined,
+    health_line: typeof raw.health_line === "string" ? raw.health_line : undefined,
+    request: typeof raw.request === "string" ? raw.request : undefined,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // GET /api/health (2026-10-07): every storage root the App reads, probed live.
 export type StorageRootState =
@@ -552,11 +627,15 @@ export interface HealthResponse {
   roots: StorageRoot[];
 }
 
+// Every failed call is an ApiError carrying what the error card shows: the
+// message, the backend's readable error when it sent one, and the request.
+// A response that is not JSON (a proxy's HTML page) still becomes one.
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const where = `${(init?.method ?? "GET").toUpperCase()} ${path.split("?")[0]}`;
   const res = await fetch(path, init);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(body?.detail ?? `${res.status} ${res.statusText}`, res.status);
+    throw new ApiError(errorMessage(body, res), res.status, errorDetail(body?.error), where);
   }
   return res.json();
 }
@@ -614,6 +693,34 @@ function normalizeJob(raw: any): SelectionJob | null {
   };
 }
 
+function normalizeQuestion(raw: any): LayoutQuestion {
+  return {
+    ...raw,
+    key: String(raw?.key ?? ""),
+    reason: typeof raw?.reason === "string" ? raw.reason : "",
+    header: Array.isArray(raw?.header) ? raw.header : [],
+    candidates: Array.isArray(raw?.candidates) ? raw.candidates : [],
+  };
+}
+
+function normalizeNeedsAnswers(raw: any): NeedsAnswerItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.key === "string")
+    .map((item: any) => ({
+      key: item.key,
+      label: item.label === "QUESTION" ? "QUESTION" : "UNRESOLVED",
+      section: item.section === "gaps" ? "gaps" : "answers",
+      answer_as: ["band_layer", "column", "frd_cell", "gap"].includes(item.answer_as)
+        ? item.answer_as : "gap",
+      feed_name: item.feed_name ?? null,
+      sheet: item.sheet ?? null,
+      reason: typeof item.reason === "string" ? item.reason : "",
+      question: normalizeQuestion({ key: item.key, document: "frd", kind: "text",
+                                    ...(item.question ?? {}) }),
+    }));
+}
+
 export function normalizeStatus(raw: DemoStatus): DemoStatus {
   const r: any = raw ?? {};
   const pairCandidates: Record<string, { reason: string; candidates: { name: string; score: number | null; signals: string }[] }> = {};
@@ -632,7 +739,11 @@ export function normalizeStatus(raw: DemoStatus): DemoStatus {
     pairing: normalizePairing(r.pairing),
     pair_candidates: pairCandidates,
     input_errors: r.input_errors ?? {},
-    layout_questions: Array.isArray(r.layout_questions) ? r.layout_questions : [],
+    layout_questions: Array.isArray(r.layout_questions)
+      ? r.layout_questions.map(normalizeQuestion) : [],
+    needs_answers: normalizeNeedsAnswers(r.needs_answers),
+    needs_answers_inputs: r.needs_answers_inputs ?? null,
+    error_detail: errorDetail(r.error_detail),
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -667,6 +778,8 @@ export const downloadHref = (slug: string, path: string) =>
 
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
+  // The static half of /api/health (no storage probe) + the one-line form.
+  healthFacts: () => request<{ health_line: string }>("/api/health/facts"),
   feeds: () => request<FeedsResponse>("/api/feeds"),
   feed: (slug: string) => request<FeedDetail>(`/api/feeds/${slug}`),
   generate: (feedSlug?: string) =>
@@ -809,6 +922,14 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+    }),
+  // Re-run the last run's documents with the answers its held-back feeds
+  // need (status.needs_answers) — the layout-answers payload shape.
+  rerunWithAnswers: (answers: Record<string, unknown>) =>
+    statusRequest("/api/demo/rerun-with-answers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers, confirm: true }),
     }),
   layoutRefresh: (enabled: boolean) =>
     statusRequest("/api/demo/layout-refresh", {

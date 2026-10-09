@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ErrorCard } from "./components/ErrorCard";
 import { usageSummary } from "./components/ModelUsage";
 import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
@@ -18,7 +19,7 @@ const MODE_COPY = {
 
 export function App() {
   const [data, setData] = useState<FeedsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [generating, setGenerating] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -26,7 +27,7 @@ export function App() {
       setData(await api.feeds());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, []);
 
@@ -43,7 +44,7 @@ export function App() {
       setData(await api.generate());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     } finally {
       setGenerating(false);
     }
@@ -107,7 +108,7 @@ export function App() {
       </aside>
 
       <main className="main">
-        {error ? <div className="error-banner">Backend error: {error}</div> : null}
+        {error ? <ErrorCard error={error} title="The backend did not answer." /> : null}
         {data && data.mode !== "mock" ? (
           <div className={`mode-banner ${data.mode}`}>
             {MODE_COPY[data.mode]}

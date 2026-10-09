@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { ErrorCard } from "./ErrorCard";
 
 interface Props {
   children: ReactNode;
@@ -12,10 +13,11 @@ interface State {
 }
 
 /**
- * A render error inside the children degrades to THIS card — message,
- * component stack, Try again / Reload — instead of blanking the page.
- * One sits around the routes in App.tsx (the shell chrome stays), one
- * around the document chooser / pairing panel (a bad status payload costs
+ * A render error inside the children degrades to THIS card — the error
+ * card's lines (message, the first frame of the component stack, the health
+ * line), the full component stack, Try again / Reload — instead of blanking
+ * the page. One sits around the routes in App.tsx (the shell chrome stays),
+ * one around the document chooser / pairing panel (a bad status payload costs
  * one card, not the page).
  */
 export class ErrorBoundary extends Component<Props, State> {
@@ -35,22 +37,22 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children;
     const what = this.props.label ? `${this.props.label} could not be shown` : "This part of the page could not be shown";
     return (
-      <div className="flag-hitl error-boundary" role="alert" style={{ padding: "10px 12px", margin: "8px 0" }}>
-        <strong>{what}.</strong>{" "}
-        <span className="hint">{error.name}: {error.message}</span>
-        {stack ? (
-          <pre className="hint" style={{ whiteSpace: "pre-wrap", fontSize: 11, marginTop: 6 }}>
-            {stack.trim()}
-          </pre>
-        ) : null}
-        <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
-          <button className="btn" onClick={() => this.setState({ error: null, stack: null })}>
-            Try again
-          </button>
-          <button className="btn" onClick={() => window.location.reload()}>
-            Reload
-          </button>
-        </div>
+      <div className="error-boundary" style={{ margin: "8px 0" }}>
+        <ErrorCard error={error} componentStack={stack} title={<strong>{what}.</strong>}>
+          {stack ? (
+            <pre className="hint" style={{ whiteSpace: "pre-wrap", fontSize: 11, marginTop: 6 }}>
+              {stack.trim()}
+            </pre>
+          ) : null}
+          <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+            <button className="btn" onClick={() => this.setState({ error: null, stack: null })}>
+              Try again
+            </button>
+            <button className="btn" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          </div>
+        </ErrorCard>
       </div>
     );
   }

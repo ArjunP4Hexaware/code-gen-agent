@@ -9,6 +9,7 @@ import {
   type FeedDetail,
 } from "../api";
 import { ClassBadge } from "../components/ClassBadge";
+import { ErrorCard } from "../components/ErrorCard";
 import { lobLabel } from "../lobs";
 import { CodeView } from "../components/CodeView";
 import { DownloadButton } from "../components/DownloadButton";
@@ -27,7 +28,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
     ? (requestedTab as TabId)
     : "overview";
   const [feed, setFeed] = useState<FeedDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [tab, setTab] = useState<TabId>(initialTab);
   const [generating, setGenerating] = useState(false);
 
@@ -36,7 +37,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
       setFeed(await api.feed(slug));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     }
   }, [slug]);
 
@@ -54,13 +55,13 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
       await load();
       onFeedsChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e);
     } finally {
       setGenerating(false);
     }
   };
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorCard error={error} title="This view could not be loaded." />;
   if (!feed) return <div className="empty">Loading…</div>;
 
   // Framework mode emits no notebook — hide the tab rather than 404 it.
@@ -493,15 +494,15 @@ function CandidatesTab({ feed, onDecided }: { feed: FeedDetail; onDecided: () =>
 
 function NotebookTab({ slug }: { slug: string }) {
   const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     setContent(null);
     api
       .file(slug, `${slug}.ipynb`)
       .then((r) => setContent(r.content))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setError(e));
   }, [slug]);
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorCard error={error} title="This view could not be loaded." />;
   if (content === null) return <div className="empty">Loading notebook…</div>;
   return (
     <div className="panel">

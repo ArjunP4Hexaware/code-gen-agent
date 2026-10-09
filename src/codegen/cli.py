@@ -1430,15 +1430,24 @@ def main(argv: list[str] | None = None) -> int:
     # First line of EVERY command: which code runs, with which overlays —
     # printed before load_config, which is what fails on a stale install.
     # Machine-readable output (--json) keeps stdout clean: the line goes to stderr.
+    # Chunk D (2026-10-09): it also names the conventions profile and IIG
+    # template in effect (the committed overlay makes them acfc_prx / iig_v2),
+    # read from the raw config + overlays — still before load_config.
     from codegen.build_info import doctor_lines, source_line
-    from codegen.config import overlay_paths
+    from codegen.config import active_defaults, overlay_paths
 
     overlays = [str(p) for p in overlay_paths(args.config)]
+    defaults = active_defaults(args.config)
     if args.command == "doctor":
-        print("\n".join(doctor_lines(overlays)))
+        print("\n".join(doctor_lines(overlays, defaults)))
         return 0
-    print(source_line(overlays), file=sys.stderr if getattr(args, "json", False) else sys.stdout,
-          flush=True)
+    settings = dict(defaults)
+    for key, flag_value in (("profile", getattr(args, "conventions_profile", None)),
+                            ("iig_template", getattr(args, "iig_template", None))):
+        if flag_value:
+            settings[key], settings[f"{key}_from_flag"] = flag_value, "1"
+    print(source_line(overlays, settings),
+          file=sys.stderr if getattr(args, "json", False) else sys.stdout, flush=True)
     config = load_config(args.config)
 
     if args.command == "extract-sttm":

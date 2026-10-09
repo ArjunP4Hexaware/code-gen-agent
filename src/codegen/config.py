@@ -1612,6 +1612,33 @@ def _announce(paths: list[Path]) -> None:
         print("config overlays (in order): " + " -> ".join(key), file=sys.stderr)
 
 
+def active_defaults(path: str | Path, overlays: list[str | Path] | None = None) -> dict[str, str]:
+    """The conventions profile and the IIG template a run uses when no flag
+    names one — ``conventions.profile`` / ``metadata.template`` after the
+    overlays (the committed acfc_env.yaml makes them acfc_prx / iig_v2,
+    Chunk D 2026-10-09). The same merge as load_config, without validation or
+    the stderr announcement, so the CLI's first line can name them BEFORE
+    load_config runs; {} when the files cannot be read."""
+    try:
+        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        for overlay_path in overlay_paths(path, overlays):
+            overlay = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and isinstance(overlay, dict):
+                raw = _deep_merge(raw, overlay)
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    conventions = raw.get("conventions") if isinstance(raw.get("conventions"), dict) else {}
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    return {
+        "profile": str(conventions.get("profile")
+                       or ConventionsConfig.model_fields["profile"].default),
+        "iig_template": str(metadata.get("template")
+                            or MetadataConfig.model_fields["template"].default),
+    }
+
+
 def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> Config:
     """Load the YAML config, failing loudly on unknown top-level sections.
 

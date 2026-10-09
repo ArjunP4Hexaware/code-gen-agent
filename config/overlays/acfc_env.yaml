@@ -7,7 +7,15 @@
 # the real ADLS_DELTA_INGESTION_DETAILS rows carry them — environment
 # constants, not per-feed values. always_blank REPLACES the template's list
 # (lists are not merged): the six columns filled below leave it.
+#
+# DEFAULTS (Chunk D, 2026-10-09): acfc_prx (conventions.profile) and iig_v2
+# (metadata.template) are the defaults of every run that loads this overlay —
+# the App's selectors and every CLI run without --profile / --iig-template.
+# The suite (CODEGEN_SKIP_ENV_OVERLAY=1) stays on the shipped edo_sfmc / iig_v1.
+# Every CLI command's first line and `codegen doctor` name the active profile
+# and template.
 conventions:
+  profile: acfc_prx
   # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands state
   # LOGICAL catalogs; this is the d1 environment's map, applied to every
   # emitted catalog (cited in the cell tooltip). Prod: identity (no map).
@@ -17,6 +25,7 @@ conventions:
     acfc_prx:
       default_catalog: {stage: d1_dlk, standard: d1_std}
 metadata:
+  template: iig_v2
   templates:
     iig_v2:
       # Feed-family conventions (docs/acfc/MULTI_TABLE_DESIGN.md, 2026-10-08): the

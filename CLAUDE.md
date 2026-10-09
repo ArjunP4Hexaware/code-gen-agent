@@ -7,7 +7,7 @@ anywhere (staging / main untouched):
 
 | Branch | Head | Version | What it is |
 | --- | --- | --- | --- |
-| `feature/multi-table` (this checkout) | **the overnight report commit** (on 1bb8302) — **LOCAL, NOT PUSHED** (27 commits since 1ecbacd) | 0.5.8.post26 | cut from `feature/iig-first` at be38f05: the multi-table IIG model + `metadata_inserts.sql`, the first-ACFC-run fixes, the real-row scorecard rules, the exit-code / answer-line contract, then the **2026-10-09 overnight robustness run** (below). **Not yet re-run in ACFC** |
+| `feature/multi-table` (this checkout) | **this notes commit** (on 5cbaf63) — **PUSHED 2026-10-09 on Soham's word** (29 commits since 1ecbacd) | 0.5.8.post26 | cut from `feature/iig-first` at be38f05: the multi-table IIG model + `metadata_inserts.sql`, the first-ACFC-run fixes, the real-row scorecard rules, the exit-code / answer-line contract, then the **2026-10-09 overnight robustness run** (below). **Not yet re-run in ACFC** |
 | `acfc/harness-exit3` | **9cba013** on origin; local **a6b8002** (the `band[n]` key form, NOT pushed — Soham pushes it with the Genie-side regex change) | docs only | `docs/acfc/HARNESS_EXIT_CODES.md` — the ACFC harness's (codegen-watch / pull_and_run, NOT in this repo) exit-code + answer-line contract. **Genie implements the harness from this doc**; ACFC-side commits land here too (517919c was theirs) — `git fetch` and fast-forward before editing (edit in a scratch worktree, never switch this checkout) |
 | `feature/iig-first` | **be38f05** | 0.5.8.post13 | the stable demo branch `codegen-watch` pulls — **do NOT merge `feature/multi-table` into it until after the Friday 2026-10-09 session, and only on Soham's word**. Its notes (next section) still apply |
 | `backup/ddl-only` | **4acec93** | 0.5.8.post5+ddl2 | DDL-only demo fallback (next section) |
@@ -43,6 +43,10 @@ Robustness to unseen documents, four chunks + an addendum, all local:
   CLI's first line / `codegen doctor` name the active profile + template.
 - Every chunk independently reviewed; every verified finding fixed (one commit
   each). Decisions left for Soham: the report's "Decisions for you" (1–5).
+- **Elimination (owner rule, 5cbaf63):** source by elimination ONLY for the one
+  band left over, with no evidence, LEFT of both evidenced target bands, while
+  source is unclaimed — a layout `NOTE <sheet>/band[n]/layer … layer by
+  elimination`; any other leftover stays `UNRESOLVED`; never trusted from cache.
 
 Working tree clean after the overnight report commit. Before tonight: the last four commits
 before it are Soham's own from the ACFC side (2026-10-08 17:16–18:12 UTC):

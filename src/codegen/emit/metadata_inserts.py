@@ -185,10 +185,17 @@ def table_name(sheet: str, config: Config) -> tuple[str, str | None]:
 
 def _table_name_lines(sheet: str, config: Config) -> list[str]:
     """The block's table-name comment: a confirmed name that is not the
-    sheet's own says so; an unconfirmed one is marked ``-- unconfirmed``."""
+    sheet's own says so; an unconfirmed one is marked ``-- unconfirmed`` and
+    worded by where the name came from — the IIG sheet name, or the
+    ``framework.tables`` override (which is config, not a confirmation)."""
     name, citation = table_name(sheet, config)
     if citation is None:
-        return [f"-- unconfirmed: target table {_table(config.dml.schema, name)} = the IIG "
+        target = _table(config.dml.schema, name)
+        if sheet in config.framework.tables:
+            return [f"-- unconfirmed: target table {target} = framework.tables[{sheet}] "
+                    f"(config); not confirmed as the framework's table name "
+                    f"({FRIDAY_TABLE_NAMES}; dml.table_names)"]
+        return [f"-- unconfirmed: target table {target} = the IIG "
                 f"sheet name; a tab name (Excel cuts it at 31 characters) is not the "
                 f"framework's table name until confirmed ({FRIDAY_TABLE_NAMES}; "
                 f"dml.table_names)"]

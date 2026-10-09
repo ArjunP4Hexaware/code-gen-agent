@@ -445,6 +445,31 @@ def test_insert_targets_are_the_confirmed_names_else_the_sheet_marked_unconfirme
     assert text.count("-- unconfirmed: target table ") == len(unconfirmed)
 
 
+def test_an_unconfirmed_name_from_framework_tables_says_so_not_the_sheet_name(
+        pair4_config, pair4_spec, pair4_payload):
+    """The unconfirmed comment names where the table name came from: a
+    framework.tables override is config, not the IIG sheet name and not a
+    confirmation (review D3). A confirmed name wins over the override."""
+    framework = pair4_config.framework.model_copy(update={"tables": {
+        "DATA_QUALITY_RULES": "dq_rule_details", STGDELTA: "never_used"}})
+    config = pair4_config.model_copy(update={"framework": framework})
+    text, _counts = _render(config, pair4_spec, pair4_payload)
+    lines = text.splitlines()
+    start = lines.index(next(ln for ln in lines if ln.startswith("-- DATA_QUALITY_RULES: ")))
+    assert lines[start + 1] == (
+        "-- unconfirmed: target table [dbo].[dq_rule_details] = "
+        "framework.tables[DATA_QUALITY_RULES] (config); not confirmed as the framework's table "
+        "name (Friday checklist 12; dml.table_names)")
+    assert "INSERT INTO [dbo].[dq_rule_details] (" in text
+    assert "[dbo].[DATA_QUALITY_RULES]" not in text
+    # the sheets without an override keep the sheet-name wording
+    assert ("-- unconfirmed: target table [dbo].[DATABRICKS_NOTEBOOK_DETAILS] = the IIG sheet "
+            "name;") in text
+    # dml.table_names (confirmed) wins over framework.tables
+    assert "[dbo].[never_used]" not in text
+    assert "INSERT INTO [dbo].[stg_delta_stddelta_ingestion_details] (" in text
+
+
 # -- the CREATE reference text, one block per table ------------------------------------ #
 
 

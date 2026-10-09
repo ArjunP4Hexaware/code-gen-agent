@@ -31,6 +31,7 @@ from ui.backend.docindex import (
     DocumentIndex,
     fetch_exclusive,
 )
+from ui.backend.errors import error_detail
 from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
 
 # State files under the default (local) state role — module constants so tests
@@ -101,6 +102,99 @@ def feeds_left_without_a_file(questions, contract) -> list[tuple[int, object]]:
     return out
 
 
+class RunNeedsAnswers(Exception):  # noqa: N818 — a run outcome, not an error
+    """Every feed of the run is held back (NEEDS_ANSWERS / left without a
+    file): the run ends in state ``needs_answers`` with ``needs_answers`` as
+    the list to answer — never a generic failure."""
+
+
+def _empty_answers() -> dict:
+    return {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+
+
+def merge_answers(base: dict | None, extra: dict | None) -> dict:
+    """Answers payloads merged per document; ``extra`` wins per key."""
+    return {doc: {**((base or {}).get(doc) or {}), **((extra or {}).get(doc) or {})}
+            for doc in _empty_answers()}
+
+
+def _answer_as(question: dict) -> str:
+    """How an answer to ``question`` is posted: ``gap`` (gaps: {value, layer?}),
+    ``band_layer`` (sttm: a layer string), ``frd_cell`` (frd: a table cell
+    claim) or ``column`` (sttm / vdd: a column number)."""
+    from codegen.layout.profile import is_band_layer_key
+
+    if (question.get("kind") or "role") != "role":
+        return "gap"
+    if is_band_layer_key(str(question.get("key"))):
+        return "band_layer"
+    return "frd_cell" if question.get("document") == "frd" else "column"
+
+
+def needs_answer_item(question: dict, *, feed_name: str | None = None,
+                      sheet: str | None = None, reason: str | None = None) -> dict:
+    """One entry of ``status.needs_answers``: the answers-file key, its label
+    as the CLI prints it (QUESTION under gaps:, UNRESOLVED under answers:),
+    how the answer is posted, the held-back feed and the question itself (the
+    layout dialog's shape, so the page renders it with the same controls)."""
+    answer_as = _answer_as(question)
+    section = "gaps" if answer_as == "gap" else "answers"
+    return {"key": question["key"], "label": "QUESTION" if section == "gaps" else "UNRESOLVED",
+            "section": section, "answer_as": answer_as, "feed_name": feed_name,
+            "sheet": sheet if sheet is not None else question.get("sheet"),
+            "reason": reason or question.get("reason") or "", "question": question}
+
+
+def pending_question(pending, key: str, config) -> dict:
+    """The question for a held-back key no layout question carries: a band
+    layer (source | stage | standard) or a value no document states (text,
+    typed by the person — the agent never guesses a target)."""
+    from codegen.layout.hints import frd_field_help
+    from codegen.layout.profile import BAND_LAYER_KEY_RE
+    from codegen.layout.resolve import LayoutQuestion, band_layer_question
+
+    band = BAND_LAYER_KEY_RE.match(key)
+    if band is not None:
+        return band_layer_question("sttm", band.group("sheet"), f"band[{band.group('n')}]",
+                                   pending.reason).as_dict()
+    title = frd_field_help(key, [], config)[0]
+    return LayoutQuestion(
+        document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
+        title=title,
+        hint=("No document states this value. Type it as the source team confirms it — it "
+              "is used with source = you and gate-flagged; the agent never guesses a "
+              "target. Several tables: separate them with ';'.")).as_dict()
+
+
+def layout_feed_key(key: str, run_feeds: list, layout_feeds: list) -> str:
+    """A held-back key as the LAYOUT stage numbers the feeds. The extractor
+    reads the run's FRD contract, which leaves out the feeds set aside without
+    a file — its ``feeds[j]`` is the layout contract's ``feeds[i]`` of the
+    same feed name (the index a ``gaps:`` answer is applied by)."""
+    match = re.match(r"^feeds\[(\d+)\]\.(.+)$", key)
+    if match is None or run_feeds is layout_feeds:
+        return key
+    index = int(match.group(1))
+    if index >= len(run_feeds):
+        return key
+    name = run_feeds[index].feed_name
+    for i, feed in enumerate(layout_feeds):
+        if feed.feed_name == name:
+            return f"feeds[{i}].{match.group(2)}"
+    return key
+
+
+def _dedup_items(items: list[dict]) -> list[dict]:
+    """One entry per key, the first kept (it carries the held-back feed)."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in items:
+        if item["key"] not in seen:
+            seen.add(item["key"])
+            out.append(item)
+    return out
+
+
 class DemoRunner:
     """One live run at a time; stage list is append-only per run."""
 
@@ -128,7 +222,28 @@ class DemoRunner:
         # feed and a line in run_meta.json.
         self.run_notes: list[str] = []
         self._lock = threading.Lock()
-        self.state: str = "idle"  # idle | running | needs_layout | done | failed
+        # idle | running | needs_layout | done | failed | needs_answers (every
+        # feed held back: ``needs_answers`` is the list, answered inline and
+        # re-run — never a generic failure).
+        self.state: str = "idle"
+        # What the last run's held-back feeds need — [needs_answer_item(...)]:
+        # with state needs_answers (all held), done (some) or failed (the
+        # questions left open at "Proceed with unresolved"). Answered through
+        # ``rerun_with_answers``; cleared when the next run starts.
+        self.needs_answers: list[dict] = []
+        # The readable form of the error that ended the last run (errors.py):
+        # type, message, the traceback's innermost frame, the health line.
+        self.error_detail: dict | None = None
+        # Answers carried INTO the next run's layout resolution (one shot) and
+        # the answers the last run's layout used, so a re-run never re-asks
+        # what the dialog already answered.
+        self._seed_answers: dict | None = None
+        self.last_answers: dict = _empty_answers()
+        # (sttm, frd) the last run read — a re-run with answers is refused
+        # once the documents changed (its keys name THOSE documents' sheets).
+        self._run_inputs: tuple | None = None
+        self._run_items: list[dict] = []
+        self._open_owed: list[dict] = []
         # M2.5 layout resolution: while a run waits for the human to place
         # unresolved roles, ``layout_questions`` holds the question list
         # (grouped by document in the UI) and ``_layout_answers`` the reply.
@@ -1390,8 +1505,19 @@ class DemoRunner:
             "state": self.state,
             "stages": list(self.stages),
             "error": self.error,
+            # The readable form of that error: {type, message, where, cause,
+            # health, health_line} (ui/backend/errors.py); None when no run failed.
+            "error_detail": self.error_detail,
             "last_run_label": self.last_run_label,
             "set_aside": list(self.set_aside),
+            # What the last run's held-back feeds need, answered inline and
+            # re-run (POST /api/demo/rerun-with-answers): [{key, label, section,
+            # answer_as, feed_name, sheet, reason, question}] — and which
+            # documents those keys belong to.
+            "needs_answers": list(self.needs_answers),
+            "needs_answers_inputs": ({"sttm": Path(self._run_inputs[0]).name,
+                                      "frd": Path(self._run_inputs[1]).name}
+                                     if self.needs_answers and self._run_inputs else None),
             "layout_questions": list(self.layout_questions),
             "layout_report": self.layout_report,
             "layout_advice": self.layout_advice,
@@ -1459,6 +1585,35 @@ class DemoRunner:
                                 "refresh": refresh}
         self._layout_event.set()
 
+    def _current_inputs(self) -> tuple:
+        """(STTM, FRD) — what the held-back keys name. The VDD is left out: a
+        dictionary paired after the run (the index reaching it) changes no key."""
+        return (str(self.effective_workbook()), str(self.effective_frd()))
+
+    def rerun_with_answers(self, answers: dict | None) -> None:
+        """Start a run of the SAME documents with the answers the last run's
+        held-back feeds need (given inline on the Generate page) on top of the
+        answers that run's layout dialog received. Band layers / roles go to
+        the STTM answers, gaps keys to the gaps answers — the shapes
+        ``parse_answers`` validates (ValueError = HTTP 400). Refused while a
+        run is in progress and once the documents changed."""
+        from codegen.layout.resolve import parse_answers
+
+        parsed = parse_answers(answers or {})
+        with self._lock:
+            if self.state in ("running", "needs_layout"):
+                raise LiveRunInProgress("a live run is in progress — answer in its dialog, or "
+                                        "wait for it to finish")
+        if self._run_inputs is not None and self._current_inputs() != self._run_inputs:
+            raise ValueError("the documents changed since that run — its questions name the "
+                             "sheets of the documents it read; Generate afresh instead")
+        self._seed_answers = merge_answers(self.last_answers, parsed)
+        try:
+            self.start_live()
+        except Exception:
+            self._seed_answers = None
+            raise
+
     def set_layout_refresh(self, enabled: bool) -> None:
         """Arm / disarm "re-resolve layout" for the NEXT run (one shot)."""
         if self.state in ("running", "needs_layout"):
@@ -1478,7 +1633,14 @@ class DemoRunner:
         provider = build_layout_provider(config, dry_run=False, base_dir=REPO_ROOT)
         self._layout_providers.append(provider)
         runtime_cache = ui_stores.layout_cache_dir(config)
-        answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+        # A re-run with answers (rerun_with_answers) starts from them — one shot.
+        seed, self._seed_answers = self._seed_answers, None
+        answers: dict = merge_answers(_empty_answers(), seed)
+        if seed:
+            self._stage("answers carried", f"{sum(len(v) for v in answers.values())} answer(s) "
+                                           "from the Answers-needed list and the last run's "
+                                           "layout dialog")
+        self._open_owed = []
         refresh, self.layout_refresh = self.layout_refresh, False        # one shot
         while True:
             if refresh:
@@ -1490,6 +1652,7 @@ class DemoRunner:
             refresh = False
             self.layout_report = result.report()
             self.layout_fills = list(result.gap_fills)
+            self.last_answers = merge_answers(_empty_answers(), answers)
             if not result.questions:
                 ui_stores.push_layout_cache(config)
                 return result
@@ -1512,11 +1675,8 @@ class DemoRunner:
                 answers = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
                 refresh = True
                 continue
-            merged = parse_answers(reply.get("answers") or {})
-            answers = {"sttm": {**answers["sttm"], **merged["sttm"]},
-                       "frd": {**answers["frd"], **merged["frd"]},
-                       "vdd": {**answers.get("vdd", {}), **merged.get("vdd", {})},
-                       "gaps": {**answers.get("gaps", {}), **merged.get("gaps", {})}}
+            answers = merge_answers(answers, parse_answers(reply.get("answers") or {}))
+            self.last_answers = merge_answers(_empty_answers(), answers)
             if reply.get("proceed"):
                 result = resolve_pair(workbook_path, frd_path, config, provider=provider,
                                       answers=answers, runtime_cache_dir=runtime_cache,
@@ -1524,7 +1684,18 @@ class DemoRunner:
                 self.layout_report = result.report()
                 self.layout_fills = list(result.gap_fills)
                 ui_stores.push_layout_cache(config)
+                self._open_owed = self._owed_open_questions(result)
                 return result
+
+    def _owed_open_questions(self, result) -> list[dict]:
+        """The questions "Proceed with unresolved" left open that the run
+        cannot complete a feed without (the CLI's QUESTION / UNRESOLVED lines,
+        ``codegen.cli._owed_key``) — listed for a re-run when the run then
+        holds every feed back or fails."""
+        from codegen.cli import _owed_key
+
+        return [needs_answer_item(q.as_dict()) for q in result.questions
+                if _owed_key(q.document, q.key, q.kind, result.frd_contract)]
 
     def start_live(self) -> None:
         if self.output_parts == []:
@@ -1548,13 +1719,17 @@ class DemoRunner:
             raise ValueError(f"{self.selection_error['message']} — choose the STTM again (or "
                              "Clear it) before generating")
         with self._lock:
-            if self.state == "running":
+            # needs_layout: a run is paused on its dialog — still in progress.
+            if self.state in ("running", "needs_layout"):
                 raise LiveRunInProgress("a live demo run is already in progress")
             if self._clearing:
                 raise LiveRunInProgress("past runs are being cleared — generate when it finishes")
             self.state = "running"
             self.stages = []
             self.error = None
+            self.error_detail = None
+            self.needs_answers = []
+            self.set_aside = []
             self.model_usage = []
             self._layout_providers = []
         thread = threading.Thread(target=self._run, name="live-demo-run", daemon=True)
@@ -1633,13 +1808,24 @@ class DemoRunner:
             self._stage("VDD not decided at run start", note + " — running without a VDD")
 
     def _run(self) -> None:
+        self._run_items = []
+        self._open_owed = []
         try:
             self._await_pairing()
             self._note_undecided_vdd()
             self._work()
+            # Some feeds held back: the run is done, the list says what they need.
+            self.needs_answers = _dedup_items(self._run_items)
             self.state = "done"
+        except RunNeedsAnswers:
+            # EVERY feed held back: not a failure — the list is the outcome.
+            self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
+            self.state = "needs_answers"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
             self.error = f"{type(exc).__name__}: {exc}"
+            self.error_detail = error_detail(exc)
+            # The questions left open (Proceed with unresolved) stay answerable.
+            self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "failed"
         finally:
             # M15d.3: a VDD re-scored while the run was in progress lands now —
@@ -1799,6 +1985,8 @@ class DemoRunner:
         self._ask_pairing()
         frd_path = self.effective_frd()
         frd_label = self.selected_frd_label or frd_path.name
+        # The documents this run reads: a re-run with answers must read the same.
+        self._run_inputs = self._current_inputs()
         # Self-contained run directory: copy the FRD the run actually used
         # (content-identical => provenance hashes unchanged) and record run
         # metadata, so a past run reloads with ITS pair — never the pinned
@@ -1828,22 +2016,36 @@ class DemoRunner:
         set_aside = feeds_left_without_a_file(resolution.questions, resolution.frd_contract)
         pre_failures: list[FailedRun] = []
         skip_tables: set[str] = set()
+        # The layout contract's feeds (a gaps: answer is keyed by THEIR index)
+        # and the questions still open, by key — what a held-back feed needs.
+        layout_feeds = list(resolution.frd_contract.feeds) if resolution.frd_contract else []
+        open_questions = {q.key: q.as_dict() for q in resolution.questions}
         if set_aside:
             kept = [f for i, f in enumerate(resolution.frd_contract.feeds)
                     if i not in {i for i, _f in set_aside}]
-            for _i, feed in set_aside:
+            for index, feed in set_aside:
                 skip_tables.update(feed.stage_target.tables)
                 pre_failures.append(FailedRun(
                     label=feed.feed_name,
                     error=(f"skipped: no document names the file that feeds stage table(s) "
                            f"{feed.stage_target.tables} and the question 'File for table "
-                           f"{feed.feed_name}' was left unanswered. Re-run and answer it, or "
-                           "add the file name to the FRD — the agent never guesses a file."),
+                           f"{feed.feed_name}' was left unanswered. Answer it under 'Answers "
+                           "needed' on the Generate page and re-run, or add the file name to "
+                           "the FRD — the agent never guesses a file."),
                 ))
+                key = f"feeds[{index}].file_name_patterns"
+                if key in open_questions:
+                    self._run_items.append(needs_answer_item(open_questions[key],
+                                                             feed_name=feed.feed_name))
             resolution.frd_contract = resolution.frd_contract.model_copy(update={"feeds": kept})
             self._stage("feeds set aside",
                         f"{len(set_aside)} feed(s) without a file: "
                         + ", ".join(f.feed_name for _i, f in set_aside))
+            if not kept:
+                self.set_aside = [f.model_dump() for f in pre_failures]
+                self._stage("needs answers", f"every feed is held back — {len(set_aside)} "
+                                             "file question(s) left unanswered")
+                raise RunNeedsAnswers("every feed was set aside without a file")
         if frd_is_docx or resolution.gap_fills or set_aside:
             self._stage("extracting FRD" if frd_is_docx else "filling FRD gaps",
                         f"{frd_path.name} → FRD feed contract"
@@ -1885,6 +2087,28 @@ class DemoRunner:
         self._stage("extracting workbook",
                     f"{workbook_path.name} → STTM mapping contract (FRD: {frd_label})")
         from codegen.extract import NeedsAnswersError
+        from codegen.extract.generic import answers_section
+
+        run_feeds = list(resolution.frd_contract.feeds) if resolution.frd_contract else []
+        if not set_aside:
+            run_feeds = layout_feeds              # the same contract: keys need no mapping
+
+        def hold_back(pending_list) -> None:
+            """A feed no document completes is held back (NEEDS_ANSWERS) with
+            the key that unblocks it — listed for an inline answer + re-run."""
+            for pending in pending_list:
+                key = layout_feed_key(pending.key, run_feeds, layout_feeds)
+                section = answers_section(key)
+                pre_failures.append(FailedRun(
+                    label=pending.feed_name,
+                    error=(f"NEEDS_ANSWERS: {key} — {pending.reason} (sheet {pending.sheet}). "
+                           "Answer it under 'Answers needed' on the Generate page and re-run "
+                           f"(answers file: under `{section}:`) — the agent never guesses."),
+                ))
+                question = open_questions.get(key) or pending_question(pending, key, config)
+                self._run_items.append(needs_answer_item(
+                    question, feed_name=pending.feed_name, sheet=pending.sheet,
+                    reason=pending.reason))
 
         try:
             contract = extract_to_file(
@@ -1894,20 +2118,20 @@ class DemoRunner:
                 # M9.2: the dialog's byte-width answers ride on the fields.
                 width_answers=getattr(resolution, "width_answers", None) or None)
         except NeedsAnswersError as exc:
-            raise RuntimeError(f"live run produced no feeds — {exc}") from exc
+            # EVERY sheet is held back: the run ends as needs-answers with the
+            # list — never "live run produced no feeds".
+            hold_back(exc.pending)
+            self.set_aside = [f.model_dump() for f in pre_failures]
+            self._stage("needs answers", f"every feed is held back — {len(exc.pending)} "
+                                         "answer(s) needed: "
+                                         + ", ".join(p.key for p in exc.pending))
+            raise RunNeedsAnswers(str(exc)) from exc
         except Exception as exc:
             self._attach_pairing_hint(exc, workbook_path, frd_label)
             raise
         # A feed whose targets no document states is held back (NEEDS_ANSWERS)
         # with the answers-file key; the others run.
-        for pending in contract.needs_answers:
-            pre_failures.append(FailedRun(
-                label=pending.feed_name,
-                error=(f"NEEDS_ANSWERS: no document states {pending.key} (sheet "
-                       f"{pending.sheet}: {pending.reason}). Answer `{pending.key}` under "
-                       "`gaps:` in the answers file and re-run — the agent never guesses a "
-                       "target."),
-            ))
+        hold_back(contract.needs_answers)
         if contract.needs_answers:
             self._stage("feeds set aside",
                         f"{len(contract.needs_answers)} answer(s) needed: "
@@ -1941,6 +2165,12 @@ class DemoRunner:
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
         if not runs:
+            if pre_failures and len(failures) == len(pre_failures):
+                # Every feed is held back or set aside — answers, not a failure.
+                self.set_aside = [f.model_dump() for f in pre_failures]
+                self._stage("needs answers", f"every feed is held back — {len(pre_failures)} "
+                                             "feed(s) wait for an answer")
+                raise RunNeedsAnswers("every feed is held back")
             details = "; ".join(f"{f.label}: {f.error}" for f in failures) or "no feeds resolved"
             raise RuntimeError(f"live run produced no feeds — {details}")
 

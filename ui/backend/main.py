@@ -19,8 +19,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -37,6 +38,7 @@ from codegen.metadata_sheet import (
 )
 from codegen.storage import StorageError
 from ui.backend import databricks_routes, sharepoint_routes
+from ui.backend import errors as ui_errors
 from ui.backend.demo import (
     DemoRunner,
     LiveRunInProgress,
@@ -119,6 +121,15 @@ except Exception as exc:  # noqa: BLE001 — surfaced via /api/feeds, never hidd
     startup_error = f"{type(exc).__name__}: {exc} [{CODEGEN_SOURCE}]"
 
 
+def _health_facts() -> dict:
+    """What this process runs with — the static part of GET /api/health and
+    the health line of every error card (ui/backend/errors.py)."""
+    return {"version": _app_version(), "codegen_source": CODEGEN_SOURCE,
+            "config_overlays": _config_overlays(), "startup_error": startup_error}
+
+
+ui_errors.set_health_provider(_health_facts)
+
 runner: DemoRunner | None = DemoRunner(store) if store is not None else None
 
 
@@ -153,6 +164,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CodeGen / Data Engineer Agent — demo UI", lifespan=lifespan)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
+    """Any exception a route did not turn into an HTTP status: JSON the error
+    card renders (type + message, the traceback's innermost frame, the health
+    line), never Starlette's plain-text 500. ``detail`` keeps the one-string
+    form every other error response has. The exception is still logged in full
+    (Starlette re-raises it to the server after this response is sent)."""
+    detail = ui_errors.error_detail(exc)
+    return JSONResponse(status_code=500, content={
+        "detail": f"{detail['type']}: {detail['message']}",
+        "error": {**detail, "request": f"{request.method} {request.url.path}"},
+    })
 
 # SharePoint picker + confirm-gated publish. Registered before the "/" static
 # mount below (which would otherwise swallow these paths) and bound to the
@@ -225,13 +250,22 @@ def health() -> dict:
     from ui.backend.health import probe_roots
 
     factory = default_client_factory(store.config) if store is not None else None
+    facts = _health_facts()
     return {"status": "ok" if store is not None else "degraded",
-            "version": _app_version(),
-            "codegen_source": CODEGEN_SOURCE,
+            "version": facts["version"],
+            "codegen_source": facts["codegen_source"],
             "codegen_file": codegen.__file__,
-            "config_overlays": _config_overlays(),
-            "startup_error": startup_error,
+            "config_overlays": facts["config_overlays"],
+            "startup_error": facts["startup_error"],
             **probe_roots(REPO_ROOT, client_factory=factory)}
+
+
+@app.get("/api/health/facts")
+def health_facts() -> dict:
+    """The static half of /api/health — no storage probe, answers at once —
+    plus the one-line form the error cards print."""
+    facts = _health_facts()
+    return {**facts, "health_line": ui_errors.health_line(facts)}
 
 
 @app.get("/api/feeds")
@@ -486,6 +520,37 @@ def layout_answers(req: LayoutAnswersRequest) -> dict:
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
     return runner.status()
+
+
+class RerunRequest(BaseModel):
+    answers: dict = {}
+    confirm: bool = False
+
+
+@app.post("/api/demo/rerun-with-answers")
+def rerun_with_answers(req: RerunRequest) -> dict:
+    """Re-run the last run's documents with the answers its held-back feeds
+    need (``status.needs_answers``), given inline on the Generate page — the
+    same payload shape as layout-answers: ``{"sttm": {"<sheet>/band[n]/layer":
+    "stage", "<sheet>/<layer>/<role>": col}, "frd": {…}, "vdd": {…},
+    "gaps": {"<key>": {value, layer?, source?}}}``. The answers the last run's
+    layout dialog received are carried too. Confirm-gated like run-live (a
+    live run); 400 on a malformed answer or changed documents, 409 while a
+    run is in progress."""
+    if not req.confirm:
+        raise HTTPException(400, "a re-run requires explicit confirm: true (billed API calls)")
+    available, reason = _live_ready()
+    if not available:
+        raise HTTPException(400, f"live run unavailable: {reason}")
+    _require_store()
+    runner = _require_runner()
+    try:
+        runner.rerun_with_answers(req.answers)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return demo_status()
 
 
 class LayoutRefreshRequest(BaseModel):

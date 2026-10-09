@@ -386,6 +386,23 @@ def _header_strip(ws, header_row: int) -> list[str]:
             if text(c) is not None]
 
 
+def band_layer_question(document: str, sheet: str, layer: str, reason: str,
+                        header: list[str] | None = None) -> LayoutQuestion:
+    """Chunk A: the question for a band nothing names — answered with a LAYER
+    (source | stage | standard), never a column. Also what the App lists for
+    a feed held back on ``<sheet>/band[<n>]/layer`` (ui/backend/demo.py)."""
+    return LayoutQuestion(
+        document=document, sheet=sheet, layer=layer, role=BAND_LAYER_ROLE,
+        reason=reason, header=list(header or []),
+        candidates=[{"value": choice, "label": choice} for choice in BAND_LAYER_CHOICES],
+        title=f"Which layer is {layer} of sheet {sheet!r}?",
+        hint=("These columns are shaped like a target band (schema / table / column / "
+              "data type) but nothing in the document names their layer: no band "
+              "title over them, no layer word in their headers, no catalog or schema "
+              "value that says stage or standard. Column order is not evidence. "
+              "Answer source, stage or standard; the sheet's feed waits for it."))
+
+
 def _questions_for(profile: LayoutProfile, workbook,
                    document: str = "sttm") -> list[LayoutQuestion]:
     questions: list[LayoutQuestion] = []
@@ -398,16 +415,9 @@ def _questions_for(profile: LayoutProfile, workbook,
                                    values_only=True))
         if BAND_REF_RE.match(str(item.layer)) and item.role == BAND_LAYER_ROLE:
             # Chunk A: a band nothing names - answered with a LAYER, not a column.
-            questions.append(LayoutQuestion(
-                document=document, sheet=item.sheet, layer=item.layer, role=item.role,
-                reason=item.reason, header=_header_strip(ws, sheet.header_row),
-                candidates=[{"value": layer, "label": layer} for layer in BAND_LAYER_CHOICES],
-                title=f"Which layer is {item.layer} of sheet {item.sheet!r}?",
-                hint=("These columns are shaped like a target band (schema / table / column / "
-                      "data type) but nothing in the document names their layer: no band "
-                      "title over them, no layer word in their headers, no catalog or schema "
-                      "value that says stage or standard. Column order is not evidence. "
-                      "Answer source, stage or standard; the sheet's feed waits for it.")))
+            questions.append(band_layer_question(document, item.sheet, str(item.layer),
+                                                 item.reason,
+                                                 _header_strip(ws, sheet.header_row)))
             continue
         band = sheet.band(item.layer)  # type: ignore[arg-type]
         claimed = set(band.roles.values()) if band else set()
@@ -2137,6 +2147,7 @@ __all__ = [
     "DocumentResolution",
     "LayoutQuestion",
     "PairResolution",
+    "band_layer_question",
     "cross_check",
     "discovery_for",
     "parse_answers",

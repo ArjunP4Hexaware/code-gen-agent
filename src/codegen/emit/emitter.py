@@ -83,20 +83,32 @@ def _environment() -> Environment:
     return env
 
 
-def _check_gaps(context: dict[str, Any]) -> None:
-    unknown_audit = [
-        name for name, _dtype in context["audit_columns"] if name not in _KNOWN_AUDIT_COLUMNS
-    ]
-    if unknown_audit:
+def unknown_audit_columns(audit_columns) -> list[str]:
+    """Audit columns (``(name, type)`` pairs or AuditColumn models) no
+    pipeline template knows how to populate."""
+    names = [a[0] if isinstance(a, tuple) else a.column for a in audit_columns]
+    return [name for name in names if name not in _KNOWN_AUDIT_COLUMNS]
+
+
+def _check_gaps(context: dict[str, Any], framework_only: bool = False) -> None:
+    unknown_audit = unknown_audit_columns(context["audit_columns"])
+    if unknown_audit and not framework_only:
         raise TemplateGapError(
             f"no template populates audit column(s) {unknown_audit}; "
-            f"known: {sorted(_KNOWN_AUDIT_COLUMNS)}"
+            f"known: {sorted(_KNOWN_AUDIT_COLUMNS)} \u2014 the notebook pipeline cannot write "
+            "them; generate --output-mode framework (the framework populates audit columns) "
+            "or rename them in the STTM to a known audit column"
         )
 
 
-def emit_feed(context: dict[str, Any], output_root: Path) -> list[Path]:
-    """Render every applicable template; returns the written paths."""
-    _check_gaps(context)
+def emit_feed(context: dict[str, Any], output_root: Path,
+              framework_only: bool = False) -> list[Path]:
+    """Render every applicable template; returns the written paths.
+    ``framework_only`` (Chunk B): the render is the scratch tree of a
+    framework-mode run (only ddl/ is kept): an audit column no pipeline
+    template populates is carried by the DDL / IIG as the STTM names it (the
+    framework populates audit columns) instead of stopping the run."""
+    _check_gaps(context, framework_only)
     env = _environment()
     feed_dir = output_root / context["feed"]["slug"]
 

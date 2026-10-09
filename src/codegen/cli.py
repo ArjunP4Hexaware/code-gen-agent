@@ -224,7 +224,7 @@ def _emit_framework_only(context, spec, config, feed_dir, skip_tests):
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
-        emit_feed(context, tmp_root)
+        emit_feed(context, tmp_root, framework_only=True)
         tmp_feed_dir = tmp_root / spec.feed_slug
         checks = run_preflight(tmp_feed_dir, config)
         tests_skipped = skip_tests or not config.gate.run_generated_tests
@@ -246,7 +246,7 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
     if base_dir is not None:
         contracts_dir = base_dir / contracts_dir
     frd_path = contracts_dir / spec.frd_contract_name
-    return emit_framework(
+    artefacts = emit_framework(
         spec, faq, ddl_sources, config, out_root,
         base_dir=base_dir,
         frd_path=frd_path if frd_path.is_file() else None,
@@ -256,6 +256,17 @@ def _run_emit_framework(spec, faq, ddl_sources, config, out_root, outcomes,
         conventions_profile=conventions_profile,
         iig_template=iig_template,
     )
+    from codegen.emit.emitter import unknown_audit_columns
+
+    unknown = unknown_audit_columns(spec.audit_columns)
+    if unknown:
+        # Chunk B (cold drill): carried as the STTM names them; the framework,
+        # not the generated notebook pipeline, populates audit columns.
+        artefacts.flags.append(
+            f"audit_column_framework_populated:{','.join(unknown)} \u2014 the STTM's audit "
+            "rows name them; the DDL / IIG carry them as named, no notebook-pipeline "
+            "template populates them (the framework does; notebook mode stops on them)")
+    return artefacts
 
 
 # A feed held back because no document states one of its targets (the
@@ -419,12 +430,17 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             raise FileNotFoundError(f"workbook not found: {workbook_path}")
         layout = None
         width_answers = None
+        audit_answers = None
         if getattr(args, "answers", None):
             # M9.2: feeds[i].fields[<name>].width answers (gaps) ride on the fields.
+            from codegen.extract.generic import parse_audit_answers
             from codegen.layout.answers import load_answers
             from codegen.resolve.widths import parse_width_answers
 
-            width_answers = parse_width_answers(load_answers(Path(args.answers)).gaps)
+            gaps = load_answers(Path(args.answers)).gaps
+            width_answers = parse_width_answers(gaps)
+            # Chunk B: feeds[i].audit_columns for a sheet the STTM gives no audit row.
+            audit_answers = parse_audit_answers(gaps)
         if getattr(args, "layout", None):
             from codegen.layout.profile import LayoutProfile
 
@@ -442,6 +458,7 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             layout=layout,
             require_complete=bool(getattr(args, "require_complete", False)),
             width_answers=width_answers,
+            audit_answers=audit_answers,
         )
     except NeedsAnswersError as exc:
         # NO feed produced a usable contract: nothing written, exit 3.
@@ -495,35 +512,73 @@ def _outputs_through_storage(config: Config):
     return scoped, push
 
 
+def _answer_notes(notes: list[str], seen: set[str], gaps: bool = True,
+                  profile=None) -> list[str]:
+    """The answers-file notes worth printing after the last pass: a "matches
+    no open question" note is dropped for a key that WAS open in an earlier
+    pass (the answer applied there), and for a band layer the final
+    ``profile`` shows applied (a band of that sheet carries evidence
+    "answer" - e.g. read back from the runtime cache the layout stage
+    wrote); ``gaps=False`` drops every gaps: note (another stage consumes
+    them)."""
+    from codegen.layout.profile import BAND_LAYER_KEY_RE
+
+    answered_sheets = {s.name for s in (profile.sheets if profile is not None else [])
+                       if any(b.layer_evidence == "answer" for b in s.bands)}
+    kept = []
+    for note in notes:
+        if not gaps and note.startswith("gaps["):
+            continue
+        if "matches no open question" in note and any(
+                f"['{k}']" in note or f"({k})" in note for k in seen):
+            continue
+        key = note[note.find("(") + 1:note.find(")")] if "(" in note else ""
+        band = BAND_LAYER_KEY_RE.match(key)
+        if band is not None and band.group("sheet") in answered_sheets:
+            continue
+        kept.append(note)
+    return kept
+
+
+# Passes an answers file is applied over (Chunk B): a band layer, then its
+# columns, then the questions those open (the file for a table) - each pass
+# can open the next question only once.
+ANSWER_ROUNDS = 4
+
+
 def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
     """The workbook's layout profile with the answers file applied — cache and
     synonyms first, then the file's placements (source=user); never a model."""
-    from codegen.layout.answers import apply_answers, band_layer_answers, load_answers
+    from codegen.layout.answers import apply_answers, load_answers
     from codegen.layout.resolve import resolve_workbook
     from codegen.storage import runtime_layout_cache
 
     runtime_cache, push_cache = runtime_layout_cache(config, Path("."))
     doc, _wb = resolve_workbook(workbook, config, provider=None,
                                 runtime_cache_dir=runtime_cache)
-    loaded = load_answers(answers_path)
-    bands = band_layer_answers(loaded, {"sttm": workbook.name})
-    if bands:
-        # Chunk A: band layers first — a column entry for a band that exists
-        # only once its layer is answered then finds that band.
-        doc, _wb = resolve_workbook(workbook, config, provider=None,
-                                    runtime_cache_dir=runtime_cache, answers=bands, prior=doc)
     # M9.1: an answer may set any role, open or not — the file is applied even
     # when nothing is open (it then overrides a synonym / cached placement).
-    answers, notes = apply_answers(loaded, doc.questions,
-                                   {"sttm": workbook.name},
-                                   documents={"sttm": (doc.profile, _wb)})
-    for note in notes:
-        print(f"{'NOTE':<15} {note}")
-    if answers["sttm"]:
+    # Chunk B: re-applied while an answer opens the next question (a band's
+    # layer, then its columns).
+    answers_file = load_answers(answers_path)
+    placed: dict = {}
+    notes: list[str] = []
+    seen: set[str] = set()
+    for _round in range(ANSWER_ROUNDS):
+        seen |= {q.key for q in doc.questions}
+        found, notes = apply_answers(answers_file, doc.questions, {"sttm": workbook.name},
+                                     documents={"sttm": (doc.profile, _wb)})
+        merged = {**placed, **found["sttm"]}
+        if merged == placed:
+            break
+        placed = merged
         doc, _wb = resolve_workbook(workbook, config, provider=None,
-                                    runtime_cache_dir=runtime_cache,
-                                    answers=answers["sttm"], prior=doc)
-        print(f"{'ANSWERS':<15} {len(answers['sttm'])} answer(s) applied from "
+                                    runtime_cache_dir=runtime_cache, answers=placed, prior=doc)
+    # gaps: answers are the layout stage's (applied to the FRD contract it wrote).
+    for note in _answer_notes(notes, seen, gaps=False, profile=doc.profile):
+        print(f"{'NOTE':<15} {note}")
+    if placed:
+        print(f"{'ANSWERS':<15} {len(placed)} answer(s) applied from "
               f"{answers_path} (source=user)")
         push_cache()
     for question in doc.questions:
@@ -599,6 +654,23 @@ def load_workbook_for_answers(path: Path, stop_after: int):
     return load_document(path, stop_after)
 
 
+def _unreadable_reason(exc: Exception, workbook: Path, frd: Path | None) -> str:
+    """One line for a document no reader can open: which document, why, what
+    to do (the structural message only - sheet names and header texts)."""
+    from codegen.extract.frd_docx import FrdDocxError
+
+    message = " ".join(str(exc).split())
+    if isinstance(exc, FrdDocxError):
+        name = frd.name if frd is not None else "the FRD"
+        return (f"FRD {name} cannot be read: {message} - supply the FRD in a documented "
+                "family (F1 metadata section tables / F2 Solution Requirement tables) or "
+                "its contract JSON")
+    return (f"STTM {workbook.name} cannot be read: {message} - no sheet carries a mapping "
+            "header the synonyms place; add the client's header texts to "
+            "extractor.discovery in a config overlay, or run the layout model "
+            "(layout.provider: live)")
+
+
 def _layout(args: argparse.Namespace, config: Config) -> int:
     """Resolve and print the layout of a workbook (and optionally its FRD
     document): source per role, confidences, unresolved roles, the
@@ -613,7 +685,6 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
     from codegen.layout.answers import (
         AnswersFileError,
         apply_answers,
-        band_layer_answers,
         load_answers,
         unresolved_report,
     )
@@ -636,7 +707,18 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                             runtime_cache_dir=runtime_cache, use_cache=not args.no_cache,
                             answers=answers, refresh=refresh, prior=prior)
 
-    result = resolve(None, refresh=args.refresh)
+    from codegen.extract.frd_docx import FrdDocxError
+    from codegen.extract.workbook import WorkbookParseError
+    from codegen.layout.discover import NoLayoutError
+
+    unreadable = (FrdDocxError, NoLayoutError, WorkbookParseError)
+    try:
+        result = resolve(None, refresh=args.refresh)
+    except unreadable as exc:
+        # Chunk B (cold drill): a document no reader can open is a FAIL that
+        # names the document and the remedy, never a traceback.
+        print(f"{'FAIL':<15} layout — {_unreadable_reason(exc, workbook, frd)}")
+        return 1
     names = {"sttm": workbook.name, "frd": frd.name if frd else "", "vdd": vdd.name if vdd else ""}
     if args.refresh:
         print(f"{'REFRESH':<15} caches bypassed; runtime entries overwritten "
@@ -646,31 +728,47 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         # synonym / model / cached placement.
         try:
             stop_after = config.extractor.used_range_empty_rows
-            loaded = load_answers(Path(args.answers))
-            bands = band_layer_answers(loaded, names)
-            if bands:
-                # Chunk A: band layers first — the bands they create must exist
-                # before the file's column entries are mapped onto them.
-                result = resolve({"sttm": bands, "frd": {}, "vdd": {}, "gaps": {}},
-                                 refresh=args.refresh, prior=result)
-            documents = {"sttm": (result.sttm.profile,
-                                  load_workbook_for_answers(workbook, stop_after))}
-            if vdd is not None and result.vdd is not None:
-                documents["vdd"] = (result.vdd.profile,
-                                    load_workbook_for_answers(vdd, stop_after))
-            answers, notes = apply_answers(loaded, result.questions, names,
-                                           documents=documents)
+            answers_file = load_answers(Path(args.answers))
+            sttm_book = load_workbook_for_answers(workbook, stop_after)
+            vdd_book = (load_workbook_for_answers(vdd, stop_after)
+                        if vdd is not None and result.vdd is not None else None)
         except (AnswersFileError, OSError) as exc:
             print(f"{'FAIL':<15} layout — answers file: {exc}")
             return 1
-        for note in notes:
+        answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
+        notes: list[str] = []
+        seen: set[str] = set()
+        # Chunk B (cold drill): one answer can open the next question - a
+        # band's layer, then the columns it has no synonym for; a table's
+        # columns, then which file feeds it. The file is applied again to
+        # every pass's questions until nothing new applies (earlier answers
+        # kept), so ONE answers file settles the whole chain. Each pass
+        # CONTINUES from the previous one (M9.1b): no cache read, no second
+        # model call.
+        for _round in range(ANSWER_ROUNDS):
+            documents = {"sttm": (result.sttm.profile, sttm_book)}
+            if vdd_book is not None and result.vdd is not None:
+                documents["vdd"] = (result.vdd.profile, vdd_book)
+            seen |= {q.key for q in result.questions}
+            try:
+                found, notes = apply_answers(answers_file, result.questions, names,
+                                             documents=documents)
+            except AnswersFileError as exc:
+                print(f"{'FAIL':<15} layout — answers file: {exc}")
+                return 1
+            merged = {k: {**answers.get(k, {}), **found.get(k, {})} for k in found}
+            if merged == answers:
+                break
+            answers = merged
+            try:
+                result = resolve(answers, refresh=args.refresh, prior=result)
+            except unreadable as exc:
+                print(f"{'FAIL':<15} layout — {_unreadable_reason(exc, workbook, frd)}")
+                return 1
+        for note in _answer_notes(notes, seen, profile=result.sttm.profile):
             print(f"{'NOTE':<15} {note}")
         placed = sum(len(answers[k]) for k in ("sttm", "vdd", "gaps"))
         if placed:
-            # The second pass CONTINUES from the first (M9.1b): no cache read —
-            # after --refresh the first pass has just written the entry, and
-            # re-reading it reported source=cache — and no second model call.
-            result = resolve(answers, refresh=args.refresh, prior=result)
             print(f"{'ANSWERS':<15} {placed} answer(s) applied from {args.answers} (source=user)")
     try:
         push_cache()
@@ -699,9 +797,13 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             for item in doc["unresolved"]:
                 key, _sep, reason = item.partition(": ")
                 owed = _owed_key(document, key, "role", result.frd_contract)
-                print(answer_line("UNRESOLVED" if owed else "NOTE", key,
-                                  (reason or item) + ("" if owed else
-                                                      " — informational, not required to run")))
+                # Chunk B: an FRD field is answered with its VALUE under gaps:
+                # (a QUESTION); only an STTM column placement is UNRESOLVED.
+                label = "NOTE" if not owed else "QUESTION" if document == "frd" else "UNRESOLVED"
+                where = (" (frd; answer the value under gaps: in answers.yaml)"
+                         if document == "frd" else "")
+                print(answer_line(label, key, (reason or item) + where + (
+                    "" if owed else " — informational, not required to run")))
                 printed.add(key)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
@@ -744,6 +846,10 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 print(answer_line("NOTE", question.key,
                                   f"{question.reason} ({question.document}) — informational, "
                                   "not required to run"))
+            elif question.kind == "role" and question.document == "frd":
+                print(answer_line("QUESTION", question.key,
+                                  f"{question.reason} (frd; answer the value under gaps: in "
+                                  "answers.yaml)"))
             elif question.kind == "role":
                 print(answer_line("UNRESOLVED", question.key,
                                   f"{question.reason} ({question.document}; place it "

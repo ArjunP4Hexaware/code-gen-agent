@@ -439,13 +439,18 @@ NOTE           <sheet>/source/pii — <reason> — informational, not required t
 
 | Label | Printed when | Answer |
 | --- | --- | --- |
-| `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`), a file pattern, a disagreement between documents, a byte width, the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
-| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) — or without a band's LAYER no evidence names (`<sheet>/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line) | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
+| `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`, a catalog no source or profile default states: `feeds[i].<layer>_target.catalog`), a file pattern, a disagreement between documents (the FRD's format cell naming another delimiter than the STTM: `feeds[i].delimiter`), a byte width, an FRD field the reader could not place (`feeds[i].file_format` / `lobs` / `stage_target.load_strategy` — Chunk B: these printed `UNRESOLVED`, which pointed at the wrong section), a sheet whose STTM lists no audit row (`feeds[i].audit_columns`, value `NAME:Type; …`, Type String / Timestamp — the framework's set is never added silently), the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
+| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) — or without a band's LAYER no evidence names (`<sheet>/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line). Chunk B: extract-sttm also holds a sheet back with its unplaced required columns (instead of failing) when its extraction stops on them | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
 | `NOTE` | informational — an OPTIONAL column the layout could not place (it reads as empty), an FRD field not read (the gap chain fills it or a QUESTION asks; `extract-frd` on its own always says NOTE), a VDD role (VDD gaps are gate flags), the VDD pairing (`pair.vdd` — a run proceeds without a VDD) | none needed; placing it improves the output |
 
-An FRD field is a QUESTION / UNRESOLVED only while the pair-resolved contract
+An FRD field is a QUESTION only while the pair-resolved contract
 still lacks one the run cannot proceed without (format, stage load strategy,
-LOBs, file patterns). `--require-complete` (layout, extract-sttm) stops on the
+LOBs, file patterns); the LOBs come from the STTM meta row `LOB` when the FRD
+lists none. ONE answers file settles the chain: `layout --answers` and
+`extract-sttm --answers` apply it pass after pass while an answer opens the
+next question (a band's layer, then the columns it has no synonym for; a
+table's columns, then which file feeds it — `cli.ANSWER_ROUNDS`), keeping the
+earlier answers; the cold-pair drill (`tests/test_cold_pairs.py`) pins it. `--require-complete` (layout, extract-sttm) stops on the
 owed items only — optional columns never stop a run. A clean pair prints no
 QUESTION / UNRESOLVED line at all (`tests/test_answer_labels.py`: pair 1 —
 layout, extract-frd, extract-sttm, generate; pair 4 — layout, extract-sttm,

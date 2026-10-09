@@ -250,6 +250,9 @@ class ValidateConfig(BaseModel):
         r"|s?9\(\d+\)(?:v9+|v\d+)?|x\(\d+\)|an|n|x|9)")
 
 
+_CANDIDATE_FLOOR = 4
+
+
 class LayerEvidenceConfig(BaseModel):
     """Which layer a target-shaped band belongs to — EVIDENCE only, never
     column order (Chunk A, 2026-10-09; ``codegen.layout.discover``). A band
@@ -277,6 +280,13 @@ class LayerEvidenceConfig(BaseModel):
     group_max_gap: int = Field(default=2, ge=0)
     # Data rows read below the header for catalog / schema value evidence.
     value_scan_rows: int = Field(default=200, gt=0)
+    # Chunk B (cold drill) - pass 3, only when no sheet is a mapping sheet by
+    # a band row or a label group: a header row with at least this many text
+    # cells is a CANDIDATE mapping sheet when a band title row of two or more
+    # spans sits over it, or runs of at least ``candidate_min_run`` adjacent
+    # headers share their first word ("Landing Catalog | Landing Schema …").
+    candidate_min_header_cells: int = Field(default=8, ge=_CANDIDATE_FLOOR)
+    candidate_min_run: int = Field(default=3, ge=2)
 
     @model_validator(mode="after")
     def _check_layers(self) -> LayerEvidenceConfig:

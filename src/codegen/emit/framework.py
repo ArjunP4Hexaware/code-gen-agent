@@ -296,6 +296,8 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
         for f in group.fields:
             stage_type = f.stage_datatype if profile.typed_stage else "STRING"
             stage_columns.append((f.stage_column, stage_type))
+            if group.standard is None:
+                continue    # Chunk B: a stage-only table (no standard flags for it)
             if no_band and profile.standard_from_stage:
                 standard_columns.append(
                     (f.stage_column, _standard_from_stage_type(f, stage_type, flags)))
@@ -535,7 +537,9 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                              "Target Catalog and Schema label, STTM target band catalog "
                              f"column, conventions profile default_catalog[{layer}] — none "
                              f"states one; the {layer} DDL is not written (a two-part name is "
-                             "never written)")
+                             f"never written); answer `feeds[<n>].{layer}_target.catalog` "
+                             "under gaps: (n = the feed's FRD index) and re-run layout, or set "
+                             "the profile's default_catalog in a config overlay")
                 continue
         rendered_columns = [
             {

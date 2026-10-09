@@ -42,7 +42,7 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
-from codegen.layout.discover import Discovery, normalize, text
+from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
 
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
@@ -192,13 +192,12 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
 
     meta: dict[str, str] = {}
     meta_raw: list[tuple[str, str | None]] = []
-    blank = {normalize(b) for b in disc.meta_blank_values}
     for entry in sp.meta_rows:
         value = None
         if entry.value_col is not None:
             value = text(ws.cell(row=entry.row, column=entry.value_col).value)
         meta_raw.append((entry.label, value))
-        if value is not None and normalize(value) in blank:
+        if value is not None and is_blank_placeholder(value, disc.meta_blank_values):
             # "TBD": a stated blank, not a value — the chain looks further.
             diagnostics.append(f"sheet {sp.name!r} row {entry.row}: meta {entry.label!r} reads "
                                f"{value!r} (a placeholder); read as blank")
@@ -432,12 +431,16 @@ class NeedsAnswers(GenericExtractionError):
                                    f"{answers_section(p.key)}: — {p.reason}" for p in pending))
 
 
+_ROLE_KEY_RE = re.compile(r"^.+/(source|rules|stage|standard)/[a-z_|]+$")
+
+
 def answers_section(key: str) -> str:
     """Where an answers.yaml answer for ``key`` goes: a band layer (Chunk A)
-    under ``answers:``, every other held-back key under ``gaps:``."""
+    or a column placement (``<sheet>/<layer>/<role>``, Chunk B) under
+    ``answers:``, every other held-back key under ``gaps:``."""
     from codegen.layout.profile import is_band_layer_key
 
-    return "answers" if is_band_layer_key(key) else "gaps"
+    return "answers" if is_band_layer_key(key) or _ROLE_KEY_RE.match(key) else "gaps"
 
 
 
@@ -452,6 +455,21 @@ def _open_band_layers(sheet: SheetData, ir: GenericIR) -> list[PendingAnswer]:
                           reason=u.reason)
             for u in ir.profile.unresolved_for(name)
             if BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE]
+
+
+def _open_required_roles(sheet: SheetData, ir: GenericIR, stop: str) -> list[PendingAnswer]:
+    """Chunk B (cold drill): a sheet whose extraction STOPS (``stop``, the
+    extractor's own message) while a REQUIRED role of it (field name; schema /
+    table / column / data type of a target band) is unplaced is held back
+    with that role's key - the column placement a person gives under
+    ``answers:`` - instead of failing the whole run; the stop is the reason."""
+    from codegen.layout.profile import BAND_LAYER_ROLE, is_required_role
+
+    name = sheet.profile.name
+    return [PendingAnswer(feed_name=name, sheet=name, key=f"{name}/{u.layer}/{u.role}",
+                          reason=f"{u.reason} ({stop})")
+            for u in ir.profile.unresolved_for(name)
+            if u.role != BAND_LAYER_ROLE and is_required_role(u.layer, u.role)]
 
 
 def _unmapped_markers(config: Config) -> set[str]:
@@ -567,10 +585,40 @@ def _recycle(sheet: SheetData, config: Config, disc: DiscoveryConfig) -> Recycle
     )
 
 
+AUDIT_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.audit_columns$")
+
+
+def parse_audit_answers(gaps: dict | None) -> dict[int, list[tuple[str, str]]]:
+    """``feeds[i].audit_columns`` answers (Chunk B) -> {feed index: [(column,
+    type)]}. The value lists ``NAME:Type`` entries separated by ``;`` / ``,``
+    / line breaks; the type is one of the audit types (String / Timestamp)."""
+    out: dict[int, list[tuple[str, str]]] = {}
+    for key, answer in (gaps or {}).items():
+        match = AUDIT_KEY_RE.match(str(key))
+        if match is None:
+            continue
+        value = answer.get("value") if isinstance(answer, dict) else answer
+        columns: list[tuple[str, str]] = []
+        for part in re.split(r"[;,\n]+", str(value or "")):
+            name, _sep, dtype = part.strip().partition(":")
+            if not name.strip():
+                continue
+            datatype = _AUDIT_DATATYPES.get(normalize(dtype))
+            if datatype is None:
+                raise GenericExtractionError(
+                    f"answers file: gaps[{key!r}] entry {part.strip()!r} needs NAME:Type with "
+                    f"Type one of {sorted(set(_AUDIT_DATATYPES.values()))}")
+            columns.append((name.strip(), datatype))
+        if columns:
+            out[int(match.group(1))] = columns
+    return out
+
+
 def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
                            contract_name: str | None = None,
                            generated_date: str,
-                           width_answers: dict[int, dict[str, int]] | None = None
+                           width_answers: dict[int, dict[str, int]] | None = None,
+                           audit_answers: dict[int, list[tuple[str, str]]] | None = None
                            ) -> SttmContract:
     disc = config.extractor.discovery
     notes: list[str] = []
@@ -581,7 +629,16 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
             open_bands = _open_band_layers(sheet, ir)
             if open_bands:
                 raise NeedsAnswers(open_bands)
-            feeds.append(_build_feed(sheet, ir, frd, config, disc, notes, width_answers or {}))
+            try:
+                feeds.append(_build_feed(sheet, ir, frd, config, disc, notes,
+                                         width_answers or {}, audit_answers or {}))
+            except NeedsAnswers:
+                raise
+            except GenericExtractionError as stop:
+                owed = _open_required_roles(sheet, ir, str(stop))
+                if not owed:
+                    raise
+                raise NeedsAnswers(owed) from stop
         except NeedsAnswers as held:
             # One sheet without a stated target holds back ITS feed only.
             pending.extend(held.pending)
@@ -655,7 +712,8 @@ def _width_facts(row: FieldRow, field_name: str, sp: SheetProfile, flags: list[s
 
 def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Config,
                 disc: DiscoveryConfig, notes: list[str],
-                width_answers: dict[int, dict[str, int]] | None = None) -> SttmFeed:
+                width_answers: dict[int, dict[str, int]] | None = None,
+                audit_answers: dict[int, list[tuple[str, str]]] | None = None) -> SttmFeed:
     from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
     from codegen.resolve.widths import normalize_field_name
 
@@ -666,6 +724,15 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             f"sheet {name!r}: no field rows could be read "
             f"(skipped: {sheet.skipped[:3]}{'…' if len(sheet.skipped) > 3 else ''}; "
             f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})")
+    if sp.band("stage") is None:
+        targets = [f"{b.layer} (columns {b.col_start}-{b.col_end}, "
+                   f"{b.layer_evidence or 'band row'})"
+                   for b in sp.bands if b.layer == "standard"]
+        raise GenericExtractionError(
+            f"sheet {name!r} has no stage band - its target band(s) read as {targets or 'none'}; "
+            "a feed lands in stage first. If a band IS the stage band, answer its layer under "
+            f"answers: (`{name}/band[<n>]/layer`: stage, the target bands numbered left to "
+            "right) - an answer outranks every other evidence")
     missing = [role for role in ("column", "target_type")
                if all(r.values.get(f"stage.{role}") is None for r in sheet.fields)]
     if missing:
@@ -758,6 +825,21 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             notes.append(f"sheet {name!r} row {row.row}: field {label!r} skipped — stage column "
                          f"cell {cell} reads {stage_column!r}")
             continue
+        if stage_column is None and stage_type is None and not any(
+                v for k, v in row.values.items() if k.startswith(("stage.", "standard."))):
+            # Chunk B (cold drill): a source field whose stage AND standard
+            # bands are blank on its row (a fixed-width "filler") is mapped
+            # nowhere by the STTM - left out of both layers and flagged with
+            # the row, like a "Do Not Map" cell; never a column the STTM
+            # does not name.
+            label = " ".join(field_name.split())
+            cell = f"{name}!{get_column_letter(stage_column_col or 1)}{row.row}"
+            flags.append(f"field_unmapped:{label} — STTM {cell}: the stage and standard "
+                         "bands are blank on this row; the field is in neither the stage nor "
+                         "the standard table")
+            notes.append(f"sheet {name!r} row {row.row}: field {label!r} skipped — no "
+                         "target cell on its row")
+            continue
         if stage_column is None or stage_type is None:
             raise GenericExtractionError(
                 f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
@@ -844,10 +926,21 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             seen.add(entry.column)
             audit.append(AuditColumn(column=entry.column, datatype=datatype))  # type: ignore[arg-type]
     if not audit:
-        raise GenericExtractionError(
-            f"sheet {name!r}: no audit rows (rows whose source-side field name is an audit "
-            f"marker {config.extractor.audit_source_markers} with a stage column) — the "
-            "contract requires at least one audit column; add them to the STTM")
+        # Chunk B (cold drill): the STTM lists no audit row. The framework's
+        # audit set is never added silently: the feed waits for the person's
+        # list (feeds[i].audit_columns under gaps:, NAME:Type entries).
+        answered = (audit_answers or {}).get(frd.feeds.index(feed))
+        if not answered:
+            raise NeedsAnswers([PendingAnswer(
+                feed_name=feed.feed_name, sheet=name, key=prefix + "audit_columns",
+                reason=(f"the STTM lists no audit row (a row whose source-side field name is "
+                        f"an audit marker {config.extractor.audit_source_markers} with a stage "
+                        "column); answer the feed's audit columns as NAME:Type entries "
+                        "separated by ';' (Type String | Timestamp)"))])
+        audit = [AuditColumn(column=column, datatype=datatype)  # type: ignore[arg-type]
+                 for column, datatype in answered]
+        flags.append(f"audit_columns_from_user:{prefix}audit_columns \u2014 the STTM lists no "
+                     f"audit row; the person stated {[c for c, _t in answered]}")
 
     details = _file_details_row(feed, ir)
     patterns = _sheet_file_patterns(sheet, ir)
@@ -909,11 +1002,13 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
 def extract_generic_contract(found: Discovery, workbook_path: Path, frd: FrdContract,
                              config: Config, *, contract_name: str | None,
                              generated_date: str,
-                             width_answers: dict[int, dict[str, int]] | None = None
+                             width_answers: dict[int, dict[str, int]] | None = None,
+                             audit_answers: dict[int, list[tuple[str, str]]] | None = None
                              ) -> SttmContract:
     ir = read_workbook(found, workbook_path.name, config)
     return build_generic_contract(ir, frd, config, contract_name=contract_name,
-                                  generated_date=generated_date, width_answers=width_answers)
+                                  generated_date=generated_date, width_answers=width_answers,
+                                  audit_answers=audit_answers)
 
 
 __all__ = [

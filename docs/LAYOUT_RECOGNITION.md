@@ -204,6 +204,43 @@ and answer the band questions.
 
 Tests: `tests/test_band_detection.py` (shapes: `tests/acfc_shapes/bands.py`).
 
+## Candidate mapping sheets (Chunk B, 2026-10-09, the cold drill)
+
+Pass 3 — only when passes 1 and 2 find NO mapping sheet in the workbook (so
+no pinned profile moves): a sheet whose header row carries at least
+`layer_evidence.candidate_min_header_cells` (8) text cells over data is a
+CANDIDATE mapping sheet when its bands are marked by structure —
+
+- a band title row of two or more spans over the header row (each span a
+  band: a `source` / `rules` title is that band, any other span a target
+  band — "Raw Zone", "Curated Zone"), else
+- runs of at least `candidate_min_run` (3) adjacent headers sharing their
+  first word ("Landing Catalog | Landing Schema | …", "Curated … Nm"): each
+  run one band; the shared word is the band's QUALIFIER — it names the band,
+  the rest of a header names the role ("Landing Schema" -> `schema`).
+
+A target band's layer comes from evidence only, as in Chunk A (an answer, a
+title word, a qualifier / header word, Catalog values, Schema values); a band
+nothing names is `UNRESOLVED <sheet>/band[<n>]/layer` (n = the candidate target
+bands left to right). Columns left of the first target band are the source
+band, the rest rules. Every REQUIRED role no synonym places is listed
+unresolved — the layout model places it, or the person (`answers:`); a
+candidate is never refused as "no mapping sheets found". The sheet's first
+note starts `no mapping sheet by band row or label group`
+(`discover.CANDIDATE_SHEET_NOTE`): the classifier never calls a workbook an
+STTM on candidates alone (an IIG or dictionary sheet — `SRC_… / TGT_…` — has
+the same shape): `unclassified`, reason starting `confirm:`.
+
+A document no reader can open at all (an FRD with neither F1 nor F2 tables, an
+STTM with no candidate) is a `FAIL` line naming the document and the remedy —
+never a traceback. An FRD of paragraphs only (no table) reads as the `prose`
+family: no field is placed, every required one is the gap chain's or a
+`QUESTION`. F1 section tables may carry a reference column (`DM |
+Descriptive Metadata` over `DM-1 | Name | …`).
+
+Tests: `tests/test_cold_pairs.py` (the six cold pairs, the chain before and
+after `answers.yaml`), `tests/test_cold_drill_fixes.py`.
+
 ## Pair-level resolution and cross-checks
 
 `resolve_pair` resolves the STTM and the FRD (a `.docx` through its own

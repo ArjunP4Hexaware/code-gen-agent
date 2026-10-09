@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
-FrdFamily = Literal["F1", "F2"]
+FrdFamily = Literal["F1", "F2", "prose"]
 ProfileSource = Literal["synonyms", "model", "user", "cache"]
 
 

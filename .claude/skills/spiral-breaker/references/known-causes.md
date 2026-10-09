@@ -88,7 +88,9 @@ Entry format:
   under a broader invocation (more paths), which the hook does not link to the old one.
 - Check: re-run the exact command the signal quotes. Exit 0 = false trigger.
 - Pattern: none (not a spiral)
-- Seen: 2026-10-07 (twice — the second in a worktree agent created at main)
+- Seen: 2026-10-07 (twice — the second in a worktree agent created at main); 2026-10-09
+  (Chunk B: the counted edits ADDED new tests to a file the command covers; the
+  failure was one pinned reason text, fixed once, green under a superset command)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
 
 ## Hook (a) false positive: one test name, a different failure each run

@@ -117,7 +117,10 @@ def _cell_text(tc) -> str:
     return "\n".join(paragraphs).strip()
 
 
-def read_docx(path: Path) -> DocxContent:
+def read_docx(path: Path, prose_ok: bool = False) -> DocxContent:
+    """``prose_ok`` (Chunk B): a document whose body is paragraphs only - the
+    short free-form FRD - is returned with no tables (``discover_frd`` reads
+    it as a ``prose`` FRD that places no field) instead of being refused."""
     try:
         with zipfile.ZipFile(path) as archive:
             root = ET.fromstring(archive.read("word/document.xml"))
@@ -146,7 +149,7 @@ def read_docx(path: Path) -> DocxContent:
             text = "".join(t.text or "" for t in child.iter(f"{_W}t")).strip()
             if text:
                 paragraphs.append((len(tables), text))
-    if not tables:
+    if not tables and not (prose_ok and paragraphs):
         raise FrdDocxError(f"{path.name}: document carries no tables")
     return DocxContent(tables=tables, paragraphs=paragraphs, nested=nested)
 
@@ -171,10 +174,20 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     sections = _lookup(config.section_titles)
     labels = _lookup(config.labels)
     sr_prefix = normalize_label(config.solution_requirement_prefix)
-    f1_tables = [(i, _section_key(t[0][0], sections)) for i, t in enumerate(tables)
-                 if t and t[0] and _section_key(t[0][0], sections) is not None]
+    f1_tables = [(i, section_title(t, sections)[1]) for i, t in enumerate(tables)
+                 if section_title(t, sections) is not None]
     sr_tables = [i for i, t in enumerate(tables)
                  if t and t[0] and normalize_label(t[0][0]).startswith(sr_prefix)]
+    if not tables:
+        # Chunk B (cold drill): a free-form FRD (paragraphs only). Prose has
+        # no label to read a value by: no field is placed, every required
+        # one is an unresolved field - filled from the STTM / VDD by the
+        # layout stage's gap chain, else a QUESTION the person answers.
+        profile = FrdLayoutProfile(fingerprint=digest, family="prose", source="synonyms",
+                                   notes=[f"no table in the document ({len(content.paragraphs)} "
+                                          "paragraph(s)): a prose FRD; no field is read from "
+                                          "it"])
+        return _with_unresolved(profile, [], 1, reason=_PROSE_REASON)
     if f1_tables:
         return _discover_f1(tables, f1_tables, labels, digest, config)
     if sr_tables:
@@ -198,11 +211,50 @@ def _section_key(title: str, sections: dict[str, str]) -> str | None:
     return None
 
 
+def section_title(rows: list[list[str]], sections: dict[str, str]
+                  ) -> tuple[str, str, str | None] | None:
+    """(title text, section key, reference token) of an F1 section table, or
+    None. The title is row 0's first cell — or, in the reference-column
+    variant (``Ref | Label | Value``: ``DM | Descriptive Metadata`` over
+    ``DM-1 | Name | …``), the cell after a short reference token, which every
+    label row's first cell then repeats as its prefix (Chunk B cold drill)."""
+    if not rows or not rows[0]:
+        return None
+    first = rows[0][0]
+    key = _section_key(first, sections)
+    if key is not None:
+        return first, key, None
+    token = first.strip()
+    if (len(rows[0]) > 1 and token and len(token) <= _REF_TOKEN_MAX and " " not in token
+            and _section_key(rows[0][1], sections) is not None):
+        return rows[0][1], _section_key(rows[0][1], sections), token
+    return None
+
+
+_REF_TOKEN_MAX = 8
+
+
+def is_prefix_cell(cell: str, title: str, ref: str | None) -> bool:
+    """True for a label row's first cell that only repeats the section: the
+    title itself (with or without its requirement-ID suffix) or the table's
+    reference token (``DM`` -> ``DM-1``)."""
+    value = normalize_label(cell)
+    if not value:
+        return False
+    if value == normalize_label(title) or normalize_label(title).startswith(value):
+        return True
+    return ref is not None and value.startswith(normalize_label(ref))
+
+
 def _row_label(row: list[str], labels: dict[str, str], title: str,
-               fixed: dict[str, str]) -> tuple[int, str, str | None] | None:
+               fixed: dict[str, str], ref: str | None = None
+               ) -> tuple[int, str, str | None] | None:
     """(label col, label text, label key) — the first cell whose text is a
-    known label; the section-prefix column (repeating the title) is skipped."""
+    known label; the section-prefix column (repeating the title, or the
+    table's reference token) is skipped."""
     for col, cell in enumerate(row):
+        if col == 0 and len(row) > 1 and ref is not None and is_prefix_cell(cell, title, ref):
+            continue
         # The prefix column repeats the section title — with or without the
         # requirement-ID suffix the title itself may carry.
         if col == 0 and len(row) > 1 and normalize_label(cell) and (
@@ -233,11 +285,11 @@ def _discover_f1(tables, f1_tables, labels, digest, config) -> FrdLayoutProfile:
             seen = set()
         seen.add(section)
         rows = tables[table_index]
-        title = rows[0][0]
+        title, _key, ref = section_title(rows, _lookup(config.section_titles))
         refs.append(FrdSectionRef(table=table_index, section=section, title=title,
                                   feed_index=feed_index))
         for row_index, row in enumerate(rows[1:], start=1):
-            found = _row_label(row, labels, title, fixed)
+            found = _row_label(row, labels, title, fixed, ref)
             if found is None:
                 continue
             col, label, key = found
@@ -375,6 +427,24 @@ def _discover_f2(tables, sr_tables, sections, labels, digest, config) -> FrdLayo
             for path in _paths_for(key, feed_index, section, rule_counts):
                 fields.setdefault(path, source)
                 confidence[path] = 1.0
+    # Chunk B (cold drill): the F2 documents state Domain / Sub Domain in a
+    # separate two-column label | value table (SHAPES_FOR_PORT section 4,
+    # pair 10) - read through the same label synonyms, never as a value of
+    # any other field.
+    sr = set(sr_tables)
+    for table_index, rows in enumerate(tables):
+        if table_index in sr or not rows or any(len(r) != 2 for r in rows):
+            continue
+        keys = [labels.get(normalize_label(r[0])) for r in rows]
+        if not all(k in ("domain", "sub_domain") for k in keys):
+            continue
+        for row_index, (row, key) in enumerate(zip(rows, keys, strict=True)):
+            path = f"feeds[0].{key}"
+            if path in fields:
+                continue
+            fields[path] = FrdFieldSource(table=table_index, row=row_index, col=0, value_col=1,
+                                          label=row[0], section=None, feed_index=0)
+            confidence[path] = 1.0
     profile = FrdLayoutProfile(fingerprint=digest, family="F2", source="synonyms",
                                fields=fields, confidence=confidence, sections=refs, notes=notes)
     return _with_unresolved(profile, [], 1 if refs else 0)
@@ -394,15 +464,20 @@ _REQUIRED_PATHS = ("feed_name", "source_system", "file_format", "frequency", "lo
                    "standard_target.load_strategy")
 
 
+_PROSE_REASON = ("the FRD is prose (no table): no label places this field; another "
+                 "document fills it or the person answers it")
+
+
 def _with_unresolved(profile: FrdLayoutProfile, unresolved: list[FrdUnresolved],
-                     feed_count: int) -> FrdLayoutProfile:
+                     feed_count: int,
+                     reason: str = "no label in the document maps to this field"
+                     ) -> FrdLayoutProfile:
     out = list(unresolved)
     for feed_index in range(feed_count):
         for path in _REQUIRED_PATHS:
             key = f"feeds[{feed_index}].{path}"
             if key not in profile.fields and f"{key}#fallback" not in profile.fields:
-                out.append(FrdUnresolved(field=key, feed_index=feed_index,
-                                         reason="no label in the document maps to this field"))
+                out.append(FrdUnresolved(field=key, feed_index=feed_index, reason=reason))
     return profile.model_copy(update={"unresolved": out})
 
 
@@ -671,9 +746,11 @@ def _split(text: str, separators: list[str]) -> list[str]:
 
 def _parse_target_schema(text: str, config: FrdExtractorConfig) -> tuple[
         tuple[str | None, str | None], tuple[str | None, str | None]]:
-    """"STG: a.b; STD: c.d" → ((a, b), (c, d)); "x / y" → stage x, standard y;
-    a single value → stage only. Each part splits on its last '.' into
-    catalog.schema; a part without '.' is a schema."""
+    """"STG: a.b; STD: c.d" → ((a, b), (c, d)); "a.b (stage), c.d (standard)"
+    the same (Chunk B: the layer marker in parentheses AFTER the value);
+    "x / y" → stage x, standard y; a single value → stage only. Each part
+    splits on its last '.' into catalog.schema; a part without '.' is a
+    schema."""
     def _part(value: str | None) -> tuple[str | None, str | None]:
         if not value:
             return None, None
@@ -693,6 +770,16 @@ def _parse_target_schema(text: str, config: FrdExtractorConfig) -> tuple[
         if match:
             standard = match.group(1)
             break
+    if stage is None and standard is None:
+        for layer in ("stage", "standard"):
+            for marker in config.target_schema_markers.get(layer, []):
+                match = re.search(rf"(?i)([^\s;,()]+)\s*\(\s*{re.escape(marker)}\s*\)", text)
+                if match:
+                    if layer == "stage":
+                        stage = match.group(1)
+                    else:
+                        standard = match.group(1)
+                    break
     if stage is None and standard is None:
         parts = _split(text, config.target_schema_separators)
         stage = parts[0] if parts else None
@@ -813,6 +900,14 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     for feed_index in range(max(profile.feed_count, 1)):
         prefix = f"feeds[{feed_index}]"
         feed_name = get_with_fallback(f"{prefix}.feed_name")
+        if (profile.family == "F2" and feed_name and f"{prefix}.feed_name" not in profile.fields
+                and not _plain_name(feed_name)):
+            # Chunk B (cold drill): an F2 "Name" row names the Solution
+            # Requirement ("Receive monthly eligibility file"), not the feed:
+            # a sentence there leaves the feed unnamed (the layout stage names
+            # it after the STTM stage band), flagged below.
+            evidence.pop(f"{prefix}.feed_name", None)
+            feed_name = ""
         source_system = get_with_fallback(f"{prefix}.source_system")
         domain_text = get(f"{prefix}.domain")
         domain_parts = _split(domain_text, frd_config.domain_separators)
@@ -869,6 +964,24 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                 flags.append(f"frd_object_name_block:{prefix} — feed name {feed_name!r} read "
                              f"from a labelled line / row of the "
                              f"{cell_of(f'{prefix}.feed_name')} block")
+        elif feed_name and _names_one_file(feed_name):
+            # Chunk B (cold drill): a one-line Object Name that IS a file name
+            # pattern ("CH_CLAIMS_DAILY_YYYYMMDD.psv") names the feed's FILE,
+            # not the feed: taken as its pattern; the feed is named by the
+            # section's Name row when that is a plain name, else left unnamed
+            # (the layout stage names it after the STTM stage band).
+            file_name_patterns = [feed_name]
+            object_cell = cell_of(f"{prefix}.feed_name")
+            name_row = (get(f"{prefix}.feed_name#fallback")
+                        if f"{prefix}.feed_name#fallback" in profile.fields else "")
+            flags.append(f"file_pattern_from_object_name:{prefix} — the FRD {object_cell} cell "
+                         f"{feed_name!r} is a file name pattern; taken as the file name "
+                         "pattern, not the feed name")
+            feed_name = name_row if _plain_name(name_row) else ""
+            if feed_name:
+                evidence[f"{prefix}.feed_name"] = evidence.pop(f"{prefix}.feed_name#fallback")
+                flags.append(f"frd_feed_name_from_name_row:{prefix} — feed name {feed_name!r} "
+                             f"from the {cell_of(f'{prefix}.feed_name#fallback')} cell")
         rules = []
         n = 0
         while f"{prefix}.validation_rules[{n}]" in profile.fields:
@@ -892,7 +1005,8 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             load_windows_sla=[],
             lobs=_split(get(f"{prefix}.lobs"), frd_config.list_separators),
             domain=domain_parts[0] if domain_parts else None,
-            sub_domain=domain_parts[1] if len(domain_parts) > 1 else None,
+            sub_domain=(domain_parts[1] if len(domain_parts) > 1
+                        else get(f"{prefix}.sub_domain") or None),
             landing_location=_landing(prefix) or None,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),
@@ -961,6 +1075,20 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     )
 
 
+def _names_one_file(value: str) -> bool:
+    """A single token that reads as a file name pattern (an extension, a
+    wildcard or a date placeholder), never a sentence."""
+    text = value.strip()
+    return bool(text) and not any(c.isspace() for c in text) and bool(_FILE_LIKE_RE.search(text))
+
+
+def _plain_name(value: str) -> bool:
+    """A Name-row value usable as a feed name: one token, not a file name."""
+    text = (value or "").strip()
+    return (bool(text) and len(text) <= _FEED_NAME_MAX and not any(c.isspace() for c in text)
+            and not _FILE_LIKE_RE.search(text))
+
+
 _UNNAMED_SUFFIX = "(unnamed)"
 
 
@@ -1005,7 +1133,7 @@ def _acd_items(content: DocxContent, config: FrdExtractorConfig) -> list[AcdItem
 def extract_frd_contract(path: Path, config: Config, *, contract_name: str | None = None,
                          generated_date: str | None = None
                          ) -> tuple[FrdContract, FrdLayoutProfile]:
-    content = read_docx(path)
+    content = read_docx(path, prose_ok=True)
     profile = discover_frd(content, config.extractor.frd)
     contract = read_frd(content, profile, config, document_name=path.name,
                         generated_date=generated_date or datetime.now().date().isoformat(),

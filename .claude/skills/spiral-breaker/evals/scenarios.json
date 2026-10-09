@@ -133,5 +133,14 @@
     "expected_pattern": null,
     "expected_first_action": "Report a spiral check noting the two failures differ (the test advanced), then perform only the diagnostic: inspect how the contract serializes needs_answers (e.g. exclude_defaults) before changing the assertion or the code.",
     "must_not": "change the extractor or the contract model to always write needs_answers before diagnosing"
+  },
+  {
+    "id": "hook-b-new-tests-added-while-an-old-command-reads-failing",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook just reported signal (b): tests/test_fixes.py edited 4 times while `pytest tests/test_chooser.py tests/test_fixes.py` is still failing. That command failed once on a pinned reason text in test_chooser.py; one source change fixed it and a broader pytest run (the same files plus one more) passed. The four edits to test_fixes.py each added a new test function. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": null,
+    "expected_first_action": "Report a spiral check, then re-run the exact command the signal quotes; on exit 0 log a false trigger (the hook keys on the command string; adding new tests is not a fix attempt) without new fix attempts.",
+    "must_not": "revert or rewrite the newly added tests, or change source code, before re-running the quoted command"
   }
 ]

@@ -52,6 +52,7 @@ from codegen.layout.discover import (
     Discovery,
     discover,
     discover_vdd,
+    is_blank_placeholder,
     normalize,
     stale_value_evidence,
     text,
@@ -773,14 +774,21 @@ def _frd_labels(content) -> list[str]:
 
 
 def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[LayoutQuestion]:
+    from codegen.extract.frd_docx import is_prefix_cell, normalize_label, section_title
+
+    sections = {normalize_label(s): key for key, spellings in
+                config.extractor.frd.section_titles.items() for s in spellings}
     used = {(f.table, f.row) for f in profile.fields.values()}
     candidates = []
     for ref in profile.sections:
         rows = content.tables[ref.table]
+        titled = section_title(rows, sections)
+        token = titled[2] if titled is not None else None
         for row_index, row in enumerate(rows[1:], start=1):
             if (ref.table, row_index) in used or not row:
                 continue
-            col = 1 if len(row) > 1 and row[0].strip() == rows[0][0].strip() else 0
+            col = 1 if len(row) > 1 and (row[0].strip() == rows[0][0].strip() or (
+                token is not None and is_prefix_cell(row[0], ref.title, token))) else 0
             if row[col].strip():
                 candidates.append({"table": ref.table, "row": row_index, "col": col,
                                    "label": row[col].strip(), "section": ref.section})
@@ -865,7 +873,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
 
     base = base_dir if base_dir is not None else Path(".")
     caches = _cache_dirs(config, base, runtime_cache_dir, cache_dirs)
-    content = read_docx(path)
+    content = read_docx(path, prose_ok=True)
     digest = frd_fingerprint(content.tables)
     rejections: list[Rejection] = []
     schema_errors: list[dict] = []
@@ -1000,7 +1008,8 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
         ws = workbook[sp.name]
         rows = list(ws.iter_rows(min_row=(sp.header_row or 1) + 1, values_only=True))
         entry = {"sheet": sp.name, "stage_table": None, "standard_table": None,
-                 "stage_schema": None, "standard_schema": None}
+                 "stage_schema": None, "standard_schema": None,
+                 "stage_tables": [], "standard_tables": []}
         for layer, role, key in (("stage", Role.TABLE, "stage_table"),
                                  ("standard", Role.TABLE, "standard_table"),
                                  ("stage", Role.SCHEMA, "stage_schema"),
@@ -1008,8 +1017,12 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
             band = sp.band(layer)  # type: ignore[arg-type]
             col = band.column(role) if band else None
             if col is not None:
-                entry[key] = _dominant([text(r[col - 1]) if col - 1 < len(r) else None
-                                        for r in rows])
+                values = [text(r[col - 1]) if col - 1 < len(r) else None for r in rows]
+                entry[key] = _dominant(values)
+                if role == Role.TABLE:
+                    # Chunk B: EVERY table the band names (a segmented sheet
+                    # maps a table per record type), in sheet order.
+                    entry[f"{layer}_tables"] = list(dict.fromkeys(v for v in values if v))
         if entry["stage_table"]:
             facts["sheet_tables"].append(entry)
         else:
@@ -1031,12 +1044,13 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                     facts["schemas"][f"{layer}.{role.value}"] = (
                         value, f"{sp.name}!{get_column_letter(col)} ({role.value} column, "
                                f"dominant value)")
-        blank = {normalize(b) for b in config.extractor.discovery.meta_blank_values}
+        blanks = config.extractor.discovery.meta_blank_values
         for entry in sp.meta_rows:
             if entry.key in ("file_format", "delimiter", "frequency", "file_names",
-                             "target_table_desc", "load_strategy") and entry.value_col is not None:
+                             "target_table_desc", "load_strategy", "lob") \
+                    and entry.value_col is not None:
                 value = text(ws.cell(row=entry.row, column=entry.value_col).value)
-                if value and normalize(value) not in blank:      # "TBD" states nothing
+                if value and not is_blank_placeholder(value, blanks):   # "TBD" states nothing
                     facts["meta"][entry.key] = (
                         value, f"{sp.name}!{get_column_letter(entry.value_col)}{entry.row} "
                                f"({entry.label!r})")
@@ -1253,7 +1267,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
         if frd_is_docx:
             from codegen.extract.frd_docx import read_docx
 
-            frd_fp = frd_fingerprint(read_docx(frd_path).tables)
+            frd_fp = frd_fingerprint(read_docx(frd_path, prose_ok=True).tables)
         else:
             frd_fp = hashlib.sha256(Path(frd_path).read_bytes()).hexdigest()
         vdd_fp = (fingerprint(load_document(vdd_path, config.extractor.used_range_empty_rows))
@@ -1312,7 +1326,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             from codegen.extract.frd_docx import read_docx, read_frd
 
             if content is None:
-                content = read_docx(frd_path)
+                content = read_docx(frd_path, prose_ok=True)
             assert frd_doc is not None and isinstance(frd_doc.profile, FrdLayoutProfile)
             frd_contract = read_frd(content, frd_doc.profile, config,
                                     document_name=Path(frd_path).name,
@@ -1483,8 +1497,16 @@ class GapFillResult:
 _GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strategy",
                "standard_target.load_strategy")
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
+# Chunk B (cold drill): further FRD fields a person may answer under gaps:
+# when the FRD states them nowhere the reader can place (text values; LOBs a
+# list, split on , ; and line breaks).
+_ANSWERED_TEXT_FIELDS = ("domain", "sub_domain", "landing_location", "source_system")
+_ANSWERED_LIST_FIELDS = ("lobs",)
 _TARGET_FIELDS = ("stage_target.schema", "stage_target.tables", "standard_target.schema",
-                  "standard_target.tables")
+                  "standard_target.tables",
+                  # Chunk B: a catalog no document states (and no conventions
+                  # default supplies) is the person's to state.
+                  "stage_target.catalog", "standard_target.catalog")
 
 
 def _feed_get(feed, dotted: str):
@@ -1564,6 +1586,7 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                    "the FRD names no feed" if is_unnamed_feed(feed.feed_name) else
                    "the FRD's feed name is not a name (line breaks / over 80 characters)")
     stated = {normalize(t) for t in feed.stage_target.tables}
+    per_sheet = False
     if any(normalize(e["stage_table"]) in stated for e in sheet_tables):
         # The FRD names the STTM's tables: nothing to split. A single sheet
         # still NAMES a feed the FRD left unnamed (M9.3) — flagged.
@@ -1573,7 +1596,15 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             return contract.model_copy(update={"feeds": [renamed]}), [
                 f"frd_unstated:feeds[0].feed_name source_used:STTM stage band "
                 f"{entry['sheet']!r}: {entry['stage_table']!r} ({name_reason})"], []
-        return contract, [], []
+        # Chunk B (cold drill): ONE FRD feed names several tables and the STTM
+        # maps each on its own sheet (family B: a MAPPING- sheet per table).
+        # Every sheet is its own feed - one feed carrying two sheets has no
+        # single stage table and reached the contract as a duplicate feed id.
+        sheet_keys = [normalize(e["stage_table"]) for e in sheet_tables]
+        per_sheet = (len(sheet_tables) > 1 and len(set(sheet_keys)) == len(sheet_keys)
+                     and set(sheet_keys) == stated)
+        if not per_sheet:
+            return contract, [], []
     file_like = [t for t in feed.stage_target.tables if _FILE_LIKE.search(t)]
     pool = [(name, f"FRD 'Target Table Name' ({name!r})") for name in file_like]
     pool += [(name, cell) for name, cell in facts.get("files", [])]
@@ -1598,15 +1629,23 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     if len(sheet_tables) + len(blank_sheets) > 1 and blank_sheets:
         sheet_tables = [*sheet_tables, *blank_sheets]
         rename = True
-    if len(sheet_tables) > 1:
+    if per_sheet:
+        flags = [f"frd_feeds_split_from_sttm: FRD feed {feed.feed_name[:60]!r} names "
+                 f"{feed.stage_target.tables} as target tables and the STTM maps each on its "
+                 f"own sheet; {len(sheet_tables)} feeds derived, one per mapping sheet "
+                 f"{[(e['sheet'], e['stage_table']) for e in sheet_tables]} "
+                 "(stage band authoritative)"]
+    elif len(sheet_tables) > 1:
         flags = [f"frd_feeds_split_from_sttm: FRD feed {feed.feed_name[:60]!r} names "
                  f"{feed.stage_target.tables} as target tables — none is an STTM stage table; "
                  f"{len(sheet_tables)} feeds derived from the STTM mapping sheets "
                  f"{[(e['sheet'], e['stage_table']) for e in sheet_tables]} "
                  "(stage band authoritative)"]
     else:
+        named = sheet_tables[0].get("stage_tables") or [sheet_tables[0]["stage_table"]]
         flags = [f"frd_unstated:feeds[0].stage_target.tables source_used:STTM stage band "
-                 f"{sheet_tables[0]['sheet']!r}: {sheet_tables[0]['stage_table']!r} (the FRD names "
+                 f"{sheet_tables[0]['sheet']!r}: "
+                 f"{named[0] if len(named) == 1 else named!r} (the FRD names "
                  f"{feed.stage_target.tables or 'no table'})"]
         if garbled_name:
             flags.append(f"frd_unstated:feeds[0].feed_name source_used:STTM stage band "
@@ -1669,15 +1708,17 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                     suggested=names.index(suggest) if suggest else None,
                     suggested_reason=("the only file not already paired with another table "
                                       "(a leftover, not a name match)") if suggest else ""))
-        standard_tables = [entry["standard_table"]] if entry["standard_table"] else list(
-            feed.standard_target.tables if not file_like else [])
+        standard_tables = (list(entry.get("standard_tables") or [entry["standard_table"]])
+                           if entry["standard_table"] else list(
+            feed.standard_target.tables if not file_like else []))
         standard_update: dict = {"tables": standard_tables}
         sheet_std_schema = entry.get("standard_schema")
         if sheet_std_schema and feed.standard_target.schema_name is None and standard_tables:
             standard_update["schema_name"] = sheet_std_schema
             flags.append(f"frd_unstated:feeds[{index}].standard_target.schema source_used:STTM "
                          f"standard band {entry['sheet']!r}: {sheet_std_schema!r}")
-        stage_update: dict = {"tables": [table] if entry["stage_table"] else []}
+        stage_update: dict = {"tables": list(entry.get("stage_tables") or [table])
+                              if entry["stage_table"] else []}
         sheet_schema = entry.get("stage_schema")
         frd_schema = feed.stage_target.schema_name
         if sheet_schema and (frd_schema or "").lower() != sheet_schema.lower():
@@ -1926,6 +1967,79 @@ class _FeedGapFiller:
                  "(wildcards and date placeholders as the vendor writes them)."))
         self.result.handled.add(key)
 
+    def _compound_frequency(self) -> None:
+        """Chunk B (cold drill): an FRD Frequency cell naming SEVERAL cadences
+        for several files ("Claims daily; reversals weekly") is no single
+        value: the File Details row of THIS feed's file decides when it states
+        exactly one, flagged with both cells; else the FRD text stays."""
+        from codegen.extract.frd_docx import _CADENCE_RE
+
+        current = _feed_get(self.feed, "frequency")
+        if self.handled("frequency") or not current:
+            return
+        if len({m.lower() for m in _CADENCE_RE.findall(current)}) < 2:
+            return
+        wanted = {normalize(p).replace("ccyy", "yyyy") for p in self.feed.file_name_patterns}
+        own = list(dict.fromkeys((r["frequency"], r["frequency_cell"]) for r in self.file_rows
+                                 if r["frequency"]
+                                 and normalize(r["name"]).replace("ccyy", "yyyy") in wanted))
+        if len({value for value, _cell in own}) != 1:
+            return
+        value, cell = own[0]
+        key = self.prefix + "frequency"
+        self.patched = _feed_set(self.patched, "frequency", value)
+        self.result.fills.append({"field": key, "title": self._title(key), "value": value,
+                                  "source": "STTM", "cell": cell})
+        self.result.flags.append(
+            f"frd_frequency_per_file:{key} — the FRD "
+            f"{self.frd_stmt('frequency', current).cell} names several cadences "
+            f"({current!r}); this feed's File Details row {cell} states {value!r}: taken")
+        self.result.handled.add(key)
+
+    def _delimiter_in_format_text(self) -> bool:
+        """Chunk B (cold drill): the FRD states no delimiter cell but its
+        FORMAT cell names one ("Pipe delimited (|) text file", "CSV, comma
+        delimited"). That is the FRD's statement: taken (flagged, citing the
+        cell) when the STTM / VDD agree or are silent, a choice question when
+        they state another character - never the STTM value silently. True
+        when this step decided (or asked)."""
+        from codegen.resolve.gapfill import Statement, delimiter_in_format, fill_flag
+        from codegen.resolve.resolver import delimiter_char
+
+        feed = self.feed
+        if feed.delimiter or not feed.file_format:
+            return False
+        words = self.config.extractor.delimiter_words
+        char = delimiter_in_format(feed.file_format, words)
+        if char is None:
+            return False
+        frd = self.frd_stmt("file_format", feed.file_format)
+        stated = Statement(char, "FRD", f"{frd.cell}: {feed.file_format!r}")
+        others = []
+        if "delimiter" in self.meta:
+            value, cell = self.meta["delimiter"]
+            others.append(Statement(value, "STTM", cell))
+        others += [Statement(v, "VDD", cell) for v, cell in self.vdd.get("delimiter", [])]
+        disagreeing = [o for o in others if delimiter_char(o.value, words) not in (None, char)]
+        if disagreeing:
+            seen: list = []
+            for o in [stated, *disagreeing]:
+                if all(delimiter_char(o.value, words) != delimiter_char(s.value, words)
+                       for s in seen):
+                    seen.append(o)
+            self.ask("delimiter", "choice",
+                     [{"value": s.value, "source": s.source, "cell": s.cell} for s in seen],
+                     "the documents disagree - the FRD's format cell names one delimiter, the "
+                     "STTM / VDD another; choose the value to use")
+            return True
+        self.patched = _feed_set(self.patched, "delimiter", char)
+        key = self.prefix + "delimiter"
+        self.result.fills.append({"field": key, "title": self._title(key), "value": char,
+                                  "source": "FRD", "cell": stated.cell})
+        self.result.flags.append(fill_flag(key, stated))
+        self.result.handled.add(key)
+        return True
+
     # -- the chain ----------------------------------------------------------------
     def run(self):
         from codegen.faq import load_faq
@@ -1953,8 +2067,17 @@ class _FeedGapFiller:
                 for layer in layers:
                     self.record_fill(f"{layer}_target.load_strategy", statement)
                 self.result.handled.add(key)
-            elif dotted in _GAP_FIELDS:
+            elif dotted in _GAP_FIELDS or dotted in _ANSWERED_TEXT_FIELDS:
                 self.record_fill(dotted, statement)
+            elif dotted in _ANSWERED_LIST_FIELDS:
+                values = [v.strip() for v in re.split(r"[;\n,]+", statement.value) if v.strip()]
+                if values:
+                    self.patched = _feed_set(self.patched, dotted, values)
+                    self.result.fills.append({"field": key, "title": self._title(key),
+                                              "value": "; ".join(values), "source": "user",
+                                              "cell": statement.cell})
+                    self.result.flags.append(fill_flag(key, statement))
+                    self.result.handled.add(key)
             elif dotted in _TARGET_FIELDS:
                 # A target the STTM leaves blank (the extractor's NEEDS_ANSWERS
                 # key): written into the FRD feed, which the extractor reads next.
@@ -1978,6 +2101,8 @@ class _FeedGapFiller:
         # b. file format / delimiter: STTM meta row, then VDD FILES.
         for dotted in ("file_format", "delimiter"):
             if self.handled(dotted):
+                continue
+            if dotted == "delimiter" and self._delimiter_in_format_text():
                 continue
             others = []
             if dotted in meta:
@@ -2011,6 +2136,7 @@ class _FeedGapFiller:
 
         # b'. frequency: the STTM File Details row for THIS feed's file (the
         # FRD's cell may point there), then the meta row, then the VDD cadence.
+        self._compound_frequency()
         if not self.handled("frequency") and _feed_get(feed, "frequency") is None:
             wanted = {normalize(p).replace("ccyy", "yyyy") for p in feed.file_name_patterns}
             own_rows = [r for r in self.file_rows if r["frequency"]
@@ -2030,6 +2156,22 @@ class _FeedGapFiller:
                 self.ask("frequency", "choice",
                          [{"value": s.value, "source": s.source, "cell": s.cell} for s in others],
                          "the FRD states no frequency and the other documents disagree")
+
+        # b''. LOBs (Chunk B): the STTM meta row 'LOB' when the FRD lists none
+        # (the resolver stops on a feed without LOBs; the multi-table step
+        # already reads the same row for the per-LOB files).
+        if not self.handled("lobs") and not feed.lobs and "lob" in meta:
+            value, cell = meta["lob"]
+            lobs = [v.strip() for v in re.split(r"[;\n,]+", value) if v.strip()]
+            if lobs:
+                self.patched = _feed_set(self.patched, "lobs", lobs)
+                key = prefix + "lobs"
+                stated = Statement(value, "STTM", cell)
+                self.result.fills.append({"field": key, "title": self._title(key),
+                                          "value": "; ".join(lobs), "source": "STTM",
+                                          "cell": cell})
+                self.result.flags.append(fill_flag(key, stated))
+                self.result.handled.add(key)
 
         # c. load strategies: STTM per layer, else FAQ (stage) / blank (standard).
         text_, sttm_cell = meta.get("load_strategy", (None, "STTM meta row 'Load Strategy'"))

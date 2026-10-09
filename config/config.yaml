@@ -288,6 +288,15 @@ extractor:
       group_min_location_roles: 3
       group_max_gap: 2
       value_scan_rows: 200
+      # Chunk B (2026-10-09, cold drill) - pass 3, only when no sheet is a
+      # mapping sheet by a band row or a label group: a header row with at
+      # least candidate_min_header_cells text cells under a band title row of
+      # two or more spans, or carrying runs of candidate_min_run adjacent
+      # headers that share their first word ("Landing Catalog | Landing
+      # Schema ..."), is a CANDIDATE mapping sheet. Its bands' layers come from
+      # evidence only; every role no synonym places is asked.
+      candidate_min_header_cells: 8
+      candidate_min_run: 3
 
   # ---- FRD .docx extractor (M2, 2026-09-18) ----------------------------
   # codegen.extract.frd_docx: section titles and label synonyms, populated

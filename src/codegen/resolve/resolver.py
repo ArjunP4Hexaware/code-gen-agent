@@ -445,7 +445,11 @@ def _resolve_segments(
         and frd_schema.lower() == stage_schema.lower()
     )
     if frd_schema is not None and not schemas_equal:
-        errors.append(f"stage schema disagrees: STTM '{stage_schema}', FRD '{frd_schema}'")
+        # Chunk B (cold drill): the STTM stage band is authoritative for the
+        # schema (CLAUDE.md doctrine); the FRD's statement is a cross-check -
+        # flagged with both values, never a contract mismatch.
+        flags.append(f"frd_crosscheck:stage_target.schema — STTM stage band {stage_schema!r} "
+                     f"(authoritative, used) vs FRD {frd_schema!r}")
 
     if not frd_feed.is_segmented and not (sttm_feed.is_segmented and segment_names):
         if sttm_feed.is_segmented:

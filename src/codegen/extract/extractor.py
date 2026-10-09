@@ -103,8 +103,12 @@ def extract_contract(
     require_complete: bool = False,
     skip_stage_tables: Collection[str] = (),
     width_answers: dict[int, dict[str, int]] | None = None,
+    audit_answers: dict[int, list[tuple[str, str]]] | None = None,
 ) -> SttmContract:
-    """``width_answers`` (M9.2): the person's ``feeds[i].fields[<name>].width``
+    """``audit_answers`` (Chunk B): the person's ``feeds[i].audit_columns``
+    answers (``codegen.extract.generic.parse_audit_answers``) for a sheet
+    whose STTM lists no audit row; content-driven path only.
+    ``width_answers`` (M9.2): the person's ``feeds[i].fields[<name>].width``
     answers (``codegen.resolve.widths.parse_width_answers``), carried on the
     fields for the resolver's width chain; content-driven path only.
     ``skip_stage_tables``: mapping sheets (by stage table) to leave out of
@@ -158,7 +162,7 @@ def extract_contract(
             return extract_generic_contract(
                 found, workbook_path, frd, config, contract_name=contract_name,
                 generated_date=generated_date or datetime.date.today().isoformat(),
-                width_answers=width_answers,
+                width_answers=width_answers, audit_answers=audit_answers,
             )
         except GenericExtractionError as exc:
             raise ExtractionError(str(exc)) from exc
@@ -512,6 +516,7 @@ def extract_to_file(
     require_complete: bool = False,
     skip_stage_tables: Collection[str] = (),
     width_answers: dict[int, dict[str, int]] | None = None,
+    audit_answers: dict[int, list[tuple[str, str]]] | None = None,
 ) -> SttmContract:
     contract = extract_contract(
         workbook_path,
@@ -523,6 +528,7 @@ def extract_to_file(
         require_complete=require_complete,
         skip_stage_tables=skip_stage_tables,
         width_answers=width_answers,
+        audit_answers=audit_answers,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")

@@ -89,3 +89,12 @@
 - Earliest signal: n/a
 - Approx. time lost: ~3 minutes
 - Proposed refinement (for a retro, not now): signal (a) could hash the first `E ` line / the failing assertion's line number rather than the test name, so a test that advances through different failures is not one signature.
+
+## 2026-10-09: hook signal (b) — test_cold_drill_fixes.py edited 4x while a chooser + cold-drill pytest "still failing" (Chunk B)
+- Actual cause: not a spiral. `pytest tests/test_m93_chooser.py tests/test_cold_drill_fixes.py tests/test_band_detection.py` failed once on a pinned chooser reason text after the classifier began treating pass-3 candidate mapping sheets as "unclassified - confirm"; ONE fix (the candidate verdict moved after the VDD check, keeping the pinned phrase) made it pass under a superset command (+ test_pairing_content.py, 122 passed). The four counted edits to test_cold_drill_fixes.py ADDED new focused tests (delimiter-in-format, F2 domain table, schema markers) and re-stated my own new classifier expectations - no edit was a retry on the failing test.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 117 passed, exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~2 minutes
+- Proposed refinement (for a retro, not now): as 2026-10-07 / 10-08 — a superset run going green should clear the signal; edits that only add new test functions are not fix attempts.

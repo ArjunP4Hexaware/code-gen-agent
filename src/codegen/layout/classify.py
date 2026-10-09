@@ -29,7 +29,12 @@ from pathlib import Path
 from typing import Literal
 
 from codegen.config import ExtractorConfig
-from codegen.layout.discover import NoLayoutError, discover, discover_vdd
+from codegen.layout.discover import (
+    CANDIDATE_SHEET_NOTE,
+    NoLayoutError,
+    discover,
+    discover_vdd,
+)
 
 WorkbookKind = Literal["sttm", "vdd", "unclassified"]
 
@@ -45,18 +50,26 @@ class WorkbookClass:
 
 def classify_workbook(path: Path, extractor: ExtractorConfig) -> WorkbookClass:
     unconfirmed: list[str] = []
+    candidates: list[str] = []
     try:
         found = discover(path, extractor)
         # Chunk A: an STTM only when a band carries EVIDENCE of a target layer
         # (a stage / standard band). Target-shaped columns nothing names — a
         # dictionary or IIG sheet looks the same — are "unclassified —
         # confirm", never silently an STTM.
+        # Chunk B: a CANDIDATE mapping sheet (pass 3 - read by its band title
+        # spans or shared header qualifiers, no band row, no label group) is
+        # never an STTM by itself: an IIG / dictionary sheet ("SRC_… / TGT_…")
+        # has the same shape. "Confirm" - a person picks it as the STTM.
+        candidates = [s.name for s in found.profile.mapping_sheets
+                      if any(n.startswith(CANDIDATE_SHEET_NOTE) for n in s.notes)]
         mapping = [s.name for s in found.profile.mapping_sheets
-                   if any(b.layer in ("stage", "standard") for b in s.bands)]
+                   if any(b.layer in ("stage", "standard") for b in s.bands)
+                   and s.name not in candidates]
         if mapping:
             return WorkbookClass("sttm", f"mapping sheet(s) {mapping} "
                                          f"({found.profile.strategy} discovery)")
-        unconfirmed = [s.name for s in found.profile.mapping_sheets]
+        unconfirmed = [s.name for s in found.profile.mapping_sheets if s.name not in candidates]
     except NoLayoutError:
         pass
     except Exception as exc:  # noqa: BLE001 — a workbook that cannot be opened is a fact to show
@@ -70,6 +83,13 @@ def classify_workbook(path: Path, extractor: ExtractorConfig) -> WorkbookClass:
         pass
     except Exception as exc:  # noqa: BLE001
         return WorkbookClass("unclassified", f"could not be read: {type(exc).__name__}: {exc}")
+    if candidates and not unconfirmed:
+        return WorkbookClass(
+            "unclassified",
+            "confirm: no band row with stage + standard labels (STTM) and no FILES / "
+            f"field-sheet header (Vendor Data Dictionary); sheet(s) {candidates} read as "
+            "CANDIDATE mapping sheets only (band title spans / shared header qualifiers) - an "
+            "IIG or dictionary sheet has the same shape; pick it as the STTM to read it as one")
     if unconfirmed:
         return WorkbookClass(
             "unclassified",

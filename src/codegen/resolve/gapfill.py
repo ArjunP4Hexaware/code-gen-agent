@@ -113,6 +113,22 @@ def strategy_from_faq(faq) -> Statement | None:
     return Statement(literal, "FAQ", f"load_mode = {answer.value!r} (source: {answer.source})")
 
 
+def delimiter_in_format(text: str | None, words: dict[str, str]) -> str | None:
+    """The delimiter a FORMAT cell names in so many words (Chunk B): "<word>
+    delimited / separated" ("Pipe delimited (|)", "CSV, comma delimited",
+    "tab-delimited") through ``extractor.delimiter_words``, else a character
+    in parentheses right after "delimited" - never a stray comma of the
+    sentence ("Fixed width, 120 bytes" names none)."""
+    if not text or not words:
+        return None
+    named = re.search(r"\b(" + "|".join(re.escape(w) for w in words) + r")\s*-?\s*"
+                      r"(?:delimited|separated|delimiter)\b", text, re.IGNORECASE)
+    if named:
+        return words[named.group(1).lower()]
+    quoted = re.search(r"delimit\w*\s*\(\s*([|,;^~:])\s*\)", text, re.IGNORECASE)
+    return quoted.group(1) if quoted else None
+
+
 def same_value(a: str | None, b: str | None) -> bool:
     """Agreement as the cross-checks judge it: equal or one contains the other."""
     na, nb = normalize(a), normalize(b)
@@ -152,7 +168,8 @@ def distinct(statements: list[Statement]) -> list[Statement]:
 # the extractor reports a held-back feed with one of these (NEEDS_ANSWERS),
 # the layout stage writes the answer into the FRD feed, and the extractor's
 # FRD link then reads it (flag sttm_target_missing).
-TARGET_KEY_RE = re.compile(r"^feeds\[\d+\]\.(stage|standard)_target\.(schema|tables)$")
+TARGET_KEY_RE = re.compile(
+    r"^feeds\[\d+\]\.(stage|standard)_target\.(schema|tables|catalog)$")
 
 
 def blank_sheet_feed_name(sheet: str) -> str:
@@ -171,6 +188,7 @@ __all__ = [
     "LOAD_STRATEGIES",
     "Statement",
     "canonical_strategy",
+    "delimiter_in_format",
     "distinct",
     "fill_flag",
     "format_statements",

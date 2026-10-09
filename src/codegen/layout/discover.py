@@ -71,6 +71,20 @@ def normalize(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value).lower()).strip()
 
 
+def is_blank_placeholder(value: object, blank_values: list[str]) -> bool:
+    """True for a meta VALUE that states nothing ("TBD", "N/A", "-"). Compared
+    as written, then in ``normalize`` form - but a value that normalizes to
+    nothing (a delimiter character: "," "|" "~") is a value, never the "-"
+    placeholder (Chunk B: the STTM's "File Delimiter: ," was read as blank)."""
+    raw = str(value).strip().lower() if value is not None else ""
+    if not raw:
+        return True
+    if raw in {str(b).strip().lower() for b in blank_values}:
+        return True
+    key = normalize(raw)
+    return bool(key) and key in {normalize(b) for b in blank_values if normalize(b)}
+
+
 def text(value: object) -> str | None:
     if value is None:
         return None
@@ -640,6 +654,28 @@ def _content(workbook, config: ExtractorConfig, name: str, digest: str,
             sheets.append(_classify_auxiliary(ws, disc, notes))
         if any(s.kind == "mapping" for s in sheets):
             break
+    if not any(s.kind == "mapping" for s in sheets):
+        # Pass 3 (Chunk B, cold drill): still no mapping sheet - a sheet whose
+        # wide header row sits under a band title row, or carries runs of
+        # headers sharing a qualifier word, is a CANDIDATE mapping sheet: its
+        # bands are located by that structure, their layers by evidence only,
+        # and every role no synonym places is a question (the answers file /
+        # the layout model), instead of "no mapping sheets found".
+        candidates: list[SheetProfile] = []
+        candidate_confidence: dict[str, float] = {}
+        candidate_unresolved: list[UnresolvedRole] = []
+        candidate_notes: list[str] = []
+        for sheet_name in workbook.sheetnames:
+            ws = workbook[sheet_name]
+            mapping = _discover_candidate_sheet(ws, disc, candidate_confidence,
+                                                candidate_unresolved, candidate_notes,
+                                                band_layers or {})
+            candidates.append(mapping if mapping is not None
+                              else _classify_auxiliary(ws, disc, candidate_notes))
+        if any(s.kind == "mapping" for s in candidates):
+            sheets, confidence, unresolved = (candidates, candidate_confidence,
+                                              candidate_unresolved)
+            notes = [*notes, *candidate_notes]
     mapping_sheets = [s for s in sheets if s.kind == "mapping"]
     if not mapping_sheets:
         diagnostics.extend(notes)
@@ -1234,6 +1270,253 @@ def value_layer(ws, header_row: int, band: BandProfile, disc: DiscoveryConfig
     return None, None
 
 
+# ---------------- Chunk B (2026-10-09): candidate mapping sheets (pass 3)
+
+# The first note of a pass-3 sheet: the classifier reads it (a CANDIDATE is
+# never classified an STTM on its own - an IIG / dictionary sheet has the
+# same shape; only a person who picks it as the STTM reads it as one).
+CANDIDATE_SHEET_NOTE = "no mapping sheet by band row or label group"
+
+def _first_word(value: object) -> str:
+    words = normalize(value).split()
+    return words[0] if words else ""
+
+
+def _candidate_header_row(rows: list[list], min_cells: int) -> int | None:
+    """0-based index of the first scanned row carrying at least ``min_cells``
+    text cells with a filled row beneath it (a header over data)."""
+    for index, row in enumerate(rows):
+        if sum(1 for c in row if text(c) is not None) < min_cells:
+            continue
+        below = rows[index + 1] if index + 1 < len(rows) else []
+        if sum(1 for c in below if text(c) is not None) >= _MIN_HEADER_CELLS:
+            return index
+    return None
+
+
+def _qualifier_runs(header: list, last_col: int, min_run: int) -> list[tuple[int, int, str]]:
+    """(start, end, word) for every maximal run of at least ``min_run``
+    adjacent header cells sharing their first word ("Landing Catalog |
+    Landing Schema | Landing Table …") — one band named by that word."""
+    runs: list[tuple[int, int, str]] = []
+    col = 1
+    while col <= last_col:
+        word = _first_word(header[col - 1]) if col - 1 < len(header) else ""
+        if not word:
+            col += 1
+            continue
+        end = col
+        while end + 1 <= last_col and end < len(header) and _first_word(header[end]) == word:
+            end += 1
+        if end - col + 1 >= min_run:
+            runs.append((col, end, word))
+        col = end + 1
+    return runs
+
+
+def _target_role(value: str, qualifier: str | None, table: dict[str, set[str]]) -> list[str]:
+    """Target roles a header names — as written, else without the band's
+    qualifier word ("Landing Schema" -> "schema"): the qualifier names the
+    band, the rest names the role."""
+    matches = [role for role, spellings in table.items() if value in spellings]
+    if not matches and qualifier and value.startswith(qualifier + " "):
+        rest = value[len(qualifier) + 1:]
+        matches = [role for role, spellings in table.items() if rest in spellings]
+    return matches
+
+
+def _discover_candidate_sheet(ws, disc: DiscoveryConfig, confidence: dict[str, float],
+                              unresolved: list[UnresolvedRole], diagnostics: list[str],
+                              band_layers: dict[str, str]) -> SheetProfile | None:
+    """Pass 3 (Chunk B), only when no sheet of the workbook is a mapping sheet
+    by passes 1 and 2: a sheet whose header row is wide enough and whose
+    target bands are marked by STRUCTURE - a band title row of two or more
+    spans over it, else runs of headers sharing a qualifier word - is a
+    CANDIDATE mapping sheet. Its bands get their layer from evidence only
+    (an answer, a title / qualifier word, Catalog / Schema values); every
+    role no synonym places is listed unresolved, so a person (answers file)
+    or the layout model can place it. Column order is never evidence."""
+    ev = disc.layer_evidence
+    rows = [list(r) for _, r in zip(range(disc.scan_rows), ws.iter_rows(values_only=True),
+                                    strict=False)]
+    header_index = _candidate_header_row(rows, ev.candidate_min_header_cells)
+    if header_index is None:
+        return None
+    header = rows[header_index]
+    last_col = max((i + 1 for i, c in enumerate(header) if text(c) is not None), default=0)
+    band_index: int | None = None
+    # (start, end, label, qualifier) per candidate band, left to right.
+    spans: list[tuple[int, int, str | None, str | None]] = []
+    titled: list[tuple[int, int, str]] = []
+    if header_index > 0:
+        titled = _title_spans(ws, rows[header_index - 1], header_index, last_col)
+    if len(titled) >= 2:
+        band_index = header_index - 1
+        spans = [(s, e, label, None) for s, e, label in titled]
+    else:
+        spans = [(s, e, None, word)
+                 for s, e, word in _qualifier_runs(header, last_col, ev.candidate_min_run)]
+    if not spans:
+        return None
+    table = {role: {normalize(s) for s in spellings}
+             for role, spellings in disc.roles.get("target", {}).items()}
+    words_by_layer = {layer: {normalize(t) for t in tokens}
+                      for layer, tokens in ev.header_words.items()}
+    fixed: list[tuple[int, int, str, str | None]] = []     # source / rules spans
+    targets: list[dict] = []
+    for start, end, label, qualifier in spans:
+        titled_layer = _title_layer(label, disc) if label else None
+        if titled_layer in ("source", "rules"):
+            fixed.append((start, end, titled_layer, label))
+            continue
+        targets.append({"start": start, "end": end, "label": label, "qualifier": qualifier,
+                        "layer": None, "evidence": None, "seen": [], "roles": {}})
+    if not targets:
+        return None
+    for n, band in enumerate(targets, start=1):
+        roles: dict[str, int] = {}
+        for c in range(band["start"], band["end"] + 1):
+            value = normalize(header[c - 1]) if c - 1 < len(header) else ""
+            matches = _target_role(value, band["qualifier"], table) if value else []
+            if len(matches) == 1 and matches[0] not in roles:
+                roles[matches[0]] = c
+        band["roles"] = roles
+        answer = band_layers.get(f"{ws.title}/{band_ref(n)}")
+        if answer in BAND_LAYER_CHOICES:
+            band["layer"], band["evidence"] = answer, "answer"
+            continue
+        named = {_title_layer(band["label"], disc)} - {None} if band["label"] else set()
+        if len(named) == 1:
+            band["layer"], band["evidence"] = named.pop(), "title"
+            continue
+        band["seen"].append(f"band title {band['label']!r} names no layer" if band["label"]
+                            else "no band title over it")
+        words = ({band["qualifier"]} if band["qualifier"] else set()).union(
+            *(_words(header[c - 1]) for c in range(band["start"], band["end"] + 1)
+              if c - 1 < len(header)))
+        named = {layer for layer, tokens in words_by_layer.items() if words & tokens}
+        if len(named) == 1:
+            band["layer"], band["evidence"] = named.pop(), "header"
+            continue
+        band["seen"].append("no layer word in its headers" if not named
+                            else f"its headers name {sorted(named)}")
+        for kind, role, what in (("catalog_value", Role.CATALOG.value, "Catalog"),
+                                 ("schema_value", Role.SCHEMA.value, "Schema")):
+            col = roles.get(role)
+            if col is None:
+                band["seen"].append(f"no {what} column")
+                continue
+            named = _value_layers(ws, header_index + 1, col, kind, disc)
+            if len(named) == 1:
+                band["layer"], band["evidence"] = named.pop(), kind
+                break
+            band["seen"].append(f"its {what} values {_span_text(col, col)} carry no layer "
+                                + ("pattern" if kind == "catalog_value" else "prefix")
+                                if not named else f"its {what} values name {sorted(named)}")
+    for layer in ("stage", "standard"):
+        claimants = [b for b in targets if b["layer"] == layer]
+        if len(claimants) > 1 and not any(b["evidence"] == "answer" for b in claimants):
+            for b in claimants:
+                b["seen"].append(f"{len(claimants)} bands each read as {layer}")
+                b["layer"] = b["evidence"] = None
+    notes = [f"{CANDIDATE_SHEET_NOTE}: header row {header_index + 1} read "
+             "as a CANDIDATE mapping sheet, bands by "
+             + ("its band title row" if band_index is not None else "shared qualifier words")
+             + " (Chunk B pass 3)"]
+    bands: list[BandProfile] = []
+    first_target = min(b["start"] for b in targets)
+    source_span = next(((s, e, label) for s, e, layer, label in fixed if layer == "source"),
+                       (1, first_target - 1, None) if first_target > 1 else None)
+    if source_span is not None:
+        bands.append(BandProfile(layer="source", col_start=source_span[0],
+                                 col_end=source_span[1], label=source_span[2]))
+    for n, band in enumerate(targets, start=1):
+        if band["layer"] is None:
+            headers = " | ".join(str(text(header[c - 1])) for c in
+                                 range(band["start"], band["end"] + 1)
+                                 if c - 1 < len(header) and text(header[c - 1]) is not None)
+            unresolved.append(UnresolvedRole(
+                sheet=ws.title, layer=band_ref(n), role=BAND_LAYER_ROLE,
+                reason=(f"{band_ref(n)} {_span_text(band['start'], band['end'])}: {headers} — "
+                        f"{'; '.join(band['seen'])}; answer under answers: with "
+                        f"{' | '.join(BAND_LAYER_CHOICES)}"),
+                candidates=list(range(band["start"], band["end"] + 1))))
+            notes.append(f"{band_ref(n)} {_span_text(band['start'], band['end'])}: layer "
+                         "unresolved")
+            continue
+        notes.append(f"{band_ref(n)} {_span_text(band['start'], band['end'])}: {band['layer']} "
+                     f"({band['evidence']})")
+        if band["layer"] == "source":
+            continue
+        bands.append(BandProfile(layer=band["layer"], col_start=band["start"],  # type: ignore[arg-type]
+                                 col_end=band["end"], label=band["label"],
+                                 roles=dict(band["roles"]),
+                                 layer_evidence=band["evidence"]))
+        for role in band["roles"]:
+            confidence[confidence_key(ws.title, band["layer"], role)] = _SYNONYM_CONFIDENCE
+    covered = {c for b in targets for c in range(b["start"], b["end"] + 1)}
+    if source_span is not None:
+        covered |= set(range(source_span[0], source_span[1] + 1))
+    col = 1
+    while col <= last_col:
+        if col in covered:
+            col += 1
+            continue
+        start = col
+        while col + 1 <= last_col and col + 1 not in covered:
+            col += 1
+        label = next((lab for s, e, layer, lab in fixed if layer == "rules" and s <= start <= e),
+                     None)
+        bands.append(BandProfile(layer="rules", col_start=start, col_end=col, label=label))
+        col += 1
+    bands.sort(key=lambda b: b.col_start)
+    resolved: list[BandProfile] = []
+    for band in bands:
+        if band.layer in ("stage", "standard"):
+            resolved.append(band)       # target roles placed above (qualifier-aware)
+            continue
+        placed = _resolve_band_roles(ws.title, band, header, disc, confidence, unresolved,
+                                     diagnostics, bands_before=list(resolved))
+        if band.layer == "rules" and any(b.layer in ("stage", "standard") for b in resolved):
+            # A candidate's rules columns may sit AFTER the target bands ("PII |
+            # Primary Key | Load Rules"): the data-rules synonyms place them too
+            # (the trailing group's own wording wins where both match).
+            rules = _resolve_band_roles(ws.title, band, header, disc, confidence, unresolved,
+                                        diagnostics, bands_before=[])
+            taken = set(placed.roles.values())
+            merged = {**{r: c for r, c in rules.roles.items() if c not in taken
+                         and r not in placed.roles}, **placed.roles}
+            placed = placed.model_copy(update={"roles": merged})
+        resolved.append(placed)
+    meta_rows = _meta_rows(rows[: (band_index if band_index is not None else header_index)],
+                           disc, ws.title, diagnostics)
+    source = next((b for b in resolved if b.layer == "source"), None)
+    segment_column = source.column(Role.SEGMENT) if source is not None else None
+    if segment_column is not None:
+        strategy = "column"
+    elif _has_banner_rows(ws, header_index + 1, resolved, disc):
+        strategy = "banner"
+    else:
+        strategy = "none"
+    for layer, required in REQUIRED_ROLES.items():
+        band = next((b for b in resolved if b.layer == layer), None)
+        if band is None:
+            continue
+        for role in required:
+            if band.column(role) is None:
+                unresolved.append(UnresolvedRole(
+                    sheet=ws.title, layer=layer, role=role.value,
+                    reason="required role has no header matching its synonyms",
+                    candidates=[c for c in range(band.col_start, band.col_end + 1)
+                                if c not in band.roles.values()]))
+    for entry in notes:
+        diagnostics.append(f"sheet {ws.title!r}: {entry}")
+    return SheetProfile(name=ws.title, kind="mapping", header_row=header_index + 1,
+                        band_row=None if band_index is None else band_index + 1,
+                        bands=resolved, meta_rows=meta_rows, segment_strategy=strategy,
+                        segment_column=segment_column, notes=notes)
+
+
 def stale_value_evidence(profile: LayoutProfile, workbook, config: ExtractorConfig
                          ) -> str | None:
     """Value-derived layer evidence is never trusted from a cache (Chunk A):
@@ -1399,6 +1682,7 @@ def _classify_auxiliary(ws, disc: DiscoveryConfig, diagnostics: list[str]) -> Sh
 
 
 __all__ = [
+    "CANDIDATE_SHEET_NOTE",
     "MAPPING_PREFIX_REFUSED",
     "Discovery",
     "LabelGroup",

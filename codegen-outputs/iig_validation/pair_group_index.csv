@@ -1,0 +1,11 @@
+pair_id,group_id,pipeline_id,match_route,confidence,note
+1,NOT_FOUND,NOT_FOUND,none,low,"RFC_110921 is ACFC accumulators, not OptumRx accumulators. No IIG workbook found for orx_accum_optumrx_dly. pr_dlk_adb.dbo unreachable."
+2,NOT_FOUND,NOT_FOUND,none,low,No RFC IIG workbook matches Socially Determined MIDS. No matching file patterns in all_files_static_information. pr_dlk_adb.dbo unreachable.
+3,NOT_FOUND,NOT_FOUND,none,low,orx_mbr_elig exists in d1_dlk.stg_pharmcy but no IIG workbook found. pr_dlk_adb.dbo unreachable.
+4,NOT_FOUND,NOT_FOUND,none,low,orx_pde_edit_cd exists in d1_dlk.stg_pharmcy but no IIG workbook found. pr_dlk_adb.dbo unreachable.
+5,NOT_FOUND,NOT_FOUND,none,low,claim_medical_state_hist exists in d1_dlk.stg_clm but no IIG workbook found. pr_dlk_adb.dbo unreachable.
+6,NOT_FOUND,NOT_FOUND,none,low,RDBMS ingestion (Facets tables). No IIG workbook found. pr_dlk_adb.dbo unreachable.
+7,NOT_FOUND,NOT_FOUND,none,low,claim_pharmacy_state_hist exists in d1_dlk.stg_pharmcy but no IIG workbook found. pr_dlk_adb.dbo unreachable.
+8,NOT_FOUND,NOT_FOUND,none,low,RFC111251 has related scripts but no IIG workbook with GROUP_IDs. pr_dlk_adb.dbo unreachable.
+9,NOT_FOUND,NOT_FOUND,none,low,UMPeopleSoftData found in all_files_static_information (OBJ_ID=2) but no GROUP_ID route. pr_dlk_adb.dbo unreachable.
+10,NOT_FOUND,NOT_FOUND,none,low,db_104_hra_data_enterprise found in all_files_static_information (OBJ_ID=1) but no GROUP_ID route. pr_dlk_adb.dbo unreachable.

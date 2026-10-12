@@ -1,0 +1,812 @@
+{
+  "golden": "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/code-gen-agent/goldens/pair_2_iig_golden.xlsx",
+  "agent": "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/code-gen-agent/agent_out/pair_2/pair_2_iig_agent.xlsx",
+  "keys": "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/code-gen-agent/tools/iig_keys.yaml",
+  "totals": {
+    "exact": 148,
+    "normalized": 5,
+    "mismatch": 71,
+    "missing-in-agent": 1497,
+    "extra-in-agent": 207,
+    "needs_assignment": 648,
+    "scored_cells": 1928,
+    "score": 7.9
+  },
+  "sheets": {
+    "EMAIL_TEMPLATE_CONFIG": {
+      "presence": "compared",
+      "key": [
+        "TEMPLATE_NAME",
+        "STATUS"
+      ],
+      "pair_mode": "key",
+      "key_unique": {
+        "golden": false,
+        "agent": false
+      },
+      "duplicate_keys": {
+        "golden": [
+          "MIDS SDOH | Success",
+          "MIDS SDOH | Failed"
+        ],
+        "agent": [
+          "<blank> | Success",
+          "<blank> | Failed"
+        ]
+      },
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 12,
+        "agent": 6,
+        "paired": 0,
+        "missing-in-agent": 12,
+        "extra-in-agent": 6
+      },
+      "columns": {
+        "golden_only": [
+          "PIPELINE_ID",
+          "PIPELINE_NAME",
+          "CRETAED_BY",
+          "CREATED_AT",
+          "UPDATED_AT",
+          "EMAIL_NOTIFICATION_URL"
+        ],
+        "agent_only": [
+          "BODY_QUERY",
+          "CREATED_BY",
+          "CREATED_DATE",
+          "UPDATED_DATE"
+        ]
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 144,
+        "extra-in-agent": 66,
+        "needs_assignment": 102
+      },
+      "score": 0.0,
+      "needs_assignment": {
+        "PIPELINE_ID": {
+          "cells": 12,
+          "golden_filled": 12,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "TEMPLATE_ID": {
+          "cells": 18,
+          "golden_filled": 12,
+          "agent_filled": 0,
+          "equal": 6
+        },
+        "CRETAED_BY": {
+          "cells": 12,
+          "golden_filled": 12,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_AT": {
+          "cells": 12,
+          "golden_filled": 12,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_BY": {
+          "cells": 18,
+          "golden_filled": 12,
+          "agent_filled": 0,
+          "equal": 6
+        },
+        "UPDATED_AT": {
+          "cells": 12,
+          "golden_filled": 12,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_BY": {
+          "cells": 6,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 6
+        },
+        "CREATED_DATE": {
+          "cells": 6,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 6
+        },
+        "UPDATED_DATE": {
+          "cells": 6,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 6
+        }
+      },
+      "warnings": [
+        "key ['TEMPLATE_NAME', 'STATUS'] is not unique (golden 2, agent 2 duplicated) \u2014 duplicates paired in sheet order"
+      ]
+    },
+    "adls_delta_ingestion_details": {
+      "presence": "compared",
+      "key": [
+        "OBJECT_NAME",
+        "TGT_TABLE_NAME"
+      ],
+      "pair_mode": "position (fallback)",
+      "key_unique": {
+        "golden": true,
+        "agent": true
+      },
+      "duplicate_keys": {
+        "golden": [],
+        "agent": []
+      },
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 3,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "columns": {
+        "golden_only": [
+          "FILE_METADATA"
+        ],
+        "agent_only": []
+      },
+      "counts": {
+        "exact": 81,
+        "normalized": 5,
+        "mismatch": 33,
+        "missing-in-agent": 13,
+        "extra-in-agent": 0,
+        "needs_assignment": 33
+      },
+      "score": 65.2,
+      "needs_assignment": {
+        "GROUP_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "OBJECT_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 3,
+          "equal": 3
+        },
+        "PIPELINE_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CLAIM_TYPE_ID": {
+          "cells": 3,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 3
+        },
+        "SRC_ADLS_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 3,
+          "equal": 3
+        },
+        "METADATA_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 3,
+          "equal": 3
+        },
+        "TGT_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 3,
+          "equal": 3
+        },
+        "CREATED_BY": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_DATE": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_BY": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_DATE": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        }
+      },
+      "warnings": [
+        "key ['OBJECT_NAME', 'TGT_TABLE_NAME'] paired 0 rows with both sides \u226410 \u2014 fell back to position"
+      ]
+    },
+    "all_files_static_information": {
+      "presence": "compared",
+      "key": "position",
+      "pair_mode": "position",
+      "key_unique": null,
+      "duplicate_keys": null,
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 18,
+        "agent": 3,
+        "paired": 3,
+        "missing-in-agent": 15,
+        "extra-in-agent": 0
+      },
+      "columns": {
+        "golden_only": [
+          "INVENTORY_ID",
+          "FILE_NAME",
+          "DESCRIPTION",
+          "LOB",
+          "GOVT_PROGRAM_NM",
+          "FILE_TYPE",
+          "SUPPLIER",
+          "SUPPLIER_CONTACT_PH",
+          "SUPPLIER_EMAIL",
+          "GENERATOR",
+          "GENERATOR_CONTACT_PH",
+          "GENERATOR_EMAIL",
+          "FREQUENCY",
+          "ACTIVE_TERM_STATUS",
+          "INTERNAL_CONTACT_NM",
+          "INTERNAL_CONTACT_EMAIL",
+          "LAST_SUCCESS_PROCESSED_DATE",
+          "NEXT_EXPECTED_RECEIVE_DT",
+          "FILE_RECEIVE_PER_FREQUENCY",
+          "PROCESS_NAME",
+          "FILE_TR_MODE",
+          "vendor_name"
+        ],
+        "agent_only": [
+          "GROUP_ID",
+          "PIPELINE_ID",
+          "SRC_CONNECTION_ID",
+          "SRC_ROOT_DIR",
+          "TGT_CONTAINER_NAME",
+          "TGT_ADLS_PATH",
+          "SOURCE_TYPE",
+          "SRC_EXTRACT_START_TIME",
+          "COPY_START_TIME_OFFSET_IN_MINUTES",
+          "CREATED_BY",
+          "UPDATED_BY",
+          "TGT_STORAGE_ACCOUNT_NAME"
+        ]
+      },
+      "counts": {
+        "exact": 6,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 408,
+        "extra-in-agent": 21,
+        "needs_assignment": 87
+      },
+      "score": 1.4,
+      "needs_assignment": {
+        "INVENTORY_ID": {
+          "cells": 18,
+          "golden_filled": 18,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "OBJECT_ID": {
+          "cells": 18,
+          "golden_filled": 18,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_DATE": {
+          "cells": 18,
+          "golden_filled": 18,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_DATE": {
+          "cells": 18,
+          "golden_filled": 18,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "GROUP_ID": {
+          "cells": 3,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 3
+        },
+        "PIPELINE_ID": {
+          "cells": 3,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 3
+        },
+        "SRC_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 3
+        },
+        "CREATED_BY": {
+          "cells": 3,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 3
+        },
+        "UPDATED_BY": {
+          "cells": 3,
+          "golden_filled": 0,
+          "agent_filled": 0,
+          "equal": 3
+        }
+      },
+      "warnings": [
+        "key column(s) ['FILE_NAME'] not in both sheets \u2014 rows paired by position"
+      ],
+      "template_mismatch": {
+        "golden_sheet": "all_files_static_information",
+        "agent_sheet": "FILE_ADLS_INGESTION_DETAILS",
+        "note": "Different IIG template versions use different sheet names for the same logical table."
+      }
+    },
+    "data_factory_pipeline_schedule": {
+      "presence": "compared",
+      "key": [
+        "PIPELINE_NAME"
+      ],
+      "pair_mode": "key",
+      "key_unique": {
+        "golden": false,
+        "agent": true
+      },
+      "duplicate_keys": {
+        "golden": [
+          "PL_File_SDOH_DMG_PKG_ADLS_To_Delta_Incr",
+          "PL_File_SDOH_DMG_PKG_Delta_To_STD_Incr",
+          "PL_File_SDOH_ANLY_PKG_ADLS_To_Delta_Incr",
+          "PL_File_SDOH_ANLY_PKG_Delta_To_STD_Incr",
+          "PL_File_SDOH_SD_IND_RISK_ADLS_To_Delta_Incr",
+          "PL_File_SDOH_SD_IND_RISK_Delta_To_STD_Incr"
+        ],
+        "agent": []
+      },
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 36,
+        "agent": 12,
+        "paired": 0,
+        "missing-in-agent": 36,
+        "extra-in-agent": 12
+      },
+      "columns": {
+        "golden_only": [
+          "PROCESS_NAME",
+          "SUBPROCESS_NAME",
+          "LAYER_NAME",
+          "COMPLETION_SLA",
+          "RUNTIME_SLA",
+          "CRITICAL_PROCESSING_PERIOD",
+          "UDF1",
+          "UDF2",
+          "UDF3",
+          "UDF4",
+          "UDF5",
+          "IsFileCopyReqFlag"
+        ],
+        "agent_only": []
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 792,
+        "extra-in-agent": 120,
+        "needs_assignment": 288
+      },
+      "score": 0.0,
+      "needs_assignment": {
+        "PIPELINE_ID": {
+          "cells": 48,
+          "golden_filled": 36,
+          "agent_filled": 0,
+          "equal": 12
+        },
+        "PARENT_PIPELINE_ID": {
+          "cells": 48,
+          "golden_filled": 36,
+          "agent_filled": 3,
+          "equal": 9
+        },
+        "CREATED_BY": {
+          "cells": 48,
+          "golden_filled": 36,
+          "agent_filled": 0,
+          "equal": 12
+        },
+        "CREATED_DATE": {
+          "cells": 48,
+          "golden_filled": 36,
+          "agent_filled": 0,
+          "equal": 12
+        },
+        "UPDATED_BY": {
+          "cells": 48,
+          "golden_filled": 36,
+          "agent_filled": 0,
+          "equal": 12
+        },
+        "UPDATED_DATE": {
+          "cells": 48,
+          "golden_filled": 36,
+          "agent_filled": 0,
+          "equal": 12
+        }
+      },
+      "warnings": [
+        "key ['PIPELINE_NAME'] is not unique (golden 6, agent 0 duplicated) \u2014 duplicates paired in sheet order"
+      ]
+    },
+    "data_quality_rules": {
+      "presence": "compared",
+      "key": [
+        "OBJECT_ID -> table",
+        "RULE_CLASS",
+        "SOURCE_COLUMN"
+      ],
+      "pair_mode": "key",
+      "key_unique": {
+        "golden": true,
+        "agent": true
+      },
+      "duplicate_keys": {
+        "golden": [],
+        "agent": []
+      },
+      "unresolved_object_ids": {
+        "golden": [],
+        "agent": []
+      },
+      "rows": {
+        "golden": 11,
+        "agent": 0,
+        "paired": 0,
+        "missing-in-agent": 11,
+        "extra-in-agent": 0
+      },
+      "columns": {
+        "golden_only": [],
+        "agent_only": []
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 77,
+        "extra-in-agent": 0,
+        "needs_assignment": 66
+      },
+      "score": 0.0,
+      "needs_assignment": {
+        "GROUP_ID": {
+          "cells": 11,
+          "golden_filled": 11,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "OBJECT_ID": {
+          "cells": 11,
+          "golden_filled": 11,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_BY": {
+          "cells": 11,
+          "golden_filled": 11,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_DATE": {
+          "cells": 11,
+          "golden_filled": 11,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_BY": {
+          "cells": 11,
+          "golden_filled": 11,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_DATE": {
+          "cells": 11,
+          "golden_filled": 11,
+          "agent_filled": 0,
+          "equal": 0
+        }
+      },
+      "warnings": []
+    },
+    "databricks_notebook_details": {
+      "presence": "compared",
+      "key": [
+        "DATABRICKS_NOTEBOOK_NAME"
+      ],
+      "pair_mode": "position (fallback)",
+      "key_unique": {
+        "golden": false,
+        "agent": false
+      },
+      "duplicate_keys": {
+        "golden": [
+          "FileInvokeDQDeltaTable_V0.1",
+          "DeltaInvokeDQStandardDeltaTable_V2"
+        ],
+        "agent": [
+          "<blank>"
+        ]
+      },
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 6,
+        "agent": 3,
+        "paired": 3,
+        "missing-in-agent": 3,
+        "extra-in-agent": 0
+      },
+      "columns": {
+        "golden_only": [],
+        "agent_only": []
+      },
+      "counts": {
+        "exact": 14,
+        "normalized": 0,
+        "mismatch": 1,
+        "missing-in-agent": 57,
+        "extra-in-agent": 0,
+        "needs_assignment": 42
+      },
+      "score": 19.4,
+      "needs_assignment": {
+        "PIPELINE_ID": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "GROUP_ID": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_BY": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_DATE": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_BY": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_DATE": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CLUSTER_DETAILS_ID": {
+          "cells": 6,
+          "golden_filled": 6,
+          "agent_filled": 0,
+          "equal": 0
+        }
+      },
+      "warnings": [
+        "key ['DATABRICKS_NOTEBOOK_NAME'] is not unique (golden 2, agent 1 duplicated) \u2014 duplicates paired in sheet order",
+        "key ['DATABRICKS_NOTEBOOK_NAME'] paired 0 rows with both sides \u226410 \u2014 fell back to position"
+      ]
+    },
+    "stgdelta_stddelta_ingestion_det": {
+      "presence": "compared",
+      "key": [
+        "OBJECT_NAME",
+        "TGT_TABLE_NAME"
+      ],
+      "pair_mode": "position (fallback)",
+      "key_unique": {
+        "golden": true,
+        "agent": true
+      },
+      "duplicate_keys": {
+        "golden": [],
+        "agent": []
+      },
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 3,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "columns": {
+        "golden_only": [],
+        "agent_only": []
+      },
+      "counts": {
+        "exact": 47,
+        "normalized": 0,
+        "mismatch": 37,
+        "missing-in-agent": 6,
+        "extra-in-agent": 0,
+        "needs_assignment": 30
+      },
+      "score": 52.2,
+      "needs_assignment": {
+        "GROUP_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "OBJECT_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "PIPELINE_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "SRC_ADLS_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "METADATA_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "TGT_CONNECTION_ID": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_BY": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "CREATED_DATE": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_BY": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        },
+        "UPDATED_DATE": {
+          "cells": 3,
+          "golden_filled": 3,
+          "agent_filled": 0,
+          "equal": 0
+        }
+      },
+      "warnings": [
+        "key ['OBJECT_NAME', 'TGT_TABLE_NAME'] paired 0 rows with both sides \u226410 \u2014 fell back to position"
+      ]
+    },
+    "ADLS_FIXED_WIDTH_HANDLER": {
+      "presence": "agent-only",
+      "key": [
+        "SEGMENT",
+        "TGT_TABLE"
+      ],
+      "pair_mode": "key",
+      "key_unique": {
+        "golden": true,
+        "agent": true
+      },
+      "duplicate_keys": {
+        "golden": [],
+        "agent": []
+      },
+      "unresolved_object_ids": null,
+      "rows": {
+        "golden": 0,
+        "agent": 0,
+        "paired": 0,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "columns": {
+        "golden_only": [],
+        "agent_only": [
+          "PROCESS_NAME",
+          "VERSION",
+          "SEGMNT_TYP",
+          "ACTIVE_FLAG",
+          "SEGMENT",
+          "SEGMENT_FILTER",
+          "COL",
+          "LEN",
+          "start_ind",
+          "TGT_TABLE",
+          "PIPELINE_ID",
+          "FILE_TYPE",
+          "EXTENSION",
+          "CREATED_BY",
+          "CREATED_DATE",
+          "UPDATED_BY",
+          "UPDATED_DATE",
+          "TGT_AUDIT_CLMS",
+          "SRC_ADLS_ARCHVL_PATH",
+          "IS_MANDATORY",
+          "COLUMN_VALIDATIONS",
+          "FILE_REJECTION",
+          "RJCT_RSN_COLUMN_NM"
+        ]
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0,
+        "needs_assignment": 0
+      },
+      "score": 100.0,
+      "needs_assignment": {},
+      "warnings": [
+        "sheet is agent-only"
+      ]
+    }
+  },
+  "warnings": [
+    "EMAIL_TEMPLATE_CONFIG: key ['TEMPLATE_NAME', 'STATUS'] is not unique (golden 2, agent 2 duplicated) \u2014 duplicates paired in sheet order",
+    "adls_delta_ingestion_details: key ['OBJECT_NAME', 'TGT_TABLE_NAME'] paired 0 rows with both sides \u226410 \u2014 fell back to position",
+    "all_files_static_information: key column(s) ['FILE_NAME'] not in both sheets \u2014 rows paired by position",
+    "data_factory_pipeline_schedule: key ['PIPELINE_NAME'] is not unique (golden 6, agent 0 duplicated) \u2014 duplicates paired in sheet order",
+    "databricks_notebook_details: key ['DATABRICKS_NOTEBOOK_NAME'] is not unique (golden 2, agent 1 duplicated) \u2014 duplicates paired in sheet order",
+    "databricks_notebook_details: key ['DATABRICKS_NOTEBOOK_NAME'] paired 0 rows with both sides \u226410 \u2014 fell back to position",
+    "stgdelta_stddelta_ingestion_det: key ['OBJECT_NAME', 'TGT_TABLE_NAME'] paired 0 rows with both sides \u226410 \u2014 fell back to position",
+    "ADLS_FIXED_WIDTH_HANDLER: sheet is agent-only"
+  ]
+}

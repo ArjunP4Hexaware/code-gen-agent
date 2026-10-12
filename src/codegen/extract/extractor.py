@@ -186,6 +186,12 @@ def extract_contract(
     from codegen.contracts.sttm import PendingAnswer
     from codegen.extract.generic import NeedsAnswers
 
+    # Multi-file FRD → multiple feeds: when a single FRD feed has >1 file
+    # pattern AND >1 target table and the STTM has >1 mapping sheet, split
+    # into one feed per target table with a proposed file→table pairing by
+    # name similarity.  The pairing is a QUESTION flag, not a silent guess.
+    frd = _expand_multi_file_frd(frd)
+
     skipped = {t for t in skip_stage_tables}
     sheets = [s for s in ir.sheets if s.stage_table not in skipped]
     feeds = []
@@ -245,6 +251,45 @@ def extract_contract(
         ),
         needs_answers=pending,
     )
+
+
+def _expand_multi_file_frd(frd: FrdContract) -> FrdContract:
+    """When a single FRD feed lists >1 file pattern AND >1 target table, split
+    it into one feed per target table and propose file→table pairing by name
+    similarity.  The pairing is a QUESTION (flag), not a silent guess.
+
+    Returns the FRD unchanged when no split is needed."""
+    from codegen.extract.frd_docx import _name_similarity, is_unnamed_feed
+
+    expanded: list[FrdFeed] = []
+    changed = False
+    for feed in frd.feeds:
+        tables = feed.stage_target.tables
+        patterns = feed.file_name_patterns
+        if len(tables) <= 1 or len(patterns) <= 1:
+            expanded.append(feed)
+            continue
+        # Greedy best-match assignment
+        remaining = list(patterns)
+        for idx, table in enumerate(tables):
+            if not remaining:
+                best = None
+            else:
+                best = max(remaining, key=lambda p: _name_similarity(p, table))
+                remaining.remove(best)
+            extra = remaining if idx == len(tables) - 1 else []
+            pats = ([best] if best else []) + extra
+            expanded.append(feed.model_copy(update={
+                "file_name_patterns": pats,
+                "stage_target": feed.stage_target.model_copy(
+                    update={"tables": [table]}),
+                "standard_target": feed.standard_target.model_copy(
+                    update={"tables": [table] if feed.standard_target.tables else []}),
+            }))
+        changed = True
+    if not changed:
+        return frd
+    return frd.model_copy(update={"feeds": expanded})
 
 
 def _match_frd_feed(sheet: SheetIR, frd: FrdContract,

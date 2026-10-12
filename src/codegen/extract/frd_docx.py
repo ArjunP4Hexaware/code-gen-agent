@@ -982,6 +982,18 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                 evidence[f"{prefix}.feed_name"] = evidence.pop(f"{prefix}.feed_name#fallback")
                 flags.append(f"frd_feed_name_from_name_row:{prefix} — feed name {feed_name!r} "
                              f"from the {cell_of(f'{prefix}.feed_name#fallback')} cell")
+        # Multi-file FRD: a refused nested table (or multiline / per-file
+        # blocks) in the Object Name cell may hold file-like patterns that
+        # belong in file_name_patterns.  Split on ';' and newlines; treat
+        # CCYY_MM and YYYY_MM as the same pattern.
+        if not file_name_patterns and listed is not None:
+            file_name_patterns = _extract_patterns_from_structured(listed)
+            if file_name_patterns:
+                flags.append(
+                    f"file_pattern_from_{listed.kind}:{prefix} — the "
+                    f"{cell_of(f'{prefix}.feed_name')} cell contains "
+                    f"{len(file_name_patterns)} file pattern(s): "
+                    f"{file_name_patterns}")
         rules = []
         n = 0
         while f"{prefix}.validation_rules[{n}]" in profile.fields:
@@ -1080,6 +1092,95 @@ def _names_one_file(value: str) -> bool:
     wildcard or a date placeholder), never a sentence."""
     text = value.strip()
     return bool(text) and not any(c.isspace() for c in text) and bool(_FILE_LIKE_RE.search(text))
+
+
+def _extract_patterns_from_structured(sv) -> list[str]:
+    """File-like patterns from a StructuredValue the reader refused as a scalar.
+
+    Only ``nested_table`` and ``per_file_blocks`` are handled — their rows are
+    structured data keyed on the file-like cell (the SD FRD's ``Vendor |
+    INB/OUB | FileName`` table).  ``multiline`` text is NOT split: its flat
+    dump may contain a single incidental file name among non-file content,
+    and extracting it would steal a pattern from the real source (e.g.  the
+    FRD's labelled-files block or the layout stage's per-file derivation).
+
+    A pattern is a token ``_FILE_LIKE_RE`` matches (an extension, a wildcard,
+    or a date placeholder like YYYY / CCYY).  At least two file-like rows must
+    be present — a single file was already handled by the ``_names_one_file``
+    branch."""
+    if sv.kind not in ("nested_table", "per_file_blocks"):
+        return []
+    patterns = [row.key for row in sv.rows if _FILE_LIKE_RE.search(row.key)]
+    return patterns if len(patterns) >= 2 else []
+
+
+def _canonical_pattern(name: str) -> str:
+    """Normalise date placeholders so CCYY_MM and YYYY_MM compare equal."""
+    return re.sub(r"(?i)ccyy", "yyyy", name.strip().lower())
+
+
+def _name_similarity(a: str, b: str) -> float:
+    """Token-overlap similarity (Jaccard on underscore-split stems)."""
+    tokens_a = set(re.split(r"[_\-.]+", _canonical_pattern(re.sub(r"\.[a-z0-9]{2,4}$", "", a))))
+    tokens_b = set(re.split(r"[_\-.]+", _canonical_pattern(re.sub(r"\.[a-z0-9]{2,4}$", "", b))))
+    tokens_a.discard("")
+    tokens_b.discard("")
+    if not tokens_a or not tokens_b:
+        return 0.0
+    return len(tokens_a & tokens_b) / max(len(tokens_a), len(tokens_b))
+
+
+def _split_multi_file_feeds(
+    feeds: list[FrdFeed],
+    flags: list[str],
+    ambiguities: list[str],
+    document_name: str,
+) -> list[FrdFeed]:
+    """When a single feed lists >1 file family AND >1 target table, split into
+    one feed per target table and propose the file→table pairing by name
+    similarity as a QUESTION the person confirms."""
+    if len(feeds) != 1:
+        return feeds
+    feed = feeds[0]
+    tables = feed.stage_target.tables
+    patterns = feed.file_name_patterns
+    if len(tables) <= 1 or len(patterns) <= 1:
+        return feeds
+
+    # Greedy best-match assignment: for each table pick the most-similar
+    # unassigned pattern; any leftover patterns go to the last feed.
+    remaining = list(patterns)
+    assignments: list[tuple[str, str | None]] = []
+    for table in tables:
+        if not remaining:
+            assignments.append((table, None))
+            continue
+        best = max(remaining, key=lambda p: _name_similarity(p, table))
+        assignments.append((table, best))
+        remaining.remove(best)
+
+    split: list[FrdFeed] = []
+    for idx, (table, pattern) in enumerate(assignments):
+        extra_patterns = remaining if idx == len(assignments) - 1 else []
+        pats = ([pattern] if pattern else []) + extra_patterns
+        split.append(feed.model_copy(update={
+            "feed_name": unnamed_feed_name(document_name, idx),
+            "file_name_patterns": pats,
+            "stage_target": feed.stage_target.model_copy(update={"tables": [table]}),
+            "standard_target": feed.standard_target.model_copy(
+                update={"tables": [table] if feed.standard_target.tables else []}),
+        }))
+        sim = _name_similarity(pattern, table) if pattern else 0.0
+        flags.append(
+            f"QUESTION multi_file_split:feeds[{idx}] — proposed pairing: "
+            f"file {pattern!r} → table {table!r} (similarity {sim:.2f}); "
+            "confirm or override in the answers file")
+
+    ambiguities.append(
+        f"multi_file_frd:feeds[0] → split 1 feed into {len(split)} feeds "
+        f"(one per target table); file→table pairings are PROPOSED by name "
+        "similarity — confirm each")
+    return split
 
 
 def _plain_name(value: str) -> bool:

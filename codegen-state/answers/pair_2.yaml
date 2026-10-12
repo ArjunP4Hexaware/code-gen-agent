@@ -1,0 +1,28 @@
+# pair_2 (SD) answers for the D1 run — template, 2026-10-12.
+#
+# Used by every stage of the D1 run: codegen layout / extract-sttm ... --answers
+# codegen-state/answers/pair_2.yaml (docs/acfc/GENIE_RUN_pair_2.md step 3).
+#
+# The one file question of this pair: the community-risk table (feed 1 — the
+# STTM's second mapping sheet) matches no FILE_DETAILS file by name. Since
+# 2fbd7c2 the layout resolves it BY ELIMINATION (the one FILE_DETAILS file that
+# feeds 0 and 2 do not pair with) and prints
+#     NOTE           feeds[1].file_name_patterns — ... (by elimination: ...)
+# An answers-file entry applies only to a question that is OPEN: while the
+# elimination resolves the file, this entry is not used (verified 2026-10-12 on
+# the real SD pair, mock: the eliminated file is taken either way). It is the
+# answer for the case the elimination does NOT resolve (a FILE_DETAILS sheet
+# that differs from the one tested) — then the question is open and this value
+# becomes the feed's file pattern AS WRITTEN.
+#
+# D1 FILLS the value below: open the STTM's FILE_DETAILS sheet, take the ONE
+# file name not taken by feeds[0] / feeds[2] (the NOTE line names it too), and
+# confirm the key's index matches the NOTE line's feeds[<i>]. An unfilled
+# placeholder would be taken as written if the question were open, so the D1
+# prompt REFUSES to run while "<FILL" is in this file.
+#
+# Client value: this file is filled in the ACFC Git folder only. Never commit
+# it back filled (the round 4 push is codegen-outputs/iig_validation/round4/).
+gaps:
+  "feeds[1].file_name_patterns":
+    value: "<FILL: the FILE_DETAILS file name left by elimination>"

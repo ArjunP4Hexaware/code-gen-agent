@@ -950,6 +950,18 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         # M4: a docx-extracted FRD may name no file pattern; the workbook's
         # meta rows / FILE_DETAILS then supply it (the resolver flags the
         # provenance: file_pattern_from_sttm).
+        distinct = list(dict.fromkeys(_canonical_file_name(p) for p in patterns))
+        if len(ir.sheets) > 1 and len(distinct) > 1:
+            # 2026-10-12: several mapping sheets and several files, and the FRD
+            # (after the layout split) names none for THIS feed — the layout
+            # asked which file it is. The first one listed would be a guess:
+            # the feed waits for the answer, the others extract.
+            raise NeedsAnswers([PendingAnswer(
+                feed_name=feed.feed_name, sheet=name, key=prefix + "file_name_patterns",
+                reason=(f"File for table {feed.feed_name}: the FRD names no file for this "
+                        f"feed and the workbook lists {len(distinct)} {patterns}; answer "
+                        f"`{prefix}file_name_patterns` under gaps: (the layout question) - "
+                        "the agent never guesses a file"))])
         name_pattern = patterns[0]
         notes.append(f"feed {feed.feed_name!r}: the FRD names no file pattern; taken from the "
                      f"workbook ({name_pattern!r})")

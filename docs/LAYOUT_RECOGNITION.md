@@ -259,6 +259,28 @@ Agreement adds `layout.crosscheck_bonus` to the involved confidences
 (capped at 1.0); disagreement is a gate flag `layout_crosscheck:<name>`
 citing both cells. A completed pair is cached under its pair fingerprint.
 
+### The file of each feed when one FRD block splits (2026-10-12)
+
+When one FRD block describes several STTM mapping sheets,
+`split_frd_feeds_by_sttm` gives each derived feed its file. The candidates are
+the files the documents list (FRD "Target Table Name" entries, FILE_DETAILS
+rows, the meta "File Names" row, and the FRD's own patterns). In order:
+
+1. **an answer** (`gaps: feeds[i].file_name_patterns`) wins;
+2. **a unique name match** — the table and the file are each other's only
+   token match (tokens every table shares, e.g. `risk`, carry nothing);
+3. **by elimination** — exactly ONE table and ONE file are left after the
+   name matches: that file is the table's value, flagged
+   `frd_unstated:feeds[i].file_name_patterns … (by elimination: …)` and printed
+   by `layout` as a `NOTE` line, never a `QUESTION` (owner decision: fewer
+   questions; the elimination has to be strictly unique);
+4. otherwise **a question** — `QUESTION feeds[i].file_name_patterns` with the
+   candidate list (`layout --require-complete` exits 3). The feed owns NO
+   pattern meanwhile: never the block's shared list (the 1faa83d regression,
+   where an unpaired feed inherited every file and extract failed on "N
+   FILE_DETAILS rows match"), and the general STTM reader holds it back as
+   NEEDS_ANSWERS rather than take the first file listed.
+
 ## The Vendor Data Dictionary (M3)
 
 The VDD goes through the same machinery: `discover_vdd` finds the `FILES`

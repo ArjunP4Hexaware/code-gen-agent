@@ -397,9 +397,15 @@ def test_one_frd_feed_naming_two_sheet_tables_becomes_two_feeds(config):
     pair = resolve_pair(_sttm("cold_4"), _frd("cold_4"), config, provider=None,
                         use_cache=False, answers={"sttm": roles})
     assert [f.feed_name for f in pair.frd_contract.feeds] == ["ch_rx_claim", "ch_rx_reversal"]
-    # The reversal file matches its table by name; the claim file is asked.
+    # The reversal file matches its table by name; the claim file is the one
+    # file left for the one table left — taken BY ELIMINATION (2026-10-12; it
+    # used to be asked), flagged, never a question.
     assert pair.frd_contract.feeds[1].file_name_patterns == ["CH_RX_REV_YYYYMMDD.csv"]
-    assert [q.key for q in pair.questions] == ["feeds[0].file_name_patterns"]
+    assert pair.frd_contract.feeds[0].file_name_patterns == ["CH_RX_CLM_<LOB>_YYYYMMDD.csv"]
+    assert pair.questions == []
+    assert any(f.startswith("frd_unstated:feeds[0].file_name_patterns source_used:"
+                            "FILE_DETAILS!B2: 'CH_RX_CLM_<LOB>_YYYYMMDD.csv' (by elimination")
+               for f in pair.flags)
     # The FRD's compound Frequency ("Claims daily; reversals weekly") is no
     # single value: each feed takes its own File Details row (flagged).
     assert pair.frd_contract.feeds[1].frequency == "Weekly"
@@ -438,14 +444,17 @@ def test_a_compound_frequency_gives_way_to_each_feeds_own_file_details_row(confi
     assert fills["feeds[1].frequency"] == ("Weekly", "STTM", "FILE_DETAILS!E3")
 
 
-def test_a_compound_frequency_stays_when_the_feeds_rows_state_several(config):
-    """B4: before the claim file is answered, feed 0 still lists both files -
-    its File Details rows state two cadences, so the FRD text stays (no
-    single value to take, nothing flagged for it)."""
+def test_unanswered_cold_4_resolves_like_the_answered_run_by_elimination(config):
+    """2026-10-12: unanswered, the claim file is taken by elimination, so feed
+    0 has ONE file and takes its own File Details row's cadence - the same
+    frequencies as the answered run above. (It used to keep BOTH files - the
+    FRD block's shared list - and with them the compound FRD text. The rule
+    "the FRD text stays when a feed's rows state several cadences" is still
+    pinned by the parametrized cases below.)"""
     pair = resolve_pair(_sttm("cold_4"), _frd("cold_4"), config, provider=None,
                         use_cache=False, answers={"sttm": _COLD4_ROLES})
-    assert pair.frd_contract.feeds[0].frequency == "Claims daily; reversals weekly"
-    assert not any(f.startswith("frd_frequency_per_file:feeds[0]") for f in pair.flags)
+    assert [f.frequency for f in pair.frd_contract.feeds] == ["Daily", "Weekly"]
+    assert pair.questions == []
 
 
 @pytest.mark.parametrize("frequency,patterns,rows,taken", [

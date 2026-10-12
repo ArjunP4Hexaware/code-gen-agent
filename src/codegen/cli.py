@@ -380,6 +380,17 @@ def _print_elimination_notes(profile) -> None:
                               f"{ref} {rest} — informational, not required to run"))
 
 
+def _print_file_elimination_notes(flags: list[str]) -> None:
+    """One NOTE line per feed whose file was taken by strict elimination
+    (layout.resolve.split_frd_feeds_by_sttm) — informational, never owed."""
+    for flag in flags:
+        match = re.match(r"^frd_unstated:(feeds\[\d+\]\.file_name_patterns) (.*\(by "
+                         r"elimination: .*)$", flag)
+        if match:
+            print(answer_line("NOTE", match.group(1),
+                              f"{match.group(2)} — informational, not required to run"))
+
+
 def _print_needs_answers(pending) -> None:
     """One line per answer a held-back feed needs: QUESTION for a `gaps:` key,
     UNRESOLVED for a band whose layer is open (Chunk A; under `answers:`)."""
@@ -844,6 +855,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 printed.add(key)
             if document == "sttm":
                 _print_elimination_notes(result.sttm.profile)
+            else:
+                _print_file_elimination_notes(result.flags)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
             print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "

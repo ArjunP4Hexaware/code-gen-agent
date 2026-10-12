@@ -139,13 +139,18 @@ def test_multi_sheet_split_pairs_files_uniquely_or_asks(tmp_path):
     (question,) = questions
     assert question.key == "feeds[1].file_name_patterns" and question.kind == "choice"
     assert len(question.candidates) == 3
-    assert question.suggested is None and question.suggested_reason == ""   # two files left
-    assert "suggested_reason" in question.as_dict()
-    # one table + one file left over -> pre-selected WITH its reason named
+    assert question.suggested is None                  # two files left: asked, nothing taken
+    assert split.feeds[1].file_name_patterns == []    # an asked feed owns NO pattern
+    # one table + one file left over -> taken BY ELIMINATION (2026-10-12; was
+    # only pre-selected): flagged with its cell, never asked
     two_files = {**facts, "files": facts["files"][:2]}
-    _s, _f, (q2,) = split_frd_feeds_by_sttm(contract, two_files, {}, config)
-    assert q2.candidates[q2.suggested]["value"] == "analytics_package_YYYY_MM.csv"
-    assert "leftover, not a name match" in q2.suggested_reason
+    s2, f2, q2 = split_frd_feeds_by_sttm(contract, two_files, {}, config)
+    assert q2 == []
+    assert s2.feeds[1].file_name_patterns == ["analytics_package_YYYY_MM.csv"]
+    (note,) = [f for f in f2 if "(by elimination" in f]
+    assert note.startswith("frd_unstated:feeds[1].file_name_patterns source_used:")
+    assert ": 'analytics_package_YYYY_MM.csv' (by elimination: table 'sd_community_risk' " \
+           "matches no file by name; the documents list 2 files for 2 tables" in note
     split2, flags2, questions2 = split_frd_feeds_by_sttm(
         contract, facts, {"feeds[1].file_name_patterns": {
             "value": "analytics_package_YYYY_MM.csv", "layer": None, "source": "STTM"}}, config)
@@ -157,7 +162,8 @@ def test_multi_sheet_split_pairs_files_uniquely_or_asks(tmp_path):
 def test_shared_family_token_never_pairs_and_the_leftover_is_only_a_suggestion():
     """Three tables ending in 'risk', three files: 'risk' is shared by every
     table so it pairs nothing; 'demographic(s)' and 'ind(iv)' pair uniquely;
-    the leftover table is ASKED, with the leftover file pre-selected."""
+    the leftover table takes the leftover file by elimination in the split
+    (2026-10-12; it used to be asked with the file pre-selected)."""
     from codegen.layout.resolve import _mutual_unique_matches
 
     tables = ["sd_community_demographic_risk", "sd_community_risk", "sd_indiv_risk"]

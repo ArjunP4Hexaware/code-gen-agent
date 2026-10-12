@@ -1355,7 +1355,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_contract, frd_doc, facts,
             _vdd_facts(vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
                        vdd_workbook),
-            answers.get("gaps") or {}, config, base)
+            answers.get("gaps") or {}, config, base,
+            asked={q.key for q in split_questions})
         frd_contract = gap.contract
         if frd_is_docx:
             # M9.3: what the layout stage DID to the contract (named the feed,
@@ -1688,11 +1689,16 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
 
     matched = _mutual_unique_matches([label(e) for e in sheet_tables],
                                      [n for n, _c in candidates])
-    # When exactly one table and one file are left over after the unique
-    # matches, that file is the dialog's SUGGESTION for it — never its value.
+    # 2026-10-12 (owner decision, fewer questions — was: only the dialog's
+    # suggestion): when the unique name matches leave exactly ONE table and
+    # ONE file over (which also means the documents list exactly as many files
+    # as there are tables), that file is the table's value BY ELIMINATION,
+    # flagged `(by elimination ...)` and printed as a NOTE — never asked. Two
+    # or more left over on either side stays a question (no suggestion).
     leftover_files = [n for n, _c in candidates if n not in matched.values()]
     leftover_tables = [label(e) for e in sheet_tables if label(e) not in matched]
-    suggest = leftover_files[0] if len(leftover_files) == 1 and len(leftover_tables) == 1 else None
+    eliminated = (leftover_files[0] if len(leftover_files) == 1 and len(leftover_tables) == 1
+                  else None)
     for index, entry in enumerate(sheet_tables):
         table = label(entry)
         key = f"feeds[{index}].file_name_patterns"
@@ -1725,19 +1731,22 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                 patterns = [name]
                 flags.append(f"frd_unstated:{key} source_used:{cell}: "
                              f"{name!r} (unique name match with table {table!r})")
+            elif eliminated is not None and table == leftover_tables[0]:
+                cell = next(c for n, c in candidates if n == eliminated)
+                patterns = [eliminated]
+                flags.append(f"frd_unstated:{key} source_used:{cell}: {eliminated!r} (by "
+                             f"elimination: table {table!r} matches no file by name; the "
+                             f"documents list {len(candidates)} files for {len(sheet_tables)} "
+                             "tables and every other file pairs with another table)")
             else:
                 title, hint, _s = frd_field_help(key, [], config)
-                names = [n for n, _c in candidates]
                 questions.append(LayoutQuestion(
                     document="frd", sheet=None, layer=None, role=key,
                     reason=f"which file feeds stage table {table!r} (sheet {entry['sheet']!r})? "
                            "no unique name match", header=[],
                     candidates=[{"value": n, "source": "STTM FILE_DETAILS / FRD", "cell": c}
                                 for n, c in candidates],
-                    title=f"File for table {table}", hint=hint, kind="choice",
-                    suggested=names.index(suggest) if suggest else None,
-                    suggested_reason=("the only file not already paired with another table "
-                                      "(a leftover, not a name match)") if suggest else ""))
+                    title=f"File for table {table}", hint=hint, kind="choice"))
         standard_tables = (list(entry.get("standard_tables") or [entry["standard_table"]])
                            if entry["standard_table"] else list(
             feed.standard_target.tables if not file_like else []))
@@ -1758,9 +1767,15 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             flags.append(f"frd_unstated:feeds[{index}].stage_target.schema source_used:STTM "
                          f"stage band {entry['sheet']!r}: {sheet_schema!r} (the FRD block says "
                          f"{frd_schema!r} for every file)")
+        # A feed of a SPLIT whose file is still asked owns NO pattern: the FRD
+        # block's list belongs to all of the feeds (2026-10-12 — once the FRD
+        # reader lifted the block's files into it, the unpaired feed inherited
+        # every one, and extract failed on "N FILE_DETAILS rows match" instead
+        # of naming the question). One sheet = one feed keeps the whole list.
+        shared = list(feed.file_name_patterns) if len(sheet_tables) == 1 else []
         feeds.append(feed.model_copy(update={
             "feed_name": table if rename else feed.feed_name,
-            "file_name_patterns": patterns or list(feed.file_name_patterns),
+            "file_name_patterns": patterns or shared,
             "stage_target": feed.stage_target.model_copy(update=stage_update),
             "standard_target": feed.standard_target.model_copy(update=standard_update),
         }))
@@ -1902,9 +1917,11 @@ class _FeedGapFiller:
     """Applies the gap chain to ONE FRD feed (resolve/gapfill.py doctrine)."""
 
     def __init__(self, contract: FrdContract, index: int, facts: dict, vdd: dict,
-                 gaps: dict, config: Config, base_dir: Path, result: GapFillResult) -> None:
+                 gaps: dict, config: Config, base_dir: Path, result: GapFillResult,
+                 asked: set[str] | None = None) -> None:
         from codegen.layout.hints import frd_field_help
 
+        self.asked = asked or set()
         self.contract = contract
         self.feed = contract.feeds[index]
         self.patched = self.feed
@@ -1957,6 +1974,8 @@ class _FeedGapFiller:
         key = self.prefix + "file_patterns"
         if self.feed.file_name_patterns:
             return
+        if self.prefix + "file_name_patterns" in self.asked:
+            return          # the split asks which file feeds this table: one question, not two
         chosen = self.gaps.get(key)
         if chosen is not None:
             patterns = [p.strip() for p in re.split(r"[;\n,]+", chosen["value"]) if p.strip()]
@@ -2282,10 +2301,14 @@ class _FeedGapFiller:
 
 
 def fill_frd_gaps(contract: FrdContract, frd_doc, facts: dict, vdd: dict, gaps: dict,
-                  config: Config, base_dir: Path) -> GapFillResult:
-    """Apply the FRD gap chain to every feed (see resolve/gapfill.py)."""
+                  config: Config, base_dir: Path, asked: set[str] | None = None
+                  ) -> GapFillResult:
+    """Apply the FRD gap chain to every feed (see resolve/gapfill.py). ``asked``:
+    the keys the split step already asks (``feeds[i].file_name_patterns``) —
+    never asked a second time in another form."""
     result = GapFillResult(contract=contract)
-    feeds = [_FeedGapFiller(contract, index, facts, vdd, gaps, config, base_dir, result).run()
+    feeds = [_FeedGapFiller(contract, index, facts, vdd, gaps, config, base_dir, result,
+                            asked or set()).run()
              for index in range(len(contract.feeds))]
     result.contract = contract.model_copy(update={"feeds": feeds})
     return result

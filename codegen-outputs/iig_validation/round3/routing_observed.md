@@ -4,6 +4,15 @@ Branch: `feature/multi-table`
 Date: 2026-10-11
 Delta from round 2: tooling improvements, position fallback pairing, template-mismatch detection.
 
+> **SUPERSEDED (2026-10-12, home review).** Every pair_2 score below comes from
+> a STALE agent workbook (a prior session's `multitable/out/`, before the
+> post21 real-row rules) paired by the now-removed POSITION fallback, so a
+> golden row could be compared with a different feed's agent row. Do not quote
+> these numbers. `tools/iig_diff.py` now pairs by natural key only and refuses a
+> workbook without a build identity; round 4 (`round4/pair_2/`) replaces them.
+> Three statements below were also wrong and are corrected in place (marked
+> "corrected 2026-10-12").
+
 ---
 
 ## 1. Per-Sheet, Per-Column Origin Tags (pair_2, round 3 diff)
@@ -25,7 +34,7 @@ Round 2 paired 0 rows. Round 3 pairs by position (both sides ≤ 10 rows, key mi
 | METADATA_CONNECTION_ID | acfc_env overlay | exact | Overlay value 4 matches |
 | TGT_CONNECTION_ID | acfc_env overlay | exact | Overlay value 2 matches |
 | SRC_CONTAINER_NAME | acfc_env overlay | exact | mftlanding matches |
-| TGT_CONTAINER_NAME | acfc_env overlay | exact | z-use-d1-dlk-stage-01 matches |
+| TGT_CONTAINER_NAME | acfc_env overlay | **mismatch** | corrected 2026-10-12: `pair_2/routing.csv:58` records `mismatch=3`, not exact |
 | SRC_ADLS_PATH | path pattern | mismatch | Different path structure |
 | TGT_ADLS_PATH | path pattern | normalized | Case/slash differences |
 | GROUP_ID | needs_assignment | — | Not scored |
@@ -101,7 +110,7 @@ What would move the overall score most, ordered by cell-count impact:
 
 | Rank | Action | Cells affected | Expected delta |
 | --- | --- | --- | --- |
-| 1 | **Live FMAPI run** (replace mock) | ≥ 1500 | Unlocks DQ rules, correct row counts, proper naming |
+| 1 | ~~Live FMAPI run~~ — **wrong, corrected 2026-10-12** | — | The model never fills an IIG cell: Layer 2 sees only the `unmapped` validation rules and writes `candidates.json`; every IIG cell is Layer 1 (contracts + conventions profile + template constants), so a mock and a live run produce the same IIG. The real lever: re-run pair_2 on the current head (this workbook predates the post21 rules) and classify what still differs (class A / C / D) |
 | 2 | **Pipeline-name alignment** (EDO NB_/PL_ naming) | 200+ | Schedule + notebook sheets move from 0.0 to key-paired |
 | 3 | **Row-count alignment** (per-group rows) | 300+ | Schedule 36 vs 12, email 12 vs 6, all_files 18 vs 3 |
 | 4 | **DQ rules generation** | 100+ | golden has 11 rows, agent has 0 |

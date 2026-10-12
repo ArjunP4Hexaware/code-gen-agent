@@ -3,6 +3,15 @@
 Branch: `feature/multi-table`
 Date: 2026-10-11
 
+> **SUPERSEDED (2026-10-12, home review): the pair_2 score 7.9 is withdrawn.**
+> It was computed from a STALE agent workbook (§4: a prior session's
+> `multitable/out/`, before the post21 rules) with rows paired by a POSITION
+> fallback (§5), so golden rows were compared with other feeds' agent rows.
+> `tools/iig_diff.py` now pairs by natural key only and refuses a workbook
+> without a build identity; round 4 (`round4/pair_2/`) replaces the score.
+> §5's "a live FMAPI run should produce …" is corrected in place: the model
+> never fills an IIG cell.
+
 ---
 
 ## 1. Tooling Changes
@@ -76,7 +85,7 @@ No pairs excluded.
 | Pair | Runner | FMAPI vs Mock | Unresolved Prompts | Agent Output |
 | --- | --- | --- | --- | --- |
 | sfmc | — | — | No STTM input | No agent output |
-| pair_2 | prior session (multitable/out/) | mock (dry-run) | none (3-feed IIG) | pair_2_iig_agent.xlsx |
+| pair_2 | prior session (multitable/out/) | mock (dry-run) | none (3-feed IIG) | pair_2_iig_agent.xlsx — **STALE (no build identity; predates post21): its 7.9 is superseded** |
 | pair_5 | round 3 attempt | — | Layout needs column placement (duplicate "Stage Schema" headers at col I and M) | No agent output |
 | pair_7 | round 3 attempt | — | Every feed needs layout answers (band/layer/role) | No agent output |
 | pair_8 | — | — | Non-F1/F2 FRD format | No agent output |
@@ -106,6 +115,8 @@ written with band/layer/role/column placements for each mapping sheet.
 ## 5. Pair × Sheet: iig_diff (pair_2 only)
 
 Agent: prior mock run. Golden: round 3 rebuilt. Pairing: key mode with position fallback.
+
+**Superseded (2026-10-12): not a valid score — stale agent workbook, position-paired rows.**
 
 | Sheet | Golden | Agent | Paired | Mode | Score |
 | --- | --- | --- | --- | --- | --- |
@@ -144,9 +155,13 @@ to the golden's `ALL_FILES_STATIC_INFORMATION`, avoiding a false golden-only + a
 ### What would move the score most
 
 1. **Row-count alignment** (schedule: 36 vs 12, email: 12 vs 6) — the mock run generates
-   per-feed rows, the golden has per-group-per-feed rows. A live FMAPI run should produce
-   group-aware row counts.
-2. **data_quality_rules**: golden has 11 rows, agent has 0. The mock doesn't generate DQ rules.
+   per-feed rows, the golden has per-group-per-feed rows. ~~A live FMAPI run should produce
+   group-aware row counts.~~ Corrected 2026-10-12: the model never fills an IIG cell (Layer 2
+   writes only `candidates.json`), so a live run produces the same rows as a mock run; row
+   counts come from the iig_v2 row rules — re-measure on the current head, then classify.
+2. **data_quality_rules**: golden has 11 rows, the stale agent workbook 0. (Corrected
+   2026-10-12: DATA_QUALITY_RULES rows are derived by iig_v2 from the STTM load rules —
+   deterministic, not the model; re-measure on the current head.)
 3. **PIPELINE_NAME alignment**: key-mode pairing would succeed if the agent produced the
    same pipeline names as prod.
 

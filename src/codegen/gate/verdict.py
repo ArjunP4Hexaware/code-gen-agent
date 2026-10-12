@@ -106,6 +106,14 @@ def compute_verdict(
             flags.append(f"{check.name}_fixed: {len(check.fixes)} kind(s) of {check.name} "
                          f"finding fixed automatically (safe fixes only) before the check — "
                          + "; ".join(check.fixes))
+        if check.long_lines:
+            # Round 4: a line `ruff format` cannot wrap (one long string
+            # literal / comment) — recorded, never a FAIL.
+            shown = ", ".join(check.long_lines[:6]) + (
+                f" … +{len(check.long_lines) - 6}" if len(check.long_lines) > 6 else "")
+            flags.append(f"{check.name}_line_length: {len(check.long_lines)} emitted line(s) "
+                         f"over the line length that `ruff format` cannot wrap (one string "
+                         f"literal or comment) — {shown}")
         if check.not_run:
             # The tool did not run here: nothing was found AND nothing was
             # checked — a human's call, never a FAIL (M9.1b).

@@ -460,6 +460,31 @@ def test_a_finding_without_a_safe_fix_still_fails_and_says_what_was_fixed(tmp_pa
     assert gate.verdict == "FAIL" and gate.flags[0].startswith("ruff_fixed:")
 
 
+_LONG_LITERAL = '"""Module."""\n\nFEED_NAME = "' + "x" * 120 + '"\n'
+
+
+def test_an_unwrappable_long_line_is_a_flag_never_a_fail(tmp_path):
+    """Round 4 (D1 feed 2 FAILed on E501 alone): one string literal longer than
+    the line length cannot be wrapped by `ruff format` — flagged, not FAIL."""
+    feed = _feed_dir(tmp_path, {"spec": _LONG_LITERAL})
+    check = _ruff_check(feed)
+    assert check.passed and not check.not_run, check.details
+    assert check.long_lines == ["pipeline/spec.py:3"]
+    gate = compute_verdict("feed_x", [], [], [check], tests_skipped=False)
+    assert gate.verdict == "PASS_WITH_FLAGS"
+    assert gate.flags == ["ruff_line_length: 1 emitted line(s) over the line length that "
+                          "`ruff format` cannot wrap (one string literal or comment) — "
+                          "pipeline/spec.py:3"]
+
+
+def test_e501_next_to_another_finding_still_fails_on_that_finding(tmp_path):
+    feed = _feed_dir(tmp_path, {"spec": _LONG_LITERAL,
+                                "bad": '"""Bad."""\n\nVALUE = undefined\n'})
+    check = _ruff_check(feed)
+    assert not check.passed and check.long_lines == ["pipeline/spec.py:3"]
+    assert check.details.startswith("1 finding(s)") and "E501" not in check.details
+
+
 def test_a_clean_feed_is_untouched_and_carries_no_flag(tmp_path):
     feed = _feed_dir(tmp_path, {"tidy": '"""Module."""\n\nimport json\nimport sys\n\n'
                                         'VALUES = (json, sys)\n'})

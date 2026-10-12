@@ -55,6 +55,10 @@ class GateCheck(BaseModel):
     # fixes — cosmetic lint never FAILs a feed); the verdict flags it
     # ``ruff_fixed``. One "<file>: <code> xN" entry per fixed kind.
     fixes: list[str] = []
+    # Round 4: E501 lines `ruff format` could not wrap (one string literal /
+    # comment longer than the line length — a document value) — the verdict
+    # flags them ``ruff_line_length``, never a FAIL. One "<file>:<row>" each.
+    long_lines: list[str] = []
 
 
 def _generated_text_files(feed_dir: Path) -> list[Path]:
@@ -228,22 +232,31 @@ def _judge_ruff(feed_dir: Path, findings, result) -> GateCheck:
     if problem:
         return GateCheck(name="ruff", passed=False, fixes=fixes,
                          details=f"ruff safe fixes: {problem}")
-    findings = remaining
     fixed_note = (f"{sum(int(f.rsplit('x', 1)[1]) for f in fixes)} safe fix(es) applied "
                   f"first ({'; '.join(fixes)})" if fixes else "")
+
+    def where(item) -> str:
+        path = Path(str(item.get("filename") or ""))
+        with contextlib.suppress(ValueError):
+            path = path.resolve().relative_to(feed_dir.resolve())
+        location = item.get("location") or {}
+        return f"{path.as_posix()}:{location.get('row', '?')}"
+
+    # Round 4 (D1, feed 2 FAILed on E501 alone): `ruff format` already wrapped
+    # every line it can, so an E501 left over is one unsplittable token — a
+    # flag naming the line, never a FAIL. Every other finding still FAILs.
+    long_lines = [where(item) for item in remaining if item.get("code") == "E501"]
+    findings = [item for item in remaining if item.get("code") != "E501"]
     if not findings:
-        return GateCheck(name="ruff", passed=True, fixes=fixes,
-                         details="ruff clean" + (f" after {fixed_note}" if fixed_note else ""))
+        return GateCheck(name="ruff", passed=True, fixes=fixes, long_lines=long_lines,
+                         details="ruff clean" + (f" after {fixed_note}" if fixed_note else "")
+                         + (f" ({len(long_lines)} E501 line(s) flagged)" if long_lines else ""))
     lines = []
     for item in findings:
-        where = Path(str(item.get("filename") or ""))
-        with contextlib.suppress(ValueError):
-            where = where.resolve().relative_to(feed_dir.resolve())
         location = item.get("location") or {}
-        lines.append(f"{where.as_posix()}:{location.get('row', '?')}:"
-                     f"{location.get('column', '?')}: {item.get('code') or 'syntax'} "
-                     f"{item.get('message', '')}".rstrip())
-    return GateCheck(name="ruff", passed=False, fixes=fixes,
+        lines.append(f"{where(item)}:{location.get('column', '?')}: "
+                     f"{item.get('code') or 'syntax'} {item.get('message', '')}".rstrip())
+    return GateCheck(name="ruff", passed=False, fixes=fixes, long_lines=long_lines,
                      details=f"{len(findings)} finding(s)"
                      + (f" remain after {fixed_note}" if fixed_note else "")
                      + "\n" + "\n".join(lines))

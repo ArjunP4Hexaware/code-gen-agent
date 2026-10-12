@@ -143,11 +143,17 @@ def test_a_download_and_an_upstream_call_that_never_return_hang_nothing(monkeypa
     # guards state only; nothing holds it across I/O).
     reply, took = _timed(lambda: client.post("/api/demo/output-mode", json={"mode": "rfc"}))
     assert reply.status_code == 200 and took < PROMPT
-    # A second selection while one runs is a 409 at once — not a queue — and a
+    # The SAME workbook again while its job runs joins that job (200, idempotent
+    # — 2026-10-12); ANOTHER workbook is a 409 at once — not a queue — and a
     # run is refused (never the config default while the choice is pending).
     reply, took = _timed(lambda: client.post("/api/demo/workbook",
                                              json={"name": "STTM_alpha.xlsx"}))
+    assert reply.status_code == 200 and took < PROMPT, reply.text
+    assert reply.json()["job"]["id"] == job["id"] and reply.json()["job"]["joined"] is True
+    reply, took = _timed(lambda: client.post("/api/demo/workbook",
+                                             json={"name": "STTM_delta.xlsx"}))
     assert reply.status_code == 409 and took < PROMPT
+    assert "'STTM_alpha.xlsx' is still being selected" in reply.json()["detail"]
     with pytest.raises(ValueError, match="is still being selected"):
         runner.start_live()
 
@@ -295,3 +301,67 @@ def test_a_clear_supersedes_a_running_selection(monkeypatch, ws):
     assert status["selection_job"]["id"] == job["id"]
     assert status["selection_job"]["error"]["code"] == "superseded"
     assert status["selection"]["sttm"] is None   # … and selects nothing
+
+
+# --------------------------------------------------------------- the one-job guard (2026-10-12)
+# ACFC App, 2026-10-12: POST /api/demo/workbook answered 409 "'<STTM>' is still
+# being selected" for the workbook being selected. The guard (DemoRunner
+# ._new_job) stays — one selection at a time — with three behaviours fixed.
+
+
+def test_a_double_post_of_the_same_workbook_is_idempotent(monkeypatch, ws):
+    """Same workbook twice while its job runs: 202 then 200 with THAT job — one
+    job, one selection, not a 409."""
+    ws.pairs("pair_1")
+    gate = ws.blocked["STTM_alpha.xlsx"] = threading.Event()
+    client, runner = _api(monkeypatch, ws)
+    first = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"})
+    second = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"})
+    assert first.status_code == 202 and second.status_code == 200, second.text
+    job = first.json()["job"]
+    assert second.json()["job"]["id"] == job["id"] and second.json()["job"]["joined"] is True
+    assert runner._job_seq == job["id"]                      # no second job was made
+    gate.set()
+    assert _wait_job(client, job["id"], 60)["state"] == "done"
+    assert client.get("/api/demo/status").json()["selection"]["sttm"] == "STTM_alpha.xlsx"
+
+
+def test_a_selection_that_raises_in_its_error_handling_frees_the_slot(monkeypatch, ws):
+    """The job thread's own error handling raising (here: recording the failure)
+    used to leave the job "running" forever — every later choice a 409 until a
+    restart. The finally ends it; the next POST starts a new job."""
+    ws.pairs("pair_1")
+    ws.broken["STTM_alpha.xlsx"] = RuntimeError("403 Forbidden: no access to the object")
+    client, runner = _api(monkeypatch, ws)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("simulated failure while recording the failure")
+
+    runner._fail_selection = explode                          # this runner only
+    job = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"}).json()["job"]
+    ended = _wait_job(client, job["id"], STEP_TIMEOUT + 10)
+    assert ended["state"] == "failed", ended
+    assert ended["error"]["message"] == "the selection ended without a result"
+    del runner._fail_selection                                # the next selection is ordinary
+    reply = client.post("/api/demo/workbook", json={"name": "STTM_delta.xlsx"})
+    assert reply.status_code == 202, reply.text               # a NEW job, never a 409
+    assert reply.json()["job"]["id"] == job["id"] + 1
+
+
+def test_a_stale_job_is_replaced_and_another_workbook_still_waits(monkeypatch, ws):
+    """While a job is within its budget ANOTHER workbook is a 409; once it is
+    older than every step's budget it is superseded as stale, never waited on."""
+    ws.pairs("pair_1")
+    ws.blocked["STTM_alpha.xlsx"] = threading.Event()        # released by ws.release()
+    client, runner = _api(monkeypatch, ws)
+    job = client.post("/api/demo/workbook", json={"name": "STTM_alpha.xlsx"}).json()["job"]
+    assert client.post("/api/demo/workbook",
+                       json={"name": "STTM_delta.xlsx"}).status_code == 409
+    stale = runner.selection_job
+    assert stale["id"] == job["id"] and stale["state"] == "running"
+    runner._job_started -= runner._job_budget() + 1          # as if it had hung that long
+    reply = client.post("/api/demo/workbook", json={"name": "STTM_delta.xlsx"})
+    assert reply.status_code == 202, reply.text
+    assert reply.json()["job"]["id"] == job["id"] + 1         # the new job owns the slot
+    assert stale["state"] == "failed" and stale["error"]["code"] == "superseded"
+    assert stale["error"]["message"].startswith("stale — still running")

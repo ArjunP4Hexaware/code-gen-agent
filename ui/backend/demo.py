@@ -357,6 +357,7 @@ class DemoRunner:
         # nothing is selected until every step has succeeded. ``_lock`` guards
         # state mutation only; no I/O ever happens under it.
         self.selection_job: dict | None = None
+        self._job_started = 0.0                    # time.monotonic() of the current job
         self._job_seq = 0
         self._job_done = threading.Event()
         self._job_done.set()
@@ -1146,13 +1147,40 @@ class DemoRunner:
 
     # -- the selection job (M9.3 addendum) ------------------------------------------
 
+    def _job_budget(self) -> float:
+        """The longest a job can legitimately run: every step is bounded (the
+        listing, up to four ``select_timeout_seconds`` steps — locate, download,
+        classify, or a restore's reads — the parser start, an upstream read),
+        each plus the grace ``_step`` allows. A running job older than this is
+        STALE: no step of it can still be working."""
+        inputs = self._store.config.inputs
+        return (float(inputs.listing_timeout_seconds)
+                + 4 * (float(inputs.select_timeout_seconds) + _STEP_GRACE_SECONDS)
+                + float(inputs.parser_start_timeout_seconds) + _STEP_GRACE_SECONDS
+                + float(self._store.config.upstream.timeout_seconds))
+
+    def _running_job(self) -> dict | None:
+        """Under ``_lock``: the job still in flight, or None. A job older than its
+        budget is superseded here (2026-10-12: one that never reached a terminal
+        state used to refuse every later choice with 409 until a restart)."""
+        current = self.selection_job
+        if current is None or current["state"] != "running":
+            return None
+        age = time.monotonic() - self._job_started
+        if age > self._job_budget():
+            self._supersede(current, f"stale — still running {age:.0f}s after it started, "
+                                     f"beyond every step's budget ({self._job_budget():.0f}s)")
+            return None
+        return current
+
     def _new_job(self, kind: str, name: str) -> dict:
         """Under ``_lock``: register the one running job. A person's choice
-        supersedes a startup RESTORE still in flight (its results are dropped)."""
-        current = self.selection_job
-        if current is not None and current["state"] == "running" and current["kind"] == "restore":
+        supersedes a startup RESTORE still in flight (its results are dropped)
+        and a STALE job (``_running_job``)."""
+        current = self._running_job()
+        if current is not None and current["kind"] == "restore":
             self._supersede(current, "superseded by a new selection")
-        elif current is not None and current["state"] == "running":
+        elif current is not None:
             raise SelectionInProgress(
                 f"{self.selection_job['name']!r} is still being selected — wait for it "
                 "(each step has a timeout) and choose again")
@@ -1162,6 +1190,7 @@ class DemoRunner:
                # M15.2: the pairs still on their way once the job is done.
                "pairing_pending": []}
         self.selection_job = job
+        self._job_started = time.monotonic()
         self._job_done.clear()
         self._pairing_done.set()                  # a previous job's pairing is moot
         return job
@@ -1257,12 +1286,19 @@ class DemoRunner:
         """Tests / scripts: block until the current job's FRD / VDD pairing landed."""
         return self._pairing_done.wait(timeout)
 
-    def start_selection(self, name: str) -> dict:
+    def start_selection(self, name: str, *, join: bool = False) -> dict:
         """Choose the STTM: returns the JOB at once. Progress, the pairing and
-        any failure are on the status (``selection_job``)."""
+        any failure are on the status (``selection_job``). ``join`` (the
+        workbook route): choosing the SAME workbook while its job is still
+        running returns that job, marked ``joined`` — idempotent, never a 409
+        (a re-click or a client retry). A different workbook still waits."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress("cannot change the STTM while a live run is in progress")
+            current = self._running_job()
+            if (join and current is not None and current["kind"] == "sttm"
+                    and current["name"] == name):
+                return {**(self.job_view() or current), "joined": True}
             job = self._new_job("sttm", name)
         threading.Thread(target=self._run_selection, args=(job,),
                          name=f"select:{name}", daemon=True).start()
@@ -1390,6 +1426,13 @@ class DemoRunner:
                 if self.selection_job is job:
                     job["pairing_pending"] = []
                     self._pairing_done.set()
+                    if job["state"] == "running":
+                        # Every path above ends the job; one that raised inside its
+                        # own error handling must not hold the one job slot.
+                        job["state"] = "failed"
+                        job["error"] = {"code": "failed",
+                                        "message": "the selection ended without a result"}
+                        self._job_done.set()
 
     def _start_restore(self) -> None:
         """After a restart under a remote state role: bring the recorded pair
@@ -1740,7 +1783,8 @@ class DemoRunner:
             raise ValueError("no output selected — choose Notebook, Framework artefacts, "
                              "or both")
 
-        job = self.selection_job
+        with self._lock:
+            job = self._running_job()             # a stale job is superseded, never waited on
         if job is not None and job["state"] == "running" and job["kind"] == "restore":
             # The startup restore is not the person's act: starting a run
             # supersedes it (as choosing a document does), so a slow workspace

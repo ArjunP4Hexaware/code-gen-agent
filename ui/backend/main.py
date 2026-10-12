@@ -999,12 +999,17 @@ def select_workbook(req: WorkbookSelectRequest) -> dict:
     ``pairing.vdd`` = {chosen, rule, reason, scope, candidates, question}) and
     the one record of what is selected (``selection``). A failed job leaves the
     STTM UNSELECTED (``selection_error``) — never the config default. 409 while
-    a run or another selection is in progress."""
+    a run or ANOTHER workbook's selection is in progress; the same workbook
+    again while its job runs = **200 + that job** (``joined: true``); a job
+    older than every step's budget is stale and replaced."""
     runner = _require_runner()
     try:
-        job = runner.start_selection(req.name)
+        job = runner.start_selection(req.name, join=True)
     except (LiveRunInProgress, SelectionInProgress) as exc:
         raise HTTPException(409, str(exc)) from exc
+    if job.get("joined"):
+        # The same workbook while its job still runs: idempotent — that job, 200.
+        return JSONResponse({"job": job}, status_code=200)
     return {"job": job}
 
 

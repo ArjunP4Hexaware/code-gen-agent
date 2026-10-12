@@ -369,8 +369,10 @@ def test_framework_table_names_match_iig_sheet_names() -> None:
 
 
 def test_position_mode_pairs_by_ordinal(tmp_path: Path) -> None:
-    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None], [2, "B", "Weekly", None]]})
-    agent = _book(tmp_path / "a.xlsx", {PIPE: [HEAD, [9, "B", "Weekly", None], [8, "A", "Daily", None]]})
+    golden = _book(tmp_path / "g.xlsx",
+                   {PIPE: [HEAD, [1, "A", "Daily", None], [2, "B", "Weekly", None]]})
+    agent = _book(tmp_path / "a.xlsx",
+                  {PIPE: [HEAD, [9, "B", "Weekly", None], [8, "A", "Daily", None]]})
     payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="position")
     s = payload["sheets"][PIPE]
     assert s["pair_mode"] == "position"

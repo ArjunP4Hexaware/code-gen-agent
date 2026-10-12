@@ -15,10 +15,6 @@ names — the layout stage later replaces them with the STTM's own tables.
 
 from __future__ import annotations
 
-import re
-
-import pytest
-
 from codegen.contracts.frd import FrdFeed, StructuredRow, StructuredValue, TargetSpec
 from codegen.extract.frd_docx import (
     _canonical_pattern,

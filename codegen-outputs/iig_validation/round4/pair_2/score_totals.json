@@ -1,0 +1,142 @@
+{
+  "totals": {
+    "score": 4.6,
+    "exact": 92,
+    "normalized": 6,
+    "mismatch": 34,
+    "missing_in_agent": 1670,
+    "extra_in_agent": 344,
+    "needs_assignment": 596,
+    "scored_cells": 2146
+  },
+  "sheets": {
+    "EMAIL_TEMPLATE_CONFIG": {
+      "rows": {
+        "golden": 12,
+        "agent": 6,
+        "paired": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing_in_agent": 180,
+        "extra_in_agent": 72,
+        "needs_assignment": 60
+      },
+      "score": 0.0
+    },
+    "adls_delta_ingestion_details": {
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 2
+      },
+      "counts": {
+        "exact": 56,
+        "normalized": 4,
+        "mismatch": 16,
+        "missing_in_agent": 59,
+        "extra_in_agent": 44,
+        "needs_assignment": 40
+      },
+      "score": 33.5
+    },
+    "all_files_static_information": {
+      "rows": {
+        "golden": 18,
+        "agent": 3,
+        "paired": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing_in_agent": 414,
+        "extra_in_agent": 27,
+        "needs_assignment": 96
+      },
+      "score": 0.0
+    },
+    "data_factory_pipeline_schedule": {
+      "rows": {
+        "golden": 36,
+        "agent": 12,
+        "paired": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing_in_agent": 828,
+        "extra_in_agent": 132,
+        "needs_assignment": 240
+      },
+      "score": 0.0
+    },
+    "data_quality_rules": {
+      "rows": {
+        "golden": 11,
+        "agent": 0,
+        "paired": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing_in_agent": 77,
+        "extra_in_agent": 0,
+        "needs_assignment": 66
+      },
+      "score": 0.0
+    },
+    "databricks_notebook_details": {
+      "rows": {
+        "golden": 6,
+        "agent": 3,
+        "paired": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing_in_agent": 78,
+        "extra_in_agent": 39,
+        "needs_assignment": 54
+      },
+      "score": 0.0
+    },
+    "stgdelta_stddelta_ingestion_det": {
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 2
+      },
+      "counts": {
+        "exact": 36,
+        "normalized": 2,
+        "mismatch": 18,
+        "missing_in_agent": 34,
+        "extra_in_agent": 30,
+        "needs_assignment": 40
+      },
+      "score": 31.7
+    },
+    "ADLS_FIXED_WIDTH_HANDLER": {
+      "rows": {
+        "golden": 0,
+        "agent": 0,
+        "paired": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing_in_agent": 0,
+        "extra_in_agent": 0,
+        "needs_assignment": 0
+      },
+      "score": 100.0
+    }
+  }
+}

@@ -501,7 +501,17 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
       const s = await api.layoutAnswers({
         answers: answersPayload(status?.layout_questions ?? [], picks), proceed });
       setStatus(s);
-      setPicks(emptyPicks());
+      // Only clear picks when the dialog is closing (state moved past
+      // needs_layout).  When the backend thread hasn't processed yet the
+      // response still says needs_layout with the OLD questions — clearing
+      // picks here made the selected radio snap to "None of these" for ~1 s
+      // (the signature guard in the pre-select useEffect skipped re-applying
+      // suggestions because the question set hadn't changed).  When the state
+      // IS still needs_layout the picks stay; the pre-select useEffect resets
+      // them when a genuinely new question set arrives.
+      if (s.state !== "needs_layout") {
+        setPicks(emptyPicks());
+      }
     } catch (e) {
       setError(e);
     }

@@ -1972,8 +1972,14 @@ class _FeedGapFiller:
                 return
         sttm_states = bool(self.meta.get("file_names") or self.meta.get("file_name_example")
                            or self.file_rows)
-        if sttm_states:
+        if sttm_states and len(self.contract.feeds) <= 1:
+            # Single-feed FRD: the downstream contract resolver's per-sheet
+            # STTM meta matches the global meta — defer safely.
             return          # the STTM states them: taken (and flagged) downstream
+        # Multi-feed FRDs: self.meta is global (any mapping sheet) but the
+        # downstream resolver uses the per-sheet meta of whichever STTM sheet
+        # THIS feed is matched to — that sheet may have no file info.  Fall
+        # through to VDD / ask so the layout stage resolves it here.
         stated = list(dict.fromkeys(self.vdd.get("file_patterns", [])))
         if stated:
             patterns = list(dict.fromkeys(v for v, _cell in stated))

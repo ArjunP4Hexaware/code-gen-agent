@@ -12,7 +12,11 @@ Each pair definition maps a label to a list of GROUP_IDs.  The script:
    a SRC_FILE_NAME glob in the pair's adls_delta_ingestion_details sheet.
 5. Optionally adds an EMAIL_TEMPLATE_CONFIG sheet filtered to the pair's
    PIPELINE_IDs (from the index CSV).
-6. Writes goldens/<pair>_iig_golden.xlsx.
+6. De-duplicates every sheet on the columns outside iig_diff's IGNORED set
+   (tools/iig_keys.yaml needs_assignment); ``_source_group_ids`` lists the
+   exports that held each row, and one line per sheet prints rows before ->
+   after and the GROUP_IDs the rows carry.
+7. Writes goldens/<pair>_iig_golden.xlsx.
 """
 from __future__ import annotations
 
@@ -51,6 +55,60 @@ DROP_SHEETS = {
 }
 
 DROP_SUFFIX = "_audit_log"
+
+# Round 4 (2026-10-12): each GROUP_ID export carries rows of the whole pair on
+# some sheets (schedule, all_files, ...), so the union repeats them once per
+# export. Rows are de-duplicated on every column OUTSIDE iig_diff's IGNORED
+# set (ids / audit stamps differ per export); this column lists the GROUP_ID
+# exports that contributed each row (iig_diff never scores it).
+SOURCE_COLUMN = "_source_group_ids"
+KEYS_YAML = Path(__file__).resolve().with_name("iig_keys.yaml")
+
+
+def _ignored_globs(path: Path = KEYS_YAML) -> list[str]:
+    """iig_diff's IGNORED set (``needs_assignment`` in iig_keys.yaml)."""
+    import yaml
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return [str(p).upper() for p in raw.get("needs_assignment") or []]
+
+
+def _dedup(headers: list[str], rows: list[list], ignored: list[str]
+           ) -> tuple[list[list], dict[int, int]]:
+    """Rows equal on every non-ignored column collapse into the first one;
+    its SOURCE_COLUMN lists every contributing group. Returns (rows, {number
+    of contributing groups: rows})."""
+    if SOURCE_COLUMN not in headers:
+        return rows, {}
+    src = headers.index(SOURCE_COLUMN)
+    cols = [i for i, h in enumerate(headers) if i != src
+            and not any(fnmatch.fnmatchcase(h.upper(), g) for g in ignored)]
+    merged: dict[tuple, tuple[list, set[str]]] = {}
+    for r in rows:
+        r = list(r) + [None] * max(0, len(headers) - len(r))
+        key = tuple("" if r[i] is None else str(r[i]).strip() for i in cols)
+        sources = {s for s in str(r[src] or "").split(",") if s}
+        if key in merged:
+            merged[key][1].update(sources)
+        else:
+            merged[key] = (r, set(sources))
+    out = []
+    for r, sources in merged.values():
+        r[src] = ",".join(sorted(sources))
+        out.append(r)
+    counts: dict[int, int] = defaultdict(int)
+    for _r, sources in merged.values():
+        counts[len(sources)] += 1
+    return out, dict(sorted(counts.items()))
+
+
+def _owners(headers: list[str], rows: list[list]) -> list[str]:
+    """The GROUP_IDs a sheet's rows carry (the real group -> sheet map)."""
+    idx = next((i for i, h in enumerate(headers) if h.upper() == "GROUP_ID"), None)
+    if idx is None:
+        return []
+    return sorted({str(r[idx]).strip() for r in rows
+                   if idx < len(r) and r[idx] is not None and str(r[idx]).strip()})
 
 # ── helpers ────────────────────────────────────────────────────────────
 
@@ -256,6 +314,22 @@ def _collect_pipeline_ids_from_sheets(
     return pids
 
 
+def _pipeline_groups(sheets: dict[str, tuple[list[str], list[list]]]) -> dict[str, str]:
+    """PIPELINE_ID -> GROUP_ID from the core ingestion sheets."""
+    out: dict[str, str] = {}
+    for sn, (headers, rows) in sheets.items():
+        if sn.lower() not in _SCOPE_SHEETS:
+            continue
+        upper = [h.upper() for h in headers]
+        if "PIPELINE_ID" not in upper or "GROUP_ID" not in upper:
+            continue
+        p, g = upper.index("PIPELINE_ID"), upper.index("GROUP_ID")
+        for r in rows:
+            if p < len(r) and g < len(r) and r[p] is not None and r[g] is not None:
+                out.setdefault(str(r[p]).strip(), str(r[g]).strip())
+    return out
+
+
 def _filter_by_pipeline_id(
     headers: list[str], rows: list[list], pipeline_ids: set[str],
 ) -> tuple[list[list], int]:
@@ -351,6 +425,10 @@ def build_one_pair(pair_label: str, group_ids: list[str],
             headers, rows = _read_sheet(wb[sn])
             if not headers:
                 continue
+            # provenance: the export this row came from (merged by _dedup)
+            width = len(headers)
+            headers = [*headers, SOURCE_COLUMN]
+            rows = [(list(r) + [None] * width)[:width] + [gid] for r in rows]
 
             key = sn.lower()
             if key not in merged:
@@ -463,8 +541,29 @@ def build_one_pair(pair_label: str, group_ids: list[str],
             filtered = _filter_email_cfg(etc_headers, etc_rows, pair_pids)
             report["email_template_before"] = len(etc_rows)
             if filtered:
+                # provenance: the group that owns the row's PIPELINE_ID on the
+                # core sheets (the CSV itself names no group)
+                pid_gid = _pipeline_groups(final_sheets)
+                pid_idx = next(i for i, h in enumerate(etc_headers)
+                               if h.upper() == "PIPELINE_ID")
+                etc_headers = [*etc_headers, SOURCE_COLUMN]
+                filtered = [[*r, pid_gid.get(str(r[pid_idx]).strip(), "")] for r in filtered]
                 final_sheets["EMAIL_TEMPLATE_CONFIG"] = (etc_headers, filtered)
                 report["email_template_rows"] = len(filtered)
+
+    # De-duplicate every sheet on its non-ignored columns (round 4).
+    ignored = _ignored_globs()
+    report["dedup"] = {}
+    for sn in sorted(final_sheets):
+        h, r = final_sheets[sn]
+        kept, counts = _dedup(h, r, ignored)
+        final_sheets[sn] = (h, kept)
+        owners = _owners(h, kept)
+        report["dedup"][sn] = {"before": len(r), "after": len(kept),
+                               "contributing_groups": counts, "group_ids": owners}
+        print(f"    {pair_label}/{sn}: dedup {len(r)} -> {len(kept)}; rows by number of "
+              f"contributing exports {counts}"
+              + (f"; GROUP_ID on the rows: {owners}" if owners else ""))
 
     # Write
     out_path = out_dir / f"{pair_label}_iig_golden.xlsx"

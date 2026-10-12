@@ -77,6 +77,30 @@ Batch: ``--batch DIR`` takes every subdirectory holding one ``*golden*.xlsx``
 and one ``*agent*.xlsx``, and every ``<pair>_golden.xlsx`` /
 ``<pair>_agent.xlsx`` couple in DIR itself; each pair writes to ``<out>/<pair>/``
 and ``<out>/batch_summary.json`` lists every pair's totals.
+
+Scrubbed evidence (2026-10-12) — the golden carries real client values, the
+operator hands mismatch evidence home WITHOUT hand-scrubbing:
+
+    python tools/iig_diff.py --golden G --agent A --out O --export-scrubbed DIR
+
+writes ``DIR/mismatches.md`` (one line per mismatch / missing / extra cell),
+``DIR/row_keys.md`` (per sheet: the key, every golden and agent row's key,
+paired or not) and ``DIR/SELF_CHECK.md`` (counts only). Every value written is
+scrubbed: (a) ``scripts/scrub_check.py``'s classes + the local denylist
+(``docs/acfc/denylist_local.txt`` if present) -> ``<CLASS>``; (b) a token
+(alphanumeric run) found in the golden but not in the committed fixtures'
+token universe -> ``G<n>``, any other token outside the universe -> ``A<n>``
+(one map for the whole export). Kept: tokens under 3 characters, numbers
+under 5 digits, fixture tokens. The written files are re-scanned with
+scrub_check; any hit = exit 2, the two evidence files deleted, the CLASS named
+(never the term).
+
+    python tools/iig_diff.py --golden G --golden-structure [--out O]
+
+prints (and writes ``golden_structure.md`` / ``.json`` under ``--out``) the row
+count per GROUP_ID (PIPELINE_ID on a sheet without GROUP_ID) per sheet, the
+distinct OBJECT_NAME / TGT_TABLE_NAME / FILE_NAME counts, and which groups
+share a table name — counts and ``group#k`` labels only, never an id or a name.
 """
 
 from __future__ import annotations
@@ -85,9 +109,15 @@ import argparse
 import csv
 import datetime as dt
 import fnmatch
+import functools
+import html
+import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
+import zipfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -126,6 +156,9 @@ SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 
 NULL_TOKENS = {"NULL"}
 WITHHELD = "<withheld>"
+# tools/build_goldens.py's provenance column (the GROUP_ID exports a de-
+# duplicated golden row came from): never a cell, shown in row_keys.md only.
+SOURCE_COLUMN = "_source_group_ids"
 SUMMARY_SHEET = "_DIFF_SUMMARY"
 _NUMBER = re.compile(r"[+-]?\d+\.\d+")
 _FILLS = {
@@ -582,6 +615,10 @@ class SheetDiff:
     cells: list[Cell] = field(default_factory=list)
     rows: dict = field(default_factory=dict)
     columns: dict = field(default_factory=dict)
+    # kept for --export-scrubbed's row_keys.md; never written by the scorer
+    pairs: list[RowPair] = field(default_factory=list, repr=False)
+    sides: tuple = (None, None)       # (golden Sheet | None, agent Sheet | None)
+    tables: tuple = (None, None)      # (golden ObjectTables, agent ObjectTables)
 
     def counts(self) -> dict[str, int]:
         c = Counter(cell.status for cell in self.cells)
@@ -603,7 +640,8 @@ def diff_sheet(
     a_canon = agent.canon() if agent else {}
     order = [c.upper() for c in golden.columns] if golden else []
     order += [c.upper() for c in (agent.columns if agent else []) if c.upper() not in g_canon]
-    out = SheetDiff(name, presence, facts)
+    order = [c for c in order if c != SOURCE_COLUMN.upper()]   # provenance, never scored
+    out = SheetDiff(name, presence, facts, pairs=pairs, sides=(golden, agent), tables=tables)
     out.columns = {
         "golden_only": [g_canon[c] for c in order if c in g_canon and c not in a_canon],
         "agent_only": [a_canon[c] for c in order if c in a_canon and c not in g_canon],
@@ -883,6 +921,12 @@ def agent_build(agents: list[Path]) -> tuple[dict | None, str | None]:
 
 def run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
              pair_mode: str = "key", build: dict | None = None) -> dict:
+    return _run_pair(golden, agent, out, keys_path, pair_mode, build)[0]
+
+
+def _run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
+              pair_mode: str = "key", build: dict | None = None
+              ) -> tuple[dict, list[SheetDiff], KeyConfig]:
     keys = load_keys(keys_path)
     diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode)
     payload = score_payload(golden, agent, keys_path, diffs,
@@ -893,7 +937,601 @@ def run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
     )
     write_diff_xlsx(out / "diff.xlsx", payload, diffs, keys)
     write_routing_csv(out / "routing.csv", diffs)
-    return payload
+    return payload, diffs, keys
+
+
+# ----------------------------------------------------------- scrubbed export
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EXPORT_STATUSES = (MISMATCH, MISSING, EXTRA)
+EXPORT_FILES = ("mismatches.md", "row_keys.md")
+SELF_CHECK_FILE = "SELF_CHECK.md"
+LOCAL_DENYLIST_REL = Path("docs") / "acfc" / "denylist_local.txt"
+_TOKEN_SPLIT = re.compile(r"([\W_]+)")        # a token = a run of letters / digits
+_MARKED = re.compile("\x00([A-Z0-9_]+)\x00")   # a scrub_check class placeholder in flight
+_TEXT_SUFFIXES = {".json", ".yaml", ".yml", ".txt", ".md", ".csv"}
+_PLACEHOLDER_NAMES = {"email_address": "EMAIL"}
+EXPORT_INTRO = (
+    "Every value below is scrubbed: a scrub_check class (and a local-denylist term) is "
+    "`<CLASS>`; a token found in the golden but not in the repo's committed fixtures is "
+    "`G<n>`, any other token outside the fixtures is `A<n>` - one map for every file of "
+    "this export, so the same token is the same placeholder everywhere. Tokens under 3 "
+    "characters and numbers under 5 digits are kept. CREATED_BY / UPDATED_BY values are "
+    "withheld."
+)
+
+
+def _tokens(text: str) -> list[str]:
+    return [t for t in _TOKEN_SPLIT.split(text)[::2] if t]
+
+
+def _git_ls_fixtures(root: Path) -> list[Path]:
+    """``git ls-files fixtures/`` — raises where there is no git (D1's workspace)."""
+    if not (root / ".git").exists():
+        raise FileNotFoundError(f"no .git under {root}")
+    done = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "fixtures/"],
+                          capture_output=True, check=True, timeout=120)
+    return [root / p for p in done.stdout.decode("utf-8", "replace").split("\0") if p]
+
+
+def _glob_regex(pattern: str) -> str:
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+            continue
+        if pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+            continue
+        c = pattern[i]
+        if c == "*":
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        elif c == "[" and "]" in pattern[i + 1:]:
+            j = pattern.index("]", i + 1)
+            body = pattern[i + 1:j]
+            out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
+            i = j
+        elif c == "\\" and i + 1 < len(pattern):
+            i += 1
+            out.append(re.escape(pattern[i]))
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return "".join(out)
+
+
+def gitignore_rules(path: Path) -> list[tuple[re.Pattern[str], bool, bool]]:
+    """(regex over the repo-relative posix path, negated, directories only) per
+    line of a .gitignore — enough of git's rules for the repo's own file."""
+    rules = []
+    if not path.is_file():
+        return rules
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.rstrip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        line = line[1:] if negated else line
+        dir_only = line.endswith("/")
+        line = line.rstrip("/")
+        anchored = "/" in line
+        body = _glob_regex(line.lstrip("/"))
+        rules.append((re.compile(("^" if anchored else "^(?:.*/)?") + body + "$"),
+                      negated, dir_only))
+    return rules
+
+
+def gitignored(rel: str, is_dir: bool, rules) -> bool:
+    ignored = False
+    for regex, negated, dir_only in rules:
+        if (is_dir or not dir_only) and regex.match(rel):
+            ignored = not negated            # the last matching line wins
+    return ignored
+
+
+def _walk_fixtures(root: Path) -> list[Path]:
+    """No git: every file under ``fixtures/`` the repo's .gitignore does not
+    ignore (an ignored folder is never entered, as in git) — so a gitignored
+    client-derived file on disk never joins the universe."""
+    rules = gitignore_rules(root / ".gitignore")
+    base = root / "fixtures"
+    if not base.is_dir() or gitignored("fixtures", True, rules):
+        return []
+    files = []
+    for folder, dirs, names in os.walk(base):
+        rel = Path(folder).relative_to(root).as_posix()
+        dirs[:] = sorted(d for d in dirs if not gitignored(f"{rel}/{d}", True, rules))
+        files += [Path(folder) / n for n in sorted(names)
+                  if not gitignored(f"{rel}/{n}", False, rules)]
+    return files
+
+
+def _file_text(path: Path) -> str:
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".xlsx":
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            try:
+                return "\n".join(str(v) for ws in wb.worksheets
+                                 for row in ws.iter_rows(values_only=True)
+                                 for v in row if v is not None)
+            finally:
+                wb.close()
+        if suffix == ".docx":
+            with zipfile.ZipFile(path) as z:
+                xml = z.read("word/document.xml").decode("utf-8", "replace")
+            xml = re.sub(r"</w:p>|</w:tc>|<w:tab/>|<w:br/>", " ", xml)
+            return html.unescape(re.sub(r"<[^>]+>", "", xml))
+        if suffix in _TEXT_SUFFIXES:
+            return path.read_text(encoding="utf-8", errors="replace")
+    except Exception:  # an unreadable fixture adds no token: the safe direction
+        return ""
+    return ""
+
+
+@functools.cache
+def fixture_universe(root: Path = REPO_ROOT) -> tuple[frozenset[str], str, int]:
+    """(caseless tokens of every committed fixture, where the list came from,
+    file count). ``git ls-files fixtures/``; without git, a .gitignore-aware
+    walk of ``fixtures/`` on disk."""
+    root = Path(root)
+    try:
+        files = _git_ls_fixtures(root)
+        source = "git ls-files fixtures/"
+    except (OSError, subprocess.SubprocessError):
+        files = _walk_fixtures(root)
+        source = ("disk walk of fixtures/ (no git), .gitignore honoured"
+                  if (root / ".gitignore").is_file()
+                  else "disk walk of fixtures/ (no git, NO .gitignore: every file counted)")
+    tokens: set[str] = set()
+    for path in files:
+        if path.is_file():
+            tokens.update(t.casefold() for t in _tokens(_file_text(path)))
+    return frozenset(tokens), source, len(files)
+
+
+def load_scrub_check(root: Path = REPO_ROOT):
+    path = Path(root) / "scripts" / "scrub_check.py"
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} not found - the scrubbed export needs scrub_check.py")
+    spec = importlib.util.spec_from_file_location("iig_diff_scrub_check", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_local_denylist(path: Path | None) -> list[str]:
+    """Terms of the gitignored local denylist: ``|``-separated per line, ``#``
+    lines and blanks skipped. Absent (D1) = no terms."""
+    if path is None or not Path(path).is_file():
+        return []
+    terms: list[str] = []
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip().startswith("#"):
+            terms += [t.strip() for t in line.split("|") if t.strip()]
+    return list(dict.fromkeys(terms))
+
+
+def _term_regex(terms: list[str]) -> re.Pattern[str] | None:
+    """Whole terms, caseless; ``_`` is a boundary (a term inside a snake_case
+    name matches)."""
+    if not terms:
+        return None
+    alternatives = "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True))
+    return re.compile(rf"(?<![^\W_])(?:{alternatives})(?![^\W_])", re.IGNORECASE)
+
+
+def _marker(klass: str) -> str:
+    return "\x00" + _PLACEHOLDER_NAMES.get(klass, klass.upper()) + "\x00"
+
+
+class Scrubber:
+    """Scrubs one value at a time; the G / A maps span the whole export."""
+
+    def __init__(self, scrub_check, universe: frozenset[str], golden_tokens: frozenset[str],
+                 local_terms: list[str], harvested: dict[str, str]) -> None:
+        self.sc = scrub_check
+        self.universe = universe
+        self.golden = golden_tokens
+        self.local = _term_regex(local_terms)
+        self.harvested = sorted(((t, k) for t, k in harvested.items() if len(t) >= 5),
+                                key=lambda tk: -len(tk[0]))
+        self.maps: dict[str, dict[str, str]] = {"G": {}, "A": {}}
+        self.uses: Counter[str] = Counter()
+        self.before: Counter[str] = Counter()     # scrub_check hits per class, pre-replacement
+
+    def _count(self, text: str) -> None:
+        if self.local is not None:
+            self.before["local_denylist"] += len(self.local.findall(text))
+        for token, klass in self.harvested:
+            self.before[klass] += text.count(token)
+        for klass, _ in self.sc.structural_hits(text):
+            self.before[klass] += 1
+        for klass, pattern in self.sc.GENERIC_PATTERNS:
+            self.before[klass] += sum(1 for _ in pattern.finditer(text))
+
+    def _mark(self, text: str) -> str:
+        if self.local is not None:
+            text = self.local.sub(_marker("local_denylist"), text)
+        for token, klass in self.harvested:
+            text = text.replace(token, _marker(klass))
+        for klass, regex in (("email_address", self.sc.EMAIL),
+                             ("workspace_user_path", self.sc.WORKSPACE_USER_PATH)):
+            text = regex.sub(lambda m, k=klass: _marker(k) if self.sc.structural_hits(m.group(0))
+                             else m.group(0), text)
+        for klass, pattern in self.sc.GENERIC_PATTERNS:
+            text = pattern.sub(_marker(klass), text)
+        return text
+
+    def _token(self, token: str) -> str:
+        if not token or len(token) < (5 if token.isdigit() else 3):
+            return token
+        low = token.casefold()
+        if low in self.universe:
+            return token
+        prefix = "G" if low in self.golden else "A"
+        table = self.maps[prefix]
+        if low not in table:
+            table[low] = f"{prefix}{len(table) + 1}"
+        self.uses[prefix] += 1
+        return table[low]
+
+    def scrub(self, value: object) -> str:
+        text = _raw(value)
+        if not text:
+            return ""
+        self._count(text)
+        out = []
+        for i, part in enumerate(_MARKED.split(self._mark(text))):
+            if i % 2:
+                out.append(f"<{part}>")
+                continue
+            pieces = _TOKEN_SPLIT.split(part)
+            out += [self._token(p) if j % 2 == 0 else p for j, p in enumerate(pieces)]
+        return "".join(out)
+
+
+def _md(text: str) -> str:
+    text = text.replace("|", "\\|").replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\n", "<br>")
+
+
+def _row_ref(n: int | None) -> str:
+    if n is None:
+        return "-"
+    return str(n) if n < ROW_STRIDE else f"{n // ROW_STRIDE}:{n % ROW_STRIDE}"
+
+
+def _key_text(sheet: Sheet | None, row: dict | None, key: list[str] | None, keys: KeyConfig,
+              tables: ObjectTables | None, scr: Scrubber) -> str:
+    """A row's natural key, each part scrubbed; an OBJECT_ID shows the table it
+    resolves to in its own workbook."""
+    if sheet is None or row is None or not key:
+        return "(no key)"
+    canon = sheet.canon()
+    parts = []
+    for col in key:
+        real = canon.get(col.upper())
+        if real is None:
+            return "(key column absent)"
+        value = row.get(real)
+        if keys.is_withheld(col):
+            parts.append(WITHHELD)
+        elif keys.is_object_id(col) and tables is not None:
+            table = tables.table_for(row, canon)
+            parts.append(scr.scrub(table) if table
+                         else f"OBJECT_ID {scr.scrub(value) or '<blank>'} unresolved")
+        else:
+            parts.append(scr.scrub(value) if _raw(value).strip() else "<blank>")
+    return " | ".join(parts)
+
+
+def _value(cell_value: object, column: str, keys: KeyConfig, scr: Scrubber) -> str:
+    if keys.is_withheld(column):
+        return WITHHELD if _raw(cell_value) else ""
+    return scr.scrub(cell_value)
+
+
+def _write_mismatches(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
+                      scr: Scrubber) -> Counter[str]:
+    lines, counts = [], Counter()
+    for d in diffs:
+        g_sheet, a_sheet = d.sides
+        g_rows = dict(g_sheet.rows) if g_sheet else {}
+        a_rows = dict(a_sheet.rows) if a_sheet else {}
+        key = keys.key_for(d.name)
+        for cell in d.cells:
+            if cell.status not in EXPORT_STATUSES or keys.is_assignment(cell.column):
+                continue
+            counts[cell.status] += 1
+            if cell.golden_row is not None:
+                row_key = _key_text(g_sheet, g_rows.get(cell.golden_row), key, keys,
+                                    d.tables[0], scr)
+            else:
+                row_key = _key_text(a_sheet, a_rows.get(cell.agent_row), key, keys,
+                                    d.tables[1], scr)
+            row_key += f" (golden row {_row_ref(cell.golden_row)}, agent row "
+            row_key += f"{_row_ref(cell.agent_row)})"
+            lines.append("| " + " | ".join(_md(t) for t in (
+                scr.scrub(d.name), scr.scrub(cell.column), cell.status,
+                _value(cell.golden, cell.column, keys, scr),
+                _value(cell.agent, cell.column, keys, scr), row_key)) + " |")
+    total = sum(counts.values())
+    by_status = ", ".join(f"{s} {counts[s]}" for s in EXPORT_STATUSES)
+    head = ["# IIG mismatches - scrubbed export", "", EXPORT_INTRO, "",
+            f"Cells: {total} ({by_status}). Exact / normalized / needs_assignment cells are "
+            "not listed.", "",
+            "| sheet | column | status | golden | agent | row key |",
+            "| --- | --- | --- | --- | --- | --- |"]
+    path.write_text("\n".join(head + lines) + "\n", encoding="utf-8")
+    return counts
+
+
+def _write_row_keys(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
+                    scr: Scrubber) -> dict[str, int]:
+    lines = ["# Row keys - scrubbed export", "", EXPORT_INTRO, ""]
+    listed = {"golden": 0, "agent": 0}
+    for d in diffs:
+        g_sheet, a_sheet = d.sides
+        key = keys.key_for(d.name)
+        used = d.facts.get("key")
+        used = ", ".join(scr.scrub(c) for c in used) if isinstance(used, list) else str(used)
+        g2a = {p.golden[0]: p.agent[0] for p in d.pairs if p.golden and p.agent}
+        a2g = {a: g for g, a in g2a.items()}
+        lines += [f"## {_md(scr.scrub(d.name))}", "",
+                  f"- presence: {d.presence}; pair mode: {d.facts.get('pair_mode', 'key')}",
+                  f"- key columns used for pairing: {_md(used)}",
+                  f"- rows: golden {d.rows['golden']}, agent {d.rows['agent']}, "
+                  f"paired {d.rows['paired']}", ""]
+        for side, sheet, table, other, partner in (
+                ("golden", g_sheet, d.tables[0], "agent", g2a),
+                ("agent", a_sheet, d.tables[1], "golden", a2g)):
+            if sheet is None:
+                lines += [f"No {side} rows (sheet absent).", ""]
+                continue
+            # A de-duplicated golden (build_goldens) says which exports held each row.
+            source = sheet.canon().get(SOURCE_COLUMN.upper())
+            extra_head, extra_rule = (" source exports |", " --- |") if source else ("", "")
+            lines += [f"### {side.capitalize()} rows", "",
+                      f"| {side} row | key | status | {other} row |{extra_head}",
+                      f"| --- | --- | --- | --- |{extra_rule}"]
+            for n, row in sheet.rows:
+                listed[side] += 1
+                mate = partner.get(n)
+                text = _key_text(sheet, row, key, keys, table, scr)
+                line = (f"| {_row_ref(n)} | {_md(text)} | "
+                        f"{'paired' if mate is not None else 'unpaired'} | {_row_ref(mate)} |")
+                if source:
+                    ids = [s for s in _raw(row.get(source)).split(",") if s.strip()]
+                    line += f" {len(ids)}: {_md(scr.scrub(','.join(ids)))} |"
+                lines.append(line)
+            lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return listed
+
+
+def _rescan(sc, files: list[Path], deny: dict[str, str], local) -> Counter[str]:
+    hits = Counter(klass for _, klass, _ in sc.scan_paths(files, deny=deny))
+    if local is not None:
+        for f in files:
+            n = len(local.findall(f.read_text(encoding="utf-8")))
+            if n:
+                hits["local_denylist"] += n
+    return hits
+
+
+def _class_counts(counts: Counter[str] | dict[str, int]) -> str:
+    items = sorted((k, v) for k, v in counts.items() if v)
+    return ", ".join(f"{k} {v}" for k, v in items) or "none"
+
+
+def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Path = REPO_ROOT,
+                    local_denylist: Path | None = None,
+                    harvest: dict[str, str] | None = None) -> dict:
+    """Write mismatches.md + row_keys.md + SELF_CHECK.md under ``out``. The
+    result's ``rescan`` is empty when the written files are clean; otherwise
+    the two evidence files are deleted (SELF_CHECK.md names the classes)."""
+    root = Path(root)
+    sc = load_scrub_check(root)
+    deny_path = root / LOCAL_DENYLIST_REL if local_denylist is None else Path(local_denylist)
+    terms = load_local_denylist(deny_path)
+    harvested = sc.harvest_raw_denylist() if harvest is None else dict(harvest)
+    universe, source, n_files = fixture_universe(root)
+    golden_tokens: set[str] = set()
+    for d in diffs:
+        g = d.sides[0]
+        if g is None:
+            continue
+        texts = [g.name, *g.columns, *(_raw(v) for _, row in g.rows for v in row.values())]
+        golden_tokens.update(t.casefold() for text in texts for t in _tokens(text))
+    scr = Scrubber(sc, universe, frozenset(golden_tokens), terms, harvested)
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    counts = _write_mismatches(out / EXPORT_FILES[0], diffs, keys, scr)
+    listed = _write_row_keys(out / EXPORT_FILES[1], diffs, keys, scr)
+    cells = sum(counts.values())
+    by_status = ", ".join(f"{s} {counts[s]}" for s in EXPORT_STATUSES)
+    placeholders = (f"G {len(scr.maps['G'])} ({scr.uses['G']} uses), "
+                    f"A {len(scr.maps['A'])} ({scr.uses['A']} uses)")
+    before = _class_counts(scr.before)
+    lines = ["# SELF_CHECK - scrubbed export (counts only)", "",
+             f"- fixtures token universe: {source}, {n_files} files, {len(universe)} tokens",
+             f"- local denylist: {f'{len(terms)} terms' if terms else 'absent'}",
+             f"- raw harvest (inputs/reference_raw): "
+             f"{f'{len(harvested)} tokens' if harvested else 'absent or empty'}",
+             f"- cells exported: {cells} ({by_status})",
+             f"- rows listed in row_keys.md: golden {listed['golden']}, agent {listed['agent']}",
+             f"- placeholders: {placeholders}",
+             f"- scrub_check hits before replacement, per class: {before}"]
+    check_path = out / SELF_CHECK_FILE
+    check_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    hits = _rescan(sc, [out / f for f in (*EXPORT_FILES, SELF_CHECK_FILE)], harvested, scr.local)
+    if hits:
+        for name in EXPORT_FILES:
+            (out / name).unlink(missing_ok=True)
+        rescan = (f"FAILED - {_class_counts(hits)} (classes only; mismatches.md and "
+                  "row_keys.md deleted)")
+    else:
+        rescan = "0 hits"
+    with check_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"- re-scan of {', '.join((*EXPORT_FILES, SELF_CHECK_FILE))} with "
+                 f"scrub_check: {rescan}\n")
+    return {
+        "cells": cells, "counts": dict(counts), "rows_listed": listed,
+        "placeholders": {p: len(m) for p, m in scr.maps.items()}, "uses": dict(scr.uses),
+        "before": dict(scr.before), "rescan": dict(hits), "universe_source": source,
+        "line": (f"SELF_CHECK: {cells} cells exported ({by_status}); placeholders {placeholders}"
+                 f"; scrub_check hits before replacement: {before}; re-scan: {rescan}"),
+    }
+
+
+# ----------------------------------------------------------- golden structure
+
+GROUP_COLUMNS = ("GROUP_ID", "PIPELINE_ID")
+NAME_COLUMNS = ("OBJECT_NAME", "TGT_TABLE_NAME", "FILE_NAME")
+SHARE_COLUMNS = ("TGT_TABLE_NAME", "OBJECT_NAME")
+_LABEL = {"GROUP_ID": "group", "PIPELINE_ID": "pipeline"}
+STRUCTURE_NOTE = (
+    "real GROUP_IDs withheld (PIPELINE_IDs too): group#k / pipeline#k number the distinct "
+    "ids in sorted order; table / object / file names are compared by normalized value and "
+    "never printed"
+)
+
+
+def _id_order(value: str) -> tuple:
+    return (0, int(value), "") if value.isdigit() else (1, 0, value)
+
+
+def _label_order(label: str) -> tuple:
+    prefix, _, n = label.partition("#")
+    return (prefix != "group", prefix, int(n) if n.isdigit() else 1 << 30)
+
+
+def _values(rows: list[dict], canon: dict[str, str], col: str) -> set[str]:
+    real = canon.get(col)
+    return {v for r in rows if real and (v := normalize(r.get(real)))}
+
+
+def golden_structure(golden: Path, keys: KeyConfig) -> dict:
+    """Row counts per GROUP_ID (PIPELINE_ID where a sheet has no GROUP_ID) per
+    sheet, distinct name counts, and which groups share a table / object name.
+    Labels and counts only."""
+    sheets = read_workbook(golden, keys)
+    seen: dict[str, set[str]] = {c: set() for c in GROUP_COLUMNS}
+    for sheet in sheets.values():
+        canon = sheet.canon()
+        for col in GROUP_COLUMNS:
+            seen[col] |= _values([r for _, r in sheet.rows], canon, col)
+    labels = {(col, v): f"{_LABEL[col]}#{i}" for col in GROUP_COLUMNS
+              for i, v in enumerate(sorted(seen[col], key=_id_order), start=1)}
+    info: dict[str, dict] = {}
+    ungrouped: dict[str, dict] = {}
+    groups: dict[str, dict] = {}
+    members: dict[tuple[str, str], tuple[list[dict], dict[str, str]]] = {}
+    names: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    linked: dict[str, set[str]] = defaultdict(set)
+    for name, sheet in sheets.items():
+        canon = sheet.canon()
+        rows = [r for _, r in sheet.rows]
+        by = next((c for c in GROUP_COLUMNS if c in canon), None)
+        if by is None:
+            ungrouped[name] = {"rows": len(rows), "distinct": {
+                c: len(_values(rows, canon, c)) for c in NAME_COLUMNS if c in canon}}
+            info[name] = {"rows": len(rows), "grouped_by": None, "groups": 0}
+            continue
+        buckets: dict[str, list[dict]] = defaultdict(list)
+        for row in rows:
+            value = normalize(row.get(canon[by]))
+            label = labels[(by, value)] if value else f"{_LABEL[by]}#blank"
+            buckets[label].append(row)
+            pid = normalize(row.get(canon["PIPELINE_ID"])) if "PIPELINE_ID" in canon else ""
+            if by == "GROUP_ID" and value and pid:
+                linked[label].add(labels[("PIPELINE_ID", pid)])
+                linked[labels[("PIPELINE_ID", pid)]].add(label)
+        info[name] = {"rows": len(rows), "grouped_by": by, "groups": len(buckets)}
+        for label, bucket in buckets.items():
+            group = groups.setdefault(label, {"column": by, "sheets": {}})
+            group["sheets"][name] = {"rows": len(bucket), "distinct": {
+                c: len(_values(bucket, canon, c)) for c in NAME_COLUMNS if c in canon}}
+            members[(label, name)] = (bucket, canon)
+            for col in (*SHARE_COLUMNS, "SRC_TABLE_NAME"):
+                names[label][col] |= _values(bucket, canon, col)
+    for (label, name), (bucket, canon) in members.items():
+        entry = groups[label]["sheets"][name]
+        entry["shared_rows"], entry["pairs_with"] = {}, {}
+        for col in SHARE_COLUMNS:
+            if col not in canon:
+                continue
+            partners: set[str] = set()
+            shared = 0
+            for row in bucket:
+                value = normalize(row.get(canon[col]))
+                hit = {o for o in names if o != label and value and value in names[o][col]}
+                shared += bool(hit)
+                partners |= hit
+            entry["shared_rows"][col] = shared
+            entry["pairs_with"][col] = sorted(partners, key=_label_order)
+    ordered = {}
+    for label in sorted(groups, key=_label_order):
+        group = groups[label]
+        group["pairs_with"] = {col: sorted({o for s in group["sheets"].values()
+                                            for o in s.get("pairs_with", {}).get(col, [])},
+                                           key=_label_order) for col in SHARE_COLUMNS}
+        group["reads_tables_of"] = sorted(
+            (o for o in names if o != label
+             and names[label]["SRC_TABLE_NAME"] & names[o]["TGT_TABLE_NAME"]), key=_label_order)
+        group["linked"] = sorted(linked[label], key=_label_order)
+        ordered[label] = group
+    return {"note": STRUCTURE_NOTE, "group_ids": len(seen["GROUP_ID"]),
+            "pipeline_ids": len(seen["PIPELINE_ID"]), "sheets": info, "groups": ordered,
+            "ungrouped": ungrouped}
+
+
+def structure_lines(data: dict) -> list[str]:
+    def opt(value) -> str:
+        return "-" if value is None else str(value)
+
+    lines = ["# Golden structure (counts only)", "", f"Note: {data['note']}.", "",
+             f"Distinct GROUP_IDs: {data['group_ids']}; distinct PIPELINE_IDs: "
+             f"{data['pipeline_ids']}", "", "## Sheets", "",
+             "| sheet | rows | grouped by | groups |", "| --- | ---: | --- | ---: |"]
+    for name, s in data["sheets"].items():
+        by = {"GROUP_ID": "GROUP_ID", "PIPELINE_ID": "PIPELINE_ID (sheet has no GROUP_ID)",
+              None: "not grouped (no GROUP_ID / PIPELINE_ID column)"}[s["grouped_by"]]
+        lines.append(f"| {name} | {s['rows']} | {by} | {s['groups']} |")
+    head = ["sheet", "rows", *(f"distinct {c}" for c in NAME_COLUMNS)]
+    for col in SHARE_COLUMNS:
+        head += [f"rows sharing {col} with another group",
+                 f"pairs with group#k on {col} hash"]
+    for label, g in data["groups"].items():
+        other = "PIPELINE_ID" if g["column"] == "GROUP_ID" else "GROUP_ID"
+        pairs = "; ".join(f"on {c}: {', '.join(g['pairs_with'][c]) or '-'}"
+                          for c in SHARE_COLUMNS)
+        lines += ["", f"## {label} (grouped by {g['column']})", "",
+                  f"- sheets with rows: {', '.join(g['sheets'])}",
+                  f"- {other}s on the same rows: {', '.join(g['linked']) or '-'}",
+                  f"- pairs with: {pairs}",
+                  "- reads tables written by (its SRC_TABLE_NAME = their TGT_TABLE_NAME): "
+                  f"{', '.join(g['reads_tables_of']) or '-'}", "",
+                  "| " + " | ".join(head) + " |", "|" + " --- |" * len(head)]
+        for name, s in g["sheets"].items():
+            cells = [name, str(s["rows"]), *(opt(s["distinct"].get(c)) for c in NAME_COLUMNS)]
+            for col in SHARE_COLUMNS:
+                cells += [opt(s["shared_rows"].get(col)),
+                          ", ".join(s["pairs_with"].get(col, [])) or "-"]
+            lines.append("| " + " | ".join(cells) + " |")
+    if data["ungrouped"]:
+        lines += ["", "## Not grouped", "",
+                  "| sheet | rows | " + " | ".join(f"distinct {c}" for c in NAME_COLUMNS) + " |",
+                  "|" + " --- |" * (2 + len(NAME_COLUMNS))]
+        for name, s in data["ungrouped"].items():
+            lines.append(f"| {name} | {s['rows']} | "
+                         + " | ".join(opt(s["distinct"].get(c)) for c in NAME_COLUMNS) + " |")
+    return lines
 
 
 # --------------------------------------------------------------------- batch
@@ -991,16 +1629,27 @@ def main(argv: list[str] | None = None) -> int:
                     help="the agent IIG workbook(s) - one per feed of the pair; several "
                          "are compared as their union")
     ap.add_argument("--batch", type=Path, help="directory of golden / agent pairs")
-    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--out", type=Path,
+                    help="required, except for --golden-structure alone")
     ap.add_argument("--keys", type=Path, default=DEFAULT_KEYS)
     ap.add_argument("--pair-mode", choices=PAIR_MODES, default="key",
                     help="Row pairing: key (default - the natural key ONLY; rows it "
                          "cannot pair stay missing / extra), position or fuzzy (explicit, "
                          "bannered - not the validation score)")
+    ap.add_argument("--export-scrubbed", type=Path, metavar="DIR",
+                    help="with --golden / --agent: also write mismatches.md, row_keys.md and "
+                         "SELF_CHECK.md to DIR, every value scrubbed (safe to hand home)")
+    ap.add_argument("--golden-structure", action="store_true",
+                    help="print row counts per GROUP_ID per sheet of --golden (counts and "
+                         "group#k labels only); written to --out when given")
     args = ap.parse_args(argv)
+    if args.out is None and not args.golden_structure:
+        ap.error("the following arguments are required: --out")
     if args.batch:
         if args.golden or args.agent:
             ap.error("--batch takes no --golden / --agent")
+        if args.export_scrubbed or args.golden_structure:
+            ap.error("--export-scrubbed / --golden-structure take --golden, not --batch")
         summary = run_batch(args.batch, args.out, args.keys,
                             pair_mode=args.pair_mode)
         for name, p in summary["pairs"].items():
@@ -1011,6 +1660,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"UNSCORED {name}: {why}")
         print(f"wrote {args.out / 'batch_summary.json'}")
         return 1 if summary["unscored"] else 0
+    if args.golden_structure:
+        if not args.golden:
+            ap.error("--golden-structure needs --golden")
+        _golden_structure_cli(args.golden, args.keys, args.out)
+        if not args.agent:
+            return 0
+        if args.out is None:
+            ap.error("the following arguments are required: --out")
     if not (args.golden and args.agent):
         ap.error("--golden and --agent are required (or --batch)")
     agents = list(args.agent)
@@ -1020,10 +1677,37 @@ def main(argv: list[str] | None = None) -> int:
               "agent workbook or up to 5 folders above it, one build for all - "
               "regenerate with the current codegen)")
         return 1
-    payload = run_pair(args.golden, agents if len(agents) > 1 else agents[0], args.out,
-                       args.keys, pair_mode=args.pair_mode, build=build)
+    if args.export_scrubbed is None:
+        payload = run_pair(args.golden, agents if len(agents) > 1 else agents[0], args.out,
+                           args.keys, pair_mode=args.pair_mode, build=build)
+        _print_pair(payload, args.out)
+        return 0
+    try:
+        load_scrub_check()
+    except FileNotFoundError as exc:
+        print(f"export refused: {exc}")
+        return 2
+    payload, diffs, keys = _run_pair(args.golden, agents if len(agents) > 1 else agents[0],
+                                     args.out, args.keys, pair_mode=args.pair_mode, build=build)
     _print_pair(payload, args.out)
-    return 0
+    check = export_scrubbed(diffs, keys, args.export_scrubbed)
+    print(check["line"])
+    written = EXPORT_FILES + (SELF_CHECK_FILE,) if not check["rescan"] else (SELF_CHECK_FILE,)
+    print(f"wrote {', '.join(str(args.export_scrubbed / f) for f in written)}")
+    return 2 if check["rescan"] else 0
+
+
+def _golden_structure_cli(golden: Path, keys_path: Path, out: Path | None) -> dict:
+    data = golden_structure(golden, load_keys(keys_path))
+    lines = structure_lines(data)
+    print("\n".join(lines))
+    if out is not None:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "golden_structure.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (out / "golden_structure.json").write_text(json.dumps(data, indent=2) + "\n",
+                                                   encoding="utf-8")
+        print(f"wrote {out / 'golden_structure.md'}, {out / 'golden_structure.json'}")
+    return data
 
 
 if __name__ == "__main__":

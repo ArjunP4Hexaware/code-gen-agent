@@ -186,14 +186,13 @@ def extract_contract(
     from codegen.contracts.sttm import PendingAnswer
     from codegen.extract.generic import NeedsAnswers
 
-    # Multi-file FRD → multiple feeds: when a single FRD feed has >1 file
-    # pattern AND >1 target table and the STTM has >1 mapping sheet, split
-    # into one feed per target table with a proposed file→table pairing by
-    # name similarity.  The pairing is a QUESTION flag, not a silent guess.
-    frd = _expand_multi_file_frd(frd)
-
     skipped = {t for t in skip_stage_tables}
     sheets = [s for s in ir.sheets if s.stage_table not in skipped]
+
+    # Multi-file FRD: split a single feed with >1 table and >1 pattern
+    # into one feed per target table so each sheet pairs with exactly
+    # one feed and one FILE_DETAILS row.
+    frd = _expand_multi_file_frd(frd, len(sheets))
     feeds = []
     pending: list[PendingAnswer] = []
     for sheet in sheets:
@@ -253,42 +252,57 @@ def extract_contract(
     )
 
 
-def _expand_multi_file_frd(frd: FrdContract) -> FrdContract:
-    """When a single FRD feed lists >1 file pattern AND >1 target table, split
-    it into one feed per target table and propose file→table pairing by name
-    similarity.  The pairing is a QUESTION (flag), not a silent guess.
 
+def _expand_multi_file_frd(
+    frd: FrdContract, n_sheets: int,
+) -> FrdContract:
+    """Split a single multi-file FRD feed into one feed per target table when
+    there are at least as many STTM sheets as there are target tables.
+
+    Each split feed gets exactly one table, one file pattern (paired by name
+    similarity), and a unique feed_name (the table stem without extension).
     Returns the FRD unchanged when no split is needed."""
-    from codegen.extract.frd_docx import _name_similarity, is_unnamed_feed
-
-    expanded: list[FrdFeed] = []
-    changed = False
-    for feed in frd.feeds:
-        tables = feed.stage_target.tables
-        patterns = feed.file_name_patterns
-        if len(tables) <= 1 or len(patterns) <= 1:
-            expanded.append(feed)
-            continue
-        # Greedy best-match assignment
-        remaining = list(patterns)
-        for idx, table in enumerate(tables):
-            if not remaining:
-                best = None
-            else:
-                best = max(remaining, key=lambda p: _name_similarity(p, table))
-                remaining.remove(best)
-            extra = remaining if idx == len(tables) - 1 else []
-            pats = ([best] if best else []) + extra
-            expanded.append(feed.model_copy(update={
-                "file_name_patterns": pats,
-                "stage_target": feed.stage_target.model_copy(
-                    update={"tables": [table]}),
-                "standard_target": feed.standard_target.model_copy(
-                    update={"tables": [table] if feed.standard_target.tables else []}),
-            }))
-        changed = True
-    if not changed:
+    if len(frd.feeds) != 1:
         return frd
+    feed = frd.feeds[0]
+    tables = feed.stage_target.tables
+    patterns = feed.file_name_patterns
+    if len(tables) <= 1 or len(patterns) <= 1:
+        return frd
+    if n_sheets < len(tables):
+        return frd
+    from codegen.extract.frd_docx import _name_similarity
+
+    remaining = list(patterns)
+    expanded: list[FrdFeed] = []
+    for idx, table in enumerate(tables):
+        if not remaining:
+            best = None
+        else:
+            best = max(
+                remaining,
+                key=lambda p: _name_similarity(p, table),
+            )
+            remaining.remove(best)
+        extra = remaining if idx == len(tables) - 1 else []
+        pats = ([best] if best else []) + extra
+        split_name = re.sub(
+            r"\.[a-z0-9]{2,4}$", "", table, flags=re.IGNORECASE,
+        )
+        expanded.append(feed.model_copy(update={
+            "feed_name": split_name,
+            "file_name_patterns": pats,
+            "stage_target": feed.stage_target.model_copy(
+                update={"tables": [table]}),
+            "standard_target": feed.standard_target.model_copy(
+                update={
+                    "tables": (
+                        [table]
+                        if feed.standard_target.tables
+                        else []
+                    ),
+                }),
+        }))
     return frd.model_copy(update={"feeds": expanded})
 
 
@@ -308,6 +322,19 @@ def _match_frd_feed(sheet: SheetIR, frd: FrdContract,
         free = [f for f in frd.feeds if not claimed & set(f.stage_target.tables)]
         if len(free) == 1:
             return free[0]
+        # Multi-file FRD: N blank sheets ↔ N free feeds — match by
+        # position (nth blank sheet → nth free feed).  This is the
+        # natural mapping after _expand_multi_file_frd splits one
+        # feed into one-per-table ordered by the FRD's table list.
+        blank_sheets = [s for s in sheets or []
+                        if s.stage_table is None]
+        if len(free) == len(blank_sheets) >= 2:
+            try:
+                pos = [s.sheet_name for s in blank_sheets].index(
+                    sheet.sheet_name)
+                return free[pos]
+            except (ValueError, IndexError):
+                pass
         raise ExtractionError(
             f"sheet {sheet.sheet_name!r}: every TableName cell is blank and "
             f"{len(free)} FRD feed(s) {[f.feed_name for f in free]} are claimed by no other "
@@ -336,7 +363,11 @@ def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
     matches = [
         row
         for row in ir.file_details
-        if _canonical_file_name(row.file_name) in canonical_patterns
+        if any(
+            _canonical_file_name(part) in canonical_patterns
+            for part in re.split(r"[;\n]", row.file_name)
+            if part.strip()
+        )
     ]
     if len(matches) != 1:
         if not feed.file_name_patterns:

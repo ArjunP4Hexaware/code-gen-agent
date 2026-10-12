@@ -261,9 +261,11 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                     continue
                 if header in cfg.name_columns:
                     cap = cfg.name_max_length.get(header, cfg.name_max_length.get("default", 128))
-                    if not pattern.match(value):
+                    charset = cfg.name_patterns.get(header, cfg.name_pattern)
+                    if not (pattern if charset == cfg.name_pattern
+                            else re.compile(charset)).match(value):
                         problems.append(f"{where}: {_truncate(value)!r} is not an identifier "
-                                        f"({cfg.name_pattern})")
+                                        f"({charset})")
                     if len(value) > cap:
                         problems.append(f"{where}: length {len(value)} > {cap}")
                 elif _is_path_column(header, cfg):

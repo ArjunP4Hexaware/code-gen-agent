@@ -1141,8 +1141,10 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
     rows = tpl.template_rows.get(tab) or [{}]
     out = []
     for template_row in rows:
+        # Round 4: a row may cite its own reference cell (`_citation`).
+        citation = template_row.get("_citation", tpl.citation)
         cells = {
-            header: _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=tpl.citation))
+            header: _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=citation))
             for header, value in template_row.items() if not header.startswith("_")
         }
         layer = template_row.get("_layer", "stage")

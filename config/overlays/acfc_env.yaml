@@ -115,6 +115,17 @@ metadata:
           SRC_ADLS_PATH: &stgstd "ACFC environment overlay (config/overlays/acfc_env.yaml) — stage -> standard paths, container-relative (owner brief 2026-10-09)"
           TGT_ADLS_PATH: *stgstd
           TGT_RJT_ADLS_PATH: *stgstd
+      # Round 4 (2026-10-12): one notebook row per leg, the framework's generic
+      # notebooks, named as TWO independent references name them: the SFMC IIG
+      # (fixtures/reference/SFMC_IIG.xlsx DATABRICKS_NOTEBOOK_DETAILS!L2 / L3) and the
+      # SD prod rows (codegen-outputs/iig_validation/round3/pair_2/score.json, the
+      # golden's notebook keys). PIPELINE_NAME stays blank: its {feed} token is the
+      # client's abbreviation, which no document states (FAQ feed_abbreviation).
+      # The pair-1 family names its stage notebook _V1 (its own overlay).
+      template_rows:
+        DATABRICKS_NOTEBOOK_DETAILS:
+          - {DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V0.1, _layer: stage, _citation: &nb "framework notebook per leg — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3 and the SD prod notebook keys (round 3)"}
+          - {DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard, _citation: *nb}
       always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
         TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
         DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

@@ -704,6 +704,10 @@ gate:
     name_columns: [PIPELINE_NAME, DATABRICKS_NOTEBOOK_NAME, TGT_TABLE_NAME, SRC_TABLE_NAME,
                    TGT_DATABASE_NAME, TGT_SCHEMA_NAME, SRC_SCHEMA_NAME, TGT_CATALOG_NAME,
                    SRC_CATALOG_NAME, TGT_RJT_TABLE_NAME, RECYCL_TBL_NM]
+    # A notebook name is a workspace file name: the framework's carry a version
+    # dot (FileInvokeDQDeltaTable_V0.1 — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2
+    # and the SD prod notebook keys, round 3).
+    name_patterns: {DATABRICKS_NOTEBOOK_NAME: "^[A-Za-z0-9_.]+$"}
     name_max_length: {default: 128, PIPELINE_NAME: 128, DATABRICKS_NOTEBOOK_NAME: 128}
     path_column_suffixes: [_PATH, _DIR, _ROOT_DIR]
     path_max_length: 1024

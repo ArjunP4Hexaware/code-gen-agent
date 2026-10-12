@@ -126,6 +126,38 @@ def test_iig_cells_single_line_charset_and_path_rules(config):
     assert "PIPELINE_NAME" not in check.details
 
 
+def test_a_notebook_name_may_carry_a_version_dot_and_nothing_else_may(config):
+    """Round 4: the framework's notebooks are named with a version dot (SFMC IIG
+    DATABRICKS_NOTEBOOK_DETAILS!L2; the SD prod notebook keys) — the per-column
+    charset admits it there only."""
+    def check(header: str, value: str):
+        return check_iig_derivations({"tabs": {"T": {"headers": [], "rows": [{
+            "values": {header: value}, "badges": {header: {"badge": "synthetic"}}}]}}},
+            config)
+
+    assert check("DATABRICKS_NOTEBOOK_NAME", "FileInvokeDQDeltaTable_V0.1").passed
+    assert not check("DATABRICKS_NOTEBOOK_NAME", "File Invoke").passed
+    failed = check("PIPELINE_NAME", "PL_File_X_V0.1")
+    assert not failed.passed and "^[A-Za-z0-9_]+$" in failed.details
+
+
+def test_the_acfc_overlay_names_one_framework_notebook_per_leg():
+    from codegen.config import load_config
+
+    repo = Path(__file__).resolve().parents[1]
+    acfc = load_config(repo / "config" / "config.yaml",
+                       overlays=[repo / "config" / "overlays" / "acfc_env.yaml"])
+    rows = acfc.metadata.templates["iig_v2"].template_rows["DATABRICKS_NOTEBOOK_DETAILS"]
+    assert [(r["DATABRICKS_NOTEBOOK_NAME"], r["_layer"]) for r in rows] == [
+        ("FileInvokeDQDeltaTable_V0.1", "stage"),
+        ("DeltaInvokeDQStandardDeltaTable_V2", "standard")]
+    assert all("SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3" in r["_citation"] for r in rows)
+    assert "PIPELINE_NAME" not in rows[0]        # its {feed} token is the client's: open
+    # the email rows of the shipped template survive the overlay's merge
+    assert acfc.metadata.templates["iig_v2"].template_rows["EMAIL_TEMPLATE_CONFIG"] == [
+        {"STATUS": "Success"}, {"STATUS": "Failed"}]
+
+
 # -- pair 11 end to end ---------------------------------------------------------- #
 
 

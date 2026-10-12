@@ -783,6 +783,9 @@ class DerivationsConfig(BaseModel):
         "PIPELINE_NAME", "DATABRICKS_NOTEBOOK_NAME", "TGT_TABLE_NAME", "SRC_TABLE_NAME",
         "TGT_DATABASE_NAME", "TGT_SCHEMA_NAME", "SRC_SCHEMA_NAME", "TGT_CATALOG_NAME",
         "SRC_CATALOG_NAME", "TGT_RJT_TABLE_NAME", "RECYCL_TBL_NM"])
+    # Per-column charset overriding name_pattern (a notebook name is a file
+    # name: the framework's own carry a version dot, e.g. "_V0.1").
+    name_patterns: dict[str, str] = Field(default_factory=dict)
     # "default" + per-column caps (conservative; framework limits unknown).
     name_max_length: dict[str, int] = Field(default_factory=lambda: {"default": 128})
     path_column_suffixes: list[str] = Field(default_factory=lambda: ["_PATH", "_DIR", "_ROOT_DIR"])

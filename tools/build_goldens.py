@@ -92,7 +92,12 @@ def _read_sheet(ws) -> tuple[list[str], list[list]]:
 
 
 def _collect_src_file_patterns(adls_rows: list[list], adls_headers: list[str]) -> list[str]:
-    """Extract SRC_FILE_NAME patterns from adls_delta_ingestion_details rows."""
+    """Extract SRC_FILE_NAME patterns from adls_delta_ingestion_details rows.
+
+    834-family resolution: if the patterns include FD/FW/FR prefixes AND a
+    bare ``*``, the ``*`` is the monthly feed whose convention prefix is FM.
+    Replace it to avoid an unbounded glob.
+    """
     idx = None
     for i, h in enumerate(adls_headers):
         if h.upper() == "SRC_FILE_NAME":
@@ -100,12 +105,27 @@ def _collect_src_file_patterns(adls_rows: list[list], adls_headers: list[str]) -
             break
     if idx is None:
         return []
-    patterns = []
+    raw: list[str] = []
     for r in adls_rows:
         val = r[idx] if idx < len(r) else None
         if val is not None and str(val).strip():
-            patterns.append(str(val).strip())
-    return patterns
+            raw.append(str(val).strip())
+
+    # 834-family: resolve bare * to the missing FD/FW/FM/FR prefix.
+    stems_upper = {_stem(p).upper() for p in raw}
+    has_834 = stems_upper & _834_PREFIXES
+    if has_834 and any(p.strip() == "*" for p in raw):
+        missing = _834_PREFIXES - stems_upper
+        resolved = []
+        for p in raw:
+            if p.strip() == "*":
+                for prefix in sorted(missing):
+                    resolved.append(f"{prefix}*")
+                    print(f"    834 resolve: bare * → {prefix}*")
+            else:
+                resolved.append(p)
+        return resolved
+    return raw
 
 
 def _stem(name: str) -> str:
@@ -120,39 +140,62 @@ def _stem(name: str) -> str:
 
 
 def _filter_all_files(rows: list[list], headers: list[str],
-                      patterns: list[str]) -> tuple[list[list], int, int]:
+                      patterns: list[str],
+                      pair_label: str) -> tuple[list[list], int, int, list[str]]:
     """Filter all_files_static_information rows by SRC_FILE_NAME patterns.
 
-    Both FILE_NAME and SRC_FILE_NAME may contain wildcards and extensions.
-    We stem both and check if either is a prefix of the other.
-    Returns (kept_rows, kept_count, dropped_count).
+    Returns (kept_rows, kept_count, dropped_count, usable_stems).
+    Raises ValueError when the sheet has no FILE_NAME column or all
+    patterns are too short to be meaningful.
     """
     fn_idx = None
     for i, h in enumerate(headers):
         if h.upper() == "FILE_NAME":
             fn_idx = i
             break
-    if fn_idx is None or not patterns:
-        return rows, len(rows), 0
+    if fn_idx is None:
+        raise ValueError(
+            f"{pair_label}: all_files_static_information has no FILE_NAME column "
+            f"(headers: {headers[:10]})"
+        )
 
-    # Pre-compute pattern stems
-    pattern_stems = [_stem(p) for p in patterns]
+    # Reject patterns whose stem is empty or < 4 chars (bare *, *.*, *.txt …).
+    # Exception: 834-family FD/FW/FM/FR prefixes are 2-char but valid.
+    usable: list[tuple[str, str]] = []  # (stem, raw_pattern)
+    rejected: list[str] = []
+    for p in patterns:
+        s = _stem(p)
+        if s.upper() in _834_PREFIXES:
+            usable.append((s, p))
+        elif len(s) < 4:
+            rejected.append(p)
+        else:
+            usable.append((s, p))
+    if not usable:
+        raise ValueError(
+            f"{pair_label}: all SRC_FILE_NAME patterns are unusable "
+            f"(stems < 4 chars: {rejected})"
+        )
 
     kept, dropped = [], 0
     for r in rows:
         fname = str(r[fn_idx]) if fn_idx < len(r) and r[fn_idx] is not None else ""
         fstem = _stem(fname)
+        # Reject rows with blank or glob-only FILE_NAME
+        if not fstem or len(fstem) < 4:
+            dropped += 1
+            continue
         match = any(
-            fstem.startswith(ps) or ps.startswith(fstem)
+            fstem.startswith(ps)
             or fnmatch.fnmatch(fname, p)
             or fnmatch.fnmatch(fname.lower(), p.lower())
-            for ps, p in zip(pattern_stems, patterns)
+            for ps, p in usable
         )
         if match:
             kept.append(r)
         else:
             dropped += 1
-    return kept, len(kept), dropped
+    return kept, len(kept), dropped, [s for s, _ in usable]
 
 
 def _load_email_template_config(csv_path: Path) -> tuple[list[str], list[list]]:
@@ -177,18 +220,64 @@ def _filter_email_cfg(headers: list[str], rows: list[list],
     return [r for r in rows if pid_idx < len(r) and str(r[pid_idx]).strip() in pipeline_ids]
 
 
-def _load_pipeline_ids(index_csv: Path, addendum_csv: Path | None,
-                       pair_label: str) -> set[str]:
-    """Collect all PIPELINE_IDs for a pair from the index + addendum."""
+# Sheets whose PIPELINE_IDs define the pair’s scope.  The schedule and
+# fixed-width sheets carry PIPELINE_IDs from OTHER groups (inherited via
+# the prod DB export), so they must NOT seed the filter set.
+_SCOPE_SHEETS = {
+    "adls_delta_ingestion_details",
+    "stgdelta_stddelta_ingestion_det",
+    "stgdelta_stddelta_ingestion_details",
+    "databricks_notebook_details",
+    "rdbms_adls_ingestion_details",
+}
+
+
+def _collect_pipeline_ids_from_sheets(
+    merged: dict[str, tuple[list[str], list[list]]],
+) -> set[str]:
+    """Collect PIPELINE_IDs from the core ingestion sheets only.
+
+    These sheets carry rows for the spec’d GROUP_IDs and nowhere else,
+    so their PIPELINE_IDs define the pair’s scope.
+    """
     pids: set[str] = set()
-    for csv_path in [index_csv, addendum_csv]:
-        if csv_path is None or not csv_path.exists():
+    for sn, (headers, rows) in merged.items():
+        if sn.lower() not in _SCOPE_SHEETS:
             continue
-        with open(csv_path, newline="") as f:
-            for r in csv.DictReader(f):
-                if r["pair_id"] == pair_label and r["pipeline_id"]:
-                    pids.add(r["pipeline_id"])
+        pid_idx = next(
+            (i for i, h in enumerate(headers) if h.upper() == "PIPELINE_ID"), None
+        )
+        if pid_idx is None:
+            continue
+        for r in rows:
+            val = r[pid_idx] if pid_idx < len(r) else None
+            if val is not None and str(val).strip():
+                pids.add(str(val).strip())
     return pids
+
+
+def _filter_by_pipeline_id(
+    headers: list[str], rows: list[list], pipeline_ids: set[str],
+) -> tuple[list[list], int]:
+    """Keep only rows whose PIPELINE_ID is in *pipeline_ids*.
+
+    Returns (kept, dropped_count).
+    """
+    pid_idx = next(
+        (i for i, h in enumerate(headers) if h.upper() == "PIPELINE_ID"), None
+    )
+    if pid_idx is None:
+        return rows, 0
+    kept = [
+        r for r in rows
+        if pid_idx < len(r) and str(r[pid_idx]).strip() in pipeline_ids
+    ]
+    return kept, len(rows) - len(kept)
+
+
+# 834-family SRC_FILE_NAME prefix conventions (pair_8 et al.):
+# FD = Daily, FW = Weekly, FM = Monthly, FR = Quarterly.
+_834_PREFIXES = {"FD", "FW", "FM", "FR"}
 
 
 def _write_golden(out_path: Path, sheets: dict[str, tuple[list[str], list[list]]],
@@ -267,8 +356,23 @@ def build_one_pair(pair_label: str, group_ids: list[str],
             if key not in merged:
                 merged[key] = (headers, list(rows))
             else:
-                # Union: append rows (headers should match)
-                merged[key][1].extend(rows)
+                # Union: assert identical headers; on mismatch align by name.
+                existing_h = merged[key][0]
+                if [h.upper() for h in existing_h] == [h.upper() for h in headers]:
+                    merged[key][1].extend(rows)
+                else:
+                    # Align by column name
+                    col_map = {h.upper(): i for i, h in enumerate(headers)}
+                    for r in rows:
+                        aligned = [
+                            r[col_map[eh.upper()]] if eh.upper() in col_map and col_map[eh.upper()] < len(r) else None
+                            for eh in existing_h
+                        ]
+                        merged[key][1].append(aligned)
+                    extra = [h for h in headers if h.upper() not in {eh.upper() for eh in existing_h}]
+                    if extra:
+                        print(f"    WARNING: {pair_label}/{sn} (group {gid}) "
+                              f"header mismatch — aligned by name; extra columns dropped: {extra}")
 
             # Accumulate ADLS rows for filtering
             if key == "adls_delta_ingestion_details":
@@ -281,26 +385,49 @@ def build_one_pair(pair_label: str, group_ids: list[str],
     if report["files_missing"]:
         report["errors"].append(f"Missing xlsx for groups: {report['files_missing']}")
 
-    # Restore original-case sheet names from first occurrence
+    # Restore original-case sheet names from first occurrence.
+    # Re-opening the workbooks is cheap (read_only=True) and avoids
+    # caching sheet names across the merge loop.
     final_sheets: dict[str, tuple[list[str], list[list]]] = {}
     for key, (headers, rows) in merged.items():
-        # Use original case from headers context
         display_name = key
         for gid in group_ids:
             xlsx_path = _find_group_xlsx(gid, pair_label, goldens_dir, round2_dir)
             if xlsx_path and xlsx_path.exists():
-                try:
-                    wb = openpyxl.load_workbook(str(xlsx_path), read_only=True)
-                    for sn in wb.sheetnames:
-                        if sn.lower() == key:
-                            display_name = sn
-                            break
-                    wb.close()
-                    if display_name != key:
+                wb = openpyxl.load_workbook(str(xlsx_path), read_only=True)
+                for sn in wb.sheetnames:
+                    if sn.lower() == key:
+                        display_name = sn
                         break
-                except:
-                    pass
+                wb.close()
+                if display_name != key:
+                    break
         final_sheets[display_name] = (headers, rows)
+
+    # --- per-pair PIPELINE_ID set (from the merged sheets, scoped to spec'd groups)
+    pair_pids = _collect_pipeline_ids_from_sheets(
+        {k.lower(): v for k, v in final_sheets.items()}
+    )
+
+    # Filter data_factory_pipeline_schedule by the pair's PIPELINE_IDs
+    for sn in list(final_sheets):
+        if sn.lower() == "data_factory_pipeline_schedule":
+            h, r = final_sheets[sn]
+            kept, dropped = _filter_by_pipeline_id(h, r, pair_pids)
+            if dropped:
+                print(f"    {pair_label}/{sn}: schedule filtered "
+                      f"{len(r)} -> {len(kept)} (dropped {dropped})")
+            final_sheets[sn] = (h, kept)
+
+    # Filter adls_fixed_width_handler by the pair's PIPELINE_IDs
+    for sn in list(final_sheets):
+        if sn.lower() == "adls_fixed_width_handler":
+            h, r = final_sheets[sn]
+            kept, dropped = _filter_by_pipeline_id(h, r, pair_pids)
+            if dropped:
+                print(f"    {pair_label}/{sn}: fwh filtered "
+                      f"{len(r)} -> {len(kept)} (dropped {dropped})")
+            final_sheets[sn] = (h, kept)
 
     # Filter all_files_static_information
     afsi_key = None
@@ -312,21 +439,29 @@ def build_one_pair(pair_label: str, group_ids: list[str],
         patterns = _collect_src_file_patterns(adls_rows_all, adls_headers)
         if patterns:
             headers, rows = final_sheets[afsi_key]
-            kept, kept_n, dropped_n = _filter_all_files(rows, headers, patterns)
+            kept, kept_n, dropped_n, usable_stems = _filter_all_files(
+                rows, headers, patterns, pair_label,
+            )
             final_sheets[afsi_key] = (headers, kept)
             report["all_files_filter"] = {
                 "patterns": patterns,
+                "usable_stems": usable_stems,
                 "kept": kept_n,
                 "dropped": dropped_n,
                 "total": kept_n + dropped_n,
             }
+    elif afsi_key and not adls_rows_all:
+        raise ValueError(
+            f"{pair_label}: all_files_static_information present but no "
+            "adls_delta_ingestion_details rows to derive patterns from"
+        )
 
-    # Add EMAIL_TEMPLATE_CONFIG if available
+    # Add EMAIL_TEMPLATE_CONFIG if available — scoped to the pair's PIPELINE_IDs.
     if email_cfg_path and email_cfg_path.exists():
-        pids = _load_pipeline_ids(index_csv, addendum_csv, pair_label)
-        if pids:
+        if pair_pids:
             etc_headers, etc_rows = _load_email_template_config(email_cfg_path)
-            filtered = _filter_email_cfg(etc_headers, etc_rows, pids)
+            filtered = _filter_email_cfg(etc_headers, etc_rows, pair_pids)
+            report["email_template_before"] = len(etc_rows)
             if filtered:
                 final_sheets["EMAIL_TEMPLATE_CONFIG"] = (etc_headers, filtered)
                 report["email_template_rows"] = len(filtered)
@@ -382,15 +517,19 @@ def main(argv: list[str] | None = None) -> int:
     # Summary
     print("\n=== Build Summary ===")
     for r in reports:
+        total_rows = sum(r["sheets"].values())
         status = "OK" if not r["errors"] else f"WARN: {'; '.join(r['errors'])}"
-        afsi = r["all_files_filter"]
+        afsi = r.get("all_files_filter", {})
         afsi_msg = ""
         if afsi:
-            afsi_msg = f" | all_files: kept {afsi['kept']}, dropped {afsi['dropped']}"
+            afsi_msg = (f" | all_files: kept {afsi['kept']}/{afsi['total']}"
+                        f" stems={afsi.get('usable_stems', [])}")
         etc_msg = ""
-        if r["email_template_rows"]:
-            etc_msg = f" | email_cfg: {r['email_template_rows']} rows"
-        print(f"  {r['pair']}: {len(r['sheets'])} sheets{afsi_msg}{etc_msg} — {status}")
+        if r.get("email_template_rows"):
+            etc_msg = (f" | email: {r['email_template_rows']}"
+                       f" (of {r.get('email_template_before', '?')})")
+        print(f"  {r['pair']}: {len(r['sheets'])} sheets, "
+              f"{total_rows} total rows{afsi_msg}{etc_msg} — {status}")
 
     # Write report JSON
     report_path = args.out / "build_report.json"

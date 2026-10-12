@@ -348,3 +348,88 @@ def test_framework_table_names_match_iig_sheet_names() -> None:
     keys = iig_diff.load_keys(KEYS)
     assert keys.key_for("stgdelta_stddelta_ingestion_details") == ["OBJECT_NAME", "TGT_TABLE_NAME"]
     assert keys.object_source("rdbms_adls_ingestion_details") is not None
+
+
+# ─── pair-mode tests ────────────────────────────────────────────────────
+
+
+def test_position_mode_pairs_by_ordinal(tmp_path: Path) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None], [2, "B", "Weekly", None]]})
+    agent = _book(tmp_path / "a.xlsx", {PIPE: [HEAD, [9, "B", "Weekly", None], [8, "A", "Daily", None]]})
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="position")
+    s = payload["sheets"][PIPE]
+    assert s["pair_mode"] == "position"
+    # Position mode: row 1 golden (A) pairs with row 1 agent (B) → 1 mismatch per PIPELINE_NAME
+    assert s["rows"]["paired"] == 2
+    assert s["counts"]["mismatch"] >= 1  # at least PIPELINE_NAME differs
+
+
+def test_key_fallback_to_position_when_zero_paired_and_small(tmp_path: Path) -> None:
+    """key mode falls back to position when 0 rows pair and both sides ≤10."""
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "X", "Daily", None]]})
+    agent = _book(tmp_path / "a.xlsx", {PIPE: [HEAD, [2, "Y", "Weekly", None]]})
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
+    s = payload["sheets"][PIPE]
+    assert s["pair_mode"] == "position (fallback)"
+    assert s["rows"]["paired"] == 1
+    assert any("fell back to position" in w for w in payload["warnings"])
+
+
+def test_fuzzy_mode_strips_pl_prefix(tmp_path: Path) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "PL_File_STAGE_foo", "Daily", None]]})
+    agent = _book(tmp_path / "a.xlsx", {PIPE: [HEAD, [2, "STAGE_FOO", "Daily", None]]})
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="fuzzy")
+    s = payload["sheets"][PIPE]
+    assert s["pair_mode"] == "fuzzy"
+    assert s["rows"]["paired"] == 1
+    # Fuzzy mode pairs by normalized key but cell values still compared as-is:
+    # PIPELINE_NAME ("PL_File_STAGE_foo" vs "STAGE_FOO") = 1 mismatch,
+    # PIPELINE_FREQUENCY ("Daily" vs "Daily") = exact.
+    assert s["counts"]["mismatch"] == 1  # the key column itself differs
+
+
+def test_fuzzy_key_normalization() -> None:
+    assert iig_diff.fuzzy_key("PL_File_STAGE_foo_bar") == "stage_foo_bar"
+    assert iig_diff.fuzzy_key("PL_MY_PIPELINE") == "my_pipeline"
+    assert iig_diff.fuzzy_key("NB_some_notebook") == "some_notebook"
+    assert iig_diff.fuzzy_key("plain_name") == "plain_name"
+    assert iig_diff.fuzzy_key("WF_daily_load") == "daily_load"
+
+
+def test_template_mismatch_maps_file_adls_to_all_files(tmp_path: Path) -> None:
+    """Agent’s FILE_ADLS_INGESTION_DETAILS maps to golden’s ALL_FILES_STATIC_INFORMATION."""
+    golden = _book(tmp_path / "g.xlsx", {
+        "ALL_FILES_STATIC_INFORMATION": [["FILE_NAME", "DESCRIPTION"], ["a.csv", "desc"]],
+    })
+    agent = _book(tmp_path / "a.xlsx", {
+        "FILE_ADLS_INGESTION_DETAILS": [["FILE_NAME", "DESCRIPTION"], ["a.csv", "desc"]],
+    })
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    # The sheet should be matched (not golden-only + agent-only)
+    afsi = payload["sheets"]["ALL_FILES_STATIC_INFORMATION"]
+    assert afsi["presence"] == "compared"
+    assert afsi.get("template_mismatch") is not None
+    assert afsi["template_mismatch"]["agent_sheet"] == "FILE_ADLS_INGESTION_DETAILS"
+    # No separate FILE_ADLS_INGESTION_DETAILS sheet should exist
+    assert "FILE_ADLS_INGESTION_DETAILS" not in payload["sheets"]
+
+
+def test_pair_mode_reported_in_score_json(tmp_path: Path) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    payload = iig_diff.run_pair(golden, golden, tmp_path / "out", KEYS)
+    s = payload["sheets"][PIPE]
+    assert "pair_mode" in s
+    assert s["pair_mode"] in ("key", "position", "fuzzy", "position (fallback)")
+
+
+def test_cli_pair_mode_argument(tmp_path: Path) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    out = tmp_path / "out"
+    rc = iig_diff.main([
+        "--golden", str(golden), "--agent", str(golden),
+        "--out", str(out), "--pair-mode", "position",
+    ])
+    assert rc == 0
+    import json
+    payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
+    assert payload["sheets"][PIPE]["pair_mode"] == "position"

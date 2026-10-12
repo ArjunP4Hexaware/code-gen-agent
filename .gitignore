@@ -174,3 +174,9 @@ docs/acfc/iig_goldens/goldens/
 docs/acfc/iig_goldens/goldens_csv/
 docs/acfc/iig_goldens_round2/goldens/
 docs/acfc/iig_goldens_round2/goldens_csv/
+# Round 3: blanket-ignore every per-GROUP_ID subdirectory under any iig_goldens dir,
+# the stray email_template_config CSV, and the diff scratch directories.
+docs/acfc/iig_goldens*/*/
+docs/acfc/iig_goldens_round2/email_template_config_by_pipeline.csv
+/diff_input/
+/diff_output/

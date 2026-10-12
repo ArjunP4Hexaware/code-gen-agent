@@ -63,6 +63,20 @@ from openpyxl.styles import Font, PatternFill
 
 DEFAULT_KEYS = Path(__file__).resolve().parent / "iig_keys.yaml"
 
+# ----------- pair-mode constants
+PAIR_MODES = ("key", "position", "fuzzy")
+_FUZZY_PREFIXES = re.compile(
+    r"^(PL_File_|PL_|NB_|WF_)", re.IGNORECASE,
+)
+
+# Template-version aliases: agent and golden may name the same logical sheet
+# differently when they use different IIG template versions.
+# Each entry maps an agent-side sheet ID to a golden-side sheet ID.
+# Values are uppercased and clipped to 31 chars (same rule as sheet_id()).
+TEMPLATE_ALIASES: dict[str, str] = {
+    "FILE_ADLS_INGESTION_DETAILS"[:31].upper(): "ALL_FILES_STATIC_INFORMATION"[:31].upper(),
+}
+
 EXACT = "exact"
 NORMALIZED = "normalized"
 MISMATCH = "mismatch"
@@ -255,6 +269,14 @@ def classify(golden: object, agent: object) -> str:
     return MISMATCH
 
 
+def fuzzy_key(text: str) -> str:
+    """Normalize a key value for fuzzy pairing: strip known prefixes
+    (PL_File_, PL_, NB_, WF_), collapse underscores, casefold."""
+    text = _FUZZY_PREFIXES.sub("", text.strip())
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text.casefold()
+
+
 # ------------------------------------------------------------------- pairing
 
 
@@ -354,8 +376,17 @@ def pair_rows(
     key: list[str] | None,
     keys: KeyConfig | None = None,
     tables: tuple[ObjectTables | None, ObjectTables | None] = (None, None),
+    pair_mode: str = "key",
 ) -> tuple[list[RowPair], dict]:
     """Pair rows by key (position when ``key`` is None); return pairs + key facts.
+
+    ``pair_mode`` controls how rows are matched:
+
+    * ``key`` (default) — use the natural key from iig_keys.yaml; fall back to
+      ``position`` for a sheet that pairs 0 rows when both sides have ≤10 rows.
+    * ``position`` — pair every sheet row-for-row by ordinal position.
+    * ``fuzzy`` — like ``key`` but key values are normalized (prefixes like
+      ``PL_File_``/``PL_`` stripped, case/underscores collapsed) before matching.
 
     An OBJECT_ID key column is replaced by the table its row resolves to in
     its own workbook (``ObjectTables``); rows whose OBJECT_ID does not resolve
@@ -363,7 +394,11 @@ def pair_rows(
     keys = keys or KeyConfig({}, [], [], [])
     g_rows = golden.rows if golden else []
     a_rows = agent.rows if agent else []
-    facts: dict = {"key": key or "position", "warnings": []}
+    facts: dict = {"key": key or "position", "pair_mode": pair_mode, "warnings": []}
+    if pair_mode == "position":
+        facts["key"] = "position"
+        facts["pair_mode"] = "position"
+        return _positional(g_rows, a_rows), facts
     if key:
         cols_g = _resolve(golden, key)
         cols_a = _resolve(agent, key)
@@ -372,6 +407,7 @@ def pair_rows(
                 f"key column(s) {key} not in both sheets — rows paired by position"
             )
             facts["key"] = "position"
+            facts["pair_mode"] = "position"
             key = None
     if not key:
         return _positional(g_rows, a_rows), facts
@@ -401,15 +437,23 @@ def pair_rows(
             f"key {key} is not unique (golden {len(dup_g)}, agent {len(dup_a)} duplicated) "
             "— duplicates paired in sheet order"
         )
+    # Build the key → agent-row index; optionally apply fuzzy normalization.
+    use_fuzzy = pair_mode == "fuzzy"
+
+    def _match_key(k: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if k is None or not use_fuzzy:
+            return k
+        return tuple(fuzzy_key(part) for part in k)
+
     by_key_a: dict[tuple[str, ...], list[_Keyed]] = defaultdict(list)
     for k in a_keyed:
         if k.key is not None:
-            by_key_a[k.key].append(k)
+            by_key_a[_match_key(k.key)].append(k)
     pairs = []
     for k in g_keyed:
         if k.key is None:
             continue
-        bucket = by_key_a.get(k.key)
+        bucket = by_key_a.get(_match_key(k.key))
         partner = bucket.pop(0).row if bucket else None
         pairs.append(RowPair(k.row, partner, k.text))
     leftover = sorted((k for b in by_key_a.values() for k in b), key=lambda k: k.row[0])
@@ -419,6 +463,24 @@ def pair_rows(
         [k.row for k in a_keyed if k.key is None],
         " (OBJECT_ID unresolved)",
     )
+
+    # Fallback: key mode paired 0 rows and both sides are small → retry with position.
+    paired_count = sum(1 for p in pairs if p.golden and p.agent)
+    if (
+        pair_mode == "key"
+        and paired_count == 0
+        and len(g_rows) <= 10
+        and len(a_rows) <= 10
+        and (g_rows or a_rows)
+    ):
+        facts["warnings"].append(
+            f"key {key} paired 0 rows with both sides ≤10 — fell back to position"
+        )
+        facts["pair_mode"] = "position (fallback)"
+        return _positional(g_rows, a_rows), facts
+
+    if use_fuzzy and pair_mode != facts.get("_original_mode"):
+        facts["pair_mode"] = "fuzzy"
     return pairs, facts
 
 
@@ -472,9 +534,11 @@ def diff_sheet(
     agent: Sheet | None,
     keys: KeyConfig,
     tables: tuple[ObjectTables | None, ObjectTables | None] = (None, None),
+    pair_mode: str = "key",
 ) -> SheetDiff:
     presence = "compared" if golden and agent else ("golden-only" if golden else "agent-only")
-    pairs, facts = pair_rows(golden, agent, keys.key_for(name), keys, tables)
+    pairs, facts = pair_rows(golden, agent, keys.key_for(name), keys, tables,
+                             pair_mode=pair_mode)
     g_canon = golden.canon() if golden else {}
     a_canon = agent.canon() if agent else {}
     order = [c.upper() for c in golden.columns] if golden else []
@@ -524,18 +588,47 @@ def diff_sheet(
     return out
 
 
-def diff_workbooks(golden: Path, agent: Path, keys: KeyConfig) -> list[SheetDiff]:
+def diff_workbooks(
+    golden: Path,
+    agent: Path,
+    keys: KeyConfig,
+    pair_mode: str = "key",
+) -> list[SheetDiff]:
     g = read_workbook(golden, keys)
     a = read_workbook(agent, keys)
     tables = (ObjectTables(g, keys), ObjectTables(a, keys))
     a_by_id = {sheet_id(n): n for n in a}
     g_ids = {sheet_id(n) for n in g}
-    names = list(g) + [n for n in a if sheet_id(n) not in g_ids]
+
+    # Detect template-alias matches: an agent sheet whose ID maps to a golden ID.
+    # Recognized as the same logical sheet but flagged as "template_mismatch".
+    alias_map: dict[str, str] = {}  # golden_name -> agent_name
+    template_mismatches: set[str] = set()  # golden sheet names with alias match
+    for a_name in a:
+        aid = sheet_id(a_name)
+        if aid in TEMPLATE_ALIASES and TEMPLATE_ALIASES[aid] in {sheet_id(n) for n in g}:
+            g_name = next(n for n in g if sheet_id(n) == TEMPLATE_ALIASES[aid])
+            alias_map[g_name] = a_name
+            template_mismatches.add(g_name)
+
+    names = list(g) + [
+        n for n in a
+        if sheet_id(n) not in g_ids and n not in alias_map.values()
+    ]
     result = []
     for name in names:
         g_sheet = g.get(name)
-        a_sheet = a.get(a_by_id.get(sheet_id(name), ""))
-        result.append(diff_sheet(name, g_sheet, a_sheet, keys, tables))
+        a_name = alias_map.get(name) or a_by_id.get(sheet_id(name), "")
+        a_sheet = a.get(a_name)
+        sd = diff_sheet(name, g_sheet, a_sheet, keys, tables, pair_mode=pair_mode)
+        if name in template_mismatches:
+            sd.facts["template_mismatch"] = {
+                "golden_sheet": name,
+                "agent_sheet": alias_map[name],
+                "note": "Different IIG template versions use different sheet names "
+                        "for the same logical table.",
+            }
+        result.append(sd)
     return result
 
 
@@ -568,9 +661,10 @@ def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetD
         if d.presence != "compared":
             sheet_warnings.append(f"sheet is {d.presence}")
         warnings += [f"{d.name}: {w}" for w in sheet_warnings]
-        sheets[d.name] = {
+        entry: dict = {
             "presence": d.presence,
             "key": d.facts["key"],
+            "pair_mode": d.facts.get("pair_mode", "key"),
             "key_unique": d.facts.get("key_unique"),
             "duplicate_keys": d.facts.get("duplicate_keys"),
             "unresolved_object_ids": d.facts.get("unresolved_object_ids"),
@@ -581,6 +675,9 @@ def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetD
             "needs_assignment": assign,
             "warnings": sheet_warnings,
         }
+        if d.facts.get("template_mismatch"):
+            entry["template_mismatch"] = d.facts["template_mismatch"]
+        sheets[d.name] = entry
     total_counts = {s: totals.get(s, 0) for s in STATUSES}
     return {
         "golden": str(golden),
@@ -676,9 +773,10 @@ def write_routing_csv(path: Path, diffs: list[SheetDiff]) -> None:
                 writer.writerow([d.name, column, summary, ""])
 
 
-def run_pair(golden: Path, agent: Path, out: Path, keys_path: Path) -> dict:
+def run_pair(golden: Path, agent: Path, out: Path, keys_path: Path,
+             pair_mode: str = "key") -> dict:
     keys = load_keys(keys_path)
-    diffs = diff_workbooks(golden, agent, keys)
+    diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode)
     payload = score_payload(golden, agent, keys_path, diffs)
     out.mkdir(parents=True, exist_ok=True)
     (out / "score.json").write_text(
@@ -731,11 +829,13 @@ def find_pairs(directory: Path) -> tuple[dict[str, tuple[Path, Path]], list[str]
     return pairs, problems
 
 
-def run_batch(directory: Path, out: Path, keys_path: Path) -> dict:
+def run_batch(directory: Path, out: Path, keys_path: Path,
+              pair_mode: str = "key") -> dict:
     pairs, problems = find_pairs(directory)
     summary: dict = {"pairs": {}, "skipped": problems}
     for name, (golden, agent) in pairs.items():
-        payload = run_pair(golden, agent, out / name, keys_path)
+        payload = run_pair(golden, agent, out / name, keys_path,
+                           pair_mode=pair_mode)
         summary["pairs"][name] = {
             "golden": str(golden),
             "agent": str(agent),
@@ -769,11 +869,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--batch", type=Path, help="directory of golden / agent pairs")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--keys", type=Path, default=DEFAULT_KEYS)
+    ap.add_argument("--pair-mode", choices=PAIR_MODES, default="key",
+                    help="Row-pairing strategy: key (default, with small-sheet "
+                         "fallback to position), position, or fuzzy")
     args = ap.parse_args(argv)
     if args.batch:
         if args.golden or args.agent:
             ap.error("--batch takes no --golden / --agent")
-        summary = run_batch(args.batch, args.out, args.keys)
+        summary = run_batch(args.batch, args.out, args.keys,
+                            pair_mode=args.pair_mode)
         for name, p in summary["pairs"].items():
             print(f"{name}: score {p['totals']['score']}; mismatch {p['totals'][MISMATCH]}")
         for problem in summary["skipped"]:
@@ -782,7 +886,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not (args.golden and args.agent):
         ap.error("--golden and --agent are required (or --batch)")
-    payload = run_pair(args.golden, args.agent, args.out, args.keys)
+    payload = run_pair(args.golden, args.agent, args.out, args.keys,
+                        pair_mode=args.pair_mode)
     _print_pair(payload, args.out)
     return 0
 

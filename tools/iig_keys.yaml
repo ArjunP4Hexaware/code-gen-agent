@@ -1,0 +1,57 @@
+# Natural keys for tools/iig_diff.py — how a golden IIG row finds its agent row.
+#
+# Per sheet: the columns whose (normalized) values identify a row. A sheet not
+# listed here pairs rows by position (flagged "position" in score.json). A key
+# that is not unique on either side is flagged; duplicates then pair in sheet
+# order (first golden occurrence with the first agent occurrence, ...).
+#
+# Sheet names match caselessly on their first 31 characters (Excel's limit), so
+# a framework table name (stgdelta_stddelta_ingestion_details) finds its IIG
+# sheet (STGDELTA_STDDELTA_INGESTION_DET).
+#
+# An OBJECT_ID in a key is replaced by the TABLE that row's object resolves to
+# in its own workbook (object_tables below) — ids are assigned, so a golden and
+# an agent run never share them. A row whose OBJECT_ID does not resolve pairs
+# by position among the other unresolved rows, listed in score.json
+# (unresolved_object_ids).
+#
+# Checked against the iig_v2 headers (fixtures/acfc_shapes/pair_1/golden/) and
+# the iig_v1 SFMC reference (fixtures/reference/SFMC_IIG.xlsx) on 2026-10-11.
+# The brief's guesses RULE_NAME and NOTEBOOK_NAME are not IIG columns: the DQ
+# key uses RULE_CLASS (+ SOURCE_COLUMN), the notebook key
+# DATABRICKS_NOTEBOOK_NAME.
+sheets:
+  DATA_FACTORY_PIPELINE_SCHEDULE: [PIPELINE_NAME]
+  FILE_ADLS_INGESTION_DETAILS: [SRC_ROOT_DIR, TGT_ADLS_PATH]
+  ADLS_DELTA_INGESTION_DETAILS: [OBJECT_NAME, TGT_TABLE_NAME]
+  STGDELTA_STDDELTA_INGESTION_DET: [OBJECT_NAME, TGT_TABLE_NAME]
+  ADLS_FIXED_WIDTH_HANDLER: [SEGMENT, TGT_TABLE]
+  DATABRICKS_NOTEBOOK_DETAILS: [DATABRICKS_NOTEBOOK_NAME]
+  # OBJECT_ID -> its table. Several files loading ONE table (pair 1: four
+  # files, one table) make this key non-unique — flagged, paired in order.
+  DATA_QUALITY_RULES: [OBJECT_ID, RULE_CLASS, SOURCE_COLUMN]
+  EMAIL_TEMPLATE_CONFIG: [TEMPLATE_NAME, STATUS]
+  ALL_FILES_STATIC_INFORMATION: [FILE_NAME]
+
+# Where an OBJECT_ID's table comes from: per sheet, the column(s) naming the
+# table (first non-blank wins). A row resolves by (GROUP_ID, OBJECT_ID) — one
+# feed's ADLS group and STGDELTA group both number an object 1 — then by
+# OBJECT_ID alone when every source row carrying it names the same table.
+object_tables:
+  id_column: OBJECT_ID
+  group_column: GROUP_ID
+  sources:
+    ADLS_DELTA_INGESTION_DETAILS: [TGT_TABLE_NAME]
+    STGDELTA_STDDELTA_INGESTION_DET: [TGT_TABLE_NAME]
+    # Column set not seen yet (no RDBMS IIG in the repo): first present wins.
+    RDBMS_ADLS_INGESTION_DETAILS: [TGT_TABLE_NAME, SRC_TABLE_NAME, OBJECT_NAME]
+
+# Columns scored as needs_assignment (case-insensitive glob), never as a
+# mismatch: ids the framework / engineer assigns and audit stamps.
+needs_assignment: ["*_ID", "CREATED_*", "UPDATED_*", "CRETAED_*"]
+
+# Columns whose values are never written to diff.xlsx (real user ids).
+withhold_values: [CREATED_BY, UPDATED_BY, CRETAED_BY]
+
+# Sheets never compared (besides any sheet whose name starts with "_").
+ignore_sheets: [REVIEW_SUMMARY]

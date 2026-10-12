@@ -40,6 +40,31 @@ GENERIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("client_vm_prefix", re.compile(r"\bzy[a-z0-9]{8,}\b")),
 ]
 
+# 2026-10-12 (round3 pair_2 score.json committed a workspace path carrying a
+# user's address): ANY e-mail address and ANY /Workspace/Users/<user> path,
+# except the synthetic / placeholder forms the repo writes on purpose.
+EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+WORKSPACE_USER_PATH = re.compile(r"/Workspace/Users/([^/\s'\"<>]+)")
+_ALLOWED_EMAIL_DOMAINS = ("synthetic.example", "example.com", "example.org", "example", "invalid",
+                          "anthropic.com")
+_ALLOWED_WORKSPACE_USERS = {"u", "user", "me", "someone", "you"}
+
+
+def structural_hits(text: str) -> list[tuple[str, str]]:
+    """[(class, match)] for the address-shaped leaks: an e-mail address whose
+    domain is not a synthetic / example one, and a ``/Workspace/Users/<user>``
+    path whose user segment is not a placeholder (``<…>`` never matches)."""
+    hits = []
+    for m in EMAIL.finditer(text):
+        domain = m.group(0).rsplit("@", 1)[1].lower()
+        if not any(domain == d or domain.endswith("." + d) for d in _ALLOWED_EMAIL_DOMAINS):
+            hits.append(("email_address", m.group(0)))
+    for m in WORKSPACE_USER_PATH.finditer(text):
+        user = m.group(1)
+        if user.lower() not in _ALLOWED_WORKSPACE_USERS and "synthetic" not in user.lower():
+            hits.append(("workspace_user_path", m.group(0)))
+    return hits
+
 _HARVEST = re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+"      # emails
     r"|abfss://[^\s'\"]+"                                        # abfss URIs
@@ -111,6 +136,8 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
                     m = pat.search(text)
                     if m:
                         hits.append((f, klass, m.group(0)[:60]))
+                for klass, match in structural_hits(text)[:1]:   # one per file, like above
+                    hits.append((f, klass, match[:60]))
                 for tok, klass in deny.items():
                     if len(tok) >= 5 and tok in text:
                         hits.append((f, klass, tok[:40] + "..."))

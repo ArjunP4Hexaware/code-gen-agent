@@ -382,10 +382,16 @@ def _print_elimination_notes(profile) -> None:
 
 def _print_file_elimination_notes(flags: list[str]) -> None:
     """One NOTE line per feed whose file was taken by strict elimination
-    (layout.resolve.split_frd_feeds_by_sttm) — informational, never owed."""
+    (layout.resolve.split_frd_feeds_by_sttm), and per blank STTM Schema column
+    the FRD's one schema filled — informational, never owed."""
+    from codegen.layout.resolve import TARGET_FROM_FRD
+
     for flag in flags:
-        match = re.match(r"^frd_unstated:(feeds\[\d+\]\.file_name_patterns) (.*\(by "
-                         r"elimination: .*)$", flag)
+        match = (re.match(r"^frd_unstated:(feeds\[\d+\]\.file_name_patterns) (.*\(by "
+                          r"elimination: .*)$", flag)
+                 # round 4: a blank STTM Schema column filled from the FRD's one schema
+                 or re.match(rf"^{TARGET_FROM_FRD}:(feeds\[\d+\]\.\w+_target\.schema) (.*)$",
+                             flag))
         if match:
             print(answer_line("NOTE", match.group(1),
                               f"{match.group(2)} — informational, not required to run"))

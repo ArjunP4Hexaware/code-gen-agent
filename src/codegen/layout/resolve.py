@@ -1007,9 +1007,15 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
             continue
         ws = workbook[sp.name]
         rows = list(ws.iter_rows(min_row=(sp.header_row or 1) + 1, values_only=True))
+        standard_band = sp.band("standard")  # type: ignore[arg-type]
         entry = {"sheet": sp.name, "stage_table": None, "standard_table": None,
                  "stage_schema": None, "standard_schema": None,
-                 "stage_tables": [], "standard_tables": []}
+                 "stage_tables": [], "standard_tables": [],
+                 "standard_band": standard_band is not None
+                 and standard_band.column(Role.TABLE) is not None,
+                 # the TableName column is PLACED (blank cells), not unresolved
+                 "stage_table_placed": sp.band("stage") is not None  # type: ignore[arg-type]
+                 and sp.band("stage").column(Role.TABLE) is not None}  # type: ignore[arg-type]
         for layer, role, key in (("stage", Role.TABLE, "stage_table"),
                                  ("standard", Role.TABLE, "standard_table"),
                                  ("stage", Role.SCHEMA, "stage_schema"),
@@ -1591,6 +1597,68 @@ def _mutual_unique_matches(tables: list[str], files: list[str]) -> dict[str, str
             if len(fs) == 1 and reverse[fs[0]] == [t]}
 
 
+TARGET_FROM_FRD = "sttm_target_from_frd"
+
+
+def _frd_cell(contract: FrdContract, dotted: str) -> str:
+    # The standard schema is read from the same 'Target Schema' cell as the stage one.
+    item = (contract.field_provenance.get(f"feeds[0].{dotted}")
+            or contract.field_provenance.get(f"feeds[0].{dotted.replace('standard', 'stage')}"))
+    return (f"FRD table {item.table} row {item.row} ({item.label!r})" if item
+            else "FRD contract")
+
+
+def _blank_sheet_targets(index: int, entry: dict, feed, files: list[str],
+                         contract: FrdContract, gaps: dict
+                         ) -> tuple[list[str], list[LayoutQuestion]]:
+    """A split feed whose sheet leaves every Schema / TableName cell blank
+    (round 4, 2026-10-12). Schema: the FRD's ONE stated schema per layer
+    applies to every feed — a NOTE citing the FRD field; anything else (no
+    schema, a per-file-group list) is a QUESTION. Table: no conventions rule
+    derives a table name from a file name, so it is never invented — one
+    QUESTION per layer, the FRD's file name quoted as the hint."""
+    flags: list[str] = []
+    questions: list[LayoutQuestion] = []
+    layers = ("stage", "standard") if entry.get("standard_band", True) else ("stage",)
+    for layer in layers:
+        target = getattr(feed, f"{layer}_target")
+        key = f"feeds[{index}].{layer}_target.schema"
+        if entry.get(f"{layer}_schema") is None and key not in gaps:
+            if target.schema_name:
+                flags.append(f"{TARGET_FROM_FRD}:{key} source_used:"
+                             f"{_frd_cell(contract, f'{layer}_target.schema')}: "
+                             f"{target.schema_name!r} — sheet {entry['sheet']!r} leaves every "
+                             f"{layer} Schema cell blank; the FRD states one {layer} schema "
+                             "for every feed")
+            else:
+                refused = contract.structured.get(f"feeds[0].{layer}_target.schema") or \
+                    contract.structured.get("feeds[0].stage_target.schema")
+                why = (f"the FRD's {refused.label!r} cell is a {refused.kind} value "
+                       f"({len(refused.text.splitlines())} line(s)), not one schema"
+                       if refused is not None else f"the FRD states no {layer} schema")
+                questions.append(LayoutQuestion(
+                    document="frd", sheet=None, layer=None, role=key,
+                    reason=f"sheet {entry['sheet']!r} leaves every {layer} Schema cell blank "
+                           f"and {why}", header=[], candidates=[],
+                    title=f"{layer.capitalize()} schema of {entry['sheet']}",
+                    hint=f"The {layer} schema this sheet's table lands in.", kind="text"))
+        key = f"feeds[{index}].{layer}_target.tables"
+        if key in gaps:
+            continue
+        quoted = ", ".join(repr(f) for f in files) or "no file"
+        frd_says = (f"the FRD's 'Target Table Name' names files ({quoted}), not tables" if files
+                    else "the FRD names no table for this sheet")
+        questions.append(LayoutQuestion(
+            document="frd", sheet=None, layer=None, role=key,
+            reason=f"sheet {entry['sheet']!r} leaves every {layer} TableName cell blank; "
+                   f"{frd_says}, and no conventions rule derives a table name from a file name",
+            header=[], candidates=[],
+            title=f"{layer.capitalize()} table of {entry['sheet']}",
+            hint=f"The {layer} table the file {quoted} (FRD 'Target Table Name') loads into.",
+            kind="text"))
+    return flags, questions
+
+
 def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config
                             ) -> tuple[FrdContract, list[str], list[LayoutQuestion]]:
     """A single FRD metadata block that describes several files (its
@@ -1604,7 +1672,14 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     from codegen.layout.hints import frd_field_help
 
     sheet_tables = facts.get("sheet_tables") or []
-    if len(contract.feeds) != 1 or not sheet_tables:
+    # Round 4 (2026-10-12): a copy of the STTM whose mapping sheets leave EVERY
+    # Schema / TableName cell blank still splits — the mapping sheets alone say
+    # how many feeds there are (one per sheet, named after it).
+    # An UNRESOLVED TableName column (cold pairs) is a layout question, not blank cells.
+    blank = facts.get("blank_table_sheets") or []
+    blank_only = (not sheet_tables and len(blank) > 1
+                  and all(e.get("stage_table_placed") for e in blank))
+    if len(contract.feeds) != 1 or not (sheet_tables or blank_only):
         return contract, [], []
     feed = contract.feeds[0]
     refused = contract.structured.get("feeds[0].feed_name")
@@ -1656,7 +1731,7 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     # can hold it back as NEEDS_ANSWERS with a precise key — never dropped.
     from codegen.resolve.gapfill import blank_sheet_feed_name
 
-    blank_sheets = (facts.get("blank_table_sheets") or []) if len(sheet_tables) > 0 else []
+    blank_sheets = facts.get("blank_table_sheets") or []
     if len(sheet_tables) + len(blank_sheets) > 1 and blank_sheets:
         sheet_tables = [*sheet_tables, *blank_sheets]
         rename = True
@@ -1747,6 +1822,11 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                     candidates=[{"value": n, "source": "STTM FILE_DETAILS / FRD", "cell": c}
                                 for n, c in candidates],
                     title=f"File for table {table}", hint=hint, kind="choice"))
+        if entry["stage_table"] is None:
+            target_flags, target_questions = _blank_sheet_targets(
+                index, entry, feed, patterns or file_like, contract, gaps)
+            flags += target_flags
+            questions += target_questions
         standard_tables = (list(entry.get("standard_tables") or [entry["standard_table"]])
                            if entry["standard_table"] else list(
             feed.standard_target.tables if not file_like else []))

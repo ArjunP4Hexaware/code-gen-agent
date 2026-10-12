@@ -27,9 +27,10 @@ line, values redacted), push it per step 6, STOP.
    rebuilt on this SHA> --agent <the 3 *_IIG.xlsx, not *_REVIEW> --out /tmp/r4/diff`; never
    pass `--pair-mode`. Header must print AGENT BUILD = step 1's SHA + the IGNORED set;
    "unscored" = STOP, report it.
-6. **Scrub, commit, push.** To `codegen-outputs/iig_validation/round4/pair_2/` write ONLY RUN.md
-   (steps 1, 3, 4) and score_totals.json (score.json `totals` + per sheet `rows` / `counts` /
-   `score`; no keys, no paths) — never diff.xlsx, score.json, routing.csv, a golden, an agent
-   xlsx or the answers file. `python scripts/scrub_check.py codegen-outputs/iig_validation/round4`
-   prints `clean`. `git checkout -b acfc-iig-validation-r4`, `git add` the two files by name,
-   commit, `git push -u origin acfc-iig-validation-r4`.
+6. **Scrub, commit, push.** To `codegen-outputs/iig_validation/round4/pair_2/` write ONLY
+   RUN.md (steps 1, 3, 4 as recorded) and score_totals.json (score.json `totals` + per
+   sheet: `rows` (incl. `paired`), `counts`, `score`; no keys, no paths, no values). Real
+   IDs → `SYN-*`. Never commit diff.xlsx, score.json, routing.csv, a golden, an agent xlsx
+   or /tmp/r4/answers.yaml. `python scripts/scrub_check.py codegen-outputs/iig_validation/round4`
+   must print `clean`. Then `git checkout -b acfc-iig-validation-r4`, `git add` the two
+   files by name, commit, `git push -u origin acfc-iig-validation-r4`.

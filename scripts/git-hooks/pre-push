@@ -11,7 +11,8 @@
 #   * pyproject.toml's version equals the one on the remote tip, or
 #   * requirements.txt's codegen-version-marker differs from pyproject's, or
 #   * the pushed tree TRACKS src/codegen/_build.py (the deploy stamp is written
-#     at deploy by scripts/stamp_build.py, never committed).
+#     at deploy by scripts/stamp_build.py, never committed), or
+#   * ui/frontend/src changed (test files aside) and ui/frontend/dist did not.
 # A new branch, a deletion and any other branch pass untouched.
 
 DEPLOY_BRANCHES="refs/heads/feature/multi-table refs/heads/feature/iig-first"
@@ -42,6 +43,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     [ "$remote_sha" = "$ZERO" ] && continue                # a new branch: nothing to compare
     if ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
         echo "pre-push: refused ($branch): the remote tip $remote_sha is not here — git fetch first" >&2
+        status=1
+        continue
+    fi
+    # The App serves the COMMITTED bundle: a frontend source change (tests
+    # aside) must come with a rebuilt ui/frontend/dist (ae56a89 shipped none).
+    ui_src=$(git diff --name-only "$remote_sha" "$local_sha" -- ui/frontend/src \
+             | grep -v -E '\.test\.(ts|tsx)$')
+    ui_dist=$(git diff --name-only "$remote_sha" "$local_sha" -- ui/frontend/dist)
+    if [ -n "$ui_src" ] && [ -z "$ui_dist" ]; then
+        echo "pre-push: refused ($branch): ui/frontend/src changed but ui/frontend/dist was not rebuilt." >&2
+        echo "  Run: cd ui/frontend && npm run build — then commit ui/frontend/dist." >&2
+        echo "$ui_src" | head -n 5 | sed 's/^/    /' >&2
         status=1
         continue
     fi

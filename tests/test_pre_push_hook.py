@@ -145,3 +145,22 @@ def test_bump_keeps_crlf_bytes(tmp_path):
     assert (tmp_path / "pyproject.toml").read_bytes() == b'[project]\r\nversion = "1.0.post10"\r\n'
     marker = (tmp_path / "requirements.txt").read_bytes()
     assert marker == b"# codegen-version-marker: 1.0.post10\r\n"
+
+
+def test_a_frontend_source_change_without_a_rebuilt_dist_is_refused(repo):
+    repo.write("ui/frontend/src/pages/ModesPage.tsx", "export const a = 1;\n")
+    repo.write("ui/frontend/dist/index.html", "<html>v1</html>\n")
+    _bump_module().bump(repo.path)
+    base = repo.commit("ui v1")
+    repo.write("ui/frontend/src/pages/ModesPage.tsx", "export const a = 2;\n")
+    _bump_module().bump(repo.path)
+    tip = repo.commit("src only")
+    done = repo.push(tip, base)
+    assert done.returncode == 1 and "ui/frontend/dist was not rebuilt" in done.stderr
+    repo.write("ui/frontend/dist/index.html", "<html>v2</html>\n")
+    assert repo.push(repo.commit("rebuilt"), base).returncode == 0
+    # a test file alone changes no bundle
+    repo.write("ui/frontend/src/pages/ModesPage.test.tsx", "test('x', () => {});\n")
+    _bump_module().bump(repo.path)
+    head = repo.git("rev-parse", "HEAD")
+    assert repo.push(repo.commit("test only"), head).returncode == 0

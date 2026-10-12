@@ -90,7 +90,10 @@ Entry format:
 - Pattern: none (not a spiral)
 - Seen: 2026-10-07 (twice — the second in a worktree agent created at main); 2026-10-09
   (Chunk B: the counted edits ADDED new tests to a file the command covers; the
-  failure was one pinned reason text, fixed once, green under a superset command)
+  failure was one pinned reason text, fixed once, green under a superset command);
+  2026-10-11 (iig_diff: the check DID fail at signal time — one over-long line in
+  feature code written that step; the counted edits were the feature, no retry;
+  `ruff format` once, exact command exit 0)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
 
 ## Hook (a) false positive: one test name, a different failure each run

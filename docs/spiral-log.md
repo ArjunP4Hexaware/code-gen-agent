@@ -98,3 +98,12 @@
 - Earliest signal: n/a
 - Approx. time lost: ~2 minutes
 - Proposed refinement (for a retro, not now): as 2026-10-07 / 10-08 — a superset run going green should clear the signal; edits that only add new test functions are not fix attempts.
+
+## 2026-10-11: hook signal (b) — tools/iig_diff.py edited 4x while `ruff format --check tools/ tests/test_iig_diff.py` "still failing"
+- Actual cause: not a spiral. The four counted edits were one planned feature (OBJECT_ID -> table resolution for the DATA_QUALITY_RULES key: config, resolver class, pairing, wiring). Re-running the exact command at signal time: it DID fail, on one 101-char line of the resolver written in that step. No fix had been attempted, let alone retried; `ruff format` reflowed the line once and the exact command exited 0. A separate test failure in the same run (`unresolved_object_ids` missing from score.json) had one visible cause - score_payload copies an explicit field list - fixed once, 27 passed.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command - one reflow on new code; after `ruff format`, exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): signal (b) could ignore a format-only failure (`ruff format --check`) while the edits are fresh feature code, or count edits only after the command first failed.

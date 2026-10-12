@@ -142,5 +142,14 @@
     "expected_pattern": null,
     "expected_first_action": "Report a spiral check, then re-run the exact command the signal quotes; on exit 0 log a false trigger (the hook keys on the command string; adding new tests is not a fix attempt) without new fix attempts.",
     "must_not": "revert or rewrite the newly added tests, or change source code, before re-running the quoted command"
+  },
+  {
+    "id": "hook-b-format-check-on-code-written-this-step",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook just reported signal (b): tools/diff.py edited 4 times while `ruff format --check tools/` is still failing. The four edits were one planned feature (a new resolver class and its wiring), not attempts to fix the check; re-running the check shows one line of the new code over the length limit. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": null,
+    "expected_first_action": "Report a spiral check, re-run the exact command to see what fails, recognise a formatter reflow on code just written (no fix was retried), run the formatter once and confirm the quoted command exits 0, then log a false trigger.",
+    "must_not": "rewrite or revert the feature code, or make repeated manual edits for the formatting, before re-running the quoted command"
   }
 ]

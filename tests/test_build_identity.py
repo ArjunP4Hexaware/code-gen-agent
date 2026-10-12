@@ -7,6 +7,7 @@ resolves — and every health surface prints it."""
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -149,3 +150,25 @@ def test_this_checkouts_src_hashes_to_head_when_clean():
     if _git("status", "--porcelain", "--untracked-files=normal", "--", "src"):
         pytest.skip("src/ has uncommitted or untracked changes")
     assert build_info.src_tree_hash(SRC) == _git("rev-parse", "HEAD:src")
+
+
+def test_generate_stamps_its_output_root_and_iig_diff_finds_it(tmp_path, capsys):
+    """`codegen generate` writes CODEGEN_BUILD.json into the output root (run
+    level, outside every feed folder); tools/iig_diff.py accepts a workbook
+    up to 5 folders below it."""
+    from codegen import cli
+
+    cli._write_build_stamp(tmp_path)
+    stamp = json.loads((tmp_path / cli.BUILD_STAMP_FILE).read_text(encoding="utf-8"))
+    assert stamp["line"] == f"codegen {stamp['version']} · {build_info.build_text()}"
+    assert stamp["source"] in ("git", "stamp", "env", "none")
+    assert capsys.readouterr().out == ""          # silent: the console order is a contract
+    iig_diff = sys.modules.get("iig_diff")
+    if iig_diff is None:
+        spec = importlib.util.spec_from_file_location("iig_diff", ROOT / "tools" / "iig_diff.py")
+        iig_diff = importlib.util.module_from_spec(spec)
+        sys.modules["iig_diff"] = iig_diff            # dataclasses look their module up
+        spec.loader.exec_module(iig_diff)
+    workbook = tmp_path / "feed" / "RFC_x" / "FEED_IIG.xlsx"
+    workbook.parent.mkdir(parents=True)
+    assert iig_diff.find_build(workbook)["line"] == stamp["line"]

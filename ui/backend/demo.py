@@ -48,6 +48,14 @@ def _codegen_source_line() -> str:
     return source_line()
 
 
+def _build_identity() -> dict:
+    """run_meta.json's ``build``: version + commit / branch / commit time."""
+    from codegen.build_info import build_identity, build_text, codegen_version
+
+    found = {"version": codegen_version(), **build_identity()}
+    return {**found, "line": f"codegen {found['version']} · {build_text(build_identity())}"}
+
+
 class SelectionFailed(RuntimeError):
     """A chosen document could not be brought in (download / pairing /
     recording the choice failed). The selection is NOT made and nothing falls
@@ -2156,6 +2164,8 @@ class DemoRunner:
                 "vdd": self.selected_vdd.name if self.selected_vdd else None,
                 "notes": list(self.run_notes),          # M15e: "VDD not decided at run start"
                 "codegen": _codegen_source_line(),      # which code produced this run
+                # 2026-10-12: + the commit (tools/iig_diff.py reads it)
+                "build": _build_identity(),
             }, indent=2) + "\n",
             encoding="utf-8", newline="\n",
         )

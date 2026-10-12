@@ -1,7 +1,8 @@
 # Natural keys for tools/iig_diff.py — how a golden IIG row finds its agent row.
 #
 # Per sheet: the columns whose (normalized) values identify a row. A sheet not
-# listed here pairs rows by position (flagged "position" in score.json). A key
+# listed here is NOT paired (2026-10-12: key pairing only; --pair-mode position
+# is explicit and bannered). A key
 # that is not unique on either side is flagged; duplicates then pair in sheet
 # order (first golden occurrence with the first agent occurrence, ...).
 #
@@ -11,9 +12,8 @@
 #
 # An OBJECT_ID in a key is replaced by the TABLE that row's object resolves to
 # in its own workbook (object_tables below) — ids are assigned, so a golden and
-# an agent run never share them. A row whose OBJECT_ID does not resolve pairs
-# by position among the other unresolved rows, listed in score.json
-# (unresolved_object_ids).
+# an agent run never share them. A row whose OBJECT_ID does not resolve is
+# not paired, listed in score.json (unresolved_object_ids).
 #
 # Checked against the iig_v2 headers (fixtures/acfc_shapes/pair_1/golden/) and
 # the iig_v1 SFMC reference (fixtures/reference/SFMC_IIG.xlsx) on 2026-10-11.
@@ -46,9 +46,15 @@ object_tables:
     # Column set not seen yet (no RDBMS IIG in the repo): first present wins.
     RDBMS_ADLS_INGESTION_DETAILS: [TGT_TABLE_NAME, SRC_TABLE_NAME, OBJECT_NAME]
 
-# Columns scored as needs_assignment (case-insensitive glob), never as a
-# mismatch: ids the framework / engineer assigns and audit stamps.
-needs_assignment: ["*_ID", "CREATED_*", "UPDATED_*", "CRETAED_*"]
+# THE IGNORED SET (agreed 2026-10-12 for the Venu validation; printed in every
+# report header): columns never scored, reported as needs_assignment — ids the
+# framework / engineer assigns, and the audit stamps. Case-insensitive globs.
+# CONNECTION_ID covers the IIG's SRC_ADLS_ / METADATA_ / TGT_CONNECTION_ID;
+# CRETAED_* is iig_v1's spelling of CREATED_*. Every OTHER *_ID column (e.g.
+# PARENT_PIPELINE_ID, CLAIM_TYPE_ID) IS scored.
+needs_assignment: [INVENTORY_ID, OBJECT_ID, PIPELINE_ID, GROUP_ID, CONNECTION_ID,
+                   "*_CONNECTION_ID", CREATED_BY, UPDATED_BY, CREATED_DATE, UPDATED_DATE,
+                   CRETAED_BY, CRETAED_DATE]
 
 # Columns whose values are never written to diff.xlsx (real user ids).
 withhold_values: [CREATED_BY, UPDATED_BY, CRETAED_BY]

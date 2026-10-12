@@ -2,17 +2,45 @@
 
     python tools/iig_diff.py --golden <golden.xlsx> --agent <agent.xlsx> --out <dir>
     python tools/iig_diff.py --batch <pairs dir> --out <dir>
-        [--keys tools/iig_keys.yaml]
+        [--keys tools/iig_keys.yaml] [--pair-mode key|position|fuzzy]
 
-Rows pair per sheet by the natural key in ``tools/iig_keys.yaml`` (a sheet not
-listed pairs by position); a key that is not unique on either side is flagged
-and its duplicates pair in sheet order. Sheets match caselessly on their first
-31 characters. An OBJECT_ID in a key is replaced by the table it resolves to in
+REFUSED without a build identity (2026-10-12): the agent workbook must sit at
+most 5 folders below a ``CODEGEN_BUILD.json`` (written by ``codegen generate``
+into its output root) or a ``run_meta.json`` carrying ``build`` (an App run);
+otherwise the run prints ``unscored: agent workbook has no build identity`` and
+exits 1 (batch: the pair is listed UNSCORED, exit 1). A stale workbook from an
+older code path can never be scored again (round 3 pair_2's 7.9 was one).
+
+Every report header states: AGENT BUILD (version, commit, branch, commit time
+or the src tree id), the IGNORED set, and — for a non-key pairing — a banner.
+
+Row pairing — ``--pair-mode key`` (default) uses ONLY the natural key per
+sheet below (``tools/iig_keys.yaml``); a key that is not unique on either side
+is flagged and its duplicates pair in sheet order. Rows the key cannot pair (a
+sheet with no key, a key column absent from either side, an OBJECT_ID that
+does not resolve) are NOT paired: missing / extra, said in a warning. Position
+(``--pair-mode position``) and normalized keys (``--pair-mode fuzzy``) are
+explicit only and print a banner: not the validation score.
+
+    Sheet                              Natural key
+    DATA_FACTORY_PIPELINE_SCHEDULE     PIPELINE_NAME
+    FILE_ADLS_INGESTION_DETAILS        SRC_ROOT_DIR, TGT_ADLS_PATH
+    ADLS_DELTA_INGESTION_DETAILS       OBJECT_NAME, TGT_TABLE_NAME
+    STGDELTA_STDDELTA_INGESTION_DET    OBJECT_NAME, TGT_TABLE_NAME
+    ADLS_FIXED_WIDTH_HANDLER           SEGMENT, TGT_TABLE
+    DATABRICKS_NOTEBOOK_DETAILS        DATABRICKS_NOTEBOOK_NAME
+    DATA_QUALITY_RULES                 OBJECT_ID -> its table, RULE_CLASS, SOURCE_COLUMN
+    EMAIL_TEMPLATE_CONFIG              TEMPLATE_NAME, STATUS
+    ALL_FILES_STATIC_INFORMATION       FILE_NAME
+
+Sheets match caselessly on their first 31 characters; an agent
+FILE_ADLS_INGESTION_DETAILS is compared with a golden
+ALL_FILES_STATIC_INFORMATION (``TEMPLATE_ALIASES``, ``template_mismatch`` in
+score.json). An OBJECT_ID in a key is replaced by the table it resolves to in
 its OWN workbook — the TGT_TABLE_NAME of the ADLS_DELTA / STGDELTA_STDDELTA /
 RDBMS row with the same (GROUP_ID, OBJECT_ID), else the same OBJECT_ID when
-every such row names one table; rows that do not resolve pair by position
-among themselves and are listed as ``unresolved_object_ids`` in score.json.
-Every cell of a paired row is one of:
+every such row names one table; unresolved ids are listed as
+``unresolved_object_ids`` in score.json. Every cell of a paired row is one of:
 
 * ``exact``            — same value as written (None and "" are the same);
 * ``normalized``       — equal once case, whitespace, trailing zeros, NULL vs
@@ -22,8 +50,11 @@ Every cell of a paired row is one of:
   absent from the agent workbook);
 * ``extra-in-agent``   — golden blank, agent filled (or the column / row is
   absent from the golden);
-* ``needs_assignment`` — a column matching ``needs_assignment`` (``*_ID``,
-  ``CREATED_*``, ``UPDATED_*``): reported separately, never scored.
+* ``needs_assignment`` — a column of THE IGNORED SET (``needs_assignment`` in
+  iig_keys.yaml, agreed 2026-10-12): INVENTORY_ID, OBJECT_ID, PIPELINE_ID,
+  GROUP_ID, CONNECTION_ID / ``*_CONNECTION_ID``, CREATED_BY, UPDATED_BY,
+  CREATED_DATE, UPDATED_DATE (+ iig_v1's CRETAED_*): reported separately,
+  never scored. Every other ``*_ID`` column is scored.
 
 A row present on one side only counts each of its cells as missing / extra.
 score = 100 x (exact + normalized) / scored cells, one decimal (scored = every
@@ -62,6 +93,8 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font, PatternFill
 
 DEFAULT_KEYS = Path(__file__).resolve().parent / "iig_keys.yaml"
+BUILD_FILES = ("CODEGEN_BUILD.json", "run_meta.json")
+UNSCORED = "unscored: agent workbook has no build identity"
 
 # ----------- pair-mode constants
 PAIR_MODES = ("key", "position", "fuzzy")
@@ -370,6 +403,13 @@ def _positional(g_rows: list, a_rows: list, label: str = "") -> list[RowPair]:
     return pairs
 
 
+def _unpaired(g_rows: list, a_rows: list, label: str = "") -> list[RowPair]:
+    """Key mode (2026-10-12): rows the natural key cannot pair are NOT paired —
+    every golden row is missing-in-agent, every agent row extra-in-agent."""
+    return ([RowPair(g, None, f"g#{i + 1}{label}") for i, g in enumerate(g_rows)]
+            + [RowPair(None, a, f"a#{i + 1}{label}") for i, a in enumerate(a_rows)])
+
+
 def pair_rows(
     golden: Sheet | None,
     agent: Sheet | None,
@@ -378,23 +418,27 @@ def pair_rows(
     tables: tuple[ObjectTables | None, ObjectTables | None] = (None, None),
     pair_mode: str = "key",
 ) -> tuple[list[RowPair], dict]:
-    """Pair rows by key (position when ``key`` is None); return pairs + key facts.
+    """Pair rows by key; return pairs + key facts.
 
     ``pair_mode`` controls how rows are matched:
 
-    * ``key`` (default) — use the natural key from iig_keys.yaml; fall back to
-      ``position`` for a sheet that pairs 0 rows when both sides have ≤10 rows.
-    * ``position`` — pair every sheet row-for-row by ordinal position.
-    * ``fuzzy`` — like ``key`` but key values are normalized (prefixes like
-      ``PL_File_``/``PL_`` stripped, case/underscores collapsed) before matching.
+    * ``key`` (default) — ONLY the natural key from iig_keys.yaml. A sheet with
+      no key, a key column absent from either side, and rows whose OBJECT_ID
+      does not resolve are NOT paired (missing / extra), each said in a
+      warning — never paired by position (2026-10-12: the round 3 pair_2 score
+      was built on a silent position fallback).
+    * ``position`` — explicit only: pair every sheet row-for-row by ordinal
+      position (the report carries a banner).
+    * ``fuzzy`` — explicit only: like ``key`` but key values are normalized
+      (``PL_File_`` / ``PL_`` / ``NB_`` / ``WF_`` stripped, case / underscores
+      collapsed) before matching (banner too).
 
     An OBJECT_ID key column is replaced by the table its row resolves to in
-    its own workbook (``ObjectTables``); rows whose OBJECT_ID does not resolve
-    pair by position among themselves and are listed in the facts."""
+    its own workbook (``ObjectTables``)."""
     keys = keys or KeyConfig({}, [], [], [])
     g_rows = golden.rows if golden else []
     a_rows = agent.rows if agent else []
-    facts: dict = {"key": key or "position", "pair_mode": pair_mode, "warnings": []}
+    facts: dict = {"key": key or "none", "pair_mode": pair_mode, "warnings": []}
     if pair_mode == "position":
         facts["key"] = "position"
         facts["pair_mode"] = "position"
@@ -404,13 +448,15 @@ def pair_rows(
         cols_a = _resolve(agent, key)
         if (golden and None in cols_g) or (agent and None in cols_a):
             facts["warnings"].append(
-                f"key column(s) {key} not in both sheets — rows paired by position"
+                f"key column(s) {key} not in both sheets — rows NOT paired "
+                "(--pair-mode position would pair them by order)"
             )
-            facts["key"] = "position"
-            facts["pair_mode"] = "position"
             key = None
+    elif g_rows and a_rows:
+        facts["warnings"].append("no natural key for this sheet in iig_keys.yaml — rows NOT "
+                                 "paired (--pair-mode position would pair them by order)")
     if not key:
-        return _positional(g_rows, a_rows), facts
+        return _unpaired(g_rows, a_rows), facts
 
     g_keyed = [_keyer(golden, cols_g, keys, tables[0])(r) for r in g_rows] if golden else []
     a_keyed = [_keyer(agent, cols_a, keys, tables[1])(r) for r in a_rows] if agent else []
@@ -426,7 +472,7 @@ def pair_rows(
         if unresolved["golden"] or unresolved["agent"]:
             facts["warnings"].append(
                 f"OBJECT_ID not resolved to a table (golden {len(unresolved['golden'])}, "
-                f"agent {len(unresolved['agent'])} rows) — those rows paired by position"
+                f"agent {len(unresolved['agent'])} rows) — those rows NOT paired"
             )
     dup_g = _duplicates(g_keyed)
     dup_a = _duplicates(a_keyed)
@@ -458,29 +504,11 @@ def pair_rows(
         pairs.append(RowPair(k.row, partner, k.text))
     leftover = sorted((k for b in by_key_a.values() for k in b), key=lambda k: k.row[0])
     pairs += [RowPair(None, k.row, k.text) for k in leftover]
-    pairs += _positional(
+    pairs += _unpaired(
         [k.row for k in g_keyed if k.key is None],
         [k.row for k in a_keyed if k.key is None],
         " (OBJECT_ID unresolved)",
     )
-
-    # Fallback: key mode paired 0 rows and both sides are small → retry with position.
-    paired_count = sum(1 for p in pairs if p.golden and p.agent)
-    if (
-        pair_mode == "key"
-        and paired_count == 0
-        and len(g_rows) <= 10
-        and len(a_rows) <= 10
-        and (g_rows or a_rows)
-    ):
-        facts["warnings"].append(
-            f"key {key} paired 0 rows with both sides ≤10 — fell back to position"
-        )
-        facts["pair_mode"] = "position (fallback)"
-        return _positional(g_rows, a_rows), facts
-
-    if use_fuzzy and pair_mode != facts.get("_original_mode"):
-        facts["pair_mode"] = "fuzzy"
     return pairs, facts
 
 
@@ -639,7 +667,8 @@ def _score(counts: dict[str, int]) -> float:
     return round(100.0 * (counts[EXACT] + counts[NORMALIZED]) / scored, 1)
 
 
-def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetDiff]) -> dict:
+def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetDiff],
+                  header: dict | None = None) -> dict:
     totals: Counter[str] = Counter()
     sheets = {}
     warnings = []
@@ -680,6 +709,7 @@ def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetD
         sheets[d.name] = entry
     total_counts = {s: totals.get(s, 0) for s in STATUSES}
     return {
+        **(header or {}),
         "golden": str(golden),
         "agent": str(agent),
         "keys": str(keys_path),
@@ -773,11 +803,46 @@ def write_routing_csv(path: Path, diffs: list[SheetDiff]) -> None:
                 writer.writerow([d.name, column, summary, ""])
 
 
+def find_build(agent: Path, depth: int = 5) -> dict | None:
+    """The build that produced ``agent``: ``CODEGEN_BUILD.json`` (``codegen
+    generate``) or ``run_meta.json``'s ``build`` (an App run) in the
+    workbook's folder or up to ``depth`` folders above it. None = unknown."""
+    folder = Path(agent).resolve().parent
+    for candidate in [folder, *list(folder.parents)[:depth]]:
+        for name in BUILD_FILES:
+            path = candidate / name
+            if not path.is_file():
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            build = data.get("build") if name == "run_meta.json" else data
+            if isinstance(build, dict) and build.get("line") and (
+                    build.get("sha") not in (None, "", "unknown") or build.get("src_tree")):
+                return {**build, "file": str(path)}
+    return None
+
+
+def header_facts(keys: KeyConfig, pair_mode: str, build: dict | None) -> dict:
+    """What every report states first: the agent's build, the ignored set and,
+    for a non-key pairing, the banner."""
+    facts: dict = {"agent_build": build["line"] if build else None,
+                   "agent_build_file": build["file"] if build else None,
+                   "ignored_set": list(keys.needs_assignment), "pair_mode": pair_mode}
+    if pair_mode != "key":
+        facts["banner"] = (f"PAIR MODE {pair_mode.upper()}: rows paired by "
+                           f"{'ordinal position' if pair_mode == 'position' else 'normalized key'}"
+                           ", NOT by the natural key — not the validation score")
+    return facts
+
+
 def run_pair(golden: Path, agent: Path, out: Path, keys_path: Path,
-             pair_mode: str = "key") -> dict:
+             pair_mode: str = "key", build: dict | None = None) -> dict:
     keys = load_keys(keys_path)
     diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode)
-    payload = score_payload(golden, agent, keys_path, diffs)
+    payload = score_payload(golden, agent, keys_path, diffs,
+                            header_facts(keys, pair_mode, build))
     out.mkdir(parents=True, exist_ok=True)
     (out / "score.json").write_text(
         json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
@@ -832,13 +897,18 @@ def find_pairs(directory: Path) -> tuple[dict[str, tuple[Path, Path]], list[str]
 def run_batch(directory: Path, out: Path, keys_path: Path,
               pair_mode: str = "key") -> dict:
     pairs, problems = find_pairs(directory)
-    summary: dict = {"pairs": {}, "skipped": problems}
+    summary: dict = {"pairs": {}, "skipped": problems, "unscored": {}}
     for name, (golden, agent) in pairs.items():
+        build = find_build(agent)
+        if build is None:
+            summary["unscored"][name] = UNSCORED
+            continue
         payload = run_pair(golden, agent, out / name, keys_path,
-                           pair_mode=pair_mode)
+                           pair_mode=pair_mode, build=build)
         summary["pairs"][name] = {
             "golden": str(golden),
             "agent": str(agent),
+            "agent_build": payload["agent_build"],
             "totals": payload["totals"],
             "warnings": payload["warnings"],
         }
@@ -850,7 +920,15 @@ def run_batch(directory: Path, out: Path, keys_path: Path,
 # ----------------------------------------------------------------------- CLI
 
 
+def _print_header(payload: dict) -> None:
+    print(f"AGENT BUILD: {payload.get('agent_build')}")
+    print(f"IGNORED (never scored): {', '.join(payload.get('ignored_set') or [])}")
+    if payload.get("banner"):
+        print(payload["banner"])
+
+
 def _print_pair(payload: dict, out: Path) -> None:
+    _print_header(payload)
     for name, s in payload["sheets"].items():
         c = s["counts"]
         line = ", ".join(f"{k} {c[k]}" for k in STATUSES)
@@ -870,8 +948,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--keys", type=Path, default=DEFAULT_KEYS)
     ap.add_argument("--pair-mode", choices=PAIR_MODES, default="key",
-                    help="Row-pairing strategy: key (default, with small-sheet "
-                         "fallback to position), position, or fuzzy")
+                    help="Row pairing: key (default - the natural key ONLY; rows it "
+                         "cannot pair stay missing / extra), position or fuzzy (explicit, "
+                         "bannered - not the validation score)")
     args = ap.parse_args(argv)
     if args.batch:
         if args.golden or args.agent:
@@ -882,12 +961,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{name}: score {p['totals']['score']}; mismatch {p['totals'][MISMATCH]}")
         for problem in summary["skipped"]:
             print(f"SKIPPED {problem}")
+        for name, why in summary["unscored"].items():
+            print(f"UNSCORED {name}: {why}")
         print(f"wrote {args.out / 'batch_summary.json'}")
-        return 0
+        return 1 if summary["unscored"] else 0
     if not (args.golden and args.agent):
         ap.error("--golden and --agent are required (or --batch)")
+    build = find_build(args.agent)
+    if build is None:
+        print(f"{UNSCORED} ({BUILD_FILES[0]} / run_meta.json 'build' not found next to "
+              f"{args.agent.name} or up to 5 folders above it - regenerate it with the "
+              "current codegen)")
+        return 1
     payload = run_pair(args.golden, args.agent, args.out, args.keys,
-                        pair_mode=args.pair_mode)
+                        pair_mode=args.pair_mode, build=build)
     _print_pair(payload, args.out)
     return 0
 

@@ -533,6 +533,25 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
     return EXIT_OK
 
 
+BUILD_STAMP_FILE = "CODEGEN_BUILD.json"
+
+
+def _write_build_stamp(out_root: Path) -> None:
+    """``<output root>/CODEGEN_BUILD.json`` (2026-10-12): which build produced
+    the run — version + commit / branch / commit time (or the src tree id) —
+    at the run level, outside every feed folder (those stay byte-stable).
+    tools/iig_diff.py refuses to score an agent workbook without one."""
+    from codegen.build_info import build_identity, build_text, codegen_version
+
+    out_root.mkdir(parents=True, exist_ok=True)
+    stamp = {"version": codegen_version(), **build_identity()}
+    stamp["line"] = f"codegen {stamp['version']} · {build_text(build_identity())}"
+    # Written silently: the console's line order (source line, then the
+    # verdict headline) is a contract tests and the harness read.
+    (out_root / BUILD_STAMP_FILE).write_text(json.dumps(stamp, indent=2) + "\n",
+                                             encoding="utf-8", newline="\n")
+
+
 def _outputs_through_storage(config: Config):
     """(config, push). Under the default outputs role (``output.dir`` in the
     checkout) nothing changes. With ``storage.outputs`` /
@@ -1745,6 +1764,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — a storage URI / auth problem, named
         print(f"{'FAIL':<15} outputs storage — {exc}")
         return 1
+    _write_build_stamp(Path(config.output.dir))
     # M9: `generate` parsed --vdd / --profile / --iig-template /
     # --playbook-template and then dropped them (the notebook run inside ACFC
     # had to edit config.yaml to select acfc_prx, and its VDD never reached

@@ -82,6 +82,16 @@ def test_self_diff_is_all_exact(golden: Path, tmp_path: Path) -> None:
     assert dq["unresolved_object_ids"] == {"golden": [], "agent": []}
 
 
+def _stamp(folder: Path) -> Path:
+    """The run-level build stamp `codegen generate` writes into its output root."""
+    path = folder / "CODEGEN_BUILD.json"
+    path.write_text(json.dumps({"version": "0.0.test", "sha": "abc1234", "branch": "b",
+                                "committed": "2026-10-12T00:00:00Z", "source": "git",
+                                "line": "codegen 0.0.test · build abc1234 on b"}),
+                    encoding="utf-8")
+    return path
+
+
 @pytest.mark.parametrize("golden", GOLDENS, ids=lambda p: p.parent.name)
 def test_five_perturbed_cells_are_exactly_five_mismatches(golden: Path, tmp_path: Path) -> None:
     if not golden.exists():
@@ -89,7 +99,8 @@ def test_five_perturbed_cells_are_exactly_five_mismatches(golden: Path, tmp_path
     agent = tmp_path / "agent.xlsx"
     changed = _perturb(golden, agent, 5)
     out = tmp_path / "out"
-    iig_diff.main(["--golden", str(golden), "--agent", str(agent), "--out", str(out)])
+    _stamp(tmp_path)
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(agent), "--out", str(out)]) == 0
 
     payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
     t = payload["totals"]
@@ -224,7 +235,7 @@ def test_missing_extra_rows_columns_and_sheets(tmp_path: Path) -> None:
     assert s["counts"]["extra-in-agent"] == 1 + 2
     assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["presence"] == "golden-only"
     assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["counts"]["missing-in-agent"] == 2
-    assert payload["sheets"]["EXTRA_SHEET"]["key"] == "position"
+    assert payload["sheets"]["EXTRA_SHEET"]["key"] == "none"       # no key: never by position
     assert payload["sheets"]["EXTRA_SHEET"]["counts"]["extra-in-agent"] == 1
 
 
@@ -249,12 +260,15 @@ def test_batch_mode(tmp_path: Path) -> None:
     _book(pairs / "p2_golden.xlsx", rows)
     _book(pairs / "p2_agent.xlsx", rows)
     _book(pairs / "lonely_golden.xlsx", rows)
+    _stamp(pairs)                                  # p1 (one folder down) and p2 find it
     out = tmp_path / "out"
     assert iig_diff.main(["--batch", str(pairs), "--out", str(out)]) == 0
     summary = json.loads((out / "batch_summary.json").read_text(encoding="utf-8"))
     assert summary["pairs"]["p1"]["totals"]["mismatch"] == 1
     assert summary["pairs"]["p2"]["totals"]["score"] == 100.0
+    assert summary["pairs"]["p1"]["agent_build"] == "codegen 0.0.test · build abc1234 on b"
     assert summary["skipped"] == ["lonely: has no agent file"]
+    assert summary["unscored"] == {}
     for name in ("p1", "p2"):
         assert {p.name for p in (out / name).iterdir()} == {
             "score.json",
@@ -321,7 +335,7 @@ def test_object_id_resolves_within_its_group_first(tmp_path: Path) -> None:
     assert tables.table_for({"OBJECT_ID": 1}, {"OBJECT_ID": "OBJECT_ID"}) is None
 
 
-def test_unresolved_object_ids_pair_by_position_and_are_flagged(tmp_path: Path) -> None:
+def test_unresolved_object_ids_are_not_paired_and_are_flagged(tmp_path: Path) -> None:
     golden = _book(
         tmp_path / "g.xlsx",
         {
@@ -339,9 +353,10 @@ def test_unresolved_object_ids_pair_by_position_and_are_flagged(tmp_path: Path) 
     payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
     dq = payload["sheets"][DQ]
     assert dq["unresolved_object_ids"] == {"golden": ["7"], "agent": ["8"]}
-    assert dq["rows"]["paired"] == 2
-    assert dq["counts"]["mismatch"] == 1  # p7 vs p8, paired by position
-    assert any("OBJECT_ID not resolved" in w for w in payload["warnings"])
+    assert dq["rows"]["paired"] == 1               # only the resolved row; p7 / p8 NOT paired
+    assert dq["rows"]["missing-in-agent"] == dq["rows"]["extra-in-agent"] == 1
+    assert dq["counts"]["mismatch"] == 0
+    assert any("OBJECT_ID not resolved" in w and "NOT paired" in w for w in payload["warnings"])
 
 
 def test_framework_table_names_match_iig_sheet_names() -> None:
@@ -364,15 +379,27 @@ def test_position_mode_pairs_by_ordinal(tmp_path: Path) -> None:
     assert s["counts"]["mismatch"] >= 1  # at least PIPELINE_NAME differs
 
 
-def test_key_fallback_to_position_when_zero_paired_and_small(tmp_path: Path) -> None:
-    """key mode falls back to position when 0 rows pair and both sides ≤10."""
+def test_key_mode_never_falls_back_to_position(tmp_path: Path) -> None:
+    """2026-10-12: 0 rows paired by key on a small sheet is a result, not a
+    reason to pair by position (round 3's 7.9 rested on that fallback)."""
     golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "X", "Daily", None]]})
     agent = _book(tmp_path / "a.xlsx", {PIPE: [HEAD, [2, "Y", "Weekly", None]]})
     payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
     s = payload["sheets"][PIPE]
-    assert s["pair_mode"] == "position (fallback)"
-    assert s["rows"]["paired"] == 1
-    assert any("fell back to position" in w for w in payload["warnings"])
+    assert s["pair_mode"] == "key"
+    assert s["rows"]["paired"] == 0
+    assert s["rows"]["missing-in-agent"] == s["rows"]["extra-in-agent"] == 1
+    assert not any("position" in w for w in payload["warnings"])
+    assert "banner" not in payload
+
+
+def test_a_key_column_absent_from_one_side_pairs_nothing(tmp_path: Path) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    agent = _book(tmp_path / "a.xlsx", {PIPE: [["PIPELINE_ID", "OTHER"], [1, "A"]]})
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    s = payload["sheets"][PIPE]
+    assert s["rows"]["paired"] == 0
+    assert any("rows NOT paired" in w for w in payload["warnings"])
 
 
 def test_fuzzy_mode_strips_pl_prefix(tmp_path: Path) -> None:
@@ -419,17 +446,72 @@ def test_pair_mode_reported_in_score_json(tmp_path: Path) -> None:
     payload = iig_diff.run_pair(golden, golden, tmp_path / "out", KEYS)
     s = payload["sheets"][PIPE]
     assert "pair_mode" in s
-    assert s["pair_mode"] in ("key", "position", "fuzzy", "position (fallback)")
+    assert s["pair_mode"] in ("key", "position", "fuzzy")
 
 
-def test_cli_pair_mode_argument(tmp_path: Path) -> None:
+def test_cli_pair_mode_argument_prints_a_banner(tmp_path: Path, capsys) -> None:
     golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
     out = tmp_path / "out"
+    _stamp(tmp_path)
     rc = iig_diff.main([
         "--golden", str(golden), "--agent", str(golden),
         "--out", str(out), "--pair-mode", "position",
     ])
     assert rc == 0
-    import json
     payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
     assert payload["sheets"][PIPE]["pair_mode"] == "position"
+    assert payload["banner"].startswith("PAIR MODE POSITION: rows paired by ordinal position")
+    printed = capsys.readouterr().out
+    assert "PAIR MODE POSITION" in printed
+
+
+def test_the_header_states_the_build_and_the_ignored_set(tmp_path: Path, capsys) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    _stamp(tmp_path)
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(golden),
+                          "--out", str(tmp_path / "out")]) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert printed[0] == "AGENT BUILD: codegen 0.0.test · build abc1234 on b"
+    assert printed[1] == ("IGNORED (never scored): INVENTORY_ID, OBJECT_ID, PIPELINE_ID, "
+                          "GROUP_ID, CONNECTION_ID, *_CONNECTION_ID, CREATED_BY, UPDATED_BY, "
+                          "CREATED_DATE, UPDATED_DATE, CRETAED_BY, CRETAED_DATE")
+    payload = json.loads((tmp_path / "out" / "score.json").read_text(encoding="utf-8"))
+    assert payload["agent_build"] == "codegen 0.0.test · build abc1234 on b"
+    assert "PIPELINE_ID" in payload["ignored_set"] and "banner" not in payload
+
+
+@pytest.mark.parametrize("column,ignored", [
+    ("INVENTORY_ID", True), ("OBJECT_ID", True), ("PIPELINE_ID", True), ("GROUP_ID", True),
+    ("SRC_ADLS_CONNECTION_ID", True), ("METADATA_CONNECTION_ID", True),
+    ("TGT_CONNECTION_ID", True), ("CREATED_BY", True), ("UPDATED_DATE", True),
+    ("CRETAED_BY", True), ("PARENT_PIPELINE_ID", False), ("CLAIM_TYPE_ID", False),
+    ("OBJECT_NAME", False)])
+def test_the_ignored_set_is_exactly_the_agreed_one(column, ignored) -> None:
+    assert iig_diff.load_keys(KEYS).is_assignment(column) is ignored
+
+
+def test_a_workbook_without_build_identity_is_unscored(tmp_path: Path, capsys) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    out = tmp_path / "out"
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(golden),
+                          "--out", str(out)]) == 1
+    assert capsys.readouterr().out.startswith("unscored: agent workbook has no build identity")
+    assert not (out / "score.json").exists()
+    # An App run's run_meta.json carries it too.
+    (tmp_path / "run_meta.json").write_text(json.dumps({"build": {
+        "sha": "def5678", "line": "codegen 0.0.test · build def5678 on b"}}), encoding="utf-8")
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(golden),
+                          "--out", str(out)]) == 0
+
+
+def test_batch_lists_an_unstamped_pair_as_unscored(tmp_path: Path) -> None:
+    pairs = tmp_path / "pairs"
+    pairs.mkdir()
+    rows = {PIPE: [HEAD, [1, "A", "Daily", None]]}
+    _book(pairs / "p_golden.xlsx", rows)
+    _book(pairs / "p_agent.xlsx", rows)
+    out = tmp_path / "out"
+    assert iig_diff.main(["--batch", str(pairs), "--out", str(out)]) == 1
+    summary = json.loads((out / "batch_summary.json").read_text(encoding="utf-8"))
+    assert summary["pairs"] == {}
+    assert summary["unscored"] == {"p": "unscored: agent workbook has no build identity"}

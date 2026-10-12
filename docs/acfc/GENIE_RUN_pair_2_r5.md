@@ -19,14 +19,14 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
    - `python -m codegen.cli generate --frd-contract /tmp/r5/frd.json --sttm-contract
      /tmp/r5/sttm.json --output-mode framework --profile acfc_prx --iig-template iig_v2
      --skip-tests --dry-run` — RUN.md: each command (`<STTM>` / `<FRD>`), exit, first line, verdicts.
-4. **Golden, rebuilt on this SHA.** `python tools/build_goldens.py --out /tmp/r5/goldens`; copy
-   its pair_2 `dedup … -> …` lines (GROUP_IDs 180251–180256 may stay) into RUN.md. Then
-   `python tools/iig_diff.py --golden /tmp/r5/goldens/pair_2_iig_golden.xlsx --golden-structure
-   --out /tmp/r5/push`.
-5. **Diff + scrubbed evidence.** `python tools/iig_diff.py --golden <that golden> --agent <the 3
-   *_IIG.xlsx, not *_REVIEW> --out /tmp/r5/diff --export-scrubbed /tmp/r5/push`; never
-   `--pair-mode`. score.json's `totals` + per-sheet `rows` / `counts` / `score` →
-   `/tmp/r5/push/score_totals.json`.
+4. **Golden, rebuilt on this SHA.** `python tools/build_goldens.py --out /tmp/r5/goldens`; `<G>` =
+   `/tmp/r5/goldens/pair_2_iig_golden.xlsx`. Its pair_2 `dedup … -> …` lines into RUN.md (GROUP_IDs
+   180251–180256 may stay); `python tools/iig_diff.py --golden <G> --golden-structure --out /tmp/r5/push`.
+5. **Diff + scrubbed evidence.** `python tools/iig_diff.py --golden <G> --agent <the 3 *_IIG.xlsx,
+   not *_REVIEW> --out /tmp/r5/diff --export-scrubbed /tmp/r5/push`; never `--pair-mode`.
+   score.json's `totals` + per-sheet `rows` / `counts` / `score` → `/tmp/r5/push/score_totals.json`.
+   In RUN.md, right under the dedup lines, one line per sheet from score.json `rows`:
+   `<sheet>: agent <agent> rows · golden <golden> rows (deduped) · paired <paired>` — a row-count gap.
 6. **Scrub, commit, push.** `python scripts/scrub_check.py /tmp/r5/push` must print `clean` (else
    STOP; report class counts only). `git checkout -B acfc-results origin/acfc-results`; copy
    `/tmp/r5/push/*` to `codegen-outputs/iig_validation/round5/pair_2/`; `git add` those files by

@@ -221,6 +221,7 @@ class SegmentedExtractorConfig(BaseModel):
     # Canonical segment names as the Segment column spells them.
     segment_names: dict[str, str] = Field(default_factory=lambda: {
         "header": "Header", "detail": "Detail", "trailer": "Trailer",
+        "na": "NA",
     })
     # Member-existence recycle (FRD 1005034 Data Quality Functional
     # Requirement: "Perform Member Id validation for existence against the

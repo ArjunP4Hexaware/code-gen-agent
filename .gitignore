@@ -163,3 +163,14 @@ LOOP_LOG.md
 # repo's workflow) — stay local, never tracked.
 /PROJECT_HANDOFF.md
 /CODEGEN_INDEPENDENT_REVIEW.md
+
+# 2026-10-12: IIG validation round 2 — local working directories.
+# goldens/: merged pair-level golden xlsx (build_goldens.py output)
+# agent_out/: CodeGen agent harness output (per-pair runs)
+# The docs/acfc/iig_goldens subdirs hold per-GROUP_ID prod exports (never tracked).
+/goldens/
+/agent_out/
+docs/acfc/iig_goldens/goldens/
+docs/acfc/iig_goldens/goldens_csv/
+docs/acfc/iig_goldens_round2/goldens/
+docs/acfc/iig_goldens_round2/goldens_csv/

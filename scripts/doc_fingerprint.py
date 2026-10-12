@@ -12,7 +12,7 @@ Usage:
     python scripts/doc_fingerprint.py --compare A.json B.json
 
 xlsx: per sheet — state, extent, non-blank rows / cells, formula cells, merged
-ranges, the header row (first row with >= 3 non-blank cells: its index and a
+ranges, the header row (the fullest of the first 20 rows, >= 3 cells: its index and a
 hash), non-blank counts per header column below it, and a body hash over every
 cell. docx: hash of word/document.xml, paragraph / table / row / cell counts
 (nested tables included) and a hash of the paragraph texts.
@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 HEADER_MIN_CELLS = 3
+HEADER_SCAN_ROWS = 20
 _DOCX_TOKEN = re.compile(r"<(/?)w:(tbl|tr|tc|p|t)\b[^>]*?(/?)>|([^<]+)|<[^>]*>")
 
 
@@ -55,8 +56,12 @@ def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
     pairs = zip(values_wb.worksheets, formula_wb.worksheets, strict=True)
     for index, (ws, fws) in enumerate(pairs):
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
-        header_row = next((i + 1 for i, r in enumerate(rows)
-                           if sum(not _blank(v) for v in r) >= HEADER_MIN_CELLS), None)
+        # The fullest of the first HEADER_SCAN_ROWS rows (ties: the first): a
+        # band-label row above the real header (STTM mapping sheets) has fewer.
+        filled = [(sum(not _blank(v) for v in r), -i)
+                  for i, r in enumerate(rows[:HEADER_SCAN_ROWS])]
+        most, neg_index = max(filled, default=(0, 0))
+        header_row = 1 - neg_index if most >= HEADER_MIN_CELLS else None
         columns: dict[str, int] = {}
         header_hash = None
         if header_row is not None:

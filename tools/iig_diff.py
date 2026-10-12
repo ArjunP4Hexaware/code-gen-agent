@@ -1,6 +1,7 @@
 """Cell-level diff of an agent IIG workbook against a golden one (openpyxl + PyYAML).
 
-    python tools/iig_diff.py --golden <golden.xlsx> --agent <agent.xlsx> --out <dir>
+    python tools/iig_diff.py --golden <golden.xlsx> --agent <agent.xlsx> [<more.xlsx> ...]
+        --out <dir>
     python tools/iig_diff.py --batch <pairs dir> --out <dir>
         [--keys tools/iig_keys.yaml] [--pair-mode key|position|fuzzy]
 
@@ -13,6 +14,10 @@ older code path can never be scored again (round 3 pair_2's 7.9 was one).
 
 Every report header states: AGENT BUILD (version, commit, branch, commit time
 or the src tree id), the IGNORED set, and — for a non-key pairing — a banner.
+
+Several ``--agent`` workbooks (a run writes one IIG per feed; a pair golden
+covers every group of the pair) are compared as their UNION
+(``read_agent_workbooks``); they must all carry the same build identity.
 
 Row pairing — ``--pair-mode key`` (default) uses ONLY the natural key per
 sheet below (``tools/iig_keys.yaml``); a key that is not unique on either side
@@ -252,6 +257,33 @@ def read_workbook(path: Path, keys: KeyConfig) -> dict[str, Sheet]:
         return sheets
     finally:
         wb.close()
+
+
+ROW_STRIDE = 100_000      # merged agent workbooks: row = file number x stride + row
+
+
+def read_agent_workbooks(paths: list[Path], keys: KeyConfig) -> dict[str, Sheet]:
+    """One agent workbook, or the UNION of several (a run writes one IIG per
+    feed; a pair golden covers every group of the pair). Sheets merge by
+    identity, columns by name, rows are appended (agent row = file number x
+    ROW_STRIDE + row). Each file's GROUP_ID is prefixed ``<file>/`` so the
+    OBJECT_IDs every feed numbers from 1 never collide when they resolve to
+    their tables (GROUP_ID is in the ignored set: never scored)."""
+    if len(paths) == 1:
+        return read_workbook(paths[0], keys)
+    merged: dict[str, Sheet] = {}
+    by_id: dict[str, str] = {}
+    for index, path in enumerate(paths, start=1):
+        for name, sheet in read_workbook(path, keys).items():
+            target = by_id.setdefault(sheet_id(name), name)
+            into = merged.setdefault(target, Sheet(target, [], []))
+            known = {c.upper() for c in into.columns}
+            into.columns += [c for c in sheet.columns if c.upper() not in known]
+            for n, row in sheet.rows:
+                row = {c: (f"{index}/{_raw(v)}" if c.upper() == keys.group_id_column.upper()
+                           else v) for c, v in row.items()}
+                into.rows.append((index * ROW_STRIDE + n, row))
+    return merged
 
 
 # --------------------------------------------------------------- cell rules
@@ -618,12 +650,12 @@ def diff_sheet(
 
 def diff_workbooks(
     golden: Path,
-    agent: Path,
+    agent: Path | list[Path],
     keys: KeyConfig,
     pair_mode: str = "key",
 ) -> list[SheetDiff]:
     g = read_workbook(golden, keys)
-    a = read_workbook(agent, keys)
+    a = read_agent_workbooks(agent if isinstance(agent, list) else [agent], keys)
     tables = (ObjectTables(g, keys), ObjectTables(a, keys))
     a_by_id = {sheet_id(n): n for n in a}
     g_ids = {sheet_id(n) for n in g}
@@ -667,8 +699,8 @@ def _score(counts: dict[str, int]) -> float:
     return round(100.0 * (counts[EXACT] + counts[NORMALIZED]) / scored, 1)
 
 
-def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetDiff],
-                  header: dict | None = None) -> dict:
+def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
+                  diffs: list[SheetDiff], header: dict | None = None) -> dict:
     totals: Counter[str] = Counter()
     sheets = {}
     warnings = []
@@ -711,7 +743,7 @@ def score_payload(golden: Path, agent: Path, keys_path: Path, diffs: list[SheetD
     return {
         **(header or {}),
         "golden": str(golden),
-        "agent": str(agent),
+        "agent": [str(a) for a in agent] if isinstance(agent, list) else str(agent),
         "keys": str(keys_path),
         "totals": {
             **total_counts,
@@ -837,7 +869,19 @@ def header_facts(keys: KeyConfig, pair_mode: str, build: dict | None) -> dict:
     return facts
 
 
-def run_pair(golden: Path, agent: Path, out: Path, keys_path: Path,
+def agent_build(agents: list[Path]) -> tuple[dict | None, str | None]:
+    """(build, None) when every agent workbook has the SAME build identity,
+    else (None, why)."""
+    builds = [find_build(a) for a in agents]
+    if any(b is None for b in builds):
+        return None, UNSCORED
+    if len({b["line"] for b in builds}) > 1:
+        return None, (f"{UNSCORED.split(':')[0]}: the agent workbooks come from different "
+                      f"builds {sorted({b['line'] for b in builds})}")
+    return builds[0], None
+
+
+def run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
              pair_mode: str = "key", build: dict | None = None) -> dict:
     keys = load_keys(keys_path)
     diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode)
@@ -943,7 +987,9 @@ def _print_pair(payload: dict, out: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--golden", type=Path)
-    ap.add_argument("--agent", type=Path)
+    ap.add_argument("--agent", type=Path, nargs="+",
+                    help="the agent IIG workbook(s) - one per feed of the pair; several "
+                         "are compared as their union")
     ap.add_argument("--batch", type=Path, help="directory of golden / agent pairs")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--keys", type=Path, default=DEFAULT_KEYS)
@@ -967,14 +1013,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if summary["unscored"] else 0
     if not (args.golden and args.agent):
         ap.error("--golden and --agent are required (or --batch)")
-    build = find_build(args.agent)
+    agents = list(args.agent)
+    build, why = agent_build(agents)
     if build is None:
-        print(f"{UNSCORED} ({BUILD_FILES[0]} / run_meta.json 'build' not found next to "
-              f"{args.agent.name} or up to 5 folders above it - regenerate it with the "
-              "current codegen)")
+        print(f"{why} ({BUILD_FILES[0]} / run_meta.json 'build' must sit next to each "
+              "agent workbook or up to 5 folders above it, one build for all - "
+              "regenerate with the current codegen)")
         return 1
-    payload = run_pair(args.golden, args.agent, args.out, args.keys,
-                        pair_mode=args.pair_mode, build=build)
+    payload = run_pair(args.golden, agents if len(agents) > 1 else agents[0], args.out,
+                       args.keys, pair_mode=args.pair_mode, build=build)
     _print_pair(payload, args.out)
     return 0
 

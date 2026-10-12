@@ -517,3 +517,44 @@ def test_batch_lists_an_unstamped_pair_as_unscored(tmp_path: Path) -> None:
     summary = json.loads((out / "batch_summary.json").read_text(encoding="utf-8"))
     assert summary["pairs"] == {}
     assert summary["unscored"] == {"p": "unscored: agent workbook has no build identity"}
+
+
+def test_several_agent_workbooks_are_compared_as_their_union(tmp_path: Path) -> None:
+    """A run writes one IIG per feed; the pair golden holds every feed's rows.
+    Each feed numbers its objects from 1: the per-file GROUP_ID prefix keeps
+    them apart, so every DQ row still resolves to ITS table."""
+    golden = _book(tmp_path / "g.xlsx", {
+        ADLS: [ADLS_HEAD, [10, 1, "o_a", "tbl_a"], [20, 1, "o_b", "tbl_b"]],
+        DQ: [DQ_HEAD, [10, 1, "R", "c1", "pa"], [20, 1, "R", "c1", "pb"]],
+    })
+    feeds = tmp_path / "out"
+    (feeds / "a").mkdir(parents=True)
+    (feeds / "b").mkdir()
+    one = _book(feeds / "a" / "a_IIG.xlsx", {ADLS: [ADLS_HEAD, [None, 1, "o_a", "tbl_a"]],
+                                             DQ: [DQ_HEAD, [None, 1, "R", "c1", "pa"]]})
+    two = _book(feeds / "b" / "b_IIG.xlsx", {ADLS: [ADLS_HEAD, [None, 1, "o_b", "tbl_b"]],
+                                             DQ: [DQ_HEAD, [None, 1, "R", "c1", "pb"]]})
+    _stamp(feeds)
+    out = tmp_path / "diff"
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(one), str(two),
+                          "--out", str(out)]) == 0
+    payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
+    assert payload["sheets"][ADLS]["rows"]["paired"] == 2
+    assert payload["sheets"][DQ]["rows"]["paired"] == 2
+    assert payload["sheets"][DQ]["counts"]["mismatch"] == 0
+    assert payload["sheets"][DQ]["unresolved_object_ids"] == {"golden": [], "agent": []}
+    assert payload["agent"] == [str(one), str(two)]
+
+
+def test_agent_workbooks_from_different_builds_are_unscored(tmp_path: Path, capsys) -> None:
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    (tmp_path / "x").mkdir()
+    (tmp_path / "y").mkdir()
+    one = _book(tmp_path / "x" / "a.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    two = _book(tmp_path / "y" / "b.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
+    _stamp(tmp_path / "x")
+    (tmp_path / "y" / "CODEGEN_BUILD.json").write_text(json.dumps(
+        {"sha": "fff0000", "line": "codegen 0.0.test · build fff0000 on b"}), encoding="utf-8")
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(one), str(two),
+                          "--out", str(tmp_path / "out")]) == 1
+    assert "come from different builds" in capsys.readouterr().out

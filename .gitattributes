@@ -8,3 +8,5 @@ fixtures/** -text
 ui/frontend/dist/** -text
 # Shell scripts run on Linux (Apps runtime, CI): always LF
 *.sh text eol=lf
+# Git hooks run under sh on Linux too: always LF
+scripts/git-hooks/* text eol=lf

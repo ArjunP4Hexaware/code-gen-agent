@@ -106,3 +106,13 @@ Entry format:
 - Pattern: none (not a spiral)
 - Seen: 2026-10-09
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
+
+## A patch script that aborted before writing, so the "fix" changed nothing
+- Signature: a check fails twice with byte-identical findings right after a scripted edit
+  (python / sed in a bash heredoc) whose own output shows a traceback or "0 replacements".
+- Usual cause: heredoc escaping on this Windows box mangles backslash escapes / backticks, the
+  script's match guard fails, nothing is written.
+- Check: grep the file for the text the patch was meant to remove BEFORE re-running the check.
+- Pattern: A (wrong layer - the edit never landed)
+- Seen: 2026-10-12
+- Permanent fix: patch with the Edit tool, or a script file written with the Write tool.

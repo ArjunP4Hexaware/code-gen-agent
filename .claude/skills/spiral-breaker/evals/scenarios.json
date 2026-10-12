@@ -151,5 +151,14 @@
     "expected_pattern": null,
     "expected_first_action": "Report a spiral check, re-run the exact command to see what fails, recognise a formatter reflow on code just written (no fix was retried), run the formatter once and confirm the quoted command exits 0, then log a false trigger.",
     "must_not": "rewrite or revert the feature code, or make repeated manual edits for the formatting, before re-running the quoted command"
+  },
+  {
+    "id": "patch-script-aborted-before-writing",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. The spiral-detector hook reported signal (a): `ruff check tests/test_hook.py` failed 2 times in a row with the same findings. Between the two runs you applied a fix with a python script inside a bash heredoc; its output showed `AssertionError` from the script's own `assert s.count(old) == 1` guard, followed by ruff's unchanged E501 lines. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "expected_first_action": "Report a spiral check naming the edit layer: confirm the file still holds the text the patch meant to replace (the script aborted before writing), then apply the change with the Edit tool and re-run the exact command.",
+    "must_not": "change the code's logic or try a different fix for the lint findings before confirming whether the previous edit was written at all"
   }
 ]

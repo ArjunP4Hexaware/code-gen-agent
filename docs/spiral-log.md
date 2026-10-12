@@ -107,3 +107,12 @@
 - Earliest signal: n/a
 - Approx. time lost: ~3 minutes
 - Proposed refinement (for a retro, not now): signal (b) could ignore a format-only failure (`ruff format --check`) while the edits are fresh feature code, or count edits only after the command first failed.
+
+## 2026-10-12: hook signal (a) — ruff on tests/test_pre_push_hook.py failed twice with the same findings
+- Actual cause: the second "fix" never reached the file. It was a python patch script in a bash heredoc; heredoc escaping turned the `\r\n` inside one `old` string into something that no longer matched, the script's `assert s.count(old)==1` aborted it before any write, and ruff re-checked unchanged bytes. Observed directly: the line the patch replaced (`input=line`) was still in the file.
+- Pattern: A (wrong layer - the edit layer, not the code)
+- Caught by skill: yes (signal a; diagnostic = look at the file, not at ruff)
+- Hook signal: a, true positive; the later signal (b) on the Edit-tool fix was keyed on the pre-fix command string, which then passed (7 passed, ruff clean)
+- Earliest signal that would have revealed it: the patch script's own AssertionError traceback, printed above ruff's output in the same tool result
+- Approx. time lost: ~2 minutes
+- Permanent fix: none new - CLAUDE.md already says write patch scripts with the Write tool / use Edit; this one was written inline in a heredoc anyway.

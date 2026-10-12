@@ -1,8 +1,7 @@
 # Genie Code — pair_2 (SD) round 4, FAST (D1 Git folder)
-In order; stop where told. NEVER modify `src/codegen/**` (extractor, parser, layout).
-Max two attempts per step. A second failure of the same step → write round4/NEEDS_HOME.md
-(command, exit code, first FAIL/QUESTION line, values redacted), push it per step 6, STOP.
-
+In order; stop where told. NEVER modify `src/codegen/**`. Max two attempts per step: a second
+failure of the same step → write round4/NEEDS_HOME.md (command, exit code, first FAIL/QUESTION
+line, values redacted), push it per step 6, STOP.
 1. **Code.** `git fetch origin` · `git checkout feature/multi-table` · `git pull --ff-only
    origin feature/multi-table`. Record `python -m codegen.cli doctor`'s `build …` line and
    `git rev-parse --short HEAD`. STOP unless the build line names that SHA `(git)`, or (no
@@ -28,10 +27,9 @@ Max two attempts per step. A second failure of the same step → write round4/NE
    rebuilt on this SHA> --agent <the 3 *_IIG.xlsx, not *_REVIEW> --out /tmp/r4/diff`; never
    pass `--pair-mode`. Header must print AGENT BUILD = step 1's SHA + the IGNORED set;
    "unscored" = STOP, report it.
-6. **Scrub, commit, push.** Write ONLY RUN.md (steps 1, 3, 4) and score_totals.json
-   (score.json `totals` + each sheet's `rows` / `counts` / `score`; no keys, no paths) to
-   `codegen-outputs/iig_validation/round4/pair_2/`; never diff.xlsx, score.json,
-   routing.csv, a golden, an agent xlsx or the answers file. `python scripts/scrub_check.py
-   codegen-outputs/iig_validation/round4` prints `clean`. `git checkout -b
-   acfc-iig-validation-r4`, `git add` the two files by name, commit, `git push -u origin
-   acfc-iig-validation-r4`.
+6. **Scrub, commit, push.** To `codegen-outputs/iig_validation/round4/pair_2/` write ONLY RUN.md
+   (steps 1, 3, 4) and score_totals.json (score.json `totals` + per sheet `rows` / `counts` /
+   `score`; no keys, no paths) — never diff.xlsx, score.json, routing.csv, a golden, an agent
+   xlsx or the answers file. `python scripts/scrub_check.py codegen-outputs/iig_validation/round4`
+   prints `clean`. `git checkout -b acfc-iig-validation-r4`, `git add` the two files by name,
+   commit, `git push -u origin acfc-iig-validation-r4`.

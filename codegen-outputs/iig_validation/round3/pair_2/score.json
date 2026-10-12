@@ -1,7 +1,7 @@
 {
-  "golden": "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/code-gen-agent/goldens/pair_2_iig_golden.xlsx",
-  "agent": "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/code-gen-agent/agent_out/pair_2/pair_2_iig_agent.xlsx",
-  "keys": "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/code-gen-agent/tools/iig_keys.yaml",
+  "golden": "<WORKSPACE_PATH>/goldens/pair_2_iig_golden.xlsx",
+  "agent": "<WORKSPACE_PATH>/agent_out/pair_2/pair_2_iig_agent.xlsx",
+  "keys": "<WORKSPACE_PATH>/tools/iig_keys.yaml",
   "totals": {
     "exact": 148,
     "normalized": 5,

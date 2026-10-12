@@ -100,11 +100,12 @@ def _codegen_source_line() -> str:
     the tree's config.yaml carries — the first thing to read when the App
     fails at startup."""
     import codegen
+    from codegen.build_info import build_text
     from codegen.config import Config
 
     supported = "iig_review" in Config.model_fields
     return (f"codegen source: {codegen.__file__} version {_app_version() or 'unknown'} · "
-            f"iig_review supported: {supported} · config: {CONFIG_PATH}")
+            f"{build_text()} · iig_review supported: {supported} · config: {CONFIG_PATH}")
 
 
 CODEGEN_SOURCE = _codegen_source_line()
@@ -124,7 +125,10 @@ except Exception as exc:  # noqa: BLE001 — surfaced via /api/feeds, never hidd
 def _health_facts() -> dict:
     """What this process runs with — the static part of GET /api/health and
     the health line of every error card (ui/backend/errors.py)."""
-    return {"version": _app_version(), "codegen_source": CODEGEN_SOURCE,
+    from codegen.build_info import build_identity
+
+    return {"version": _app_version(), "build": build_identity(),
+            "codegen_source": CODEGEN_SOURCE,
             "config_overlays": _config_overlays(), "startup_error": startup_error}
 
 
@@ -253,6 +257,8 @@ def health() -> dict:
     facts = _health_facts()
     return {"status": "ok" if store is not None else "degraded",
             "version": facts["version"],
+            # {sha, branch, committed, source: git | stamp | env | none[, src_tree]}
+            "build": facts["build"],
             "codegen_source": facts["codegen_source"],
             "codegen_file": codegen.__file__,
             "config_overlays": facts["config_overlays"],

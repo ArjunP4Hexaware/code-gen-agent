@@ -475,7 +475,7 @@ def test_an_uncaught_exception_in_a_route_is_json_with_where_and_health(client, 
     assert error["where"].endswith(" in boom")
     assert error["request"] == "GET /api/demo/status"
     facts = client.get("/api/health/facts").json()
-    assert error["health"] == {k: facts[k] for k in ("version", "codegen_source",
+    assert error["health"] == {k: facts[k] for k in ("version", "build", "codegen_source",
                                                      "config_overlays", "startup_error")}
     assert error["health_line"] == facts["health_line"]
     assert "startup error: none" in error["health_line"]

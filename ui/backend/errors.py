@@ -71,10 +71,16 @@ def _computed_facts() -> dict:
 
 
 def health_line(facts: dict) -> str:
-    """One line: ``version … · <codegen source> · overlays: a -> b · startup error: none``."""
+    """One line: ``version … · build <sha> on <branch>, committed <iso> (<source>) · <codegen
+    source> · overlays: a -> b · startup error: none``."""
     overlays = [str(o) for o in facts.get("config_overlays") or []]
+    from codegen.build_info import build_text
+
+    build = build_text(facts["build"]) if facts.get("build") else None
+    source = str(facts.get("codegen_source") or "")
     return " · ".join([
         f"version {facts.get('version') or 'unknown'}",
+        *([build] if build and build not in source else []),   # once, never twice
         str(facts.get("codegen_source") or "codegen source unknown"),
         "overlays: " + (" -> ".join(overlays) if overlays else "(none)"),
         f"startup error: {facts.get('startup_error') or 'none'}",

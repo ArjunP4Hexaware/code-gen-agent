@@ -1,5 +1,65 @@
 # CodeGen / Data Engineer Agent — working notes
 
+## NEWEST — IIG validation (state as of 2026-10-13, `feature/multi-table` head 382acb7, post30)
+
+Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
+Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
+
+- **D1 runs, home reviews.** The prod goldens exist only on D1 (`*.xlsx` + the 860a798 ignore
+  lines keep them off origin; unscrubbed prod rows — never force-add them). Genie runs
+  `docs/acfc/GENIE_RUN_pair_2_r5.md` in the D1 Git folder and pushes scrubbed evidence to
+  `acfc-results` (`codegen-outputs/iig_validation/round<N>/pair_2/`); this checkout reads it
+  in place (`git show`), never checks it out.
+- **The home SD STTM is anonymized; D1's filled copy is the raw one.**
+- **Build identity (99f262b):** `codegen.build_info.build_identity()` — git → the deploy stamp
+  `src/codegen/_build.py` (`scripts/stamp_build.py`, never committed) → `CODEGEN_BUILD_SHA` →
+  the src tree id — names commit / branch / commit time on the CLI's first line, `codegen
+  doctor`'s `build …` line and `GET /api/health`. `codegen generate` writes
+  `<output root>/CODEGEN_BUILD.json`; iig_diff refuses an agent workbook without one within 5
+  folders above it (`unscored: agent workbook has no build identity`).
+- **Pushing:** once per clone `git config core.hooksPath scripts/git-hooks`. `pre-push`
+  refuses a code push to `feature/multi-table` / `feature/iig-first` with an unchanged
+  version, a requirements marker ≠ pyproject, a tracked `_build.py`, or `ui/frontend/src`
+  changed without `dist` (1f7316f, b06ce1f). Bump: `python scripts/bump_version.py`. Docs-only
+  pushes need no bump.
+- **409 fix (53468c2):** `POST /api/demo/workbook` for the workbook already being selected =
+  200 + that job (`joined: true`); another workbook is still 409; a job older than every step
+  budget is replaced; a job always ends.
+- **`tools/iig_diff.py` + `tools/iig_keys.yaml`:** rows paired by natural key only (4ba59b9;
+  `--pair-mode` still parses — never use it for a score). Cell statuses exact / normalized /
+  mismatch / missing-in-agent / extra-in-agent / needs_assignment. The agreed ignore set =
+  `needs_assignment` in iig_keys.yaml (INVENTORY / OBJECT / PIPELINE / GROUP_ID, the connection
+  ids, the audit stamps; every other `*_ID` IS scored), printed in each report header;
+  CREATED_BY / UPDATED_BY values withheld. `--agent` takes every feed's `*_IIG.xlsx` (not
+  `*_REVIEW`), scored as their union (5e3df10). `--export-scrubbed DIR` → mismatches.md /
+  row_keys.md / SELF_CHECK.md with G<n> / A<n> tokens, a re-scan must find 0;
+  `--golden-structure` describes the golden's shape (d8cb519). score.json / diff.xlsx /
+  routing.csv carry prod text — never committed.
+- **`tools/build_goldens.py` (28fd6d2):** each sheet de-duplicated across the GROUP_ID exports
+  on the non-ignored columns; `_source_group_ids` lists the contributing exports (never
+  scored, shown in row_keys.md); one `dedup before -> after` line per sheet. Pre-existing,
+  not ours: 8 ruff findings + 2 scrub hits (SFMC GROUP_IDs).
+- **Blank Schema / TableName in an STTM band (581d235):** the feeds are split on the mapping
+  sheets (`layout/resolve.py::_blank_sheet_targets`); the schema comes from the FRD when it
+  states one, with a NOTE (`sttm_target_from_frd`), else it is a QUESTION; table names are
+  always a QUESTION — never derived. A blank-cell copy of the real SD STTM owes 14 QUESTIONs
+  (6 schema, 6 table, 2 file): its FRD's Target Schema is a per-file-group list.
+- **Round gate (post30):** `python scripts/doc_fingerprint.py --compare
+  docs/acfc/fingerprints/pair_2_sd_home.json <D1 fingerprint>` — exit 1 on a HARD line (sheet
+  names, counts, extents, merged ranges, header row + hash, per-column fill, the docx
+  `text_hash` + counts) = STOP; WARN (whole-file sha256 / size, document.xml, `body_hash`,
+  per-column value hashes) is recorded, the run continues. Per-column hashes (stripped,
+  lowercased) name WHICH column differs, never a value.
+- **Round 4 (not a clean run):** TOTAL 4.6; ADLS 33.5 / STGDELTA 31.7 with 2 of 3 rows paired.
+  The golden was 6× duplicated on the unfiltered pair-wide sheets (now de-duplicated), and the
+  run used a hand-split contract and the blank-cell STTM.
+- **Round 5 — pending on `acfc-results`.** The first attempt stopped on whole-file sha256
+  (FRD content identical; STTM structure identical, the three mapping-sheet bodies differ).
+  On the rerun's fingerprint run `--compare` home vs D1: only name / description columns
+  differ → anonymization, the home copy stays the dev fixture; Schema / TableName /
+  file-pattern columns differ → the home SD invariant (mock: 43 / 43 / 46 matched, diff 0) was
+  measured on a different copy than D1 runs. Data-quality rules: not implemented (D1-only rows).
+
 ## START HERE — branch `feature/multi-table` (state as of 2026-10-09, early morning — after the overnight robustness run)
 
 **Where things stand.** Four live branches, all pushed, nothing merged

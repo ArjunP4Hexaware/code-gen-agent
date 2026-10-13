@@ -175,6 +175,7 @@ Golden IIG (25_Pyx_Health_IIG.xlsx) present but no generated IIG to diff against
 | --- | --- |
 | Payment Integrity_CAQH_EDO_TPL process Improvement FRD_08032026SS.docx | FRD |
 | STTM_STG_STD_PaymentIntegrity_TPL_CAQH_To_DL_Mapping_Document_1005034.xlsx | STTM |
+| PAYMENT_INTEGRITY_CAQH_IIG.xlsx | Golden IIG |
 
 ### Pairing decision
 
@@ -223,9 +224,33 @@ FRD: source=synonyms, provider_calls=0, roles_by_source: synonyms=49.
 | DATA_QUALITY_RULES | 19 |
 | EMAIL_TEMPLATE_CONFIG | 3 |
 
-### IIG diff
+### IIG diff — pair_12 (CAQH)
 
-No golden IIG found in pair_12 folder. Diff not run.
+Golden: PAYMENT_INTEGRITY_CAQH_IIG.xlsx (iig_v1 layout, 7-sheet).  
+Agent: ext_tpl_caqh_dtl_IIG.xlsx (regenerated with `--iig-template iig_v1`).  
+Agent build: 0.5.8.post38 · 490e089 on feature/multi-table.
+
+**Comparable score: 0.0** over 2150 scoped cells (2 golden rows out of scope).
+
+| Sheet | Score | Exact | Norm | Mismatch | Missing | Extra | Needs-assign |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DATA_FACTORY_PIPELINE_SCHEDULE | 0.0 | 0 | 0 | 0 | 92 | 46 | 30 |
+| ADLS_DELTA_INGESTION_DETAILS | 0.0 | 0 | 0 | 0 | 810 | 135 | 210 |
+| STGDELTA_STDDELTA_INGESTION_DET | 0.0 | 0 | 0 | 0 | 90 | 90 | 60 |
+| DATA_QUALITY_RULES | 0.0 | 0 | 0 | 0 | 378 | 14 | 336 |
+| DATABRICKS_NOTEBOOK_DETAILS | 0.0 | 0 | 0 | 0 | 26 | 26 | 24 |
+| EMAIL_TEMPLATE_CONFIG | 0.0 | 0 | 0 | 0 | 26 | 26 | 8 |
+| ALL_FILES_STATIC_INFORMATION | 0.0 | 0 | 0 | 0 | 368 | 23 | 68 |
+| **TOTAL** | **0.0** | 0 | 0 | 0 | 1790 | 360 | 736 |
+
+**Warnings:**
+
+* DATA_FACTORY_PIPELINE_SCHEDULE: agent duplicate key (PIPELINE_NAME) — paired in sheet order
+* DATA_QUALITY_RULES: 2 agent rows with unresolved OBJECT_ID — not paired; 3 golden duplicate keys — paired in sheet order
+* DATABRICKS_NOTEBOOK_DETAILS: agent duplicate key (DATABRICKS_NOTEBOOK_NAME) — paired in sheet order
+* ALL_FILES_STATIC_INFORMATION: key column FILE_NAME not in both sheets — rows not paired; 2 golden rows out of scope
+
+**Interpretation:** The 0.0 score is driven by key-pairing failures — `needs_assignment` is 736, meaning rows exist on both sides but the natural keys diverge. The agent writes different identifiers for PIPELINE_NAME, NOTEBOOK_NAME, OBJECT_ID, etc. than the golden. No cells were compared as mismatches because no rows paired.
 
 ---
 

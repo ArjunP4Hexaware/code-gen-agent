@@ -21,6 +21,7 @@ import { fmtKb, fmtNumber } from "../format";
 import {
   api,
   ApiError,
+  pairRuleLabel,
   type DatabricksDocumentsResponse,
   type DemoStatus,
   type FrdChoicesResponse,
@@ -639,15 +640,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     className="hint"
                     title="Chosen automatically for this STTM; pick another in the chooser to override"
                   >
-                    {" "}(auto-paired by{" "}
-                    {status.frd_auto_paired.rule === "pairing_map"
-                      ? "the config pairing map"
-                      : status.frd_auto_paired.rule === "content"
-                        ? "the documents' content"
-                      : status.frd_auto_paired.rule === "ticket"
-                        ? "a shared ticket number"
-                        : "a matching document name"}
-                    )
+                    {" "}(auto-paired by {pairRuleLabel(status.frd_auto_paired.rule)})
                   </span>
                 ) : null}{" "}
                 <button className="btn" disabled={running || !status?.frd_chosen}
@@ -670,15 +663,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     className="hint"
                     title="Chosen automatically for this STTM; pick another in the chooser to override"
                   >
-                    {" "}(auto-paired by{" "}
-                    {status.vdd_auto_paired.rule === "pairing_map"
-                      ? "the config pairing map"
-                      : status.vdd_auto_paired.rule === "content"
-                        ? "the documents' content"
-                      : status.vdd_auto_paired.rule === "ticket"
-                        ? "a shared ticket number"
-                        : "a matching document name"}
-                    )
+                    {" "}(auto-paired by {pairRuleLabel(status.vdd_auto_paired.rule)})
                   </span>
                 ) : null}{" "}
                 <button className="btn" disabled={running || selecting || !chosen.vdd}

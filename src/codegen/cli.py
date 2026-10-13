@@ -282,6 +282,7 @@ EXIT_CODES = f"""exit codes:
   {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — layout --require-complete: columns left unplaced / questions
      open; extract-sttm: NO feed produced a usable contract (none written);
      generate: a feed it was asked for (--feed) has no contract
+     pair: the FRD is not decided (a QUESTION pair.frd line)
   Every answer OWED (the run cannot complete a feed without it) is one line,
   label padded to 15 columns, then the answers.yaml key, an em-dash, the reason
   (informational items — optional columns unplaced, FRD fields not read, the
@@ -668,10 +669,17 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     """Pair an STTM with its FRD / VDD among a folder's documents BY CONTENT
     (codegen.pairing). An undecided pairing prints its candidates; settle it
     with `pairing:` in the answers file."""
-    from codegen.demo_sources import canonical_document_name
     from codegen.layout.answers import AnswersFileError, load_answers
-    from codegen.layout.classify import classify_workbook
-    from codegen.pairing import pair_by_content
+    from codegen.pairing import (
+        OVERRIDE_FILE_NAMES,
+        PairOverrides,
+        PairOverridesError,
+        classify_folder,
+        configured_overrides_path,
+        load_pair_overrides,
+        pair_by_content,
+        vdd_by_content_note,
+    )
 
     sttm = Path(args.sttm)
     if not sttm.is_file():
@@ -680,48 +688,79 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     folders = [Path(d) for d in (args.candidates or [str(sttm.parent)])]
     files = [p for d in folders if d.is_dir() for p in sorted(d.iterdir())
              if p.is_file() and not p.name.startswith("~$") and p != sttm]
-    frds = {p.name: p for p in files
-            if p.name.lower().endswith((".docx", ".contract.json"))
-            and (p.suffix.lower() != ".docx" or canonical_document_name(p.name).startswith("frd"))}
-    # A dictionary candidate by CONTENT too: a workbook that reads as a
-    # mapping workbook (e.g. a copy of the STTM itself) is never a VDD.
-    vdds = {p.name: p for p in files if p.suffix.lower() == ".xlsx"
-            and not canonical_document_name(p.name).startswith("sttm")
-            and classify_workbook(p, config.extractor).kind != "sttm"}
+    # Every file with its role and the rule that assigned it (2026-10-13): a
+    # role token ANYWHERE in the name ("<title>_FRD.docx" is an FRD); an IIG is
+    # never an input; a workbook without a role token is a dictionary only on
+    # positive content evidence. Nothing is skipped silently.
+    roles = classify_folder(files, config)
+    for role in roles:
+        print(f"{'ROLE':<15} {role.name} — {role.role}: {role.rule}")
+    frds = {r.name: r.path for r in roles if r.role == "frd"}
+    vdds = {r.name: r.path for r in roles if r.role == "vdd"}
+    try:
+        overrides = PairOverrides()
+        configured = configured_overrides_path(config, Path("."))
+        found = [Path(args.pairs_file)] if args.pairs_file else (
+            [configured] if configured is not None else
+            [p for p in files if p.name.lower() in OVERRIDE_FILE_NAMES][:1])
+        for path in found:
+            overrides = overrides.merged(load_pair_overrides(path))
+            print(f"{'OVERRIDES':<15} {path.name} — {len(overrides.groups)} pair(s) listed")
+    except PairOverridesError as exc:
+        print(f"{'FAIL':<15} pair — pairs override file: {exc}")
+        return 1
     try:
         chosen = (load_answers(Path(args.answers)).pairing.get(sttm.name, {})
                   if args.answers else {})
     except (AnswersFileError, OSError) as exc:
         print(f"{'FAIL':<15} pair — answers file: {exc}")
         return 1
-    undecided = False
+    failed = owed = False
+    by_name = {r.name: r for r in roles}
     for kind, candidates, explicit in (("frd", frds, config.demo.pairing_map),
                                        ("vdd", vdds, config.demo.vdd_pairing_map)):
         if chosen.get(kind):
             known = chosen[kind] in candidates
             print(f"{'PAIRED' if known else 'FAIL':<15} {kind} {chosen[kind]} — answers file"
                   + ("" if known else " names a document that is not among the candidates"))
-            undecided = undecided or not known
+            failed = failed or not known
             continue
+        # An override may name a file the role gate left out — the person's call.
+        wanted = overrides.lookup(sttm.name, kind)
+        if wanted in by_name and wanted not in candidates and by_name[wanted].path:
+            candidates = {**candidates, wanted: by_name[wanted].path}
         decision = pair_by_content(kind, sttm, candidates, config, Path("."),
-                                   explicit_map=explicit)
+                                   explicit_map=explicit, overrides=overrides)
         if decision.chosen:
             print(f"{'PAIRED':<15} {kind} {decision.chosen} — rule {decision.rule}: "
                   f"{decision.reason}")
+            if decision.rule == "name_fuzzy":
+                print(answer_line("NOTE", f"pair.{kind}", decision.reason))
+            note = vdd_by_content_note(decision)
+            if note:
+                print(answer_line("NOTE", f"pair.{kind}", note))
         elif decision.ambiguous:
-            undecided = True
-            # An undecided FRD is an answer owed; an undecided VDD is not (the
-            # run proceeds without one) — a NOTE the harness does not record.
-            print(answer_line("QUESTION" if _owed_key("pair", f"pair.{kind}", "choice")
-                              else "NOTE", f"pair.{kind}", decision.reason))
+            # An undecided FRD is an answer owed (exit 3, NEEDS_ANSWERS); an
+            # undecided VDD is not (the run proceeds without one) — a NOTE the
+            # harness does not record.
+            is_owed = _owed_key("pair", f"pair.{kind}", "choice")
+            owed = owed or is_owed
+            print(answer_line("QUESTION" if is_owed else "NOTE", f"pair.{kind}", decision.reason))
             for candidate in decision.candidates:
                 print(f"{'CANDIDATE':<15} {candidate.name} score {candidate.score:g} — "
                       f"{candidate.summary()}")
             print(f"{'REMEDY':<15} answers file: pairing: {{\"{sttm.name}\": "
-                  f"{{{kind}: <candidate>}}}}")
+                  f"{{{kind}: <candidate>}}}} — or a pairs override file "
+                  f"({OVERRIDE_FILE_NAMES[0]} next to the STTM, or --pairs-file)")
+        elif kind == "vdd" and not candidates:
+            left_out = [f"{r.name} ({r.role})" for r in roles
+                        if r.role in ("iig", "unclassified") and r.name.lower().endswith(".xlsx")]
+            print(f"{'NONE':<15} vdd — no VDD: no workbook carries a 'vdd' token or reads as a "
+                  "dictionary by content" + (f"; not candidates: {', '.join(left_out)}"
+                                             if left_out else ""))
         else:
             print(f"{'NONE':<15} {kind} — {decision.reason}")
-    return 1 if undecided else 0
+    return EXIT_FAILED if failed else EXIT_NEEDS_ANSWERS if owed else EXIT_OK
 
 
 def load_workbook_for_answers(path: Path, stop_after: int):
@@ -1494,6 +1533,10 @@ def main(argv: list[str] | None = None) -> int:
     pair.add_argument("--candidates", action="append",
                       help="folder of candidate documents (repeatable; default: the STTM's)")
     pair.add_argument("--answers", help="answers.yaml whose `pairing:` settles an undecided pair")
+    pair.add_argument("--pairs-file",
+                      help="pairs override file (sttm / frd / vdd groups) that wins over "
+                           "every automatic rule; default: pairing_overrides.yaml next to "
+                           "the STTM, or inputs.pairing.overrides_file")
 
     extract_vdd = subparsers.add_parser(
         "extract-vdd",

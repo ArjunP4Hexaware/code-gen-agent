@@ -136,7 +136,27 @@ export interface LayoutQuestion {
   suggested_reason?: string;
 }
 
-export type PairRule = "pairing_map" | "content" | "ticket" | "name_stem";
+export type PairRule =
+  | "override" | "pairing_map" | "content" | "ticket" | "name_key" | "name_fuzzy" | "same_folder";
+
+/** How the chip names the rule that paired a document (2026-10-13). */
+export function pairRuleLabel(rule: string | null | undefined): string {
+  switch (rule) {
+    case "override": return "the pairs override file";
+    case "pairing_map": return "the config pairing map";
+    case "content": return "the documents' content";
+    case "ticket": return "a shared ticket number";
+    case "name_key": return "the same document name key";
+    case "name_fuzzy": return "a close document name (see the note)";
+    case "same_folder": return "the only one in the STTM's folder";
+    default: return "a matching document name";
+  }
+}
+
+// One file of the selected STTM's folder: its role and the rule that assigned it.
+export interface FolderRole { name: string; role: string; rule: string }
+// One document of the kind in the input roots, candidate or not.
+export interface ConsideredDoc { name: string; folder: string; name_score: number | null; status: string }
 
 // One answer a held-back feed needs (status.needs_answers): the answers-file
 // key, its label as the CLI prints it, how the answer is posted
@@ -308,6 +328,11 @@ export interface PairingOutcome {
   upgraded_from?: string | null;
   // M15e: the name-only match SHOWN while the index decides — never applied
   likely?: string | null;
+  // 2026-10-13: every file of the STTM's folder with its role + rule
+  folder_roles?: FolderRole[];
+  considered?: ConsideredDoc[];
+  // "VDD by content: <file>", a fuzzy name pair's reason
+  notes?: string[];
 }
 
 export interface SttmWorkbook {
@@ -668,6 +693,21 @@ function normalizeOutcome(raw: any): PairingOutcome {
     not_indexed: Array.isArray(raw?.not_indexed) ? raw.not_indexed : [],
     upgraded_from: raw?.upgraded_from ?? null,
     likely: typeof raw?.likely === "string" ? raw.likely : null,
+    folder_roles: Array.isArray(raw?.folder_roles)
+      ? raw.folder_roles.map((r: any) => ({
+          name: String(r?.name ?? ""), role: String(r?.role ?? ""), rule: String(r?.rule ?? ""),
+        }))
+      : [],
+    considered: Array.isArray(raw?.considered)
+      ? raw.considered.map((c: any) => ({
+          name: String(c?.name ?? ""),
+          folder: String(c?.folder ?? ""),
+          name_score: typeof c?.name_score === "number" && Number.isFinite(c.name_score)
+            ? c.name_score : null,
+          status: String(c?.status ?? ""),
+        }))
+      : [],
+    notes: Array.isArray(raw?.notes) ? raw.notes.map((n: any) => String(n)) : [],
   };
 }
 

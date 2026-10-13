@@ -12,6 +12,7 @@ import pytest
 
 from codegen.config import load_config
 from codegen.demo_sources import auto_pair_document
+from codegen.pairing import _NAME_SIGNALS as NAME_SIGNALS
 from codegen.pairing import _name_match, pair_by_content
 
 REPO = Path(__file__).resolve().parents[1]
@@ -54,9 +55,9 @@ def test_four_pairs_sharing_a_ticket_resolve_by_content(shared_ticket, config):
         assert decision.chosen == truth[name], (name, decision.reason, decision.candidates)
         assert decision.rule == "content"
         winner = decision.candidates[0]
-        assert {s.name for s in winner.signals} - {"ticket", "name_stem"}, winner
+        assert {s.name for s in winner.signals} - set(NAME_SIGNALS), winner
         # every content signal cites where it was read
-        assert all("↔" in s.detail for s in winner.signals if s.name != "ticket")
+        assert all("↔" in s.detail for s in winner.signals if s.name not in NAME_SIGNALS)
 
 
 def test_a_tie_is_a_question_not_a_guess(shared_ticket, config, tmp_path):

@@ -30,15 +30,19 @@ Three responsibilities:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from codegen.config import Config
 from codegen.contracts.frd import FrdContract, FrdFeed, TargetSpec
 from codegen.resolve.resolver import normalize_feed_name
+
+_log = logging.getLogger("codegen.pairing")
 
 # Leading numeric upload prefix some libraries prepend on upload, and the
 # " (n)" copy suffix browsers append before the extension on re-download.
@@ -59,15 +63,14 @@ _canonical_name = canonical_document_name
 
 def find_frd_docx(present: list[dict]) -> dict | None:
     """The FRD document among the documents-card matches: a ``.docx`` whose
-    canonical name starts with ``frd``. "Any .docx" stopped being safe the
+    name carries the ``frd`` role token. "Any .docx" stopped being safe the
     moment the EDO standards documents joined the expected list — they are
     reference material, never the FRD under evaluation."""
     return next(
         (
             p
             for p in present
-            if p["name"].lower().endswith(".docx")
-            and canonical_document_name(p["name"]).startswith("frd")
+            if p["name"].lower().endswith(".docx") and "frd" in document_roles(p["name"])
         ),
         None,
     )
@@ -111,35 +114,182 @@ def pair_sttm_with_frd(sttm_names: list[str], frd_names: list[str],
             **_pair_by_ticket(remaining_sttm, remaining_frd)}
 
 
-_ROLE_TOKENS = {"frd", "sttm", "vdd"}
+# -- the name key (2026-10-13) ------------------------------------------------ #
+# A document's NAME as a set of content tokens: lowercased, split on any run of
+# whitespace _ - . , the role tokens dropped WHEREVER they sit (a client names
+# its FRD "<title>_FRD.docx" as readily as "FRD_<title>.docx"). The old rule
+# compared the first three tokens only — every file of a vendor's family shares
+# them ("Pyx_ Care Management …"), so a sibling feed made the match ambiguous
+# and a different one could pair the wrong documents.
+
+ROLE_TOKENS = frozenset({"frd", "sttm", "vdd", "iig"})
+NAME_FUZZY_THRESHOLD = 0.8      # config: inputs.pairing.name_fuzzy_threshold
+_NAME_SPLIT = re.compile(r"[\s_\-.]+")
+_STEM_MIN = 4                   # the stem rule codegen.pairing._name_match uses
 
 
-def _token_prefix(name: str, count: int = 3) -> tuple[str, ...]:
-    # Split on separators AND dots (a ".contract" suffix is not content), and
-    # drop the frd/sttm role tokens wherever they sit so the content aligns:
-    # "demo_sttm_cv_golden" and "FRD_demo_cv_golden.contract" both -> demo cv golden.
-    tokens = [t for t in re.split(r"[\s_\-.]+", document_stem(name)) if t]
-    tokens = [t for t in tokens if t not in _ROLE_TOKENS]
-    return tuple(tokens[:count])
+def _raw_tokens(name: str) -> list[str]:
+    # ".contract.json" is a double extension, not content.
+    stem = re.sub(r"\.contract$", "", document_stem(name))
+    return [t for t in _NAME_SPLIT.split(stem) if t]
 
 
-def suggest_pairs(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]:
-    """UI-suggestion-only heuristic: the first >=3 tokens match after
-    squashing. Uniqueness-constrained both ways; ambiguity = no suggestion.
-    NEVER used to auto-pair — the person confirms with a click."""
-    frd_by_prefix: dict[tuple, list[str]] = {}
-    for frd in frd_names:
-        prefix = _token_prefix(frd)
-        if len(prefix) >= 3:
-            frd_by_prefix.setdefault(prefix, []).append(frd)
+def document_roles(name: str) -> frozenset[str]:
+    """The role tokens (frd / sttm / vdd / iig) a document name carries,
+    anywhere in it."""
+    return frozenset(t for t in _raw_tokens(name) if t in ROLE_TOKENS)
+
+
+@dataclass(frozen=True)
+class RoleVerdict:
+    """A document's role by NAME — ``frd`` | ``sttm`` | ``vdd`` | ``iig`` |
+    ``unclassified`` — and the rule that assigned it (shown in the App's
+    pairing diagnostic and printed by ``codegen pair``)."""
+
+    role: str
+    rule: str
+
+
+_noted_two_roles: set[str] = set()
+
+
+def classify_document_name(name: str) -> RoleVerdict:
+    """The role a document's name states: a role token ANYWHERE in it
+    ("Pyx_ … DSNP_FRD.docx" is an FRD as surely as "FRD_….docx"). An ``iig``
+    token always makes it an IIG — a validation golden, never an input. Two
+    of frd / sttm / vdd: the first one (the prefix) decides, with a NOTE. A
+    ``.contract.json`` is an FRD contract whatever its name. No token:
+    ``unclassified`` (content may still decide where the caller reads it)."""
+    tokens = _raw_tokens(name)
+    if name.lower().endswith(".contract.json"):
+        return RoleVerdict("frd", "FRD contract JSON (.contract.json)")
+    if "iig" in tokens:
+        return RoleVerdict("iig", "token 'iig' in the name: a validation golden, never an input")
+    roles = list(dict.fromkeys(t for t in tokens if t in ROLE_TOKENS))
+    if not roles:
+        return RoleVerdict("unclassified", "no frd / sttm / vdd / iig token in the name")
+    if len(roles) == 1:
+        return RoleVerdict(roles[0], f"token {roles[0]!r} in the name")
+    rule = (f"tokens {', '.join(repr(r) for r in roles)} in the name — the first "
+            f"(prefix) decides: {roles[0]!r}")
+    if name not in _noted_two_roles:
+        _noted_two_roles.add(name)
+        _log.info("NOTE %s carries two role tokens; %s", name, rule)
+    return RoleVerdict(roles[0], rule)
+
+
+def name_tokens(name: str) -> tuple[str, ...]:
+    """The content tokens of a document name, in order (role tokens dropped)."""
+    return tuple(t for t in _raw_tokens(name) if t not in ROLE_TOKENS)
+
+
+def pairing_key(name: str) -> str:
+    """THE pairing key: the content tokens joined. Two documents of one pair
+    usually share it exactly ("STTM_Pyx_Care_Management_Data_MI_DSNP.xlsx" and
+    "Pyx_ Care Management Data MI DSNP_FRD.docx")."""
+    return " ".join(name_tokens(name))
+
+
+def _same_word(a: str, b: str) -> bool:
+    """Equal, or — both alphabetic and at least ``_STEM_MIN`` long — one is a
+    prefix of the other ("social" / "socially", "determine" / "determined")."""
+    if a == b:
+        return True
+    return (a.isalpha() and b.isalpha() and min(len(a), len(b)) >= _STEM_MIN
+            and (a.startswith(b) or b.startswith(a)))
+
+
+def name_overlap(a: str, b: str) -> tuple[float, list[tuple[str, str]]]:
+    """Token-set overlap (Jaccard) of two names' content tokens, and the word
+    pairs matched by STEM only. A token pairs with at most one token of the
+    other name, exact matches first, then whole-word prefix ("social" /
+    "socially" — never a merely common prefix: "medicare" / "medicaid").
+    0.0 when either name has no content token."""
+    left, right = sorted(set(name_tokens(a))), sorted(set(name_tokens(b)))
+    if not left or not right:
+        return 0.0, []
+    total = len(left) + len(right)
+    unmatched = list(right)
+    shared = 0
+    stems: list[tuple[str, str]] = []
+    for exact in (True, False):
+        for token in list(left):
+            hit = next((t for t in unmatched
+                        if (t == token if exact else _same_word(t, token))), None)
+            if hit is not None:
+                unmatched.remove(hit)
+                left.remove(token)
+                shared += 1
+                if not exact:
+                    stems.append((token, hit))
+    return shared / (total - shared), stems
+
+
+def name_similarity(a: str, b: str) -> float:
+    return name_overlap(a, b)[0]
+
+
+@dataclass(frozen=True)
+class NameMatch:
+    """What the NAMES say about one STTM's companion: ``chosen`` with ``rule``
+    ``name_key`` (exact key) or ``name_fuzzy`` (overlap at or above the
+    threshold, unique), else None; ``reason`` names the files and why."""
+
+    chosen: str | None
+    rule: str | None
+    similarity: float
+    reason: str
+
+
+def match_by_name(sttm_name: str, candidate_names: list[str],
+                  threshold: float = NAME_FUZZY_THRESHOLD) -> NameMatch:
+    """Exact key first (exactly one candidate shares it); else the unique
+    candidate whose overlap reaches ``threshold``. Two or more at the same
+    level, or none at the threshold: nothing is chosen — the caller asks."""
+    candidates = [c for c in candidate_names if c != sttm_name]
+    key = pairing_key(sttm_name)
+    if not key:
+        return NameMatch(None, None, 0.0, f"{sttm_name!r} has no content token to pair on")
+    exact = [c for c in candidates if pairing_key(c) == key]
+    if len(exact) == 1:
+        return NameMatch(exact[0], "name_key", 1.0,
+                         f"paired by key: {sttm_name!r} and {exact[0]!r} share the key {key!r}")
+    if exact:
+        return NameMatch(None, None, 1.0, f"{len(exact)} candidates share the key {key!r}: "
+                         + ", ".join(repr(c) for c in exact))
+    scores = sorted(((name_similarity(sttm_name, c), c) for c in candidates),
+                    key=lambda sc: (-sc[0], sc[1]))
+    above = [(s, c) for s, c in scores if s >= threshold]
+    if len(above) == 1:
+        score, chosen = above[0]
+        stems = name_overlap(sttm_name, chosen)[1]
+        stem_text = ("; stem-matched: " + ", ".join(f"{a!r} ~ {b!r}" for a, b in stems)
+                     if stems else "")
+        return NameMatch(chosen, "name_fuzzy", score, (
+            f"paired by fuzzy: {sttm_name!r} and {chosen!r} — token overlap {score:.2f} "
+            f"≥ {threshold:g} (tokens {' '.join(name_tokens(sttm_name))!r} vs "
+            f"{' '.join(name_tokens(chosen))!r}{stem_text}); no exact key match"))
+    if above:
+        return NameMatch(None, None, above[0][0], (
+            f"{len(above)} candidates overlap the name at ≥ {threshold:g}: "
+            + ", ".join(f"{c!r} ({s:.2f})" for s, c in above)))
+    best = scores[0] if scores else (0.0, None)
+    return NameMatch(None, None, best[0], (
+        f"no name matches {sttm_name!r}: best overlap {best[0]:.2f}"
+        + (f" ({best[1]!r})" if best[1] else "") + f" is below the threshold {threshold:g}"))
+
+
+def suggest_pairs(sttm_names: list[str], frd_names: list[str],
+                  threshold: float = NAME_FUZZY_THRESHOLD) -> dict[str, str]:
+    """UI-suggestion-only heuristic: the name match (exact key, else a unique
+    overlap at the threshold), uniqueness-constrained both ways; ambiguity =
+    no suggestion. NEVER used to auto-pair — the person confirms with a click."""
     suggestions: dict[str, str] = {}
     claimed: dict[str, str] = {}
     for sttm in sttm_names:
-        prefix = _token_prefix(sttm)
-        candidates = frd_by_prefix.get(prefix, []) if len(prefix) >= 3 else []
-        if len(candidates) != 1:
+        frd = match_by_name(sttm, frd_names, threshold).chosen
+        if frd is None:
             continue
-        frd = candidates[0]
         if frd in claimed:
             suggestions.pop(claimed[frd], None)
             continue
@@ -149,14 +299,15 @@ def suggest_pairs(sttm_names: list[str], frd_names: list[str]) -> dict[str, str]
 
 
 def auto_pair_document(sttm_name: str, candidate_names: list[str],
-                       explicit_map: dict[str, str] | None = None) -> tuple[str, str] | None:
+                       explicit_map: dict[str, str] | None = None,
+                       threshold: float = NAME_FUZZY_THRESHOLD) -> tuple[str, str] | None:
     """The companion document (FRD or VDD) to select automatically when
     ``sttm_name`` is chosen, with the rule that decided it: ``pairing_map``
     (config, canonical stems) -> ``ticket`` (a shared 6+-digit number) ->
-    ``name_stem`` (the first three content tokens match once the frd / sttm
-    / vdd role tokens are dropped; unique both ways). Ambiguity or no match
-    -> None: the person picks. (2026-09-18: pairing became automatic at
-    selection time; the chooser still lets the person override it.)"""
+    ``name_key`` (the same pairing key) -> ``name_fuzzy`` (the unique token
+    overlap at or above ``threshold``). Ambiguity or no match -> None: the
+    person picks. (2026-09-18: pairing became automatic at selection time;
+    the chooser still lets the person override it.)"""
     candidates = [c for c in candidate_names if c != sttm_name]
     explicit = {document_stem(k): document_stem(v) for k, v in (explicit_map or {}).items()}
     by_stem_name = {document_stem(c): c for c in candidates}
@@ -166,9 +317,9 @@ def auto_pair_document(sttm_name: str, candidate_names: list[str],
     by_ticket = _pair_by_ticket([sttm_name], candidates)
     if sttm_name in by_ticket:
         return by_ticket[sttm_name], "ticket"
-    by_stem = suggest_pairs([sttm_name], candidates)
-    if sttm_name in by_stem:
-        return by_stem[sttm_name], "name_stem"
+    match = match_by_name(sttm_name, candidates, threshold)
+    if match.chosen is not None:
+        return match.chosen, match.rule
     return None
 
 

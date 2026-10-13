@@ -648,7 +648,7 @@ def test_choosing_an_sttm_auto_pairs_its_frd(client):
         assert status["frd_chosen"] is True
         assert status["frd_name"] == "FRD_demo_cv_golden.contract.json"
         assert status["frd_auto_paired"] == {"frd": "FRD_demo_cv_golden.contract.json",
-                                             "rule": "name_stem"}
+                                             "rule": "name_key"}
         assert status["frd_warning"] is False
         choices = client.get("/api/demo/frd-choices").json()
         assert choices["current"] == {"label": "FRD_demo_cv_golden.contract.json",
@@ -688,7 +688,7 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
         status = select_sttm(client, "demo_sttm_cv_golden.xlsx")
         assert status["vdd_name"] == "VDD_demo_cv_golden.xlsx"
         assert status["vdd_auto_paired"] == {"vdd": "VDD_demo_cv_golden.xlsx",
-                                             "rule": "name_stem"}
+                                             "rule": "name_key"}
         client.post("/api/demo/vdd", json={"name": "VDD_demo_cv_golden.xlsx"})
         assert client.get("/api/demo/status").json()["vdd_auto_paired"] is None
         select_sttm(client, "demo_sttm_cv_golden.xlsx")

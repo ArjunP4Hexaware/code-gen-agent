@@ -161,5 +161,18 @@ class InputCatalog:
                 out.append(doc)
         return out
 
+    def every_document(self, suffixes: tuple[str, ...]) -> list[InputDocument]:
+        """Like ``documents`` but WITHOUT the first-source-wins dedupe: one
+        entry per file, so two folders' files of the same name both appear
+        (a pairs override file per pair folder; the pairing diagnostic's list
+        of every file in a folder)."""
+        out: list[InputDocument] = []
+        for index, source in enumerate(self.sources):
+            for doc in sorted(self._listing(index, source),
+                              key=lambda d: (natural_key(d.source), natural_key(d.name))):
+                if not doc.name.startswith("~$") and doc.name.lower().endswith(suffixes):
+                    out.append(doc)
+        return out
+
     def find(self, name: str, suffixes: tuple[str, ...]) -> InputDocument | None:
         return next((d for d in self.documents(suffixes) if d.name == name), None)

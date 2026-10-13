@@ -116,3 +116,11 @@
 - Earliest signal that would have revealed it: the patch script's own AssertionError traceback, printed above ruff's output in the same tool result
 - Approx. time lost: ~2 minutes
 - Permanent fix: none new - CLAUDE.md already says write patch scripts with the Write tool / use Edit; this one was written inline in a heredoc anyway.
+## 2026-10-13: hook signals (b) then (a) — demo_sources.py edited 4x while a brand-new test file "still failing"
+- Actual cause: not a spiral. The planned red phase of a new feature (pairing token key + name-role classifier): tests/test_pairing_name_key.py was written FIRST, against an API that did not exist, and failed at collection with an ImportError. The four counted edits to src/codegen/demo_sources.py ADDED that API; none was a retry. The diagnostic re-run (signal a) failed again at collection, but with a DIFFERENT missing name — `document_roles` (demo_sources, now present) gave way to `_token_prefix` (pairing.py, not yet edited) — i.e. new information, the expected progression.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — the missing import moved from the edited module to the next, unedited one)
+- Hook signal: b, then a — both false positives
+- Earliest signal: n/a
+- Approx. time lost: ~5 minutes (one user round trip)
+- Retro note (the user asked; hook NOT changed): could the hook tell a collection ImportError on a brand-new test file from a repeated fix attempt? Yes, from data it already sees: (1) the failing test file is untracked (`git status` `??`) or was created by a Write in this session; (2) the failure is a collection error (`ImportError while importing test module` / `Interrupted: 1 error during collection`), not an assertion; (3) the missing name CHANGED between the two runs (`cannot import name 'X' from 'M'`) — signal (a)'s signature hashed the error class + test path, so `document_roles` -> `_token_prefix` read as "the same error". Hashing the missing NAME and module into the signature, and not counting (b) edits while the failing file is untracked/new, would have kept both quiet. Logged to ~/.claude/spiral-breaker/proposals.md for the next hook retro.

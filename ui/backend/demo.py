@@ -251,6 +251,9 @@ class DemoRunner:
         # ("VDD not decided at run start: …") — a stage, a gate flag on every
         # feed and a line in run_meta.json.
         self.run_notes: list[str] = []
+        # 2026-10-13: the pairing NOTEs of the pairs a run uses ("VDD by
+        # content: <file>", a fuzzy name pair) — said in the report.
+        self.run_pairing_notes: list[str] = []
         self._lock = threading.Lock()
         # idle | running | needs_layout | done | failed | needs_answers (every
         # feed held back: ``needs_answers`` is the list, answered inline and
@@ -588,14 +591,17 @@ class DemoRunner:
     def local_frd_candidates(self) -> dict[str, Path]:
         """FRDs a run can use without a network call: contract JSONs and
         FRD-named .docx in the contracts dir and the three inboxes (any .docx
-        in the uploads inbox — only a kind=frd upload puts one there)."""
-        from codegen.demo_sources import canonical_document_name
+        in the uploads inbox — only a kind=frd upload puts one there). An
+        FRD-named .docx carries the ``frd`` token ANYWHERE in its name
+        (2026-10-13: "<title>_FRD.docx" was never a candidate under the old
+        prefix rule)."""
+        from codegen.demo_sources import classify_document_name
 
         found: dict[str, Path] = {}
         for doc in self._frd_catalog().documents((".contract.json", ".docx")):
             if doc.name.lower().endswith(".docx") and not (
                     doc.source == "inputs/uploads"
-                    or canonical_document_name(doc.name).startswith("frd")):
+                    or classify_document_name(doc.name).role == "frd"):
                 continue
             # The working-copy path; a remote document is downloaded when the
             # FRD is actually selected (``fetch_frd_candidate``). Listing queues
@@ -630,26 +636,49 @@ class DemoRunner:
         name alone (``unread``)."""
         from dataclasses import replace
 
-        from codegen.pairing import empty_facts, pair_by_content
+        from codegen.demo_sources import classify_document_name, document_stem
+        from codegen.pairing import empty_facts, pair_by_content, vdd_by_content_note
         from codegen.storage import StorageError
 
         config = self._store.config
         if deadline is None:
             deadline = time.monotonic() + float(config.inputs.select_timeout_seconds)
+        sttm_doc = self._workbook_catalog().find(sttm_name, (".xlsx",))
+        folder = sttm_doc.source if sttm_doc is not None else None
+        # 2026-10-13: the pairs override file wins over every automatic rule.
+        overrides = self._pair_overrides(folder, deadline)
+        wanted = overrides.lookup(sttm_name, kind)
         if kind == "frd":
             candidates = self.local_frd_candidates()
             explicit_map = config.demo.pairing_map
             catalog, suffixes = self._frd_catalog(), (".contract.json", ".docx")
         else:
-            # By CONTENT — a workbook the index knows as an STTM is never a
-            # dictionary candidate; one still classifying / unclassified /
-            # unreadable stays a candidate.
-            candidates = {doc.name: doc.local_path()
-                          for doc in self._workbook_catalog().documents((".xlsx",))
-                          if doc.name != sttm_name and self._index.lookup(doc)["state"] != "sttm"}
+            # A dictionary candidate needs a ``vdd`` token in its name or
+            # POSITIVE structural evidence from the index (a FILES / field
+            # sheet by its header signature — ``classify_workbook``); one still
+            # being read stays (scored by name, never applied until indexed —
+            # M15e). Never an IIG (a validation golden), never a workbook the
+            # index reads as an STTM, never an unclassified one (2026-10-13:
+            # an IIG golden was attached as the VDD as the folder's only
+            # workbook).
+            candidates = {}
+            for doc in self._workbook_catalog().documents((".xlsx",)):
+                if doc.name == sttm_name:
+                    continue
+                state = self._index.lookup(doc)["state"]
+                role = classify_document_name(doc.name).role
+                if state == "sttm" or role in ("iig", "sttm", "frd"):
+                    continue
+                if role == "vdd" or state in ("vdd", CLASSIFYING):
+                    candidates[doc.name] = doc.local_path()
             explicit_map = config.demo.vdd_pairing_map
             catalog, suffixes = self._workbook_catalog(), (".xlsx",)
-        sttm_doc = self._workbook_catalog().find(sttm_name, (".xlsx",))
+        if wanted and document_stem(wanted) not in {document_stem(n) for n in candidates}:
+            # The override may name a document the role gate left out.
+            named = next((d for d in catalog.documents(suffixes)
+                          if document_stem(d.name) == document_stem(wanted)), None)
+            if named is not None:
+                candidates[named.name] = named.local_path()
         sttm_path = sttm_doc.local_path() if sttm_doc is not None else Path(sttm_name)
         docs = {name: catalog.find(name, suffixes) for name in candidates}
         sttm_facts = self._index.facts(sttm_doc) if sttm_doc is not None else None
@@ -665,19 +694,19 @@ class DemoRunner:
         not_a_vdd: set[str] = set()
         # M9.3: the STTM's OWN folder first (…/pair_1/{FRD, STTM, VDD}); the
         # other input roots only when that folder holds no candidate.
-        folder = sttm_doc.source if sttm_doc is not None else None
         in_folder = [n for n, d in docs.items() if d is not None and d.source == folder]
         scopes = ([("same_folder", in_folder)] if in_folder else []) + [("all", list(candidates))]
         # M15c: an explicit pairing_map entry decides WITHOUT reading anything
         # (``_plan_pair`` used to read every candidate first, then let
-        # ``pair_by_content`` return the map's answer).
-        from codegen.demo_sources import document_stem
-
+        # ``pair_by_content`` return the map's answer). The override file first.
         explicit = {document_stem(k): document_stem(v) for k, v in (explicit_map or {}).items()}
         by_stem = {document_stem(n): n for n in candidates}
         mapped = explicit.get(document_stem(sttm_name))
-        if mapped in by_stem:
+        if wanted and document_stem(wanted) in by_stem:
+            scopes = [("override", [by_stem[document_stem(wanted)]])]
+        elif mapped in by_stem:
             scopes = [("pairing_map", [by_stem[mapped]])]
+        states: dict[str, str | None] = {}
         decision, scope = None, "all"
         for scope, names in scopes:
             local: dict[str, Path] = {}
@@ -725,12 +754,19 @@ class DemoRunner:
                         not_indexed.append(name)      # not reached yet: re-scored when it is
                     else:
                         unread.append(name)           # its NAME still speaks
+                states[name] = state
                 known[name] = facts if facts is not None else empty_facts()
             decision = pair_by_content(kind, sttm_path, local, config, REPO_ROOT,
-                                       explicit_map=explicit_map, known_facts=known)
+                                       explicit_map=explicit_map, known_facts=known,
+                                       overrides=overrides)
             nested = sttm_doc is not None and "/" in sttm_doc.rel
+            # 2026-10-13: the folder rescues a DICTIONARY only when it is one —
+            # a ``vdd`` token or the index's positive content verdict.
+            rescuable = len(local) == 1 and (kind == "frd" or any(
+                classify_document_name(n).role == "vdd" or states.get(n) == "vdd"
+                for n in local))
             if (decision.chosen is None and scope == "same_folder" and nested
-                    and len(local) == 1):
+                    and rescuable):
                 # A pair folder holding exactly ONE candidate of the kind: the
                 # folder is the person's pairing, whatever the content score
                 # (M15.4 — a weak score used to block this rescue). Never
@@ -745,7 +781,7 @@ class DemoRunner:
         assert decision is not None
         likely = None
         if (kind == "vdd" and decision.chosen is not None and decision.chosen in not_indexed
-                and decision.rule not in ("same_folder", "pairing_map")):
+                and decision.rule not in ("same_folder", "pairing_map", "override")):
             # M15e: a candidate that matches by NAME only and is not indexed yet
             # is SHOWN as likely, never applied — content, the folder or the
             # pairing map decide; the index re-scores when it reaches it.
@@ -768,9 +804,33 @@ class DemoRunner:
                     reason=f"{decision.chosen} was chosen but could not be downloaded "
                            f"within the step's budget ({exc}); choose it again or pick it "
                            "in the chooser")
+        notes: list[str] = []
+        if decision.chosen is not None and decision.rule == "name_fuzzy":
+            notes.append(decision.reason)                  # names the files + stem words
+        content_vdd = vdd_by_content_note(decision)          # "VDD by content: <file>"
+        if content_vdd:
+            notes.append(content_vdd)
+        roles = self._folder_roles(folder, sttm_name)
+        if kind == "vdd" and decision.chosen is None and not decision.ambiguous and not likely:
+            left_out = [f"{r['name']} ({r['role']})" for r in roles
+                        if r["name"].lower().endswith(".xlsx") and r["name"] != sttm_name
+                        and r["role"] in ("iig", "unclassified")]
+            decision = replace(decision, reason=(
+                "no VDD: no workbook carries a 'vdd' token or reads as a dictionary by "
+                "content" + (f"; not candidates: {', '.join(left_out)}" if left_out else "")
+                + f" ({decision.reason})"))
         outcome = {
             "chosen": decision.chosen, "rule": decision.rule, "reason": decision.reason,
             "scope": scope, "folder": folder,
+            # 2026-10-13: every file of the STTM's folder with its role and the
+            # rule that assigned it — nothing is skipped silently.
+            "folder_roles": roles,
+            # Every document of this kind in the input roots, candidate or not,
+            # with its name overlap — a file another folder holds is shown as
+            # not a candidate, never dropped from view.
+            "considered": self._considered(kind, sttm_name, decision, scope, folder,
+                                           candidates, catalog, suffixes),
+            "notes": notes,
             "candidates": [{"name": c.name, "score": c.score, "signals": c.summary()}
                            for c in decision.candidates],
             # No question while dictionaries are still being indexed: the index
@@ -787,6 +847,87 @@ class DemoRunner:
             "likely": likely,
         }
         return {"decision": decision, "outcome": outcome, "path": path}
+
+    def _pair_overrides(self, folder: str | None, deadline: float):
+        """Every pairs override file the App can see, merged: one named
+        ``pairing_overrides.yaml|yml|json`` in an input folder (the STTM's
+        folder first — drop it next to the documents, no redeploy) and the
+        configured one (``CODEGEN_PAIRING_OVERRIDES`` /
+        ``inputs.pairing.overrides_file``). A broken file is an error that
+        names it (the pairing step's warning), never ignored."""
+        from codegen.pairing import (
+            OVERRIDE_FILE_NAMES,
+            PairOverrides,
+            configured_overrides_path,
+            load_pair_overrides,
+            parse_pair_overrides,
+        )
+
+        overrides = PairOverrides()
+        docs = [d for d in self._workbook_catalog().every_document((".yaml", ".yml", ".json"))
+                if d.name.lower() in OVERRIDE_FILE_NAMES]
+        for doc in sorted(docs, key=lambda d: d.source != folder):
+            path = self._fetch(doc, max(deadline - time.monotonic(), 0.05))
+            overrides = overrides.merged(parse_pair_overrides(
+                Path(path).read_text(encoding="utf-8"), f"{doc.source}/{doc.name}"))
+        configured = configured_overrides_path(self._store.config, REPO_ROOT)
+        if configured is not None:
+            overrides = overrides.merged(load_pair_overrides(configured))
+        return overrides
+
+    def _folder_roles(self, folder: str | None, sttm_name: str) -> list[dict]:
+        """Every file of the STTM's folder with its role and the rule that
+        assigned it: the name first (a role token anywhere; ``iig`` always),
+        then — for a workbook without one — the index's content verdict."""
+        from codegen.pairing import file_role
+
+        if folder is None:
+            return []
+        roles = []
+        for doc in self._workbook_catalog().every_document(("",)):
+            if doc.source != folder:
+                continue
+            if doc.name == sttm_name:
+                roles.append({"name": doc.name, "role": "sttm", "rule": "the chosen STTM"})
+                continue
+            content = None
+            if doc.name.lower().endswith(".xlsx"):
+                entry = self._index.lookup(doc)
+                content = (entry["state"], entry.get("reason") or entry["state"])
+            roles.append(file_role(doc.name, content).as_dict())
+        return roles
+
+    def _considered(self, kind: str, sttm_name: str, decision, scope: str,
+                    folder: str | None, candidates: dict, catalog, suffixes) -> list[dict]:
+        """Every document of the kind in the input roots — its folder, its
+        name overlap with the STTM and why it is (not) a candidate."""
+        from codegen.demo_sources import name_similarity
+        from codegen.pairing import file_role
+
+        scored = {c.name: c.score for c in decision.candidates}
+        out = []
+        for doc in catalog.every_document(suffixes):
+            if doc.name == sttm_name:
+                continue
+            if doc.name == decision.chosen:
+                status = f"chosen ({decision.rule})"
+            elif doc.name in scored:
+                status = f"candidate, score {scored[doc.name]:g}"
+            elif doc.name in candidates:
+                status = (f"not a candidate here — in {doc.source!r}; the STTM's own folder "
+                          f"{folder!r} decided" if scope == "same_folder" and doc.source != folder
+                          else f"not scored — {scope} decided")
+            else:
+                content = None
+                if doc.name.lower().endswith(".xlsx"):
+                    entry = self._index.lookup(doc)
+                    content = (entry["state"], entry.get("reason") or entry["state"])
+                role = file_role(doc.name, content)
+                status = f"not a candidate — {role.role}: {role.rule}"
+            out.append({"name": doc.name, "folder": doc.source,
+                        "name_score": round(name_similarity(sttm_name, doc.name), 2),
+                        "status": status})
+        return out
 
     def _apply_pair(self, kind: str, plan: dict) -> None:
         """Record a pairing plan: a manual choice is replaced only when a pair
@@ -1893,6 +2034,10 @@ class DemoRunner:
         """M15e: a run started while the dictionaries are still being indexed
         runs WITHOUT a VDD and says so — never with a name-only guess."""
         self.run_notes = []
+        self.run_pairing_notes = [
+            note for kind, auto in (("frd", self.frd_auto_paired), ("vdd", self.vdd_auto_paired))
+            if auto is not None
+            for note in (self.last_pairing.get(kind) or {}).get("notes", [])]
         outcome = self.last_pairing.get("vdd") or {}
         if self.selected_vdd is None and outcome.get("not_indexed"):
             likely = outcome.get("likely")
@@ -2165,7 +2310,8 @@ class DemoRunner:
                 "iig_template": self.iig_template or config.metadata.template,
                 "playbook_template": self.playbook_template or config.playbook.template,
                 "vdd": self.selected_vdd.name if self.selected_vdd else None,
-                "notes": list(self.run_notes),          # M15e: "VDD not decided at run start"
+                # M15e: "VDD not decided at run start"; 2026-10-13: the pairing NOTEs
+                "notes": [*self.run_notes, *self.run_pairing_notes],
                 "codegen": _codegen_source_line(),      # which code produced this run
                 # 2026-10-12: + the commit (tools/iig_diff.py reads it)
                 "build": _build_identity(),
@@ -2267,7 +2413,8 @@ class DemoRunner:
                     # M15e: "VDD not decided at run start" is a flag on every
                     # feed — the report says the run went without a VDD.
                     extra_flags=[*layout_flags,
-                                 *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes)],
+                                 *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes),
+                                 *(f"pairing_note: {n}" for n in self.run_pairing_notes)],
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template,
                     playbook_template=self.playbook_template,

@@ -160,5 +160,14 @@
     "expected_pattern": "A",
     "expected_first_action": "Report a spiral check naming the edit layer: confirm the file still holds the text the patch meant to replace (the script aborted before writing), then apply the change with the Edit tool and re-run the exact command.",
     "must_not": "change the code's logic or try a different fix for the lint findings before confirming whether the previous edit was written at all"
+  },
+  {
+    "id": "tdd-red-phase-collection-importerror",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. You wrote tests/test_new_feature.py (untracked) before implementing the feature; it fails at collection with `ImportError: cannot import name 'document_roles' from 'codegen.demo_sources'`. You then added that function and two others to demo_sources.py over four edits. The spiral-detector hook reports signal (b): demo_sources.py edited 4 times while the pytest command on that file is still failing. What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": "none",
+    "expected_first_action": "Report a spiral check, then re-run the exact command as the diagnostic: if the collection error now names a DIFFERENT missing import (the next, not-yet-edited module), it is the planned red phase - a false trigger; wait for the go-ahead if the user is present.",
+    "must_not": "rewrite or delete the new tests to make the collection error go away, or keep editing before the diagnostic run"
   }
 ]

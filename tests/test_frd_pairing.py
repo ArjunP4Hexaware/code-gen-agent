@@ -47,10 +47,11 @@ def test_auto_pair_rules_map_then_ticket_then_stem():
     assert auto_pair_frd(MIDS_STTM, [MIDS_FRD, CAQH_FRD], explicit_map=MIDS_MAP) == (
         MIDS_FRD, "pairing_map")
     assert auto_pair_frd(CAQH_STTM, [MIDS_FRD, CAQH_FRD]) == (CAQH_FRD, "ticket")
-    assert auto_pair_frd(MIDS_STTM, [MIDS_FRD]) == (MIDS_FRD, "name_stem")
+    # 2026-10-13: the two titles differ in two word endings: a whole-word stem match.
+    assert auto_pair_frd(MIDS_STTM, [MIDS_FRD]) == (MIDS_FRD, "name_fuzzy")
     # Role tokens and a ".contract" suffix are not content: the CV pair matches.
     assert auto_pair_frd("demo_sttm_cv_golden.xlsx", ["FRD_demo_cv_golden.contract.json"]) == (
-        "FRD_demo_cv_golden.contract.json", "name_stem")
+        "FRD_demo_cv_golden.contract.json", "name_key")
     assert auto_pair_frd(MIDS_STTM, [MIDS_FRD, MIDS_FRD + " v2"]) is None
     assert auto_pair_frd("unrelated.xlsx", [MIDS_FRD, CAQH_FRD]) is None
 
@@ -63,7 +64,7 @@ def test_auto_pair_vdd_same_rules_never_the_sttm_itself():
         "VDD_PaymentIntegrity_CAQH_1005034.xlsx", "ticket")
     assert auto_pair_vdd("demo_sttm_cv_golden.xlsx",
                          ["demo_sttm_cv_golden.xlsx", "VDD_demo_cv_golden.xlsx"]) == (
-        "VDD_demo_cv_golden.xlsx", "name_stem")
+        "VDD_demo_cv_golden.xlsx", "name_key")
     assert auto_pair_vdd("pair_1_family_a.xlsx", ["pair_1_v1_segments.xlsx"],
                          explicit_map={"pair_1_family_a": "pair_1_v1_segments"}) == (
         "pair_1_v1_segments.xlsx", "pairing_map")

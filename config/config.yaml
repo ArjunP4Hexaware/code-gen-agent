@@ -1328,3 +1328,12 @@ inputs:
     min_score: 3      # one weak signal (a name, a lone feed-name echo) never pairs
     margin: 2
     top_candidates: 4
+    # Names (2026-10-13): a token key — lowercased, split on whitespace _ - . ,
+    # the frd / sttm / vdd / iig role tokens dropped wherever they sit. Exact key
+    # first; else the unique token overlap at or above this threshold pairs
+    # (with a NOTE); below it: a question. (name_stem above weighs both.)
+    name_fuzzy_threshold: 0.8
+    # Pairs override file (wins over every automatic rule); env
+    # CODEGEN_PAIRING_OVERRIDES wins. A pairing_overrides.yaml next to the
+    # documents is found without it.
+    overrides_file: null

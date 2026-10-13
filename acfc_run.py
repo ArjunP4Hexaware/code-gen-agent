@@ -158,21 +158,40 @@ def run(label: str, *args: str) -> int:
     return done.returncode
 
 
-sttms = [n for n in documents if n.lower().endswith(".xlsx") and n.lower().startswith("sttm")]
-assert len(sttms) == 1, f"expected one STTM_*.xlsx in the pair folder, found {sttms}"
+from codegen.demo_sources import classify_document_name  # noqa: E402
+
+# The role is a token ANYWHERE in the name ("<title>_STTM.xlsx" too).
+sttms = [n for n in documents
+         if n.lower().endswith(".xlsx") and classify_document_name(n).role == "sttm"]
+assert len(sttms) == 1, f"expected one STTM workbook in the pair folder, found {sttms}"
 sttm = local_pair / sttms[0]
 answers = ["--answers", str(local_pair / ANSWERS_NAME)] if ANSWERS_NAME else []
 
 # 1. Which FRD / VDD belong to this STTM — by what the documents say.
 run("pair", "pair", "--sttm", str(sttm), *answers)
-from codegen.pairing import pair_by_content  # noqa: E402
+from codegen.pairing import (  # noqa: E402
+    OVERRIDE_FILE_NAMES,
+    PairOverrides,
+    classify_folder,
+    load_pair_overrides,
+    pair_by_content,
+)
 
-frds = {p.name: p for p in local_pair.iterdir()
-        if p.name.lower().endswith((".docx", ".contract.json"))}
-vdds = {p.name: p for p in local_pair.iterdir()
-        if p.suffix.lower() == ".xlsx" and p != sttm}
-frd_name = pair_by_content("frd", sttm, frds, config, REPO).chosen
-vdd_name = pair_by_content("vdd", sttm, vdds, config, REPO).chosen
+# The same roles `codegen pair` printed above: an FRD by its frd token, a VDD
+# by its vdd token or positive dictionary evidence — never an IIG golden or an
+# unclassified workbook; a pairing_overrides.yaml in the folder wins.
+roles = classify_folder([p for p in sorted(local_pair.iterdir())
+                         if p.is_file() and p != sttm], config)
+frds = {r.name: r.path for r in roles if r.role == "frd"}
+vdds = {r.name: r.path for r in roles if r.role == "vdd"}
+override_files = [local_pair / n for n in documents if n.lower() in OVERRIDE_FILE_NAMES]
+overrides = load_pair_overrides(override_files[0]) if override_files else PairOverrides()
+for kind, found in (("frd", frds), ("vdd", vdds)):
+    wanted = overrides.lookup(sttm.name, kind)
+    if wanted and (local_pair / wanted).is_file():
+        found.setdefault(wanted, local_pair / wanted)
+frd_name = pair_by_content("frd", sttm, frds, config, REPO, overrides=overrides).chosen
+vdd_name = pair_by_content("vdd", sttm, vdds, config, REPO, overrides=overrides).chosen
 assert frd_name, "no FRD paired — add `pairing:` to the answers file (see the output above)"
 frd = frds[frd_name]
 vdd = vdds.get(vdd_name) if vdd_name else None

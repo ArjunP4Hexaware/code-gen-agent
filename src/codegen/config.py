@@ -944,6 +944,15 @@ class PairingConfig(BaseModel):
     min_score: float = Field(default=3.0, gt=0)
     margin: float = Field(default=2.0, gt=0)
     top_candidates: int = Field(default=4, gt=0)
+    # 2026-10-13: names are a token key (role tokens dropped wherever they
+    # sit); no exact key → the unique token overlap (Jaccard) at or above this
+    # pairs, with a NOTE; below it is a question, never a pair. 0.8 keeps one
+    # EXTRA token (6/7) and refuses one SUBSTITUTED token (5/7 — a sibling feed).
+    name_fuzzy_threshold: float = Field(default=0.8, ge=0.5, le=1.0)
+    # A pairs override file (codegen.pairing, "the pairs override file"); env
+    # CODEGEN_PAIRING_OVERRIDES wins. A pairing_overrides.yaml next to the
+    # documents is found without this.
+    overrides_file: str | None = None
 
     @model_validator(mode="after")
     def _weights_complete(self) -> PairingConfig:

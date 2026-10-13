@@ -116,3 +116,15 @@ Entry format:
 - Pattern: A (wrong layer - the edit never landed)
 - Seen: 2026-10-12
 - Permanent fix: patch with the Edit tool, or a script file written with the Write tool.
+## Hook (a)/(b) false positive: a brand-new test file in its planned red phase
+- Signature: signal (b) counts edits to a module while a pytest command on a NEW (untracked)
+  test file "still fails"; signal (a) then reports the same command failing twice "with the
+  same error signature" — both runs a collection-time ImportError.
+- Usual cause: tests written first against an API not yet implemented; each edit adds that API,
+  so the missing import moves from one name / module to the next. The signature does not
+  include the missing name.
+- Check: compare the `cannot import name 'X' from 'M'` lines of the two runs, and whether the
+  test file is untracked. A different X (or M) on a new file = planned progression, not a spiral.
+- Pattern: none (not a spiral)
+- Seen: 2026-10-13
+- Permanent fix: none yet — candidate hook refinement logged for /spiral-retro (proposals.md).

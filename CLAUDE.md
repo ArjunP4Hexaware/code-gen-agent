@@ -31,6 +31,26 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   `scripts/run_round.py` stage `## DDL sanity` after the CLI: a column identifier not
   `^[A-Za-z_][A-Za-z0-9_]*$` = exit 1, named. Tests `tests/test_audit_annotation.py`, a DDL-gate
   test in `tests/test_run_round.py`.
+- **post37 — pairing by NAME ROLE + token key (the Pyx pair_11 failure).** The App's
+  `local_frd_candidates` and `codegen pair` took a `.docx` as an FRD only when its name
+  STARTED with "frd" (`Pyx_ … DSNP_FRD.docx` was never a candidate), the name rule was the
+  first three tokens, and the same-folder rescue attached an IIG golden as the VDD. Now:
+  `demo_sources.classify_document_name` (a role token ANYWHERE; `iig` always = IIG, never an
+  input; two roles → the prefix decides + NOTE), `pairing_key` / `match_by_name` (exact key →
+  `name_key`; else a unique whole-word-stem Jaccard ≥ `inputs.pairing.name_fuzzy_threshold`
+  0.8 → `name_fuzzy` + NOTE naming the stem-matched words; below → QUESTION, `codegen pair`
+  exit 3). A VDD candidate needs a `vdd` token or the index's positive dictionary verdict
+  ("VDD by content: <file>" NOTE → outcome `notes`, run flag `pairing_note:`); the same-folder
+  rescue applies to a confirmed dictionary only. Pairs override file
+  (`pairing_overrides.yaml|yml|json` in an input folder, `--pairs-file`,
+  `inputs.pairing.overrides_file` / `CODEGEN_PAIRING_OVERRIDES`) wins over everything
+  (`rule: override`); `InputCatalog.every_document` (no name dedupe). The pairing outcome
+  carries `folder_roles` (every file of the STTM's folder, role + rule) and `considered`
+  (every document of the kind, its name score, why it is not a candidate); dist
+  `index-DGsprVYN.js`. Tests `tests/test_pairing_name_key.py` (incl. pair_11 end to end on
+  local folders AND the fake workspace backend). Storage path audit: nothing strips / splits /
+  quotes a segment; the SDK quotes Files API URLs, the Workspace API takes `path` as a
+  parameter (`clean_rel` strips only the ends of the whole rel — not this shape).
 - **Verified at 042b9fa:** 1360 passed / 28 skipped; ruff, tsc clean; vitest 29. SD invariant
   (home, mock) 47 / 47 / 45 matched, diff 1 / 1 / 3 — unchanged by post36. App (nothing POSTed
   → framework) vs CLI: `framework/` + `ddl/` byte-identical, mock AND live

@@ -1,4 +1,4 @@
-import type { DemoStatus, SelectionJob } from "../api";
+import { pairRuleLabel, type DemoStatus, type SelectionJob } from "../api";
 import { fmtSeconds } from "../format";
 
 /**
@@ -72,7 +72,7 @@ export function PairingLines({ pairing, chosenSttm, pairingPending }: {
             ({outcome.scope === "same_folder" ? `same folder ${outcome.folder ?? ""}` : "all input folders"}):{" "}
             {outcome.chosen ? (
               <>
-                <code>{outcome.chosen}</code> — {outcome.rule ?? "content"}
+                <code>{outcome.chosen}</code> — by {pairRuleLabel(outcome.rule ?? "content")}
               </>
             ) : notIndexed.length > 0 ? (
               <>
@@ -93,6 +93,21 @@ export function PairingLines({ pairing, chosenSttm, pairingPending }: {
             ) : null}
             {outcome.upgraded_from ? (
               <> (re-scored once indexed; was {outcome.upgraded_from})</>
+            ) : null}
+            {(outcome.notes ?? []).map((note, i) => (
+              <span key={`note-${i}`} style={{ display: "block" }}>NOTE: {note}</span>
+            ))}
+            {kind === "frd" && (outcome.folder_roles ?? []).length > 0 ? (
+              // Every file of the STTM's folder with its role and the rule that
+              // assigned it — an unclassified file is listed, never skipped.
+              <span style={{ display: "block" }}>
+                Files in {outcome.folder ?? "the STTM's folder"}:{" "}
+                {(outcome.folder_roles ?? []).map((r, i) => (
+                  <span key={`role-${i}`} title={r.rule}>
+                    {i > 0 ? "; " : ""}<code>{r.name}</code> — {r.role}
+                  </span>
+                ))}
+              </span>
             ) : null}
           </p>
         );

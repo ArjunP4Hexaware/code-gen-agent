@@ -78,8 +78,12 @@ def test_the_overlay_selects_the_sd_family_stage_to_standard_settings(sd_run):
     offer = template.open_offers[STG]["SRC_CONTAINER_NAME"]
     assert STAGE_CONTAINER in offer and "Friday checklist 13" in offer
     assert "config/overlays/acfc_env.yaml" in offer
-    assert template.path_patterns[STG]["SRC_ADLS_PATH"] == "/{domain_path}Processed/"
-    for column in ("SRC_ADLS_PATH", "TGT_ADLS_PATH", "TGT_RJT_ADLS_PATH"):
+    # round 6 (SD prod rows + SFMC reference IIG): source = the stage table's
+    # processed folder, target = the processed directory, archive beside it
+    assert template.path_patterns[STG]["SRC_ADLS_PATH"] == "/{domain_path}Processed/{stage_table}"
+    assert template.path_patterns[STG]["TGT_ADLS_PATH"] == "/{domain_path}Processed/"
+    assert template.path_patterns[STG]["SRC_ADLS_ARCHVL_PATH"] == "/{domain_path}Archive/"
+    for column in ("SRC_ADLS_PATH", "SRC_ADLS_ARCHVL_PATH", "TGT_ADLS_PATH", "TGT_RJT_ADLS_PATH"):
         assert "config/overlays/acfc_env.yaml" in template.path_citations[STG][column]
 
 
@@ -92,14 +96,18 @@ def test_stage_to_standard_paths_are_container_relative(sd_run):
         landing_container = adls["SRC_CONTAINER_NAME"]
         processed = adls["TGT_ADLS_PATH"].rsplit("/", 1)[0] + "/"   # the stage Processed folder
         assert processed.endswith("/Processed/")
-        # a. the source = the stage side's Processed folder, no container segment
-        assert stg["SRC_ADLS_PATH"] == processed, slug
+        # a. the source = the stage table's processed folder = the ADLS row's
+        #    target (round 6: SD prod rows, SFMC reference IIG STGDELTA!N2)
+        assert stg["SRC_ADLS_PATH"] == adls["TGT_ADLS_PATH"], slug
         assert adls["TGT_CONTAINER_NAME"] == STAGE_CONTAINER
-        # b. target and reject: the standard container, the same relative shape
-        assert stg["TGT_ADLS_PATH"] == f"{processed}{stg['TGT_TABLE_NAME']}", slug
+        # b. target = the processed directory; reject the same relative shape;
+        #    the archive beside Processed/
+        assert stg["TGT_ADLS_PATH"] == processed, slug
+        assert stg["SRC_ADLS_ARCHVL_PATH"] == processed.replace("/Processed/", "/Archive/"), slug
         assert stg["TGT_RJT_ADLS_PATH"] == (
             processed.replace("/Processed/", "/Reject/") + stg["TGT_RJT_TABLE_NAME"]), slug
-        for column in ("SRC_ADLS_PATH", "TGT_ADLS_PATH", "TGT_RJT_ADLS_PATH"):
+        for column in ("SRC_ADLS_PATH", "SRC_ADLS_ARCHVL_PATH", "TGT_ADLS_PATH",
+                       "TGT_RJT_ADLS_PATH"):
             segments = stg[column].strip("/").split("/")
             assert landing_container not in segments and "inbound" not in segments, column
         tips = _tooltips(book, STG)[2]

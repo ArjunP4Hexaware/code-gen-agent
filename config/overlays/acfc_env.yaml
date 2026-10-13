@@ -101,9 +101,15 @@ metadata:
         # the standard container, the same shape as the stage container's
         # ({stage_table} here = this row's target table, {reject_table} = it +
         # _reject). SRC_ADLS_ARCHVL_PATH keeps the template's shape.
+        # Round 6 (2026-10-13): the stage -> standard leg READS the stage table's
+        # processed folder (= the ADLS row's TGT_ADLS_PATH) and WRITES the
+        # processed directory; its archive sits beside Processed/ — the SD prod
+        # rows and the SFMC reference IIG (STGDELTA!N2 / AA2 / U2) agree; the
+        # pair-1 PRX golden has the opposite reading (its own family).
         STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_ADLS_PATH: "/{domain_path}Processed/"
-          TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          SRC_ADLS_PATH: "/{domain_path}Processed/{stage_table}"
+          SRC_ADLS_ARCHVL_PATH: "/{domain_path}Archive/"
+          TGT_ADLS_PATH: "/{domain_path}Processed/"
           TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
       path_citations:
         ADLS_DELTA_INGESTION_DETAILS:
@@ -112,7 +118,8 @@ metadata:
           TGT_ADLS_PATH: *acfc
           TGT_RJT_ADLS_PATH: *acfc
         STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_ADLS_PATH: &stgstd "ACFC environment overlay (config/overlays/acfc_env.yaml) — stage -> standard paths, container-relative (owner brief 2026-10-09)"
+          SRC_ADLS_PATH: &stgstd "ACFC environment overlay (config/overlays/acfc_env.yaml) — stage -> standard paths, container-relative (owner brief 2026-10-09); source = the stage table's processed folder, target = the processed directory, archive beside Processed/ (SD prod rows, round 6; SFMC reference IIG STGDELTA!N2 / AA2 / U2)"
+          SRC_ADLS_ARCHVL_PATH: *stgstd
           TGT_ADLS_PATH: *stgstd
           TGT_RJT_ADLS_PATH: *stgstd
       # Round 4 (2026-10-12): one notebook row per leg, the framework's generic

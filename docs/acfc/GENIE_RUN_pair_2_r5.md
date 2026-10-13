@@ -14,8 +14,8 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
    go in RUN.md as a record only (they differed in the first r5 attempt; never a stop).
    Finding to record, do not investigate: `*_blank_version*` has other mapping-sheet names, a
    uniform 18-column header and no merged ranges; all five of its sheet-name hashes equal the
-   repo's synthetic `fixtures/acfc_shapes/sttm/pair_2_family_b.xlsx` → pipeline-generated (the
-   STTM agent or a normalisation export), not BSA-authored.
+   repo's synthetic `fixtures/acfc_shapes/sttm/pair_2_family_b.xlsx`. It is NOT pipeline-
+   generated (owner); it is not the run's `<STTM>`.
 3. **Run the CLI clean.** `/tmp/r5/answers.yaml` = ONE entry, `gaps:` →
    `"feeds[1].file_name_patterns": {value: <the FILE_DETAILS file feeds 0 and 2 do not take>}`.
    env: `PYTHONUTF8=1 CODEGEN_FORCE_MOCK_LAYOUT=1 CODEGEN_FORCE_MOCK_PROVIDER=1

@@ -737,6 +737,30 @@ def classify_cell(content: DocxContent, source: FrdFieldSource, field: str, valu
     return None
 
 
+# 2026-10-13 (pair_12, CAQH): one cell states BOTH labels, on two lines —
+# "Domain: Member\nSub Domain: Third Party Liability". "Sub Domain" is tried
+# first at each position, and a bare "domain" never matches inside "subdomain".
+_DOMAIN_LABEL_RE = re.compile(r"(?i)(?<![a-z])(sub[\s_-]*domain|domain)\s*[:=]")
+
+
+def split_domain_labels(text: str | None) -> tuple[str | None, str | None] | None:
+    """``(domain, sub domain)`` when the cell carries a ``Domain:`` AND a
+    ``Sub Domain:`` label (any case; ``Sub-Domain`` / ``Subdomain`` /
+    ``Sub_Domain``; ``:`` or ``=``; any separator between them, either order);
+    None for any other cell — a plain value reads as before."""
+    if not text:
+        return None
+    marks = list(_DOMAIN_LABEL_RE.finditer(text))
+    kinds = ["domain" if m.group(1).lower() == "domain" else "sub_domain" for m in marks]
+    if sorted(kinds) != ["domain", "sub_domain"]:
+        return None
+    values: dict[str, str | None] = {}
+    for index, (mark, kind) in enumerate(zip(marks, kinds, strict=True)):
+        end = marks[index + 1].start() if index + 1 < len(marks) else len(text)
+        values[kind] = text[mark.end():end].strip(" \t\r\n;,|/") or None
+    return values["domain"], values["sub_domain"]
+
+
 def _split(text: str, separators: list[str]) -> list[str]:
     if not text:
         return []
@@ -841,6 +865,8 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         own = {k for k, v in {**_SCALAR_FIELDS, **_FALLBACK_FIELDS}.items() if v == field}
         if field == "domain":
             own |= {"domain_subdomain", "domain"}
+        if field in ("domain", "sub_domain") and split_domain_labels(value):
+            return value            # two labelled lines: split where the feed is built
         refused = classify_cell(content, source, field, value, frd_config, labels, own)
         if refused is not None:
             structured[clean] = refused
@@ -894,6 +920,20 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         source = profile.fields.get(path)
         return (f"table {source.table} row {source.row} ({source.label!r})" if source
                 else "no label cell")
+
+    def _domain_fields(prefix: str, domain_text: str, domain_parts: list[str]) -> dict:
+        labelled, path = split_domain_labels(domain_text), f"{prefix}.domain"
+        sub_text = ""
+        if labelled is None and len(domain_parts) <= 1:
+            sub_text = get(f"{prefix}.sub_domain")
+            labelled, path = split_domain_labels(sub_text), f"{prefix}.sub_domain"
+        if labelled is None:
+            return {"domain": domain_parts[0] if domain_parts else None,
+                    "sub_domain": domain_parts[1] if len(domain_parts) > 1 else sub_text or None}
+        flags.append(f"frd_domain_labels_split:{prefix} — the {cell_of(path)} cell states "
+                     f"'Domain:' and 'Sub Domain:' on one cell: domain {labelled[0]!r}, "
+                     f"sub domain {labelled[1]!r}")
+        return {"domain": labelled[0], "sub_domain": labelled[1]}
 
     flags: list[str] = []
     feeds: list[FrdFeed] = []
@@ -1016,9 +1056,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             frequency=get(f"{prefix}.frequency") or None,
             load_windows_sla=[],
             lobs=_split(get(f"{prefix}.lobs"), frd_config.list_separators),
-            domain=domain_parts[0] if domain_parts else None,
-            sub_domain=(domain_parts[1] if len(domain_parts) > 1
-                        else get(f"{prefix}.sub_domain") or None),
+            **_domain_fields(prefix, domain_text, domain_parts),
             landing_location=_landing(prefix) or None,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,
                                     load_strategy=stage_strategy),

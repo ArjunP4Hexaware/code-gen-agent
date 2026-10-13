@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 
 from codegen.config import Config, DerivationsConfig
 from codegen.contracts.resolved import ResolvedFeedSpec
@@ -257,7 +258,10 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                     source += f" — {badge['tooltip']}"
                 where = f"{tab_name}!{header} row {row_index} ({source})"
                 if "\n" in value or "\r" in value:
-                    problems.append(f"{where}: line break in {_truncate(value)!r}")
+                    address = _cell_address(tab, header, row_index)
+                    problems.append(f"{where}: line break"
+                                    + (f" at {tab_name}!{address}" if address else "")
+                                    + f" in {_truncate(value)!r}")
                     continue
                 if header in cfg.name_columns:
                     cap = cfg.name_max_length.get(header, cfg.name_max_length.get("default", 128))
@@ -284,6 +288,87 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
     if uris:
         details += f"; {uris} location URI cell(s) checked by the location URI rule"
     return GateCheck(name="derivations", passed=True, details=details)
+
+
+# ------------------------------------------------- single-line IIG cells ---
+# 2026-10-13 (pair_12, CAQH on D1): a two-line FRD cell reached 22 SUBDOMAIN
+# cells. Every IIG cell is ONE line: the payload is normalised at the emitter
+# boundary (before any workbook or metadata_inserts.sql is written), each
+# change a flag naming the cell; the written workbooks are then checked, and a
+# line break that slips through FAILS with its address.
+
+_LINE_BREAK_RE = re.compile(r"[ \t]*(?:\r\n|\r|\n)+[ \t]*")
+
+
+def _column_letter(index: int) -> str:
+    letters = ""
+    while index:
+        index, rest = divmod(index - 1, 26)
+        letters = chr(65 + rest) + letters
+    return letters
+
+
+def _cell_address(tab: dict, header: str, row_index: int) -> str | None:
+    headers = tab.get("headers") or []
+    if header not in headers:
+        return None
+    return f"{_column_letter(headers.index(header) + 1)}{row_index}"
+
+
+def normalise_iig_line_breaks(payload: dict) -> list[str]:
+    """Rewrite every payload cell holding a line break as one line (the break
+    and the blanks around it become one space), in place; one flag per cell:
+    ``iig_line_break_normalised:<SHEET>!<A1> (<COLUMN>) — <value> written as
+    one line``. Row 1 of every sheet is the header row."""
+    flags: list[str] = []
+    for tab_name, tab in payload.get("tabs", {}).items():
+        for row_index, row in enumerate(tab.get("rows", []), start=2):
+            values = row.get("values", {})
+            for header, value in list(values.items()):
+                if not isinstance(value, str) or not ("\n" in value or "\r" in value):
+                    continue
+                values[header] = _LINE_BREAK_RE.sub(" ", value).strip()
+                address = _cell_address(tab, header, row_index) or f"row {row_index}"
+                flags.append(f"iig_line_break_normalised:{tab_name}!{address} ({header}) — "
+                             f"'{_truncate(value)}' written as one line")
+    return flags
+
+
+def check_iig_workbooks_single_line(paths: list[Path]) -> GateCheck:
+    """Every string cell of the written IIG workbooks is one line; a line
+    break FAILS with ``<file> <SHEET>!<A1> (<header>)``. Sheets whose name
+    starts with ``_`` (provenance / inputs) are not IIG sheets."""
+    from openpyxl import load_workbook
+
+    problems: list[str] = []
+    cells = 0
+    for path in paths:
+        workbook = load_workbook(path, read_only=True)
+        try:
+            for sheet in workbook.worksheets:
+                if sheet.title.startswith("_"):
+                    continue
+                headers: list = []
+                for row_index, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    if row_index == 1:
+                        headers = list(row)
+                    for col_index, value in enumerate(row, start=1):
+                        if not isinstance(value, str):
+                            continue
+                        cells += 1
+                        if "\n" in value or "\r" in value:
+                            header = (headers[col_index - 1] if col_index <= len(headers)
+                                      else None)
+                            problems.append(
+                                f"{path.name} {sheet.title}!{_column_letter(col_index)}"
+                                f"{row_index} ({header}): line break in '{_truncate(value)}'")
+        finally:
+            workbook.close()
+    if problems:
+        return GateCheck(name="iig_single_line", passed=False, details="; ".join(problems))
+    names = ", ".join(p.name for p in paths)
+    return GateCheck(name="iig_single_line", passed=True,
+                     details=f"{cells} text cell(s) in {names}: every one single-line")
 
 
 # ---------------------------------------------------------- SQL literals ---
@@ -368,9 +453,11 @@ def sibling_type_flags(spec: ResolvedFeedSpec, config: Config) -> list[str]:
 
 __all__ = [
     "check_iig_derivations",
+    "check_iig_workbooks_single_line",
     "check_sql_literals",
     "join_path",
     "literal_violations",
+    "normalise_iig_line_breaks",
     "normalise_path",
     "path_normalised_flag",
     "path_segments",

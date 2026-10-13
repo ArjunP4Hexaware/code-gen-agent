@@ -67,8 +67,11 @@ def build_sttm(sheets: dict[str, str] | None = None, *, own_file_rows: bool = Tr
     return wb
 
 
-def build_frd(files: list[str] | None = None) -> bytes:
-    """F1: the project as the feed name, the files in Object Name, ONE table."""
+def build_frd(files: list[str] | None = None,
+              domain_cell: str = "Member / Care Management") -> bytes:
+    """F1: the project as the feed name, the files in Object Name, ONE table.
+    ``domain_cell`` is the "Domain and Subdomain" row (pair_12 CAQH states
+    both labels there on two lines)."""
     files = list(FILES.values()) if files is None else files
     return docx_bytes([
         _f1("DM", "Descriptive Metadata", [
@@ -87,7 +90,7 @@ def build_frd(files: list[str] | None = None) -> bytes:
             ("SM-4", "Object/data Format", "Pipe delimited text, first row is a header"),
             ("SM-5", "Target Schema", "stg_nb_cm (stage), nb_cm (standard)"),
             ("SM-6", "Target Table Name", TABLE),
-            ("SM-7", "Domain and Subdomain", "Member / Care Management"),
+            ("SM-7", "Domain and Subdomain", domain_cell),
             ("SM-8", "Load Strategy STG", "Truncate and Load"),
             ("SM-9", "Load Strategy STD", "Upsert"),
             ("SM-10", "ADLS Location", ""),

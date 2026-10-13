@@ -40,8 +40,10 @@ from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
 from codegen.gate.derivations import (
     check_iig_derivations,
+    check_iig_workbooks_single_line,
     check_sql_literals,
     join_path,
+    normalise_iig_line_breaks,
     normalise_path,
     path_normalised_flag,
 )
@@ -714,6 +716,9 @@ def emit_framework(
         conventions_profile=conventions_profile,
     )
     payload = _filter_payload_for_feed(payload, spec.feed_slug)
+    # 2026-10-13 (pair_12): every IIG cell is ONE line before anything is written
+    # from the payload (workbooks, metadata_inserts.sql); each change is a flag.
+    flags.extend(normalise_iig_line_breaks(payload))
     from codegen.metadata_template import blank_flags, shape_flags
 
     if template_cfg is not None:
@@ -868,6 +873,9 @@ def emit_framework(
         iig_rows, switch_block = _iig_addition_parts(
             review_path.name, clean_path.name, config,
             conventions_profile or config.conventions.profile, dml_disabled_reason)
+    # A line break that slipped past the boundary FAILS with its cell address.
+    checks.append(check_iig_workbooks_single_line(
+        [rows_path] + ([clean_path] if profile.emit_iig_review else [])))
     ddl_row = (
         f"| {' / '.join(f'`{name}`' for name in ddl_names)} | Deployment-team "
         "DDL, conformant to the client's reference format (the `.sql` "

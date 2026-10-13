@@ -281,16 +281,27 @@ def test_run_live_requires_explicit_confirm(client):
     assert response.status_code == 400
 
 
-def test_run_live_without_key_is_rejected(client):
+def test_run_live_without_key_is_rejected(client, monkeypatch):
+    # 2026-10-13: LIVE is asked for explicitly (CODEGEN_PROVIDER); it cannot run
+    # without the key — refused, never a quiet mock.
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     response = client.post("/api/demo/run-live", json={"confirm": True})
     assert response.status_code == 400
     assert "ANTHROPIC_API_KEY" in response.json()["detail"]
 
 
 def test_live_available_is_boolean_only(client, monkeypatch):
+    # The default: provider=mock — available, and it says so.
     payload = client.get("/api/demo/live-available").json()
     assert (payload["available"], payload["provider"], payload["reason"]) == (
-        False, "mock", "no ANTHROPIC_API_KEY in the backend env")
+        True, "mock (locked)", "")
+    assert payload["transport"]["detected_by"] == "provider=mock (default)"
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    payload = client.get("/api/demo/live-available").json()
+    assert (payload["available"], payload["provider"]) == (False, "mock")
+    assert "ANTHROPIC_API_KEY is unset" in payload["reason"]
     assert payload["transport"]["runtime"] == "local"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-never-echoed")
     payload = client.get("/api/demo/live-available").json()
@@ -303,6 +314,8 @@ def test_live_available_is_boolean_only(client, monkeypatch):
 def test_live_available_fmapi_needs_no_key(client, monkeypatch):
     # FMAPI availability is pure config resolution — no key, no network.
     from ui.backend import main
+
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
 
     reasoning = main.store.config.reasoning.model_copy(
         update={"provider": "databricks_fmapi"}
@@ -319,19 +332,16 @@ def test_live_available_fmapi_needs_no_key(client, monkeypatch):
     assert payload["transport"]["runtime"] == "local"
 
 
-def test_databricks_runtime_forces_the_foundation_model_endpoint(client, monkeypatch):
-    """Inside a Databricks runtime (Apps injects DATABRICKS_APP_PORT) the
-    transport is the Foundation Model endpoint even when the yaml says
-    anthropic — and the override is reported, never silent."""
+def test_a_databricks_runtime_never_makes_a_run_live(client, monkeypatch):
+    """2026-10-13: the Apps runtime's DATABRICKS_APP_PORT is detected and
+    reported, never inferred into live — the provider switch says so."""
     monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
     payload = client.get("/api/demo/live-available").json()
     transport = payload["transport"]
-    assert payload["provider"] == "databricks_fmapi" and payload["available"] is True
+    assert payload["provider"] == "mock (locked)" and payload["available"] is True
     assert transport["runtime"] == "databricks_app"
-    assert transport["detected_by"] == "DATABRICKS_APP_PORT"
-    assert transport["configured"] == "anthropic" and transport["overridden"] is True
-    assert "inside Databricks the Foundation Model endpoint is used" in transport["reason"]
-    assert transport["label"].startswith("Claude ") and transport["endpoint"] in transport["label"]
+    assert transport["detected_by"] == "provider=mock (default)"
+    assert transport["overridden"] is False
 
 
 @needs_replay_set

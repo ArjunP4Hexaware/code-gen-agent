@@ -520,6 +520,9 @@ class ReasoningConfig(BaseModel):
     # Foundation Model APIs — a transport, not a vendor change; Anthropic
     # remains the sole model vendor). Mock always wins on dry-run.
     provider: str = "anthropic"
+    # 2026-10-13: mock | live — the ONE provider switch (codegen.reasoning.mode);
+    # CODEGEN_PROVIDER / --provider win. Never inferred from an endpoint.
+    mode: Literal["mock", "live"] = "mock"
 
 
 class DemoInputDocumentsConfig(BaseModel):
@@ -1695,7 +1698,10 @@ def active_defaults(path: str | Path, overlays: list[str | Path] | None = None) 
         return {}
     conventions = raw.get("conventions") if isinstance(raw.get("conventions"), dict) else {}
     metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    from codegen.reasoning.mode import mode_from_raw
+
     return {
+        "provider": mode_from_raw(raw).text(),
         "profile": str(conventions.get("profile")
                        or ConventionsConfig.model_fields["profile"].default),
         "iig_template": str(metadata.get("template")

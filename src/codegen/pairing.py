@@ -405,9 +405,13 @@ def decide(kind: str, sttm_name: str, scored: list[PairCandidate], config: Confi
         # The rule names what decided: a name rule when it alone would have
         # picked the same document, "content" when the documents had to speak.
         rule = legacy[1] if legacy is not None and legacy[0] == best.name else "content"
-        return PairDecision(kind, sttm_name, best.name, rule, top,
-                            f"{best.name} scores {best.score:g}, next {runner_up:g} "
-                            f"(margin ≥ {knobs.margin:g})")
+        reason = (f"{best.name} scores {best.score:g}, next {runner_up:g} "
+                  f"(margin ≥ {knobs.margin:g})")
+        if rule in ("name_key", "name_fuzzy"):
+            # The NOTE names the files and the stem-matched words (D1 pair_2's
+            # NOTE carried the score only).
+            reason += "; " + match_by_name(sttm_name, names, threshold).reason
+        return PairDecision(kind, sttm_name, best.name, rule, top, reason)
     return PairDecision(
         kind, sttm_name, None, None, top,
         f"no candidate wins by the margin: best {best.score:g}, next {runner_up:g} "

@@ -31,6 +31,15 @@ REPO = Path(__file__).resolve().parents[1]
 os.environ["CODEGEN_SKIP_ENV_OVERLAY"] = "1"
 os.environ.pop("CODEGEN_CONFIG_OVERLAYS", None)
 
+# 2026-10-13: the suite NEVER opens a live model connection. Every live call
+# site (codegen.reasoning.mode.guard_live_call) raises LiveModelBlocked while
+# this is set — a BaseException, so no ``except Exception`` can hide it —
+# unless CODEGEN_ALLOW_LIVE_TESTS=1 opts a deliberate live run in. The
+# provider switch starts at its default (mock) whatever the operator's shell
+# says: fixtures and the real SD documents at home stay mock-only.
+os.environ["CODEGEN_BLOCK_LIVE_MODEL"] = "1"
+os.environ.pop("CODEGEN_PROVIDER", None)
+
 # Importing ui.backend.main (test_demo_ui and friends) runs load_dotenv as an
 # import side effect, which can put the OPERATOR'S machine-local env overrides
 # (e.g. CODEGEN_NOTIFICATION_EMAILS — a client value) into this process. The

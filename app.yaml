@@ -23,23 +23,26 @@
 # behavior for the ~20s pipeline thread and poll cadence has not been
 # exercised on a real Apps deployment.
 command: ["python", "-m", "ui.backend.main"]
-# SHIPPED DEFAULT: LIVE. Layer 2 runs through Databricks FMAPI
-# (reasoning.provider: databricks_fmapi -> databricks.serving_endpoint); the
-# App's service principal needs CAN_QUERY on that endpoint (docs/ACFC_DEPLOY.md
-# §4 — declare it as the App resource `llm-endpoint`, or grant it by CLI).
-# The mock lock is still available: add
-#     env:
-#       - name: CODEGEN_FORCE_MOCK_PROVIDER
-#         value: "1"
-# and redeploy. The UI then says "Mock provider (reason:
+# PROVIDER (2026-10-13): ONE explicit switch, CODEGEN_PROVIDER=mock|live, for the
+# layout recognizer AND Layer 2 (codegen.reasoning.mode). Default everywhere is
+# mock; nothing infers live from DATABRICKS_HOST or a configured endpoint. THIS
+# App runs inside ACFC, so the env block below sets it to live. Live goes through
+# Databricks FMAPI (reasoning.provider: databricks_fmapi ->
+# databricks.serving_endpoint, databricks-claude-opus-5-5); the App's service
+# principal needs CAN_QUERY on that endpoint (docs/ACFC_DEPLOY.md §4 — declare it
+# as the App resource `llm-endpoint`, or grant it by CLI). Live with the endpoint
+# unset is a startup error naming the setting (GET /api/health startup_error),
+# never a quiet mock. To run the App on the mock, set CODEGEN_PROVIDER to mock
+# (or CODEGEN_FORCE_MOCK_PROVIDER=1) and redeploy. The UI then says "Mock provider (reason:
 # CODEGEN_FORCE_MOCK_PROVIDER)" — every provider label renders from what the
 # run actually did (codegen.reasoning.usage), never from this file. The UI's
 # own gates stay either way: an explicit STTM choice, the cost confirmation
 # and mock-on-dry-run.
 #
-# The layout recognizer has its OWN switch: CODEGEN_LAYOUT_PROVIDER=live lets
-# it query the endpoint while Layer 2 stays locked (header regions and table
-# labels only, never a data row); CODEGEN_FORCE_MOCK_LAYOUT=1 locks it too.
+# Under CODEGEN_PROVIDER=live the layout recognizer can be narrowed on its own:
+# CODEGEN_LAYOUT_PROVIDER=mock (or CODEGEN_FORCE_MOCK_LAYOUT=1) keeps it on the
+# mock while Layer 2 is live; =live keeps it live while Layer 2 is locked
+# (header regions and table labels only, never a data row).
 #
 # Workspace-specific values are App env, never committed here (a user folder
 # path is a workspace identifier). Storage URIs — workspace: = Workspace API,
@@ -66,6 +69,8 @@ command: ["python", "-m", "ui.backend.main"]
 # chooser is empty it shows every root below with a live probe
 # (GET /api/health).
 env:
+  - name: CODEGEN_PROVIDER
+    value: "live"
   - name: CODEGEN_EXTRA_INPUT_DIRS
     value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/frd_sttm_pairs"
   - name: CODEGEN_STORAGE_INPUTS

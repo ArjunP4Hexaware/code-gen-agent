@@ -989,6 +989,45 @@ def _dominant(values: list[str | None]) -> str | None:
     return max(counts, key=counts.get) if counts else None
 
 
+def _own_sheet_files(sp, ws, config: Config) -> list[tuple[str, str]]:
+    """The file(s) a mapping sheet's own ``File Name`` meta row states."""
+    blanks = config.extractor.discovery.meta_blank_values
+    found: list[tuple[str, str]] = []
+    for entry in sp.meta_rows:
+        if entry.key not in ("file_names", "file_name_example") or entry.value_col is None:
+            continue
+        value = text(ws.cell(row=entry.row, column=entry.value_col).value)
+        if not value or is_blank_placeholder(value, blanks):
+            continue
+        cell = f"{sp.name}!{get_column_letter(entry.value_col)}{entry.row} ({entry.label!r})"
+        found += [(name.strip(), cell) for name in re.split(r"[;\n,]+", value) if name.strip()]
+    return found
+
+
+_FILE_DATE_TOKEN = re.compile(r"^(?:[yc]{2,4}|mm|dd|[yc]{4}mm(?:dd)?|mmdd[yc]{4}|mmdd[yc]{2}|"
+                         r"\d{4,8}|\*+)$", re.IGNORECASE)
+
+
+def sheet_feed_label(entry: dict) -> tuple[str, str]:
+    """A per-SHEET feed name for a workbook whose mapping sheets would
+    otherwise share one (2026-10-13, the D1 pair_11 'duplicate feed_id'):
+    the sheet's own file-name cell (extension and trailing date / wildcard
+    tokens dropped) when it states exactly one file, else the sheet name.
+    Returns (label, where it came from)."""
+    from codegen.resolve.gapfill import blank_sheet_feed_name
+
+    own = entry.get("own_files") or []
+    if len(own) == 1:
+        name, cell = own[0]
+        stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", name.strip())
+        tokens = [t for t in re.split(r"[_\-.\s]+", stem) if t]
+        while len(tokens) > 1 and _FILE_DATE_TOKEN.match(tokens[-1]):
+            tokens.pop()
+        if tokens:
+            return "_".join(tokens), f"the sheet's own file cell {cell}: {name!r}"
+    return blank_sheet_feed_name(entry["sheet"]), f"the sheet name {entry['sheet']!r}"
+
+
 def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
     """What the STTM says about the feed, each with a citation."""
     facts: dict = {"texts": [], "schemas": {}, "meta": {}, "files": [], "sheet_tables": [],
@@ -1015,7 +1054,10 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                  and standard_band.column(Role.TABLE) is not None,
                  # the TableName column is PLACED (blank cells), not unresolved
                  "stage_table_placed": sp.band("stage") is not None  # type: ignore[arg-type]
-                 and sp.band("stage").column(Role.TABLE) is not None}  # type: ignore[arg-type]
+                 and sp.band("stage").column(Role.TABLE) is not None,  # type: ignore[arg-type]
+                 # 2026-10-13: the file THIS sheet maps, from its own meta row
+                 # (family E: one mapping sheet per source file) — (name, cell).
+                 "own_files": _own_sheet_files(sp, ws, config)}
         for layer, role, key in (("stage", Role.TABLE, "stage_table"),
                                  ("standard", Role.TABLE, "standard_table"),
                                  ("stage", Role.SCHEMA, "stage_schema"),
@@ -1714,9 +1756,15 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
         # maps each on its own sheet (family B: a MAPPING- sheet per table).
         # Every sheet is its own feed - one feed carrying two sheets has no
         # single stage table and reached the contract as a duplicate feed id.
+        # 2026-10-13 (D1 pair_11): family E maps each SOURCE FILE on its own
+        # sheet, all into the table the FRD names — still one feed per sheet
+        # (named per sheet below); one feed carrying five sheets reached the
+        # contract as a duplicate feed id.
         sheet_keys = [normalize(e["stage_table"]) for e in sheet_tables]
-        per_sheet = (len(sheet_tables) > 1 and len(set(sheet_keys)) == len(sheet_keys)
-                     and set(sheet_keys) == stated)
+        shared_table = len(set(sheet_keys)) < len(sheet_keys)
+        per_sheet = len(sheet_tables) > 1 and (
+            set(sheet_keys) <= stated if shared_table
+            else len(set(sheet_keys)) == len(sheet_keys) and set(sheet_keys) == stated)
         if not per_sheet:
             return contract, [], []
     file_like = [t for t in feed.stage_target.tables if _FILE_LIKE.search(t)]
@@ -1767,8 +1815,46 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                          f"({name_reason})")
     questions: list[LayoutQuestion] = []
     feeds = []
+    # A feed is named after its sheet's stage table (else the sheet). Sheets
+    # that would SHARE a name (one table, a file per sheet) are named per
+    # sheet instead — their own file cell, else the sheet name — so every
+    # feed id is unique; a workbook whose names are already unique keeps them.
+    labels: dict[str, str] = {}
+    own_file_sheets: set[str] = set()
+    bases = {e["sheet"]: e["stage_table"] or blank_sheet_feed_name(e["sheet"])
+             for e in sheet_tables}
+    counts: dict[str, int] = {}
+    for base in bases.values():
+        counts[normalize(base)] = counts.get(normalize(base), 0) + 1
+    renamed: list[str] = []
+    for e in sheet_tables:
+        base = bases[e["sheet"]]
+        if counts[normalize(base)] == 1 or len(sheet_tables) == 1:
+            labels[e["sheet"]] = base
+            continue
+        name, source = sheet_feed_label(e)
+        labels[e["sheet"]] = name
+        if source.startswith("the sheet's own file"):
+            own_file_sheets.add(e["sheet"])
+        renamed.append(f"{e['sheet']!r} -> {name!r} ({source})")
+    taken: dict[str, str] = {}
+    for e in sheet_tables:              # still a clash: the sheet name, then an ordinal
+        key = normalize(labels[e["sheet"]])
+        if key in taken:
+            labels[e["sheet"]] = blank_sheet_feed_name(e["sheet"])
+            own_file_sheets.discard(e["sheet"])
+            key = normalize(labels[e["sheet"]])
+            if key in taken:
+                labels[e["sheet"]] = f"{labels[e['sheet']]}_{len(taken) + 1}"
+                key = normalize(labels[e["sheet"]])
+        taken[key] = e["sheet"]
+    if renamed:
+        shared_names = sorted({base for base in bases.values() if counts[normalize(base)] > 1})
+        flags.append("feed_names_per_sheet: the mapping sheets would share the feed name(s) "
+                     f"{shared_names}; each sheet is its own feed: {'; '.join(renamed)}")
+
     def label(entry: dict) -> str:
-        return entry["stage_table"] or blank_sheet_feed_name(entry["sheet"])
+        return labels[entry["sheet"]]
 
     matched = _mutual_unique_matches([label(e) for e in sheet_tables],
                                      [n for n, _c in candidates])
@@ -1791,7 +1877,13 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                          f"FRD names no table for it; feed named {table!r} after the sheet")
         patterns: list[str] = []
         chosen = gaps.get(key)
-        if len(sheet_tables) == 1:
+        if chosen is None and entry["sheet"] in own_file_sheets:
+            # The sheet states its own file: that file is this feed's.
+            name, cell = entry["own_files"][0]
+            patterns = [name]
+            flags.append(f"frd_unstated:{key} source_used:{cell}: {name!r} (the sheet's own "
+                         "file row)")
+        elif len(sheet_tables) == 1:
             # One sheet = one feed: every file the documents name belongs to it.
             # File-like 'Target Table Name' entries are its patterns when the
             # FRD states none; the resolver's STTM fallback covers the rest.
@@ -1844,7 +1936,7 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
             standard_update["schema_name"] = sheet_std_schema
             flags.append(f"frd_unstated:feeds[{index}].standard_target.schema source_used:STTM "
                          f"standard band {entry['sheet']!r}: {sheet_std_schema!r}")
-        stage_update: dict = {"tables": list(entry.get("stage_tables") or [table])
+        stage_update: dict = {"tables": list(entry.get("stage_tables") or [entry["stage_table"]])
                               if entry["stage_table"] else []}
         sheet_schema = entry.get("stage_schema")
         frd_schema = feed.stage_target.schema_name

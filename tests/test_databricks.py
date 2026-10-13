@@ -54,7 +54,7 @@ def test_tracked_config_ships_the_document_volumes_off(config):
     with pytest.raises(db.DatabricksConfigError, match="not configured"):
         db.config_for(config.databricks, env={})
     cfg = db.config_for(config.databricks, env={}, require=())
-    assert cfg.serving_endpoint == "databricks-claude-opus-5"
+    assert cfg.serving_endpoint == "databricks-claude-opus-5-5"     # Opus 5.5, 2026-10-13
     # A machine that HAS such volumes opts in through its environment.
     opted = db.config_for(config.databricks, env=VOLUMES_ENV)
     assert (opted.catalog, opted.frd_volume) == ("soham_workspace", "frd_raw")

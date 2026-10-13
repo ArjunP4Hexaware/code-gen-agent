@@ -629,3 +629,43 @@ def test_a_space_bearing_name_round_trips_through_the_remote_backends(scheme):
     assert backend.read_bytes(f"pair_11/{PYX_FRD}") == b"frd bytes"
     assert backend.exists(f"pair_11/{PYX_FRD}")
     assert backend.uri(f"pair_11/{PYX_FRD}") == f"{scheme}:{root}/pair_11/{PYX_FRD}"
+
+
+# -- every file listed; two STTMs in one folder are said (2026-10-13, D1 report) ---------
+
+OTHER_STTM = "STTM_Northwind_Roster.xlsx"           # SYNTHETIC
+
+
+def test_cli_pair_lists_every_file_and_names_a_second_sttm(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
+    folder = _pair_folder(tmp_path, PYX_FRD)
+    _xlsx(folder / OTHER_STTM)
+    (folder / "~$lock.xlsx").write_bytes(b"lock")
+    code = cli_main(["pair", "--config", str(CONFIG), "--sttm", str(folder / PYX_STTM)])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    roles = [line for line in out.splitlines() if line.startswith("ROLE")]
+    for name, role in ((PYX_STTM, "sttm"), (OTHER_STTM, "sttm"), (PYX_FRD, "frd"),
+                       (PYX_VDD, "vdd"), ("~$lock.xlsx", "ignored")):
+        assert any(f"{name} — {role}:" in line for line in roles), (name, out)
+    (note,) = [line for line in out.splitlines() if line.startswith("NOTE") and "pair.sttm" in line]
+    assert "2 STTM workbooks" in note and OTHER_STTM in note and PYX_STTM in note
+    # An override that pins this STTM's companions: the choice is no longer open.
+    _overrides(folder, f"pairs:\n  - sttm: {PYX_STTM}\n    frd: \"{PYX_FRD}\"\n")
+    cli_main(["pair", "--config", str(CONFIG), "--sttm", str(folder / PYX_STTM)])
+    assert "pair.sttm" not in capsys.readouterr().out
+
+
+def test_the_app_says_when_a_folder_holds_two_sttms(nested_runner):
+    runner = nested_runner
+    folder = next(d.local_path().parent for d in runner._workbook_catalog().documents((".xlsx",))
+                  if d.name == PYX_STTM)
+    _xlsx(folder / OTHER_STTM)
+    runner.refresh_inputs()
+    for doc in runner._workbook_catalog().documents((".xlsx",)):
+        runner._index.lookup(doc)
+    assert runner._index.wait_idle(60)
+    outcome = runner._plan_pair("frd", PYX_STTM, time.monotonic() + 60.0)["outcome"]
+    roles = {entry["name"]: entry["role"] for entry in outcome["folder_roles"]}
+    assert roles[OTHER_STTM] == "sttm" and roles[PYX_STTM] == "sttm"
+    assert any("2 STTM workbooks" in note and OTHER_STTM in note for note in outcome["notes"])

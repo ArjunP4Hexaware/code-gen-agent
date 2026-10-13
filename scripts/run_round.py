@@ -13,8 +13,10 @@ step stopping the run on failure:
 1. keyed fingerprint of both inputs (scripts/doc_fingerprint.py; the key must be
    present) → ``--compare`` against ``--reference``; a HARD line or a REFUSED
    compare → exit 2;
-2. ``codegen layout`` / ``extract-sttm`` / ``generate`` under the harness env (mock
-   layout + provider, the synthetic notification address, local storage under
+2. ``codegen layout`` / ``extract-sttm`` / ``generate`` under the harness env (the
+   provider switch ``CODEGEN_PROVIDER`` = ``--provider``, default LIVE — this is a
+   D1 entry point, 2026-10-13; never ``--dry-run``, never a mock lock; the provider
+   is recorded in RUN.md), the synthetic notification address, local storage under
    ``--work``), with NO answers unless ``--answers`` is given: the layout must
    resolve every file by itself (elimination included) — anything it still asks
    (a QUESTION / UNRESOLVED line, exit 3 of layout or extract-sttm) → exit 3, RUN.md
@@ -133,16 +135,21 @@ def _run(cmd: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str
                           errors="replace", env=env, cwd=str(ROOT))
 
 
-def harness_env(work: Path) -> dict[str, str]:
+_MOCK_LOCKS = ("CODEGEN_FORCE_MOCK_LAYOUT", "CODEGEN_FORCE_MOCK_PROVIDER",
+               "CODEGEN_LAYOUT_PROVIDER")
+
+
+def harness_env(work: Path, provider: str = "live") -> dict[str, str]:
     srcpath = _load("codegen_srcpath", ROOT / "src" / "codegen" / "_srcpath.py")
     (work / "state").mkdir(parents=True, exist_ok=True)
     (work / "out").mkdir(parents=True, exist_ok=True)
-    # the round runs as the harness does: acfc_env.yaml applied, never opted out of
-    base = {k: v for k, v in os.environ.items() if k != "CODEGEN_SKIP_ENV_OVERLAY"}
+    # the round runs as the harness does: acfc_env.yaml applied, never opted out of;
+    # ONE provider switch decides (2026-10-13) — no leftover mock lock from the shell
+    base = {k: v for k, v in os.environ.items()
+            if k != "CODEGEN_SKIP_ENV_OVERLAY" and k not in _MOCK_LOCKS}
     return srcpath.child_env(base=base, extra={
         "PYTHONUTF8": "1",
-        "CODEGEN_FORCE_MOCK_LAYOUT": "1",
-        "CODEGEN_FORCE_MOCK_PROVIDER": "1",
+        "CODEGEN_PROVIDER": provider,
         "CODEGEN_NOTIFICATION_EMAILS": SYNTHETIC_EMAIL,
         "CODEGEN_STORAGE_STATE": f"local:{(work / 'state').resolve().as_posix()}",
         "CODEGEN_STORAGE_OUTPUTS": f"local:{(work / 'out').resolve().as_posix()}",
@@ -221,13 +228,15 @@ class Round:
 
     # 2 ------------------------------------------------------------------- CLI
     def cli(self) -> int:
-        env = harness_env(self.work)
+        env = harness_env(self.work, self.args.provider)
         py = [sys.executable, "-m", "codegen.cli"]
         doctor = _run([*py, "doctor"], env)
         build = next((ln for ln in doctor.stdout.splitlines() if ln.startswith("build ")),
                      _first_line(doctor.stdout))
         sha = _run(["git", "rev-parse", "--short", "HEAD"], env).stdout.strip() or "?"
-        self.section("Build", [f"`{build}`", f"HEAD `{sha}`"])
+        self.section("Build", [f"`{build}`", f"HEAD `{sha}`",
+                               f"provider=`{self.args.provider}` (--provider; "
+                               "CODEGEN_PROVIDER for every stage)"])
         frd_json, sttm_json = self.work / "frd.json", self.work / "sttm.json"
         answers = ["--answers", str(self.args.answers)] if self.args.answers else []
         stages = [
@@ -238,7 +247,7 @@ class Round:
                               *answers]),
             ("generate", [*py, "generate", "--frd-contract", str(frd_json), "--sttm-contract",
                           str(sttm_json), "--output-mode", "framework", "--profile", "acfc_prx",
-                          "--iig-template", "iig_v2", "--skip-tests", "--dry-run"]),
+                          "--iig-template", "iig_v2", "--skip-tests"]),
         ]
         lines: list[str] = []
         for name, cmd in stages:
@@ -345,7 +354,7 @@ class Round:
 
     # 4 ------------------------------------------------------------------ diff
     def diff(self, golden: Path) -> int:
-        env = harness_env(self.work)
+        env = harness_env(self.work, self.args.provider)
         tool = [sys.executable, str(ROOT / "tools" / "iig_diff.py")]
         structure = _run([*tool, "--golden", str(golden), "--golden-structure",
                           "--out", str(self.out)], env)
@@ -455,6 +464,9 @@ def main(argv: list[str] | None = None) -> int:
                                                             "committable)")
     ap.add_argument("--work", type=Path, default=None, help="never pushed; default <out>.work")
     ap.add_argument("--reference", type=Path, default=REFERENCE)
+    ap.add_argument("--provider", choices=("live", "mock"), default="live",
+                    help="the provider switch for every stage (CODEGEN_PROVIDER); live by "
+                         "default — this runs in D1; mock only when asked")
     args = ap.parse_args(argv)
     if args.sttm is not None and args.frd is None:
         ap.error("--sttm needs --frd")

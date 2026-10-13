@@ -82,6 +82,7 @@ def health_line(facts: dict) -> str:
         f"version {facts.get('version') or 'unknown'}",
         *([build] if build and build not in source else []),   # once, never twice
         str(facts.get("codegen_source") or "codegen source unknown"),
+        *([str(facts["provider"])] if facts.get("provider") else []),
         "overlays: " + (" -> ".join(overlays) if overlays else "(none)"),
         f"startup error: {facts.get('startup_error') or 'none'}",
     ])

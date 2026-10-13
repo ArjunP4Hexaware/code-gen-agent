@@ -232,12 +232,29 @@ GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.<schema>.<publish volume>   
 The upstream FRD-contracts table read (optional) additionally needs `SELECT`
 on that table and `CAN_USE` on the SQL warehouse.
 
-## 5. Model posture: two independent switches
+## 5. Model posture: ONE provider switch (2026-10-13), then the narrowing locks
+
+**`CODEGEN_PROVIDER=mock|live`** (CLI `--provider`, config `reasoning.mode`;
+`codegen.reasoning.mode`) decides whether a model is called at all — for the
+layout recognizer AND Layer 2. The default everywhere is **mock**; live is never
+inferred from `DATABRICKS_HOST`, the App's env markers or a configured endpoint.
+Inside ACFC it is set to `live` explicitly: `app.yaml` (env block),
+`acfc_run.py` (the `provider` widget, default live) and — outside this repo —
+the harness jobs (codegen-watch / codegen-pull-and-run: export
+`CODEGEN_PROVIDER=live` and drop `--dry-run`, which asks for the mock and is
+said as `provider=mock for this command`). Live with the endpoint unset fails
+at startup with ONE line naming the setting (`FAIL provider — provider=live
+(...) but databricks.serving_endpoint is unset ...`; the App's
+`startup_error`). The CLI's first line, `codegen doctor` and `GET /api/health`
+print `provider=<mode> (<source>)`; every mock reason carries it too (the
+mock recognizer's "no profile for fingerprint" starts `provider=mock (...)`).
+The serving model is **Claude Opus 5.5** (`databricks-claude-opus-5-5`).
 
 | Switch | Values | Effect |
 | --- | --- | --- |
-| `CODEGEN_FORCE_MOCK_PROVIDER=1` (App env; **not** in the shipped `app.yaml` — the App ships live) | set / unset | Layer 2 (rule reasoning) is mock-locked; the UI, API and report then say `Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)`. Set it only while `CAN_QUERY` (§4) is missing. |
-| `layout.provider` / `CODEGEN_LAYOUT_PROVIDER` | `auto` (default: live only when Layer 2 is live) · `mock` · `live` | `live`: the layout recognizer queries `layout.endpoint` / `CODEGEN_LAYOUT_ENDPOINT` (else `databricks.serving_endpoint`) **even while Layer 2 stays mock-locked**. Needs `CAN_QUERY` (§4). |
+| `CODEGEN_PROVIDER` / `--provider` / `reasoning.mode` | `mock` (default) · `live` | the one switch above |
+| `CODEGEN_FORCE_MOCK_PROVIDER=1` | set / unset | under live, Layer 2 (rule reasoning) is mock-locked; the UI, API and report then say `Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)`. Set it only while `CAN_QUERY` (§4) is missing. |
+| `layout.provider` / `CODEGEN_LAYOUT_PROVIDER` | `auto` (default: follows the switch) · `mock` · `live` | under live: `mock` keeps the recognizer on the mock; `live` queries `layout.endpoint` / `CODEGEN_LAYOUT_ENDPOINT` (else `databricks.serving_endpoint`) **even while Layer 2 stays mock-locked**. `live` under `provider=mock` is a startup error. Needs `CAN_QUERY` (§4). |
 | `CODEGEN_FORCE_MOCK_LAYOUT=1` | set / unset | locks the recognizer to mock regardless of the above. |
 
 The live recognizer sends the same request as the mock — the fingerprint

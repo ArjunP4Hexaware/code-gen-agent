@@ -476,7 +476,8 @@ def test_an_uncaught_exception_in_a_route_is_json_with_where_and_health(client, 
     assert error["request"] == "GET /api/demo/status"
     facts = client.get("/api/health/facts").json()
     assert error["health"] == {k: facts[k] for k in ("version", "build", "codegen_source",
-                                                     "config_overlays", "startup_error")}
+                                                     "config_overlays", "startup_error",
+                                                     "provider")}
     assert error["health_line"] == facts["health_line"]
     assert "startup error: none" in error["health_line"]
 
@@ -495,10 +496,13 @@ def test_an_error_card_never_carries_a_secret_env_value(client, monkeypatch):
     assert "<SYNTHETIC_API_TOKEN masked>" in body["error"]["message"]
 
 
-def test_rerun_endpoint_guards(client):
+def test_rerun_endpoint_guards(client, monkeypatch):
     response = client.post("/api/demo/rerun-with-answers", json={"answers": {}})
     assert response.status_code == 400 and "confirm" in response.json()["detail"]
-    # No key in the test process: live is unavailable, so nothing can start.
+    # LIVE asked for (2026-10-13: never the default) with no key in the test
+    # process: live is unavailable, so nothing can start.
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     response = client.post("/api/demo/rerun-with-answers",
                            json={"answers": {"sttm": {BAND_KEYS[0]: "stage"}},
                                  "confirm": True})

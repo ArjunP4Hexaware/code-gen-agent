@@ -121,6 +121,21 @@ except Exception as exc:  # noqa: BLE001 — surfaced via /api/feeds, never hidd
     store = None
     startup_error = f"{type(exc).__name__}: {exc} [{CODEGEN_SOURCE}]"
 
+# 2026-10-13: the provider switch (codegen.reasoning.mode) — mock unless the
+# deployment SAYS live (CODEGEN_PROVIDER in app.yaml). Live that cannot run is
+# a startup error naming the unset setting; the App never quietly mocks.
+PROVIDER: str | None = None
+if store is not None:
+    from codegen.reasoning.mode import ProviderConfigError, check_live_config, provider_mode
+
+    try:
+        PROVIDER = provider_mode(store.config).text()
+        check_live_config(store.config)
+    except ProviderConfigError as exc:
+        store = None
+        startup_error = f"ProviderConfigError: {exc} [{CODEGEN_SOURCE}]"
+print(f"provider: {PROVIDER or 'unknown (no config)'}", flush=True)
+
 
 def _health_facts() -> dict:
     """What this process runs with — the static part of GET /api/health and
@@ -128,7 +143,7 @@ def _health_facts() -> dict:
     from codegen.build_info import build_identity
 
     return {"version": _app_version(), "build": build_identity(),
-            "codegen_source": CODEGEN_SOURCE,
+            "codegen_source": CODEGEN_SOURCE, "provider": PROVIDER,
             "config_overlays": _config_overlays(), "startup_error": startup_error}
 
 

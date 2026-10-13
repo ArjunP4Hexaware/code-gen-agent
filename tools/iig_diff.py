@@ -63,6 +63,20 @@ every such row names one table; unresolved ids are listed as
   CREATED_DATE, UPDATED_DATE (+ iig_v1's CRETAED_*): reported separately,
   never scored. Every other ``*_ID`` column is scored.
 
+Like with like (2026-10-13, ``--scope feeds`` default, ``--scope all`` off): a
+golden exported for a whole GROUP_ID carries every feed of the group, a run
+writes its own. The feeds are what the file / object / table columns name
+(``SCOPE_COLUMNS``; extension and date tokens dropped). A golden row the agent
+did not pair that names ANOTHER feed of the golden and none of the agent's is
+``out-of-scope`` (``out of scope: N rows`` per sheet), never missing; a row
+that names no feed stays missing. A sheet only one side has is ``sheet not in
+<side>`` with NO score; the golden / agent layouts (iig_v1 7 sheets, iig_v2 8)
+are detected and a difference prints ``HINT golden is iig_v1 layout — rerun
+with --iig-template iig_v1 for a clean diff``. The overall ``score`` keeps its
+meaning (out-of-scope counted as missing); ``comparable_score`` is over the
+scoped cells of the sheets BOTH sides have. A repeated key is named in its
+warning (console / score.json only — never in the scrubbed export).
+
 A row present on one side only counts each of its cells as missing / extra.
 score = 100 x (exact + normalized) / scored cells, one decimal (scored = every
 status but needs_assignment). A sheet in only one workbook is all missing /
@@ -156,8 +170,33 @@ MISMATCH = "mismatch"
 MISSING = "missing-in-agent"
 EXTRA = "extra-in-agent"
 ASSIGN = "needs_assignment"
-STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN)
+# 2026-10-13: a golden row of ANOTHER feed of the group (the golden is a
+# whole-GROUP_ID export, the agent wrote the run's own feeds) — reported as
+# "out of scope: N rows", never as missing.
+OUT_OF_SCOPE = "out-of-scope"
+STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
+# The overall score keeps its meaning (an out-of-scope cell counts as missing);
+# ``comparable_score`` is the one over scoped cells of shared sheets only.
+LEGACY_SCORED = (*SCORED, OUT_OF_SCOPE)
+
+# The IIG template layouts (metadata.templates in config/config.yaml; iig_v1 =
+# the 7-tab SFMC reference, iig_v2 = the PRX 8-sheet layout).
+TEMPLATE_SHEETS: dict[str, tuple[str, ...]] = {
+    "iig_v1": ("DATA_FACTORY_PIPELINE_SCHEDULE", "ADLS_DELTA_INGESTION_DETAILS",
+               "STGDELTA_STDDELTA_INGESTION_DET", "DATA_QUALITY_RULES",
+               "DATABRICKS_NOTEBOOK_DETAILS", "EMAIL_TEMPLATE_CONFIG",
+               "ALL_FILES_STATIC_INFORMATION"),
+    "iig_v2": ("DATA_FACTORY_PIPELINE_SCHEDULE", "FILE_ADLS_INGESTION_DETAILS",
+               "ADLS_DELTA_INGESTION_DETAILS", "STGDELTA_STDDELTA_INGESTION_DET",
+               "ADLS_FIXED_WIDTH_HANDLER", "DATABRICKS_NOTEBOOK_DETAILS",
+               "DATA_QUALITY_RULES", "EMAIL_TEMPLATE_CONFIG"),
+}
+# Columns that name a FEED (its file, object or table): the agent union's
+# values here are the scope a group-wide golden is restricted to.
+SCOPE_COLUMNS = ("FILE_NAME", "SRC_FILE_NAME", "FILE_NAME_PATTERN", "SRC_FILE_NAME_PATTERN",
+                 "OBJECT_NAME", "TGT_TABLE_NAME", "SRC_TABLE_NAME", "TGT_TABLE")
+SCOPE_MODES = ("feeds", "all")
 
 NULL_TOKENS = {"NULL"}
 WITHHELD = "<withheld>"
@@ -173,6 +212,7 @@ _FILLS = {
     MISSING: "FFE699",
     EXTRA: "D9D2E9",
     ASSIGN: "E7E6E6",
+    OUT_OF_SCOPE: "F2F2F2",
 }
 
 
@@ -505,6 +545,78 @@ class ObjectTables:
         return sorted(tables)[0]
 
 
+_WORD = re.compile(r"[a-z0-9]+")
+_DATE_OR_WILD = re.compile(r"^(?:[yc]{2,4}|mm|dd|[yc]{4}mm(?:dd)?|mmdd[yc]{2,4}|\d{4,8})$")
+
+
+def _stem_tokens(value: object) -> tuple[str, ...]:
+    """A feed name's tokens: lowercased words, the extension and trailing
+    date / wildcard tokens dropped (``NB_CM_NORTH_YYYYMMDD.txt`` -> nb cm north)."""
+    text = re.sub(r"\.[a-z0-9]{1,5}$", "", _raw(value).strip().lower())
+    tokens = _WORD.findall(text)
+    while len(tokens) > 1 and _DATE_OR_WILD.match(tokens[-1]):
+        tokens.pop()
+    return tuple(tokens)
+
+
+def _feed_stems(sheets: dict[str, Sheet]) -> set[tuple[str, ...]]:
+    stems: set[tuple[str, ...]] = set()
+    for sheet in sheets.values():
+        canon = sheet.canon()
+        cols = [canon[c] for c in SCOPE_COLUMNS if c in canon]
+        for _, row in sheet.rows:
+            for col in cols:
+                stem = _stem_tokens(row.get(col))
+                if stem and len("".join(stem)) >= 3:
+                    stems.add(stem)
+    return stems
+
+
+def _names_any(words: list[list[str]], stems: set[tuple[str, ...]]) -> bool:
+    for cell in words:
+        for stem in stems:
+            n = len(stem)
+            if any(tuple(cell[i:i + n]) == stem for i in range(len(cell) - n + 1)):
+                return True
+    return False
+
+
+class FeedScope:
+    """Like with like (2026-10-13): a golden exported for a whole GROUP_ID
+    holds the rows of every feed of the group; the agent wrote the run's own.
+    The feeds are what the files / objects / tables name (``SCOPE_COLUMNS``,
+    as a whole run of words, extension and date tokens dropped). A golden row
+    the agent did not pair is OUT of scope only on positive evidence: it names
+    another feed of the golden and none of the agent's. A row that names no
+    feed at all (an unresolved OBJECT_ID, a group-level row) stays missing.
+    Off when the agent names no feed, or ``--scope all``."""
+
+    def __init__(self, agent: dict[str, Sheet], golden: dict[str, Sheet], keys: KeyConfig,
+                 enabled: bool = True) -> None:
+        self.stems = _feed_stems(agent)
+        self.other = _feed_stems(golden) - self.stems
+        self.active = enabled and bool(self.stems) and bool(self.other)
+
+    def out_of_scope(self, row: dict[str, object], canon: dict[str, str],
+                     tables: ObjectTables | None) -> bool:
+        words = [_WORD.findall(_raw(v).lower()) for v in row.values()]
+        if tables is not None:
+            table = tables.table_for(row, canon)
+            if table:
+                words.append(_WORD.findall(table.lower()))
+        return not _names_any(words, self.stems) and _names_any(words, self.other)
+
+
+def detect_template(names: list[str]) -> str | None:
+    """iig_v1 (7 sheets) | iig_v2 (8 sheets) by sheet overlap; None if neither."""
+    ids = {sheet_id(n) for n in names}
+    if not ids:
+        return None
+    scored = sorted(((len(ids & {sheet_id(t) for t in tabs}) / len(ids | set(tabs)), name)
+                     for name, tabs in TEMPLATE_SHEETS.items()), reverse=True)
+    return scored[0][1] if scored[0][0] > 0 else None
+
+
 @dataclass
 class _Keyed:
     row: tuple[int, dict[str, object]]
@@ -618,9 +730,15 @@ def pair_rows(
     facts["key_unique"] = {"golden": not dup_g, "agent": not dup_a}
     facts["duplicate_keys"] = {"golden": dup_g, "agent": dup_a}
     if dup_g or dup_a:
+        def named(values: list[str]) -> str:
+            shown = ", ".join(repr(v) for v in values[:5])
+            return shown + (f" (+{len(values) - 5} more)" if len(values) > 5 else "")
+
         facts["warnings"].append(
-            f"key {key} is not unique (golden {len(dup_g)}, agent {len(dup_a)} duplicated) "
-            "— duplicates paired in sheet order"
+            f"key {key} is not unique (golden {len(dup_g)}, agent {len(dup_a)} duplicated"
+            + (f"; golden: {named(dup_g)}" if dup_g else "")
+            + (f"; agent: {named(dup_a)}" if dup_a else "")
+            + ") — duplicates paired in sheet order"
         )
     # Build the key → agent-row index; optionally apply fuzzy normalization.
     use_fuzzy = pair_mode == "fuzzy"
@@ -693,6 +811,7 @@ class SheetDiff:
     pairs: list[RowPair] = field(default_factory=list, repr=False)
     sides: tuple = (None, None)       # (golden Sheet | None, agent Sheet | None)
     tables: tuple = (None, None)      # (golden ObjectTables, agent ObjectTables)
+    out_of_scope_rows: int = 0        # golden rows of feeds the agent did not write
 
     def counts(self) -> dict[str, int]:
         c = Counter(cell.status for cell in self.cells)
@@ -706,6 +825,7 @@ def diff_sheet(
     keys: KeyConfig,
     tables: tuple[ObjectTables | None, ObjectTables | None] = (None, None),
     pair_mode: str = "key",
+    scope: FeedScope | None = None,
 ) -> SheetDiff:
     presence = "compared" if golden and agent else ("golden-only" if golden else "agent-only")
     pairs, facts = pair_rows(golden, agent, keys.key_for(name), keys, tables,
@@ -720,9 +840,15 @@ def diff_sheet(
         "golden_only": [g_canon[c] for c in order if c in g_canon and c not in a_canon],
         "agent_only": [a_canon[c] for c in order if c in a_canon and c not in g_canon],
     }
+    oos_rows: set[int] = set()
     for pair in pairs:
         g_row = pair.golden[1] if pair.golden else None
         a_row = pair.agent[1] if pair.agent else None
+        out_of_scope = (g_row is not None and a_row is None and scope is not None
+                        and scope.active and agent is not None
+                        and scope.out_of_scope(g_row, g_canon, tables[0]))
+        if out_of_scope:
+            oos_rows.add(pair.golden[0])
         for col in order:
             label = g_canon.get(col) or a_canon[col]
             in_g = g_row is not None and col in g_canon
@@ -731,7 +857,9 @@ def diff_sheet(
                 continue  # neither workbook has this row in this column: no cell
             g_val = g_row.get(g_canon[col]) if in_g else None
             a_val = a_row.get(a_canon[col]) if in_a else None
-            if keys.is_assignment(label):
+            if out_of_scope:
+                status = OUT_OF_SCOPE
+            elif keys.is_assignment(label):
                 status = ASSIGN
             elif not in_g:
                 status = EXTRA
@@ -754,9 +882,11 @@ def diff_sheet(
         "golden": len(golden.rows) if golden else 0,
         "agent": len(agent.rows) if agent else 0,
         "paired": sum(1 for p in pairs if p.golden and p.agent),
-        MISSING: sum(1 for p in pairs if p.golden and not p.agent),
+        MISSING: sum(1 for p in pairs if p.golden and not p.agent
+                     and p.golden[0] not in oos_rows),
         EXTRA: sum(1 for p in pairs if p.agent and not p.golden),
     }
+    out.out_of_scope_rows = len(oos_rows)
     return out
 
 
@@ -765,10 +895,12 @@ def diff_workbooks(
     agent: Path | list[Path],
     keys: KeyConfig,
     pair_mode: str = "key",
+    scope_mode: str = "feeds",
 ) -> list[SheetDiff]:
     g = read_workbook(golden, keys)
     a = read_agent_workbooks(agent if isinstance(agent, list) else [agent], keys)
     tables = (ObjectTables(g, keys), ObjectTables(a, keys))
+    scope = FeedScope(a, g, keys, enabled=scope_mode == "feeds")
     a_by_id = {sheet_id(n): n for n in a}
     g_ids = {sheet_id(n) for n in g}
 
@@ -792,7 +924,9 @@ def diff_workbooks(
         g_sheet = g.get(name)
         a_name = alias_map.get(name) or a_by_id.get(sheet_id(name), "")
         a_sheet = a.get(a_name)
-        sd = diff_sheet(name, g_sheet, a_sheet, keys, tables, pair_mode=pair_mode)
+        sd = diff_sheet(name, g_sheet, a_sheet, keys, tables, pair_mode=pair_mode,
+                        scope=scope)
+        sd.facts["scope"] = {"active": scope.active, "feeds": len(scope.stems)}
         if name in template_mismatches:
             sd.facts["template_mismatch"] = {
                 "golden_sheet": name,
@@ -805,10 +939,31 @@ def diff_workbooks(
 
 
 def _score(counts: dict[str, int]) -> float:
-    scored = sum(counts[s] for s in SCORED)
+    """The overall / per-sheet score as it always was: an out-of-scope cell
+    counts as missing (the number a past report quoted stays comparable)."""
+    scored = sum(counts.get(s, 0) for s in LEGACY_SCORED)
     if not scored:
         return 100.0
     return round(100.0 * (counts[EXACT] + counts[NORMALIZED]) / scored, 1)
+
+
+def _comparable(counts: dict[str, int]) -> float | None:
+    """Over SCOPED cells only (out-of-scope rows left out)."""
+    scored = sum(counts.get(s, 0) for s in SCORED)
+    if not scored:
+        return None
+    return round(100.0 * (counts[EXACT] + counts[NORMALIZED]) / scored, 1)
+
+
+def template_facts(diffs: list[SheetDiff]) -> dict:
+    """Which IIG layout each side is, and — when they differ — the one-line hint."""
+    golden = detect_template([d.sides[0].name for d in diffs if d.sides[0] is not None])
+    agent = detect_template([d.sides[1].name for d in diffs if d.sides[1] is not None])
+    facts: dict = {"golden": golden, "agent": agent}
+    if golden and agent and golden != agent:
+        facts["hint"] = (f"golden is {golden} layout — rerun with --iig-template {golden} "
+                         "for a clean diff")
+    return facts
 
 
 def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
@@ -831,11 +986,17 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             entry["agent_filled"] += bool(normalize(cell.agent))
             entry["equal"] += normalize(cell.golden) == normalize(cell.agent)
         sheet_warnings = list(d.facts.get("warnings", []))
-        if d.presence != "compared":
-            sheet_warnings.append(f"sheet is {d.presence}")
+        one_side = {"golden-only": "sheet not in agent",
+                    "agent-only": "sheet not in golden"}.get(d.presence)
+        if one_side:
+            sheet_warnings.append(f"{one_side} — no score")
+        if d.out_of_scope_rows:
+            sheet_warnings.append(f"out of scope: {d.out_of_scope_rows} golden row(s) of "
+                                  "feeds this run did not write (not missing)")
         warnings += [f"{d.name}: {w}" for w in sheet_warnings]
         entry: dict = {
             "presence": d.presence,
+            "note": one_side,
             "key": d.facts["key"],
             "pair_mode": d.facts.get("pair_mode", "key"),
             "key_unique": d.facts.get("key_unique"),
@@ -844,7 +1005,11 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "rows": d.rows,
             "columns": d.columns,
             "counts": counts,
-            "score": _score(counts),
+            # A sheet one side does not have has NO score (was 0.0): a template
+            # difference, not a result.
+            "score": None if one_side else _score(counts),
+            "comparable_score": None if one_side else _comparable(counts),
+            "out_of_scope_rows": d.out_of_scope_rows,
             "needs_assignment": assign,
             "warnings": sheet_warnings,
         }
@@ -852,15 +1017,27 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             entry["template_mismatch"] = d.facts["template_mismatch"]
         sheets[d.name] = entry
     total_counts = {s: totals.get(s, 0) for s in STATUSES}
+    shared: Counter[str] = Counter()
+    for d in diffs:
+        if d.presence == "compared":
+            shared.update(d.counts())
+    templates = template_facts(diffs)
+    scope = next((d.facts.get("scope") for d in diffs if d.facts.get("scope")), None)
     return {
         **(header or {}),
         "golden": str(golden),
         "agent": [str(a) for a in agent] if isinstance(agent, list) else str(agent),
         "keys": str(keys_path),
+        "templates": templates,
+        "scope": scope,
         "totals": {
             **total_counts,
-            "scored_cells": sum(total_counts[s] for s in SCORED),
+            "scored_cells": sum(total_counts[s] for s in LEGACY_SCORED),
             "score": _score(total_counts),
+            # 2026-10-13: like with like — scoped cells of the sheets BOTH sides have.
+            "comparable_score": _comparable({s: shared.get(s, 0) for s in STATUSES}),
+            "comparable_cells": sum(shared.get(s, 0) for s in SCORED),
+            "out_of_scope_rows": sum(d.out_of_scope_rows for d in diffs),
         },
         "sheets": sheets,
         "warnings": warnings,
@@ -995,15 +1172,16 @@ def agent_build(agents: list[Path]) -> tuple[dict | None, str | None]:
 
 
 def run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
-             pair_mode: str = "key", build: dict | None = None) -> dict:
-    return _run_pair(golden, agent, out, keys_path, pair_mode, build)[0]
+             pair_mode: str = "key", build: dict | None = None,
+             scope_mode: str = "feeds") -> dict:
+    return _run_pair(golden, agent, out, keys_path, pair_mode, build, scope_mode)[0]
 
 
 def _run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
-              pair_mode: str = "key", build: dict | None = None
+              pair_mode: str = "key", build: dict | None = None, scope_mode: str = "feeds"
               ) -> tuple[dict, list[SheetDiff], KeyConfig]:
     keys = load_keys(keys_path)
-    diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode)
+    diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode, scope_mode=scope_mode)
     payload = score_payload(golden, agent, keys_path, diffs,
                             header_facts(keys, pair_mode, build))
     out.mkdir(parents=True, exist_ok=True)
@@ -1652,7 +1830,7 @@ def find_pairs(directory: Path) -> tuple[dict[str, tuple[Path, Path]], list[str]
 
 
 def run_batch(directory: Path, out: Path, keys_path: Path,
-              pair_mode: str = "key") -> dict:
+              pair_mode: str = "key", scope_mode: str = "feeds") -> dict:
     pairs, problems = find_pairs(directory)
     summary: dict = {"pairs": {}, "skipped": problems, "unscored": {}}
     for name, (golden, agent) in pairs.items():
@@ -1661,7 +1839,7 @@ def run_batch(directory: Path, out: Path, keys_path: Path,
             summary["unscored"][name] = UNSCORED
             continue
         payload = run_pair(golden, agent, out / name, keys_path,
-                           pair_mode=pair_mode, build=build)
+                           pair_mode=pair_mode, build=build, scope_mode=scope_mode)
         summary["pairs"][name] = {
             "golden": str(golden),
             "agent": str(agent),
@@ -1692,9 +1870,16 @@ def _print_pair(payload: dict, out: Path) -> None:
     for name, s in payload["sheets"].items():
         c = s["counts"]
         line = ", ".join(f"{k} {c[k]}" for k in STATUSES)
-        print(f"{name}: score {s['score']}; {line}")
+        score = s["note"] if s.get("note") else s["score"]
+        print(f"{name}: score {score}; comparable {s.get('comparable_score')}; {line}")
     t = payload["totals"]
     print(f"TOTAL: score {t['score']}; " + ", ".join(f"{k} {t[k]}" for k in STATUSES))
+    print(f"COMPARABLE: score {t.get('comparable_score')} over {t.get('comparable_cells')} "
+          f"scoped cell(s) of the sheets both sides have; out of scope: "
+          f"{t.get('out_of_scope_rows', 0)} golden row(s)")
+    hint = (payload.get("templates") or {}).get("hint")
+    if hint:
+        print(f"HINT {hint}")
     for w in payload["warnings"]:
         print(f"WARNING {w}")
     print(f"wrote {out / 'score.json'}, {out / 'diff.xlsx'}, {out / 'routing.csv'}")
@@ -1714,6 +1899,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="Row pairing: key (default - the natural key ONLY; rows it "
                          "cannot pair stay missing / extra), position or fuzzy (explicit, "
                          "bannered - not the validation score)")
+    ap.add_argument("--scope", choices=SCOPE_MODES, default="feeds",
+                    help="feeds (default): golden rows of feeds the agent did not write "
+                         "are 'out of scope', not missing; all: score every golden row")
     ap.add_argument("--export-scrubbed", type=Path, metavar="DIR",
                     help="with --golden / --agent: also write mismatches.md, row_keys.md and "
                          "SELF_CHECK.md to DIR, every value scrubbed (safe to hand home)")
@@ -1729,7 +1917,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.export_scrubbed or args.golden_structure:
             ap.error("--export-scrubbed / --golden-structure take --golden, not --batch")
         summary = run_batch(args.batch, args.out, args.keys,
-                            pair_mode=args.pair_mode)
+                            pair_mode=args.pair_mode, scope_mode=args.scope)
         for name, p in summary["pairs"].items():
             print(f"{name}: score {p['totals']['score']}; mismatch {p['totals'][MISMATCH]}")
         for problem in summary["skipped"]:
@@ -1757,7 +1945,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.export_scrubbed is None:
         payload = run_pair(args.golden, agents if len(agents) > 1 else agents[0], args.out,
-                           args.keys, pair_mode=args.pair_mode, build=build)
+                           args.keys, pair_mode=args.pair_mode, build=build,
+                           scope_mode=args.scope)
         _print_pair(payload, args.out)
         return 0
     try:
@@ -1766,7 +1955,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"export refused: {exc}")
         return 2
     payload, diffs, keys = _run_pair(args.golden, agents if len(agents) > 1 else agents[0],
-                                     args.out, args.keys, pair_mode=args.pair_mode, build=build)
+                                     args.out, args.keys, pair_mode=args.pair_mode, build=build,
+                                     scope_mode=args.scope)
     _print_pair(payload, args.out)
     check = export_scrubbed(diffs, keys, args.export_scrubbed)
     print(check["line"])

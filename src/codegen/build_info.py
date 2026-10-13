@@ -64,6 +64,10 @@ def settings_text(settings: dict[str, str] | None) -> str:
         if settings.get(key):
             from_flag = f" ({flag})" if settings.get(f"{key}_from_flag") else ""
             parts.append(f" · {label}: {settings[key]}{from_flag}")
+    # 2026-10-13: the provider switch, "provider=mock (default)" / "provider=live
+    # (CODEGEN_PROVIDER)" — a report can never be misread as a model run.
+    if settings.get("provider"):
+        parts.append(f" · {settings['provider']}")
     return "".join(parts)
 
 

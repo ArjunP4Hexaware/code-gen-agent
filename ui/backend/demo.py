@@ -811,6 +811,12 @@ class DemoRunner:
         if content_vdd:
             notes.append(content_vdd)
         roles = self._folder_roles(folder, sttm_name)
+        sttms = [r["name"] for r in roles if r["role"] == "sttm"]
+        if len(sttms) > 1 and not (overrides.lookup(sttm_name, "frd")
+                                   or overrides.lookup(sttm_name, "vdd")):
+            notes.append(f"the folder holds {len(sttms)} STTM workbooks ({', '.join(sttms)}); "
+                         f"pairing for {sttm_name} (the one selected) — pin each STTM's "
+                         "companions with pairing_overrides.yaml")
         if kind == "vdd" and decision.chosen is None and not decision.ambiguous and not likely:
             left_out = [f"{r['name']} ({r['role']})" for r in roles
                         if r["name"].lower().endswith(".xlsx") and r["name"] != sttm_name

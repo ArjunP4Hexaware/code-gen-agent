@@ -31,6 +31,38 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   `scripts/run_round.py` stage `## DDL sanity` after the CLI: a column identifier not
   `^[A-Za-z_][A-Za-z0-9_]*$` = exit 1, named. Tests `tests/test_audit_annotation.py`, a DDL-gate
   test in `tests/test_run_round.py`.
+- **post38 — the D1 pairing-check report's four fixes** (`origin/acfc-pairing-check`
+  `codegen-outputs/pairing_check/2026-10-13_pyx_caqh.md`, read in place):
+  (1) **family E, a file per sheet** — `split_frd_feeds_by_sttm` now splits when the sheets
+  SHARE the FRD's one table; sheets whose feed names would collide are named per sheet
+  (`sheet_feed_label`: own `File Name` row, extension + date tokens dropped, else the sheet
+  name; flag `feed_names_per_sheet`), the sheet's own file is its pattern; the generic
+  extractor's `_match_feed` tries the sheet's own file row, then a feed named after the sheet,
+  and two sheets on one FRD feed are a NAMED error (never pydantic's "duplicate feed_id").
+  Unique names stay as they were. Fixture `tests/acfc_shapes/family_e_multi.py`, tests
+  `tests/test_multi_sheet_feed_ids.py`. (2) **ONE provider switch** `codegen.reasoning.mode`:
+  `--provider` > `CODEGEN_PROVIDER` > `reasoning.mode` > mock; never inferred from
+  DATABRICKS_HOST / the App markers / an endpoint (`resolve_transport` no longer overrides by
+  runtime); live that cannot run = ONE startup line (CLI `FAIL provider —`, App
+  `startup_error`); `provider=<mode> (<source>)` on the CLI first line, doctor, /api/health and
+  every mock reason. ACFC sets live in `app.yaml` + `acfc_run.py` + `scripts/run_round.py`
+  (`--provider`, default live; no `--dry-run`, every `CODEGEN_FORCE_MOCK_*` cleared; RUN.md's
+  Build section names it); the recipes `docs/acfc/GENIE_RUN_pair_2*.md` show
+  `CODEGEN_PROVIDER=live` without `--dry-run`; the harness jobs (in D1) are Soham's.
+  `--dry-run` under live = `WARNING provider=live overridden by --dry-run → mock` as the FIRST
+  line of the run AND of the report (+ mock reason, flag `provider_overridden:`). Test guard: conftest sets
+  `CODEGEN_BLOCK_LIVE_MODEL`; `guard_live_call` (a BaseException) at every real connection
+  unless `CODEGEN_ALLOW_LIVE_TESTS=1`. Serving model **Claude Opus 5.5**
+  (`claude-opus-5-5` / `databricks-claude-opus-5-5` — confirm the endpoint exists in D1).
+  Tests `tests/test_provider_mode.py`, `tests/test_transport.py` rewritten.
+  (3) **iig_diff like with like** — `FeedScope` (`--scope feeds` default): an unpaired golden
+  row naming another feed of the group and none of the agent's = `out-of-scope`, not missing;
+  a one-sided sheet = `sheet not in <side>`, score None; iig_v1 / iig_v2 detected + `HINT`;
+  overall `score` unchanged in meaning, `comparable_score` over scoped shared-sheet cells;
+  duplicate-key warnings name the values. (4) `codegen pair` lists EVERY file (the STTM,
+  lock files) and NOTEs `pair.sttm` when a folder holds 2+ STTMs with no override pinning one
+  (App: outcome `notes`; `acfc_run.py`: the override pins one, else it stops naming them);
+  a `name_fuzzy` NOTE in the content branch carries the stem words.
 - **post37 — pairing by NAME ROLE + token key (the Pyx pair_11 failure).** The App's
   `local_frd_candidates` and `codegen pair` took a `.docx` as an FRD only when its name
   STARTED with "frd" (`Pyx_ … DSNP_FRD.docx` was never a candidate), the name rule was the

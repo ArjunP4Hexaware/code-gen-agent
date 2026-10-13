@@ -43,11 +43,13 @@ def test_the_overlay_makes_acfc_prx_and_iig_v2_the_defaults(monkeypatch):
     _overlay_on(monkeypatch)
     config = load_config(CONFIG)
     assert (config.conventions.profile, config.metadata.template) == ("acfc_prx", "iig_v2")
-    assert active_defaults(CONFIG) == {"profile": "acfc_prx", "iig_template": "iig_v2"}
+    assert active_defaults(CONFIG) == {"profile": "acfc_prx", "iig_template": "iig_v2",
+                                     "provider": "provider=mock (default)"}
     monkeypatch.setenv("CODEGEN_SKIP_ENV_OVERLAY", "1")             # the suite's setting
     shipped = load_config(CONFIG)
     assert (shipped.conventions.profile, shipped.metadata.template) == ("edo_sfmc", "iig_v1")
-    assert active_defaults(CONFIG) == {"profile": "edo_sfmc", "iig_template": "iig_v1"}
+    assert active_defaults(CONFIG) == {"profile": "edo_sfmc", "iig_template": "iig_v1",
+                                     "provider": "provider=mock (default)"}
     explicit = load_config(CONFIG, overlays=[OVERLAY])
     assert (explicit.conventions.profile, explicit.metadata.template) == ("acfc_prx", "iig_v2")
 
@@ -78,13 +80,15 @@ def test_doctor_names_the_active_profile_and_template():
     done = _cli("doctor", env=_env())
     assert done.returncode == 0, done.stderr[-2000:]
     first, profile, template = done.stdout.splitlines()[:3]
-    assert first.endswith(f" · profile: acfc_prx · IIG template: iig_v2 · overlays: "
+    assert first.endswith(f" · profile: acfc_prx · IIG template: iig_v2 · "
+                          f"provider=mock (default) · overlays: "
                           f"{OVERLAY_SHOWN}")
     assert profile.startswith("conventions profile: acfc_prx (conventions.profile")
     assert template.startswith("IIG template: iig_v2 (metadata.template")
     skipped = _cli("doctor", env=_env(CODEGEN_SKIP_ENV_OVERLAY="1"))
     assert skipped.stdout.splitlines()[0].endswith(
-        " · profile: edo_sfmc · IIG template: iig_v1 · overlays: (none)")
+        " · profile: edo_sfmc · IIG template: iig_v1 · provider=mock (default) · "
+        "overlays: (none)")
 
 
 def test_a_plain_generate_under_the_overlay_writes_the_acfc_prx_iig_v2_artefacts(tmp_path):
@@ -108,7 +112,8 @@ def test_a_plain_generate_under_the_overlay_writes_the_acfc_prx_iig_v2_artefacts
                 env=_env(CODEGEN_CONFIG_OVERLAYS=str(scope)))
     assert done.returncode == 0, (done.stdout[-3000:], done.stderr[-2000:])
     first = done.stdout.splitlines()[0]
-    assert " · profile: acfc_prx · IIG template: iig_v2 · overlays: " in first
+    assert (" · profile: acfc_prx · IIG template: iig_v2 · provider=mock (default) · "
+            "overlays: ") in first
     assert first.endswith(f"overlays: {OVERLAY_SHOWN} -> {scope}")
     assert "(--profile)" not in first and "(--iig-template)" not in first
     framework = tmp_path / "out" / pair4_nb.FEED / "framework"

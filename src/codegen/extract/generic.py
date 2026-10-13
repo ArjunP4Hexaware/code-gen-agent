@@ -484,10 +484,33 @@ def _canonical_file_name(name: str) -> str:
 
 def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
                 ir: GenericIR, notes: list[str]) -> FrdFeed:
+    from codegen.resolve.gapfill import blank_sheet_feed_name
+
     if stage_table is not None:
         matches = [f for f in frd.feeds if stage_table in f.stage_target.tables]
         if len(matches) == 1:
             return matches[0]
+        if len(matches) > 1:
+            # Several FRD feeds land in this table (family E: a file per
+            # sheet): the feed the layout stage named after THIS sheet.
+            named = [f for f in matches if f.feed_name.lower()
+                     == blank_sheet_feed_name(sheet.profile.name).lower()]
+            if len(named) == 1:
+                notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
+                             f"{named[0].feed_name!r}, named after it by the layout stage")
+                return named[0]
+    # 2026-10-13 (family E, a file per sheet): the sheet's OWN file row first —
+    # the workbook's File Details lists every sheet's file, so pooled with it
+    # each sheet matched every per-file feed. Only ever adds a match: a sheet
+    # the pooled rule paired goes to the same feed.
+    own = {_canonical_file_name(p) for p in _sheet_file_patterns(sheet, None)}
+    if own:
+        mine = [f for f in frd.feeds
+                if own & {_canonical_file_name(p) for p in f.file_name_patterns}]
+        if len(mine) == 1:
+            notes.append(f"sheet {sheet.profile.name!r} paired to FRD feed "
+                         f"{mine[0].feed_name!r} by its own file row")
+            return mine[0]
     patterns = _sheet_file_patterns(sheet, ir)
     canonical = {_canonical_file_name(p) for p in patterns}
     matches = [f for f in frd.feeds
@@ -519,13 +542,15 @@ def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
     )
 
 
-def _sheet_file_patterns(sheet: SheetData, ir: GenericIR) -> list[str]:
+def _sheet_file_patterns(sheet: SheetData, ir: GenericIR | None) -> list[str]:
+    """The sheet's own file meta rows, then (``ir`` given) every File
+    Details row of the workbook."""
     patterns: list[str] = []
     for key in ("file_names", "file_name_example"):
         value = sheet.meta.get(key)
         if value:
             patterns += [p.strip() for p in re.split(r"[\n;,]+", value) if p.strip()]
-    for aux in ir.auxiliary:
+    for aux in (ir.auxiliary if ir is not None else []):
         if aux.kind != "file_details":
             continue
         headers = [normalize(h) for h in aux.headers]
@@ -651,6 +676,20 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
         from codegen.extract.extractor import NeedsAnswersError
 
         raise NeedsAnswersError(pending)
+    sheets_by_id: dict[str, list[str]] = {}
+    for f in feeds:
+        sheets_by_id.setdefault(f.feed_id, []).append(f.mapping_sheet or "?")
+    shared = {fid: sheets for fid, sheets in sheets_by_id.items() if len(sheets) > 1}
+    if shared:
+        # 2026-10-13: say WHICH sheets met one FRD feed, and what splits them —
+        # never the bare "duplicate feed_id(s)" of the contract model.
+        raise GenericExtractionError(
+            "; ".join(f"sheets {sheets} all pair with the one FRD feed {fid!r}"
+                      for fid, sheets in shared.items())
+            + " — each mapping sheet must be its own feed: write the FRD contract with "
+            "`codegen layout --frd-contract-out` (it splits one FRD block into a feed per "
+            "sheet, named by the sheet's own File Name row, else the sheet), or give each "
+            "sheet its own file / table")
     if ir.annotations:
         from codegen.extract.annotations import flag
 

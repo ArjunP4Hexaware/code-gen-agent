@@ -86,6 +86,11 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    from codegen.reasoning.mode import DRY_RUN_OVER_LIVE, provider_mode
+
+    if dry_run and provider_mode(config).live:
+        # The report says it too: never a dry run that reads like a live one.
+        extra_flags = [f"provider_overridden: {DRY_RUN_OVER_LIVE}", *(extra_flags or [])]
     from codegen.reasoning.usage import layer2_usage
 
     model_usage = [*([layout_usage] if layout_usage is not None else []),
@@ -195,6 +200,12 @@ def _generate_feed(
         inputs_summary=context["provenance"]["inputs"],
         model_usage=model_usage,
     )
+    if dry_run and provider_mode(config).live:
+        # The report's FIRST line too (2026-10-13): a D1 report must never look
+        # live when --dry-run answered from the mock.
+        report = reports_dir / f"{spec.feed_slug}.md"
+        report.write_text(f"> **WARNING** {DRY_RUN_OVER_LIVE}\n\n"
+                          + report.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
     if framework_artefacts is not None:
         # Appended AFTER the standard report so report/ stays untouched and
         # notebook-mode reports remain byte-identical.
@@ -686,15 +697,20 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
         print(f"{'FAIL':<15} pair — workbook not found: {sttm}")
         return 1
     folders = [Path(d) for d in (args.candidates or [str(sttm.parent)])]
-    files = [p for d in folders if d.is_dir() for p in sorted(d.iterdir())
-             if p.is_file() and not p.name.startswith("~$") and p != sttm]
+    everything = [p for d in folders if d.is_dir() for p in sorted(d.iterdir()) if p.is_file()]
+    files = [p for p in everything if not p.name.startswith("~$") and p != sttm]
     # Every file with its role and the rule that assigned it (2026-10-13): a
     # role token ANYWHERE in the name ("<title>_FRD.docx" is an FRD); an IIG is
     # never an input; a workbook without a role token is a dictionary only on
     # positive content evidence. Nothing is skipped silently.
     roles = classify_folder(files, config)
+    # EVERY file of the folder (2026-10-13): the STTM being paired and the
+    # Office lock files too — a D1 report's role table had no STTM row.
+    print(f"{'ROLE':<15} {sttm.name} — sttm: the STTM being paired (--sttm)")
     for role in roles:
         print(f"{'ROLE':<15} {role.name} — {role.role}: {role.rule}")
+    for lock in (p for p in everything if p.name.startswith("~$")):
+        print(f"{'ROLE':<15} {lock.name} — ignored: an Office lock file (~$), not a document")
     frds = {r.name: r.path for r in roles if r.role == "frd"}
     vdds = {r.name: r.path for r in roles if r.role == "vdd"}
     try:
@@ -709,6 +725,15 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
     except PairOverridesError as exc:
         print(f"{'FAIL':<15} pair — pairs override file: {exc}")
         return 1
+    other_sttms = [r.name for r in roles if r.role == "sttm"]
+    if other_sttms and not (overrides.lookup(sttm.name, "frd")
+                            or overrides.lookup(sttm.name, "vdd")):
+        # More than one STTM and no override pins this one: the choice is said.
+        print(answer_line("NOTE", "pair.sttm",
+                          f"the folder holds {len(other_sttms) + 1} STTM workbooks "
+                          f"({', '.join([sttm.name, *other_sttms])}); pairing for "
+                          f"{sttm.name} (--sttm) — pin each STTM's companions with a pairs "
+                          f"override file ({OVERRIDE_FILE_NAMES[0]})"))
     try:
         chosen = (load_answers(Path(args.answers)).pairing.get(sttm.name, {})
                   if args.answers else {})
@@ -1418,7 +1443,33 @@ def _contract_path(value: str, config: Config) -> Path:
     raise FileNotFoundError(f"contract not found: {value} (also tried {fallback})")
 
 
+def _take_provider_flag(argv: list[str]) -> tuple[list[str], str | None]:
+    """``--provider mock|live`` anywhere on the command line (2026-10-13): the
+    one provider switch, global to every command (codegen.reasoning.mode)."""
+    rest: list[str] = []
+    value: str | None = None
+    items = iter(argv)
+    for item in items:
+        if item == "--provider":
+            value = next(items, None)
+        elif item.startswith("--provider="):
+            value = item.split("=", 1)[1]
+        else:
+            rest.append(item)
+    return rest, value
+
+
 def main(argv: list[str] | None = None) -> int:
+    """The CLI. A ``--provider`` flag holds for THIS command only (reset on return)."""
+    from codegen.reasoning.mode import set_flag
+
+    try:
+        return _main(argv)
+    finally:
+        set_flag(None)
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="codegen", description=__doc__, epilog=EXIT_CODES,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1654,6 +1705,16 @@ def main(argv: list[str] | None = None) -> int:
                        "sys.path) and whether it knows the config's sections")
     doctor.add_argument("--config", default="config/config.yaml")
 
+    from codegen.reasoning.mode import (
+        ProviderConfigError,
+        check_live_config,
+        set_flag,
+    )
+
+    argv, provider_flag = _take_provider_flag(list(sys.argv[1:] if argv is None else argv))
+    if provider_flag not in (None, "mock", "live"):
+        parser.error(f"--provider {provider_flag!r}: expected mock | live")
+    set_flag(provider_flag)
     args = parser.parse_args(argv)
     load_dotenv()
     # First line of EVERY command: which code runs, with which overlays —
@@ -1671,6 +1732,15 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(doctor_lines(overlays, defaults)))
         return 0
     settings = dict(defaults)
+    if getattr(args, "dry_run", False) and settings.get("provider", "").startswith(
+            "provider=live"):
+        # FIRST line of the run (2026-10-13): live asked for, --dry-run wins.
+        from codegen.reasoning.mode import DRY_RUN_OVER_LIVE
+
+        print(f"{'WARNING':<15} {DRY_RUN_OVER_LIVE} ({settings['provider']} was asked for; "
+              "this command answers from the mock)",
+              file=sys.stderr if getattr(args, "json", False) else sys.stdout, flush=True)
+        settings["provider"] = DRY_RUN_OVER_LIVE
     for key, flag_value in (("profile", getattr(args, "conventions_profile", None)),
                             ("iig_template", getattr(args, "iig_template", None))):
         if flag_value:
@@ -1678,6 +1748,13 @@ def main(argv: list[str] | None = None) -> int:
     print(source_line(overlays, settings),
           file=sys.stderr if getattr(args, "json", False) else sys.stdout, flush=True)
     config = load_config(args.config)
+    # Live asked for and not runnable: ONE line naming the unset setting, at
+    # startup — never a run that quietly answers from the mock.
+    try:
+        check_live_config(config)
+    except ProviderConfigError as exc:
+        print(f"{'FAIL':<15} provider — {exc}")
+        return EXIT_FAILED
 
     if args.command == "extract-sttm":
         return _extract_sttm(args, config)

@@ -617,3 +617,105 @@ def test_an_environment_token_never_hides_a_real_difference(tmp_path: Path) -> N
     assert iig_diff.classify("d1_dlkx", "d1_dlk", keys.env_tokens) == "mismatch"
     assert iig_diff.classify(f"{PROD_PREFIX}-stage-01", "", keys.env_tokens) == \
         "missing-in-agent"
+
+
+# -- like with like (2026-10-13, the D1 pair_2 report) -----------------------------------
+# A golden exported for a whole GROUP_ID (iig_v1, 7 sheets) holds every feed of
+# the group; the run wrote three per-feed workbooks (iig_v2, 8 sheets). The
+# rows of the group's OTHER feeds are out of scope, not missing; a sheet one
+# side lacks has no score; the comparable score is over scoped cells of the
+# shared sheets; a repeated key is named.
+
+FEEDS = ("nb_alpha", "nb_beta", "nb_gamma")          # the run's three feeds
+OTHERS = ("nb_delta", "nb_epsilon")                  # the rest of the group
+PIPE_HEAD = ["PIPELINE_ID", "PIPELINE_NAME", "PIPELINE_FREQUENCY"]
+STG = "STGDELTA_STDDELTA_INGESTION_DET"
+EMAIL = "EMAIL_TEMPLATE_CONFIG"
+FILES_V1 = "ALL_FILES_STATIC_INFORMATION"
+
+
+def _group_golden(path: Path) -> Path:
+    every = FEEDS + OTHERS
+    return _book(path, {
+        PIPE: [PIPE_HEAD, *[[i, f"PL_File_{f}", "Daily"] for i, f in enumerate(every, 1)]],
+        ADLS: [ADLS_HEAD, *[[10, i, f"{f.upper()}_YYYYMMDD.txt", f"stg_{f}"]
+                            for i, f in enumerate(every, 1)]],
+        STG: [["GROUP_ID", "OBJECT_ID", "OBJECT_NAME", "TGT_TABLE_NAME", "TGT_LOAD_OPTION"],
+              *[[20, i, f"{f.upper()}_YYYYMMDD.txt", f"std_{f}", "Upsert"]
+                for i, f in enumerate(every, 1)]],
+        FILES_V1: [["FILE_NAME", "FILE_DELIMITER"], *[[f"{f.upper()}_YYYYMMDD.txt", "|"]
+                                                       for f in every]],
+        EMAIL: [["TEMPLATE_NAME", "STATUS", "SUBJECT"],
+                ["T_GROUP", "Success", "group mail"], ["T_GROUP", "Success", "group mail 2"]],
+        "DATABRICKS_NOTEBOOK_DETAILS": [["DATABRICKS_NOTEBOOK_NAME", "NOTEBOOK_PATH"],
+                                        ["NB_shared_loader", "/x"]],
+        DQ: [DQ_HEAD, *[[10, i, "DateFormat", "dt", "yyyy"] for i in range(1, 6)]],
+    })
+
+
+def _feed_book(path: Path, i: int, feed: str) -> Path:
+    return _book(path, {
+        PIPE: [PIPE_HEAD, [None, f"PL_File_{feed}", "Daily"]],
+        "FILE_ADLS_INGESTION_DETAILS": [["SRC_ROOT_DIR", "TGT_ADLS_PATH", "FILE_NAME"],
+                                        ["in", f"raw/{feed}", f"{feed.upper()}_YYYYMMDD.txt"]],
+        ADLS: [ADLS_HEAD, [None, 1, f"{feed.upper()}_YYYYMMDD.txt", f"stg_{feed}"]],
+        STG: [["GROUP_ID", "OBJECT_ID", "OBJECT_NAME", "TGT_TABLE_NAME", "TGT_LOAD_OPTION"],
+              [None, 1, f"{feed.upper()}_YYYYMMDD.txt", f"std_{feed}", "Upsert"]],
+        "ADLS_FIXED_WIDTH_HANDLER": [["SEGMENT", "TGT_TABLE", "LEN"], ["D", f"stg_{feed}", 10]],
+        DQ: [DQ_HEAD, [None, 1, "DateFormat", "dt", "yyyy"]],
+    })
+
+
+def test_a_group_golden_against_per_feed_outputs_compares_like_with_like(tmp_path, capsys):
+    golden = _group_golden(tmp_path / "group_golden.xlsx")
+    run = tmp_path / "run"
+    books = []
+    for i, feed in enumerate(FEEDS, 1):
+        (run / feed).mkdir(parents=True)
+        books.append(_feed_book(run / feed / f"{feed}_IIG.xlsx", i, feed))
+    _stamp(run)
+    out = tmp_path / "diff"
+    assert iig_diff.main(["--golden", str(golden), "--agent", *map(str, books),
+                          "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
+    sheets, totals = payload["sheets"], payload["totals"]
+
+    # scope: the two other feeds' rows are out of scope, never missing
+    for name in (PIPE, ADLS, STG):
+        assert sheets[name]["out_of_scope_rows"] == 2, (name, sheets[name])
+        assert sheets[name]["rows"]["paired"] == 3
+        assert sheets[name]["rows"]["missing-in-agent"] == 0
+        assert sheets[name]["counts"]["mismatch"] == 0
+    # a row naming no feed at all (the shared notebook) stays missing
+    assert sheets["DATABRICKS_NOTEBOOK_DETAILS"]["rows"]["missing-in-agent"] == 1
+    assert totals["out_of_scope_rows"] >= 6
+    assert "out of scope:" in printed
+
+    # template: a sheet only one side has is reported, not scored 0.0
+    fixed = sheets["ADLS_FIXED_WIDTH_HANDLER"]
+    assert fixed["note"] == "sheet not in golden" and fixed["score"] is None
+    assert payload["templates"]["golden"] == "iig_v1"
+    assert payload["templates"]["agent"] == "iig_v2"
+    assert payload["templates"]["hint"] == (
+        "golden is iig_v1 layout — rerun with --iig-template iig_v1 for a clean diff")
+    assert "HINT golden is iig_v1 layout" in printed
+
+    # scores: the overall one as before, the comparable one like with like
+    assert totals["comparable_score"] is not None
+    assert totals["comparable_score"] > totals["score"]
+    assert sheets[ADLS]["comparable_score"] == 100.0 and sheets[ADLS]["score"] < 100.0
+
+    # a key that repeats is NAMED
+    warning = next(w for w in payload["warnings"] if w.startswith(EMAIL) and "not unique" in w)
+    assert "'T_GROUP | Success'" in warning
+
+
+def test_scope_all_scores_every_golden_row(tmp_path):
+    golden = _group_golden(tmp_path / "g.xlsx")
+    run = tmp_path / "run"
+    (run / "a").mkdir(parents=True)
+    book = _feed_book(run / "a" / "a_IIG.xlsx", 1, FEEDS[0])
+    payload = iig_diff.run_pair(golden, book, tmp_path / "out", KEYS, scope_mode="all")
+    assert payload["totals"]["out_of_scope_rows"] == 0
+    assert payload["sheets"][ADLS]["rows"]["missing-in-agent"] == 4

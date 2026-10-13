@@ -211,9 +211,14 @@ class MockLayoutProvider:
                     continue
                 if payload.get("fingerprint") == fingerprint:
                     return payload
+        # "provider=mock" up front (2026-10-13): a D1 report read this line as a
+        # failed model call — it is the MOCK, which knows the fixture shapes only.
+        said = (self.mock_reason if self.mock_reason.startswith("provider=")
+                else f"provider=mock ({self.mock_reason})")
         raise LayoutProviderError(
-            f"mock layout provider has no profile for fingerprint {fingerprint} in "
-            f"{[str(d) for d in self.dirs]}")
+            f"{said}: the mock layout provider has no profile for fingerprint "
+            f"{fingerprint} in {[str(d) for d in self.dirs]} — set CODEGEN_PROVIDER=live "
+            "to let the recognizer call the model")
 
     def advise_layout(self, request: dict) -> dict:
         self.requests.append(request)
@@ -315,6 +320,9 @@ class AnthropicLayoutProvider:
         from codegen.reasoning.providers.anthropic_provider import _extract_json
 
         self.requests.append(request)
+        from codegen.reasoning.mode import guard_live_call
+
+        guard_live_call("the layout recognizer (Anthropic API)", sdk_module=anthropic)
         client = anthropic.Anthropic()
         user_prompt = "Layout request (the only material):\n" + json.dumps(request, indent=2)
         errors: list[str] = []
@@ -340,6 +348,9 @@ class AnthropicLayoutProvider:
         from codegen.reasoning.providers.anthropic_provider import _extract_json
 
         self.requests.append(request)
+        from codegen.reasoning.mode import guard_live_call
+
+        guard_live_call("the layout recognizer (Anthropic API)", sdk_module=anthropic)
         client = anthropic.Anthropic()
         user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
         errors: list[str] = []
@@ -372,13 +383,26 @@ def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None =
     if posture not in ("auto", "mock", "live"):
         raise ValueError(f"CODEGEN_LAYOUT_PROVIDER={posture!r}: expected auto | mock | live")
     if dry_run:
-        return MockLayoutProvider(mock_dirs, reason="dry-run")
+        from codegen.reasoning.mode import dry_run_reason
+
+        return MockLayoutProvider(mock_dirs, reason=dry_run_reason(config))
     if os.environ.get("CODEGEN_FORCE_MOCK_LAYOUT"):
         return MockLayoutProvider(mock_dirs, reason="CODEGEN_FORCE_MOCK_LAYOUT")
     if posture == "mock":
         return MockLayoutProvider(mock_dirs, reason=(
             "CODEGEN_LAYOUT_PROVIDER=mock" if os.environ.get("CODEGEN_LAYOUT_PROVIDER", "").strip()
             else "layout.provider: mock"))
+    # 2026-10-13: the ONE provider switch (codegen.reasoning.mode) decides
+    # whether a model is called at all — mock by default, live only when said.
+    from codegen.reasoning.mode import ProviderConfigError, provider_mode
+
+    mode = provider_mode(config)
+    if not mode.live:
+        if posture == "live":
+            raise ProviderConfigError(
+                f"layout.provider is live (CODEGEN_LAYOUT_PROVIDER / layout.provider) but "
+                f"{mode.text()} — set CODEGEN_PROVIDER=live to let the recognizer call a model")
+        return MockLayoutProvider(mock_dirs, reason=mode.text())
     if posture == "live":
         # M8.3: an explicit opt-in of its own. The request is the same
         # fingerprint material (header regions / table labels, never a data
@@ -390,14 +414,18 @@ def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None =
     # Same transport decision as Layer 2 (codegen.reasoning.transport):
     # mock lock, Databricks runtime -> Foundation Model endpoint, else config.
     transport = resolve_transport(config)
+    from codegen.reasoning.mode import check_live_config
     from codegen.reasoning.providers import mock_reason
 
     if transport.kind == "databricks_fmapi":
-        if not transport.config_resolves:
-            return MockLayoutProvider(mock_dirs, reason=mock_reason(transport))
-        return FmapiLayoutProvider(config)  # empty endpoint -> its named error
+        if not transport.config_resolves or transport.endpoint is None:
+            check_live_config(config)                       # raises the named line
+            raise ProviderConfigError(transport.reason)
+        return FmapiLayoutProvider(config)
     if transport.kind == "anthropic":
         return AnthropicLayoutProvider(config)
+    if transport.kind == "mock":                            # live asked, cannot run
+        raise ProviderConfigError(transport.reason)
     return MockLayoutProvider(mock_dirs, reason=mock_reason(transport))
 
 

@@ -255,6 +255,15 @@ def _with_layout(config, **update):
 def test_live_posture_queries_the_configured_endpoint(config, monkeypatch):
     monkeypatch.delenv("CODEGEN_FORCE_MOCK_LAYOUT", raising=False)
     monkeypatch.delenv("CODEGEN_LAYOUT_PROVIDER", raising=False)
+    # 2026-10-13: under the default provider=mock a "live" recognizer is a
+    # named startup error, never a model call ...
+    from codegen.reasoning.mode import ProviderConfigError
+
+    with pytest.raises(ProviderConfigError, match="set CODEGEN_PROVIDER=live"):
+        build_layout_provider(_with_layout(config, provider="live"), dry_run=False,
+                              base_dir=REPO)
+    # ... and only the provider switch's LIVE lets it query the endpoint.
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
     live = _with_layout(config, provider="live", endpoint="databricks-claude-opus-5")
     # Layer 2 mock-locked: the recognizer's own opt-in still stands ...
     monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")

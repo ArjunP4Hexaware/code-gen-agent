@@ -88,6 +88,9 @@ class AnthropicProvider:
     def __init__(self, config: Config) -> None:
         import anthropic
 
+        from codegen.reasoning.mode import guard_live_call
+
+        guard_live_call("Layer 2 (Anthropic API)", sdk_module=anthropic)
         self._client = anthropic.Anthropic()
         self._model = config.reasoning.model
         # What the run record reads (codegen.reasoning.usage).

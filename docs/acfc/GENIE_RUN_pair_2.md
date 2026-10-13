@@ -21,16 +21,20 @@ values redacted) to `codegen-outputs/iig_validation/round4/NEEDS_HOME.md`, push 
 3. **Run the CLI like the harness**, on the pair_2 STTM + FRD of the pair folder.
    - Fill `codegen-state/answers/pair_2.yaml` (the FILE_DETAILS file feeds 0 and 2 do not
      take); refuse to continue while it contains `<FILL`; never commit it filled.
-   - env: `PYTHONUTF8=1 CODEGEN_FORCE_MOCK_LAYOUT=1 CODEGEN_FORCE_MOCK_PROVIDER=1
+   - env: `PYTHONUTF8=1 CODEGEN_PROVIDER=live
      CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example
      CODEGEN_STORAGE_STATE=local:/tmp/r4/state CODEGEN_STORAGE_OUTPUTS=local:/tmp/r4/out`
+   (2026-10-13: the provider is ONE explicit switch — `CODEGEN_PROVIDER=live` in D1;
+   no `--dry-run`, no `CODEGEN_FORCE_MOCK_*`. Every command's first line must contain
+   `provider=live (CODEGEN_PROVIDER)`; a `WARNING provider=live overridden by --dry-run → mock`
+   or a `provider=mock` first line = STOP: the run is not live.)
    - `python -m codegen.cli layout --workbook <STTM> --frd <FRD> --require-complete
      --frd-contract-out /tmp/r4/frd.json --answers codegen-state/answers/pair_2.yaml`
    - `python -m codegen.cli extract-sttm --workbook <STTM> --frd-contract /tmp/r4/frd.json
      --out /tmp/r4/sttm.json --answers codegen-state/answers/pair_2.yaml`
    - `python -m codegen.cli generate --frd-contract /tmp/r4/frd.json --sttm-contract
      /tmp/r4/sttm.json --output-mode framework --profile acfc_prx --iig-template iig_v2
-     --skip-tests --dry-run`
+     --skip-tests`
    Record each command, exit code and first line (it names profile + IIG template). Home's
    mock run: exits 0 / 0 / 0, 3 feeds PASS_WITH_FLAGS; anything else → NEEDS_HOME.md.
 4. **Diff, key-paired.** Golden: the pair_2 workbook `tools/build_goldens.py` builds from

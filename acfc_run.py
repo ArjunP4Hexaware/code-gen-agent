@@ -33,8 +33,10 @@ dbutils.widgets.text("outputs", "workspace:/Workspace/Users/<you>/codegen/output
 dbutils.widgets.text("state", "workspace:/Workspace/Users/<you>/codegen/state",  # noqa: F821
                      "State root (storage URI, must exist)")
 dbutils.widgets.text("answers", "", "answers.yaml inside the pair folder (optional)")  # noqa: F821
-dbutils.widgets.dropdown("layout_provider", "mock", ["mock", "live"], "Layout recognizer")  # noqa: F821
-dbutils.widgets.dropdown("layer2", "mock", ["mock", "live"], "Layer 2 (reasoning)")  # noqa: F821
+# 2026-10-13: THE provider switch (codegen.reasoning.mode) for the layout recognizer
+# AND Layer 2. This notebook runs inside ACFC, so it says LIVE explicitly — the
+# default everywhere else is mock, and nothing infers live from the workspace.
+dbutils.widgets.dropdown("provider", "live", ["live", "mock"], "Model provider")  # noqa: F821
 dbutils.widgets.dropdown("refresh_layout", "no", ["no", "yes"],  # noqa: F821
                          "Re-resolve layout (ignore + overwrite cached profiles)")
 # Output conventions are run arguments, never an edit of config/config.yaml
@@ -46,11 +48,11 @@ dbutils.widgets.text("playbook_template", "main_single", "Playbook template")  #
 PAIR_URI = dbutils.widgets.get("pair_folder")  # noqa: F821
 os.environ["CODEGEN_STORAGE_OUTPUTS"] = dbutils.widgets.get("outputs")  # noqa: F821
 os.environ["CODEGEN_STORAGE_STATE"] = dbutils.widgets.get("state")  # noqa: F821
-os.environ["CODEGEN_LAYOUT_PROVIDER"] = dbutils.widgets.get("layout_provider")  # noqa: F821
-if dbutils.widgets.get("layer2") == "mock":  # noqa: F821
-    os.environ["CODEGEN_FORCE_MOCK_PROVIDER"] = "1"
-else:
-    os.environ.pop("CODEGEN_FORCE_MOCK_PROVIDER", None)
+os.environ["CODEGEN_PROVIDER"] = dbutils.widgets.get("provider")  # noqa: F821
+# One switch decides; no leftover lock from a past run.
+for _lock in ("CODEGEN_LAYOUT_PROVIDER", "CODEGEN_FORCE_MOCK_PROVIDER",
+              "CODEGEN_FORCE_MOCK_LAYOUT"):
+    os.environ.pop(_lock, None)
 ANSWERS_NAME = dbutils.widgets.get("answers").strip()  # noqa: F821
 REFRESH_LAYOUT = dbutils.widgets.get("refresh_layout") == "yes"  # noqa: F821
 CONVENTIONS = [arg for flag, widget in (("--profile", "conventions_profile"),
@@ -161,9 +163,23 @@ def run(label: str, *args: str) -> int:
 from codegen.demo_sources import classify_document_name  # noqa: E402
 
 # The role is a token ANYWHERE in the name ("<title>_STTM.xlsx" too).
+from codegen.pairing import OVERRIDE_FILE_NAMES as _OVERRIDES  # noqa: E402
+from codegen.pairing import load_pair_overrides as _load_overrides  # noqa: E402
+
 sttms = [n for n in documents
          if n.lower().endswith(".xlsx") and classify_document_name(n).role == "sttm"]
-assert len(sttms) == 1, f"expected one STTM workbook in the pair folder, found {sttms}"
+if len(sttms) > 1:
+    # More than one STTM: a pairs override file that lists exactly one of them
+    # pins it; otherwise stop and NAME them — the chosen one is never silent.
+    _files = [local_pair / n for n in documents if n.lower() in _OVERRIDES]
+    _pinned = ([n for n in sttms if _load_overrides(_files[0]).lookup(n, "frd")
+                or _load_overrides(_files[0]).lookup(n, "vdd")] if _files else [])
+    print(f"NOTE           pair.sttm — the folder holds {len(sttms)} STTM workbooks: "
+          f"{sttms}; " + (f"the override file pins {_pinned[0]}" if len(_pinned) == 1
+                          else "no override file pins one"))
+    sttms = _pinned if len(_pinned) == 1 else sttms
+assert len(sttms) == 1, (f"expected one STTM workbook in the pair folder, found {sttms} — "
+                         f"list the one to run in {_OVERRIDES[0]} (sttm / frd / vdd)")
 sttm = local_pair / sttms[0]
 answers = ["--answers", str(local_pair / ANSWERS_NAME)] if ANSWERS_NAME else []
 
@@ -241,7 +257,7 @@ if vdd is not None:
 run("generate", "generate", "--frd-contract", str(frd_contract), "--sttm-contract",
     str(work / "sttm.contract.json"), *vdd_args, *CONVENTIONS, "--output-mode", "framework",
     "--skip-tests",
-    *(["--dry-run"] if os.environ.get("CODEGEN_FORCE_MOCK_PROVIDER") else []))
+    *(["--dry-run"] if os.environ["CODEGEN_PROVIDER"] == "mock" else []))
 
 # COMMAND ----------
 

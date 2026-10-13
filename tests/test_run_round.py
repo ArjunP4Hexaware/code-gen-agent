@@ -69,7 +69,8 @@ def _argv(e, *, sttm=None, frd=None, extra=()):
     """No --answers: a round runs without one (pass it in ``extra``)."""
     return ["--round", "9", "--pair", PAIR, "--sttm", str(sttm or e["sttm"]), "--frd",
             str(frd or e["frd"]), "--golden-dir", str(e["golden_dir"]),
-            "--out", str(e["out"]), "--reference", str(e["reference"]), *extra]
+            "--out", str(e["out"]), "--reference", str(e["reference"]),
+            "--provider", "mock", *extra]                 # the suite never goes live
 
 
 def _assert_no_names(e, text: str) -> None:

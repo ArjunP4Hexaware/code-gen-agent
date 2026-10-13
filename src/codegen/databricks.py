@@ -447,6 +447,15 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
     (same no-temperature rule as the Anthropic provider).
     """
     name = endpoint or _require(cfg, "serving_endpoint")
+    if client is None:
+        # A REAL connection is about to open (a fake ``client`` opens none).
+        from codegen.reasoning.mode import guard_live_call
+
+        try:
+            import databricks.sdk as sdk_module
+        except ImportError:
+            sdk_module = None             # nothing can connect; _client names the gap
+        guard_live_call(f"the serving endpoint {name!r}", sdk_module=sdk_module)
     client = client if client is not None else _client(cfg)
     try:
         from databricks.sdk.service.serving import ChatMessage, ChatMessageRole

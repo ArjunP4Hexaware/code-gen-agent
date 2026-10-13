@@ -30,6 +30,13 @@ def _pack() -> ContextPack:
     )
 
 
+@pytest.fixture(autouse=True)
+def _live(monkeypatch):
+    """Selection under the provider switch's LIVE (2026-10-13: a model is used
+    only when said — mock is the default; see test_tracked_config_is_mock_by_default)."""
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
+
+
 def _fmapi_config(config, **databricks_overrides):
     databricks = config.databricks.model_copy(update=databricks_overrides)
     reasoning = config.reasoning.model_copy(update={"provider": "databricks_fmapi"})
@@ -64,6 +71,12 @@ def test_blank_document_volumes_never_drop_layer2_to_mock(config):
     assert build_provider(no_volumes, dry_run=False).name == "databricks_fmapi"
 
 
+def test_tracked_config_is_mock_by_default(config, monkeypatch):
+    monkeypatch.delenv("CODEGEN_PROVIDER", raising=False)
+    provider = build_provider(config, dry_run=False)
+    assert provider.name == "mock" and provider.mock_reason == "provider=mock (default)"
+
+
 def test_tracked_config_selects_fmapi(config, monkeypatch):
     # 2026-08-28: the tracked config's Layer-2 transport IS databricks_fmapi
     # (Databricks App deployment); it resolves from YAML alone, no key.
@@ -72,10 +85,11 @@ def test_tracked_config_selects_fmapi(config, monkeypatch):
     assert build_provider(config, dry_run=False).name == "databricks_fmapi"
 
 
-def test_missing_serving_endpoint_is_a_named_error(config):
-    from codegen.databricks import DatabricksConfigError
+def test_missing_serving_endpoint_is_a_named_error(config, monkeypatch):
+    from codegen.reasoning.mode import ProviderConfigError
 
-    with pytest.raises(DatabricksConfigError, match="serving_endpoint"):
+    monkeypatch.delenv("DATABRICKS_SERVING_ENDPOINT", raising=False)
+    with pytest.raises(ProviderConfigError, match="databricks.serving_endpoint is unset"):
         build_provider(_fmapi_config(config, serving_endpoint=""), dry_run=False)
 
 
@@ -101,7 +115,7 @@ def test_valid_response_first_try(config, monkeypatch):
     response = provider.complete(_pack())
     assert response.classification == "mappable"
     assert calls["count"] == 1
-    assert calls["kwargs"][0]["endpoint"] == "databricks-claude-opus-5"
+    assert calls["kwargs"][0]["endpoint"] == config.databricks.serving_endpoint
     # System prompt travels as a chat message; no sampling params exist.
     assert calls["kwargs"][0]["messages"][0]["role"] == "system"
 

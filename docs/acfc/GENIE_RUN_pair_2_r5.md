@@ -22,9 +22,13 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
    generated (owner); it is not the run's `<STTM>`.
 3. **Run the CLI clean.** `/tmp/r5/answers.yaml` = ONE entry, `gaps:` →
    `"feeds[1].file_name_patterns": {value: <the FILE_DETAILS file feeds 0 and 2 do not take>}`.
-   env: `PYTHONUTF8=1 CODEGEN_FORCE_MOCK_LAYOUT=1 CODEGEN_FORCE_MOCK_PROVIDER=1
+   env: `PYTHONUTF8=1 CODEGEN_PROVIDER=live
    CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example
    CODEGEN_STORAGE_STATE=local:/tmp/r5/state CODEGEN_STORAGE_OUTPUTS=local:/tmp/r5/out`
+   (2026-10-13: the provider is ONE explicit switch — `CODEGEN_PROVIDER=live` in D1;
+   no `--dry-run`, no `CODEGEN_FORCE_MOCK_*`. Every command's first line must contain
+   `provider=live (CODEGEN_PROVIDER)`; a `WARNING provider=live overridden by --dry-run → mock`
+   or a `provider=mock` first line = STOP: the run is not live.)
    - `python -m codegen.cli layout --workbook <STTM> --frd <FRD> --require-complete
      --frd-contract-out /tmp/r5/frd.json --answers /tmp/r5/answers.yaml` — exit 3 → record
      every QUESTION / UNRESOLVED key (text up to ` — `) in RUN.md, go to step 4, skip step 5.
@@ -32,7 +36,7 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
      --out /tmp/r5/sttm.json --answers /tmp/r5/answers.yaml`
    - `python -m codegen.cli generate --frd-contract /tmp/r5/frd.json --sttm-contract
      /tmp/r5/sttm.json --output-mode framework --profile acfc_prx --iig-template iig_v2
-     --skip-tests --dry-run` — RUN.md: each command (`<STTM>` / `<FRD>`), exit, first line, verdicts.
+     --skip-tests` — RUN.md: each command (`<STTM>` / `<FRD>`), exit, first line, verdicts.
 4. **Golden, rebuilt on this SHA.** `python tools/build_goldens.py --out /tmp/r5/goldens`; `<G>` =
    `/tmp/r5/goldens/pair_2_iig_golden.xlsx`. Its pair_2 `dedup … -> …` lines into RUN.md (GROUP_IDs
    180251–180256 may stay); `python tools/iig_diff.py --golden <G> --golden-structure --out /tmp/r5/push`.

@@ -4,8 +4,18 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
 1. **Code.** `git fetch origin` · `git checkout feature/multi-table` · `git pull --ff-only origin
    feature/multi-table`. Record `python -m codegen.cli doctor`'s `build …` line and `git rev-parse
    --short HEAD`; STOP unless the build line names that SHA `(git)`; version >= 0.5.8.post29.
-2. **Fingerprint** (hashes + counts only). `python scripts/doc_fingerprint.py <STTM> <FRD> --json
-   > /tmp/r5/push/fingerprint_d1.json`; its text form (no `--json`) into RUN.md.
+2. **Fingerprint + content gate** (hashes + counts only). `<STTM>` = the FILLED workbook, never
+   `*_blank_version*`. `python scripts/doc_fingerprint.py <STTM> <FRD> --json >
+   /tmp/r5/push/fingerprint_d1.json`; its text form (no `--json`) into RUN.md. Gate on CONTENT,
+   never whole-file sha256 (a re-save or re-zip changes the bytes, not the content):
+   `body_hash` of sheet `name#01292dd6fa7b` starts `f5648cd5d589e163`, `name#ef35f6a78545`
+   `0bb226b3c86fbf04`, `name#a60e2e099a94` `706a9af9a734deca`; the docx `text_hash` starts
+   `311c437cd18ebdd0`. Any differs → RUN.md names which, STOP. Whole-file sha256 + size of both
+   go in RUN.md as a record only (they differed in the first r5 attempt; never a stop).
+   Finding to record, do not investigate: `*_blank_version*` has other mapping-sheet names, a
+   uniform 18-column header and no merged ranges; all five of its sheet-name hashes equal the
+   repo's synthetic `fixtures/acfc_shapes/sttm/pair_2_family_b.xlsx` → pipeline-generated (the
+   STTM agent or a normalisation export), not BSA-authored.
 3. **Run the CLI clean.** `/tmp/r5/answers.yaml` = ONE entry, `gaps:` →
    `"feeds[1].file_name_patterns": {value: <the FILE_DETAILS file feeds 0 and 2 do not take>}`.
    env: `PYTHONUTF8=1 CODEGEN_FORCE_MOCK_LAYOUT=1 CODEGEN_FORCE_MOCK_PROVIDER=1

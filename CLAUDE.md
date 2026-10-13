@@ -10,7 +10,7 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   `docs/acfc/GENIE_RUN_pair_2_r5.md` in the D1 Git folder and pushes scrubbed evidence to
   `acfc-results` (`codegen-outputs/iig_validation/round<N>/pair_2/`); this checkout reads it
   in place (`git show`), never checks it out.
-- **The home SD STTM is anonymized; D1's filled copy is the raw one.**
+- **D1's SD STTM is the reference (accepted after round 6):** the home copy differs only in its anonymized stage / standard `ColumnName` columns (compare.txt: J, O / K, P) — column-dependent fixes (SRC_DATA_TYPE precision, DQ column lists) are unit-tested here, verified on D1 only.
 - **Build identity (99f262b):** `codegen.build_info.build_identity()` — git → the deploy stamp
   `src/codegen/_build.py` (`scripts/stamp_build.py`, never committed) → `CODEGEN_BUILD_SHA` →
   the src tree id — names commit / branch / commit time on the CLI's first line, `codegen

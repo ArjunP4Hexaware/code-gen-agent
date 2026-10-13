@@ -6,12 +6,13 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
    --short HEAD`; STOP unless the build line names that SHA `(git)`; version >= 0.5.8.post29.
 2. **Fingerprint + content gate** (hashes + counts only). `<STTM>` = the FILLED workbook, never
    `*_blank_version*`. `python scripts/doc_fingerprint.py <STTM> <FRD> --json >
-   /tmp/r5/push/fingerprint_d1.json`; its text form (no `--json`) into RUN.md. Gate on CONTENT,
-   never whole-file sha256 (a re-save or re-zip changes the bytes, not the content):
-   `body_hash` of sheet `name#01292dd6fa7b` starts `f5648cd5d589e163`, `name#ef35f6a78545`
-   `0bb226b3c86fbf04`, `name#a60e2e099a94` `706a9af9a734deca`; the docx `text_hash` starts
-   `311c437cd18ebdd0`. Any differs → RUN.md names which, STOP. Whole-file sha256 + size of both
-   go in RUN.md as a record only (they differed in the first r5 attempt; never a stop).
+   /tmp/r5/push/fingerprint_d1.json`; its text form (no `--json`) into RUN.md. **Gate:**
+   `python scripts/doc_fingerprint.py --compare docs/acfc/fingerprints/pair_2_sd_home.json
+   /tmp/r5/push/fingerprint_d1.json`, its whole output into RUN.md. Exit 1 = a `HARD` line
+   (sheet names, counts, extents, merged ranges, header row + hash, per-column fill; the docx
+   `text_hash` and counts) → STOP. `WARN` lines (whole-file sha256 / size, document.xml,
+   `body_hash`, per-column value hashes, with all of the above equal) are recorded and the run
+   continues — the home copy is anonymised, so its cell values are expected to differ.
    Finding to record, do not investigate: `*_blank_version*` has other mapping-sheet names, a
    uniform 18-column header and no merged ranges; all five of its sheet-name hashes equal the
    repo's synthetic `fixtures/acfc_shapes/sttm/pair_2_family_b.xlsx`. It is NOT pipeline-

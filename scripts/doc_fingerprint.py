@@ -13,12 +13,17 @@ Usage:
 
 xlsx: per sheet — state, extent, non-blank rows / cells, formula cells, merged
 ranges, the header row (the fullest of the first 20 rows, >= 3 cells: its index and a
-hash), non-blank counts per header column below it, and a body hash over every
+hash), per header column below it a non-blank count and a value hash (stripped,
+lowercased — names WHICH column differs, never a value), and a body hash over every
 cell. docx: hash of word/document.xml, paragraph / table / row / cell counts
 (nested tables included) and a hash of the paragraph texts.
 
 Exit 0; 2 when a file is unreadable or unsupported (the reason names no path).
-``--compare`` exits 1 when the two fingerprints differ, else 0.
+``--compare`` prints one HARD / WARN line per differing file or sheet and exits 1
+on any HARD line (structure: counts, extents, header hashes, column fill, sheet
+names, the docx text and counts), else 0. WARN = the whole-file sha256 / size,
+document.xml, body hash or per-column value hashes differ with the structure equal
+(a re-saved, re-zipped or anonymised copy) — record it, it is not a stop.
 """
 
 from __future__ import annotations
@@ -63,6 +68,7 @@ def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
         most, neg_index = max(filled, default=(0, 0))
         header_row = 1 - neg_index if most >= HEADER_MIN_CELLS else None
         columns: dict[str, int] = {}
+        column_hashes: dict[str, str] = {}
         header_hash = None
         if header_row is not None:
             header = rows[header_row - 1]
@@ -72,8 +78,13 @@ def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
             header_hash = _sha("\t".join(texts))
             for col, value in enumerate(header):
                 if not _blank(value):
-                    columns[get_column_letter(col + 1)] = sum(
-                        not _blank(r[col]) for r in rows[header_row:] if col < len(r))
+                    letter = get_column_letter(col + 1)
+                    cells = [r[col] if col < len(r) else None for r in rows[header_row:]]
+                    columns[letter] = sum(not _blank(v) for v in cells)
+                    # Which column differs, never what: stripped + lowercased, so a
+                    # case- or padding-only edit does not count as a change.
+                    column_hashes[letter] = _sha("\n".join(
+                        "" if _blank(v) else str(v).strip().lower() for v in cells))[:16]
         body = "\n".join("\t".join("" if v is None else str(v) for v in r) for r in rows)
         sheets.append({
             "index": index,
@@ -88,6 +99,7 @@ def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
             "header_row": header_row,
             "header_hash": header_hash,
             "columns_below_header": columns,
+            "column_hashes": column_hashes,
             "body_hash": _sha(body),
         })
     return sheets
@@ -186,30 +198,66 @@ def _diff_fields(a: dict[str, Any], b: dict[str, Any], skip: tuple[str, ...] = (
     return out
 
 
-def compare(a_entries: list[dict[str, Any]], b_entries: list[dict[str, Any]]) -> list[str]:
-    lines: list[str] = []
+# Content-equivalence gate: STRUCTURE (counts, extents, header hashes, column
+# fill, the docx text) is HARD; byte-level identity (whole-file sha256 / size,
+# document.xml, body and per-column value hashes) is WARN — recorded, never a stop.
+# A re-saved, re-zipped or anonymised copy differs only in WARN fields.
+WARN_FILE_FIELDS = ("sha256", "size")
+WARN_DOCX_FIELDS = ("document_xml_sha256",)
+WARN_SHEET_FIELDS = ("body_hash", "column_hashes")
+
+
+def _column_hash_diff(a: dict[str, Any], b: dict[str, Any]) -> str | None:
+    ha, hb = a.get("column_hashes"), b.get("column_hashes")
+    if ha is None or hb is None:
+        return None if ha == hb else f"column hashes absent in {'A' if ha is None else 'B'}"
+    cols = [c for c in sorted(set(ha) | set(hb), key=lambda c: (len(c), c))
+            if ha.get(c) != hb.get(c)]
+    return f"column hashes differ: {', '.join(cols)}" if cols else None
+
+
+def compare_graded(a_entries: list[dict[str, Any]],
+                   b_entries: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """``(severity, text)`` per difference; severity HARD or WARN."""
+    out: list[tuple[str, str]] = []
+
+    def add(label: str, hard: list[str], warn: list[str]) -> None:
+        if hard:
+            out.append(("HARD", f"{label}: " + "; ".join(hard)))
+        if warn:
+            out.append(("WARN", f"{label}: " + "; ".join(warn)))
+
     if len(a_entries) != len(b_entries):
-        lines.append(f"file count {len(a_entries)} vs {len(b_entries)}")
+        out.append(("HARD", f"file count {len(a_entries)} vs {len(b_entries)}"))
     for a, b in zip(a_entries, b_entries, strict=False):
         label = f"{a['file']} vs {b['file']}"
-        top = _diff_fields(a, b, skip=("file", "sheets", "docx"))
-        top += [f"docx.{d}" for d in _diff_fields(a.get("docx", {}), b.get("docx", {}))]
-        if top:
-            lines.append(f"{label}: " + "; ".join(top))
+        da, db = a.get("docx", {}), b.get("docx", {})
+        add(label,
+            _diff_fields(a, b, skip=("file", "sheets", "docx", *WARN_FILE_FIELDS))
+            + [f"docx.{d}" for d in _diff_fields(da, db, skip=WARN_DOCX_FIELDS)],
+            [d for d in _diff_fields(a, b) if d.split()[0] in WARN_FILE_FIELDS]
+            + [f"docx.{d}" for d in _diff_fields(da, db) if d.split()[0] in WARN_DOCX_FIELDS])
         sa, sb = a.get("sheets", []), b.get("sheets", [])
         for i in range(max(len(sa), len(sb))):
             if i >= len(sa) or i >= len(sb):
                 only = sa[i] if i < len(sa) else sb[i]
                 side = "A" if i < len(sa) else "B"
-                lines.append(f"{label} sheet[{i}] name#{only['name_hash']}: only in {side}")
+                out.append(("HARD", f"{label} sheet[{i}] name#{only['name_hash']}: only in {side}"))
                 continue
-            diffs = _diff_fields(sa[i], sb[i], skip=("columns_below_header",))
+            hard = _diff_fields(sa[i], sb[i], skip=("columns_below_header", *WARN_SHEET_FIELDS))
             ca, cb = sa[i]["columns_below_header"], sb[i]["columns_below_header"]
-            diffs += [f"column {c} {ca.get(c, '-')} vs {cb.get(c, '-')}"
-                      for c in sorted(set(ca) | set(cb)) if ca.get(c) != cb.get(c)]
-            if diffs:
-                lines.append(f"{label} sheet[{i}] name#{sa[i]['name_hash']}: " + "; ".join(diffs))
-    return lines
+            hard += [f"column {c} {ca.get(c, '-')} vs {cb.get(c, '-')}"
+                     for c in sorted(set(ca) | set(cb)) if ca.get(c) != cb.get(c)]
+            warn = _diff_fields({"body_hash": sa[i].get("body_hash")},
+                                {"body_hash": sb[i].get("body_hash")})
+            columns = _column_hash_diff(sa[i], sb[i])
+            warn += [columns] if columns else []
+            add(f"{label} sheet[{i}] name#{sa[i]['name_hash']}", hard, warn)
+    return out
+
+
+def compare(a_entries: list[dict[str, Any]], b_entries: list[dict[str, Any]]) -> list[str]:
+    return [f"{severity} {text}" for severity, text in compare_graded(a_entries, b_entries)]
 
 
 def _load(path: str) -> list[dict[str, Any]]:
@@ -225,9 +273,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="diff two saved --json outputs (counts and hash flags only)")
     args = parser.parse_args(argv)
     if args.compare:
-        lines = compare(_load(args.compare[0]), _load(args.compare[1]))
-        print("\n".join(lines) if lines else "identical")
-        return 1 if lines else 0
+        graded = compare_graded(_load(args.compare[0]), _load(args.compare[1]))
+        print("\n".join(f"{s} {t}" for s, t in graded) if graded else "identical")
+        return 1 if any(s == "HARD" for s, _ in graded) else 0
     if not args.files:
         parser.error("give at least one file, or --compare A.json B.json")
     entries = [fingerprint(Path(f), n) for n, f in enumerate(args.files, start=1)]

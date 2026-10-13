@@ -812,10 +812,126 @@ class SheetDiff:
     sides: tuple = (None, None)       # (golden Sheet | None, agent Sheet | None)
     tables: tuple = (None, None)      # (golden ObjectTables, agent ObjectTables)
     out_of_scope_rows: int = 0        # golden rows of feeds the agent did not write
+    # the secondary pairing of the rows the key left unpaired (None: nothing to pair)
+    positional: dict | None = None
+    # the first golden / agent key values (unscrubbed; console + score.json only)
+    key_samples: dict | None = None
 
     def counts(self) -> dict[str, int]:
         c = Counter(cell.status for cell in self.cells)
         return {s: c.get(s, 0) for s in STATUSES}
+
+
+def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_canon: dict,
+                    keys: KeyConfig, tables: tuple, scope: FeedScope | None
+                    ) -> tuple[list[Cell], set[int]]:
+    """Every cell of every pair, with its status; + the golden rows out of scope."""
+    cells: list[Cell] = []
+    oos_rows: set[int] = set()
+    for pair in pairs:
+        g_row = pair.golden[1] if pair.golden else None
+        a_row = pair.agent[1] if pair.agent else None
+        out_of_scope = (g_row is not None and a_row is None and scope is not None
+                        and scope.active and scope.out_of_scope(g_row, g_canon, tables[0]))
+        if out_of_scope:
+            oos_rows.add(pair.golden[0])
+        for col in order:
+            label = g_canon.get(col) or a_canon[col]
+            in_g = g_row is not None and col in g_canon
+            in_a = a_row is not None and col in a_canon
+            if not (in_g or in_a):
+                continue  # neither workbook has this row in this column: no cell
+            g_val = g_row.get(g_canon[col]) if in_g else None
+            a_val = a_row.get(a_canon[col]) if in_a else None
+            if out_of_scope:
+                status = OUT_OF_SCOPE
+            elif keys.is_assignment(label):
+                status = ASSIGN
+            elif not in_g:
+                status = EXTRA
+            elif not in_a:
+                status = MISSING
+            else:
+                status = classify(g_val, a_val, keys.env_tokens)
+            cells.append(Cell(pair.key, pair.golden[0] if pair.golden else None,
+                              pair.agent[0] if pair.agent else None, label, g_val, a_val,
+                              status))
+    return cells, oos_rows
+
+
+# 2026-10-13 (D1 pair_12, CAQH): a 0.0 score with hundreds of needs_assignment
+# cells = rows on both sides whose natural KEYS follow different conventions.
+# The rows the key could not pair are paired a second way — by position when
+# both sides left the same number, else by best cell overlap — and that score
+# is reported SEPARATELY ("positional"); the key-paired score is unchanged.
+POSITION, OVERLAP = "position", "overlap"
+
+
+def _overlap(g_row: dict, a_row: dict, shared: list[tuple[str, str]]) -> int:
+    return sum(1 for g_col, a_col in shared
+               if normalize(g_row.get(g_col)) and normalize(g_row.get(g_col))
+               == normalize(a_row.get(a_col)))
+
+
+def _secondary_pairs(pairs: list[RowPair], oos_rows: set[int], order: list[str],
+                     g_canon: dict, a_canon: dict, keys: KeyConfig
+                     ) -> tuple[list[RowPair], str | None]:
+    """(every pair after the secondary pairing, method) — method None when the
+    key left no golden row AND agent row unpaired (nothing to pair)."""
+    g_left = [p.golden for p in pairs if p.golden and not p.agent and p.golden[0] not in oos_rows]
+    a_left = [p.agent for p in pairs if p.agent and not p.golden]
+    if not g_left or not a_left:
+        return pairs, None
+    kept = [p for p in pairs if (p.golden and p.agent) or (p.golden and p.golden[0] in oos_rows)]
+    if len(g_left) == len(a_left):
+        matched = [RowPair(g, a, f"pos#{i + 1}") for i, (g, a) in enumerate(zip(g_left, a_left,
+                                                                                  strict=True))]
+        return kept + matched, POSITION
+    shared = [(g_canon[c], a_canon[c]) for c in order
+              if c in g_canon and c in a_canon and not keys.is_assignment(g_canon[c])]
+    scored = sorted(((_overlap(g[1], a[1], shared), gi, ai)
+                     for gi, g in enumerate(g_left) for ai, a in enumerate(a_left)),
+                    key=lambda t: (-t[0], t[1], t[2]))
+    used_g: set[int] = set()
+    used_a: set[int] = set()
+    matched = []
+    for overlap, gi, ai in scored:
+        if overlap <= 0 or gi in used_g or ai in used_a:
+            continue
+        used_g.add(gi)
+        used_a.add(ai)
+        matched.append(RowPair(g_left[gi], a_left[ai], f"overlap#{len(matched) + 1}"))
+    rest = ([RowPair(g, None, f"g#{i + 1}") for i, g in enumerate(g_left) if i not in used_g]
+            + [RowPair(None, a, f"a#{i + 1}") for i, a in enumerate(a_left) if i not in used_a])
+    return kept + matched + rest, OVERLAP
+
+
+KEY_SAMPLE_ROWS = 5
+
+
+def key_samples(d: SheetDiff, keys: KeyConfig, n: int = KEY_SAMPLE_ROWS) -> dict:
+    """The first ``n`` golden key values beside the first ``n`` agent ones —
+    the key CONVENTION each side follows (OBJECT_ID shown as its table, as
+    paired). UNSCRUBBED: console + score.json on D1 only, never the export."""
+    key = keys.key_for(d.name)
+    out: dict = {"key": key or None, "golden": [], "agent": []}
+    if not key:
+        return out
+    for side, sheet, tables in (("golden", d.sides[0], d.tables[0]),
+                                ("agent", d.sides[1], d.tables[1])):
+        if sheet is None:
+            continue
+        cols = _resolve(sheet, key)
+        if None in cols:
+            missing = [k for k, c in zip(key, cols, strict=True) if c is None]
+            out[side] = [f"<key column(s) {missing} not in this sheet>"]
+            continue
+        keyer = _keyer(sheet, cols, keys, tables)
+        for row in sheet.rows[:n]:
+            k = keyer(row)
+            out[side].append(k.text if k.key is not None
+                             else f"<OBJECT_ID {k.object_id} unresolved>")
+    return out
 
 
 def diff_sheet(
@@ -840,44 +956,22 @@ def diff_sheet(
         "golden_only": [g_canon[c] for c in order if c in g_canon and c not in a_canon],
         "agent_only": [a_canon[c] for c in order if c in a_canon and c not in g_canon],
     }
-    oos_rows: set[int] = set()
-    for pair in pairs:
-        g_row = pair.golden[1] if pair.golden else None
-        a_row = pair.agent[1] if pair.agent else None
-        out_of_scope = (g_row is not None and a_row is None and scope is not None
-                        and scope.active and agent is not None
-                        and scope.out_of_scope(g_row, g_canon, tables[0]))
-        if out_of_scope:
-            oos_rows.add(pair.golden[0])
-        for col in order:
-            label = g_canon.get(col) or a_canon[col]
-            in_g = g_row is not None and col in g_canon
-            in_a = a_row is not None and col in a_canon
-            if not (in_g or in_a):
-                continue  # neither workbook has this row in this column: no cell
-            g_val = g_row.get(g_canon[col]) if in_g else None
-            a_val = a_row.get(a_canon[col]) if in_a else None
-            if out_of_scope:
-                status = OUT_OF_SCOPE
-            elif keys.is_assignment(label):
-                status = ASSIGN
-            elif not in_g:
-                status = EXTRA
-            elif not in_a:
-                status = MISSING
-            else:
-                status = classify(g_val, a_val, keys.env_tokens)
-            out.cells.append(
-                Cell(
-                    pair.key,
-                    pair.golden[0] if pair.golden else None,
-                    pair.agent[0] if pair.agent else None,
-                    label,
-                    g_val,
-                    a_val,
-                    status,
-                )
-            )
+    out.cells, oos_rows = _classify_pairs(pairs, order, g_canon, a_canon, keys, tables,
+                                          scope if agent is not None else None)
+    # 2026-10-13 (D1 pair_12): a SECOND pairing of the rows the key left
+    # unpaired — reported beside the key-paired score, never instead of it.
+    secondary, method = _secondary_pairs(pairs, oos_rows, order, g_canon, a_canon, keys)
+    if method is not None:
+        alt_cells, _oos = _classify_pairs(secondary, order, g_canon, a_canon, keys, tables,
+                                          scope if agent is not None else None)
+        alt_counts = Counter(c.status for c in alt_cells)
+        out.positional = {
+            "method": method,
+            "rows_paired": sum(1 for p in secondary if p.golden and p.agent)
+            - sum(1 for p in pairs if p.golden and p.agent),
+            "counts": {s: alt_counts.get(s, 0) for s in STATUSES},
+            "score": _comparable({s: alt_counts.get(s, 0) for s in STATUSES}),
+        }
     out.rows = {
         "golden": len(golden.rows) if golden else 0,
         "agent": len(agent.rows) if agent else 0,
@@ -887,6 +981,7 @@ def diff_sheet(
         EXTRA: sum(1 for p in pairs if p.agent and not p.golden),
     }
     out.out_of_scope_rows = len(oos_rows)
+    out.key_samples = key_samples(out, keys)
     return out
 
 
@@ -1011,6 +1106,11 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_score": None if one_side else _comparable(counts),
             "out_of_scope_rows": d.out_of_scope_rows,
             "needs_assignment": assign,
+            # 2026-10-13: the rows the key left unpaired, paired a second way
+            # (position / best cell overlap) — beside the key-paired score.
+            "positional": None if one_side else d.positional,
+            # D1 only (unscrubbed): the key convention each side follows.
+            "key_samples": d.key_samples,
             "warnings": sheet_warnings,
         }
         if d.facts.get("template_mismatch"):
@@ -1021,6 +1121,11 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
     for d in diffs:
         if d.presence == "compared":
             shared.update(d.counts())
+    positional: Counter[str] = Counter()
+    for d in diffs:
+        if d.presence == "compared":
+            positional.update((d.positional or {}).get("counts") or {
+                s: n for s, n in d.counts().items()})
     templates = template_facts(diffs)
     scope = next((d.facts.get("scope") for d in diffs if d.facts.get("scope")), None)
     return {
@@ -1038,6 +1143,11 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_score": _comparable({s: shared.get(s, 0) for s in STATUSES}),
             "comparable_cells": sum(shared.get(s, 0) for s in SCORED),
             "out_of_scope_rows": sum(d.out_of_scope_rows for d in diffs),
+            # the comparable score once the key-unpaired rows are paired a
+            # second way (sheets with nothing to pair count as they are)
+            "positional_score": _comparable({s: positional.get(s, 0) for s in STATUSES}),
+            "positional_rows_paired": sum((d.positional or {}).get("rows_paired", 0)
+                                          for d in diffs if d.presence == "compared"),
         },
         "sheets": sheets,
         "warnings": warnings,
@@ -1871,18 +1981,44 @@ def _print_pair(payload: dict, out: Path) -> None:
         c = s["counts"]
         line = ", ".join(f"{k} {c[k]}" for k in STATUSES)
         score = s["note"] if s.get("note") else s["score"]
-        print(f"{name}: score {score}; comparable {s.get('comparable_score')}; {line}")
+        positional = s.get("positional")
+        extra = (f"; positional {positional['score']} ({positional['method']}, "
+                 f"{positional['rows_paired']} row(s))" if positional else "")
+        print(f"{name}: score {score}; comparable {s.get('comparable_score')}{extra}; {line}")
     t = payload["totals"]
     print(f"TOTAL: score {t['score']}; " + ", ".join(f"{k} {t[k]}" for k in STATUSES))
     print(f"COMPARABLE: score {t.get('comparable_score')} over {t.get('comparable_cells')} "
           f"scoped cell(s) of the sheets both sides have; out of scope: "
           f"{t.get('out_of_scope_rows', 0)} golden row(s)")
+    print(f"POSITIONAL: score {t.get('positional_score')} — the key-unpaired rows paired by "
+          f"position / best cell overlap ({t.get('positional_rows_paired', 0)} row(s)); the "
+          "key-paired score above is unchanged")
     hint = (payload.get("templates") or {}).get("hint")
     if hint:
         print(f"HINT {hint}")
     for w in payload["warnings"]:
         print(f"WARNING {w}")
+    _print_key_samples(payload)
     print(f"wrote {out / 'score.json'}, {out / 'diff.xlsx'}, {out / 'routing.csv'}")
+
+
+def _print_key_samples(payload: dict) -> None:
+    """KEY CONVENTIONS (D1 only, unscrubbed): per sheet, the first golden key
+    values beside the first agent ones."""
+    print(f"KEY CONVENTIONS (D1 only - unscrubbed; first {KEY_SAMPLE_ROWS} rows per side)")
+    for name, s in payload["sheets"].items():
+        samples = s.get("key_samples") or {}
+        if not samples.get("key"):
+            print(f"  {name}: no natural key")
+            continue
+        print(f"  {name}: key {samples['key']}")
+        golden, agent = samples.get("golden") or [], samples.get("agent") or []
+        width = max([len("golden"), *(len(v) for v in golden)])
+        print(f"    {'golden':<{width}} | agent")
+        for i in range(max(len(golden), len(agent))):
+            g = golden[i] if i < len(golden) else ""
+            a = agent[i] if i < len(agent) else ""
+            print(f"    {g:<{width}} | {a}")
 
 
 def main(argv: list[str] | None = None) -> int:

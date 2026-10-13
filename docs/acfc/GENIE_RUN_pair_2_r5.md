@@ -3,7 +3,7 @@ In order; stop where told. NEVER modify `src/codegen/**`, never hand-edit or spl
 never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md is one of them).
 1. **Code.** `git fetch origin` · `git checkout feature/multi-table` · `git pull --ff-only origin
    feature/multi-table`. Record `python -m codegen.cli doctor`'s `build …` line and `git rev-parse
-   --short HEAD`; STOP unless the build line names that SHA `(git)`; version >= 0.5.8.post29.
+   --short HEAD`; STOP unless the build line names that SHA `(git)`; version >= 0.5.8.post30.
 2. **Fingerprint + content gate** (hashes + counts only). `<STTM>` = the FILLED workbook, never
    `*_blank_version*`. `python scripts/doc_fingerprint.py <STTM> <FRD> --json >
    /tmp/r5/push/fingerprint_d1.json`; its text form (no `--json`) into RUN.md. **Gate:**

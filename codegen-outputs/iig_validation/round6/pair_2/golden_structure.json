@@ -1,0 +1,449 @@
+{
+  "note": "real GROUP_IDs withheld (PIPELINE_IDs too): group#k / pipeline#k number the distinct ids in sorted order; table / object / file names are compared by normalized value and never printed",
+  "group_ids": 6,
+  "pipeline_ids": 6,
+  "sheets": {
+    "adls_delta_ingestion_details": {
+      "rows": 3,
+      "grouped_by": "GROUP_ID",
+      "groups": 3
+    },
+    "all_files_static_information": {
+      "rows": 3,
+      "grouped_by": null,
+      "groups": 0
+    },
+    "data_factory_pipeline_schedule": {
+      "rows": 6,
+      "grouped_by": "PIPELINE_ID",
+      "groups": 6
+    },
+    "data_quality_rules": {
+      "rows": 10,
+      "grouped_by": "GROUP_ID",
+      "groups": 5
+    },
+    "databricks_notebook_details": {
+      "rows": 6,
+      "grouped_by": "GROUP_ID",
+      "groups": 6
+    },
+    "stgdelta_stddelta_ingestion_det": {
+      "rows": 3,
+      "grouped_by": "GROUP_ID",
+      "groups": 3
+    }
+  },
+  "groups": {
+    "group#1": {
+      "column": "GROUP_ID",
+      "sheets": {
+        "adls_delta_ingestion_details": {
+          "rows": 1,
+          "distinct": {
+            "OBJECT_NAME": 1,
+            "TGT_TABLE_NAME": 1
+          },
+          "shared_rows": {
+            "TGT_TABLE_NAME": 1,
+            "OBJECT_NAME": 1
+          },
+          "pairs_with": {
+            "TGT_TABLE_NAME": [
+              "group#2"
+            ],
+            "OBJECT_NAME": [
+              "group#2"
+            ]
+          }
+        },
+        "data_quality_rules": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "databricks_notebook_details": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [
+          "group#2"
+        ],
+        "OBJECT_NAME": [
+          "group#2"
+        ]
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "pipeline#1"
+      ]
+    },
+    "group#2": {
+      "column": "GROUP_ID",
+      "sheets": {
+        "data_quality_rules": {
+          "rows": 2,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "databricks_notebook_details": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "stgdelta_stddelta_ingestion_det": {
+          "rows": 1,
+          "distinct": {
+            "OBJECT_NAME": 1,
+            "TGT_TABLE_NAME": 1
+          },
+          "shared_rows": {
+            "TGT_TABLE_NAME": 1,
+            "OBJECT_NAME": 1
+          },
+          "pairs_with": {
+            "TGT_TABLE_NAME": [
+              "group#1"
+            ],
+            "OBJECT_NAME": [
+              "group#1"
+            ]
+          }
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [
+          "group#1"
+        ],
+        "OBJECT_NAME": [
+          "group#1"
+        ]
+      },
+      "reads_tables_of": [
+        "group#1"
+      ],
+      "linked": [
+        "pipeline#2"
+      ]
+    },
+    "group#3": {
+      "column": "GROUP_ID",
+      "sheets": {
+        "adls_delta_ingestion_details": {
+          "rows": 1,
+          "distinct": {
+            "OBJECT_NAME": 1,
+            "TGT_TABLE_NAME": 1
+          },
+          "shared_rows": {
+            "TGT_TABLE_NAME": 1,
+            "OBJECT_NAME": 1
+          },
+          "pairs_with": {
+            "TGT_TABLE_NAME": [
+              "group#4"
+            ],
+            "OBJECT_NAME": [
+              "group#4"
+            ]
+          }
+        },
+        "databricks_notebook_details": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [
+          "group#4"
+        ],
+        "OBJECT_NAME": [
+          "group#4"
+        ]
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "pipeline#3"
+      ]
+    },
+    "group#4": {
+      "column": "GROUP_ID",
+      "sheets": {
+        "data_quality_rules": {
+          "rows": 2,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "databricks_notebook_details": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "stgdelta_stddelta_ingestion_det": {
+          "rows": 1,
+          "distinct": {
+            "OBJECT_NAME": 1,
+            "TGT_TABLE_NAME": 1
+          },
+          "shared_rows": {
+            "TGT_TABLE_NAME": 1,
+            "OBJECT_NAME": 1
+          },
+          "pairs_with": {
+            "TGT_TABLE_NAME": [
+              "group#3"
+            ],
+            "OBJECT_NAME": [
+              "group#3"
+            ]
+          }
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [
+          "group#3"
+        ],
+        "OBJECT_NAME": [
+          "group#3"
+        ]
+      },
+      "reads_tables_of": [
+        "group#3"
+      ],
+      "linked": [
+        "pipeline#4"
+      ]
+    },
+    "group#5": {
+      "column": "GROUP_ID",
+      "sheets": {
+        "adls_delta_ingestion_details": {
+          "rows": 1,
+          "distinct": {
+            "OBJECT_NAME": 1,
+            "TGT_TABLE_NAME": 1
+          },
+          "shared_rows": {
+            "TGT_TABLE_NAME": 1,
+            "OBJECT_NAME": 1
+          },
+          "pairs_with": {
+            "TGT_TABLE_NAME": [
+              "group#6"
+            ],
+            "OBJECT_NAME": [
+              "group#6"
+            ]
+          }
+        },
+        "data_quality_rules": {
+          "rows": 2,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "databricks_notebook_details": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [
+          "group#6"
+        ],
+        "OBJECT_NAME": [
+          "group#6"
+        ]
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "pipeline#5"
+      ]
+    },
+    "group#6": {
+      "column": "GROUP_ID",
+      "sheets": {
+        "data_quality_rules": {
+          "rows": 3,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "databricks_notebook_details": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        },
+        "stgdelta_stddelta_ingestion_det": {
+          "rows": 1,
+          "distinct": {
+            "OBJECT_NAME": 1,
+            "TGT_TABLE_NAME": 1
+          },
+          "shared_rows": {
+            "TGT_TABLE_NAME": 1,
+            "OBJECT_NAME": 1
+          },
+          "pairs_with": {
+            "TGT_TABLE_NAME": [
+              "group#5"
+            ],
+            "OBJECT_NAME": [
+              "group#5"
+            ]
+          }
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [
+          "group#5"
+        ],
+        "OBJECT_NAME": [
+          "group#5"
+        ]
+      },
+      "reads_tables_of": [
+        "group#5"
+      ],
+      "linked": [
+        "pipeline#6"
+      ]
+    },
+    "pipeline#1": {
+      "column": "PIPELINE_ID",
+      "sheets": {
+        "data_factory_pipeline_schedule": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [],
+        "OBJECT_NAME": []
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "group#1"
+      ]
+    },
+    "pipeline#2": {
+      "column": "PIPELINE_ID",
+      "sheets": {
+        "data_factory_pipeline_schedule": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [],
+        "OBJECT_NAME": []
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "group#2"
+      ]
+    },
+    "pipeline#3": {
+      "column": "PIPELINE_ID",
+      "sheets": {
+        "data_factory_pipeline_schedule": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [],
+        "OBJECT_NAME": []
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "group#3"
+      ]
+    },
+    "pipeline#4": {
+      "column": "PIPELINE_ID",
+      "sheets": {
+        "data_factory_pipeline_schedule": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [],
+        "OBJECT_NAME": []
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "group#4"
+      ]
+    },
+    "pipeline#5": {
+      "column": "PIPELINE_ID",
+      "sheets": {
+        "data_factory_pipeline_schedule": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [],
+        "OBJECT_NAME": []
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "group#5"
+      ]
+    },
+    "pipeline#6": {
+      "column": "PIPELINE_ID",
+      "sheets": {
+        "data_factory_pipeline_schedule": {
+          "rows": 1,
+          "distinct": {},
+          "shared_rows": {},
+          "pairs_with": {}
+        }
+      },
+      "pairs_with": {
+        "TGT_TABLE_NAME": [],
+        "OBJECT_NAME": []
+      },
+      "reads_tables_of": [],
+      "linked": [
+        "group#6"
+      ]
+    }
+  },
+  "ungrouped": {
+    "all_files_static_information": {
+      "rows": 3,
+      "distinct": {
+        "FILE_NAME": 3
+      }
+    }
+  }
+}

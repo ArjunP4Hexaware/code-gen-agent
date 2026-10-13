@@ -1,0 +1,5 @@
+WARN file#1 vs file#1: sha256 differs; size 60905 vs 61141
+WARN file#1 vs file#1 sheet[2] name#01292dd6fa7b: body_hash differs; column hashes differ: J, O
+WARN file#1 vs file#1 sheet[3] name#ef35f6a78545: body_hash differs; column hashes differ: J, O
+WARN file#1 vs file#1 sheet[4] name#a60e2e099a94: body_hash differs; column hashes differ: K, P
+WARN file#2 vs file#2: sha256 differs

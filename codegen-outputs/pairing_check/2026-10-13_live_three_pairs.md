@@ -250,7 +250,36 @@ Agent build: 0.5.8.post38 · 490e089 on feature/multi-table.
 * DATABRICKS_NOTEBOOK_DETAILS: agent duplicate key (DATABRICKS_NOTEBOOK_NAME) — paired in sheet order
 * ALL_FILES_STATIC_INFORMATION: key column FILE_NAME not in both sheets — rows not paired; 2 golden rows out of scope
 
-**Interpretation:** The 0.0 score is driven by key-pairing failures — `needs_assignment` is 736, meaning rows exist on both sides but the natural keys diverge. The agent writes different identifiers for PIPELINE_NAME, NOTEBOOK_NAME, OBJECT_ID, etc. than the golden. No cells were compared as mismatches because no rows paired.
+#### iig_v2 comparison (agent generated with `--iig-template iig_v2`)
+
+**Comparable score: 0.2** over 2888 scoped cells (2 golden rows out of scope).  
+Agent IIG has an extra sheet (ADLS_FIXED_WIDTH_HANDLER) not in the golden.
+
+| Sheet | Score | Exact | Norm | Mismatch | Missing | Extra | Needs-assign |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DATA_FACTORY_PIPELINE_SCHEDULE | 0.0 | 0 | 0 | 0 | 92 | 44 | 40 |
+| ADLS_DELTA_INGESTION_DETAILS | 0.0 | 0 | 0 | 0 | 810 | 792 | 360 |
+| STGDELTA_STDDELTA_INGESTION_DET | 0.0 | 0 | 0 | 0 | 90 | 90 | 60 |
+| DATA_QUALITY_RULES | 0.0 | 0 | 0 | 0 | 378 | 126 | 432 |
+| DATABRICKS_NOTEBOOK_DETAILS | **15.4** | **6** | 0 | 0 | 20 | 13 | 18 |
+| EMAIL_TEMPLATE_CONFIG | 0.0 | 0 | 0 | 0 | 26 | 24 | 12 |
+| ALL_FILES_STATIC_INFORMATION | 0.0 | 0 | 0 | 0 | 368 | 9 | 72 |
+| ADLS_FIXED_WIDTH_HANDLER | (not in golden) | — | — | — | — | — | — |
+| **TOTAL** | **0.2** | 6 | 0 | 0 | 1784 | 1098 | 994 |
+
+#### Template comparison
+
+| Metric | iig_v1 | iig_v2 |
+| --- | --- | --- |
+| Comparable score | 0.0 | 0.2 |
+| Scoped cells | 2150 | 2888 |
+| Exact matches | 0 | 6 |
+| Needs-assignment | 736 | 994 |
+| Best sheet | — | DATABRICKS_NOTEBOOK_DETAILS (15.4) |
+
+iig_v2 is marginally better: DATABRICKS_NOTEBOOK_DETAILS paired 6 cells by key (the notebook naming convention matched). Every other sheet still scores 0.0 — keys diverge across the board.
+
+**Interpretation:** Both templates are dominated by key-pairing failures (`needs_assignment`), meaning rows exist on both sides but the natural keys (PIPELINE_NAME, OBJECT_ID, NOTEBOOK_NAME, FILE_NAME) diverge between golden and agent. The hint continues to flag the golden as iig_v1, but the v2 template paradoxically scores better because its extra ADLS_DELTA rows happen to line up the DATABRICKS_NOTEBOOK_DETAILS keys.
 
 ---
 

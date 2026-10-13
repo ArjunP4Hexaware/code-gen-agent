@@ -186,3 +186,6 @@ docs/acfc/iig_goldens_round2/email_template_config_by_pipeline.csv
 # run_round.py's input paths (2026-10-13): the owner places them per pair; they
 # name client documents, never committed (scripts/run_round.py --inputs).
 /codegen-state/round_inputs/
+# iig_diff's prod environment-token values (2026-10-13): prod catalog names the
+# golden carries; the owner places them on D1, never committed (tools/iig_keys.yaml).
+/codegen-state/env_tokens.yaml

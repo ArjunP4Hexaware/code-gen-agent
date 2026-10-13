@@ -49,7 +49,9 @@ every such row names one table; unresolved ids are listed as
 
 * ``exact``            — same value as written (None and "" are the same);
 * ``normalized``       — equal once case, whitespace, trailing zeros, NULL vs
-  empty and path separators are normalized;
+  empty and path separators are normalized, or once each ENVIRONMENT value
+  (``environment_tokens`` in iig_keys.yaml: the D1 storage prefix / catalogs
+  the agent runs with, the prod ones a golden carries) is replaced by its token;
 * ``mismatch``         — both filled, different;
 * ``missing-in-agent`` — golden filled, agent blank (or the column / row is
   absent from the agent workbook);
@@ -128,6 +130,9 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font, PatternFill
 
 DEFAULT_KEYS = Path(__file__).resolve().parent / "iig_keys.yaml"
+# The gitignored values of iig_keys.yaml's ``local:<name>`` environment tokens
+# (prod names never enter git); absent = those tokens are listed unresolved.
+DEFAULT_ENV_LOCAL = Path(__file__).resolve().parent.parent / "codegen-state" / "env_tokens.yaml"
 BUILD_FILES = ("CODEGEN_BUILD.json", "run_meta.json")
 UNSCORED = "unscored: agent workbook has no build identity"
 
@@ -182,6 +187,22 @@ def sheet_id(name: str) -> str:
 
 
 @dataclass(frozen=True)
+class EnvToken:
+    """One environment token: every value (any environment) it stands for."""
+    token: str
+    values: tuple[str, ...] = ()               # literals, casefolded
+    patterns: tuple[re.Pattern, ...] = ()      # scrub_check classes
+    unresolved: tuple[str, ...] = ()           # ``local:<name>`` with no local value
+
+    def apply(self, text: str) -> str:
+        for value in self.values:
+            text = re.sub(rf"(?<![a-z0-9]){re.escape(value)}(?![a-z0-9])", self.token, text)
+        for pattern in self.patterns:
+            text = pattern.sub(self.token, text)
+        return text
+
+
+@dataclass(frozen=True)
 class KeyConfig:
     sheets: dict[str, list[str]]
     needs_assignment: list[str]
@@ -190,6 +211,12 @@ class KeyConfig:
     object_id_column: str = "OBJECT_ID"
     group_id_column: str = "GROUP_ID"
     object_sources: dict[str, list[str]] = field(default_factory=dict)
+    env_tokens: tuple[EnvToken, ...] = ()
+
+    def env_state(self) -> dict[str, str]:
+        """token -> 'resolved' / 'unresolved: local:<name>, …' (names, never values)."""
+        return {t.token: ("unresolved: " + ", ".join(f"local:{n}" for n in t.unresolved)
+                          if t.unresolved else "resolved") for t in self.env_tokens}
 
     def key_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.sheets, sheet)
@@ -228,9 +255,47 @@ def _column_lists(path: Path, section: str, raw: object) -> dict[str, list[str]]
     return out
 
 
-def load_keys(path: Path) -> KeyConfig:
+def _env_tokens(path: Path, raw: object, local_path: Path | None) -> tuple[EnvToken, ...]:
+    """``environment_tokens``: token -> its values, each a literal, a
+    ``scrub_class:<name>`` (that scripts/scrub_check.py pattern) or a
+    ``local:<name>`` (read from the gitignored ``local_path``)."""
+    if not raw:
+        return ()
+    local: dict = {}
+    if local_path is not None and Path(local_path).is_file():
+        local = yaml.safe_load(Path(local_path).read_text(encoding="utf-8")) or {}
+    classes = None
+    out = []
+    for token, specs in dict(raw).items():
+        values, patterns, unresolved = [], [], []
+        for spec in [specs] if isinstance(specs, str) else list(specs or []):
+            spec = str(spec)
+            if spec.startswith("scrub_class:"):
+                if classes is None:
+                    classes = dict(load_scrub_check().GENERIC_PATTERNS)
+                name = spec.split(":", 1)[1]
+                if name not in classes:
+                    raise ValueError(f"{path}: environment_tokens.{token}: no scrub_check "
+                                     f"class {name!r}")
+                patterns.append(classes[name])
+            elif spec.startswith("local:"):
+                name = spec.split(":", 1)[1]
+                given = local.get(name)
+                given = [given] if isinstance(given, str) else list(given or [])
+                values += [str(v).casefold() for v in given if str(v).strip()]
+                if not any(str(v).strip() for v in given):
+                    unresolved.append(name)
+            else:
+                values.append(spec.casefold())
+        out.append(EnvToken(str(token), tuple(values), tuple(patterns),
+                            tuple(unresolved)))
+    return tuple(out)
+
+
+def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables"}
+    known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
+             "environment_tokens"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -246,6 +311,7 @@ def load_keys(path: Path) -> KeyConfig:
         object_id_column=str(objects.get("id_column") or "OBJECT_ID"),
         group_id_column=str(objects.get("group_column") or "GROUP_ID"),
         object_sources=_column_lists(path, "object_tables.sources", objects.get("sources")),
+        env_tokens=_env_tokens(path, raw.get("environment_tokens"), env_local),
     )
 
 
@@ -354,11 +420,19 @@ def normalize(value: object) -> str:
     return text.casefold()
 
 
-def classify(golden: object, agent: object) -> str:
+def env_normalize(text: str, env: tuple[EnvToken, ...]) -> str:
+    for token in env:
+        text = token.apply(text)
+    return text
+
+
+def classify(golden: object, agent: object, env: tuple[EnvToken, ...] = ()) -> str:
     if _raw(golden) == _raw(agent):
         return EXACT
     g, a = normalize(golden), normalize(agent)
     if g == a:
+        return NORMALIZED
+    if env and g and a and env_normalize(g, env) == env_normalize(a, env):
         return NORMALIZED
     if not g:
         return EXTRA
@@ -664,7 +738,7 @@ def diff_sheet(
             elif not in_a:
                 status = MISSING
             else:
-                status = classify(g_val, a_val)
+                status = classify(g_val, a_val, keys.env_tokens)
             out.cells.append(
                 Cell(
                     pair.key,
@@ -899,7 +973,8 @@ def header_facts(keys: KeyConfig, pair_mode: str, build: dict | None) -> dict:
     for a non-key pairing, the banner."""
     facts: dict = {"agent_build": build["line"] if build else None,
                    "agent_build_file": build["file"] if build else None,
-                   "ignored_set": list(keys.needs_assignment), "pair_mode": pair_mode}
+                   "ignored_set": list(keys.needs_assignment), "pair_mode": pair_mode,
+                   "environment_tokens": keys.env_state()}
     if pair_mode != "key":
         facts["banner"] = (f"PAIR MODE {pair_mode.upper()}: rows paired by "
                            f"{'ordinal position' if pair_mode == 'position' else 'normalized key'}"
@@ -1605,6 +1680,9 @@ def run_batch(directory: Path, out: Path, keys_path: Path,
 def _print_header(payload: dict) -> None:
     print(f"AGENT BUILD: {payload.get('agent_build')}")
     print(f"IGNORED (never scored): {', '.join(payload.get('ignored_set') or [])}")
+    env = payload.get("environment_tokens") or {}
+    if env:
+        print("ENVIRONMENT TOKENS: " + "; ".join(f"{t} {s}" for t, s in env.items()))
     if payload.get("banner"):
         print(payload["banner"])
 

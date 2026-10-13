@@ -558,3 +558,62 @@ def test_agent_workbooks_from_different_builds_are_unscored(tmp_path: Path, caps
     assert iig_diff.main(["--golden", str(golden), "--agent", str(one), str(two),
                           "--out", str(tmp_path / "out")]) == 1
     assert "come from different builds" in capsys.readouterr().out
+
+
+# 2026-10-13 (round 6, class D): environment tokens. The agent runs under the D1
+# overlay, the golden is a prod export: a cell that differs ONLY in an
+# environment value is "normalized". The prod storage prefix is assembled (it is
+# a scrub_check class); the prod catalogs come from the gitignored local file.
+PROD_PREFIX = "z-use-" + "pr-dlk"
+ADLS = "ADLS_DELTA_INGESTION_DETAILS"
+STG = "STGDELTA_STDDELTA_INGESTION_DET"
+
+
+def _env_books(tmp_path: Path) -> tuple[Path, Path]:
+    head = ["OBJECT_NAME", "TGT_TABLE_NAME", "TGT_CONTAINER_NAME"]
+    stg = ["OBJECT_NAME", "TGT_TABLE_NAME", "SRC_CATALOG_NAME", "TGT_CATALOG_NAME"]
+    golden = _book(tmp_path / "g.xlsx", {
+        ADLS: [head, ["f", "t", f"{PROD_PREFIX}-stage-01"]],
+        STG: [stg, ["f", "t", "prodcat_stage", "prodcat_std"]]})
+    agent = _book(tmp_path / "a.xlsx", {
+        ADLS: [head, ["f", "t", "z-use-d1-dlk-stage-01"]],
+        STG: [stg, ["f", "t", "d1_dlk", "d1_std"]]})
+    return golden, agent
+
+
+def _statuses(diffs) -> dict[str, str]:
+    return {c.column: c.status for d in diffs for c in d.cells}
+
+
+def test_environment_tokens_normalize_d1_against_prod(tmp_path: Path) -> None:
+    golden, agent = _env_books(tmp_path)
+    local = tmp_path / "env_tokens.yaml"
+    local.write_text("stage_catalog: prodcat_stage\nstandard_catalog: [prodcat_std]\n",
+                     encoding="utf-8")
+    keys = iig_diff.load_keys(KEYS, env_local=local)
+    assert keys.env_state() == {"<CLIENT_STORAGE_PREFIX>": "resolved",
+                                "<STAGE_CATALOG>": "resolved",
+                                "<STANDARD_CATALOG>": "resolved"}
+    status = _statuses(iig_diff.diff_workbooks(golden, agent, keys))
+    assert status == {"OBJECT_NAME": "exact", "TGT_TABLE_NAME": "exact",
+                      "TGT_CONTAINER_NAME": "normalized", "SRC_CATALOG_NAME": "normalized",
+                      "TGT_CATALOG_NAME": "normalized"}
+
+
+def test_unfilled_local_tokens_stay_mismatches_and_are_listed(tmp_path: Path) -> None:
+    golden, agent = _env_books(tmp_path)
+    keys = iig_diff.load_keys(KEYS, env_local=tmp_path / "absent.yaml")
+    status = _statuses(iig_diff.diff_workbooks(golden, agent, keys))
+    assert status["TGT_CONTAINER_NAME"] == "normalized"       # scrub_check class: no file
+    assert status["SRC_CATALOG_NAME"] == status["TGT_CATALOG_NAME"] == "mismatch"
+    facts = iig_diff.header_facts(keys, "key", None)
+    assert facts["environment_tokens"]["<STAGE_CATALOG>"] == "unresolved: local:stage_catalog"
+
+
+def test_an_environment_token_never_hides_a_real_difference(tmp_path: Path) -> None:
+    keys = iig_diff.load_keys(KEYS, env_local=tmp_path / "absent.yaml")
+    assert iig_diff.classify(f"{PROD_PREFIX}-stage-01", "z-use-d1-dlk-stage-02",
+                             keys.env_tokens) == "mismatch"
+    assert iig_diff.classify("d1_dlkx", "d1_dlk", keys.env_tokens) == "mismatch"
+    assert iig_diff.classify(f"{PROD_PREFIX}-stage-01", "", keys.env_tokens) == \
+        "missing-in-agent"

@@ -61,3 +61,21 @@ withhold_values: [CREATED_BY, UPDATED_BY, CRETAED_BY]
 
 # Sheets never compared (besides any sheet whose name starts with "_").
 ignore_sheets: [REVIEW_SUMMARY]
+
+# ENVIRONMENT TOKENS (2026-10-13, round 6 class D, scorer-side): the agent runs
+# under the D1 environment overlay (config/overlays/acfc_env.yaml), the golden
+# is a PROD export. Every value listed for a token — any environment's — is
+# replaced by the token on BOTH sides of a cell before comparing; equal then
+# counts "normalized", never "exact". A value is a literal, a
+# `scrub_class:<name>` (that pattern of scripts/scrub_check.py, which already
+# names the prod storage prefix) or a `local:<name>`, read from the gitignored
+# codegen-state/env_tokens.yaml (prod catalog names never enter git). No prod
+# overlay exists in the repo, so the two catalogs are PLACEHOLDERS: until the
+# owner fills them, score.json / RUN.md list them "unresolved: local:<name>".
+environment_tokens:
+  # acfc_env.yaml ADLS_DELTA TGT_CONTAINER_NAME z-use-d1-dlk-stage-01
+  "<CLIENT_STORAGE_PREFIX>": [z-use-d1-dlk, "scrub_class:client_storage_prefix"]
+  # acfc_env.yaml catalog_map PR_DLK / default_catalog.stage
+  "<STAGE_CATALOG>": [d1_dlk, "local:stage_catalog"]
+  # acfc_env.yaml catalog_map PR_STD / default_catalog.standard
+  "<STANDARD_CATALOG>": [d1_std, "local:standard_catalog"]

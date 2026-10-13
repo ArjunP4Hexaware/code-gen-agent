@@ -91,6 +91,7 @@ def test_the_happy_path_end_to_end(env):
     assert "`codegen layout --workbook <STTM> --frd <FRD>" in run_md
     assert f"{PAIR}/DATA_FACTORY_PIPELINE_SCHEDULE: dedup " in run_md
     assert "agent " in run_md and "rows (deduped) · paired" in run_md
+    assert "environment token `<CLIENT_STORAGE_PREFIX>`: resolved" in run_md
     _assert_no_names(env, run_md)
     structure = json.loads((env["out"] / "fingerprint_structure.json").read_text("utf-8"))
     assert all("body_hash" not in s and "column_hashes" not in s

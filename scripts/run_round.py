@@ -344,9 +344,11 @@ class Round:
                         f"{r.get('golden', '-')} rows (deduped) · paired {r.get('paired', '-')}")
         t = score["totals"]
         self.section("Rows per sheet (agent vs de-duplicated golden)", rows)
+        env = score.get("environment_tokens") or {}
         self.section("Score (key-paired, agreed ignore set)",
                      [f"TOTAL {t['score']} over {t['scored_cells']} scored cells; agent IIG "
-                      f"workbooks: {len(agents)}"])
+                      f"workbooks: {len(agents)}"]
+                     + [f"environment token `{tok}`: {state}" for tok, state in env.items()])
         return 0
 
     # 5/6 ---------------------------------------------------------- RUN.md

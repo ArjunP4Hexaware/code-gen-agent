@@ -1,9 +1,54 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-13, `feature/multi-table` head 382acb7, post30)
+## NEWEST — IIG validation (state as of 2026-10-13 midday, `feature/multi-table` head 042b9fa, post36, PUSHED)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
+
+**Restart here (2026-10-13, App demo day).** Working tree clean at 042b9fa, `HEAD:src` tree
+`54a50fefb007`, marker 0.5.8.post36. The App on D1 deploys from `feature/multi-table` in the D1
+Git folder; `docs/acfc/APP_DEMO_CHECKLIST.md` is the demo script, pinned to that tree and
+version >= post36 (step 5: the run header badge must read `Output: Framework artefacts`).
+**post35 was never pushed** — D1's annotated-column DDL came from post34 (9fb09c6).
+- **post34 (9fb09c6) file_format:** an FRD ingestion-type phrase ("File Data Ingestion",
+  `extractor.frd.format_tokens`) is no format — the file pattern's extension decides
+  (`resolve/gapfill.py` `is_format_text` / `format_delimiter`; `layout/resolve.py`
+  `_FeedGapFiller._file_format`, VDD FILES rows matched per feed by file pattern —
+  `_own_vdd_rows`); flag `format_from_extension` printed as a NOTE. SD with the VDD: the only
+  QUESTIONs are `feeds[0..2].frequency`; without it, exit 0 with three file_format NOTEs.
+  Tests `tests/test_format_from_extension.py`.
+- **post36 (042b9fa) — the D1 App failure `TemplateGapError 'LOB(Hardcod to MIDS)'`.** Cause:
+  the App ran NOTEBOOK mode (config `output.mode: notebook`, toggles untouched); every scored
+  round used `--output-mode framework`, whose render skips that gap check and wrote the
+  annotated name into the DDL as a column. Fixes: (1) `src/codegen/extract/audit_names.py`
+  (`split_audit_annotation`, `clean_audit_column`) used by all three STTM readers (generic,
+  legacy `MAPPING-`, segmented) — the contract carries `LOB`, flag
+  `audit_column_annotated:<key> <cell>: … (value 'MIDS')`; the emitter is unchanged.
+  (2) `output.profile_mode: {acfc_prx: framework}` + `OutputConfig.default_parts()` — the App
+  (`ui/backend/demo.py::effective_output_parts`) defaults to framework for acfc_prx; the CLI
+  default stays notebook. `ModesPage.tsx` shows an `Output: …` badge and warns "notebook not
+  validated for acfc_prx" (dist `index-BdZrOxwQ.js`). (3) `src/codegen/gate/ddl_names.py` +
+  `scripts/run_round.py` stage `## DDL sanity` after the CLI: a column identifier not
+  `^[A-Za-z_][A-Za-z0-9_]*$` = exit 1, named. Tests `tests/test_audit_annotation.py`, a DDL-gate
+  test in `tests/test_run_round.py`.
+- **Verified at 042b9fa:** 1360 passed / 28 skipped; ruff, tsc clean; vitest 29. SD invariant
+  (home, mock) 47 / 47 / 45 matched, diff 1 / 1 / 3 — unchanged by post36. App (nothing POSTed
+  → framework) vs CLI: `framework/` + `ddl/` byte-identical, mock AND live
+  (databricks-claude-opus-5, profile DEFAULT; only `candidates.json` differs live); the IIGs
+  equal post33's; 16 DDL files / 1,735 column identifiers / 0 with "(". A double-POST of the
+  same workbook answers 200 `joined`.
+- **The home SD documents:** the home STTM (60,905 B) has anonymized ColumnName columns; D1's
+  (61,141 B) is the reference. The SD VDD is only in the user's Downloads folder; its FILES!C2:C4
+  say "Delimited text" (D1's reportedly `csv`). Session scratch scripts (`drive_app.py` App HTTP
+  driver, `cli_ref.py`, `sd_run.py`) died with the session — rebuild from the checklist.
+- **ON HOLD until after the demo — the round-8 brief:** item 4 Decimal(10,2) precision; STGDELTA
+  SRC_CONTAINER_NAME = the ADLS TGT container; the TGT container as a QUESTION (SFMC uses a third
+  container, pair 1 the stage container); drop Q8; RECYCL Q3; ALL_FILES layout;
+  EMAIL_TEMPLATE_CONFIG. "Do not touch other pairs" this session.
+- Commits post30 → post33 (oldest first): a7f98fc `run_round.py` (post31/32), 28d3abb iig_diff
+  environment tokens, df0e1a7 STGDELTA paths, b9a10c8 SD-family flags, e90562d `_MI` OBJECT_NAME,
+  0891329 EMAIL_TEMPLATE_CONFIG export, fff4f57 post33 + `GENIE_RUN_pair_2_r7.md`, 1cd5574 the
+  demo checklist.
 
 - **D1 runs, home reviews.** The prod goldens exist only on D1 (`*.xlsx` + the 860a798 ignore
   lines keep them off origin; unscrubbed prod rows — never force-add them). Genie runs

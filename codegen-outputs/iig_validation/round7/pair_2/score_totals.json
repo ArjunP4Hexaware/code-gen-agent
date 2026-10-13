@@ -1,0 +1,158 @@
+{
+  "totals": {
+    "exact": 215,
+    "normalized": 30,
+    "mismatch": 4,
+    "missing-in-agent": 511,
+    "extra-in-agent": 231,
+    "needs_assignment": 342,
+    "scored_cells": 991,
+    "score": 24.7
+  },
+  "sheets": {
+    "EMAIL_TEMPLATE_CONFIG": {
+      "rows": {
+        "golden": 12,
+        "agent": 6,
+        "paired": 0,
+        "missing-in-agent": 12,
+        "extra-in-agent": 6
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 180,
+        "extra-in-agent": 72,
+        "needs_assignment": 60
+      },
+      "score": 0.0
+    },
+    "adls_delta_ingestion_details": {
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 3,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "counts": {
+        "exact": 107,
+        "normalized": 21,
+        "mismatch": 1,
+        "missing-in-agent": 6,
+        "extra-in-agent": 0,
+        "needs_assignment": 30
+      },
+      "score": 94.8
+    },
+    "all_files_static_information": {
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 0,
+        "missing-in-agent": 3,
+        "extra-in-agent": 3
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 69,
+        "extra-in-agent": 27,
+        "needs_assignment": 36
+      },
+      "score": 0.0
+    },
+    "data_factory_pipeline_schedule": {
+      "rows": {
+        "golden": 6,
+        "agent": 12,
+        "paired": 0,
+        "missing-in-agent": 6,
+        "extra-in-agent": 12
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 138,
+        "extra-in-agent": 132,
+        "needs_assignment": 90
+      },
+      "score": 0.0
+    },
+    "data_quality_rules": {
+      "rows": {
+        "golden": 10,
+        "agent": 0,
+        "paired": 0,
+        "missing-in-agent": 10,
+        "extra-in-agent": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 70,
+        "extra-in-agent": 0,
+        "needs_assignment": 60
+      },
+      "score": 0.0
+    },
+    "databricks_notebook_details": {
+      "rows": {
+        "golden": 6,
+        "agent": 6,
+        "paired": 6,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "counts": {
+        "exact": 36,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 42,
+        "extra-in-agent": 0,
+        "needs_assignment": 36
+      },
+      "score": 46.2
+    },
+    "stgdelta_stddelta_ingestion_det": {
+      "rows": {
+        "golden": 3,
+        "agent": 3,
+        "paired": 3,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "counts": {
+        "exact": 72,
+        "normalized": 9,
+        "mismatch": 3,
+        "missing-in-agent": 6,
+        "extra-in-agent": 0,
+        "needs_assignment": 30
+      },
+      "score": 90.0
+    },
+    "ADLS_FIXED_WIDTH_HANDLER": {
+      "rows": {
+        "golden": 0,
+        "agent": 0,
+        "paired": 0,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0
+      },
+      "counts": {
+        "exact": 0,
+        "normalized": 0,
+        "mismatch": 0,
+        "missing-in-agent": 0,
+        "extra-in-agent": 0,
+        "needs_assignment": 0
+      },
+      "score": 100.0
+    }
+  }
+}

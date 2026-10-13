@@ -105,8 +105,11 @@ def extract_contract(
     skip_stage_tables: Collection[str] = (),
     width_answers: dict[int, dict[str, int]] | None = None,
     audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+    gaps: dict | None = None,
 ) -> SttmContract:
-    """``audit_answers`` (Chunk B): the person's ``feeds[i].audit_columns``
+    """``gaps`` (2026-10-13): the answers file's ``gaps:`` — read when a
+    one-feed FRD contract is split per mapping sheet here (a file question).
+    ``audit_answers`` (Chunk B): the person's ``feeds[i].audit_columns``
     answers (``codegen.extract.generic.parse_audit_answers``) for a sheet
     whose STTM lists no audit row; content-driven path only.
     ``width_answers`` (M9.2): the person's ``feeds[i].fields[<name>].width``
@@ -158,15 +161,26 @@ def extract_contract(
         )
     if profile.strategy == "content":
         from codegen.extract.generic import GenericExtractionError, extract_generic_contract
+        from codegen.layout.resolve import split_single_frd_feed
 
+        # 2026-10-13 (D1 pair_11): ONE FRD feed for several mapping sheets is
+        # split here, by the layout stage's rule — no flag, no extra step.
+        split = split_single_frd_feed(frd, profile, found.workbook, config, gaps)
+        if split is not None:
+            frd = frd.model_copy(update={"feeds": split.feeds, "extraction_flags": [
+                *frd.extraction_flags, *split.flags]})
         try:
-            return extract_generic_contract(
+            contract = extract_generic_contract(
                 found, workbook_path, frd, config, contract_name=contract_name,
                 generated_date=generated_date or datetime.date.today().isoformat(),
                 width_answers=width_answers, audit_answers=audit_answers,
             )
         except GenericExtractionError as exc:
             raise ExtractionError(str(exc)) from exc
+        if split is not None:
+            contract = contract.model_copy(update={
+                "frd_split": split, "notes": [*contract.notes, *split.flags]})
+        return contract
     try:
         ir = workbook_ir(found, workbook_path.name, config.extractor)
     except SegmentedWorkbookError as detected:
@@ -597,6 +611,7 @@ def extract_to_file(
     skip_stage_tables: Collection[str] = (),
     width_answers: dict[int, dict[str, int]] | None = None,
     audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+    gaps: dict | None = None,
 ) -> SttmContract:
     contract = extract_contract(
         workbook_path,
@@ -609,6 +624,7 @@ def extract_to_file(
         skip_stage_tables=skip_stage_tables,
         width_answers=width_answers,
         audit_answers=audit_answers,
+        gaps=gaps,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(contract_to_json(contract), encoding="utf-8", newline="\n")

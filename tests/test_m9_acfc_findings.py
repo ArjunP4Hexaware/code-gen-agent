@@ -246,8 +246,12 @@ def test_rejection_log_is_written_in_full_and_carries_no_model_string(config, tm
     doc, _ = resolve_workbook(PAIR_1, pre_m9, provider=provider, cache_dirs=[],
                               runtime_cache_dir=runtime, refresh=True)
     assert doc.provider_calls == 1 and doc.questions
-    (line,) = [r.reason for r in doc.rejections]
+    # 2026-10-13: the head line, then one line per error (nothing usable kept here).
+    line, *each = [r.reason for r in doc.rejections]
     assert line.startswith("model response failed schema validation:")
+    assert "nothing usable kept" in line
+    assert each and all(e.startswith("model answer schema error at ") for e in each)
+    assert not any(invented in e or "fifteen" in e for e in each)
     log = json.loads((runtime / "rejections" / f"{doc.fingerprint}.json").read_text(
         encoding="utf-8"))
     assert log["document"] == "sttm" and log["fingerprint"] == doc.fingerprint

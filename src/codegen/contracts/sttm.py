@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from codegen.contracts.frd import FrdFeed
+
 RecordSegment = Literal["Header", "Detail", "Trailer"]
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
@@ -344,6 +346,21 @@ class SttmFeed(BaseModel):
         return any(f.record_segment is not None for f in self.fields)
 
 
+class FrdFeedSplit(BaseModel):
+    """2026-10-13 (D1 pair_11): ``extract-sttm`` was given an FRD contract with
+    ONE feed for an STTM with several mapping sheets (an ``extract-frd``
+    contract, not the layout stage's ``--frd-contract-out``) and split it
+    itself — one FRD feed per mapping sheet, by the layout stage's own rule.
+    The derived feeds travel here so ``generate`` joins the SAME split
+    against the one-feed FRD contract it is given."""
+
+    model_config = _MODEL_CONFIG
+
+    source_feed_name: str
+    feeds: list[FrdFeed] = Field(min_length=2)
+    flags: list[str] = Field(default_factory=list)
+
+
 class SttmContract(BaseModel):
     """Top-level STTM mapping contract."""
 
@@ -365,6 +382,9 @@ class SttmContract(BaseModel):
     # Feeds held back as NEEDS_ANSWERS (absent from the JSON when empty, so
     # every existing contract is byte-identical).
     needs_answers: list[PendingAnswer] = Field(default_factory=list)
+    # The FRD feeds extract-sttm derived from a one-feed FRD contract (absent
+    # from the JSON when it split nothing).
+    frd_split: FrdFeedSplit | None = None
 
     @model_validator(mode="after")
     def _check_unique_feed_ids(self) -> SttmContract:

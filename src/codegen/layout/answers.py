@@ -281,14 +281,20 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
     return out, notes
 
 
-def unresolved_report(questions: list, names: dict[str, str]) -> str:
-    """``unresolved_headers.md`` — structural labels only (module docstring)."""
+def unresolved_report(questions: list, names: dict[str, str],
+                      rejections: list[str] | None = None) -> str:
+    """``unresolved_headers.md`` — structural labels only (module docstring).
+    ``rejections`` (2026-10-13): why a model layout answer was rejected, line
+    by line (schema locations and messages — never an input value)."""
+    rejected = ["## Model answer rejected", "",
+                *(f"- {line}" for line in rejections or []), ""] if rejections else []
     lines = ["# Unresolved layout roles", "",
              "Structural labels only: sheet names, header-row texts and candidate columns — "
              "no data row and no cell value. Add the header strings to the matching synonym "
              "table (`extractor.discovery` / `extractor.vdd` / `extractor.frd` in a config "
              "overlay), or place the role with an answers file "
              "(`codegen layout --answers answers.yaml`).", ""]
+    lines += rejected
     if not questions:
         return "\n".join([*lines, "Nothing is unresolved.", ""])
     for question in questions:

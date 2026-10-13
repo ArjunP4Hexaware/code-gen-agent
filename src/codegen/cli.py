@@ -499,6 +499,7 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         layout = None
         width_answers = None
         audit_answers = None
+        gaps = None
         if getattr(args, "answers", None):
             # M9.2: feeds[i].fields[<name>].width answers (gaps) ride on the fields.
             from codegen.extract.generic import parse_audit_answers
@@ -527,6 +528,7 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             require_complete=bool(getattr(args, "require_complete", False)),
             width_answers=width_answers,
             audit_answers=audit_answers,
+            gaps=gaps,
         )
     except NeedsAnswersError as exc:
         # NO feed produced a usable contract: nothing written, exit 3.
@@ -547,6 +549,9 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         print(f"{'FAIL':<15} extract-sttm — {exc}")
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
+    if contract.frd_split is not None:
+        # 2026-10-13: a one-feed FRD contract split per mapping sheet HERE.
+        print(answer_line("NOTE", "frd.split", contract.frd_split.flags[0]))
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
     # Some feeds produced a contract: it is written and the exit is 0; the
     # held-back sheets still print their QUESTION lines.
@@ -916,8 +921,11 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         print(f"{'WARN':<15} layout — profile cache not stored: {exc}")
     if args.report_unresolved:
         target = Path(args.report_unresolved)
-        target.write_text(unresolved_report(result.questions, names), encoding="utf-8",
-                          newline="\n")
+        layout_report = result.report()
+        rejected = [line for document in ("sttm", "frd", "vdd")
+                    for line in ((layout_report.get(document) or {}).get("rejections") or [])]
+        target.write_text(unresolved_report(result.questions, names, rejected),
+                          encoding="utf-8", newline="\n")
         print(f"{'REPORT':<15} {target} — {len(result.questions)} unresolved item(s), "
               "structural labels only")
     report = result.report()

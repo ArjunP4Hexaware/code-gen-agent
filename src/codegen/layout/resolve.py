@@ -77,8 +77,11 @@ from codegen.layout.profile import (
     BAND_LAYER_ROLE,
     BAND_REF_RE,
     REQUIRED_ROLES,
+    BandProfile,
     LayoutProfile,
+    MetaRow,
     Role,
+    SheetProfile,
     UnresolvedRole,
     confidence_key,
     is_band_layer_key,
@@ -331,6 +334,93 @@ def _schema_errors(exc: ValidationError) -> list[dict]:
              "loc": [p if isinstance(p, int) or p in _SCHEMA_KEYS else "<key>"
                      for p in e["loc"]]}
             for e in exc.errors(include_input=False, include_url=False)]
+
+
+def _error_line(error: dict) -> str:
+    where = ".".join(str(p) for p in error["loc"]) or "<answer>"
+    return f"model answer schema error at {where}: {error['msg']}"
+
+
+def _salvage_sheet(raw) -> tuple[SheetProfile | None, int]:
+    """(the sheet's valid part, bands dropped). A band that fails the schema
+    is dropped, the rest of the sheet kept; a sheet whose own fields fail is
+    dropped whole."""
+    if not isinstance(raw, dict):
+        return None, 0
+    bands, dropped = [], 0
+    for band in raw.get("bands") or []:
+        try:
+            bands.append(BandProfile.model_validate(band))
+        except ValidationError:
+            dropped += 1
+    meta_rows = []
+    for row in raw.get("meta_rows") or []:
+        try:
+            meta_rows.append(MetaRow.model_validate(row))
+        except ValidationError:
+            continue
+    whole = {**raw, "bands": bands, "meta_rows": meta_rows}
+    slim = {k: raw[k] for k in ("name", "kind", "header_row", "band_row") if k in raw}
+    for candidate in (whole, {**slim, "bands": bands, "meta_rows": meta_rows}):
+        try:
+            return SheetProfile.model_validate(candidate), dropped
+        except ValidationError:
+            continue
+    return None, dropped + len(bands)
+
+
+def _drop_null_roles(answer):
+    """A role the model maps to ``null`` is a role it did not find — the
+    prompt's "leave a role out", said another way; it is no schema error."""
+    if not isinstance(answer, dict) or not isinstance(answer.get("sheets"), list):
+        return answer
+    sheets = []
+    for sheet in answer["sheets"]:
+        if isinstance(sheet, dict) and isinstance(sheet.get("bands"), list):
+            sheet = {**sheet, "bands": [
+                {**b, "roles": {k: v for k, v in b["roles"].items() if v is not None}}
+                if isinstance(b, dict) and isinstance(b.get("roles"), dict) else b
+                for b in sheet["bands"]]}
+        sheets.append(sheet)
+    return {**answer, "sheets": sheets}
+
+
+def salvage_layout_answer(answer, partial: LayoutProfile
+                          ) -> tuple[LayoutProfile | None, list[str], list[dict]]:
+    """(profile, report lines, schema errors) for a model's layout answer.
+
+    A schema-valid answer is used as before (no line). Otherwise EVERY
+    validation error is a report line (location keys outside the profile
+    schema masked ``<key>``, never an input value) and the answer is
+    salvaged part by part: each sheet whose own fields validate is kept with
+    its valid bands; the top-level fields come from the partial profile. The
+    kept part then meets the same workbook validation as a whole answer —
+    nothing the model says reaches a profile unchecked. None when no sheet
+    survives."""
+    answer = _drop_null_roles(answer)
+    try:
+        return LayoutProfile.model_validate(answer), [], []
+    except ValidationError as exc:
+        errors = _schema_errors(exc)
+    raw_sheets = answer.get("sheets") if isinstance(answer, dict) else None
+    kept: list[SheetProfile] = []
+    dropped_bands = 0
+    for raw in raw_sheets if isinstance(raw_sheets, list) else []:
+        sheet, dropped = _salvage_sheet(raw)
+        dropped_bands += dropped
+        if sheet is not None:
+            kept.append(sheet)
+    total = len(raw_sheets) if isinstance(raw_sheets, list) else 0
+    outcome = (f"kept {len(kept)} of {total} sheet(s), {dropped_bands} band(s) dropped — "
+               "the kept part is validated against the workbook like a whole answer"
+               if kept else "nothing usable kept")
+    lines = [f"model response failed schema validation: {len(errors)} error(s); {outcome}",
+             *(_error_line(e) for e in errors)]
+    if not kept:
+        return None, lines, errors
+    profile = LayoutProfile(fingerprint=partial.fingerprint, sheets=kept, source="model",
+                            strategy=partial.strategy)
+    return profile, lines, errors
 
 
 def _log_rejections(caches: _Caches, digest: str, document: str, rejections: list[Rejection],
@@ -669,17 +759,18 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             request["synonym_hints"] = {"files": config.extractor.vdd.files_roles,
                                         "fields": config.extractor.vdd.field_roles}
         calls += 1
+        model_profile = None
         try:
             answer = provider.complete_layout(request)
-            model_profile = LayoutProfile.model_validate(answer)
         except LayoutProviderError as exc:
             rejections.append(Rejection(document, None, None, None, f"model: {exc}"))
-        except ValidationError as exc:
-            rejections.append(Rejection(document, None, None, None,
-                                        f"model response failed schema validation: "
-                                        f"{str(exc).splitlines()[0]}"))
-            schema_errors = _schema_errors(exc)
         else:
+            # 2026-10-13 (D1 pair_11): one schema error no longer discards the
+            # whole answer — every error is reported, the valid sheets / bands
+            # go on to the same workbook validation as before.
+            model_profile, error_lines, schema_errors = salvage_layout_answer(answer, profile)
+            rejections += [Rejection(document, None, None, None, line) for line in error_lines]
+        if model_profile is not None:
             # Every claim in the answer — sheets, header/band rows, spans,
             # roles — is validated against the workbook FIRST; only the
             # surviving column claims are merged, onto roles the synonyms
@@ -1394,7 +1485,8 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
     if frd_contract is not None and isinstance(sttm_doc.profile, LayoutProfile):
         facts = _sttm_facts(sttm_doc.profile, workbook, config)
         frd_contract, split_flags, split_questions = split_frd_feeds_by_sttm(
-            frd_contract, facts, answers.get("gaps") or {}, config)
+            frd_contract, facts, answers.get("gaps") or {}, config,
+            force=sttm_doc.profile.strategy == "content")
         # M7: refused cells (nested tables / per-file blocks) resolve per
         # derived feed by file name; the rest stay unstated + flagged.
         frd_contract, structured_flags = resolve_structured_fields(frd_contract, config)
@@ -1709,7 +1801,8 @@ def _blank_sheet_targets(index: int, entry: dict, feed, files: list[str],
     return flags, questions
 
 
-def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config
+def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config,
+                            *, force: bool = False
                             ) -> tuple[FrdContract, list[str], list[LayoutQuestion]]:
     """A single FRD metadata block that describes several files (its
     'Target Table Name' row lists FILE names, none of them an STTM stage
@@ -1717,7 +1810,15 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     / standard tables from the sheet's target bands (authoritative), every
     other fact shared. Each feed's file pattern is the FILE_DETAILS / FRD
     file name whose tokens uniquely match the table's; otherwise a 'choice'
-    question asks which file feeds the table. Flagged, never silent."""
+    question asks which file feeds the table. Flagged, never silent.
+
+    ``force`` (2026-10-13, D1 pair_11): a content-strategy STTM with SEVERAL
+    mapping sheets and ONE FRD feed always splits — one feed per sheet — even
+    when the FRD's tables match the sheets in a way the rules above leave
+    alone: unsplit, every sheet pairs with the one feed and extract-sttm
+    stops. Feeds are named as above (stage table; per sheet when names
+    collide or the FRD names no feed — the sheet's File Name row, else the
+    sheet name)."""
     from codegen.extract.frd_docx import is_unnamed_feed
     from codegen.layout.hints import frd_field_help
 
@@ -1729,7 +1830,11 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     blank = facts.get("blank_table_sheets") or []
     blank_only = (not sheet_tables and len(blank) > 1
                   and all(e.get("stage_table_placed") for e in blank))
-    if len(contract.feeds) != 1 or not (sheet_tables or blank_only):
+    # An UNRESOLVED TableName column stays the layout question it is (asked
+    # first); only sheets whose table column is placed count for the split.
+    forced = force and len(sheet_tables) + sum(
+        1 for e in blank if e.get("stage_table_placed")) > 1
+    if len(contract.feeds) != 1 or not (sheet_tables or blank_only or forced):
         return contract, [], []
     feed = contract.feeds[0]
     refused = contract.structured.get("feeds[0].feed_name")
@@ -1765,8 +1870,9 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
         per_sheet = len(sheet_tables) > 1 and (
             set(sheet_keys) <= stated if shared_table
             else len(set(sheet_keys)) == len(sheet_keys) and set(sheet_keys) == stated)
-        if not per_sheet:
+        if not per_sheet and not forced:
             return contract, [], []
+        per_sheet = per_sheet or forced
     file_like = [t for t in feed.stage_target.tables if _FILE_LIKE.search(t)]
     pool = [(name, f"FRD 'Target Table Name' ({name!r})") for name in file_like]
     pool += [(name, cell) for name, cell in facts.get("files", [])]
@@ -2032,6 +2138,38 @@ def _path_column(headers: list[str], values: dict[str, str], key: str) -> str | 
         if value != key and re.search(r"[\\/]", value):
             return value
     return None
+
+
+def split_single_frd_feed(frd: FrdContract, profile: LayoutProfile, workbook, config: Config,
+                          gaps: dict | None = None):
+    """``extract-sttm``'s half of the split (2026-10-13, D1 pair_11): an FRD
+    contract with ONE feed for a content-strategy STTM with several mapping
+    sheets — an ``extract-frd`` contract, or one written before the layout
+    stage split it — is split HERE by the layout stage's own rule
+    (:func:`split_frd_feeds_by_sttm`, forced, then the per-feed structured
+    fields). Returns a :class:`~codegen.contracts.sttm.FrdFeedSplit` (the
+    derived feeds + flags, carried in the STTM contract so ``generate``
+    joins the same split), or None when nothing splits."""
+    from codegen.contracts.sttm import FrdFeedSplit
+
+    if (len(frd.feeds) != 1 or not isinstance(profile, LayoutProfile)
+            or profile.strategy != "content" or len(profile.mapping_sheets) < 2):
+        return None
+    facts = _sttm_facts(profile, workbook, config)
+    split, flags, questions = split_frd_feeds_by_sttm(frd, facts, gaps or {}, config,
+                                                      force=True)
+    if len(split.feeds) < 2:
+        return None
+    split, structured_flags = resolve_structured_fields(split, config)
+    source = frd.feeds[0].feed_name
+    lead = (f"frd_feeds_split_at_extract: the FRD contract {frd.contract_name!r} has ONE feed "
+            f"({source[:60]!r}) and the STTM {len(profile.mapping_sheets)} mapping sheets — "
+            f"split by extract-sttm into {len(split.feeds)} feeds "
+            f"{[f.feed_name for f in split.feeds]} (the layout stage's rule; "
+            "`codegen layout --frd-contract-out` writes the same split)")
+    open_files = [f"frd_split_file_open:{q.key} — {q.reason}" for q in questions]
+    return FrdFeedSplit(source_feed_name=source, feeds=list(split.feeds),
+                        flags=[lead, *flags, *structured_flags, *open_files])
 
 
 def resolve_structured_fields(contract: FrdContract, config: Config

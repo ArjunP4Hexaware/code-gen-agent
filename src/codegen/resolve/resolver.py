@@ -660,6 +660,22 @@ def _phi_stage_columns(segments: list[SegmentSpec], source_columns: list[str]) -
     return list(dict.fromkeys(columns))
 
 
+def apply_frd_split(frd: FrdContract, sttm: SttmContract) -> FrdContract:
+    """2026-10-13 (D1 pair_11): the STTM contract records the FRD feeds
+    ``extract-sttm`` derived from a ONE-feed FRD contract (one per mapping
+    sheet). Given that same one-feed contract, the join uses those feeds —
+    with their flags — so extract and generate agree. Any other FRD contract
+    (already split by the layout stage, or several feeds) is used as given."""
+    split = sttm.frd_split
+    if (split is None or len(frd.feeds) != 1
+            or normalize_feed_name(frd.feeds[0].feed_name)
+            != normalize_feed_name(split.source_feed_name)):
+        return frd
+    return frd.model_copy(update={
+        "feeds": list(split.feeds),
+        "extraction_flags": list(dict.fromkeys([*frd.extraction_flags, *split.flags]))})
+
+
 def resolve_feeds(
     frd: FrdContract,
     sttm: SttmContract,
@@ -673,6 +689,7 @@ def resolve_feeds(
     fail — except a feed the extractor held back as NEEDS_ANSWERS
     (``sttm.needs_answers``): it is reported by the caller
     (:func:`pending_answers`), never resolved and never an error."""
+    frd = apply_frd_split(frd, sttm)
     sttm_by_id = {f.feed_id: f for f in sttm.feeds}
     held_back = {p.feed_name for p in sttm.needs_answers}
     matched_sttm_ids: set[str] = set()

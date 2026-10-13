@@ -130,9 +130,11 @@ def test_a_layout_split_flag_names_every_renamed_sheet(env, capsys):
         assert repr(sheet) in flag
 
 
-def test_an_unsplit_frd_names_the_sheets_instead_of_a_bare_duplicate(env, capsys):
-    """extract-frd's ONE feed against the five sheets: a named failure that
-    says which sheets met one feed and what splits them."""
+def test_an_unsplit_frd_is_split_by_extract_sttm(env, capsys):
+    """extract-frd's ONE feed against the five sheets. post38 stopped with a
+    named error; since the D1 live check (2026-10-13) extract-sttm splits it
+    itself, by the layout stage's rule — five feeds, never a duplicate id
+    (tests/test_frd_split_default.py runs it through generate)."""
     sttm, frd = env / "STTM_cm.xlsx", env / "FRD_cm.docx"
     fm.build_sttm().save(sttm)
     frd.write_bytes(fm.build_frd())
@@ -145,6 +147,7 @@ def test_an_unsplit_frd_names_the_sheets_instead_of_a_bare_duplicate(env, capsys
     code = cli.main(["extract-sttm", "--workbook", str(sttm), "--frd-contract", str(one_feed),
                      "--out", str(env / "sttm.json"), "--generated-date", DATE])
     out = capsys.readouterr().out
-    assert code == 1, out
-    assert "all pair with the one FRD feed" in out and "--frd-contract-out" in out, out
-    assert "duplicate feed_id(s)" not in out
+    assert code == 0, out
+    assert "frd_feeds_split_at_extract:" in out and "duplicate feed_id(s)" not in out
+    feeds = json.loads((env / "sttm.json").read_text(encoding="utf-8"))["feeds"]
+    assert len({f["feed_id"] for f in feeds}) == 5

@@ -421,17 +421,24 @@ def _path_tooltip(tpl: MetadataTemplateConfig, tab: str, header: str, pattern: s
             "assigned at deployment")
 
 
-def _object_name(pattern: str, tokens: list[str] | None = None) -> str:
+def _object_name(pattern: str, tokens: list[str] | None = None,
+                 bound: list[str] | None = None) -> str:
     """The pattern's name: extension and wildcards removed, then (first
     real-row scorecard) every TRAILING segment made only of date / time tokens
-    (``object_name_strip_tokens``: 'demographics_YYYY_MM.csv' -> 'demographics',
-    'x_MI_YYYYMMDD_HHMM.psv' -> 'x'). A token inside the name is kept."""
+    (``object_name_strip_tokens``: 'demographics_YYYY_MM.csv' -> 'demographics').
+    A segment of ``bound`` tokens alone (``object_name_bound_tokens``: MI, SS)
+    is a name, not a time — round 6: 'x_MI_YYYYMMDD_HHMM.psv' -> 'x_MI', as the
+    SD prod rows write it. A token inside the name is kept."""
     stem = PurePosixPath(pattern).stem if "." in pattern else pattern
     stem = re.sub(r"_\*|\*_|\*", "", stem)
     if tokens:
-        run = "(?:" + "|".join(re.escape(t) for t in sorted(tokens, key=len, reverse=True)) + ")+"
-        trailing = re.compile(rf"[_\-. ]{run}$")
+        ordered = sorted(tokens, key=len, reverse=True)
+        token_re = "|".join(re.escape(t) for t in ordered)
+        trailing = re.compile(rf"[_\-. ]((?:{token_re})+)$")
+        unbound = set(tokens) - set(bound or [])
         while (match := trailing.search(stem)) is not None and match.start() > 0:
+            if not unbound & set(re.findall(token_re, match.group(1))):
+                break                                  # a lone '_MI': part of the name
             stem = stem[:match.start()]
     return stem
 
@@ -441,7 +448,8 @@ def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
     """ADLS SRC_FILE_NAME by the family convention: the pattern (date tokens
     as '*'), or the OBJECT_NAME prefix + '*' (prefix_star — the SD rows)."""
     if tpl.family_conventions.src_file_name == "prefix_star":
-        value = _object_name(pattern, tpl.object_name_strip_tokens) + "*"
+        value = _object_name(pattern, tpl.object_name_strip_tokens,
+                             tpl.object_name_bound_tokens) + "*"
         return _cell(value, badge, f"stated {stated!r} — the name prefix + '*' (family "
                                    f"convention src_file_name: prefix_star; "
                                    f"{_family_citation(tpl)})")
@@ -776,7 +784,8 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
         pattern = _wildcarded(file.pattern, tpl)
         cells = {
             "OBJECT_ID": _sequence_cell(index, f"file ({pattern})"),
-            "OBJECT_NAME": (_cell(_object_name(pattern, tpl.object_name_strip_tokens),
+            "OBJECT_NAME": (_cell(_object_name(pattern, tpl.object_name_strip_tokens,
+                                               tpl.object_name_bound_tokens),
                                   "from_frd",
                                   f"derived from the file pattern {pattern!r} (wildcards, "
                                   "trailing date / time tokens and extension removed)")
@@ -1006,7 +1015,8 @@ def _stg_object_name(tpl: MetadataTemplateConfig, table: str, generalized: str) 
     if convention.stgdelta_object_name == "table_name":
         return _cell(table, "from_sttm", f"the table this row moves (family convention; "
                                          f"{citation})")
-    return _cell(_object_name(generalized, tpl.object_name_strip_tokens), "from_frd",
+    return _cell(_object_name(generalized, tpl.object_name_strip_tokens,
+                              tpl.object_name_bound_tokens), "from_frd",
                  f"the generalized file pattern {generalized!r} (wildcards and extension "
                  f"removed; family convention, {citation})")
 

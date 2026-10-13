@@ -961,6 +961,10 @@ metadata:
       # OBJECT_NAME: trailing segments made only of these tokens are dropped
       # with the extension and the wildcards (first real-row scorecard).
       object_name_strip_tokens: [CCYY, YYYY, YY, MM, DD, HH, MI, SS]
+      # ...of which these strip only beside another strip token in the same
+      # segment ('_HHMI'); a lone '_MI' is a name segment (round 6, the SD prod
+      # rows keep the file pattern's '_MI').
+      object_name_bound_tokens: [MI, SS]
       # ADLS SRC_DATA_TYPE source side: file fields are strings.
       file_source_type: String
       # A per-LOB file's ADLS row partitions on this column, value = its LOB.

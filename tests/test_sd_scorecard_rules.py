@@ -290,14 +290,18 @@ def test_the_resolver_writes_the_character_and_flags_the_extension(config):
 @pytest.mark.parametrize("pattern,name", [
     ("community_package_YYYY_MM.csv", "community_package"),
     ("community_package_*_MM.csv", "community_package"),
-    ("x_ind_risk_data_package_amer_MI_YYYYMMDD_HHMM.psv", "x_ind_risk_data_package_amer"),
+    # round 6: a lone '_MI' is a name segment (the SD prod rows keep it)
+    ("x_ind_risk_data_package_amer_MI_YYYYMMDD_HHMM.psv", "x_ind_risk_data_package_amer_MI"),
+    ("x_package_YYYYMMDD_HHMI.psv", "x_package"),                   # MI beside HH: a time
+    ("x_package_YYYYMMDD_HH_MI.psv", "x_package_YYYYMMDD_HH_MI"),   # a lone MI stops it
     ("NWB_COB_RPT_110_*.txt", "NWB_COB_RPT_110"),                    # pair 4: unchanged
     ("I_ACCUM_*_TO_CLIENT_*.csv", "I_ACCUM_TO_CLIENT"),             # pair 1: unchanged
     ("Northwind_MI_Reports_*.csv", "Northwind_MI_Reports"),     # a token INSIDE: kept
     ("YYYYMMDD.csv", "YYYYMMDD"),                                    # nothing but tokens
 ])
 def test_object_name_drops_the_trailing_date_tokens(pattern, name):
-    assert _object_name(pattern, ["CCYY", "YYYY", "YY", "MM", "DD", "HH", "MI", "SS"]) == name
+    assert _object_name(pattern, ["CCYY", "YYYY", "YY", "MM", "DD", "HH", "MI", "SS"],
+                        ["MI", "SS"]) == name
 
 
 @pytest.mark.parametrize("stated,display", [

@@ -1199,6 +1199,10 @@ class MetadataTemplateConfig(BaseModel):
     # and the wildcards ('demographics_YYYY_MM.csv' -> 'demographics').
     object_name_strip_tokens: list[str] = Field(default_factory=lambda: [
         "CCYY", "YYYY", "YY", "MM", "DD", "HH", "MI", "SS"])
+    # Of those, the ones that are a date / time only BESIDE another strip token
+    # in the same segment ('_HHMI' is a time; a lone '_MI' is a name segment —
+    # round 6: the SD file pattern's state code, kept by the prod rows).
+    object_name_bound_tokens: list[str] = Field(default_factory=lambda: ["MI", "SS"])
     # ADLS SRC_DATA_TYPE source side for a FILE source: file fields are
     # strings, whatever type the STTM's source band states
     # (src_type_coerced_string flags the difference).

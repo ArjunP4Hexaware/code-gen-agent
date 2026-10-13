@@ -711,9 +711,14 @@ def test_a_group_golden_against_per_feed_outputs_compares_like_with_like(tmp_pat
     assert fixed["note"] == "sheet not in golden" and fixed["score"] is None
     assert payload["templates"]["golden"] == "iig_v1"
     assert payload["templates"]["agent"] == "iig_v2"
-    assert payload["templates"]["hint"] == (
-        "golden is iig_v1 layout — rerun with --iig-template iig_v1 for a clean diff")
-    assert "HINT golden is iig_v1 layout" in printed
+    note = ("golden is 7-sheet (iig_v1 layout); agent is 8-sheet (iig_v2); the "
+            "extra/missing sheet is reported separately and does not affect the comparable "
+            "score. Naming convention differs between templates and is not scored.")
+    assert payload["templates"]["note"] == note
+    assert "hint" not in payload["templates"]
+    assert f"NOTE {note}" in printed
+    # informs only: never recommends a template switch
+    assert "--iig-template" not in printed and "rerun" not in printed.lower()
 
     # scores: the overall one as before, the comparable one like with like
     assert totals["comparable_score"] is not None

@@ -95,8 +95,9 @@ did not pair that names ANOTHER feed of the golden and none of the agent's is
 ``out-of-scope`` (``out of scope: N rows`` per sheet), never missing; a row
 that names no feed stays missing. A sheet only one side has is ``sheet not in
 <side>`` with NO score; the golden / agent layouts (iig_v1 7 sheets, iig_v2 8)
-are detected and a difference prints ``HINT golden is iig_v1 layout — rerun
-with --iig-template iig_v1 for a clean diff``. The overall ``score`` keeps its
+are detected and a difference prints a ``NOTE`` that informs only (never a
+template switch: iig_v1 and iig_v2 also differ in naming convention, which is
+not scored). The overall ``score`` keeps its
 meaning (out-of-scope counted as missing); ``comparable_score`` is over the
 scoped cells of the sheets BOTH sides have. A repeated key is named in its
 warning (console / score.json only — never in the scrubbed export).
@@ -1430,14 +1431,23 @@ def _comparable(counts: dict[str, int]) -> float | None:
     return round(100.0 * (counts[EXACT] + counts[NORMALIZED]) / scored, 1)
 
 
+def template_note(golden: str, agent: str) -> str:
+    """The one-line note when the layouts differ. Informs only: switching the agent's
+    template also switches its naming convention (iig_v1 = WF_ / NB_, iig_v2 =
+    PL_File_), which is what turned the round-7 pair_2 diff into 0.0."""
+    return (f"golden is {len(TEMPLATE_SHEETS[golden])}-sheet ({golden} layout); agent is "
+            f"{len(TEMPLATE_SHEETS[agent])}-sheet ({agent}); the extra/missing sheet is "
+            "reported separately and does not affect the comparable score. Naming "
+            "convention differs between templates and is not scored.")
+
+
 def template_facts(diffs: list[SheetDiff]) -> dict:
-    """Which IIG layout each side is, and — when they differ — the one-line hint."""
+    """Which IIG layout each side is, and — when they differ — the one-line note."""
     golden = detect_template([d.sides[0].name for d in diffs if d.sides[0] is not None])
     agent = detect_template([d.sides[1].name for d in diffs if d.sides[1] is not None])
     facts: dict = {"golden": golden, "agent": agent}
     if golden and agent and golden != agent:
-        facts["hint"] = (f"golden is {golden} layout — rerun with --iig-template {golden} "
-                         "for a clean diff")
+        facts["note"] = template_note(golden, agent)
     return facts
 
 
@@ -2403,9 +2413,9 @@ def _print_pair(payload: dict, out: Path) -> None:
           f"convention cells {t['convention_cells']['cells']} "
           f"({t['convention_cells']['differing']} "
           "differ — never scored)")
-    hint = (payload.get("templates") or {}).get("hint")
-    if hint:
-        print(f"HINT {hint}")
+    note = (payload.get("templates") or {}).get("note")
+    if note:
+        print(f"NOTE {note}")
     for w in payload["warnings"]:
         print(f"WARNING {w}")
     _print_key_samples(payload)

@@ -57,7 +57,7 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   Tests `tests/test_provider_mode.py`, `tests/test_transport.py` rewritten.
   (3) **iig_diff like with like** — `FeedScope` (`--scope feeds` default): an unpaired golden
   row naming another feed of the group and none of the agent's = `out-of-scope`, not missing;
-  a one-sided sheet = `sheet not in <side>`, score None; iig_v1 / iig_v2 detected + `HINT`;
+  a one-sided sheet = `sheet not in <side>`, score None; iig_v1 / iig_v2 detected + a note (post41: inform only);
   overall `score` unchanged in meaning, `comparable_score` over scoped shared-sheet cells;
   duplicate-key warnings name the values. (4) `codegen pair` lists EVERY file (the STTM,
   lock files) and NOTEs `pair.sttm` when a folder holds 2+ STTMs with no override pinning one
@@ -84,6 +84,10 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   identity — run it over the 199-IIG corpus on D1 (only the SFMC / pair_1 / CAQH goldens are
   at home: every row identified). Note: post38's `WF_` / `NB_` names came from
   `--iig-template iig_v1`, not the live model. Tests `tests/test_iig_diff_identity.py`.
+  **post41:** the iig_v1 / iig_v2 `HINT` is now an inform-only `NOTE` (score.json
+  `templates.note`) and never recommends a template switch: iig_v1 also changes the naming
+  convention (`WF_` / `NB_` vs `PL_File_`). ACFC default stays iig_v2 —
+  `docs/acfc/IIG_TEMPLATE_DEFAULT.md`.
 - **post39 — the live D1 check's four fixes** (`origin/acfc-pairing-check`
   `codegen-outputs/pairing_check/2026-10-13_live_three_pairs.md`; one commit each):
   (1) **pair_12 CAQH** — `frd_docx.split_domain_labels`: a cell with a `Domain:` AND a

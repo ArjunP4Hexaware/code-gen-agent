@@ -3,7 +3,8 @@
     python tools/iig_diff.py --golden <golden.xlsx> --agent <agent.xlsx> [<more.xlsx> ...]
         --out <dir>
     python tools/iig_diff.py --batch <pairs dir> --out <dir>
-        [--keys tools/iig_keys.yaml] [--pair-mode key|position|fuzzy]
+        [--keys tools/iig_keys.yaml] [--pair-mode identity|key|position|fuzzy]
+        [--group-index <csv> ...]
 
 REFUSED without a build identity (2026-10-12): the agent workbook must sit at
 most 5 folders below a ``CODEGEN_BUILD.json`` (written by ``codegen generate``
@@ -19,13 +20,36 @@ Several ``--agent`` workbooks (a run writes one IIG per feed; a pair golden
 covers every group of the pair) are compared as their UNION
 (``read_agent_workbooks``); they must all carry the same build identity.
 
-Row pairing — ``--pair-mode key`` (default) uses ONLY the natural key per
-sheet below (``tools/iig_keys.yaml``); a key that is not unique on either side
-is flagged and its duplicates pair in sheet order. Rows the key cannot pair (a
-sheet with no key, a key column absent from either side, an OBJECT_ID that
-does not resolve) are NOT paired: missing / extra, said in a warning. Position
-(``--pair-mode position``) and normalized keys (``--pair-mode fuzzy``) are
-explicit only and print a banner: not the validation score.
+Row pairing — ``--pair-mode identity`` (default, 2026-10-13) pairs a golden
+row with the agent row that describes the SAME THING, never by a generated name
+(the prod goldens name pipelines / notebooks in a legacy convention, the agent
+in the EDO standard — zero rows paired on pair_2):
+
+* each golden row's FEED and FLOW come from the group index
+  (``docs/acfc/iig_goldens/01_pair_group_index.csv``: GROUP_ID / PIPELINE_ID ->
+  flow_type file_to_stg / stg_to_std + matched_table), the feed matched to the
+  agent workbook (one per feed) whose name or target table it is — a golden row
+  of a feed the agent did not write is out of scope; each agent row's feed is its
+  workbook, its flow the sheet's or its semantic cells (LAYER_NAME,
+  PIPELINE_DESCRIPTION, PROCESS_NAME);
+* per sheet the IDENTITY (``identity`` in iig_keys.yaml: e.g. schedule = feed x
+  flow, ingestion = feed x flow x target table, DQ = feed x table x column x
+  rule class, email = feed x flow x status), every value normalized (case,
+  separators, a table's schema prefix); a component one side never states is
+  dropped (warned), a row whose identity stays incomplete is left unpaired;
+* a sheet with NO identity pairs by position only when both sides have the
+  same number of rows — otherwise its rows stay unpaired, said in a warning;
+* CONVENTION columns (``convention_columns``: PIPELINE_NAME, the notebook
+  names, TEMPLATE_NAME, ...) are never used to pair and never scored: status
+  ``convention``, counted with how many differ;
+* every sheet reports rows paired by identity / by position / unpaired, so a
+  score is never read without how its rows were matched.
+
+``--pair-mode key`` keeps the natural key per sheet below (the 2026-10-12
+rule: rows it cannot pair stay missing / extra). Position (``--pair-mode
+position``) and normalized keys (``--pair-mode fuzzy``) are explicit only and
+print a banner: not the validation score. Pairing is hash-indexed and
+diff.xlsx is written in one pass: a 3,000-row sheet diffs in seconds.
 
     Sheet                              Natural key
     DATA_FACTORY_PIPELINE_SCHEDULE     PIPELINE_NAME
@@ -151,7 +175,12 @@ BUILD_FILES = ("CODEGEN_BUILD.json", "run_meta.json")
 UNSCORED = "unscored: agent workbook has no build identity"
 
 # ----------- pair-mode constants
-PAIR_MODES = ("key", "position", "fuzzy")
+PAIR_MODES = ("identity", "key", "position", "fuzzy")
+# How a row pair was made (2026-10-13): by the row's IDENTITY (iig_keys.yaml
+# ``identity`` — what the row describes, never a generated name), by position
+# (a sheet with no identity whose row counts match), or by the natural key
+# (``--pair-mode key``).
+BY_IDENTITY, BY_POSITION, BY_KEY = "identity", "position", "key"
 _FUZZY_PREFIXES = re.compile(
     r"^(PL_File_|PL_|NB_|WF_)", re.IGNORECASE,
 )
@@ -170,11 +199,15 @@ MISMATCH = "mismatch"
 MISSING = "missing-in-agent"
 EXTRA = "extra-in-agent"
 ASSIGN = "needs_assignment"
+# A column whose values are generated under a naming convention
+# (iig_keys.yaml ``convention_columns``: PIPELINE_NAME, notebook names, ...):
+# never used to pair, never scored — counted on its own, with how many differ.
+CONVENTION = "convention"
 # 2026-10-13: a golden row of ANOTHER feed of the group (the golden is a
 # whole-GROUP_ID export, the agent wrote the run's own feeds) — reported as
 # "out of scope: N rows", never as missing.
 OUT_OF_SCOPE = "out-of-scope"
-STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE)
+STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 # The overall score keeps its meaning (an out-of-scope cell counts as missing);
 # ``comparable_score`` is the one over scoped cells of shared sheets only.
@@ -213,6 +246,7 @@ _FILLS = {
     EXTRA: "D9D2E9",
     ASSIGN: "E7E6E6",
     OUT_OF_SCOPE: "F2F2F2",
+    CONVENTION: "FCE4D6",
 }
 
 
@@ -252,6 +286,19 @@ class KeyConfig:
     group_id_column: str = "GROUP_ID"
     object_sources: dict[str, list[str]] = field(default_factory=dict)
     env_tokens: tuple[EnvToken, ...] = ()
+    # 2026-10-13 identity pairing (iig_keys.yaml identity / flow /
+    # convention_columns / group_index)
+    identity: dict[str, list[str]] = field(default_factory=dict)
+    flow_sheets: dict[str, str] = field(default_factory=dict)
+    flow_rules: tuple[tuple[str, re.Pattern[str], str], ...] = ()
+    convention_columns: tuple[str, ...] = ()
+    group_index: tuple[str, ...] = ()
+
+    def identity_for(self, sheet: str) -> list[str] | None:
+        return _by_sheet(self.identity, sheet)
+
+    def is_convention(self, column: str) -> bool:
+        return column.upper() in {c.upper() for c in self.convention_columns}
 
     def env_state(self) -> dict[str, str]:
         """token -> 'resolved' / 'unresolved: local:<name>, …' (names, never values)."""
@@ -335,7 +382,7 @@ def _env_tokens(path: Path, raw: object, local_path: Path | None) -> tuple[EnvTo
 def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
-             "environment_tokens"}
+             "environment_tokens", "identity", "flow", "convention_columns", "group_index"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -352,7 +399,90 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         group_id_column=str(objects.get("group_column") or "GROUP_ID"),
         object_sources=_column_lists(path, "object_tables.sources", objects.get("sources")),
         env_tokens=_env_tokens(path, raw.get("environment_tokens"), env_local),
+        identity=_column_lists(path, "identity", raw.get("identity")),
+        **_flow(path, raw.get("flow")),
+        convention_columns=tuple(str(c) for c in raw.get("convention_columns") or []),
+        group_index=tuple(str(c) for c in raw.get("group_index") or []),
     )
+
+
+def _flow(path: Path, raw: object) -> dict:
+    raw = raw or {}
+    unknown = set(raw) - {"sheets", "rules"}
+    if unknown:
+        raise ValueError(f"{path}: unknown flow keys {sorted(unknown)}")
+    rules = []
+    for index, rule in enumerate(raw.get("rules") or []):
+        if not isinstance(rule, dict) or set(rule) != {"column", "match", "flow"}:
+            raise ValueError(f"{path}: flow.rules[{index}] needs exactly column, match, flow")
+        rules.append((str(rule["column"]).upper(), re.compile(str(rule["match"]), re.IGNORECASE),
+                      str(rule["flow"])))
+    return {"flow_sheets": {str(k): str(v) for k, v in (raw.get("sheets") or {}).items()},
+            "flow_rules": tuple(rules)}
+
+
+# --------------------------------------------------------------- group index
+
+_ID_TEXT = re.compile(r"\.0+$")
+
+
+def _id(value: object) -> str:
+    """An id cell as text: ``180251``, ``180251.0`` and `` 180251 `` are one id."""
+    return _ID_TEXT.sub("", _raw(value).strip())
+
+
+class GroupIndex:
+    """docs/acfc/iig_goldens/01_pair_group_index.csv (+ the round-2 addendum):
+    a golden GROUP_ID / PIPELINE_ID -> (flow_type, matched_table). Rows the
+    extraction did not match (NOT_FOUND) are skipped."""
+
+    def __init__(self, paths: list[Path]) -> None:
+        self.by_group: dict[str, tuple[str, str]] = {}
+        self.by_pipeline: dict[str, tuple[str, str]] = {}
+        self.files: list[str] = []
+        for path in paths:
+            if not path.is_file():
+                continue
+            self.files.append(str(path))
+            with path.open(encoding="utf-8", newline="") as fh:
+                for row in csv.DictReader(fh):
+                    flow = (row.get("flow_type") or "").strip()
+                    table = (row.get("matched_table") or "").strip()
+                    if not flow or not table or (row.get("confidence") or "") == "NOT_FOUND":
+                        continue
+                    if _id(row.get("group_id")):
+                        self.by_group[_id(row.get("group_id"))] = (flow, table)
+                    if _id(row.get("pipeline_id")):
+                        self.by_pipeline[_id(row.get("pipeline_id"))] = (flow, table)
+
+    def lookup(self, row: dict[str, object], canon: dict[str, str], keys: KeyConfig
+               ) -> tuple[str, str] | None:
+        """(flow, table) of a golden row: its GROUP_ID, else its PIPELINE_ID,
+        else the one group build_goldens says it came from."""
+        group = canon.get(keys.group_id_column.upper())
+        if group and _id(row.get(group)) in self.by_group:
+            return self.by_group[_id(row.get(group))]
+        pipeline = canon.get("PIPELINE_ID")
+        if pipeline and _id(row.get(pipeline)) in self.by_pipeline:
+            return self.by_pipeline[_id(row.get(pipeline))]
+        source = canon.get(SOURCE_COLUMN.upper())
+        ids = [_id(s) for s in _raw(row.get(source)).split(",") if s.strip()] if source else []
+        found = {self.by_group[i] for i in ids if i in self.by_group}
+        return next(iter(found)) if len(found) == 1 else None
+
+
+_NON_ALNUM = re.compile(r"[^0-9a-z]+")
+
+
+def identity_value(value: object, column: str = "") -> str | None:
+    """One identity component, normalized: lowercased, separators dropped; a
+    TABLE column also drops its schema prefix (``stg_cm.Sd_X`` -> ``sdx``)."""
+    text = _raw(value).strip()
+    if not text:
+        return None
+    if "TABLE" in column.upper() and "." in text:
+        text = text.rsplit(".", 1)[1]
+    return _NON_ALNUM.sub("", text.lower()) or None
 
 
 # ------------------------------------------------------------------- reading
@@ -497,6 +627,7 @@ class RowPair:
     golden: tuple[int, dict[str, object]] | None
     agent: tuple[int, dict[str, object]] | None
     key: str
+    method: str = ""        # BY_IDENTITY / BY_POSITION / BY_KEY; "" = left unpaired
 
 
 class ObjectTables:
@@ -572,13 +703,39 @@ def _feed_stems(sheets: dict[str, Sheet]) -> set[tuple[str, ...]]:
     return stems
 
 
-def _names_any(words: list[list[str]], stems: set[tuple[str, ...]]) -> bool:
-    for cell in words:
-        for stem in stems:
-            n = len(stem)
-            if any(tuple(cell[i:i + n]) == stem for i in range(len(cell) - n + 1)):
-                return True
-    return False
+class StemIndex:
+    """Feed stems (token tuples) -> the feeds that write them, looked up by the
+    n-grams of a cell's words (2026-10-13: ``_names_any`` compared every row
+    with every stem — 3,000 golden files x 3,000 stems timed out on D1)."""
+
+    def __init__(self, stems: dict[tuple[str, ...], set]) -> None:
+        self.stems = stems
+        self.lengths = sorted({len(s) for s in stems})
+
+    def named(self, words: list[list[str]]) -> set:
+        found: set = set()
+        for cell in words:
+            for n in self.lengths:
+                for i in range(len(cell) - n + 1):
+                    feeds = self.stems.get(tuple(cell[i:i + n]))
+                    if feeds:
+                        found |= feeds
+        return found
+
+
+def _row_words(row: dict[str, object], canon: dict[str, str],
+               tables: ObjectTables | None) -> list[list[str]]:
+    words = [_WORD.findall(_raw(v).lower()) for v in row.values()]
+    if tables is not None:
+        table = tables.table_for(row, canon)
+        if table:
+            words.append(_WORD.findall(table.lower()))
+    return words
+
+
+def feed_of_agent_row(number: int) -> int:
+    """An agent row's feed: the workbook it came from (``ROW_STRIDE``)."""
+    return number // ROW_STRIDE
 
 
 class FeedScope:
@@ -589,22 +746,37 @@ class FeedScope:
     the agent did not pair is OUT of scope only on positive evidence: it names
     another feed of the golden and none of the agent's. A row that names no
     feed at all (an unresolved OBJECT_ID, a group-level row) stays missing.
-    Off when the agent names no feed, or ``--scope all``."""
+    Off when the agent names no feed, or ``--scope all``. Hash-indexed: every
+    lookup is by n-gram, never every stem against every row."""
 
     def __init__(self, agent: dict[str, Sheet], golden: dict[str, Sheet], keys: KeyConfig,
                  enabled: bool = True) -> None:
-        self.stems = _feed_stems(agent)
+        by_feed: dict[tuple[str, ...], set] = defaultdict(set)
+        for sheet in agent.values():
+            canon = sheet.canon()
+            cols = [canon[c] for c in SCOPE_COLUMNS if c in canon]
+            for number, row in sheet.rows:
+                for col in cols:
+                    stem = _stem_tokens(row.get(col))
+                    if stem and len("".join(stem)) >= 3:
+                        by_feed[stem].add(feed_of_agent_row(number))
+        self.enabled = enabled
+        self.stems = set(by_feed)
+        self.agent_index = StemIndex(dict(by_feed))
         self.other = _feed_stems(golden) - self.stems
+        self.other_index = StemIndex({s: {None} for s in self.other})
         self.active = enabled and bool(self.stems) and bool(self.other)
 
     def out_of_scope(self, row: dict[str, object], canon: dict[str, str],
                      tables: ObjectTables | None) -> bool:
-        words = [_WORD.findall(_raw(v).lower()) for v in row.values()]
-        if tables is not None:
-            table = tables.table_for(row, canon)
-            if table:
-                words.append(_WORD.findall(table.lower()))
-        return not _names_any(words, self.stems) and _names_any(words, self.other)
+        words = _row_words(row, canon, tables)
+        return not self.agent_index.named(words) and bool(self.other_index.named(words))
+
+    def feed_of(self, row: dict[str, object], canon: dict[str, str],
+                tables: ObjectTables | None) -> int | None:
+        """The ONE agent feed a golden row names, else None."""
+        feeds = self.agent_index.named(_row_words(row, canon, tables))
+        return next(iter(feeds)) if len(feeds) == 1 else None
 
 
 def detect_template(names: list[str]) -> str | None:
@@ -797,6 +969,7 @@ class Cell:
     golden: object
     agent: object
     status: str
+    method: str = ""
 
 
 @dataclass
@@ -812,8 +985,11 @@ class SheetDiff:
     sides: tuple = (None, None)       # (golden Sheet | None, agent Sheet | None)
     tables: tuple = (None, None)      # (golden ObjectTables, agent ObjectTables)
     out_of_scope_rows: int = 0        # golden rows of feeds the agent did not write
-    # the secondary pairing of the rows the key left unpaired (None: nothing to pair)
-    positional: dict | None = None
+    # rows paired per method, rows left unpaired per side (in scope)
+    pairing: dict = field(default_factory=dict)
+    unpaired: dict = field(default_factory=dict)
+    # every row's identity as text, per side: {"golden": {row: text}, "agent": ...}
+    identity_text: dict = field(default_factory=dict)
     # the first golden / agent key values (unscrubbed; console + score.json only)
     key_samples: dict | None = None
 
@@ -823,18 +999,23 @@ class SheetDiff:
 
 
 def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_canon: dict,
-                    keys: KeyConfig, tables: tuple, scope: FeedScope | None
-                    ) -> tuple[list[Cell], set[int]]:
-    """Every cell of every pair, with its status; + the golden rows out of scope."""
+                    keys: KeyConfig, tables: tuple, scope: FeedScope | None,
+                    oos_rows: set[int] | None = None) -> tuple[list[Cell], set[int]]:
+    """Every cell of every pair, with its status; + the golden rows out of
+    scope (``oos_rows`` when the caller decided them, else the scope's test).
+    A CONVENTION column's cell is ``convention`` — never scored."""
     cells: list[Cell] = []
-    oos_rows: set[int] = set()
+    found: set[int] = set()
     for pair in pairs:
         g_row = pair.golden[1] if pair.golden else None
         a_row = pair.agent[1] if pair.agent else None
-        out_of_scope = (g_row is not None and a_row is None and scope is not None
-                        and scope.active and scope.out_of_scope(g_row, g_canon, tables[0]))
+        if oos_rows is not None:
+            out_of_scope = g_row is not None and a_row is None and pair.golden[0] in oos_rows
+        else:
+            out_of_scope = (g_row is not None and a_row is None and scope is not None
+                            and scope.active and scope.out_of_scope(g_row, g_canon, tables[0]))
         if out_of_scope:
-            oos_rows.add(pair.golden[0])
+            found.add(pair.golden[0])
         for col in order:
             label = g_canon.get(col) or a_canon[col]
             in_g = g_row is not None and col in g_canon
@@ -847,6 +1028,8 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
                 status = OUT_OF_SCOPE
             elif keys.is_assignment(label):
                 status = ASSIGN
+            elif keys.is_convention(label):
+                status = CONVENTION
             elif not in_g:
                 status = EXTRA
             elif not in_a:
@@ -855,55 +1038,163 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
                 status = classify(g_val, a_val, keys.env_tokens)
             cells.append(Cell(pair.key, pair.golden[0] if pair.golden else None,
                               pair.agent[0] if pair.agent else None, label, g_val, a_val,
-                              status))
-    return cells, oos_rows
+                              status, pair.method))
+    return cells, found
 
 
-# 2026-10-13 (D1 pair_12, CAQH): a 0.0 score with hundreds of needs_assignment
-# cells = rows on both sides whose natural KEYS follow different conventions.
-# The rows the key could not pair are paired a second way — by position when
-# both sides left the same number, else by best cell overlap — and that score
-# is reported SEPARATELY ("positional"); the key-paired score is unchanged.
-POSITION, OVERLAP = "position", "overlap"
+# ---------------------------------------------------------------- identity
 
 
-def _overlap(g_row: dict, a_row: dict, shared: list[tuple[str, str]]) -> int:
-    return sum(1 for g_col, a_col in shared
-               if normalize(g_row.get(g_col)) and normalize(g_row.get(g_col))
-               == normalize(a_row.get(a_col)))
+@dataclass
+class FeedContext:
+    """Which FEED a row belongs to and which FLOW it is. Agent: its workbook
+    (one IIG per feed); golden: the group index (GROUP_ID / PIPELINE_ID ->
+    flow_type + matched_table) matched to the agent feed whose workbook name or
+    table it is, else the one agent feed the row's cells name."""
+
+    index: GroupIndex
+    names: dict[str, int]           # normalized feed / table name -> agent feed
+    scope: FeedScope
+    keys: KeyConfig
+    feeds: set[int] = field(default_factory=set)   # every agent feed (workbook)
+    # tools/iig_identity_check.py: a golden paired with ITSELF — both sides take
+    # their feed from the index's table (one workbook holds every feed)
+    self_check: bool = False
+
+    def golden(self, row: dict[str, object], canon: dict[str, str],
+               tables: ObjectTables | None) -> tuple[int | None, str | None, bool]:
+        """(feed, flow, foreign) — foreign: the index names a table no agent
+        feed writes (another feed of the group: out of scope)."""
+        hit = self.index.lookup(row, canon, self.keys)
+        if hit is not None:
+            flow, table = hit
+            if self.self_check:
+                return identity_value(table, "TABLE"), flow, False  # type: ignore[return-value]
+            feed = self.names.get(identity_value(table, "TABLE") or "")
+            return feed, flow, feed is None
+        feed = self.scope.feed_of(row, canon, tables)
+        if feed is None and len(self.feeds) == 1:
+            feed = next(iter(self.feeds))       # one agent feed: an in-scope row is its
+        return feed, None, False
 
 
-def _secondary_pairs(pairs: list[RowPair], oos_rows: set[int], order: list[str],
-                     g_canon: dict, a_canon: dict, keys: KeyConfig
-                     ) -> tuple[list[RowPair], str | None]:
-    """(every pair after the secondary pairing, method) — method None when the
-    key left no golden row AND agent row unpaired (nothing to pair)."""
-    g_left = [p.golden for p in pairs if p.golden and not p.agent and p.golden[0] not in oos_rows]
-    a_left = [p.agent for p in pairs if p.agent and not p.golden]
-    if not g_left or not a_left:
-        return pairs, None
-    kept = [p for p in pairs if (p.golden and p.agent) or (p.golden and p.golden[0] in oos_rows)]
-    if len(g_left) == len(a_left):
-        matched = [RowPair(g, a, f"pos#{i + 1}") for i, (g, a) in enumerate(zip(g_left, a_left,
-                                                                                  strict=True))]
-        return kept + matched, POSITION
-    shared = [(g_canon[c], a_canon[c]) for c in order
-              if c in g_canon and c in a_canon and not keys.is_assignment(g_canon[c])]
-    scored = sorted(((_overlap(g[1], a[1], shared), gi, ai)
-                     for gi, g in enumerate(g_left) for ai, a in enumerate(a_left)),
-                    key=lambda t: (-t[0], t[1], t[2]))
-    used_g: set[int] = set()
-    used_a: set[int] = set()
-    matched = []
-    for overlap, gi, ai in scored:
-        if overlap <= 0 or gi in used_g or ai in used_a:
+def row_flow(sheet: str, row: dict[str, object], canon: dict[str, str],
+             keys: KeyConfig) -> str | None:
+    """A row's flow from the sheet (``flow.sheets``) or its semantic cells
+    (``flow.rules``) — never from a generated name."""
+    for name, flow in keys.flow_sheets.items():
+        if sheet_id(name) == sheet_id(sheet):
+            return flow
+    for column, pattern, flow in keys.flow_rules:
+        real = canon.get(column)
+        if real and pattern.search(_raw(row.get(real)).strip()):
+            return flow
+    return None
+
+
+def _parts(components: list[str], row: dict[str, object], canon: dict[str, str],
+           tables: ObjectTables | None, feed: int | str | None, flow: str | None
+           ) -> list[str | None]:
+    out: list[str | None] = []
+    for component in components:
+        if component == "@feed":
+            out.append(f"feed#{feed}" if feed is not None else None)
+        elif component == "@flow":
+            out.append(flow)
+        elif component == "@table":
+            table = tables.table_for(row, canon) if tables is not None else None
+            out.append(identity_value(table, "TABLE"))
+        else:
+            real = canon.get(component.upper())
+            out.append(identity_value(row.get(real), component) if real else None)
+    return out
+
+
+def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str],
+                    keys: KeyConfig, tables: tuple, ctx: FeedContext,
+                    g_info: dict[int, tuple], oos: set[int], facts: dict,
+                    texts: dict) -> list[RowPair] | None:
+    """Pair on the sheet's identity, hash-indexed. None when no component
+    survives (the caller then treats the sheet as having no identity)."""
+    g_canon, a_canon = golden.canon(), agent.canon()
+    g_parts = {n: _parts(components, row, g_canon, tables[0], g_info[n][0],
+                         g_info[n][1] or row_flow(name, row, g_canon, keys))
+               for n, row in golden.rows if n not in oos}
+    def agent_side(n: int, row: dict) -> tuple:
+        if ctx.self_check:
+            feed, flow, _foreign = ctx.golden(row, a_canon, tables[1])
+            return feed, flow or row_flow(name, row, a_canon, keys)
+        return feed_of_agent_row(n), row_flow(name, row, a_canon, keys)
+
+    a_parts = {n: _parts(components, row, a_canon, tables[1], *agent_side(n, row))
+               for n, row in agent.rows}
+    keep, dropped = [], []
+    for i, component in enumerate(components):
+        empty = [side for side, parts in (("golden", g_parts), ("agent", a_parts))
+                 if parts and all(p[i] is None for p in parts.values())]
+        (dropped if empty else keep).append(i)
+        if empty:
+            dropped[-1] = f"{component} (no {' / '.join(empty)} row states it)"
+    facts["key"] = [components[i] for i in keep]
+    facts["identity_dropped"] = dropped
+    if dropped:
+        facts["warnings"].append("identity component(s) dropped: " + "; ".join(dropped))
+    if not keep:
+        return None
+
+    # A row that states NO flow (a master pipeline: no load leg) is its own kind
+    # — it matches a row that states none; any other component left empty
+    # makes the identity incomplete.
+    flow_at = {i for i in keep if components[i] == "@flow"}
+
+    def ident(parts: list[str | None]) -> tuple[str, ...] | None:
+        chosen = tuple("-" if parts[i] is None and i in flow_at else parts[i] for i in keep)
+        return None if any(v is None for v in chosen) else chosen  # type: ignore[return-value]
+
+    for side, parts in (("golden", g_parts), ("agent", a_parts)):
+        texts[side] = {n: " | ".join(p[i] or "<none>" for i in keep) for n, p in parts.items()}
+    by_identity: dict[tuple[str, ...], list] = defaultdict(list)
+    a_rows = dict(agent.rows)
+    for n, parts in a_parts.items():
+        key = ident(parts)
+        if key is not None:
+            by_identity[key].append((n, a_rows[n]))
+    dup_a = [" | ".join(k) for k, rows in by_identity.items() if len(rows) > 1]
+    seen: Counter[tuple[str, ...]] = Counter(
+        k for k in (ident(p) for p in g_parts.values()) if k is not None)
+    dup_g = [" | ".join(k) for k, n in seen.items() if n > 1]
+    facts["key_unique"] = {"golden": not dup_g, "agent": not dup_a}
+    facts["duplicate_keys"] = {"golden": dup_g, "agent": dup_a}
+    if dup_g or dup_a:
+        facts["warnings"].append(
+            f"identity not unique (golden {len(dup_g)}, agent {len(dup_a)} repeated)"
+            " — duplicates paired in sheet order")
+    no_identity = {"golden": 0, "agent": 0}
+    pairs: list[RowPair] = []
+    for n, row in golden.rows:
+        if n in oos:
+            pairs.append(RowPair((n, row), None, "out of scope"))
             continue
-        used_g.add(gi)
-        used_a.add(ai)
-        matched.append(RowPair(g_left[gi], a_left[ai], f"overlap#{len(matched) + 1}"))
-    rest = ([RowPair(g, None, f"g#{i + 1}") for i, g in enumerate(g_left) if i not in used_g]
-            + [RowPair(None, a, f"a#{i + 1}") for i, a in enumerate(a_left) if i not in used_a])
-    return kept + matched + rest, OVERLAP
+        key = ident(g_parts[n])
+        if key is None:
+            no_identity["golden"] += 1
+            pairs.append(RowPair((n, row), None, texts["golden"][n]))
+            continue
+        bucket = by_identity.get(key)
+        partner = bucket.pop(0) if bucket else None
+        pairs.append(RowPair((n, row), partner, texts["golden"][n],
+                             BY_IDENTITY if partner else ""))
+    for n, row in sorted((r for b in by_identity.values() for r in b), key=lambda r: r[0]):
+        pairs.append(RowPair(None, (n, row), texts["agent"][n]))
+    for n, row in agent.rows:
+        if ident(a_parts[n]) is None:
+            no_identity["agent"] += 1
+            pairs.append(RowPair(None, (n, row), texts["agent"][n]))
+    if no_identity["golden"] or no_identity["agent"]:
+        facts["warnings"].append(
+            f"identity incomplete (golden {no_identity['golden']}, agent "
+            f"{no_identity['agent']} rows) — those rows NOT paired")
+    return pairs
 
 
 KEY_SAMPLE_ROWS = 5
@@ -912,7 +1203,12 @@ KEY_SAMPLE_ROWS = 5
 def key_samples(d: SheetDiff, keys: KeyConfig, n: int = KEY_SAMPLE_ROWS) -> dict:
     """The first ``n`` golden key values beside the first ``n`` agent ones —
     the key CONVENTION each side follows (OBJECT_ID shown as its table, as
-    paired). UNSCRUBBED: console + score.json on D1 only, never the export."""
+    paired). UNSCRUBBED: console + score.json on D1 only, never the export.
+    Under identity pairing: the first rows' IDENTITIES, as paired."""
+    if d.identity_text:
+        return {"key": d.facts.get("key"),
+                "golden": list(d.identity_text.get("golden", {}).values())[:n],
+                "agent": list(d.identity_text.get("agent", {}).values())[:n]}
     key = keys.key_for(d.name)
     out: dict = {"key": key or None, "golden": [], "agent": []}
     if not key:
@@ -934,18 +1230,72 @@ def key_samples(d: SheetDiff, keys: KeyConfig, n: int = KEY_SAMPLE_ROWS) -> dict
     return out
 
 
+def _pair_by_identity(name: str, golden: Sheet | None, agent: Sheet | None,
+                      keys: KeyConfig, tables: tuple, scope: FeedScope | None,
+                      ctx: FeedContext | None, texts: dict
+                      ) -> tuple[list[RowPair], dict, set[int]]:
+    """Identity pairing (2026-10-13). Out of scope first: a golden row the
+    group index places in a feed the agent did not write (or, without the
+    index, one naming only another feed). Then the sheet's identity; a sheet
+    with NO identity pairs by position only when both sides have the same
+    number of rows — otherwise its rows stay unpaired, said in a warning."""
+    facts: dict = {"key": "none", "pair_mode": "identity", "warnings": []}
+    g_rows = golden.rows if golden else []
+    a_rows = agent.rows if agent else []
+    if golden is None or agent is None or ctx is None:
+        return (_unpaired(g_rows, a_rows), facts, set())
+    g_canon = golden.canon()
+    g_info = {n: ctx.golden(row, g_canon, tables[0]) for n, row in g_rows}
+    oos: set[int] = set()
+    if ctx.scope.enabled:
+        for n, row in g_rows:
+            feed, _flow, foreign = g_info[n]
+            if foreign or (feed is None and ctx.scope.active
+                           and ctx.scope.out_of_scope(row, g_canon, tables[0])):
+                oos.add(n)
+    components = keys.identity_for(name)
+    pairs = None
+    if components:
+        pairs = _identity_pairs(name, golden, agent, components, keys, tables, ctx, g_info,
+                                oos, facts, texts)
+    if pairs is not None:
+        return pairs, facts, oos
+    in_scope = [(n, row) for n, row in g_rows if n not in oos]
+    out_rows = [RowPair((n, row), None, "out of scope") for n, row in g_rows if n in oos]
+    if in_scope and len(in_scope) == len(a_rows):
+        facts["key"] = "position"
+        facts["warnings"].append(
+            f"no identity for this sheet — {len(a_rows)} row(s) paired BY POSITION "
+            "(row counts equal)")
+        pairs = [RowPair(g, a, f"#{i + 1}", BY_POSITION)
+                 for i, (g, a) in enumerate(zip(in_scope, a_rows, strict=True))]
+        return pairs + out_rows, facts, oos
+    if in_scope or a_rows:
+        facts["warnings"].append(
+            f"no identity for this sheet and row counts differ (golden {len(in_scope)}, "
+            f"agent {len(a_rows)}) — rows NOT paired")
+    return _unpaired(in_scope, a_rows) + out_rows, facts, oos
+
+
 def diff_sheet(
     name: str,
     golden: Sheet | None,
     agent: Sheet | None,
     keys: KeyConfig,
     tables: tuple[ObjectTables | None, ObjectTables | None] = (None, None),
-    pair_mode: str = "key",
+    pair_mode: str = "identity",
     scope: FeedScope | None = None,
+    ctx: FeedContext | None = None,
 ) -> SheetDiff:
     presence = "compared" if golden and agent else ("golden-only" if golden else "agent-only")
-    pairs, facts = pair_rows(golden, agent, keys.key_for(name), keys, tables,
-                             pair_mode=pair_mode)
+    texts: dict = {}
+    oos: set[int] | None = None
+    if pair_mode == "identity":
+        pairs, facts, oos = _pair_by_identity(name, golden, agent, keys, tables, scope, ctx,
+                                              texts)
+    else:
+        pairs, facts = pair_rows(golden, agent, keys.key_for(name), keys, tables,
+                                 pair_mode=pair_mode)
     g_canon = golden.canon() if golden else {}
     a_canon = agent.canon() if agent else {}
     order = [c.upper() for c in golden.columns] if golden else []
@@ -957,21 +1307,13 @@ def diff_sheet(
         "agent_only": [a_canon[c] for c in order if c in a_canon and c not in g_canon],
     }
     out.cells, oos_rows = _classify_pairs(pairs, order, g_canon, a_canon, keys, tables,
-                                          scope if agent is not None else None)
-    # 2026-10-13 (D1 pair_12): a SECOND pairing of the rows the key left
-    # unpaired — reported beside the key-paired score, never instead of it.
-    secondary, method = _secondary_pairs(pairs, oos_rows, order, g_canon, a_canon, keys)
-    if method is not None:
-        alt_cells, _oos = _classify_pairs(secondary, order, g_canon, a_canon, keys, tables,
-                                          scope if agent is not None else None)
-        alt_counts = Counter(c.status for c in alt_cells)
-        out.positional = {
-            "method": method,
-            "rows_paired": sum(1 for p in secondary if p.golden and p.agent)
-            - sum(1 for p in pairs if p.golden and p.agent),
-            "counts": {s: alt_counts.get(s, 0) for s in STATUSES},
-            "score": _comparable({s: alt_counts.get(s, 0) for s in STATUSES}),
-        }
+                                          scope if agent is not None else None, oos)
+    out.identity_text = texts
+    out.pairing = {m: sum(1 for p in pairs if p.golden and p.agent and p.method == m)
+                   for m in (BY_IDENTITY, BY_POSITION, BY_KEY)}
+    out.unpaired = {"golden": sum(1 for p in pairs if p.golden and not p.agent
+                                  and p.golden[0] not in oos_rows),
+                    "agent": sum(1 for p in pairs if p.agent and not p.golden)}
     out.rows = {
         "golden": len(golden.rows) if golden else 0,
         "agent": len(agent.rows) if agent else 0,
@@ -985,17 +1327,47 @@ def diff_sheet(
     return out
 
 
+_FEED_TABLE_COLUMNS = ("TGT_TABLE_NAME", "TGT_TABLE")
+
+
+def agent_feed_names(paths: list[Path], agent: dict[str, Sheet]) -> dict[str, int]:
+    """normalized name -> agent feed: each workbook's name (``<feed>_IIG.xlsx``)
+    and every target table its rows write. A name two feeds share is dropped."""
+    seen: dict[str, set[int]] = defaultdict(set)
+    for index, path in enumerate(paths, start=1 if len(paths) > 1 else 0):
+        stem = re.sub(r"_iig(_review)?$", "", path.stem.lower())
+        if identity_value(stem):
+            seen[identity_value(stem) or ""].add(index)
+    for sheet in agent.values():
+        canon = sheet.canon()
+        cols = [canon[c] for c in _FEED_TABLE_COLUMNS if c in canon]
+        for number, row in sheet.rows:
+            for col in cols:
+                value = identity_value(row.get(col), "TABLE")
+                if value:
+                    seen[value].add(feed_of_agent_row(number))
+    return {name: next(iter(feeds)) for name, feeds in seen.items() if len(feeds) == 1}
+
+
 def diff_workbooks(
     golden: Path,
     agent: Path | list[Path],
     keys: KeyConfig,
-    pair_mode: str = "key",
+    pair_mode: str = "identity",
     scope_mode: str = "feeds",
+    group_index: list[Path] | None = None,
+    self_check: bool = False,
 ) -> list[SheetDiff]:
     g = read_workbook(golden, keys)
-    a = read_agent_workbooks(agent if isinstance(agent, list) else [agent], keys)
+    paths = agent if isinstance(agent, list) else [agent]
+    a = read_agent_workbooks(paths, keys)
     tables = (ObjectTables(g, keys), ObjectTables(a, keys))
     scope = FeedScope(a, g, keys, enabled=scope_mode == "feeds")
+    index_paths = (group_index if group_index is not None
+                   else [REPO_ROOT / rel for rel in keys.group_index])
+    feeds = {feed_of_agent_row(n) for sheet in a.values() for n, _row in sheet.rows}
+    ctx = FeedContext(GroupIndex(index_paths), agent_feed_names(paths, a), scope, keys,
+                      feeds or {1 if len(paths) > 1 else 0}, self_check=self_check)
     a_by_id = {sheet_id(n): n for n in a}
     g_ids = {sheet_id(n) for n in g}
 
@@ -1020,7 +1392,7 @@ def diff_workbooks(
         a_name = alias_map.get(name) or a_by_id.get(sheet_id(name), "")
         a_sheet = a.get(a_name)
         sd = diff_sheet(name, g_sheet, a_sheet, keys, tables, pair_mode=pair_mode,
-                        scope=scope)
+                        scope=scope, ctx=ctx)
         sd.facts["scope"] = {"active": scope.active, "feeds": len(scope.stems)}
         if name in template_mismatches:
             sd.facts["template_mismatch"] = {
@@ -1040,6 +1412,14 @@ def _score(counts: dict[str, int]) -> float:
     if not scored:
         return 100.0
     return round(100.0 * (counts[EXACT] + counts[NORMALIZED]) / scored, 1)
+
+
+def _convention(cells: list[Cell]) -> dict[str, int]:
+    """Convention cells of PAIRED rows: how many, how many differ."""
+    paired = [c for c in cells if c.status == CONVENTION
+              and c.golden_row is not None and c.agent_row is not None]
+    differing = sum(1 for c in paired if classify(c.golden, c.agent) not in (EXACT, NORMALIZED))
+    return {"cells": len(paired), "differing": differing}
 
 
 def _comparable(counts: dict[str, int]) -> float | None:
@@ -1106,9 +1486,11 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_score": None if one_side else _comparable(counts),
             "out_of_scope_rows": d.out_of_scope_rows,
             "needs_assignment": assign,
-            # 2026-10-13: the rows the key left unpaired, paired a second way
-            # (position / best cell overlap) — beside the key-paired score.
-            "positional": None if one_side else d.positional,
+            # 2026-10-13: HOW rows were matched — never read a score without it
+            "pairing": d.pairing,
+            "unpaired": d.unpaired,
+            "identity_dropped": d.facts.get("identity_dropped"),
+            "convention_cells": _convention(d.cells),
             # D1 only (unscrubbed): the key convention each side follows.
             "key_samples": d.key_samples,
             "warnings": sheet_warnings,
@@ -1121,11 +1503,13 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
     for d in diffs:
         if d.presence == "compared":
             shared.update(d.counts())
-    positional: Counter[str] = Counter()
+    pairing: Counter[str] = Counter()
+    unpaired: Counter[str] = Counter()
+    convention: Counter[str] = Counter()
     for d in diffs:
-        if d.presence == "compared":
-            positional.update((d.positional or {}).get("counts") or {
-                s: n for s, n in d.counts().items()})
+        pairing.update(d.pairing)
+        unpaired.update(d.unpaired)
+        convention.update(_convention(d.cells))
     templates = template_facts(diffs)
     scope = next((d.facts.get("scope") for d in diffs if d.facts.get("scope")), None)
     return {
@@ -1143,11 +1527,9 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_score": _comparable({s: shared.get(s, 0) for s in STATUSES}),
             "comparable_cells": sum(shared.get(s, 0) for s in SCORED),
             "out_of_scope_rows": sum(d.out_of_scope_rows for d in diffs),
-            # the comparable score once the key-unpaired rows are paired a
-            # second way (sheets with nothing to pair count as they are)
-            "positional_score": _comparable({s: positional.get(s, 0) for s in STATUSES}),
-            "positional_rows_paired": sum((d.positional or {}).get("rows_paired", 0)
-                                          for d in diffs if d.presence == "compared"),
+            "pairing": {m: pairing.get(m, 0) for m in (BY_IDENTITY, BY_POSITION, BY_KEY)},
+            "unpaired": {s: unpaired.get(s, 0) for s in ("golden", "agent")},
+            "convention_cells": {k: convention.get(k, 0) for k in ("cells", "differing")},
         },
         "sheets": sheets,
         "warnings": warnings,
@@ -1195,15 +1577,18 @@ def write_diff_xlsx(path: Path, payload: dict, diffs: list[SheetDiff], keys: Key
     fills = {s: PatternFill("solid", fgColor=c) for s, c in _FILLS.items() if c}
     for d in diffs:
         ws = wb.create_sheet(d.name[:31])
-        ws.append(["KEY", "GOLDEN_ROW", "AGENT_ROW", "COLUMN", "GOLDEN", "AGENT", "STATUS"])
-        for cell in d.cells:
+        ws.append(["KEY", "GOLDEN_ROW", "AGENT_ROW", "COLUMN", "GOLDEN", "AGENT", "STATUS",
+                   "PAIRED_BY"])
+        for row_number, cell in enumerate(d.cells, start=2):
             withheld = keys.is_withheld(cell.column)
             g = WITHHELD if withheld and _raw(cell.golden) else _cell_value(cell.golden)
             a = WITHHELD if withheld and _raw(cell.agent) else _cell_value(cell.agent)
-            ws.append([cell.key, cell.golden_row, cell.agent_row, cell.column, g, a, cell.status])
+            ws.append([cell.key, cell.golden_row, cell.agent_row, cell.column, g, a, cell.status,
+                       cell.method])
             fill = fills.get(cell.status)
             if fill:
-                ws.cell(ws.max_row, 7).fill = fill
+                # the row just appended (ws.max_row rescans the sheet on every call)
+                ws.cell(row_number, 7).fill = fill
         _style(ws)
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
@@ -1262,7 +1647,7 @@ def header_facts(keys: KeyConfig, pair_mode: str, build: dict | None) -> dict:
                    "agent_build_file": build["file"] if build else None,
                    "ignored_set": list(keys.needs_assignment), "pair_mode": pair_mode,
                    "environment_tokens": keys.env_state()}
-    if pair_mode != "key":
+    if pair_mode in ("position", "fuzzy"):
         facts["banner"] = (f"PAIR MODE {pair_mode.upper()}: rows paired by "
                            f"{'ordinal position' if pair_mode == 'position' else 'normalized key'}"
                            ", NOT by the natural key — not the validation score")
@@ -1282,16 +1667,19 @@ def agent_build(agents: list[Path]) -> tuple[dict | None, str | None]:
 
 
 def run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
-             pair_mode: str = "key", build: dict | None = None,
-             scope_mode: str = "feeds") -> dict:
-    return _run_pair(golden, agent, out, keys_path, pair_mode, build, scope_mode)[0]
+             pair_mode: str = "identity", build: dict | None = None,
+             scope_mode: str = "feeds", group_index: list[Path] | None = None) -> dict:
+    return _run_pair(golden, agent, out, keys_path, pair_mode, build, scope_mode,
+                     group_index)[0]
 
 
 def _run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
-              pair_mode: str = "key", build: dict | None = None, scope_mode: str = "feeds"
+              pair_mode: str = "identity", build: dict | None = None,
+              scope_mode: str = "feeds", group_index: list[Path] | None = None
               ) -> tuple[dict, list[SheetDiff], KeyConfig]:
     keys = load_keys(keys_path)
-    diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode, scope_mode=scope_mode)
+    diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode, scope_mode=scope_mode,
+                           group_index=group_index)
     payload = score_payload(golden, agent, keys_path, diffs,
                             header_facts(keys, pair_mode, build))
     out.mkdir(parents=True, exist_ok=True)
@@ -1593,6 +1981,17 @@ def _key_text(sheet: Sheet | None, row: dict | None, key: list[str] | None, keys
     return " | ".join(parts)
 
 
+def _row_text(d: SheetDiff, side: str, number: int | None, sheet: Sheet | None,
+              row: dict | None, key: list[str] | None, keys: KeyConfig,
+              table: ObjectTables | None, scr: Scrubber) -> str:
+    """The row's identity (each part scrubbed) under identity pairing, else
+    its natural key."""
+    text = d.identity_text.get(side, {}).get(number) if d.identity_text else None
+    if text is not None:
+        return " | ".join(scr.scrub(part) for part in text.split(" | "))
+    return _key_text(sheet, row, key, keys, table, scr)
+
+
 def _value(cell_value: object, column: str, keys: KeyConfig, scr: Scrubber) -> str:
     if keys.is_withheld(column):
         return WITHHELD if _raw(cell_value) else ""
@@ -1612,11 +2011,11 @@ def _write_mismatches(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
                 continue
             counts[cell.status] += 1
             if cell.golden_row is not None:
-                row_key = _key_text(g_sheet, g_rows.get(cell.golden_row), key, keys,
-                                    d.tables[0], scr)
+                row_key = _row_text(d, "golden", cell.golden_row, g_sheet,
+                                    g_rows.get(cell.golden_row), key, keys, d.tables[0], scr)
             else:
-                row_key = _key_text(a_sheet, a_rows.get(cell.agent_row), key, keys,
-                                    d.tables[1], scr)
+                row_key = _row_text(d, "agent", cell.agent_row, a_sheet,
+                                    a_rows.get(cell.agent_row), key, keys, d.tables[1], scr)
             row_key += f" (golden row {_row_ref(cell.golden_row)}, agent row "
             row_key += f"{_row_ref(cell.agent_row)})"
             lines.append("| " + " | ".join(_md(t) for t in (
@@ -1642,11 +2041,14 @@ def _write_row_keys(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
         g_sheet, a_sheet = d.sides
         key = keys.key_for(d.name)
         used = d.facts.get("key")
-        used = ", ".join(scr.scrub(c) for c in used) if isinstance(used, list) else str(used)
+        # an identity component (@feed / @flow / @table) is the tool's vocabulary
+        used = (", ".join(c if c.startswith("@") else scr.scrub(c) for c in used)
+                if isinstance(used, list) else str(used))
         g2a = {p.golden[0]: p.agent[0] for p in d.pairs if p.golden and p.agent}
         a2g = {a: g for g, a in g2a.items()}
         lines += [f"## {_md(scr.scrub(d.name))}", "",
-                  f"- presence: {d.presence}; pair mode: {d.facts.get('pair_mode', 'key')}",
+                  f"- presence: {d.presence}; pair mode: {d.facts.get('pair_mode', 'key')}; "
+                  f"paired by {', '.join(f'{m} {n}' for m, n in d.pairing.items() if n) or 'none'}",
                   f"- key columns used for pairing: {_md(used)}",
                   f"- rows: golden {d.rows['golden']}, agent {d.rows['agent']}, "
                   f"paired {d.rows['paired']}", ""]
@@ -1665,7 +2067,7 @@ def _write_row_keys(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
             for n, row in sheet.rows:
                 listed[side] += 1
                 mate = partner.get(n)
-                text = _key_text(sheet, row, key, keys, table, scr)
+                text = _row_text(d, side, n, sheet, row, key, keys, table, scr)
                 line = (f"| {_row_ref(n)} | {_md(text)} | "
                         f"{'paired' if mate is not None else 'unpaired'} | {_row_ref(mate)} |")
                 if source:
@@ -1940,7 +2342,7 @@ def find_pairs(directory: Path) -> tuple[dict[str, tuple[Path, Path]], list[str]
 
 
 def run_batch(directory: Path, out: Path, keys_path: Path,
-              pair_mode: str = "key", scope_mode: str = "feeds") -> dict:
+              pair_mode: str = "identity", scope_mode: str = "feeds") -> dict:
     pairs, problems = find_pairs(directory)
     summary: dict = {"pairs": {}, "skipped": problems, "unscored": {}}
     for name, (golden, agent) in pairs.items():
@@ -1981,18 +2383,26 @@ def _print_pair(payload: dict, out: Path) -> None:
         c = s["counts"]
         line = ", ".join(f"{k} {c[k]}" for k in STATUSES)
         score = s["note"] if s.get("note") else s["score"]
-        positional = s.get("positional")
-        extra = (f"; positional {positional['score']} ({positional['method']}, "
-                 f"{positional['rows_paired']} row(s))" if positional else "")
-        print(f"{name}: score {score}; comparable {s.get('comparable_score')}{extra}; {line}")
+        pairing, unpaired = s.get("pairing") or {}, s.get("unpaired") or {}
+        conv = s.get("convention_cells") or {}
+        how = (f"paired by identity {pairing.get(BY_IDENTITY, 0)}, position "
+               f"{pairing.get(BY_POSITION, 0)}"
+               + (f", key {pairing[BY_KEY]}" if pairing.get(BY_KEY) else "")
+               + f"; unpaired golden {unpaired.get('golden', 0)}, agent "
+                 f"{unpaired.get('agent', 0)}; convention {conv.get('cells', 0)} "
+                 f"({conv.get('differing', 0)} differ)")
+        print(f"{name}: score {score}; comparable {s.get('comparable_score')}; {how}; {line}")
     t = payload["totals"]
     print(f"TOTAL: score {t['score']}; " + ", ".join(f"{k} {t[k]}" for k in STATUSES))
     print(f"COMPARABLE: score {t.get('comparable_score')} over {t.get('comparable_cells')} "
           f"scoped cell(s) of the sheets both sides have; out of scope: "
           f"{t.get('out_of_scope_rows', 0)} golden row(s)")
-    print(f"POSITIONAL: score {t.get('positional_score')} — the key-unpaired rows paired by "
-          f"position / best cell overlap ({t.get('positional_rows_paired', 0)} row(s)); the "
-          "key-paired score above is unchanged")
+    print(f"PAIRING: identity {t['pairing'].get(BY_IDENTITY, 0)}, position "
+          f"{t['pairing'].get(BY_POSITION, 0)}, key {t['pairing'].get(BY_KEY, 0)} row(s); "
+          f"unpaired golden {t['unpaired']['golden']}, agent {t['unpaired']['agent']}; "
+          f"convention cells {t['convention_cells']['cells']} "
+          f"({t['convention_cells']['differing']} "
+          "differ — never scored)")
     hint = (payload.get("templates") or {}).get("hint")
     if hint:
         print(f"HINT {hint}")
@@ -2031,10 +2441,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path,
                     help="required, except for --golden-structure alone")
     ap.add_argument("--keys", type=Path, default=DEFAULT_KEYS)
-    ap.add_argument("--pair-mode", choices=PAIR_MODES, default="key",
-                    help="Row pairing: key (default - the natural key ONLY; rows it "
-                         "cannot pair stay missing / extra), position or fuzzy (explicit, "
+    ap.add_argument("--pair-mode", choices=PAIR_MODES, default="identity",
+                    help="Row pairing: identity (default - what a row describes: feed x "
+                         "flow x the sheet's identity columns, iig_keys.yaml identity; a "
+                         "sheet with no identity by position only when the row counts are "
+                         "equal), key (the natural key only), position or fuzzy (explicit, "
                          "bannered - not the validation score)")
+    ap.add_argument("--group-index", type=Path, action="append", metavar="CSV",
+                    help="golden GROUP_ID / PIPELINE_ID -> flow_type + matched_table "
+                         "(default: iig_keys.yaml group_index, "
+                         "docs/acfc/iig_goldens/01_pair_group_index.csv + addendum)")
     ap.add_argument("--scope", choices=SCOPE_MODES, default="feeds",
                     help="feeds (default): golden rows of feeds the agent did not write "
                          "are 'out of scope', not missing; all: score every golden row")
@@ -2082,7 +2498,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.export_scrubbed is None:
         payload = run_pair(args.golden, agents if len(agents) > 1 else agents[0], args.out,
                            args.keys, pair_mode=args.pair_mode, build=build,
-                           scope_mode=args.scope)
+                           scope_mode=args.scope, group_index=args.group_index)
         _print_pair(payload, args.out)
         return 0
     try:
@@ -2092,7 +2508,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     payload, diffs, keys = _run_pair(args.golden, agents if len(agents) > 1 else agents[0],
                                      args.out, args.keys, pair_mode=args.pair_mode, build=build,
-                                     scope_mode=args.scope)
+                                     scope_mode=args.scope, group_index=args.group_index)
     _print_pair(payload, args.out)
     check = export_scrubbed(diffs, keys, args.export_scrubbed)
     print(check["line"])

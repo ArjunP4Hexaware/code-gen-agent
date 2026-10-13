@@ -63,6 +63,27 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   lock files) and NOTEs `pair.sttm` when a folder holds 2+ STTMs with no override pinning one
   (App: outcome `notes`; `acfc_run.py`: the override pins one, else it stops naming them);
   a `name_fuzzy` NOTE in the content branch carries the stem words.
+- **post40 — iig_diff pairs rows by IDENTITY, not by generated names** (`acfc-pairing-check`
+  `2026-10-13_pair2_diff.md`: SD pair_2 0.0, zero rows paired — goldens `PL_File_<DOMAIN>_<PKG>_<FLOW>_Incr`,
+  agent iig_v1 `WF_DLK_NSP_…` / `NB_…`; ALL_FILES_STATIC_INFORMATION stripped by hand to dodge
+  a 600 s timeout). Default `--pair-mode identity`: golden rows get feed + flow from
+  `docs/acfc/iig_goldens/01_pair_group_index.csv` (GROUP_ID / PIPELINE_ID → flow_type +
+  matched_table, matched to the agent workbook whose name / TGT_TABLE_NAME it is; a feed the
+  agent did not write = out of scope); agent rows: workbook = feed, flow from the sheet or
+  LAYER_NAME / PIPELINE_DESCRIPTION / PROCESS_NAME (`iig_keys.yaml flow`). Per-sheet `identity`
+  in `tools/iig_keys.yaml` (schedule / notebook = feed × flow; ADLS / STGDELTA + TGT_TABLE_NAME;
+  DQ = feed × @table × SOURCE_COLUMN × RULE_CLASS; email + STATUS; ALL_FILES = FILE_NAME), values
+  normalized (case, separators, a table's schema prefix); a component one side never states is
+  dropped + warned; an incomplete identity = unpaired + said. No identity → position only when
+  counts are equal, else unpaired + said. `convention_columns` (PIPELINE_NAME, notebook names,
+  TEMPLATE_NAME, TGT_RJT_TABLE_NAME) never pair, never score: status `convention`, counted with
+  how many differ. Every sheet reports paired by identity / position / unpaired. `--pair-mode
+  key` = the old natural-key rule. Speed: diff.xlsx called `ws.max_row` per cell (64 of 72 s at
+  3,000 rows) and FeedScope compared every row with every stem (`StemIndex` now) — the
+  D1-sized CLI runs in ~8 s. `tools/iig_identity_check.py` (counts only) self-pairs goldens by
+  identity — run it over the 199-IIG corpus on D1 (only the SFMC / pair_1 / CAQH goldens are
+  at home: every row identified). Note: post38's `WF_` / `NB_` names came from
+  `--iig-template iig_v1`, not the live model. Tests `tests/test_iig_diff_identity.py`.
 - **post39 — the live D1 check's four fixes** (`origin/acfc-pairing-check`
   `codegen-outputs/pairing_check/2026-10-13_live_three_pairs.md`; one commit each):
   (1) **pair_12 CAQH** — `frd_docx.split_domain_labels`: a cell with a `Domain:` AND a

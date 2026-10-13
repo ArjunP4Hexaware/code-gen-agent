@@ -40,6 +40,11 @@ def _perturb(golden: Path, target: Path, n: int) -> list[tuple[str, str]]:
         # changing either is not a cell mismatch
         key = {k.upper() for k in keys.key_for(ws.title) or []}
         key |= {k.upper() for k in keys.object_source(ws.title) or []}
+        # 2026-10-13 identity pairing: identity / flow-evidence cells re-pair
+        # rows, convention cells are never scored
+        key |= {k.upper() for k in keys.identity_for(ws.title) or [] if not k.startswith("@")}
+        key |= {column for column, _pattern, _flow in keys.flow_rules}
+        key |= {c.upper() for c in keys.convention_columns}
         cells = [
             (ws.title, header[cell.column - 1], cell)
             for row in ws.iter_rows(min_row=2)
@@ -74,12 +79,17 @@ def test_self_diff_is_all_exact(golden: Path, tmp_path: Path) -> None:
     t = payload["totals"]
     assert t["score"] == 100.0
     assert t["exact"] == t["scored_cells"] > 0
-    # the only warning a golden may raise against itself: a key it repeats
-    # (pair 1's four files load one table, so its DQ key repeats)
-    assert all("is not unique" in w for w in payload["warnings"])
+    # the only warnings a golden may raise against itself: an identity it
+    # repeats (pair 1's four files load one table), a component it never states
+    assert all("not unique" in w or "dropped" in w for w in payload["warnings"])
     dq = payload["sheets"]["DATA_QUALITY_RULES"]
-    assert dq["key"] == ["OBJECT_ID -> table", "RULE_CLASS", "SOURCE_COLUMN"]
-    assert dq["unresolved_object_ids"] == {"golden": [], "agent": []}
+    assert dq["key"] == ["@feed", "@table", "SOURCE_COLUMN", "RULE_CLASS"]
+    assert payload["totals"]["unpaired"] == {"golden": 0, "agent": 0}
+    keyed = iig_diff.run_pair(golden, golden, tmp_path / "key", KEYS, pair_mode="key")
+    assert keyed["sheets"]["DATA_QUALITY_RULES"]["key"] == [
+        "OBJECT_ID -> table", "RULE_CLASS", "SOURCE_COLUMN"]
+    assert keyed["sheets"]["DATA_QUALITY_RULES"]["unresolved_object_ids"] == {
+        "golden": [], "agent": []}
 
 
 def _stamp(folder: Path) -> Path:
@@ -176,7 +186,7 @@ def test_rows_pair_by_key_not_position(tmp_path: Path) -> None:
     agent = _book(
         tmp_path / "a.xlsx", {PIPE: [HEAD, [9, "B", "Weekly", None], [8, "A", "Daily", None]]}
     )
-    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
     s = payload["sheets"][PIPE]
     assert s["rows"]["paired"] == 2
     assert s["counts"]["mismatch"] == 0
@@ -215,7 +225,7 @@ def test_missing_extra_rows_columns_and_sheets(tmp_path: Path) -> None:
             "EXTRA_SHEET": [["X"], ["1"]],
         },
     )
-    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
     s = payload["sheets"][PIPE]
     assert s["rows"] == {
         "golden": 2,
@@ -229,12 +239,16 @@ def test_missing_extra_rows_columns_and_sheets(tmp_path: Path) -> None:
         "agent_only": ["NEW_COL"],
     }
     # paired row: FREQUENCY missing (column absent), NEW_COL extra; the GONE
-    # row: NAME + FREQUENCY missing; the NEW row: NAME + NEW_COL extra (a cell
-    # neither workbook has — GONE x NEW_COL, NEW x FREQUENCY — is not counted)
-    assert s["counts"]["missing-in-agent"] == 1 + 2
-    assert s["counts"]["extra-in-agent"] == 1 + 2
+    # row: FREQUENCY missing; the NEW row: NEW_COL extra (a cell neither
+    # workbook has — GONE x NEW_COL, NEW x FREQUENCY — is not counted).
+    # PIPELINE_NAME is a CONVENTION column (2026-10-13): counted apart.
+    assert s["counts"]["missing-in-agent"] == 1 + 1
+    assert s["counts"]["extra-in-agent"] == 1 + 1
+    assert s["counts"]["convention"] == 3
     assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["presence"] == "golden-only"
-    assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["counts"]["missing-in-agent"] == 2
+    # STATUS missing; TEMPLATE_NAME is a convention column
+    assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["counts"]["missing-in-agent"] == 1
+    assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["counts"]["convention"] == 1
     assert payload["sheets"]["EXTRA_SHEET"]["key"] == "none"       # no key: never by position
     assert payload["sheets"]["EXTRA_SHEET"]["counts"]["extra-in-agent"] == 1
 
@@ -243,7 +257,7 @@ def test_duplicate_key_is_flagged(tmp_path: Path) -> None:
     golden = _book(
         tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None], [2, "A", "Weekly", None]]}
     )
-    payload = iig_diff.run_pair(golden, golden, tmp_path / "out", KEYS)
+    payload = iig_diff.run_pair(golden, golden, tmp_path / "out", KEYS, pair_mode="key")
     s = payload["sheets"][PIPE]
     assert s["key_unique"] == {"golden": False, "agent": False}
     assert s["duplicate_keys"]["golden"] == ["A"]
@@ -308,7 +322,7 @@ def test_dq_rows_pair_by_resolved_table_not_object_id(tmp_path: Path) -> None:
             ],
         },
     )
-    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
     dq = payload["sheets"][DQ]
     assert dq["key"] == ["OBJECT_ID -> table", "RULE_CLASS", "SOURCE_COLUMN"]
     assert dq["rows"]["paired"] == 2
@@ -350,7 +364,7 @@ def test_unresolved_object_ids_are_not_paired_and_are_flagged(tmp_path: Path) ->
             DQ: [DQ_HEAD, [1, 1, "R", "c1", "p1"], [1, 8, "R", "c1", "p8"]],
         },
     )
-    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
     dq = payload["sheets"][DQ]
     assert dq["unresolved_object_ids"] == {"golden": ["7"], "agent": ["8"]}
     assert dq["rows"]["paired"] == 1               # only the resolved row; p7 / p8 NOT paired
@@ -398,7 +412,7 @@ def test_key_mode_never_falls_back_to_position(tmp_path: Path) -> None:
 def test_a_key_column_absent_from_one_side_pairs_nothing(tmp_path: Path) -> None:
     golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "A", "Daily", None]]})
     agent = _book(tmp_path / "a.xlsx", {PIPE: [["PIPELINE_ID", "OTHER"], [1, "A"]]})
-    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="key")
     s = payload["sheets"][PIPE]
     assert s["rows"]["paired"] == 0
     assert any("rows NOT paired" in w for w in payload["warnings"])
@@ -411,10 +425,10 @@ def test_fuzzy_mode_strips_pl_prefix(tmp_path: Path) -> None:
     s = payload["sheets"][PIPE]
     assert s["pair_mode"] == "fuzzy"
     assert s["rows"]["paired"] == 1
-    # Fuzzy mode pairs by normalized key but cell values still compared as-is:
-    # PIPELINE_NAME ("PL_File_STAGE_foo" vs "STAGE_FOO") = 1 mismatch,
-    # PIPELINE_FREQUENCY ("Daily" vs "Daily") = exact.
-    assert s["counts"]["mismatch"] == 1  # the key column itself differs
+    # Fuzzy mode pairs by normalized key; PIPELINE_NAME is a CONVENTION column
+    # (2026-10-13): never scored, counted apart — PIPELINE_FREQUENCY exact.
+    assert s["counts"]["mismatch"] == 0
+    assert s["counts"]["convention"] == 1
 
 
 def test_fuzzy_key_normalization() -> None:
@@ -448,7 +462,7 @@ def test_pair_mode_reported_in_score_json(tmp_path: Path) -> None:
     payload = iig_diff.run_pair(golden, golden, tmp_path / "out", KEYS)
     s = payload["sheets"][PIPE]
     assert "pair_mode" in s
-    assert s["pair_mode"] in ("key", "position", "fuzzy")
+    assert s["pair_mode"] == "identity"                      # the default since 2026-10-13
 
 
 def test_cli_pair_mode_argument_prints_a_banner(tmp_path: Path, capsys) -> None:
@@ -537,7 +551,7 @@ def test_several_agent_workbooks_are_compared_as_their_union(tmp_path: Path) -> 
     _stamp(feeds)
     out = tmp_path / "diff"
     assert iig_diff.main(["--golden", str(golden), "--agent", str(one), str(two),
-                          "--out", str(out)]) == 0
+                          "--out", str(out), "--pair-mode", "key"]) == 0
     payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
     assert payload["sheets"][ADLS]["rows"]["paired"] == 2
     assert payload["sheets"][DQ]["rows"]["paired"] == 2
@@ -676,7 +690,7 @@ def test_a_group_golden_against_per_feed_outputs_compares_like_with_like(tmp_pat
     _stamp(run)
     out = tmp_path / "diff"
     assert iig_diff.main(["--golden", str(golden), "--agent", *map(str, books),
-                          "--out", str(out)]) == 0
+                          "--out", str(out), "--pair-mode", "key"]) == 0
     printed = capsys.readouterr().out
     payload = json.loads((out / "score.json").read_text(encoding="utf-8"))
     sheets, totals = payload["sheets"], payload["totals"]
@@ -716,6 +730,7 @@ def test_scope_all_scores_every_golden_row(tmp_path):
     run = tmp_path / "run"
     (run / "a").mkdir(parents=True)
     book = _feed_book(run / "a" / "a_IIG.xlsx", 1, FEEDS[0])
-    payload = iig_diff.run_pair(golden, book, tmp_path / "out", KEYS, scope_mode="all")
+    payload = iig_diff.run_pair(golden, book, tmp_path / "out", KEYS, scope_mode="all",
+                                pair_mode="key")
     assert payload["totals"]["out_of_scope_rows"] == 0
     assert payload["sheets"][ADLS]["rows"]["missing-in-agent"] == 4

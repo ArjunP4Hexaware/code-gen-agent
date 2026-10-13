@@ -81,7 +81,9 @@ def _deny(tmp_path: Path, *terms: str) -> Path:
 
 def _export(tmp_path: Path, deny_terms=(DENY_TERM,)):
     golden, agent = _build_pair(tmp_path)
-    payload, diffs, keys = iig_diff._run_pair(golden, agent, tmp_path / "out", KEYS)
+    # the scrubbing contract on natural-key row labels (identity labels: in
+    # tests/test_iig_diff_identity.py)
+    payload, diffs, keys = iig_diff._run_pair(golden, agent, tmp_path / "out", KEYS, "key")
     export = tmp_path / "export"
     check = iig_diff.export_scrubbed(diffs, keys, export,
                                      local_denylist=_deny(tmp_path, *deny_terms), harvest={})
@@ -118,7 +120,8 @@ def test_export_lists_every_introduced_mismatch(tmp_path: Path) -> None:
     wb = openpyxl.load_workbook(golden, read_only=True)
     header = next(wb[SCHED].iter_rows(values_only=True))
     wb.close()
-    expected = {h for h in header if h and not keys.is_assignment(h)}
+    expected = {h for h in header if h and not keys.is_assignment(h)
+                and not keys.is_convention(h)}               # never scored
     missing = [r for r in rows if r[0] == SCHED and r[2] == "missing-in-agent"]
     assert {r[1] for r in missing} == expected and len(missing) == len(expected)
     assert all("golden row 5, agent row -" in r[5] for r in missing)

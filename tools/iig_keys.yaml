@@ -79,3 +79,79 @@ environment_tokens:
   "<STAGE_CATALOG>": [d1_dlk, "local:stage_catalog"]
   # acfc_env.yaml catalog_map PR_STD / default_catalog.standard
   "<STANDARD_CATALOG>": [d1_std, "local:standard_catalog"]
+
+# ROW IDENTITY (2026-10-13, D1 pair_2: zero rows paired — the prod goldens name
+# pipelines / notebooks in the legacy convention, the agent in the EDO standard;
+# a NAME says how a thing is called, not what it is). The default pairing
+# (--pair-mode identity) pairs a golden row with the agent row that describes the
+# SAME THING: per sheet, the components below, every value normalized (case,
+# separators; a TABLE column also drops its schema prefix: stg_cm.x -> x).
+#   @feed  the feed a row belongs to. Agent: its workbook (one IIG per feed).
+#          Golden: its GROUP_ID / PIPELINE_ID / _source_group_ids looked up in
+#          group_index below (matched_table), matched to the agent feed whose
+#          workbook name or TGT_TABLE_NAME it is; else the one agent feed the
+#          row's file / table cells name.
+#   @flow  file_to_stg / stg_to_std (the index's flow_type). Golden: the index;
+#          else the sheet's fixed flow; else the flow rules. Agent: the sheet's
+#          fixed flow, else the flow rules (LAYER_NAME / PIPELINE_DESCRIPTION /
+#          PROCESS_NAME — semantic columns, never a generated name).
+#   @table OBJECT_ID -> its table (object_tables above), in its own workbook.
+# A component that EVERY row of one side leaves empty is dropped from that
+# sheet's identity (said in a warning) — e.g. the agent's iig_v2 notebook row
+# states no flow, the agent's ids are blank so @table never resolves there. A
+# row whose identity is still incomplete is left UNPAIRED and counted.
+# Derived from the template headers (config/config.yaml iig_v1 tabs + iig_v2
+# metadata.templates.iig_v2.tabs) and the real pair_2 golden's structure
+# (acfc-results round7/pair_2/golden_structure.md: one GROUP_ID = one feed x
+# one flow; schedule and EMAIL_TEMPLATE_CONFIG rows grouped by PIPELINE_ID,
+# notebook / DQ / ingestion rows by GROUP_ID; two email rows per pipeline). The
+# schedule sheet carries no file or table column: a pipeline IS its feed x flow
+# (one stage table per feed — group_index matched_table). The 199-IIG corpus is
+# on D1: tools/iig_identity_check.py reports, per sheet, how many golden rows
+# each identity resolves and how many repeat — run it there before trusting a
+# new sheet's identity.
+identity:
+  DATA_FACTORY_PIPELINE_SCHEDULE: ["@feed", "@flow"]
+  FILE_ADLS_INGESTION_DETAILS: ["@feed", "@flow"]
+  ADLS_DELTA_INGESTION_DETAILS: ["@feed", "@flow", TGT_TABLE_NAME]
+  STGDELTA_STDDELTA_INGESTION_DET: ["@feed", "@flow", TGT_TABLE_NAME]
+  ADLS_FIXED_WIDTH_HANDLER: ["@feed", TGT_TABLE, SEGMENT, COL]
+  DATA_QUALITY_RULES: ["@feed", "@table", SOURCE_COLUMN, RULE_CLASS]
+  DATABRICKS_NOTEBOOK_DETAILS: ["@feed", "@flow"]
+  EMAIL_TEMPLATE_CONFIG: ["@feed", "@flow", STATUS]
+  ALL_FILES_STATIC_INFORMATION: [FILE_NAME]
+
+# A row's flow without the group index. `sheets`: every row of the sheet is
+# that flow. `rules`: the first rule whose column matches (case-insensitive
+# regex) decides. The values are the agent builders' own semantic cells:
+# iig_v1 LAYER_NAME (STAGE / STANDARD) and the notebook PROCESS_NAME
+# ("Stage Load for ..."), iig_v2 PIPELINE_DESCRIPTION (config.yaml
+# pipeline_roles: "File to Stage", "Stage to Standard", "Master", "Grand master").
+flow:
+  sheets:
+    ADLS_DELTA_INGESTION_DETAILS: file_to_stg
+    FILE_ADLS_INGESTION_DETAILS: file_to_stg
+    STGDELTA_STDDELTA_INGESTION_DET: stg_to_std
+  rules:
+    - {column: LAYER_NAME, match: "^stag", flow: file_to_stg}
+    - {column: LAYER_NAME, match: "^standard", flow: stg_to_std}
+    - {column: PIPELINE_DESCRIPTION, match: "file to stage", flow: file_to_stg}
+    - {column: PIPELINE_DESCRIPTION, match: "stage to standard", flow: stg_to_std}
+    - {column: PIPELINE_DESCRIPTION, match: "^grand master$", flow: grand_master}
+    - {column: PIPELINE_DESCRIPTION, match: "^master$", flow: master}
+    - {column: PROCESS_NAME, match: "^stage load", flow: file_to_stg}
+    - {column: PROCESS_NAME, match: "^standard load", flow: stg_to_std}
+
+# CONVENTION columns: values generated under a naming convention — the agent's
+# from config.yaml (engineering_standards job_name_pattern WF_... /
+# notebook_name_pattern NB_..., pipeline_roles PL_..., reject_table_suffix,
+# the email template named after the feed), the prod goldens' legacy names. Never
+# used to pair, never scored: status "convention", reported as their own count
+# (and how many differ) — expected to differ against legacy goldens.
+convention_columns: [PIPELINE_NAME, DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_NOTEBOOK_NAME,
+                     TEMPLATE_NAME, TGT_RJT_TABLE_NAME]
+
+# Golden GROUP_ID / PIPELINE_ID -> flow_type + matched_table (repo-relative;
+# the files missing are skipped). --group-index replaces the list.
+group_index: [docs/acfc/iig_goldens/01_pair_group_index.csv,
+              docs/acfc/iig_goldens_round2/01_pair_group_index_addendum.csv]

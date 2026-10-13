@@ -63,6 +63,28 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   lock files) and NOTEs `pair.sttm` when a folder holds 2+ STTMs with no override pinning one
   (App: outcome `notes`; `acfc_run.py`: the override pins one, else it stops naming them);
   a `name_fuzzy` NOTE in the content branch carries the stem words.
+- **post39 — the live D1 check's four fixes** (`origin/acfc-pairing-check`
+  `codegen-outputs/pairing_check/2026-10-13_live_three_pairs.md`; one commit each):
+  (1) **pair_12 CAQH** — `frd_docx.split_domain_labels`: a cell with a `Domain:` AND a
+  `Sub Domain:` label (any case / separator) → DOMAIN + SUBDOMAIN, flag
+  `frd_domain_labels_split:`; every IIG payload cell made single-line at the emitter
+  boundary (`gate/derivations.normalise_iig_line_breaks`, flag
+  `iig_line_break_normalised:<SHEET>!<A1>`); gate check `iig_single_line` over the WRITTEN
+  config_rows / `_IIG.xlsx` fails with `<file> <SHEET>!<A1> (<header>)`. Real CAQH (mock):
+  22 × Member / Third Party Liability, PASS_WITH_FLAGS. (2) **pair_11 Pyx** — the harness
+  handed extract-sttm a ONE-feed FRD contract (extract-frd's); extract-sttm now splits it
+  per mapping sheet by the layout rule (`layout/resolve.split_single_frd_feed`,
+  `split_frd_feeds_by_sttm(force=True)`; the layout stage forces it too for content
+  strategy), records `SttmContract.frd_split` (absent when unused), and generate joins it
+  (`resolver.apply_frd_split`); NOTE `frd.split`. Live layout answers are SALVAGED
+  (`salvage_layout_answer`): one REJECTED line per schema error, null role = not found,
+  valid sheets / bands kept and workbook-validated; `--report-unresolved` lists them. The
+  real Pyx shape is still unseen here — the synthetic family-E fixture stands in.
+  (3) **iig_diff** — `key_samples` (first 5 golden vs agent keys, console + score.json, D1
+  only) and a SEPARATE `positional` score (key-unpaired rows paired by position when the
+  counts match, else best cell overlap); key-paired score + scrubbed export unchanged.
+  (4) **App deploy** — nothing needs `out/` (`tests/test_deploy_without_out.py`); deploy
+  from Git or keep harness outputs under `/tmp` (`docs/acfc/APP_DEPLOY_NO_OUT.md`).
 - **post37 — pairing by NAME ROLE + token key (the Pyx pair_11 failure).** The App's
   `local_frd_candidates` and `codegen pair` took a `.docx` as an FRD only when its name
   STARTED with "frd" (`Pyx_ … DSNP_FRD.docx` was never a candidate), the name rule was the

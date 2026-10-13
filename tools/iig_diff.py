@@ -62,12 +62,19 @@ diff.xlsx is written in one pass: a 3,000-row sheet diffs in seconds.
     EMAIL_TEMPLATE_CONFIG              TEMPLATE_NAME, STATUS
     ALL_FILES_STATIC_INFORMATION       FILE_NAME
 
-Sheets match caselessly on their first 31 characters; an agent
-FILE_ADLS_INGESTION_DETAILS is compared with a golden
-ALL_FILES_STATIC_INFORMATION (``TEMPLATE_ALIASES``, ``template_mismatch`` in
-score.json). An OBJECT_ID in a key is replaced by the table it resolves to in
-its OWN workbook — the TGT_TABLE_NAME of the ADLS_DELTA / STGDELTA_STDDELTA /
-RDBMS row with the same (GROUP_ID, OBJECT_ID), else the same OBJECT_ID when
+Sheets match caselessly on their first 31 characters. Across templates
+(iig_keys.yaml ``sheet_aliases``, 2026-10-13): an iig_v1 golden
+ALL_FILES_STATIC_INFORMATION is compared with the iig_v2 agent
+FILE_ADLS_INGESTION_DETAILS, reported as ``ALL_FILES_STATIC_INFORMATION →
+FILE_ADLS_INGESTION_DETAILS``: a golden file row pairs with the agent row of
+the feed that names that file (``file_name_tokens``: case, separators,
+extension, CCYY_MM = YYYY_MM = ``*``), scoped like every sheet; only the
+mapped columns (the headers both templates have) are compared, every other
+column is ``not comparable`` (never missing / extra).
+
+An OBJECT_ID in a key is replaced by the table it resolves to in its OWN
+workbook — the TGT_TABLE_NAME of the ADLS_DELTA / STGDELTA_STDDELTA / RDBMS
+row with the same (GROUP_ID, OBJECT_ID), else the same OBJECT_ID when
 every such row names one table; unresolved ids are listed as
 ``unresolved_object_ids`` in score.json. Every cell of a paired row is one of:
 
@@ -186,14 +193,6 @@ _FUZZY_PREFIXES = re.compile(
     r"^(PL_File_|PL_|NB_|WF_)", re.IGNORECASE,
 )
 
-# Template-version aliases: agent and golden may name the same logical sheet
-# differently when they use different IIG template versions.
-# Each entry maps an agent-side sheet ID to a golden-side sheet ID.
-# Values are uppercased and clipped to 31 chars (same rule as sheet_id()).
-TEMPLATE_ALIASES: dict[str, str] = {
-    "FILE_ADLS_INGESTION_DETAILS"[:31].upper(): "ALL_FILES_STATIC_INFORMATION"[:31].upper(),
-}
-
 EXACT = "exact"
 NORMALIZED = "normalized"
 MISMATCH = "mismatch"
@@ -278,6 +277,23 @@ class EnvToken:
 
 
 @dataclass(frozen=True)
+class SheetAlias:
+    """iig_keys.yaml ``sheet_aliases``: a golden sheet compared with the agent
+    sheet of another template that holds the same facts."""
+    golden_sheet: str
+    agent_sheet: str
+    golden_files: tuple[str, ...]
+    agent_files: tuple[str, ...] = ()
+    files_from_sheet: str | None = None
+    files_from_columns: tuple[str, ...] = ()
+    columns: tuple[tuple[str, str], ...] = ()     # (golden header, agent header)
+
+    @property
+    def label(self) -> str:
+        return f"{self.golden_sheet} \u2192 {self.agent_sheet}"
+
+
+@dataclass(frozen=True)
 class KeyConfig:
     sheets: dict[str, list[str]]
     needs_assignment: list[str]
@@ -294,6 +310,8 @@ class KeyConfig:
     flow_rules: tuple[tuple[str, re.Pattern[str], str], ...] = ()
     convention_columns: tuple[str, ...] = ()
     group_index: tuple[str, ...] = ()
+    sheet_aliases: tuple[SheetAlias, ...] = ()
+    file_name_tokens: tuple[re.Pattern[str], ...] = ()
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -383,7 +401,8 @@ def _env_tokens(path: Path, raw: object, local_path: Path | None) -> tuple[EnvTo
 def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
-             "environment_tokens", "identity", "flow", "convention_columns", "group_index"}
+             "environment_tokens", "identity", "flow", "convention_columns", "group_index",
+             "sheet_aliases", "file_name_tokens"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -404,7 +423,34 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         **_flow(path, raw.get("flow")),
         convention_columns=tuple(str(c) for c in raw.get("convention_columns") or []),
         group_index=tuple(str(c) for c in raw.get("group_index") or []),
+        sheet_aliases=_sheet_aliases(path, raw.get("sheet_aliases")),
+        file_name_tokens=tuple(re.compile(str(t), re.IGNORECASE)
+                               for t in raw.get("file_name_tokens") or []),
     )
+
+
+_ALIAS_KEYS = {"agent_sheet", "golden_files", "agent_files", "agent_files_from", "columns"}
+
+
+def _sheet_aliases(path: Path, raw: object) -> tuple[SheetAlias, ...]:
+    out = []
+    for golden, spec in dict(raw or {}).items():
+        spec = dict(spec or {})
+        unknown = set(spec) - _ALIAS_KEYS
+        if unknown:
+            raise ValueError(f"{path}: unknown sheet_aliases.{golden} keys {sorted(unknown)}")
+        if not (spec.get("agent_sheet") and spec.get("golden_files") and spec.get("columns")):
+            raise ValueError(f"{path}: sheet_aliases.{golden} needs agent_sheet, golden_files "
+                             "and columns")
+        source = dict(spec.get("agent_files_from") or {})
+        out.append(SheetAlias(
+            str(golden), str(spec["agent_sheet"]),
+            tuple(str(c) for c in spec["golden_files"]),
+            tuple(str(c) for c in spec.get("agent_files") or []),
+            str(source["sheet"]) if source.get("sheet") else None,
+            tuple(str(c) for c in source.get("columns") or []),
+            tuple((str(g), str(a)) for g, a in dict(spec["columns"]).items())))
+    return tuple(out)
 
 
 def _flow(path: Path, raw: object) -> dict:
@@ -484,6 +530,28 @@ def identity_value(value: object, column: str = "") -> str | None:
     if "TABLE" in column.upper() and "." in text:
         text = text.rsplit(".", 1)[1]
     return _NON_ALNUM.sub("", text.lower()) or None
+
+
+_EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
+_NOT_FILE_CHAR = re.compile(r"[^0-9a-z#]+")
+
+
+def file_identity(value: object, tokens: tuple[re.Pattern[str], ...]) -> str | None:
+    """A file name / pattern as an identity: lowercased, directory and extension
+    dropped, each ``file_name_tokens`` match (date tokens, digits of a date,
+    wildcards) one marker, separators dropped, markers at the ends trimmed —
+    ``SD_X_CCYY_MM.csv`` = ``SD_X_YYYY_MM.csv`` = ``SD_X_*.csv`` = ``SD_X*``."""
+    text = _raw(value).strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
+    text = _EXTENSION.sub("", text)
+    for pattern in tokens:
+        text = pattern.sub("#", text)
+    text = re.sub("#+", "#", _NOT_FILE_CHAR.sub("", text)).strip("#")
+    return text or None
+
+
+def header_id(name: str) -> str:
+    """A header as the templates are compared: case and separators dropped."""
+    return _NON_ALNUM.sub("", name.lower())
 
 
 # ------------------------------------------------------------------- reading
@@ -993,6 +1061,9 @@ class SheetDiff:
     identity_text: dict = field(default_factory=dict)
     # the first golden / agent key values (unscrubbed; console + score.json only)
     key_samples: dict | None = None
+    # the worksheet title in diff.xlsx when ``name`` is a display label
+    # (a cross-template pair "<golden> → <agent>")
+    title: str = ""
 
     def counts(self) -> dict[str, int]:
         c = Counter(cell.status for cell in self.cells)
@@ -1310,6 +1381,12 @@ def diff_sheet(
     out.cells, oos_rows = _classify_pairs(pairs, order, g_canon, a_canon, keys, tables,
                                           scope if agent is not None else None, oos)
     out.identity_text = texts
+    return _tally(out, pairs, oos_rows, golden, agent, keys)
+
+
+def _tally(out: SheetDiff, pairs: list[RowPair], oos_rows: set[int], golden: Sheet | None,
+           agent: Sheet | None, keys: KeyConfig) -> SheetDiff:
+    """Rows paired per method, unpaired per side, the row counts."""
     out.pairing = {m: sum(1 for p in pairs if p.golden and p.agent and p.method == m)
                    for m in (BY_IDENTITY, BY_POSITION, BY_KEY)}
     out.unpaired = {"golden": sum(1 for p in pairs if p.golden and not p.agent
@@ -1326,6 +1403,110 @@ def diff_sheet(
     out.out_of_scope_rows = len(oos_rows)
     out.key_samples = key_samples(out, keys)
     return out
+
+
+def _first(row: dict[str, object], cols: list[str]) -> str:
+    return next((_raw(row.get(c)).strip() for c in cols if _raw(row.get(c)).strip()), "")
+
+
+def _sheet_named(sheets: dict[str, Sheet], name: str | None) -> Sheet | None:
+    return next((s for n, s in sheets.items() if name and sheet_id(n) == sheet_id(name)), None)
+
+
+def diff_alias_sheet(alias: SheetAlias, golden: Sheet, agent: Sheet,
+                     agent_sheets: dict[str, Sheet], keys: KeyConfig, scope: FeedScope,
+                     tables: tuple) -> SheetDiff:
+    """A golden sheet against the agent sheet of ANOTHER template (iig_keys.yaml
+    ``sheet_aliases``). A golden row pairs by its FILE: with the agent row that
+    names it, else — the agent sheet naming no file (iig_v2 FILE_ADLS is one
+    row per feed) — with the agent row of the feed whose ``agent_files_from``
+    sheet names it; several golden files can pair with one feed row. Unpaired
+    golden rows are out of scope like every sheet's (FeedScope). Only the mapped
+    columns are compared; the rest are ``not comparable``, never missing."""
+    facts: dict = {"key": ["@file"], "pair_mode": "identity", "warnings": []}
+    tokens = keys.file_name_tokens
+    a_canon, g_canon = agent.canon(), golden.canon()
+    own = [a_canon[c.upper()] for c in alias.agent_files if c.upper() in a_canon]
+    feed_files: dict[int, list[str]] = defaultdict(list)
+    source = _sheet_named(agent_sheets, alias.files_from_sheet) if not own else None
+    if source is not None:
+        s_canon = source.canon()
+        cols = [s_canon[c.upper()] for c in alias.files_from_columns if c.upper() in s_canon]
+        for n, row in source.rows:
+            name = _first(row, cols)
+            if name:
+                feed_files[feed_of_agent_row(n)].append(name)
+    texts: dict = {"golden": {}, "agent": {}}
+    by_file: dict[str, list[tuple[int, dict]]] = defaultdict(list)
+    no_file = {"golden": 0, "agent": 0}
+    for n, row in agent.rows:
+        names = [_first(row, own)] if own else feed_files.get(feed_of_agent_row(n), [])
+        files = sorted({f for f in (file_identity(x, tokens) for x in names) if f})
+        texts["agent"][n] = ", ".join(files) or "<no file>"
+        no_file["agent"] += not files
+        for f in files:
+            by_file[f].append((n, row))
+    repeated = [f for f, rows in by_file.items() if len(rows) > 1]
+    if repeated:
+        facts["warnings"].append(f"{len(repeated)} file(s) named by more than one agent row — "
+                                 "paired with the first")
+    g_cols = [g_canon[c.upper()] for c in alias.golden_files if c.upper() in g_canon]
+    pairs: list[RowPair] = []
+    oos: set[int] = set()
+    matched_agent: set[int] = set()
+    matched_files: set[str] = set()
+    for n, row in golden.rows:
+        f = file_identity(_first(row, g_cols), tokens)
+        texts["golden"][n] = f or "<no file>"
+        partner = by_file[f][0] if f and by_file.get(f) else None
+        if partner is not None:
+            matched_agent.add(partner[0])
+            matched_files.add(f)  # type: ignore[arg-type]
+            pairs.append(RowPair((n, row), partner, f or "", BY_IDENTITY))
+        elif scope.active and scope.out_of_scope(row, g_canon, tables[0]):
+            oos.add(n)
+            pairs.append(RowPair((n, row), None, "out of scope"))
+        else:
+            no_file["golden"] += f is None
+            pairs.append(RowPair((n, row), None, texts["golden"][n]))
+    pairs += [RowPair(None, (n, row), texts["agent"][n])
+              for n, row in agent.rows if n not in matched_agent]
+    if no_file["golden"] or no_file["agent"]:
+        facts["warnings"].append(f"no file name (golden {no_file['golden']}, agent "
+                                 f"{no_file['agent']} rows) — those rows NOT paired")
+    unmatched = sorted(set(by_file) - matched_files)
+    if unmatched:
+        facts["warnings"].append(f"{len(unmatched)} agent file(s) with no golden row")
+    mapping: list[tuple[str, str]] = []
+    absent = []
+    g_heads = {header_id(c): c for c in golden.columns}
+    a_heads = {header_id(c): c for c in agent.columns}
+    for g_col, a_col in alias.columns:
+        g_real, a_real = g_heads.get(header_id(g_col)), a_heads.get(header_id(a_col))
+        if g_real and a_real:
+            mapping.append((g_real, a_real))
+        else:
+            absent.append(f"{g_col} -> {a_col}")
+    if absent:
+        facts["warnings"].append("mapped column(s) not in both workbooks: " + ", ".join(absent))
+    mapped_g = {header_id(g) for g, _a in mapping}
+    mapped_a = {header_id(a) for _g, a in mapping}
+    out = SheetDiff(alias.label, "compared", facts, pairs=pairs, sides=(golden, agent),
+                    tables=tables, title=golden.name)
+    out.columns = {
+        "golden_only": [], "agent_only": [],
+        "mapped": {g: a for g, a in mapping},
+        "not_comparable": {
+            "golden": [c for c in golden.columns if header_id(c) not in mapped_g
+                       and c.upper() != SOURCE_COLUMN.upper()],
+            "agent": [c for c in agent.columns if header_id(c) not in mapped_a]},
+    }
+    order = [g.upper() for g, _a in mapping]
+    out.cells, oos_rows = _classify_pairs(pairs, order, {g.upper(): g for g, _a in mapping},
+                                          {g.upper(): a for g, a in mapping}, keys, tables,
+                                          None, oos)
+    out.identity_text = texts
+    return _tally(out, pairs, oos_rows, golden, agent, keys)
 
 
 _FEED_TABLE_COLUMNS = ("TGT_TABLE_NAME", "TGT_TABLE")
@@ -1372,36 +1553,31 @@ def diff_workbooks(
     a_by_id = {sheet_id(n): n for n in a}
     g_ids = {sheet_id(n) for n in g}
 
-    # Detect template-alias matches: an agent sheet whose ID maps to a golden ID.
-    # Recognized as the same logical sheet but flagged as "template_mismatch".
-    alias_map: dict[str, str] = {}  # golden_name -> agent_name
-    template_mismatches: set[str] = set()  # golden sheet names with alias match
-    for a_name in a:
-        aid = sheet_id(a_name)
-        if aid in TEMPLATE_ALIASES and TEMPLATE_ALIASES[aid] in {sheet_id(n) for n in g}:
-            g_name = next(n for n in g if sheet_id(n) == TEMPLATE_ALIASES[aid])
-            alias_map[g_name] = a_name
-            template_mismatches.add(g_name)
-
-    names = list(g) + [
-        n for n in a
-        if sheet_id(n) not in g_ids and n not in alias_map.values()
-    ]
+    # Cross-template sheets (iig_keys.yaml sheet_aliases): only when the golden
+    # lacks the agent's sheet AND the agent lacks the golden's.
+    aliased: dict[str, tuple[str, SheetAlias]] = {}   # golden sheet -> (agent sheet, alias)
+    for alias in keys.sheet_aliases:
+        g_name = next((n for n in g if sheet_id(n) == sheet_id(alias.golden_sheet)), None)
+        a_name = a_by_id.get(sheet_id(alias.agent_sheet))
+        if (g_name and a_name and sheet_id(alias.agent_sheet) not in g_ids
+                and sheet_id(alias.golden_sheet) not in a_by_id):
+            aliased[g_name] = (a_name, alias)
+    taken = {a_name for a_name, _alias in aliased.values()}
+    names = list(g) + [n for n in a if sheet_id(n) not in g_ids and n not in taken]
     result = []
     for name in names:
-        g_sheet = g.get(name)
-        a_name = alias_map.get(name) or a_by_id.get(sheet_id(name), "")
-        a_sheet = a.get(a_name)
-        sd = diff_sheet(name, g_sheet, a_sheet, keys, tables, pair_mode=pair_mode,
-                        scope=scope, ctx=ctx)
-        sd.facts["scope"] = {"active": scope.active, "feeds": len(scope.stems)}
-        if name in template_mismatches:
+        if name in aliased:
+            a_name, alias = aliased[name]
+            sd = diff_alias_sheet(alias, g[name], a[a_name], a, keys, scope, tables)
             sd.facts["template_mismatch"] = {
-                "golden_sheet": name,
-                "agent_sheet": alias_map[name],
-                "note": "Different IIG template versions use different sheet names "
-                        "for the same logical table.",
-            }
+                "golden_sheet": name, "agent_sheet": a_name,
+                "note": "Different IIG template versions: rows paired by file name, only "
+                        "the columns both templates have compared (iig_keys.yaml "
+                        "sheet_aliases); the rest not comparable."}
+        else:
+            sd = diff_sheet(name, g.get(name), a.get(a_by_id.get(sheet_id(name), "")), keys,
+                            tables, pair_mode=pair_mode, scope=scope, ctx=ctx)
+        sd.facts["scope"] = {"active": scope.active, "feeds": len(scope.stems)}
         result.append(sd)
     return result
 
@@ -1507,6 +1683,9 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
         }
         if d.facts.get("template_mismatch"):
             entry["template_mismatch"] = d.facts["template_mismatch"]
+        if d.columns.get("not_comparable") is not None:
+            entry["mapped_columns"] = d.columns["mapped"]
+            entry["not_comparable"] = d.columns["not_comparable"]
         sheets[d.name] = entry
     total_counts = {s: totals.get(s, 0) for s in STATUSES}
     shared: Counter[str] = Counter()
@@ -1586,7 +1765,7 @@ def write_diff_xlsx(path: Path, payload: dict, diffs: list[SheetDiff], keys: Key
 
     fills = {s: PatternFill("solid", fgColor=c) for s, c in _FILLS.items() if c}
     for d in diffs:
-        ws = wb.create_sheet(d.name[:31])
+        ws = wb.create_sheet((d.title or d.name)[:31])
         ws.append(["KEY", "GOLDEN_ROW", "AGENT_ROW", "COLUMN", "GOLDEN", "AGENT", "STATUS",
                    "PAIRED_BY"])
         for row_number, cell in enumerate(d.cells, start=2):
@@ -2401,6 +2580,10 @@ def _print_pair(payload: dict, out: Path) -> None:
                + f"; unpaired golden {unpaired.get('golden', 0)}, agent "
                  f"{unpaired.get('agent', 0)}; convention {conv.get('cells', 0)} "
                  f"({conv.get('differing', 0)} differ)")
+        nc = s.get("not_comparable")
+        if nc is not None:
+            how += (f"; not comparable: golden {len(nc['golden'])}, agent "
+                    f"{len(nc['agent'])} column(s)")
         print(f"{name}: score {score}; comparable {s.get('comparable_score')}; {how}; {line}")
     t = payload["totals"]
     print(f"TOTAL: score {t['score']}; " + ", ".join(f"{k} {t[k]}" for k in STATUSES))
@@ -2442,6 +2625,8 @@ def _print_key_samples(payload: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")   # a cp1252 console: "→" never raises
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--golden", type=Path)
     ap.add_argument("--agent", type=Path, nargs="+",

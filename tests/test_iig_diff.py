@@ -448,12 +448,17 @@ def test_template_mismatch_maps_file_adls_to_all_files(tmp_path: Path) -> None:
         "FILE_ADLS_INGESTION_DETAILS": [["FILE_NAME", "DESCRIPTION"], ["a.csv", "desc"]],
     })
     payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS)
-    # The sheet should be matched (not golden-only + agent-only)
-    afsi = payload["sheets"]["ALL_FILES_STATIC_INFORMATION"]
+    # One mapped pair (iig_keys.yaml sheet_aliases), not golden-only + agent-only;
+    # full coverage in tests/test_iig_diff_sheet_alias.py
+    afsi = payload["sheets"]["ALL_FILES_STATIC_INFORMATION → FILE_ADLS_INGESTION_DETAILS"]
     assert afsi["presence"] == "compared"
-    assert afsi.get("template_mismatch") is not None
     assert afsi["template_mismatch"]["agent_sheet"] == "FILE_ADLS_INGESTION_DETAILS"
-    # No separate FILE_ADLS_INGESTION_DETAILS sheet should exist
+    assert afsi["pairing"]["identity"] == 1                 # by file name
+    # DESCRIPTION is no FILE_ADLS header: not comparable, never missing / extra
+    assert afsi["not_comparable"] == {"golden": ["FILE_NAME", "DESCRIPTION"],
+                                      "agent": ["FILE_NAME", "DESCRIPTION"]}
+    assert afsi["counts"]["missing-in-agent"] == afsi["counts"]["extra-in-agent"] == 0
+    assert "ALL_FILES_STATIC_INFORMATION" not in payload["sheets"]
     assert "FILE_ADLS_INGESTION_DETAILS" not in payload["sheets"]
 
 

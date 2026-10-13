@@ -155,3 +155,47 @@ convention_columns: [PIPELINE_NAME, DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_
 # the files missing are skipped). --group-index replaces the list.
 group_index: [docs/acfc/iig_goldens/01_pair_group_index.csv,
               docs/acfc/iig_goldens_round2/01_pair_group_index_addendum.csv]
+
+# CROSS-TEMPLATE SHEETS (2026-10-13): a golden sheet the agent's template does
+# not have, compared with the agent sheet that holds the same facts. Applies
+# only when the golden lacks the agent sheet AND the agent lacks the golden
+# one (an iig_v1 golden against an iig_v2 run). Reported as
+# "<golden sheet> → <agent sheet>" with paired-by counts like every other sheet.
+#   golden_files / agent_files  the columns naming a row's FILE (first non-blank
+#       wins). agent_files_from: when the agent sheet names no file itself, the
+#       files of the row's FEED (its workbook) as another agent sheet names them.
+#   columns  golden header -> agent header: ONLY the headers both templates
+#       have (header normalization: case, separators). Every other column is
+#       "not comparable" — reported per side, never missing / extra.
+# ALL_FILES_STATIC_INFORMATION (iig_v1, one row per FILE of the inventory) vs
+# FILE_ADLS_INGESTION_DETAILS (iig_v2, one row per FEED — the pair_1 golden: one
+# row for a four-file feed; it states no file name). A golden file row pairs
+# with the FILE_ADLS row of the agent feed whose ADLS_DELTA_INGESTION_DETAILS
+# SRC_FILE_NAME is that file (several golden files can pair with one feed row).
+# Scoped like every sheet (FeedScope): a golden file no agent feed names, that
+# names another feed of the golden, is out of scope.
+# Mapping derived from the two templates' headers (config/config.yaml
+# demo.metadata_sheet.tabs = iig_v1 ALL_FILES_STATIC_INFORMATION, metadata.templates.iig_v2.tabs
+# FILE_ADLS_INGESTION_DETAILS); pinned by tests/test_iig_diff_sheet_alias.py.
+# OBJECT_ID / CREATED_DATE / UPDATED_DATE are shared too but in the ignored set.
+sheet_aliases:
+  ALL_FILES_STATIC_INFORMATION:
+    agent_sheet: FILE_ADLS_INGESTION_DETAILS
+    golden_files: [FILE_NAME]
+    agent_files: [FILE_NAME, FILE_NAME_PATTERN, SRC_FILE_NAME]
+    agent_files_from: {sheet: ADLS_DELTA_INGESTION_DETAILS, columns: [SRC_FILE_NAME]}
+    columns:
+      OBJECT_ID: OBJECT_ID
+      domain: DOMAIN
+      subdomain: SUBDOMAIN
+      CREATED_DATE: CREATED_DATE
+      UPDATED_DATE: UPDATED_DATE
+
+# A file name as an identity: lowercased, directory and extension dropped, each
+# match of these (case-insensitive) regexes -> one date / wildcard marker, then
+# separators dropped — so CCYY_MM = YYYY_MM = *, and SD_X_CCYYMMDD.csv =
+# SD_X_*.csv = SD_X* (the agent's wildcarded / prefix_star SRC_FILE_NAME).
+file_name_tokens:
+  - '(?<![a-z0-9])(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss)(?:[_-]?(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss))*(?![a-z0-9])'
+  - '(?<!\d)\d{6,8}(?!\d)'
+  - '[*?]+'

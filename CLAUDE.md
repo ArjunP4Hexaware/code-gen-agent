@@ -88,6 +88,16 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   `templates.note`) and never recommends a template switch: iig_v1 also changes the naming
   convention (`WF_` / `NB_` vs `PL_File_`). ACFC default stays iig_v2 —
   `docs/acfc/IIG_TEMPLATE_DEFAULT.md`.
+  **post42 — cross-template sheet:** `iig_keys.yaml sheet_aliases` (replaces the hard-coded
+  round-3 `TEMPLATE_ALIASES`): a v1 golden `ALL_FILES_STATIC_INFORMATION` (one row per FILE)
+  vs the v2 agent `FILE_ADLS_INGESTION_DETAILS` (one row per FEED, no file column) is ONE
+  sheet `ALL_FILES_STATIC_INFORMATION → FILE_ADLS_INGESTION_DETAILS`; a golden file row pairs
+  with the FILE_ADLS row of the agent feed whose ADLS_DELTA `SRC_FILE_NAME` is that file
+  (`file_identity` + `file_name_tokens`: case, separators, extension, CCYY_MM = YYYY_MM = `*`;
+  many golden files → one feed row), scoped by FeedScope; only the shared headers are compared
+  (`columns`: OBJECT_ID, domain, subdomain, CREATED_DATE, UPDATED_DATE — only domain /
+  subdomain scored), the rest `not_comparable` per side (score.json + console). Applies only
+  when neither side has the other's sheet. Tests `tests/test_iig_diff_sheet_alias.py`.
 - **post39 — the live D1 check's four fixes** (`origin/acfc-pairing-check`
   `codegen-outputs/pairing_check/2026-10-13_live_three_pairs.md`; one commit each):
   (1) **pair_12 CAQH** — `frd_docx.split_domain_labels`: a cell with a `Domain:` AND a

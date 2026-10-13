@@ -39,19 +39,22 @@ metadata:
         lob: codes
         stgdelta_unknown_primary_key: ""
         stgdelta_object_name: generalized_file_pattern
-        # SCHEMA_DRIFT_FLAG Y: the SD file-to-stage row and the CAQH IIG both
-        # carry it (fixtures/acfc_shapes/README.md); a family setting, not a
-        # constant, since 2026-10-09 — the PRX family (pair 1) is N.
-        schema_drift_flag: "Y"
+        # SCHEMA_DRIFT_FLAG N (round 6, 2026-10-13): the SD PROD rows say N on all
+        # three files, as do both reference IIGs in the repo (SFMC_IIG.xlsx and
+        # the pair-1 golden, ADLS_DELTA!AB2). Was Y from the older SD test-cells
+        # sheet and the reported CAQH IIG — that conflict is a question
+        # (docs/acfc/QUESTIONS_pair_2.md); pair 4's overlay keeps its own Y.
+        schema_drift_flag: "N"
         # First real-row scorecard (2026-10-08, the three SD rows): SRC_FILE_NAME
         # is the name prefix + '*'; the audit columns are LOB, SRC_FILE_NAME,
         # REC_CREATION_TIME, REC_UPDATED_TIME, typed in the data columns'
-        # casing; RECYCL_* are never an asserted N — open for the engineer
-        # when no document states a recycle.
+        # casing. RECYCL_* with no recycle stated (round 6, 2026-10-13): N / NA / NA
+        # — the SD prod rows of both recycle-less files, the pair-1 golden
+        # (ADLS_DELTA!AT2:AV5) and the SD test-cells sheet agree (was: open).
         src_file_name: prefix_star
         audit_columns: [LOB, SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME]
         audit_type_case: data
-        recycle_unstated: open
+        recycle_unstated: "N"
         # STGDELTA OBJECT_ID (owner brief 2026-10-09): per (group, file) — the
         # row takes the ADLS row's OBJECT_ID of the one file that feeds its
         # table; several files feed it -> open, with a note.
@@ -64,8 +67,15 @@ metadata:
           TGT_CONNECTION_ID: "2"
           SRC_CONTAINER_NAME: mftlanding
           TGT_CONTAINER_NAME: z-use-d1-dlk-stage-01
+          # Round 6 (2026-10-13): the same in the SD prod rows, the SFMC reference
+          # IIG and the pair-1 golden (ADLS_DELTA!Z2 / AD2); a FAQ has_header /
+          # has_trailer answer still wins (derived cells are never overwritten).
+          HEADER_FLAG: "Y"
+          FILE_FOOTER_FLAG: "N"
       constant_citations:
         ADLS_DELTA_INGESTION_DETAILS:
+          HEADER_FLAG: &refs "both reference IIGs agree (fixtures/reference/SFMC_IIG.xlsx, fixtures/acfc_shapes/pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx ADLS_DELTA_INGESTION_DETAILS) and so do the SD prod rows (round 6)"
+          FILE_FOOTER_FLAG: *refs
           SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
           METADATA_CONNECTION_ID: *acfc
           TGT_CONNECTION_ID: *acfc

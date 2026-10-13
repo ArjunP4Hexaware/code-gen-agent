@@ -134,9 +134,10 @@ def test_the_sd_family_rows(sd_rows, slug):
                                                     "Timestamp"]
     # rule 5: a file's fields are strings
     assert all(t.startswith("String:") for t in row["SRC_DATA_TYPE"].split(","))
-    # rule 6: no document states a recycle -> open, never an asserted N
-    for column in ("RECYCL_ENBL_FLG", "RECYCL_TBL_NM", "RECYCL_ADLS_PATH"):
-        assert _blank(row[column]), column
+    # rule 6 (round 6, 2026-10-13): no document states a recycle -> the SD
+    # family's N / NA / NA (the SD prod rows, the pair-1 golden; was open)
+    assert (row["RECYCL_ENBL_FLG"], row["RECYCL_TBL_NM"], row["RECYCL_ADLS_PATH"]) == (
+        "N", "NA", "NA")
     assert gate.verdict == "PASS_WITH_FLAGS"
 
 
@@ -196,6 +197,9 @@ def test_open_recycle_cells_offer_the_convention_shape(sd_config, tmp_path):
     spec = SimpleNamespace(recycle=None)
     feed = SimpleNamespace(recycle_rule=None, landing_location="/mftlanding/inbound/dom/vc/")
     tpl = sd_config.metadata.templates["iig_v2"]
+    # the SD overlay writes N since round 6; the 'open' convention still offers
+    tpl = tpl.model_copy(update={"family_conventions": tpl.family_conventions.model_copy(
+        update={"recycle_unstated": "open"})})
     cells = _recycle_cells(tpl, "ADLS_DELTA_INGESTION_DETAILS", feed, spec, sd_config,
                            "vc_enrollment")
     assert set(cells) == {"RECYCL_ENBL_FLG", "RECYCL_TBL_NM", "RECYCL_ADLS_PATH"}

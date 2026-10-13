@@ -77,11 +77,15 @@ def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_pat
             assert badge == "SYNTHETIC"
             assert "config/overlays/acfc_env.yaml" in tooltip
         # SCHEMA_DRIFT_FLAG is a feed-family setting since 2026-10-09: the
-        # overlay pins the SD / CAQH-style family's Y, not a constant.
-        assert values["SCHEMA_DRIFT_FLAG"] == "Y"
+        # overlay pins the SD family's value — N since round 6 (the SD prod rows
+        # and both reference IIGs), not a constant.
+        assert values["SCHEMA_DRIFT_FLAG"] == "N"
         badge, tooltip = tooltips["SCHEMA_DRIFT_FLAG"]
         assert badge == "SYNTHETIC"
-        assert "family convention schema_drift_flag: Y — ACFC environment overlay" in tooltip
+        assert "family convention schema_drift_flag: N — ACFC environment overlay" in tooltip
+        # round 6: the header / footer flags both reference IIGs agree on
+        assert (values["HEADER_FLAG"], values["FILE_FOOTER_FLAG"]) == ("Y", "N")
+        assert "both reference IIGs agree" in tooltips["HEADER_FLAG"][1]
 
 
 @pytest.mark.skipif(not (CV_FRD.is_file() and CV_STTM.is_file()),

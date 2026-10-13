@@ -129,6 +129,37 @@ def delimiter_in_format(text: str | None, words: dict[str, str]) -> str | None:
     return quoted.group(1) if quoted else None
 
 
+# The delimiter a format NAME implies (the extension words of extract.extractor).
+_FORMAT_NAME_DELIMITERS = {"csv": ",", "psv": "|", "tsv": "\t"}
+
+
+def is_format_text(text: str | None, tokens: list[str]) -> bool:
+    """Round 7: a 'format' cell states a FILE FORMAT only when it names one of
+    ``extractor.frd.format_tokens`` as a whole word ("File Data Ingestion" names
+    none — an ingestion type). An empty token list keeps the old reading
+    (every cell counts)."""
+    if not text or not text.strip():
+        return False
+    if not tokens:
+        return True
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(t.lower()) + r"(?![a-z0-9])",
+                         text.lower()) for t in tokens)
+
+
+def format_delimiter(text: str | None, words: dict[str, str]) -> str | None:
+    """The delimiter a format statement implies: a format name ("csv", "PSV"),
+    a bare delimiter word ("pipe"), or "<word> delimited" — None when it names
+    none ("Delimited", "Fixed Width", "File Data Ingestion")."""
+    if not text:
+        return None
+    for word in re.findall(r"[a-z]+", text.lower()):
+        if word in _FORMAT_NAME_DELIMITERS:
+            return _FORMAT_NAME_DELIMITERS[word]
+    if text.strip().lower() in words:
+        return words[text.strip().lower()]
+    return delimiter_in_format(text, words)
+
+
 def same_value(a: str | None, b: str | None) -> bool:
     """Agreement as the cross-checks judge it: equal or one contains the other."""
     na, nb = normalize(a), normalize(b)
@@ -191,8 +222,10 @@ __all__ = [
     "delimiter_in_format",
     "distinct",
     "fill_flag",
+    "format_delimiter",
     "format_statements",
     "is_extension_only",
+    "is_format_text",
     "parse_load_strategy_text",
     "same_value",
     "strategy_from_faq",

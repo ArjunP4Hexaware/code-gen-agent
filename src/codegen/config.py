@@ -383,6 +383,11 @@ class FrdExtractorConfig(BaseModel):
     # ("refer to the File Details tab of the mapping document"): UNSTATED +
     # flag frd_pointer, resolved through the fallback chain. Never a value.
     pointer_phrases: list[str] = Field(default_factory=list)
+    # Round 7 (D1 App, VDD attached): the words that make a 'format' cell a FILE
+    # FORMAT (csv, pipe, fixed width, ...). A cell naming none ("File Data
+    # Ingestion" — an ingestion type) is never a format candidate; the file
+    # pattern's extension decides. Empty = every cell counts (the old reading).
+    format_tokens: list[str] = Field(default_factory=list)
     # M7: fields whose value must be one line — a nested table, per-file
     # blocks, a label-prefixed description or remaining line breaks make
     # them unstated (StructuredValue) instead of a value.

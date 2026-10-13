@@ -248,7 +248,11 @@ def test_mids_pair_resolves_standalone_from_the_docx(tmp_path):
     feeds = pair.frd_contract.feeds
     assert [f.feed_name for f in feeds] == [
         "sd_community_demographic_risk", "sd_community_risk", "sd_indiv_risk"] or len(feeds) == 3
-    assert all(f.file_format == "File Data Ingestion" for f in feeds)
+    # Round 7: the FRD's "File Data Ingestion" names no file format — each file's
+    # extension decides (a feed whose file is still asked keeps the FRD's text).
+    for feed in feeds:
+        exts = {Path(p).suffix.lstrip(".") for p in feed.file_name_patterns}
+        assert feed.file_format == (exts.pop() if len(exts) == 1 else "File Data Ingestion")
     assert all(f.stage_target.load_strategy == "Truncate and Load" for f in feeds)
     assert all(f.standard_target.load_strategy == "Append" for f in feeds)
     keys = [q.key for q in pair.questions]

@@ -391,7 +391,10 @@ def _print_file_elimination_notes(flags: list[str]) -> None:
                           r"elimination: .*)$", flag)
                  # round 4: a blank STTM Schema column filled from the FRD's one schema
                  or re.match(rf"^{TARGET_FROM_FRD}:(feeds\[\d+\]\.\w+_target\.schema) (.*)$",
-                             flag))
+                             flag)
+                 # round 7: file format from the file pattern's extension (the
+                 # FRD's format cell names an ingestion type, not a format)
+                 or re.match(r"^format_from_extension:(feeds\[\d+\]\.file_format) (.*)$", flag))
         if match:
             print(answer_line("NOTE", match.group(1),
                               f"{match.group(2)} — informational, not required to run"))

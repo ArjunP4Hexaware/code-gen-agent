@@ -371,6 +371,13 @@ extractor:
     pointer_phrases: ["refer to", "see the", "attached in the appendix", "per the mapping document",
                       "mentioned in the mapping document", "provided in the mapping document",
                       "included in the mapping document"]
+    # Round 7 (2026-10-13, D1 App with the VDD attached): a 'format' cell is a FILE
+    # FORMAT only when it names one of these (whole words, case-insensitive).
+    # "File Data Ingestion" names none — an ingestion type, never a candidate; the
+    # file pattern's extension (.csv / .psv / .tsv) then decides, with a NOTE.
+    format_tokens: [csv, psv, tsv, pipe, comma, tab, semicolon, delimited, delimiter,
+                    separated, fixed, fixed width, fixed-width, fixedwidth, positional, json,
+                    parquet, avro, orc, xml, txt, text, dat, excel, xlsx, xls]
     # Fields read as ONE line: a nested table, per-file blocks ("<File> file
     # Ingestion from <Src>:" headings with "Domain = ..." lines), a
     # label-prefixed description ("Vendor Files = ...") or a remaining line

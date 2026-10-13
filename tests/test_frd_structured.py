@@ -110,10 +110,13 @@ def test_three_feeds_derive_each_with_its_own_values_and_provenance():
     assert [f.stage_target.schema_name for f in feeds] == ["stg_dom_a", "stg_dom_a", "stg_dom_b"]
     assert [f.standard_target.schema_name for f in feeds] == ["dom_a", "dom_a", "dom_b"]
     assert all(f.stage_target.catalog is None for f in feeds)   # no catalog anywhere
-    # The "Taken from other documents" list carries the three frequencies.
+    # The "Taken from other documents" list carries the three file formats (round 7:
+    # "File Data Ingestion" names no format — each file's extension decides) and the
+    # three frequencies.
     assert [(x["field"], x["value"]) for x in pair.gap_fills] == [
-        ("feeds[0].frequency", "Yearly Twice"), ("feeds[1].frequency", "Yearly Twice"),
-        ("feeds[2].frequency", "Monthly")]
+        ("feeds[0].file_format", "csv"), ("feeds[0].frequency", "Yearly Twice"),
+        ("feeds[1].file_format", "csv"), ("feeds[1].frequency", "Yearly Twice"),
+        ("feeds[2].file_format", "psv"), ("feeds[2].frequency", "Monthly")]
 
 
 def test_catalog_variant_carries_the_catalog_into_every_derived_feed():

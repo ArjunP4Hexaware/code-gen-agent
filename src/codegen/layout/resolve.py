@@ -41,7 +41,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from openpyxl.utils import get_column_letter
 from pydantic import ValidationError
@@ -1504,6 +1504,14 @@ class GapFillResult:
 _GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strategy",
                "standard_target.load_strategy")
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
+# Round 7: the file-name extensions that state a format (_FeedGapFiller._file_format).
+_FORMAT_EXTENSIONS = ("csv", "psv", "tsv")
+
+
+def _cell_row(cell: str) -> tuple[str, str]:
+    """``"FILES!C4"`` -> ``("FILES", "4")``: the sheet row a VDD fact sits on."""
+    sheet, _sep, ref = cell.rpartition("!")
+    return sheet, ref.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 # Chunk B (cold drill): further FRD fields a person may answer under gaps:
 # when the FRD states them nowhere the reader can place (text values; LOBs a
 # list, split on , ; and line breaks).
@@ -2188,6 +2196,110 @@ class _FeedGapFiller:
         self.result.handled.add(key)
         return True
 
+    def _extension_formats(self) -> list:
+        """One statement per distinct delimiter-naming extension (.csv / .psv /
+        .tsv) of this feed's file patterns — a .txt / .dat name says nothing
+        about the layout."""
+        from codegen.resolve.gapfill import Statement
+
+        out: list = []
+        for pattern in _feed_get(self.patched, "file_name_patterns") or []:
+            ext = PurePosixPath(pattern.strip()).suffix.lstrip(".").lower()
+            if ext in _FORMAT_EXTENSIONS and all(s.value != ext for s in out):
+                out.append(Statement(ext, "file name",
+                                     f"file name pattern {pattern!r} (extension .{ext})"))
+        return out
+
+    def _own_vdd_rows(self, key: str) -> list[tuple[str, str]]:
+        """The VDD FILES values of ``key`` on the row(s) whose file pattern is
+        one of this feed's (one FILES row per file: the .psv file's row, not
+        the first row's csv); every row when no row's pattern matches."""
+        rows = self.vdd.get(key, [])
+        wanted = {normalize(p).replace("ccyy", "yyyy")
+                  for p in _feed_get(self.patched, "file_name_patterns") or []}
+        own = {_cell_row(cell) for value, cell in self.vdd.get("file_patterns", [])
+               if normalize(value).replace("ccyy", "yyyy") in wanted}
+        return [(v, c) for v, c in rows if _cell_row(c) in own] or rows
+
+    def _file_format(self) -> bool:
+        """Round 7 (D1 App, VDD attached, 2026-10-13): the FRD's 'Object/data
+        Format' cell read "File Data Ingestion" — an ingestion TYPE, not a file
+        format — and was asked as a disagreement with the VDD's csv. A cell that
+        names none of ``extractor.frd.format_tokens`` is never a candidate: the
+        file patterns' extension decides (.csv -> csv, flag
+        ``format_from_extension`` = a NOTE citing the pattern), a STTM / VDD
+        format that agrees confirms it, one that implies another delimiter is a
+        QUESTION. An FRD format that names a delimiter the extension contradicts
+        ("pipe" for a .csv file) is a QUESTION too. False = the chain as before
+        (an FRD that states nothing, or a format the extension does not
+        contradict)."""
+        from codegen.resolve.gapfill import (
+            Statement,
+            distinct,
+            format_delimiter,
+            format_statements,
+            is_format_text,
+            same_value,
+        )
+
+        words = self.config.extractor.delimiter_words
+        stated = _feed_get(self.feed, "file_format")
+        if stated is None:
+            return False
+        exts = self._extension_formats()
+        frd = self.frd_stmt("file_format", stated)
+        if is_format_text(stated, self.config.extractor.frd.format_tokens):
+            want = format_delimiter(stated, words)
+            clash = [e for e in exts
+                     if want is not None and format_delimiter(e.value, words) != want]
+            if not clash:
+                return False
+            self.ask("file_format", "choice",
+                     [{"value": s.value, "source": s.source, "cell": s.cell}
+                      for s in [frd, *clash]],
+                     "the FRD's format names one delimiter, the file name's extension "
+                     "another; choose the format to use")
+            return True
+        key = self.prefix + "file_format"
+        not_a_format = (f"the FRD's {frd.cell} {stated!r} names no file format (an ingestion "
+                        "type, none of extractor.frd.format_tokens) — not a candidate")
+        others = []
+        if "file_format" in self.meta:
+            value, cell = self.meta["file_format"]
+            others.append(Statement(value, "STTM", cell))
+        others += [Statement(v, "VDD", cell) for v, cell in self._own_vdd_rows("file_format")]
+        others = distinct(format_statements(others))
+        if not exts:
+            self.result.flags.append(f"frd_format_not_a_format:{key} {not_a_format}")
+            if len(others) == 1:
+                self.record_fill("file_format", others[0])
+            elif len(others) > 1:
+                self.ask("file_format", "choice",
+                         [{"value": s.value, "source": s.source, "cell": s.cell}
+                          for s in others],
+                         "the FRD states no file format and the other documents disagree")
+            return True
+        fixed = self.config.extractor.vdd.fixed_width_tokens
+        clash = [o for o in others if not same_value(o.value, exts[0].value) and (
+            format_delimiter(o.value, words) not in (None, format_delimiter(exts[0].value, words))
+            or any(t.lower() in o.value.lower() for t in fixed))]
+        if len(exts) > 1 or clash:
+            self.ask("file_format", "choice",
+                     [{"value": s.value, "source": s.source, "cell": s.cell}
+                      for s in [*exts, *clash]],
+                     "the file name's extension and the other documents name different "
+                     "formats (the FRD's cell names none); choose the format to use")
+            return True
+        ext = exts[0]
+        cell = ext.cell + "".join(f"; confirmed by {o.source} {o.cell}" for o in others)
+        self.patched = _feed_set(self.patched, "file_format", ext.value)
+        self.result.fills.append({"field": key, "title": self._title(key), "value": ext.value,
+                                  "source": ext.source, "cell": cell})
+        self.result.flags.append(f"format_from_extension:{key} {cell} -> {ext.value!r}; "
+                                 f"{not_a_format}")
+        self.result.handled.add(key)
+        return True
+
     # -- the chain ----------------------------------------------------------------
     def run(self):
         from codegen.faq import load_faq
@@ -2251,6 +2363,8 @@ class _FeedGapFiller:
             if self.handled(dotted):
                 continue
             if dotted == "delimiter" and self._delimiter_in_format_text():
+                continue
+            if dotted == "file_format" and self._file_format():
                 continue
             others = []
             if dotted in meta:

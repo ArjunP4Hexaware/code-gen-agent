@@ -42,6 +42,7 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
+from codegen.extract.audit_names import clean_audit_column
 from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
 
@@ -69,6 +70,7 @@ class AuditRow:
     column: str
     datatype_raw: str
     table: str | None
+    col: int | None = None          # the stage column cell (citation only)
 
 
 @dataclass
@@ -259,7 +261,7 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
                 sheet=sp.name, row=row_number,
                 segment=segments.get(normalize(segment_raw)) if segment_raw else None,
                 column=stage_column, datatype_raw=_cell(cells, stage_type_col) or "",
-                table=_cell(cells, stage_table_col)))
+                table=_cell(cells, stage_table_col), col=stage_column_col))
             continue
         if field_name is None:
             reason = ("field_name role unresolved" if field_col is None
@@ -922,9 +924,13 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             raise GenericExtractionError(
                 f"sheet {name!r} row {entry.row}: audit column {entry.column!r} has datatype "
                 f"{entry.datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}")
-        if entry.column not in seen:
-            seen.add(entry.column)
-            audit.append(AuditColumn(column=entry.column, datatype=datatype))  # type: ignore[arg-type]
+        column = clean_audit_column(
+            entry.column, prefix + "audit_columns",
+            f"{entry.sheet}!{get_column_letter(entry.col)}{entry.row}" if entry.col
+            else f"{entry.sheet} row {entry.row}", flags)
+        if column not in seen:
+            seen.add(column)
+            audit.append(AuditColumn(column=column, datatype=datatype))  # type: ignore[arg-type]
     if not audit:
         # Chunk B (cold drill): the STTM lists no audit row. The framework's
         # audit set is never added silently: the feed waits for the person's

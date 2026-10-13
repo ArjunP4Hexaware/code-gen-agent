@@ -275,6 +275,29 @@ class Round:
         self.section(CLI_TITLE, lines)
         return 0
 
+    # 2b ---------------------------------------------------------- DDL sanity
+    def ddl_sanity(self) -> int:
+        """Every column identifier of the generated DDL must be a plain
+        identifier (2026-10-13: a framework DDL carried "LOB(Hardcod to MIDS)"
+        for seven rounds; the score reads the IIG only). Violation -> exit 1."""
+        ddl_names = _load("ddl_names", ROOT / "src" / "codegen" / "gate" / "ddl_names.py")
+        files = ddl_names.generated_ddl_files(self.work / "out")
+        bad = ddl_names.ddl_identifier_violations(files)
+        if not files:
+            self.section("DDL sanity", ["no generated DDL file found — STOP"])
+            return 1
+        if not bad:
+            self.section("DDL sanity", [f"{len(files)} DDL file(s): every column identifier "
+                                        "matches `^[A-Za-z_][A-Za-z0-9_]*$`"])
+            return 0
+        index = {p.name: n for n, p in enumerate(files, start=1)}
+        for file_name, ident in bad:
+            print(f"DDL sanity: {file_name}: column {ident!r} is not an identifier")
+        self.section("DDL sanity", [f"{len(bad)} column identifier(s) not matching "
+                                    "`^[A-Za-z_][A-Za-z0-9_]*$` — STOP (exit 1)",
+                                    *(f"- ddl#{index[f]}: `{i}`" for f, i in bad)])
+        return 1
+
     # 3 ---------------------------------------------------------------- golden
     def golden(self) -> Path | None:
         build_goldens = _load("build_goldens", ROOT / "tools" / "build_goldens.py")
@@ -449,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
     code = rnd.gate()
     if code == 0:
         code = rnd.cli()
+    if code == 0:
+        code = rnd.ddl_sanity()
     if code == 0:
         golden = rnd.golden()
         code = 1 if golden is None else rnd.diff(golden)

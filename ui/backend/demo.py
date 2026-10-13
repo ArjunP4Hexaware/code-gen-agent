@@ -884,9 +884,13 @@ class DemoRunner:
         return list(self.output_parts)
 
     def effective_output_parts(self) -> list[str]:
+        """The selection, else the config default for the run's conventions
+        profile (output.profile_mode — acfc_prx: framework, 2026-10-13)."""
         if self.output_parts is not None:
             return list(self.output_parts)
-        return output_parts(self._store.config.output.mode, source="config output.mode")
+        config = self._store.config
+        return config.output.default_parts(self.conventions_profile
+                                           or config.conventions.profile)
 
     def select_output_mode(self, mode: str | None) -> None:
         """Compatibility entry: a single mode selects its parts."""
@@ -2156,8 +2160,7 @@ class DemoRunner:
             json_module.dumps({
                 "frd_label": frd_label,
                 "sttm_workbook": workbook_path.name,
-                "output_mode": self.output_mode or output_parts(
-                    config.output.mode, source="config output.mode"),
+                "output_mode": self.effective_output_parts(),
                 "conventions_profile": self.conventions_profile or config.conventions.profile,
                 "iig_template": self.iig_template or config.metadata.template,
                 "playbook_template": self.playbook_template or config.playbook.template,
@@ -2260,7 +2263,7 @@ class DemoRunner:
                     out_root=run_root,
                     reports_dir=reports_root,
                     on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
-                    output_mode=self.output_mode,
+                    output_mode=self.effective_output_parts(),
                     # M15e: "VDD not decided at run start" is a flag on every
                     # feed — the report says the run went without a VDD.
                     extra_flags=[*layout_flags,

@@ -69,6 +69,11 @@ class OutputConfig(BaseModel):
     # The retired "both" / "rfc" / "all" map to both parts with a one-time
     # notice, never an error.
     mode: list[Literal["notebook", "framework"]] = ["notebook"]
+    # D1 App demo (2026-10-13): the App's default output PER conventions profile,
+    # over `mode` — acfc_prx = framework, the only mode the scored runs used. The
+    # App's toggles still select any part; the CLI keeps `mode` / --output-mode.
+    profile_mode: dict[str, list[Literal["notebook", "framework"]]] = Field(
+        default_factory=dict)
 
     @field_validator("mode", mode="before")
     @classmethod
@@ -79,6 +84,18 @@ class OutputConfig(BaseModel):
         if not parts:
             raise ValueError("output.mode names no output; expected notebook and / or framework")
         return parts
+
+    @field_validator("profile_mode", mode="before")
+    @classmethod
+    def _normalize_profile_mode(cls, value):
+        from codegen.output_modes import output_parts
+
+        return {profile: output_parts(parts, source=f"config output.profile_mode.{profile}")
+                for profile, parts in (value or {}).items()}
+
+    def default_parts(self, profile: str | None) -> list[str]:
+        """The App's default output for a conventions profile."""
+        return list(self.profile_mode.get(profile or "", self.mode))
 
 
 class FrameworkConfig(BaseModel):

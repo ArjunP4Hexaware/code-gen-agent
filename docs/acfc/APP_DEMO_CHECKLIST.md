@@ -1,4 +1,4 @@
-# App demo checklist — SD pair (pair_2), src tree 27593b3879a2 (0.5.8.post34)
+# App demo checklist — SD pair (pair_2), src tree 54a50fefb007 (0.5.8.post36)
 
 Home proof (2026-10-13, mock env, this build, home documents): App path == CLI path — every
 `framework/` + `ddl/` file of the 3 feeds byte-identical; the `*_IIG.xlsx` also equal round 7's
@@ -8,16 +8,16 @@ Home proof (2026-10-13, mock env, this build, home documents): App path == CLI p
    `python scripts/stamp_build.py` (the App gets no `.git`; the stamp `src/codegen/_build.py` is
    untracked, never committed) → `databricks apps deploy <app> --source-code-path <Git folder>`
    (or Deploy in the UI). `app.yaml` runs `python -m ui.backend.main`, its env names the four
-   storage roots; `ui/frontend/dist` is current (`index-BWkpBi1E.js` = a fresh build).
-2. **Health line.** `GET /api/health/facts` → `health_line`: version >= `0.5.8.post34`, `build
+   storage roots; `ui/frontend/dist` is current (`index-BdZrOxwQ.js` = a fresh build).
+2. **Health line.** `GET /api/health/facts` → `health_line`: version >= `0.5.8.post36`, `build
    <sha> on feature/multi-table … (stamp)`, overlays `config/overlays/acfc_env.yaml`, startup
-   error none. No stamp → `build unknown … src tree 27593b3879a2` (`git rev-parse HEAD:src`).
+   error none. No stamp → `build unknown … src tree 54a50fefb007` (`git rev-parse HEAD:src`).
    Any other tree = stale code: STOP.
 3. **Live.** `GET /api/demo/live-available` → `available: true`, `databricks_fmapi` (CAN_QUERY).
 4. **Choose.** Generate → Choose documents… → the SD STTM of **61,141 B** (never the blank-cell
    copy); every step done, FRD + VDD chips auto-paired. **Selection sticks** (running / 409):
    `DELETE /api/demo/workbook` (the chooser's Clear), choose again.
-5. **Generate.** Framework on (profile `acfc_prx`, IIG `iig_v2` = defaults) → Generate → confirm.
+5. **Generate.** Header badge must read `Output: Framework artefacts` (acfc_prx default) → confirm.
    With the VDD attached, expect frequency questions only — proceed with unresolved or answer
    Monthly (prod's value).
 6. **Dashboard.** 3 feeds PASS_WITH_FLAGS, 1 pending Layer-2 candidate each in the review queue;

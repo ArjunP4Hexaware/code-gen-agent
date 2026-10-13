@@ -49,6 +49,7 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
+from codegen.extract.audit_names import clean_audit_column
 from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError, _norm, _text
 from codegen.faq import load_faq
 from codegen.layout.profile import LayoutProfile, SheetProfile
@@ -365,6 +366,7 @@ def extract_segmented_contract(
     # ---- group rows by segment; per-segment audit rows ---------------------
     fields_by_segment: dict[str, list[_SegRow]] = {}
     audit_by_segment: dict[str, list[tuple[str, str]]] = {}
+    annotation_flags: list[str] = []   # audit_column_annotated (audit_names)
     row_counts: dict[str, int] = {}
     segments_found: list[str] = []
     current_segment: str | None = None
@@ -390,6 +392,8 @@ def extract_segmented_contract(
                 f"{ws.title} row {seg_row.row_number}: audit column {column!r} has "
                 f"datatype {datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
             )
+        column = clean_audit_column(column, "audit_columns",
+                                    f"{ws.title} row {seg_row.row_number}", annotation_flags)
         audit_by_segment.setdefault(current_segment, []).append((column, datatype))
 
     if "Detail" not in fields_by_segment:
@@ -572,6 +576,7 @@ def extract_segmented_contract(
         field_count=len(fields),
         fields=fields,
         segmented=segmented,
+        extraction_flags=annotation_flags,
     )
 
     return SttmContract(

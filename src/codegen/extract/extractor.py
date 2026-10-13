@@ -45,6 +45,7 @@ from codegen.contracts.sttm import (
     SttmField,
     TableRef,
 )
+from codegen.extract.audit_names import clean_audit_column
 from codegen.extract.workbook import (
     FileDetailsRow,
     SegmentedWorkbookError,
@@ -559,7 +560,10 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
                 recycle=recycle,
             ),
             audit_columns=[
-                AuditColumn(column=a.column, datatype=a.datatype) for a in sheet.audit
+                AuditColumn(column=clean_audit_column(
+                    a.column, "audit_columns", f"sheet {sheet.sheet_name!r} audit row", flags),
+                    datatype=a.datatype)
+                for a in sheet.audit
             ],
             field_count=len(fields),
             fields=fields,

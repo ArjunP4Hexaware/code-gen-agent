@@ -14,7 +14,7 @@ import {
 } from "../components/LayoutQuestions";
 import { ModelUsageList } from "../components/ModelUsage";
 import { NeedsAnswersPanel, type AnswersPayload } from "../components/NeedsAnswersPanel";
-import { OutputSelector } from "../components/OutputSelector";
+import { OUTPUT_COPY, OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
 import { fmtKb, fmtNumber } from "../format";
@@ -577,6 +577,18 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {transport.label}
               </span>
             ) : null}
+            {/* The output a run produces, in the header: only framework was
+                validated for acfc_prx (2026-10-13, D1 demo). */}
+            <span
+              className="mode-badge"
+              data-testid="output-badge"
+              title="The outputs Generate will produce (the toggles below change it)"
+            >
+              Output: {outputParts.size === 0 ? "none"
+                : [...outputParts].map((p) => OUTPUT_COPY[p].label).join(" + ")}
+              {outputParts.has("notebook") && status?.conventions_profile === "acfc_prx"
+                ? " — notebook not validated for acfc_prx" : ""}
+            </span>
           </div>
           <div className="panel-body">
             {transport ? (

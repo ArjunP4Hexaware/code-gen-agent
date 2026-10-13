@@ -84,7 +84,8 @@ def test_the_happy_path_end_to_end(env):
     assert code == 0, run_md
     assert {p.name for p in env["out"].iterdir()} <= PUSHABLE
     for section in ("## Fingerprint", "## Document gate", "## Build", "## CLI",
-                    "## Golden (rebuilt on this SHA)", "## Rows per sheet", "## Score"):
+                    "## DDL sanity", "## Golden (rebuilt on this SHA)", "## Rows per sheet",
+                    "## Score"):
         assert section in run_md, section
     assert "**exit 0** — ok" in run_md and "- answers: none given" in run_md
     assert "identical" in run_md and "verdicts: PASS_WITH_FLAGS ×3" in run_md
@@ -223,3 +224,22 @@ def test_the_email_template_export_reaches_the_golden(env):
     golden = openpyxl.load_workbook(env["out"].with_name("push.work") / "goldens"
                                     / f"{PAIR}_iig_golden.xlsx", read_only=True)
     assert len(list(golden["EMAIL_TEMPLATE_CONFIG"].iter_rows(values_only=True))) == 3
+
+
+def test_a_ddl_column_that_is_no_identifier_is_exit_1_before_scoring(env, monkeypatch):
+    # 2026-10-13: a framework DDL carried "LOB(Hardcod to MIDS)" for seven rounds.
+    def cli(self):
+        ddl = self.work / "out" / "feed_x" / "framework"
+        ddl.mkdir(parents=True)
+        (ddl / "FEED_X_DDL.txt").write_text(
+            "--stage table\n\nCREATE OR REPLACE TABLE c.s.t\n(\nzip_code String,\n"
+            "LOB(Hardcod to X) String\n)\n\nUSING delta\n", encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(run_round.Round, "cli", cli)
+    code = run_round.main(_argv(env))
+    run_md = (env["out"] / "RUN.md").read_text(encoding="utf-8")
+    assert code == 1
+    assert "## DDL sanity" in run_md and "- ddl#1: `LOB(Hardcod`" in run_md
+    assert "## Golden" not in run_md                                # nothing scored after it
+

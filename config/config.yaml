@@ -33,6 +33,9 @@ output:
   # all map to [notebook, framework] with a one-time notice.
   # CLI --output-mode (repeatable) and the UI selector override per run.
   mode: notebook
+  # The App's default output per conventions profile (over `mode`; the CLI keeps
+  # `mode`). acfc_prx = framework: every scored ACFC run used it (2026-10-13).
+  profile_mode: {acfc_prx: framework}
 
 framework:
   # Option B knobs. The row layout is NOT here — demo.metadata_sheet is the

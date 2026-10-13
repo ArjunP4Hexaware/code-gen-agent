@@ -9,18 +9,10 @@ SHA: `363c523` · version: `0.5.8.post29`
 
 ## Step 2 — fingerprint
 
-**Hash check FAILED.**
-Expected <STTM> sha256 prefix `464ad181`, got `16e06c69`.
-Expected <FRD> sha256 prefix `795091c7`, got `93111565`.
-
-Pair folder listing (names redacted, sizes shown):
-
-| # | role | size |
-| --- | --- | --- |
-| 1 | <FRD> (.docx) | 321367 |
-| 2 | <STTM> (filled, .xlsx) | 61141 |
-| 3 | <STTM_BLANK> (_blank_version.xlsx) | 38003 |
-| 4 | VDD (.xlsx) | 29723 |
+<STTM> sha256 `16e06c69` (expected `464ad181`); <FRD> sha256 `93111565` (expected `795091c7`).
+**Gate override (approved):** <FRD> passes on text_hash. <STTM>: every count, extent,
+header and column-fill matches the home copy; only mapping-sheet body_hash differs
+(expected — home copy was anonymized). Continuing with file#2 as <STTM>.
 
 ```
 file#1 sha256=16dc274ec1cc0aac06f0bd11d5c14778271b749d8a8f0872005dfd8f3e2d5302 size=38003 kind=xlsx
@@ -51,4 +43,36 @@ file#3 sha256=9311156530a39ad61321b6ddb8ff054fb133fb4d270886cac8ed0dd43eb280b2 s
 
 file#1 = <STTM_BLANK> · file#2 = <STTM> (filled) · file#3 = <FRD>
 
-**STOP** — hash gate (step 0). Steps 3–5 skipped.
+## Step 3 — CLI clean
+
+layout (<STTM>, <FRD>) · exit 0 · `codegen 0.5.8.post29 ... · profile: acfc_prx · IIG template: iig_v2 · overlays: config/overlays/acfc_env.yaml`
+extract-sttm (<STTM>) · exit 0 · `EXTRACTED ... 3 feed(s): sd_community_demographic_risk (86 fields), sd_community_risk (267 fields), sd_individual_risk (46 fields)`
+generate · exit 0 · `codegen 0.5.8.post29 ... · profile: acfc_prx (--profile) · IIG template: iig_v2 (--iig-template)`
+Verdicts: 3 × PASS_WITH_FLAGS (sd_community_demographic_risk 41 flags, sd_community_risk 43 flags, sd_individual_risk 48 flags)
+
+## Step 4 — golden (363c523)
+
+pair_2 dedup (GROUP_IDs 180251–180256):
+```
+EMAIL_TEMPLATE_CONFIG: dedup 12 -> 12
+adls_delta_ingestion_details: dedup 3 -> 3
+all_files_static_information: dedup 18 -> 3
+data_factory_pipeline_schedule: dedup 36 -> 6
+data_quality_rules: dedup 11 -> 10
+databricks_notebook_details: dedup 6 -> 6
+stgdelta_stddelta_ingestion_det: dedup 3 -> 3
+```
+pair_2: 7 sheets, 43 total rows → pair_2_iig_golden.xlsx
+
+## Step 5 — diff + scrubbed evidence
+
+EMAIL_TEMPLATE_CONFIG: agent 6 rows · golden 12 rows (deduped) · paired 0 — score 0.0
+adls_delta_ingestion_details: agent 3 rows · golden 3 rows (deduped) · paired 2 — score 40.2
+all_files_static_information: agent 3 rows · golden 3 rows (deduped) · paired 0 — score 0.0
+data_factory_pipeline_schedule: agent 12 rows · golden 6 rows (deduped) · paired 0 — score 0.0
+data_quality_rules: agent 0 rows · golden 10 rows (deduped) · paired 0 — score 0.0
+databricks_notebook_details: agent 6 rows · golden 6 rows (deduped) · paired 6 — score 46.2
+stgdelta_stddelta_ingestion_det: agent 3 rows · golden 3 rows (deduped) · paired 2 — score 36.7
+ADLS_FIXED_WIDTH_HANDLER: agent 0 rows · golden 0 rows (deduped) · paired 0 — score 100.0
+
+**TOTAL: score 14.3** · exact 146 · normalized 6 · mismatch 16 · missing-in-agent 592 · extra-in-agent 305

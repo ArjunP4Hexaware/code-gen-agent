@@ -284,6 +284,10 @@ class Round:
             return None
         gdir: Path = self.args.golden_dir
         round2 = gdir.with_name(gdir.name + "_round2")
+        # EMAIL_TEMPLATE_CONFIG comes from one CSV export, never a GROUP_ID
+        # workbook (round 6 passed none and lost the sheet; round 5 had 12 rows)
+        email_cfg = build_goldens.find_email_cfg(round2 / "goldens", round2, gdir / "goldens",
+                                                 gdir)
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured):
             report = build_goldens.build_one_pair(
@@ -291,13 +295,17 @@ class Round:
                 round2 / "goldens" if (round2 / "goldens").is_dir() else None,
                 gdir / "01_pair_group_index.csv",
                 round2 / "01_pair_group_index_addendum.csv" if round2.is_dir() else None,
-                None, self.work / "goldens")
+                email_cfg, self.work / "goldens")
         dedup = [ln.strip() for ln in captured.getvalue().splitlines()
                  if ln.strip().startswith(f"{self.args.pair}/") and ": dedup " in ln]
         golden = self.work / "goldens" / f"{self.args.pair}_iig_golden.xlsx"
         found = len(report.get("files_found") or [])
         missing = len(report.get("files_missing") or [])
         lines = [f"GROUP_ID exports found {found} of {len(groups)}",
+                 "EMAIL_TEMPLATE_CONFIG export: "
+                 + (f"found; {report.get('email_template_rows', 0)} row(s) for this pair"
+                    if email_cfg else f"NOT FOUND ({build_goldens.EMAIL_CFG_NAME} in neither "
+                                      "golden folder) — the sheet is absent from the golden"),
                  *(dedup or ["(no dedup lines)"])]
         if report.get("errors"):
             lines.append(f"build errors: {len(report['errors'])}")

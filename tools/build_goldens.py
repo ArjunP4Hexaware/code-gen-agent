@@ -256,6 +256,19 @@ def _filter_all_files(rows: list[list], headers: list[str],
     return kept, len(kept), dropped, [s for s, _ in usable]
 
 
+EMAIL_CFG_NAME = "email_template_config_by_pipeline.csv"
+
+
+def find_email_cfg(*folders: Path | None) -> Path | None:
+    """The EMAIL_TEMPLATE_CONFIG export (one CSV for every pipeline): the first
+    ``EMAIL_CFG_NAME`` in ``folders``. One lookup for main() and
+    scripts/run_round.py — round 6 lost the sheet when run_round passed none."""
+    for folder in folders:
+        if folder is not None and (Path(folder) / EMAIL_CFG_NAME).is_file():
+            return Path(folder) / EMAIL_CFG_NAME
+    return None
+
+
 def _load_email_template_config(csv_path: Path) -> tuple[list[str], list[list]]:
     """Load the full email_template_config_by_pipeline.csv."""
     with open(csv_path, newline="") as f:
@@ -593,12 +606,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=Path("goldens"))
     args = ap.parse_args(argv)
 
-    # Auto-detect email cfg
-    email_cfg = args.email_cfg
-    if email_cfg is None:
-        candidate = args.round2_dir / "email_template_config_by_pipeline.csv"
-        if candidate.exists():
-            email_cfg = candidate
+    # Auto-detect email cfg: the round-2 goldens folder, then the round-2 folder
+    email_cfg = args.email_cfg or find_email_cfg(args.round2_dir, args.round2_dir.parent)
 
     args.out.mkdir(parents=True, exist_ok=True)
 

@@ -92,6 +92,7 @@ def test_the_happy_path_end_to_end(env):
     assert f"{PAIR}/DATA_FACTORY_PIPELINE_SCHEDULE: dedup " in run_md
     assert "agent " in run_md and "rows (deduped) · paired" in run_md
     assert "environment token `<CLIENT_STORAGE_PREFIX>`: resolved" in run_md
+    assert "EMAIL_TEMPLATE_CONFIG export: NOT FOUND" in run_md         # none placed
     _assert_no_names(env, run_md)
     structure = json.loads((env["out"] / "fingerprint_structure.json").read_text("utf-8"))
     assert all("body_hash" not in s and "column_hashes" not in s
@@ -203,3 +204,22 @@ def test_a_missing_group_export_stops_before_scoring(env):
     run_md = (env["out"] / "RUN.md").read_text(encoding="utf-8")
     assert "GROUP_ID exports found 1 of 2" in run_md and "1 export(s) missing — STOP" in run_md
     assert "## Score" not in run_md and not (env["out"] / "score_totals.json").exists()
+
+
+def test_the_email_template_export_reaches_the_golden(env):
+    # round 6 lost EMAIL_TEMPLATE_CONFIG (round 5: 12 rows): run_round passed no
+    # CSV. The pair's rows = the CSV rows whose PIPELINE_ID the pair's sheets carry.
+    round2 = env["golden_dir"].with_name(env["golden_dir"].name + "_round2")
+    round2.mkdir()
+    (round2 / "email_template_config_by_pipeline.csv").write_text(
+        "".join(line + "\n" for line in (
+            "TEMPLATE_ID,TEMPLATE_NAME,PIPELINE_ID,STATUS",
+            "1,syn_template,SYN-PIPE-001,Success", "2,syn_template,SYN-PIPE-001,Failed",
+            "3,other_template,SYN-PIPE-999,Success")), encoding="utf-8")
+    assert run_round.main(_argv(env)) == 0
+    run_md = (env["out"] / "RUN.md").read_text(encoding="utf-8")
+    assert "EMAIL_TEMPLATE_CONFIG export: found; 2 row(s) for this pair" in run_md
+    assert f"{PAIR}/EMAIL_TEMPLATE_CONFIG: dedup 2 -> 2" in run_md
+    golden = openpyxl.load_workbook(env["out"].with_name("push.work") / "goldens"
+                                    / f"{PAIR}_iig_golden.xlsx", read_only=True)
+    assert len(list(golden["EMAIL_TEMPLATE_CONFIG"].iter_rows(values_only=True))) == 3

@@ -24,6 +24,13 @@
           "D": 0,
           "E": 3
         },
+        "column_hashes": {
+          "A": "db03b723d66d7f1d",
+          "B": "a30219fa742c478f",
+          "C": "6da62d63ae778314",
+          "D": "545c38b0922de197",
+          "E": "6efd179e93deae34"
+        },
         "body_hash": "3dd9d300cbb449da56376646e613b61d18e6db4d0beb6aed2e49e560f3645de6"
       },
       {
@@ -43,6 +50,12 @@
           "B": 1,
           "C": 1,
           "D": 1
+        },
+        "column_hashes": {
+          "A": "14be4b45f18e0d8c",
+          "B": "9b723f4d91897e1a",
+          "C": "a0f1aca3abdb34c4",
+          "D": "e2cf81a5cdd32f24"
         },
         "body_hash": "fa472488e246175dac9b23d3ab808b02a90b6b382139dc28d8a8df84c02a1220"
       },
@@ -76,6 +89,24 @@
           "Q": 90,
           "R": 90
         },
+        "column_hashes": {
+          "A": "0d339fd8c36a792c",
+          "B": "0b23afe34b0bae62",
+          "C": "40ef0b88d3189652",
+          "D": "5c18cf1071cb48c7",
+          "E": "31eabbd5d7f84bf6",
+          "F": "63fad33b16fda2f1",
+          "G": "1ebdff26d55099fb",
+          "H": "e5dec9887c7805c8",
+          "J": "e5dec9887c7805c8",
+          "K": "e5dec9887c7805c8",
+          "L": "2a1f197c6757f2eb",
+          "M": "85d831b9bf77ea62",
+          "O": "e5dec9887c7805c8",
+          "P": "e5dec9887c7805c8",
+          "Q": "2a1f197c6757f2eb",
+          "R": "75afc50961ece21d"
+        },
         "body_hash": "2e3d33456a2adec0ff90d62a7a3143739f589102d8623756cfc58c5988894f04"
       },
       {
@@ -107,6 +138,24 @@
           "P": 0,
           "Q": 271,
           "R": 271
+        },
+        "column_hashes": {
+          "A": "f36e815b57245b9e",
+          "B": "6787ad9d69bf1490",
+          "C": "b077ef07e86f8a16",
+          "D": "b931ad34fef05940",
+          "E": "f66f64995a3f505f",
+          "F": "ff4b3b229a09468b",
+          "G": "82fa40a2490c7161",
+          "H": "b17d600888cf952e",
+          "J": "b17d600888cf952e",
+          "K": "b17d600888cf952e",
+          "L": "2e833c7f65e96052",
+          "M": "573cecb0936f8436",
+          "O": "b17d600888cf952e",
+          "P": "b17d600888cf952e",
+          "Q": "2e833c7f65e96052",
+          "R": "68f0b2bf1adb0778"
         },
         "body_hash": "0b51a0315dd83d01e4666db068f3171a678fc700eb7a30cadd86107d7f5c2353"
       },
@@ -140,156 +189,30 @@
           "Q": 50,
           "R": 50
         },
+        "column_hashes": {
+          "A": "2a2586dd8662af95",
+          "B": "8279e9d1bb094b3d",
+          "C": "bdac1b8071fac88e",
+          "D": "a62ce0fd33ad23b3",
+          "E": "c9d9cabdd8b0323e",
+          "F": "099c4e1264508ae9",
+          "G": "099c4e1264508ae9",
+          "H": "ff0a4f9d556fc2ce",
+          "J": "43f54e3ff7782ae2",
+          "K": "43f54e3ff7782ae2",
+          "L": "d29fa9812e8996f7",
+          "M": "2823bc25d2b66a3a",
+          "O": "43f54e3ff7782ae2",
+          "P": "43f54e3ff7782ae2",
+          "Q": "d29fa9812e8996f7",
+          "R": "2db4d234b257544f"
+        },
         "body_hash": "72a898e7a610af73087b8ed1898b91fd06d19b7417d22eb84dc43cfa5a17e98c"
       }
     ]
   },
   {
     "file": "file#2",
-    "sha256": "16e06c698d73093812fc033ccab8877be77570563188566d13b27336ca927ed8",
-    "size": 61141,
-    "kind": "xlsx",
-    "sheets": [
-      {
-        "index": 0,
-        "name_hash": "cf4939941de0",
-        "state": "visible",
-        "max_row": 4,
-        "max_column": 5,
-        "nonblank_rows": 4,
-        "nonblank_cells": 14,
-        "formula_cells": 0,
-        "merged_ranges": 0,
-        "header_row": 1,
-        "header_hash": "b4eb40c2a79931b13db432226274212d32f1dfc027d10f70a54ec5d0f0223d57",
-        "columns_below_header": {
-          "A": 3,
-          "B": 3,
-          "C": 0,
-          "D": 0,
-          "E": 3
-        },
-        "body_hash": "1ef724b1faa8375838a20c7d80daadf8f2e0d7c6f40a16aabb0addb5c311e946"
-      },
-      {
-        "index": 1,
-        "name_hash": "c64ff2203055",
-        "state": "visible",
-        "max_row": 12,
-        "max_column": 8,
-        "nonblank_rows": 4,
-        "nonblank_cells": 13,
-        "formula_cells": 0,
-        "merged_ranges": 1,
-        "header_row": 7,
-        "header_hash": "44d7334ac66f9a4102c11beee5867fe545cca623e9038fd9aca11678fda1eab5",
-        "columns_below_header": {
-          "E": 2,
-          "F": 2,
-          "G": 2,
-          "H": 2
-        },
-        "body_hash": "5b58d0d8d589e163390638af4a62c7a66b92234aadd5f4607476982518d82ba4"
-      },
-      {
-        "index": 2,
-        "name_hash": "01292dd6fa7b",
-        "state": "visible",
-        "max_row": 92,
-        "max_column": 16,
-        "nonblank_rows": 92,
-        "nonblank_cells": 1368,
-        "formula_cells": 0,
-        "merged_ranges": 3,
-        "header_row": 2,
-        "header_hash": "a7c7e50d9108357bc2e481f5a06a901b8e9e0ae024cc818830e76ff5a0792bf8",
-        "columns_below_header": {
-          "A": 90,
-          "B": 90,
-          "C": 90,
-          "D": 90,
-          "E": 90,
-          "F": 90,
-          "G": 90,
-          "H": 90,
-          "I": 90,
-          "J": 90,
-          "K": 90,
-          "M": 90,
-          "N": 90,
-          "O": 90,
-          "P": 90
-        },
-        "body_hash": "1db22486e7ff67752bbab2a4dbc412d08b3f908e7a3f229a36504d2154fbb231"
-      },
-      {
-        "index": 3,
-        "name_hash": "ef35f6a78545",
-        "state": "visible",
-        "max_row": 273,
-        "max_column": 16,
-        "nonblank_rows": 273,
-        "nonblank_cells": 4079,
-        "formula_cells": 0,
-        "merged_ranges": 3,
-        "header_row": 2,
-        "header_hash": "1cadd93b4c2f66e96089fbf1cf2b3f86bcd4eeaa29fc8acaf31a43d2748a64a1",
-        "columns_below_header": {
-          "A": 271,
-          "B": 271,
-          "C": 267,
-          "D": 271,
-          "E": 271,
-          "F": 271,
-          "G": 271,
-          "H": 271,
-          "I": 271,
-          "J": 271,
-          "K": 271,
-          "M": 271,
-          "N": 271,
-          "O": 271,
-          "P": 271
-        },
-        "body_hash": "a9fbfe6d0814c72e6e666414851a0ceda560f5cd39e9062670d91de81a9e3f60"
-      },
-      {
-        "index": 4,
-        "name_hash": "a60e2e099a94",
-        "state": "visible",
-        "max_row": 52,
-        "max_column": 18,
-        "nonblank_rows": 52,
-        "nonblank_cells": 816,
-        "formula_cells": 0,
-        "merged_ranges": 3,
-        "header_row": 2,
-        "header_hash": "52901527b4eeabb63eec7c7ffdc7d713d3d1c4f8433e2638192a96c860281c80",
-        "columns_below_header": {
-          "A": 50,
-          "B": 50,
-          "C": 50,
-          "D": 49,
-          "E": 50,
-          "F": 46,
-          "G": 50,
-          "H": 50,
-          "I": 50,
-          "J": 50,
-          "K": 50,
-          "L": 50,
-          "N": 50,
-          "O": 50,
-          "P": 50,
-          "Q": 50,
-          "R": 1
-        },
-        "body_hash": "f4ddaecb02334bcc2d7cc64ab43681d730f4bfc09f6aec62dbcd1748f93c4c2e"
-      }
-    ]
-  },
-  {
-    "file": "file#3",
     "sha256": "9311156530a39ad61321b6ddb8ff054fb133fb4d270886cac8ed0dd43eb280b2",
     "size": 321367,
     "kind": "docx",

@@ -48,17 +48,17 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   docs/acfc/fingerprints/pair_2_sd_home.json <D1 fingerprint>` — exit 1 on a HARD line (sheet
   names, counts, extents, merged ranges, header row + hash, per-column fill, the docx
   `text_hash` + counts) = STOP; WARN (whole-file sha256 / size, document.xml, `body_hash`,
-  per-column value hashes) is recorded, the run continues. Per-column hashes (stripped,
-  lowercased) name WHICH column differs, never a value.
+  per-column value hashes) is recorded, the run continues. Value hashes are HMAC under the
+  gitignored `codegen-state/fingerprint.key` (post31; same key both sides, else REFUSED).
 - **Round 4 (not a clean run):** TOTAL 4.6; ADLS 33.5 / STGDELTA 31.7 with 2 of 3 rows paired.
   The golden was 6× duplicated on the unfiltered pair-wide sheets (now de-duplicated), and the
   run used a hand-split contract and the blank-cell STTM.
-- **Round 5 — pending on `acfc-results`.** The first attempt stopped on whole-file sha256
-  (FRD content identical; STTM structure identical, the three mapping-sheet bodies differ).
-  On the rerun's fingerprint run `--compare` home vs D1: only name / description columns
-  differ → anonymization, the home copy stays the dev fixture; Schema / TableName /
-  file-pattern columns differ → the home SD invariant (mock: 43 / 43 / 46 matched, diff 0) was
-  measured on a different copy than D1 runs. Data-quality rules: not implemented (D1-only rows).
+- **Round 5 ran on the blank STTM** (Genie chose the input). **Round 6 = `scripts/run_round.py`**
+  (post32; `docs/acfc/GENIE_RUN_pair_2_r6.md`): the inputs come from the gitignored
+  `codegen-state/round_inputs/pair_2.yaml`, no answers file, gate → CLI → golden → diff → RUN.md
+  → scrub (exit 2 gate; 3 layout asks / scrub hit; 1 a stage). Then: only name / description columns differ →
+  anonymization; Schema / TableName / file-pattern columns differ → the home SD invariant
+  (mock 43 / 43 / 46, diff 0) was measured on another copy. DQ rules: not implemented.
 
 ## START HERE — branch `feature/multi-table` (state as of 2026-10-09, early morning — after the overnight robustness run)
 
@@ -1777,7 +1777,7 @@ FMAPI since 0.3.4, currently 0.3.5):** the demo UI runs as the workspace app `co
 (https://codegen-agent-7405617821962942.2.azure.databricksapps.com).
 Deploy from a STAGED TREE (repo files + the gitignored
 `ui/frontend/dist` and fixtures — never `inputs/`): `databricks sync
---full <staged tree> /Workspace/Users/2000198474@hexaware.com/
+--full <staged tree> /Workspace/Users/<deploy-contact>/
 codegen-agent-app` then `databricks apps deploy codegen-agent
 --source-code-path <that path>`. `requirements.txt` (`.[ui,databricks]`)
 is the Apps pip install; the runtime CACHES the installed env keyed on

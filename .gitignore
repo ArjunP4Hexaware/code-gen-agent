@@ -180,3 +180,9 @@ docs/acfc/iig_goldens*/*/
 docs/acfc/iig_goldens_round2/email_template_config_by_pipeline.csv
 /diff_input/
 /diff_output/
+# doc_fingerprint's HMAC key (2026-10-13): secret, the same value on both sides
+# of a compare; never committed (scripts/doc_fingerprint.py).
+/codegen-state/fingerprint.key
+# run_round.py's input paths (2026-10-13): the owner places them per pair; they
+# name client documents, never committed (scripts/run_round.py --inputs).
+/codegen-state/round_inputs/

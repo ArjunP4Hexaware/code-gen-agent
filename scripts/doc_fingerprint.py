@@ -8,7 +8,7 @@ or path ever appears. Files are ``file#<n>`` (argument order); sheets are
 ``sheet[<index>]`` plus ``name#<first 12 hex of sha256(title)>``.
 
 Usage:
-    python scripts/doc_fingerprint.py <file> [<file> ...] [--json]
+    python scripts/doc_fingerprint.py <file> [<file> ...] [--json] [--structure-only]
     python scripts/doc_fingerprint.py --compare A.json B.json
 
 xlsx: per sheet — state, extent, non-blank rows / cells, formula cells, merged
@@ -18,20 +18,31 @@ lowercased — names WHICH column differs, never a value), and a body hash over 
 cell. docx: hash of word/document.xml, paragraph / table / row / cell counts
 (nested tables included) and a hash of the paragraph texts.
 
+KEYED (2026-10-13): the per-column value hashes and the sheet body hashes are
+HMAC-SHA256 under a secret key — a plain hash of a short column (a Y/N flag, a data
+type list) can be reversed by guessing. The key: env ``CODEGEN_FINGERPRINT_KEY``,
+else ``codegen-state/fingerprint.key`` (gitignored; the same key on both sides of a
+compare). No key, or ``--structure-only``: neither is written (stderr says why) and
+the rest of the fingerprint is unchanged. Each entry records ``key_id`` (first 8 hex
+of sha256(key), None without one).
+
 Exit 0; 2 when a file is unreadable or unsupported (the reason names no path).
 ``--compare`` prints one HARD / WARN line per differing file or sheet and exits 1
 on any HARD line (structure: counts, extents, header hashes, column fill, sheet
 names, the docx text and counts), else 0. WARN = the whole-file sha256 / size,
 document.xml, body hash or per-column value hashes differ with the structure equal
-(a re-saved, re-zipped or anonymised copy) — record it, it is not a stop.
+(a re-saved, re-zipped or anonymised copy) — record it, it is not a stop. It REFUSES
+(exit 2) two fingerprints whose value hashes were made under different keys.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import html
 import json
+import os
 import re
 import sys
 import zipfile
@@ -41,17 +52,41 @@ from typing import Any
 HEADER_MIN_CELLS = 3
 HEADER_SCAN_ROWS = 20
 _DOCX_TOKEN = re.compile(r"<(/?)w:(tbl|tr|tc|p|t)\b[^>]*?(/?)>|([^<]+)|<[^>]*>")
+KEY_ENV = "CODEGEN_FINGERPRINT_KEY"
+KEY_FILE = Path(__file__).resolve().parents[1] / "codegen-state" / "fingerprint.key"
+NO_KEY = (f"no fingerprint key ({KEY_ENV} or codegen-state/fingerprint.key): per-column "
+          "value hashes and sheet body hashes NOT written — structure-only fingerprint")
+
+
+class KeyMismatch(ValueError):
+    """Two fingerprints whose value hashes were made under different keys."""
 
 
 def _sha(data: bytes | str) -> str:
     return hashlib.sha256(data.encode("utf-8") if isinstance(data, str) else data).hexdigest()
 
 
+def load_key() -> bytes | None:
+    """The env value, else the key file's text; stripped; None when neither has one."""
+    text = os.environ.get(KEY_ENV, "").strip()
+    if not text and KEY_FILE.is_file():
+        text = KEY_FILE.read_text(encoding="utf-8").strip()
+    return text.encode("utf-8") if text else None
+
+
+def key_id(key: bytes | None) -> str | None:
+    return _sha(key)[:8] if key else None
+
+
+def _mac(key: bytes, text: str) -> str:
+    return hmac.new(key, text.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def _blank(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
+def fingerprint_xlsx(path: Path, key: bytes | None = None) -> list[dict[str, Any]]:
     from openpyxl import load_workbook
     from openpyxl.utils import get_column_letter
 
@@ -83,10 +118,11 @@ def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
                     columns[letter] = sum(not _blank(v) for v in cells)
                     # Which column differs, never what: stripped + lowercased, so a
                     # case- or padding-only edit does not count as a change.
-                    column_hashes[letter] = _sha("\n".join(
-                        "" if _blank(v) else str(v).strip().lower() for v in cells))[:16]
+                    if key:
+                        column_hashes[letter] = _mac(key, "\n".join(
+                            "" if _blank(v) else str(v).strip().lower() for v in cells))[:16]
         body = "\n".join("\t".join("" if v is None else str(v) for v in r) for r in rows)
-        sheets.append({
+        sheet = {
             "index": index,
             "name_hash": _sha(ws.title)[:12],
             "state": ws.sheet_state,
@@ -99,9 +135,10 @@ def fingerprint_xlsx(path: Path) -> list[dict[str, Any]]:
             "header_row": header_row,
             "header_hash": header_hash,
             "columns_below_header": columns,
-            "column_hashes": column_hashes,
-            "body_hash": _sha(body),
-        })
+        }
+        if key:
+            sheet.update(column_hashes=column_hashes, body_hash=_mac(key, body))
+        sheets.append(sheet)
     return sheets
 
 
@@ -144,7 +181,7 @@ def fingerprint_docx(path: Path) -> dict[str, Any]:
     return {"document_xml_sha256": _sha(xml_bytes), **counts, "text_hash": _sha("\n".join(texts))}
 
 
-def fingerprint(path: Path, n: int) -> dict[str, Any]:
+def fingerprint(path: Path, n: int, key: bytes | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"file": f"file#{n}"}
     suffix = path.suffix.lower()
     try:
@@ -154,7 +191,7 @@ def fingerprint(path: Path, n: int) -> dict[str, Any]:
     entry.update(sha256=_sha(data), size=len(data))
     try:
         if suffix in (".xlsx", ".xlsm"):
-            entry.update(kind="xlsx", sheets=fingerprint_xlsx(path))
+            entry.update(kind="xlsx", key_id=key_id(key), sheets=fingerprint_xlsx(path, key))
         elif suffix == ".docx":
             entry.update(kind="docx", docx=fingerprint_docx(path))
         else:
@@ -177,7 +214,7 @@ def render(entry: dict[str, Any]) -> list[str]:
             f"max_column={s['max_column']} nonblank_rows={s['nonblank_rows']} "
             f"nonblank_cells={s['nonblank_cells']} formulas={s['formula_cells']} "
             f"merged={s['merged_ranges']} header_row={s['header_row']} "
-            f"header#{(s['header_hash'] or '-')[:16]} body#{s['body_hash'][:16]}")
+            f"header#{(s['header_hash'] or '-')[:16]} body#{s.get('body_hash', '-')[:16]}")
         if s["columns_below_header"]:
             lines.append("    columns: " + " ".join(
                 f"{k}={v}" for k, v in s["columns_below_header"].items()))
@@ -231,9 +268,12 @@ def compare_graded(a_entries: list[dict[str, Any]],
         out.append(("HARD", f"file count {len(a_entries)} vs {len(b_entries)}"))
     for a, b in zip(a_entries, b_entries, strict=False):
         label = f"{a['file']} vs {b['file']}"
+        if _has_values(a) and _has_values(b) and a.get("key_id") != b.get("key_id"):
+            raise KeyMismatch(f"{label}: value hashes made under different keys (key "
+                              f"{a.get('key_id') or 'none'} vs {b.get('key_id') or 'none'})")
         da, db = a.get("docx", {}), b.get("docx", {})
         add(label,
-            _diff_fields(a, b, skip=("file", "sheets", "docx", *WARN_FILE_FIELDS))
+            _diff_fields(a, b, skip=("file", "sheets", "docx", "key_id", *WARN_FILE_FIELDS))
             + [f"docx.{d}" for d in _diff_fields(da, db, skip=WARN_DOCX_FIELDS)],
             [d for d in _diff_fields(a, b) if d.split()[0] in WARN_FILE_FIELDS]
             + [f"docx.{d}" for d in _diff_fields(da, db) if d.split()[0] in WARN_DOCX_FIELDS])
@@ -248,12 +288,25 @@ def compare_graded(a_entries: list[dict[str, Any]],
             ca, cb = sa[i]["columns_below_header"], sb[i]["columns_below_header"]
             hard += [f"column {c} {ca.get(c, '-')} vs {cb.get(c, '-')}"
                      for c in sorted(set(ca) | set(cb)) if ca.get(c) != cb.get(c)]
-            warn = _diff_fields({"body_hash": sa[i].get("body_hash")},
-                                {"body_hash": sb[i].get("body_hash")})
-            columns = _column_hash_diff(sa[i], sb[i])
-            warn += [columns] if columns else []
+            warn: list[str] = []
+            va, vb = _sheet_has_values(sa[i]), _sheet_has_values(sb[i])
+            if va and vb:
+                warn = _diff_fields({"body_hash": sa[i].get("body_hash")},
+                                    {"body_hash": sb[i].get("body_hash")})
+                columns = _column_hash_diff(sa[i], sb[i])
+                warn += [columns] if columns else []
+            elif va or vb:
+                warn = [f"value hashes absent in {'B' if va else 'A'} (structure-only)"]
             add(f"{label} sheet[{i}] name#{sa[i]['name_hash']}", hard, warn)
     return out
+
+
+def _sheet_has_values(sheet: dict[str, Any]) -> bool:
+    return any(k in sheet for k in WARN_SHEET_FIELDS)
+
+
+def _has_values(entry: dict[str, Any]) -> bool:
+    return any(_sheet_has_values(s) for s in entry.get("sheets", []))
 
 
 def compare(a_entries: list[dict[str, Any]], b_entries: list[dict[str, Any]]) -> list[str]:
@@ -271,14 +324,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="one JSON object per file")
     parser.add_argument("--compare", nargs=2, metavar=("A_JSON", "B_JSON"),
                         help="diff two saved --json outputs (counts and hash flags only)")
+    parser.add_argument("--structure-only", action="store_true",
+                        help="never write the keyed value hashes, even with a key present")
     args = parser.parse_args(argv)
     if args.compare:
-        graded = compare_graded(_load(args.compare[0]), _load(args.compare[1]))
+        try:
+            graded = compare_graded(_load(args.compare[0]), _load(args.compare[1]))
+        except KeyMismatch as exc:
+            print(f"REFUSED {exc}")
+            return 2
         print("\n".join(f"{s} {t}" for s, t in graded) if graded else "identical")
         return 1 if any(s == "HARD" for s, _ in graded) else 0
     if not args.files:
         parser.error("give at least one file, or --compare A.json B.json")
-    entries = [fingerprint(Path(f), n) for n, f in enumerate(args.files, start=1)]
+    key = None if args.structure_only else load_key()
+    if key is None and not args.structure_only:
+        print(NO_KEY, file=sys.stderr)
+    entries = [fingerprint(Path(f), n, key) for n, f in enumerate(args.files, start=1)]
     if args.json:
         print(json.dumps(entries[0] if len(entries) == 1 else entries, indent=2))
     else:

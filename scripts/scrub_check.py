@@ -38,7 +38,33 @@ GENERIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("client_email_domain", re.compile(r"(?i)@amerihealthcaritas")),
     ("client_storage_prefix", re.compile(r"(?i)zuseprdlkst\d+|z-use-pr-dlk")),
     ("client_vm_prefix", re.compile(r"\bzy[a-z0-9]{8,}\b")),
+    # 2026-10-13 (round5 RUN.md named the pair's documents): a downloaded copy's
+    # "(1).xlsx" suffix — the shape of a real document name, never a repo output's.
+    ("copy_suffixed_document_name",
+     re.compile(r"(?i)\(\d+\)\.(?:xlsx|xlsm|xls|docx|doc|csv|pdf)\b")),
 ]
+
+# 2026-10-13: the SD document titles, as sha256 of each lowercased word pair /
+# triple (raw title words never live in this tracked file — see the docstring).
+# A text's words (lowercased [a-z0-9] runs) are hashed two and three at a time.
+TITLE_PHRASE_SHA256 = frozenset({
+    "aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f",
+    "754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c",
+    "c1b9daadae5dab4264e1f76f6ece18916beecc7905428b132bcd860a28e87e2d",
+    "6da0a3d08dfb415091939601b1b877bce5be655c443468527dcf589fe1af3059",
+})
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def title_hits(text: str) -> int:
+    """How many word pairs / triples of ``text`` are a deny-listed document title
+    phrase (the phrase itself is never returned)."""
+    import hashlib
+    words = _WORD.findall(text.lower())
+    return sum(
+        hashlib.sha256(" ".join(words[i:i + n]).encode("utf-8")).hexdigest()
+        in TITLE_PHRASE_SHA256
+        for n in (2, 3) for i in range(len(words) - n + 1))
 
 # 2026-10-12 (round3 pair_2 score.json committed a workspace path carrying a
 # user's address): ANY e-mail address and ANY /Workspace/Users/<user> path,
@@ -61,6 +87,8 @@ def structural_hits(text: str) -> list[tuple[str, str]]:
             hits.append(("email_address", m.group(0)))
     for m in WORKSPACE_USER_PATH.finditer(text):
         user = m.group(1)
+        if not user.strip("`.…*"):        # an elided user ("/Workspace/Users/…") names no one
+            continue
         if user.lower() not in _ALLOWED_WORKSPACE_USERS and "synthetic" not in user.lower():
             hits.append(("workspace_user_path", m.group(0)))
     return hits
@@ -138,6 +166,8 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
                         hits.append((f, klass, m.group(0)[:60]))
                 for klass, match in structural_hits(text)[:1]:   # one per file, like above
                     hits.append((f, klass, match[:60]))
+                if title_hits(text):
+                    hits.append((f, "document_title_phrase", "<a deny-listed title phrase>"))
                 for tok, klass in deny.items():
                     if len(tok) >= 5 and tok in text:
                         hits.append((f, klass, tok[:40] + "..."))

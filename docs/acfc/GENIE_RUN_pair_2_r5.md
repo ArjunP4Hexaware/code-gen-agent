@@ -1,16 +1,19 @@
 # Genie Code — pair_2 (SD) round 5 (D1 Git folder)
 In order; stop where told. NEVER modify `src/codegen/**`, never hand-edit or split a contract,
 never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md is one of them).
+0. **Fingerprint key.** `codegen-state/fingerprint.key` exists in this Git folder and is not empty
+   (gitignored; Soham places it — never print, copy or commit it), else STOP.
 1. **Code.** `git fetch origin` · `git checkout feature/multi-table` · `git pull --ff-only origin
    feature/multi-table`. Record `python -m codegen.cli doctor`'s `build …` line and `git rev-parse
-   --short HEAD`; STOP unless the build line names that SHA `(git)`; version >= 0.5.8.post30.
+   --short HEAD`; STOP unless the build line names that SHA `(git)`; version >= 0.5.8.post31.
 2. **Fingerprint + content gate** (hashes + counts only). `<STTM>` = the FILLED workbook, never
-   `*_blank_version*`. `python scripts/doc_fingerprint.py <STTM> <FRD> --json >
-   /tmp/r5/push/fingerprint_d1.json`; its text form (no `--json`) into RUN.md. **Gate:**
-   `python scripts/doc_fingerprint.py --compare docs/acfc/fingerprints/pair_2_sd_home.json
-   /tmp/r5/push/fingerprint_d1.json`, its whole output into RUN.md. Exit 1 = a `HARD` line
-   (sheet names, counts, extents, merged ranges, header row + hash, per-column fill; the docx
-   `text_hash` and counts) → STOP. `WARN` lines (whole-file sha256 / size, document.xml,
+   `*_blank_version*`. Keyed (stays in /tmp, never pushed): `python scripts/doc_fingerprint.py
+   <STTM> <FRD> --json > /tmp/r5/fp_keyed.json`. Structure-only (pushed): the same + `--structure-only`
+   `> /tmp/r5/push/fingerprint_d1.json`; its text form (`--structure-only`, no `--json`) into RUN.md.
+   **Gate:** `python scripts/doc_fingerprint.py --compare docs/acfc/fingerprints/pair_2_sd_home.json
+   /tmp/r5/fp_keyed.json > /tmp/r5/push/compare.txt`, also into RUN.md. Exit 2 (`REFUSED`, another
+   key) → STOP. Exit 1 = a `HARD` line (sheet names, counts, extents, merged ranges, header
+   row + hash, per-column fill; the docx `text_hash` and counts) → STOP. `WARN` lines (whole-file sha256 / size, document.xml,
    `body_hash`, per-column value hashes, with all of the above equal) are recorded and the run
    continues — the home copy is anonymised, so its cell values are expected to differ.
    Finding to record, do not investigate: `*_blank_version*` has other mapping-sheet names, a
@@ -42,5 +45,7 @@ never add an answer beyond step 3's one. Results go to `/tmp/r5/push/` (RUN.md i
    STOP; report class counts only). `git checkout -B acfc-results origin/acfc-results`; copy
    `/tmp/r5/push/*` to `codegen-outputs/iig_validation/round5/pair_2/`; `git add` those files by
    name; `git commit -m "round5 pair_2"`; `git push origin acfc-results`; `git checkout
-   feature/multi-table`. Never commit diff.xlsx, score.json, routing.csv, a golden, an xlsx,
-   the answers file or anything under /tmp/r5/out.
+   feature/multi-table`. Commit compare.txt (which columns differ) and the structure-only
+   fingerprint_d1.json — never /tmp/r5/fp_keyed.json or any fingerprint with `column_hashes` /
+   `body_hash`, the key, diff.xlsx, score.json, routing.csv, a golden, an xlsx, the answers file
+   or anything under /tmp/r5/out.

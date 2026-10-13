@@ -39,7 +39,9 @@ def test_a_workspace_user_path_is_a_hit_unless_a_placeholder():
     assert sorted(_classes(leak)) == ["email_address", "workspace_user_path"]
     for allowed in ("<WORKSPACE_PATH>/goldens/g.xlsx", "/Workspace/Users/<user>/app",
                     "workspace:/Workspace/Users/u/shared/frd_sttm_pairs",
-                    "/Workspace/Users/syn.user@synthetic.example/app"):
+                    "/Workspace/Users/syn.user@synthetic.example/app",
+                    "`workspace:/Workspace/Users/…` (Workspace API)",
+                    "/Workspace/Users/<deploy-contact>/codegen-agent-app"):
         assert _classes(allowed) == [], allowed
 
 
@@ -57,3 +59,34 @@ def test_scan_paths_reports_both_classes(tmp_path):
 def test_the_scrubbed_round3_score_json_is_clean():
     path = ROOT / "codegen-outputs" / "iig_validation" / "round3" / "pair_2" / "score.json"
     assert scrub_check.structural_hits(path.read_text(encoding="utf-8")) == []
+
+
+def test_claude_md_carries_no_address_or_user_path():
+    # 2026-10-13: the deploy notes carried a user id in a workspace path (d7aa44c);
+    # scrubbed to <deploy-contact>, the history purge is in docs/acfc/LEAK_LEDGER.md.
+    assert scrub_check.structural_hits((ROOT / "CLAUDE.md").read_text(encoding="utf-8")) == []
+
+
+# 2026-10-13: the document-title phrases (held as hashes) and downloaded-copy names.
+# The words are assembled here so this file never holds a title phrase whole.
+_MEDI, _EXP = "Medi" + "care", "Expan" + "sion"
+_SOC, _DET = "Social" + "ly", "Deter" + "mined"
+
+
+def test_a_document_title_phrase_is_a_hit_in_any_spelling(tmp_path):
+    assert scrub_check.title_hits(f"STTM {_MEDI} {_EXP}_MIDS_{_SOC[:-2]} {_DET}.xlsx") == 2
+    assert scrub_check.title_hits(f"FRD_{_MEDI.upper()}-{_EXP.lower()} - {_SOC} {_DET}") == 2
+    assert scrub_check.title_hits(f"{_MEDI} coverage was {_DET.lower()} by policy") == 0
+    (tmp_path / "RUN.md").write_text(f"read {_MEDI}  {_EXP}", encoding="utf-8")
+    hits = scrub_check.scan_paths([tmp_path], deny={})
+    assert [(k, ctx) for _p, k, ctx in hits] == [
+        ("document_title_phrase", "<a deny-listed title phrase>")]
+
+
+def test_a_copy_suffixed_document_name_is_a_hit(tmp_path):
+    (tmp_path / "a.md").write_text("input: STTM x (" + "1).xlsx and FRD y (" + "12).DOCX",
+                                   encoding="utf-8")
+    (tmp_path / "b.md").write_text("see step (" + "1). xlsx files only; out_IIG.xlsx",
+                                   encoding="utf-8")
+    hits = {(p.name, k) for p, k, _ctx in scrub_check.scan_paths([tmp_path], deny={})}
+    assert hits == {("a.md", "copy_suffixed_document_name")}

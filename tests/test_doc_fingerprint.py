@@ -73,9 +73,16 @@ def _docx(path: Path) -> Path:
     return path
 
 
-def _run(*args: str) -> subprocess.CompletedProcess[str]:
+KEY = b"syn-fingerprint-test-key"          # a test key, not a secret
+
+
+def _run(*args: str, key: str | None = KEY.decode()) -> subprocess.CompletedProcess[str]:
+    import os
+    env = {k: v for k, v in os.environ.items() if k != fp.KEY_ENV}
+    if key is not None:
+        env[fp.KEY_ENV] = key
     return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True,
-                          encoding="utf-8")
+                          encoding="utf-8", env=env)
 
 
 def _assert_clean(text: str, tmp_path: Path | None = None) -> None:
@@ -127,21 +134,21 @@ def test_cli_output_leaks_nothing(tmp_path):
 
 
 def test_identical_copies_identical_fingerprints(tmp_path):
-    a = fp.fingerprint(_xlsx(tmp_path / "a.xlsx"), 1)
-    b = fp.fingerprint(_xlsx(tmp_path / "b.xlsx"), 1)
+    a = fp.fingerprint(_xlsx(tmp_path / "a.xlsx"), 1, KEY)
+    b = fp.fingerprint(_xlsx(tmp_path / "b.xlsx"), 1, KEY)
     assert a["sheets"] == b["sheets"]
-    da = fp.fingerprint(_docx(tmp_path / "a.docx"), 1)
-    db = fp.fingerprint(_docx(tmp_path / "b.docx"), 1)
+    da = fp.fingerprint(_docx(tmp_path / "a.docx"), 1, KEY)
+    db = fp.fingerprint(_docx(tmp_path / "b.docx"), 1, KEY)
     assert da == db
     assert fp.compare([da], [db]) == []
 
 
 def test_changed_cell_and_blanked_column_are_named(tmp_path):
-    base = fp.fingerprint(_xlsx(tmp_path / "a.xlsx"), 1)
-    changed = fp.fingerprint(_xlsx(tmp_path / "b.xlsx", b3="SECRETVALUE1"), 1)
+    base = fp.fingerprint(_xlsx(tmp_path / "a.xlsx"), 1, KEY)
+    changed = fp.fingerprint(_xlsx(tmp_path / "b.xlsx", b3="SECRETVALUE1"), 1, KEY)
     assert base["sheets"][0]["body_hash"] != changed["sheets"][0]["body_hash"]
     assert base["sheets"][1] == changed["sheets"][1]
-    blanked = fp.fingerprint(_xlsx(tmp_path / "c.xlsx", blank_c=True), 1)
+    blanked = fp.fingerprint(_xlsx(tmp_path / "c.xlsx", blank_c=True), 1, KEY)
     assert blanked["sheets"][0]["columns_below_header"]["C"] == 0
     assert blanked["sheets"][0]["columns_below_header"]["A"] == 3
 
@@ -189,13 +196,13 @@ def _pair2_copy(path: Path, edits: dict[str, object] | None = None) -> Path:
 
 
 def _pair2_compare(tmp_path: Path, edits: dict[str, object]) -> list[tuple[str, str]]:
-    base = fp.fingerprint(_pair2_copy(tmp_path / "base.xlsx"), 1)
-    other = fp.fingerprint(_pair2_copy(tmp_path / "other.xlsx", edits), 1)
+    base = fp.fingerprint(_pair2_copy(tmp_path / "base.xlsx"), 1, KEY)
+    other = fp.fingerprint(_pair2_copy(tmp_path / "other.xlsx", edits), 1, KEY)
     return fp.compare_graded([base], [other])
 
 
 def test_column_hashes_cover_every_header_column(tmp_path):
-    sheet = fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1)["sheets"][2]
+    sheet = fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1, KEY)["sheets"][2]
     assert set(sheet["column_hashes"]) == set(sheet["columns_below_header"])
     assert all(len(h) == 16 for h in sheet["column_hashes"].values())
 
@@ -232,11 +239,11 @@ def test_a_blanked_cell_is_hard(tmp_path):
 
 def test_compare_cli_exit_follows_hard_lines_only(tmp_path):
     a = tmp_path / "a.json"
-    a.write_text(json.dumps(fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1)),
+    a.write_text(json.dumps(fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1, KEY)),
                  encoding="utf-8")
     warn = tmp_path / "w.json"
     warn.write_text(json.dumps(fp.fingerprint(
-        _pair2_copy(tmp_path / "w.xlsx", {"C3": "SECRETVALUE1"}), 1)), encoding="utf-8")
+        _pair2_copy(tmp_path / "w.xlsx", {"C3": "SECRETVALUE1"}), 1, KEY)), encoding="utf-8")
     out = _run("--compare", str(a), str(warn))
     assert out.returncode == 0 and "WARN" in out.stdout and "HARD" not in out.stdout
     # an older fingerprint without column hashes: WARN, never a crash or a stop
@@ -246,3 +253,75 @@ def test_compare_cli_exit_follows_hard_lines_only(tmp_path):
     warn.write_text(json.dumps(old), encoding="utf-8")
     out = _run("--compare", str(a), str(warn))
     assert out.returncode == 0 and "column hashes absent in B" in out.stdout
+
+
+# --- keyed value hashes (2026-10-13): HMAC-SHA256, key id recorded, refusal ---
+
+
+def _no_key(monkeypatch, tmp_path):
+    monkeypatch.delenv(fp.KEY_ENV, raising=False)
+    monkeypatch.setattr(fp, "KEY_FILE", tmp_path / "absent.key")
+
+
+def test_value_hashes_are_hmac_under_the_key_and_the_key_id_is_recorded(tmp_path):
+    entry = fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1, KEY)
+    assert entry["key_id"] == fp._sha(KEY)[:8]
+    sheet = entry["sheets"][2]
+    # not the plain sha256 of the same text: without the key nobody can test a guess
+    plain = fp.fingerprint(_pair2_copy(tmp_path / "b.xlsx"), 1, b"another-key")["sheets"][2]
+    assert sheet["column_hashes"] != plain["column_hashes"]
+    assert sheet["body_hash"] != plain["body_hash"]
+    assert sheet["columns_below_header"] == plain["columns_below_header"]
+
+
+def test_no_key_writes_structure_only_and_says_why(tmp_path, monkeypatch, capsys):
+    _no_key(monkeypatch, tmp_path)
+    assert fp.load_key() is None
+    x = _pair2_copy(tmp_path / "a.xlsx")
+    assert fp.main([str(x), "--json"]) == 0
+    captured = capsys.readouterr()
+    assert fp.NO_KEY in captured.err
+    entry = json.loads(captured.out)
+    assert entry["key_id"] is None
+    assert all("body_hash" not in s and "column_hashes" not in s for s in entry["sheets"])
+    assert entry["sheets"][2]["columns_below_header"]          # structure still there
+    assert "body#-" in "\n".join(fp.render(entry))
+
+
+def test_key_file_is_read_and_env_wins(tmp_path, monkeypatch):
+    _no_key(monkeypatch, tmp_path)
+    keyfile = tmp_path / "fingerprint.key"
+    keyfile.write_text("file-key\n", encoding="utf-8")
+    monkeypatch.setattr(fp, "KEY_FILE", keyfile)
+    assert fp.load_key() == b"file-key"
+    monkeypatch.setenv(fp.KEY_ENV, "env-key")
+    assert fp.load_key() == b"env-key"
+
+
+def test_structure_only_flag_drops_value_hashes_even_with_a_key(tmp_path):
+    out = _run(str(_pair2_copy(tmp_path / "a.xlsx")), "--json", "--structure-only")
+    assert out.returncode == 0 and fp.NO_KEY not in out.stderr
+    entry = json.loads(out.stdout)
+    assert entry["key_id"] is None and "body_hash" not in entry["sheets"][2]
+
+
+def test_compare_refuses_fingerprints_made_under_different_keys(tmp_path):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps(fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1, KEY)),
+                 encoding="utf-8")
+    b.write_text(json.dumps(fp.fingerprint(_pair2_copy(tmp_path / "b.xlsx"), 1, b"other")),
+                 encoding="utf-8")
+    out = _run("--compare", str(a), str(b))
+    assert out.returncode == 2 and out.stdout.startswith("REFUSED")
+    assert "different keys" in out.stdout and "HARD" not in out.stdout
+
+
+def test_compare_keyed_against_structure_only_is_a_warn(tmp_path):
+    a, s = tmp_path / "a.json", tmp_path / "s.json"
+    a.write_text(json.dumps(fp.fingerprint(_pair2_copy(tmp_path / "a.xlsx"), 1, KEY)),
+                 encoding="utf-8")
+    s.write_text(json.dumps(fp.fingerprint(_pair2_copy(tmp_path / "s.xlsx"), 1)),
+                 encoding="utf-8")
+    out = _run("--compare", str(a), str(s))
+    assert out.returncode == 0 and "HARD" not in out.stdout
+    assert "value hashes absent in B (structure-only)" in out.stdout

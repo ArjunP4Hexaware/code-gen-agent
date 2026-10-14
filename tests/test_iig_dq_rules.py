@@ -75,16 +75,24 @@ def _v(row, header):
 def test_stage_rules_per_file_in_the_corpus_order(dq):
     rows, spec = dq
     stage = [r for r in rows if _v(r, "RULE_TYPE") != "STDDelta"]
-    files = {_v(r, "OBJECT_ID") for r in stage}
-    per_file = len(stage) // len(files)
-    assert per_file == 4 and len(stage) == 4 * len(files)
-    first = stage[:4]
+    files = list(dict.fromkeys(_v(r, "OBJECT_ID") for r in stage))
+    per_file = [sum(_v(r, "OBJECT_ID") == f for r in stage) for f in files]
+    # D1 post45: + NullCheckRule / DeDuplicationRule, the baseline PER FEED — on the
+    # first file's object only; the split / custom-columns / referential rows per file
+    assert per_file == [5] + [3] * (len(files) - 1)
+    assert [_v(r, "RULE_CLASS") for r in stage[5:8]] == [
+        "LoadHeaderAndTrailerToSeparateTablesRule", "AddCustomColumnsRule",
+        "ReferentialCheckRule"]
+    assert [_v(r, "SEQUENCE_NO") for r in stage[5:8]] == [1, 2, 3]
+    first = stage[:5]
     assert [(_v(r, "RULE_TYPE"), _v(r, "RULE_CLASS"), _v(r, "SEQUENCE_NO")) for r in first] == [
         ("Predefined", "LoadHeaderAndTrailerToSeparateTablesRule", 1),
         ("Predefined", "AddCustomColumnsRule", 2),
         ("Predefined", "NullCheckRule", 3),
-        ("Custom", "ReferentialCheckRule", 4)]
-    split, custom, null, referential = first
+        ("Predefined", "DeDuplicationRule", 4),
+        ("Custom", "ReferentialCheckRule", 5)]
+    split, custom, null, dedup, referential = first
+    assert _v(dedup, "SOURCE_COLUMN") == _v(null, "SOURCE_COLUMN")     # the key columns
     header, trailer = spec.segments[0], spec.segments[2]
     assert _v(split, "SOURCE_COLUMN") == "|".join(
         ",".join(f.stage_column for f in seg.fields) for seg in (header, trailer))

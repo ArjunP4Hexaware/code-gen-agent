@@ -5,7 +5,50 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**Restart here (2026-10-14 night, post45).** The post44 report's six items
+**Restart here (2026-10-14 late night, post46).** Three briefs, one commit each, marker
+**0.5.8.post46**: de9cf44 LOB lookup, 3d6da2d environment input, then post45 patterns +
+bump. **Verified at the head:** see the commit / final report (full suite, ruff, tsc,
+vitest 34). Home CAQH (mock) vs its golden: TOTAL 75.8 -> 77.2 (DQ 86.9: the two per-feed
+baseline rows are extra vs that golden; ADLS 79.0; schedule 67.0; STGDELTA 62.1).
+- **LOB lookup (de9cf44, D1 pair_12).** The FRD's LOB cell may be a Region / LOB table
+  (nested or flattened under its header row): `FrdFeed.lob_table`, `lobs` = its LOB
+  column's codes (flag `frd_lob_table`). The resolver keys each file to ONE LOB:
+  plan-id column -> region column (REG# token in the file name) -> the client
+  `conventions.lob_reference` (plan id -> LOB; a D1 placeholder in acfc_env.yaml);
+  `FeedFile.lob_source` -> an `iig_lob` NOTE. Unkeyed files: ONE blocking QUESTION
+  `feeds[<i>].lob_by_file` ("file-to-LOB mapping for N files; FRD lists LOB codes ..."),
+  LOB cells open, generate exit 3; the answers template's `files:` block (every file a
+  key, candidates = the codes; values QUOTED — an unquoted 0100 is refused). Home CAQH:
+  region-only table -> the question; answered from the golden, 18/18. A feed-level LOB
+  cell holds one code (several -> open, iig_v1 too; pair-4 golden STGDELTA LOB now
+  blank). Gate `iig_single_value` (`gate.derivations.single_value_columns`: LOB,
+  CLAIM_TYPE*, flags, TGT_PARTITION_VALUE): a list / header word FAILS with its
+  address. Not FREQUENCY: iig_v1 still writes the FRD's cadence sentence there.
+- **Environment (3d6da2d).** `environments:` (acfc_env.yaml: D1 populated + default,
+  QA / PROD `<<QA:...>>` placeholders); exactly one default or config load fails.
+  `environment_cells` (ADLS / STGDELTA SRC_ / TGT_CONTAINER_NAME), `{storage_account}`
+  in dq_split_location. `codegen.environments`; `Config.run_environment`. CLI
+  `generate --environment | --environment-file`; neither = default + `INPUT_NEEDED
+  run.environment` (inputs: run.environment selects). NOTE `iig_env:`; report header
+  `environment: D1 (default|selected|custom)`. App: `GET/POST /api/demo/environment`,
+  EnvironmentSelector (+ "Other..." key: value box), banner item; dist index-DxbNWG9O.js.
+  The D1 overlay must now set `environments.D1.storage_account` (not dq_split_location).
+- **post45 patterns (patterns_post45, full lists).** `corpus_cells` gain `shares` per
+  key, `by: notebook_kind` (stg_to_std / fixed_width / pipe_segmented / delimited,
+  `_tpl` for `tpl_subdomains` TPL / Third Party Liability), `offer` (the per-LOB
+  schedule description in the NOTE when the feed fans out per LOB); `corpus_tokens`
+  hold the scrubbed G-tokens as D1 placeholders (handler prefixes G16_G17 / G17,
+  workspace folder G73, email word G564). Tokens {application} (APPLICATION_NAME =
+  owed with default {source}), {template_name}, {freq}. `owed_cells` gain `default`,
+  `when` (row condition), `header`: APPLICATION_NAME / EMAIL_TO written with defaults,
+  DQ INPUT_PARAM of NullCheckRule / DeDuplicationRule open — all INPUT_NEEDED. Email
+  4 rows (FilesNotReceived, New Files to Process, Success, Failed). DQ baseline
+  NullCheck + DeDuplication PER FEED (first file's object) + LRTrim; split /
+  AddCustomColumns only H/T; Referential on a named lookup. test_d1_placeholders: 10
+  lines open at home (SENDER_EMAIL, EMAIL_NOTIFICATION_URL, EMAIL_TO, 4 corpus_tokens,
+  storage account, lob_reference x2 lines).
+
+**Previous restart point (2026-10-14 night, post45).** The post44 report's six items
 (`acfc-pairing-check` `2026-10-14_post44.md` + `patterns_post44/`) are DONE, one commit each,
 marker **0.5.8.post45**. Owner rule for items 1–3 / 5: ONLY values `patterns.json` states;
 anything it does not carry is a `<<D1:NAME>>` placeholder (`codegen.config.is_d1_placeholder`):

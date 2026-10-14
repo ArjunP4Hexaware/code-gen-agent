@@ -71,7 +71,16 @@ def owed_inputs(spec, config, *, index: int | str, faq, output_mode=None,
     if tpl is None or not tpl.owed_cells:
         return []
     return [OwedInput(f"feeds[{index}].{name}", question, spec.feed_id)
-            for name, question in owed_questions(tpl, faq)]
+            for name, question in owed_questions(tpl, faq, _default_tokens(spec))]
+
+
+def _default_tokens(spec) -> dict:
+    """The tokens an owed cell's default may name (D1 post45: {source} — the
+    feed's SOURCE, APPLICATION_NAME's default)."""
+    from codegen.metadata_sheet import _feed_from_spec
+    from codegen.metadata_template import _source_value
+
+    return {"source": _source_value(_feed_from_spec(spec))}
 
 
 def input_line(item: OwedInput) -> str:
@@ -79,8 +88,8 @@ def input_line(item: OwedInput) -> str:
 
     return answer_line(INPUT_LABEL, item.key,
                        f"{item.question} (feed {item.feed}; not blocking — the workbook is "
-                       "written with the cell empty; give it under inputs: and rerun "
-                       "generate --answers)")
+                       "written without it, the cell empty or with the default named; give "
+                       "it under inputs: and rerun generate --answers)")
 
 
 def template_items(items: list[OwedInput]) -> list:

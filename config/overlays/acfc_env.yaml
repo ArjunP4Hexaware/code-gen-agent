@@ -192,19 +192,19 @@ metadata:
       # 2026-10-14 (D1 post44 item 2): the notebook NAME / PATH per flow come from
       # corpus_cells (below) - the SFMC / round-3 names (FileInvokeDQDeltaTable_V0.1,
       # DeltaInvokeDQStandardDeltaTable_V2) were the home references, not the corpus.
-      # Item 1: one EMAIL_TEMPLATE_CONFIG row per status the corpus uses on
-      # file-ingestion pipelines - 4 per feed, as the pair_2 golden (acfc-pairing-check
-      # 2026-10-14_post44.md). patterns.json names two (Success 23.1%, Failed 23.1%);
-      # TODO D1: the other two from the --patterns email table (e3689b0), in this list.
+      # D1 post45 item 4: one EMAIL_TEMPLATE_CONFIG row per status the corpus uses on
+      # file-ingestion pipelines - 4 per feed (patterns_post45 email: FilesNotReceived /
+      # New Files to Process on 293, Success / Failed on 349 file-ingestion pipelines;
+      # 293 pipelines carry all four), in the corpus's order.
       template_rows:
         DATABRICKS_NOTEBOOK_DETAILS:
           - {_layer: stage, _pipeline_role: file_to_stage, _citation: &nb "one framework notebook row per leg (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS rows 2 / 3; 2 rows per workbook in the corpus: 378 rows / 189 workbooks)"}
           - {_layer: standard, _pipeline_role: stage_to_standard, _citation: *nb}
         EMAIL_TEMPLATE_CONFIG:
+          - {STATUS: FilesNotReceived}
+          - {STATUS: New Files to Process}
           - {STATUS: Success}
           - {STATUS: Failed}
-          - {STATUS: "<<D1:EMAIL.STATUS_3>>"}
-          - {STATUS: "<<D1:EMAIL.STATUS_4>>"}
       # 2026-10-13 — the IIG corpus's fill rate (tools/iig_fill_rate.py; at home:
       # the SFMC reference IIG, the pair-1 golden and the CAQH golden; on D1 the
       # 199-IIG corpus): columns filled in >90% of corpus rows that the agent left
@@ -229,70 +229,128 @@ metadata:
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "corpus fill rate 2026-10-13: the process label (SFMC / CAQH goldens: the schedule's PROCESS_NAME, '<source> <subprocess>' - the documents state the source only); an FAQ process_name wins"
           PROCESS_NAME: "corpus fill rate 2026-10-13: the process label (as TEMPLATE_NAME); an FAQ process_name wins"
-      # 2026-10-14 (D1 post44 items 1-3): cells from the 199-IIG corpus's patterns
-      # report (acfc-pairing-check codegen-outputs/pairing_check/patterns_post44/
-      # patterns.json). ONLY values that file states are written; a value it does not
-      # carry (scrubbed G<n> / <LOCAL_DENYLIST>, or a per-flow / per-status list it
-      # has no breakdown for) is a <<D1:...>> placeholder: the cell stays open with
-      # an iig_d1_placeholder NOTE, and tests/test_d1_placeholders.py FAILS on D1
-      # while one survives. TODO D1: an overlay on top of this one (CODEGEN_CONFIG_
-      # OVERLAYS) replaces every placeholder, from the post-e3689b0 --patterns run
-      # (per-flow breakdown, email STATUS table, framework vocabulary unscrubbed).
-      # Every value carries its corpus share in the NOTE (iig_corpus:<TAB>.<HEADER>).
+      # 2026-10-14 (D1 post45): cells from the FULL patterns report
+      # (acfc-pairing-check codegen-outputs/pairing_check/patterns_post45/patterns.json,
+      # 1 255 workbooks; per-flow tables, the file-ingestion STATUS x SUBJECT x BODY
+      # table, the DQ rule classes). Every value carries its corpus share in the NOTE
+      # (iig_corpus:<TAB>.<HEADER>). A value the corpus still scrubs as a G-token —
+      # the handler-name prefix (G16_G17 fixed-width, G17 pipe), the workspace folder
+      # G73, the email body word G564, the sender / recipient addresses, the webhook
+      # URL — is a <<D1:...>> placeholder (here or in corpus_tokens): the cell stays
+      # open with an iig_d1_placeholder NOTE and tests/test_d1_placeholders.py FAILS on
+      # D1 while one survives (the D1 overlay on top sets them).
+      # Tokens: {application} = the schedule's APPLICATION_NAME (the FAQ / answers
+      # application_name, default the feed's SOURCE — INPUT_NEEDED with that default),
+      # the corpus's G1; {template_name} = the email row's TEMPLATE_NAME; {freq} = the
+      # feed's FREQUENCY (Daily / Weekly / Monthly); {domain}, {lob}.
+      corpus_tokens:
+        # patterns.json slots the fixed-width prefix as {domain} and the pipe one as
+        # {source}; kept as placeholders until D1 confirms what the prefix is
+        handler_prefix: "<<D1:NB.HANDLER_PREFIX>>"
+        pipe_handler_prefix: "<<D1:NB.PIPE_HANDLER_PREFIX>>"
+        workspace_folder: "<<D1:NB.WORKSPACE_FOLDER>>"
+        email_files_word: "<<D1:EMAIL.G564>>"
+      # A TPL subdomain selects the TPL_FileInvokeDQDeltaTable notebook (CAQH: "Third
+      # Party Liability").
+      tpl_subdomains: ["TPL", "Third Party Liability"]
       corpus_cells:
         EMAIL_TEMPLATE_CONFIG:
           SUBJECT:
             by: status
-            values: {Success: "<<D1:EMAIL.SUBJECT.Success>>", Failed: "<<D1:EMAIL.SUBJECT.Failed>>", "*": "<<D1:EMAIL.SUBJECT.other_status>>"}
-            share: "SUBJECT filled in 19.8% of corpus rows, 162 patterns, the dominant 3.4% (scrubbed G-tokens); no per-STATUS breakdown in patterns.json"
-            todo: "the dominant SUBJECT slot pattern per STATUS from the --patterns email table (file-ingestion pipelines)"
+            values:
+              FilesNotReceived: "{template_name} {freq} File Not Received -"
+              New Files to Process: "{template_name} {freq} File Received -"
+              Success: "{template_name} {freq} Load Completed -"
+              Failed: "{template_name} {freq} Load  Failed -"
+            share: "the file-ingestion STATUS x SUBJECT x BODY table (patterns_post45 email.combinations): '<TEMPLATE_NAME> <Freq> ...' per status — the top combination (G135 G499 G555 Daily) 2.3% of the 3 844 file-ingestion rows each, the same shape for History 2.0%; 'Load  Failed' has two spaces in the corpus"
           BODY:
             by: status
-            values: {Success: "<<D1:EMAIL.BODY.Success>>", Failed: "<<D1:EMAIL.BODY.Failed>>", "*": "<<D1:EMAIL.BODY.other_status>>"}
-            share: "BODY filled in 19.8% of corpus rows, 156 patterns, the dominant 21.7% (scrubbed G-tokens); no per-STATUS breakdown in patterns.json"
-            todo: "the dominant BODY slot pattern per STATUS from the --patterns email table"
-          ACTIVE_FLAG: {value: "Y", share: "Y in 100.0% of filled corpus rows"}
+            values:
+              FilesNotReceived: "{template_name} {freq} File Not Received"
+              New Files to Process: "Received The {email_files_word} Files for {template_name} {freq}"
+              Success: "{template_name} {freq} Data Load Successful"
+              Failed: "{template_name} {freq} Data Load Failed"
+            share: "the file-ingestion STATUS x SUBJECT x BODY table (patterns_post45): the BODY of the same combinations, 2.3% each; New Files to Process carries a scrubbed word (G564)"
+            todo: "the word G564 of the 'Received The <G564> Files for ...' body (corpus_tokens.email_files_word)"
+          ACTIVE_FLAG: {value: "Y", share: "Y in 100.0% of filled corpus rows (2 668)"}
           SENDER_NAME: {value: "dbo", share: "dbo in 97.8% of filled corpus rows (DBO 2.2%)"}
           SENDER_EMAIL:
             value: "<<D1:EMAIL.SENDER_EMAIL>>"
-            share: "one address in 97.7% of filled corpus rows (scrubbed G30@<LOCAL_DENYLIST>.G31)"
+            share: "one address in 97.7% of filled corpus rows (scrubbed G571@<LOCAL_DENYLIST>.G572)"
             todo: "the dominant sender address"
-          EMAIL_TO:
-            value: "<<D1:EMAIL.EMAIL_TO>>"
-            share: "one address in 47.6% of filled corpus rows (the dominant; 24 values), scrubbed G33@<LOCAL_DENYLIST>.G31"
-            todo: "the dominant recipient (47.6% - not a majority: confirm per feed)"
           EMAIL_NOTIFICATION_URL:
             value: "<<D1:EMAIL.EMAIL_NOTIFICATION_URL>>"
             share: "one webhook in 95.4% of corpus rows (scrubbed host <REAL_WEBHOOK_HOST>)"
             todo: "the dominant webhook URL"
         DATABRICKS_NOTEBOOK_DETAILS:
           DATABRICKS_NOTEBOOK_NAME:
-            by: flow
-            values: {file_to_stg: "<<D1:NB.NAME.file_to_stg>>", stg_to_std: "<<D1:NB.NAME.stg_to_std>>", dq: "<<D1:NB.NAME.dq>>"}
-            share: "15 name patterns in the corpus; dominant DeltaInvokeDQStandardDeltaTable_V4 29.6%, G4_V0.1 19.6%, {domain}_G6,FileInvokeDQDeltaTable 10.1% - no flow breakdown in patterns.json"
-            todo: "the flow -> notebook table from the --patterns per-flow breakdown"
+            by: notebook_kind
+            values:
+              stg_to_std: DeltaInvokeDQStandardDeltaTable_V4
+              fixed_width: "{handler_prefix}_FixedWidthHandler,FileInvokeDQDeltaTable"
+              fixed_width_tpl: "{handler_prefix}_FixedWidthHandler,TPL_FileInvokeDQDeltaTable"
+              pipe_segmented: "{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,FileInvokeDQDeltaTable"
+              pipe_segmented_tpl: "{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,TPL_FileInvokeDQDeltaTable"
+              delimited: FileInvokeDQDeltaTable_V0.1
+              delimited_tpl: TPL_FileInvokeDQDeltaTable
+            share: "patterns_post45 per-flow DATABRICKS_NOTEBOOK_NAME"
+            shares:
+              stg_to_std: "stg_to_std: DeltaInvokeDQStandardDeltaTable_V4 86.2% of 130 rows (V2 10.8%)"
+              fixed_width: "file_to_stg: G16_G17_FixedWidthHandler,FileInvokeDQDeltaTable 30.6% of 248 rows (the fixed-width two-notebook form)"
+              fixed_width_tpl: "file_to_stg: G16_G17_FixedWidthHandler,TPL_FileInvokeDQDeltaTable 9.7% of 248 rows (the TPL variant)"
+              pipe_segmented: "file_to_stg: G17_PIPE_DELIMITED_SEGMENT_HNDLR,FileInvokeDQDeltaTable 13.7% of 248 rows (the pipe-delimited segment form)"
+              pipe_segmented_tpl: "file_to_stg: the pipe-delimited segment form (13.7%) with the TPL notebook of the TPL variant (9.7%) — the corpus has the TPL variant only with the fixed-width handler: confirm on D1"
+              delimited: "file_to_stg: FileInvokeDQDeltaTable_V0.1 7.3% of 248 rows; FileInvokeDQDeltaTable_V0.2 4.0% — V0.1 picked, which version is current: flag for Nikshit"
+              delimited_tpl: "file_to_stg: the TPL notebook of the TPL variant (9.7%, there with the fixed-width handler); no plain-delimited TPL row in the corpus: confirm on D1"
+            todo: "the handler-name prefix (corpus_tokens.handler_prefix / pipe_handler_prefix; patterns.json slots it as {domain} / {source})"
           DATABRICKS_NOTEBOOK_PATH:
-            by: flow
-            values: {file_to_stg: "<<D1:NB.PATH.file_to_stg>>", stg_to_std: "<<D1:NB.PATH.stg_to_std>>", dq: "<<D1:NB.PATH.dq>>"}
-            share: "19 path patterns in the corpus; dominant /iig/DeltaInvokeDQStandardDeltaTable_V4 26.5%, /iig/G4_V0.1 19.6% - no flow breakdown in patterns.json"
-            todo: "the flow -> notebook path table from the --patterns per-flow breakdown"
+            by: notebook_kind
+            values:
+              stg_to_std: /iig/DeltaInvokeDQStandardDeltaTable_V4
+              fixed_width: "/Workspace/{workspace_folder}/{handler_prefix}_FixedWidthHandler,/Workspace/{workspace_folder}/FileInvokeDQDeltaTable"
+              fixed_width_tpl: "/Workspace/{workspace_folder}/{handler_prefix}_FixedWidthHandler,/Workspace/{workspace_folder}/TPL_FileInvokeDQDeltaTable"
+              pipe_segmented: "/Workspace/{workspace_folder}/{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,/Workspace/{workspace_folder}/FileInvokeDQDeltaTable"
+              pipe_segmented_tpl: "/Workspace/{workspace_folder}/{pipe_handler_prefix}_PIPE_DELIMITED_SEGMENT_HNDLR,/Workspace/{workspace_folder}/TPL_FileInvokeDQDeltaTable"
+              delimited: /Workspace/iig/FileInvokeDQDeltaTable_V0.1
+              delimited_tpl: "/Workspace/{workspace_folder}/TPL_FileInvokeDQDeltaTable"
+            share: "patterns_post45 per-flow DATABRICKS_NOTEBOOK_PATH"
+            shares:
+              stg_to_std: "stg_to_std: /iig/DeltaInvokeDQStandardDeltaTable_V4 76.9% of 130 rows"
+              fixed_width: "file_to_stg: /Workspace/G73/G16_G17_FixedWidthHandler,/Workspace/G73/FileInvokeDQDeltaTable 27.4% of 248 rows"
+              fixed_width_tpl: "file_to_stg: /Workspace/G73/G16_G17_FixedWidthHandler,/Workspace/G73/TPL_FileInvokeDQDeltaTable 12.9% of 248 rows"
+              pipe_segmented: "file_to_stg: /Workspace/G73/G17_PIPE_DELIMITED_SEGMENT_HNDLR,/Workspace/G73/FileInvokeDQDeltaTable 13.7% of 248 rows"
+              pipe_segmented_tpl: "the pipe-delimited segment path (13.7%) with the TPL notebook's (12.9%) — not a corpus row: confirm on D1"
+              delimited: "file_to_stg: /Workspace/iig/FileInvokeDQDeltaTable_V0.1 4.8% of 248 rows (/iig/... 2.4%; V0.2 4.0%)"
+              delimited_tpl: "the TPL notebook in the workspace folder (12.9%, there with the fixed-width handler) — not a corpus row: confirm on D1"
+            todo: "the workspace folder G73 and the handler-name prefix (corpus_tokens)"
           PROCESS_NAME:
             by: flow
-            values: {file_to_stg: "<<D1:NB.PROCESS_NAME.file_to_stg>>", stg_to_std: "<<D1:NB.PROCESS_NAME.stg_to_std>>"}
-            share: "107 patterns; dominant 'G1  Raw to stage load' 19.6% and 'G1  stage to std load' 19.6% (G1 a scrubbed constant, not a slot) - no flow breakdown in patterns.json"
-            todo: "the dominant slot pattern per flow (e.g. '{source} Raw to stage load') from the --patterns per-flow breakdown"
+            values:
+              file_to_stg: "{application}  Raw to stage load"
+              stg_to_std: "{application}  stage to std load"
+            share: "patterns_post45 per-flow PROCESS_NAME (the double space is the corpus's)"
+            shares:
+              file_to_stg: "file_to_stg: 'G1  Raw to stage load' 29.8% of 248 rows (G1 = the application)"
+              stg_to_std: "stg_to_std: 'G1  stage to std load' 56.9% of 130 rows (G1 = the application)"
           SEQ_NM: {value: "1", share: "1 in 64.6% of corpus rows"}
           ACTIVE_FLAG: {value: "Y", share: "Y in 98.9% of corpus rows"}
         DATA_FACTORY_PIPELINE_SCHEDULE:
           PIPELINE_DESCRIPTION:
             by: flow
-            values: {grand_master: "<<D1:SCHED.DESC.grand_master>>", master: "<<D1:SCHED.DESC.master>>", file_to_stg: "<<D1:SCHED.DESC.file_to_stg>>", stg_to_std: "<<D1:SCHED.DESC.stg_to_std>>"}
-            share: "395 patterns; dominant 'G1 Stage Load' 18.9% / 'G1 Standard Load' 18.9% (G1 a scrubbed constant) - no flow breakdown in patterns.json"
-            todo: "the dominant slot pattern per flow from the --patterns per-flow breakdown"
-          APPLICATION_NAME:
-            value: "<<D1:SCHED.APPLICATION_NAME>>"
-            share: "the dominant value G1 in 38.8% of corpus rows (27 values; scrubbed)"
-            todo: "one overlay value (Soham sets it on D1)"
+            values:
+              file_to_stg: "{application} Stage Load"
+              stg_to_std: "{application} Standard Load"
+              grand_master: "{application} Grand Master Pipeline"
+              master: "{application} Master Pipeline"
+            share: "patterns_post45 per-flow PIPELINE_DESCRIPTION (G1 = the application)"
+            shares:
+              file_to_stg: "file_to_stg: 'G1 Stage Load' 33.3% of 20 212 rows"
+              stg_to_std: "stg_to_std: 'G1 Standard Load' 64.0% of 10 514 rows"
+              grand_master: "grand_master: 'G1 Grand Master Pipeline' 6.2% of 2 922 rows (the top slot pattern)"
+              master: "master: 'G1 Master Pipeline' 9.8% of 1 850 rows (the top slot pattern)"
+            offer: "{domain} {lob} LOB {freq} File Pipeline Incremental Load to STAGE"
+            offer_when: lob_fanout
+            offer_share: "the per-LOB file_to_stg form, e.g. '{domain} 0550 LOB Daily File Pipeline Incremental Load to STAGE' 2.1%, one per LOB"
           DAY_OF_SCHEDULE:
             by: frequency
             values: {Weekly: "0"}
@@ -303,35 +361,63 @@ metadata:
             share: "filled in 38.4% of corpus rows: STAGE 88.7%, STANDARD 7.3%"
           ACTIVE_FLAG: {value: "Y", share: "Y in 97.5% of corpus rows"}
           NO_OF_CYCLE_PER_DAY: {value: "1", share: "1 in 98.2% of corpus rows"}
-      # ACTIVE_START_DATE: the per-RFC go-live date - no document states it, no value
-      # dominates (19.4%): owed. `generate` prints QUESTION feeds[<i>].active_start_date
-      # and writes it to answers_template.yaml; `generate --answers` (or the FAQ
-      # companion active_start_date) fills it.
+      # Owed cells: the person owes them, nothing waits on them (INPUT_NEEDED, never
+      # QUESTION; answers under inputs: with generate --answers, or the FAQ companion).
+      # ACTIVE_START_DATE: the per-RFC go-live date — no document states it, no value
+      # dominates (19.4%): written empty. D1 post45: APPLICATION_NAME and EMAIL_TO are
+      # written WITH a default (the feed's SOURCE; the corpus's dominant recipient, a
+      # D1 placeholder) so the BSA can change them; the NullCheckRule /
+      # DeDuplicationRule INPUT_PARAM shape is in no home golden: open until the D1
+      # dump supplies it.
       owed_cells:
         DATA_FACTORY_PIPELINE_SCHEDULE:
           ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}
-      # 2026-10-14 (D1 post44 item 5): DATA_QUALITY_RULES from the STTM, the corpus's
-      # classes in frequency order (patterns.json rule_classes: Predefined G72 186 /
-      # G73 160 rows = NullCheckRule (the pair_2 golden's Predefined class) and
-      # AddCustomColumnsRule (the CAQH golden's); STDDelta LRTrimRule 180; Custom
-      # ReferentialCheckRule 52; STDDelta DateConversionRule 34, DataTypeCastRule 32).
-      # Parameter formats: the CAQH golden (split / AddCustomColumns / Referential)
-      # and the SFMC reference IIG (fixtures/reference/SFMC_IIG.xlsx
-      # DATA_QUALITY_RULES: Referential, LRTrim, DateConversion, DataTypeCast).
-      dq_rules: [header_trailer_split, add_custom_columns, null_check, referential_check, lr_trim, std_date_conversion, std_data_type_cast]
-      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule}
-      dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta}
+          APPLICATION_NAME:
+            faq: application_name
+            question: "the application name (APPLICATION_NAME, the {application} of every PIPELINE_DESCRIPTION / PROCESS_NAME): the corpus's G1, 27 values, the dominant 38.8%"
+            default: "{source}"
+            default_share: "the feed's SOURCE, the vendor / source system the FRD states"
+        EMAIL_TEMPLATE_CONFIG:
+          EMAIL_TO:
+            faq: email_to
+            question: "the alert recipients (EMAIL_TO): the corpus's dominant recipient is 47.6% of filled rows (24 values) — not a majority, confirm per feed"
+            default: "<<D1:EMAIL.EMAIL_TO>>"
+            default_share: "the corpus's dominant recipient, 47.6% (scrubbed G576@<LOCAL_DENYLIST>.G572)"
+        DATA_QUALITY_RULES:
+          INPUT_PARAM@NullCheckRule:
+            header: INPUT_PARAM
+            when: {RULE_CLASS: NullCheckRule}
+            faq: dq_null_check_input_param
+            question: "the NullCheckRule INPUT_PARAM shape (no home golden carries one; the D1 dump supplies it)"
+          INPUT_PARAM@DeDuplicationRule:
+            header: INPUT_PARAM
+            when: {RULE_CLASS: DeDuplicationRule}
+            faq: dq_dedup_input_param
+            question: "the DeDuplicationRule INPUT_PARAM shape (no home golden carries one; the D1 dump supplies it)"
+      # 2026-10-14 (D1 post45 item 1): DATA_QUALITY_RULES from the STTM, the corpus's
+      # classes (patterns_post45 rule_classes): the baseline per feed NullCheckRule
+      # (Predefined, 186 rows / 114 workbooks), DeDuplicationRule (Predefined, 160 / 90
+      # — the second Predefined class; post44 had AddCustomColumnsRule there, 38 / 4),
+      # LRTrimRule (STDDelta, 180 / 104); DataTypeCastRule / DateConversionRule
+      # (STDDelta) when the STTM types call for them; AddCustomColumnsRule and
+      # LoadHeaderAndTrailerToSeparateTablesRule only for header / trailer feeds;
+      # ReferentialCheckRule (Custom) only on a named lookup. Parameter formats: the
+      # CAQH golden (split / AddCustomColumns / Referential) and the SFMC reference IIG.
+      dq_rules: [header_trailer_split, add_custom_columns, null_check, dedup, referential_check, lr_trim, std_date_conversion, std_data_type_cast]
+      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, dedup: DeDuplicationRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule}
+      dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, dedup: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta}
       dq_params:
         header_trailer_split: {INPUT_PARAM: SRC_FILE_NAME}
         add_custom_columns: {INPUT_PARAM: literal}
         referential_check: {INPUT_PARAM: stg_files.REF_RULE_VIEW, TARGET_COLUMN: REF_RULE_COL}
         lr_trim: {INPUT_PARAM: ""}
       dq_citations:
-        header_trailer_split: &dqcaqh "the CAQH golden's DATA_QUALITY_RULES rows (Predefined; INPUT_PARAM SRC_FILE_NAME, SOURCE_COLUMN header|trailer columns, TARGET_COLUMN catalog,schema,table,location per table)"
-        add_custom_columns: *dqcaqh
-        null_check: "the pair_2 golden's Predefined NullCheckRule rows (acfc-pairing-check 2026-10-14_post44.md); the corpus's top Predefined class"
-        referential_check: "the CAQH golden and fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES (Custom; INPUT_PARAM stg_files.REF_RULE_VIEW, TARGET_COLUMN REF_RULE_COL)"
-        lr_trim: &dqsfmc "fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES STDDelta rows (SOURCE_COLUMN = TARGET_COLUMN the standard columns)"
+        header_trailer_split: &dqcaqh "the CAQH golden's DATA_QUALITY_RULES rows (Predefined; INPUT_PARAM SRC_FILE_NAME, SOURCE_COLUMN header|trailer columns, TARGET_COLUMN catalog,schema,table,location per table); the corpus 36 rows / 2 workbooks"
+        add_custom_columns: "the CAQH golden's AddCustomColumnsRule rows (Predefined; a header / trailer feed's audit literal); the corpus 38 rows / 4 workbooks"
+        null_check: "the corpus's top Predefined class (patterns_post45 rule_classes: NullCheckRule 186 rows / 114 workbooks); the pair_2 golden's NullCheckRule rows"
+        dedup: "the corpus's second Predefined class (patterns_post45 rule_classes: DeDuplicationRule 160 rows / 90 workbooks); SOURCE_COLUMN = the detail table's key columns, INPUT_PARAM owed"
+        referential_check: "the CAQH golden and fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES (Custom; INPUT_PARAM stg_files.REF_RULE_VIEW, TARGET_COLUMN REF_RULE_COL); the corpus 52 rows / 16 workbooks"
+        lr_trim: &dqsfmc "fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES STDDelta rows (SOURCE_COLUMN = TARGET_COLUMN the standard columns); the corpus LRTrimRule 180 rows / 104 workbooks"
         std_date_conversion: *dqsfmc
         std_data_type_cast: *dqsfmc
       dq_split_style: header_and_trailer

@@ -155,11 +155,13 @@ def test_the_acfc_overlay_names_one_framework_notebook_per_leg():
         ("stage", "file_to_stage"), ("standard", "stage_to_standard")]
     assert all("DATABRICKS_NOTEBOOK_NAME" not in r for r in rows)
     names = tpl.corpus_cells["DATABRICKS_NOTEBOOK_DETAILS"]["DATABRICKS_NOTEBOOK_NAME"]
-    assert names.by == "flow" and set(names.values) >= {"file_to_stg", "stg_to_std"}
+    # D1 post45: by the flow AND the file format (+ a TPL subdomain)
+    assert names.by == "notebook_kind" and set(names.values) >= {
+        "stg_to_std", "fixed_width", "pipe_segmented", "delimited", "fixed_width_tpl"}
     assert "PIPELINE_NAME" not in rows[0]        # its {feed} token is the client's: open
-    # item 1: one email row per status the corpus uses (4 per feed, the pair_2 golden)
+    # one email row per status the corpus uses on file-ingestion pipelines (4 per feed)
     statuses = [r["STATUS"] for r in tpl.template_rows["EMAIL_TEMPLATE_CONFIG"]]
-    assert statuses[:2] == ["Success", "Failed"] and len(statuses) == 4
+    assert statuses == ["FilesNotReceived", "New Files to Process", "Success", "Failed"]
 
 
 # -- pair 11 end to end ---------------------------------------------------------- #

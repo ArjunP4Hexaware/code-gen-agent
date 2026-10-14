@@ -85,7 +85,10 @@ def _derive(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
 
 
 def _source_value(feed: FrdFeed) -> str:
-    return str(_source_cell(feed)["value"] or "").strip()
+    """The {source} token: the SOURCE cell's value; '' when the FRD states no
+    source (the docx reader's 'unstated' is a placeholder, never a name)."""
+    value = str(_source_cell(feed)["value"] or "").strip()
+    return "" if value.lower() == "unstated" else value
 
 
 _OPEN_OFFER_TOOLTIP = ("open — no input states it; candidate, NOT written (confirm before "
@@ -107,7 +110,7 @@ def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict,
             cell["badge_entry"]["deliberate_blank"] = True
             cells[header] = cell
     _corpus(tpl, tab, cells, context or {})
-    _owed(tpl, tab, cells, faq)
+    _owed(tpl, tab, cells, faq, context or {})
     return _placeholders(tab, _pending(tpl, tab, cells))
 
 
@@ -146,51 +149,115 @@ def _corpus(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
                 f"for {filled} only ({rule.share}; {_PATTERNS_REPORT})")
             cells[header] = cell
             continue
-        if is_placeholder(shape):
+        share = _corpus_key(rule.shares, key) if rule.by and rule.shares else None
+        share = share or rule.share
+        tokens_map = {**tpl.corpus_tokens, **context}
+        tokens = _DERIVED_TOKEN_RE.findall(shape)
+        filled = shape
+        if not is_placeholder(shape):
+            if any(not str(tokens_map.get(t) or "").strip() for t in tokens):
+                continue
+            filled = _DERIVED_TOKEN_RE.sub(
+                lambda m, values=tokens_map: str(values[m.group(1)]).strip(), shape)
+        if is_placeholder(filled):
+            # a value the corpus still scrubs (a G-token): open until the D1 overlay
             todo = rule.todo or "the D1 overlay sets it"
-            cell = _cell("", "needs_template", f"open — {shape}: {todo} (corpus: {rule.share})")
+            shown = shape if shape == filled else f"{shape} = {filled}"
+            cell = _cell("", "needs_template", f"open — {shown}: {todo} (corpus: {share})")
             cell["badge_entry"]["note"] = (
-                f"iig_d1_placeholder:{tab}.{header} — {shape}{where} left blank: TODO {todo} "
-                f"(corpus: {rule.share})")
+                f"iig_d1_placeholder:{tab}.{header} — {shown}{where} left blank: TODO {todo} "
+                f"(corpus: {share})")
             cells[header] = cell
             continue
-        tokens = _DERIVED_TOKEN_RE.findall(shape)
-        if any(not str(context.get(t) or "").strip() for t in tokens):
-            continue
-        value = _DERIVED_TOKEN_RE.sub(lambda m: str(context[m.group(1)]).strip(), shape)
-        cell = _cell(value, "synthetic", f"IIG corpus{where}: {shape!r} — {rule.share} "
-                                         f"({_PATTERNS_REPORT})")
-        cell["badge_entry"]["note"] = (f"iig_corpus:{tab}.{header} — {shape!r}{where}: "
-                                       f"{rule.share} ({_PATTERNS_REPORT})")
+        cell = _cell(filled, "synthetic", f"IIG corpus{where}: {shape!r} — {share} "
+                                          f"({_PATTERNS_REPORT})")
+        note = f"iig_corpus:{tab}.{header} — {shape!r}{where}: {share} ({_PATTERNS_REPORT})"
+        offer = _corpus_offer(rule, tokens_map)
+        if offer:
+            note += offer
+        cell["badge_entry"]["note"] = note
         cells[header] = cell
 
 
-def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq) -> None:
+def _corpus_offer(rule, tokens_map: dict) -> str:
+    """The NOTE's alternative shape (never written) for a row whose context
+    sets ``offer_when`` — e.g. the per-LOB pipeline description."""
+    if not rule.offer or not rule.offer_when or not tokens_map.get(rule.offer_when):
+        return ""
+    offered = _DERIVED_TOKEN_RE.sub(
+        lambda m: str(tokens_map.get(m.group(1)) or f"<{m.group(1)}>").strip(), rule.offer)
+    return (f"; alternative for a feed that fans out per LOB: {offered!r}"
+            + (f" ({rule.offer_share})" if rule.offer_share else "") + " — not written")
+
+
+def _cell_text(cell: dict | None) -> str:
+    return str(cell["value"] if cell is not None and cell["value"] is not None else "")
+
+
+def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
+          context: dict | None = None) -> None:
     """``owed_cells``: the FAQ companion's answer (an answers-file answer rides
-    in as one), else open with a NOTE (iig_owed) — the CLI asks the QUESTION."""
-    for header, rule in tpl.owed_cells.get(tab, {}).items():
+    in as one); else the rule's ``default`` written (tokens from ``context``; a
+    placeholder leaves it open) or the cell open — a NOTE (iig_owed) either
+    way, and the CLI prints the INPUT_NEEDED line. A rule with ``when`` applies
+    only to the rows whose cells hold those values."""
+    for key, rule in tpl.owed_cells.get(tab, {}).items():
+        header = rule.header or key
+        if any(_cell_text(cells.get(column)).strip() != value
+               for column, value in rule.when.items()):
+            continue
         answer = getattr(faq, rule.faq, None) if faq is not None else None
         if answer is not None and answer.source != "unknown" and str(answer.value).strip():
             from codegen.metadata_sheet import _faq_cell as base
 
             cells[header] = base(answer, f"{rule.question} — answered")
             continue
-        cell = _cell("", "needs_template", f"owed: {rule.question}")
-        cell["badge_entry"]["note"] = (
-            f"iig_owed:{tab}.{header} — {rule.question} (QUESTION feeds[<i>].{rule.faq}: "
-            f"answer under gaps: with generate --answers, or the load-pattern FAQ {rule.faq})")
+        how = (f"INPUT_NEEDED feeds[<i>].{rule.faq}: answer under inputs: with generate "
+               f"--answers, or the load-pattern FAQ {rule.faq}")
+        default = _owed_default(rule, {**tpl.corpus_tokens, **(context or {})})
+        if default and not is_placeholder(default):
+            share = rule.default_share or "default"
+            cell = _cell(default, "synthetic",
+                         f"default {default!r} ({share}) — owed: {rule.question}")
+            cell["badge_entry"]["note"] = (
+                f"iig_owed:{tab}.{key} — {rule.question}; written with the default "
+                f"{rule.default!r} = {default!r} ({rule.default_share or 'default'}) ({how})")
+            cells[header] = cell
+            continue
+        shown = f" (default {rule.default!r}, a value the D1 overlay sets)" if default else ""
+        cell = _cell("", "needs_template", f"owed: {rule.question}{shown}")
+        cell["badge_entry"]["note"] = f"iig_owed:{tab}.{key} — {rule.question}{shown} ({how})"
         cells[header] = cell
 
 
-def owed_questions(tpl: MetadataTemplateConfig, faq) -> list[tuple[str, str]]:
-    """(FAQ companion, question) of every owed cell the FAQ leaves unanswered."""
+def _owed_default(rule, tokens: dict) -> str:
+    """The owed rule's default with its tokens filled ('' when a token has no
+    value; a placeholder stays a placeholder)."""
+    if not rule.default:
+        return ""
+    if any(not str(tokens.get(t) or "").strip() for t in _DERIVED_TOKEN_RE.findall(rule.default)):
+        return ""
+    return _DERIVED_TOKEN_RE.sub(lambda m: str(tokens[m.group(1)]).strip(), rule.default)
+
+
+def owed_questions(tpl: MetadataTemplateConfig, faq,
+                   tokens: dict | None = None) -> list[tuple[str, str]]:
+    """(FAQ companion, question) of every owed cell the FAQ leaves unanswered;
+    a rule with a default says which value was written (``tokens`` fill it)."""
     out: list[tuple[str, str]] = []
     for rules in tpl.owed_cells.values():
         for rule in rules.values():
             answer = getattr(faq, rule.faq, None) if faq is not None else None
-            if (answer is None or answer.source == "unknown" or not str(answer.value).strip()) \
-                    and (rule.faq, rule.question) not in out:
-                out.append((rule.faq, rule.question))
+            if answer is not None and answer.source != "unknown" and str(answer.value).strip():
+                continue
+            question = rule.question
+            if rule.default:
+                value = _owed_default(rule, {**tpl.corpus_tokens, **(tokens or {})})
+                question += (f" — written with the default {value!r}"
+                             if value and not is_placeholder(value) else
+                             f" — default {rule.default!r} (set on D1)")
+            if rule.faq not in [name for name, _q in out]:
+                out.append((rule.faq, question))
     return out
 
 
@@ -892,7 +959,7 @@ def _feed_token(feed: FrdFeed, faq) -> tuple[str, str]:
     return normalize_feed_name(feed.feed_name).upper(), "the feed slug (no FAQ feed_abbreviation)"
 
 
-def _pipeline_roles(tab, feed, faq, tpl) -> list[dict]:
+def _pipeline_roles(tab, feed, faq, tpl, extra: dict | None = None) -> list[dict]:
     """Step 5: the four structural rows (grand master -> master -> file-to-
     stage, stage-to-standard). Names from the naming convention, parent by
     position: the top pipeline's parent is 0 (METADATA_DB_SEMANTICS §2), every
@@ -926,15 +993,25 @@ def _pipeline_roles(tab, feed, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
-        context = _row_context(feed, faq, cells, role.role)
+        context = {**_row_context(feed, faq, cells, role.role), **(extra or {})}
         _derive(tpl, tab, cells, context)
         rows.append(_with_constants(tpl, tab, cells, context, faq))
     return rows
 
 
+def _lob_context(spec: ResolvedFeedSpec | None, config: Config) -> dict:
+    """D1 post45: a feed that fans out per LOB (files with several LOBs) —
+    the schedule's per-LOB description is offered in its NOTE."""
+    if spec is None:
+        return {}
+    lobs = list(dict.fromkeys(f.lob for f in _feed_files(spec, config) if f.lob))
+    return {"lob_fanout": "yes" if len(lobs) > 1 else "",
+            "lob": "<LOB: " + ", ".join(lobs) + ">" if len(lobs) > 1 else ""}
+
+
 def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
     if not tpl.template_rows.get(tab) and tpl.pipeline_roles:
-        return _pipeline_roles(tab, feed, faq, tpl)
+        return _pipeline_roles(tab, feed, faq, tpl, _lob_context(spec, config))
     rows = tpl.template_rows.get(tab) or [{}]
     out = []
     for template_row in rows:
@@ -946,7 +1023,8 @@ def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
-        context = _row_context(feed, faq, cells, template_row.get("_pipeline_role"))
+        context = {**_row_context(feed, faq, cells, template_row.get("_pipeline_role")),
+                   **_lob_context(spec, config)}
         _derive(tpl, tab, cells, context)
         out.append(_with_constants(tpl, tab, cells, context, faq))
     return out
@@ -1396,8 +1474,10 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
         if process is not None:
             cells["PROCESS_NAME"] = process
         notebook = cells.get("DATABRICKS_NOTEBOOK_NAME")
+        flow = _ROLE_FLOWS.get(template_row.get("_pipeline_role") or "", "")
         context = {
             **_row_context(feed, faq, cells, template_row.get("_pipeline_role")),
+            "notebook_kind": _notebook_kind(flow, feed, spec, tpl, config),
             "layer": layer.capitalize(),
             "notebook": notebook["value"] if notebook is not None else "",
             "pipeline": _role_pipeline_name(feed, faq, tpl, template_row.get("_pipeline_role")),
@@ -1413,13 +1493,49 @@ _ROLE_FLOWS = {"file_to_stage": "file_to_stg", "stage_to_standard": "stg_to_std"
                "grand_master": "grand_master", "master": "master"}
 
 
+def _notebook_kind(flow: str, feed: FrdFeed, spec: ResolvedFeedSpec | None,
+                   tpl: MetadataTemplateConfig, config: Config) -> str:
+    """The notebook a leg runs (D1 post45, patterns_post45 file_to_stg values):
+    stg_to_std; else by the file format — fixed_width (a FixedWidthHandler),
+    pipe_segmented (a pipe-delimited H / D / T feed: the PIPE_DELIMITED segment
+    handler), delimited — with ``_tpl`` when the subdomain is a TPL one
+    (``tpl_subdomains``: the TPL_FileInvokeDQDeltaTable variant)."""
+    from codegen.resolve.resolver import _is_fixed_width
+
+    if flow != "file_to_stg":
+        return flow
+    file_format = (spec.file_format if spec is not None else feed.file_format) or ""
+    delimiter = spec.delimiter if spec is not None else feed.delimiter
+    segmented = spec.is_segmented if spec is not None else bool(feed.record_segments)
+    if _is_fixed_width(file_format, config):
+        kind = "fixed_width"
+    elif delimiter == "|" and segmented:
+        kind = "pipe_segmented"
+    else:
+        kind = "delimited"
+    sub = (feed.sub_domain or "").strip().lower()
+    tpl_sub = any(re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", sub)
+                  for t in tpl.tpl_subdomains if t.strip())
+    return f"{kind}_tpl" if tpl_sub else kind
+
+
 def _row_context(feed: FrdFeed, faq, cells: dict, role: str | None) -> dict:
     """The tokens / row keys of derived_cells and corpus_cells: {source},
-    {feed}, the row's flow (its pipeline role) and PIPELINE_FREQUENCY."""
+    {feed}, the row's flow (its pipeline role) and PIPELINE_FREQUENCY; D1
+    post45: {application} (the FAQ application_name, else the feed's SOURCE —
+    the schedule's APPLICATION_NAME default), {freq} (the feed's FREQUENCY
+    token, title case: Daily / Weekly / Monthly) and {domain}."""
     frequency = cells.get("PIPELINE_FREQUENCY")
+    stated = getattr(faq, "application_name", None) if faq is not None else None
+    application = (str(stated.value).strip() if stated is not None
+                   and stated.source != "unknown" and str(stated.value).strip()
+                   else _source_value(feed))
+    freq = str(_frequency(feed, faq)["value"] or "").strip()
     return {"source": _source_value(feed), "feed": _feed_token(feed, faq)[0],
             "flow": _ROLE_FLOWS.get(role or "", role or ""),
-            "frequency": str(frequency["value"] or "") if frequency is not None else ""}
+            "frequency": str(frequency["value"] or "") if frequency is not None else "",
+            "application": application, "freq": freq[:1].upper() + freq[1:].lower(),
+            "domain": feed.domain or ""}
 
 
 def _role_pipeline_name(feed: FrdFeed, faq, tpl: MetadataTemplateConfig,
@@ -1608,13 +1724,21 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
                                         f"the STTM's audit row {column}: a literal default"),
                  "TARGET_COLUMN": _cell(column, "from_sttm", "the audit column (STTM)")}
                 for column, literal in _audit_literals(spec, tpl)]
-    if kind == "null_check":
+    if kind in ("null_check", "dedup"):
+        # D1 post45: the baseline PER FEED — once, on the first file's object
+        # (NullCheckRule 186 rows / 114 workbooks, DeDuplicationRule 160 / 90: ~1.6
+        # per workbook, not one per file); over the detail table's key columns.
         keyed = set(_primary_key(fields, "stage")) | set(spec.not_null_columns)
         columns = [f.stage_column for f in fields if f.stage_column in keyed]
         if not columns:
-            return []
-        return [_columns_rule(tpl, kind, columns, "the detail table's Primary Key / not-null "
-                                                  "columns (STTM Stage band)")]
+            rule = _dq_head(tpl, kind)
+            rule["SOURCE_COLUMN"] = _cell("", "needs_template",
+                                          "the STTM marks no Primary Key / not-null column on "
+                                          "the detail table — open")
+            return [{**rule, "_per_feed": True}]
+        return [{**_columns_rule(tpl, kind, columns, "the detail table's Primary Key / "
+                                                     "not-null columns (STTM Stage band)"),
+                 "_per_feed": True}]
     if kind == "referential_check":
         recycle = spec.recycle
         if recycle is None:
@@ -1696,7 +1820,7 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
     return []
 
 
-def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
+def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:  # noqa: C901
     """Rule 5 + the STTM-derived rules. Stage-leg kinds are keyed per FILE
     (decision 2026-10-07): for each ADLS object its rows in ``dq_rules``
     order, OBJECT_ID = the file's position, as on the ADLS row. STDDelta kinds
@@ -1714,7 +1838,8 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
     rows = []
     for number, file in enumerate(files, start=1):
         pattern = _wildcarded(file.pattern, tpl) if file is not None else None
-        for index, rule in enumerate(rules, start=1):
+        kept = [rule for rule in rules if number == 1 or not rule.get("_per_feed")]
+        for index, rule in enumerate(kept, start=1):
             cells = {k: v for k, v in rule.items() if not k.startswith("_")}
             if rule.get("_per_file") == "INPUT_PARAM" and pattern is not None:
                 cells["INPUT_PARAM"] = _cell(pattern, "from_frd",
@@ -1724,7 +1849,7 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
                                          _TEMPLATE_TOOLTIP.format(citation=tpl.citation))
             if pattern is not None:
                 cells["OBJECT_ID"] = _sequence_cell(number, f"file ({pattern})")
-            rows.append(_with_constants(tpl, tab, cells))
+            rows.append(_with_constants(tpl, tab, cells, {}, faq))
     std_kinds = [kind for kind in tpl.dq_rules if kind in _STD_KINDS]
     if std_kinds and spec.standard_table is not None:
         all_files = _feed_files(spec, config)
@@ -1763,6 +1888,8 @@ def _email_templates(tab, feed, config, spec, faq, tpl) -> list[dict]:
                    "sender": config.job.notification_sender,
                    "status": str(template_row.get("STATUS") or "")}
         _derive(tpl, tab, cells, context)
+        # D1 post45: the subject / body's {template_name} is the row's TEMPLATE_NAME
+        context["template_name"] = _cell_text(cells.get("TEMPLATE_NAME")).strip()
         out.append(_with_constants(tpl, tab, cells, context, faq))
     return out
 

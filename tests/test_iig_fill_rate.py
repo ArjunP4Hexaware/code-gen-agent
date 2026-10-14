@@ -39,22 +39,25 @@ SCHED, NB, EMAIL = ("DATA_FACTORY_PIPELINE_SCHEDULE", "DATABRICKS_NOTEBOOK_DETAI
 # 2026-10-13 (tools/iig_fill_rate.py, the home goldens) — each now filled.
 # 2026-10-14 (D1 post44 items 1-3): the 199-IIG corpus decides; what its patterns
 # report does not state is a <<D1:...>> placeholder (open, iig_d1_placeholder).
+# D1 post45 (patterns_post45, the full lists): the descriptions, the application
+# name (its default), the notebook names / paths / process names (pair_11 is a plain
+# delimited feed: no scrubbed handler prefix) and the four statuses are filled now.
 FILLED_NOW = {
-    SCHED: [],
-    NB: ["PIPELINE_NAME"],
-    EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SENDER_NAME"],
+    SCHED: ["PIPELINE_DESCRIPTION", "APPLICATION_NAME"],
+    NB: ["PIPELINE_NAME", "PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH",
+         "DATABRICKS_NOTEBOOK_NAME"],
+    EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SENDER_NAME", "STATUS", "SUBJECT"],
 }
-# open until the D1 overlay sets them (tests/test_d1_placeholders.py)
-D1_OPEN = {SCHED: ["PIPELINE_DESCRIPTION", "APPLICATION_NAME"],
-           NB: ["PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH", "DATABRICKS_NOTEBOOK_NAME"],
-           EMAIL: ["SUBJECT", "BODY", "SENDER_EMAIL", "EMAIL_TO"]}
+# open until the D1 overlay sets them (tests/test_d1_placeholders.py): the scrubbed
+# sender address (a placeholder) and the recipients (owed, a placeholder default)
+D1_OPEN = {EMAIL: ["SENDER_EMAIL", "EMAIL_TO"]}
+D1_PLACEHOLDER = {EMAIL: ["SENDER_EMAIL"]}
 # the home goldens fill these; the corpus does not (DAY_OF_SCHEDULE blank unless
-# Weekly), or no document does (ACTIVE_START_DATE owed), or 2 of the 4 statuses
-# are D1 placeholders (STATUS)
-OPEN_GAPS = {SCHED: ["PIPELINE_DESCRIPTION", "DAY_OF_SCHEDULE", "ACTIVE_START_DATE",
-                     "APPLICATION_NAME"],
-             NB: ["PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH", "DATABRICKS_NOTEBOOK_NAME"],
-             EMAIL: ["STATUS", "SUBJECT", "BODY", "SENDER_EMAIL", "EMAIL_TO"]}
+# Weekly), or no document does (ACTIVE_START_DATE owed), or the value is scrubbed
+# (SENDER_EMAIL, EMAIL_TO; BODY: 1 of the 4 status bodies carries the word G564)
+OPEN_GAPS = {SCHED: ["DAY_OF_SCHEDULE", "ACTIVE_START_DATE"],
+             NB: [],
+             EMAIL: ["BODY", "SENDER_EMAIL", "EMAIL_TO"]}
 
 pytestmark = pytest.mark.skipif(not all(p.exists() for p in CORPUS),
                                 reason="committed goldens absent")
@@ -92,7 +95,8 @@ def test_every_corpus_filled_column_is_filled_now(generated):
     assert len(derived) == 3 == len(set(derived))      # PIPELINE_NAME, TEMPLATE / PROCESS_NAME
     placeholders = {f.split(" — ")[0] for f in gate.flags
                     if f.startswith("iig_d1_placeholder:")}
-    assert {f"iig_d1_placeholder:{s}.{c}" for s, cs in D1_OPEN.items() for c in cs} <= placeholders
+    assert {f"iig_d1_placeholder:{s}.{c}" for s, cs in D1_PLACEHOLDER.items()
+            for c in cs} <= placeholders
     assert not [f for f in gate.flags if f.startswith("iig_pending:")]
 
 
@@ -117,8 +121,7 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
     # corpus values are production text: withheld unless --show-values
     assert all(c["dominant_value"] is None for s in report.values()
                for c in s["columns"].values())
-    assert ("GAPS (4): PIPELINE_DESCRIPTION, DAY_OF_SCHEDULE, ACTIVE_START_DATE, "
-            "APPLICATION_NAME") in capsys.readouterr().out
+    assert "GAPS (2): DAY_OF_SCHEDULE, ACTIVE_START_DATE" in capsys.readouterr().out
 
 
 def test_fill_rate_statuses_on_a_synthetic_corpus(tmp_path):

@@ -86,7 +86,7 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
         d1.containers["stage"], d1.containers["standard"])
     report = _report(tmp_path, spec)
     assert "environment: D1 (default)" in report
-    assert "inputs needed: 2" in report                       # + ACTIVE_START_DATE
+    assert "inputs needed: 6" in report       # + the post45 owed cells (5 per feed)
     assert (f"iig_env:{ADLS}.TGT_CONTAINER_NAME — '{d1.containers['stage']}' from environment "
             "D1 (default): containers.stage") in report
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")

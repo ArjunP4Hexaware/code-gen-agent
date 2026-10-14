@@ -1265,10 +1265,20 @@ class CorpusCellConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     value: str | None = None
-    by: Literal["flow", "status", "frequency"] | None = None
+    # 2026-10-14 (D1 post45): + notebook_kind (the flow, the file format and a
+    # TPL subdomain: stg_to_std, fixed_width[_tpl], pipe_segmented[_tpl],
+    # delimited[_tpl] — metadata_template._notebook_kind)
+    by: Literal["flow", "status", "frequency", "notebook_kind"] | None = None
     values: dict[str, str] = Field(default_factory=dict)
     share: str
+    # the share of each ``values`` key (the NOTE names it; else ``share``)
+    shares: dict[str, str] = Field(default_factory=dict)
     todo: str | None = None
+    # An alternative shape offered in the NOTE (never written) for a row whose
+    # context sets ``offer_when`` (e.g. lob_fanout: a feed that fans out per LOB).
+    offer: str | None = None
+    offer_when: str | None = None
+    offer_share: str | None = None
 
     @model_validator(mode="after")
     def _one_source(self) -> CorpusCellConfig:
@@ -1290,6 +1300,16 @@ class OwedCellConfig(BaseModel):
 
     faq: str
     question: str
+    # 2026-10-14 (D1 post45): the column when the key is a label (two owed
+    # cells of one column, e.g. DATA_QUALITY_RULES INPUT_PARAM per rule class);
+    # ``when`` = the row's cell values it applies to ({RULE_CLASS: NullCheckRule});
+    # ``default`` = a shape written while unanswered ({source} ... tokens, a
+    # <<D1:...>> placeholder leaves it open) — still an INPUT_NEEDED line,
+    # "with that default", so the BSA can change it.
+    header: str | None = None
+    when: dict[str, str] = Field(default_factory=dict)
+    default: str | None = None
+    default_share: str | None = None
 
 
 class EnvironmentConfig(BaseModel):
@@ -1350,7 +1370,7 @@ class MetadataTemplateConfig(BaseModel):
     # std_date_conversion (a Date column whose load rule states the formats),
     # std_data_type_cast (standard columns typed other than String).
     dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast",
-                           "add_custom_columns", "null_check", "referential_check",
+                           "add_custom_columns", "null_check", "dedup", "referential_check",
                            "lr_trim", "std_date_conversion", "std_data_type_cast"]] = Field(
         default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
@@ -1375,6 +1395,11 @@ class MetadataTemplateConfig(BaseModel):
     # 2026-10-14 (D1 post44 items 1-3): cells from the corpus patterns report,
     # {tab: {header: CorpusCellConfig}}; owed cells {tab: {header: OwedCellConfig}}.
     corpus_cells: dict[str, dict[str, CorpusCellConfig]] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post45): extra tokens for corpus_cells shapes (a value the
+    # corpus still scrubs is a <<D1:...>> placeholder: the cell stays open) and
+    # the subdomains that select a notebook kind's TPL variant.
+    corpus_tokens: dict[str, str] = Field(default_factory=dict)
+    tpl_subdomains: list[str] = Field(default_factory=list)
     owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
     # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
     # refs containers.<layer> / storage_account / values.<name>) — each with an

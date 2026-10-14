@@ -476,7 +476,7 @@ makes a pair NEEDS_ANSWERS:
 ```
 QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet …; answer under gaps: in answers.yaml)
 UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
-INPUT_NEEDED   feeds[0].active_start_date — <question> (feed …; not blocking — the workbook is written with the cell empty; give it under inputs: and rerun generate --answers)
+INPUT_NEEDED   feeds[0].active_start_date — <question> (feed …; not blocking — the workbook is written without it, the cell empty or with the default named; give it under inputs: and rerun generate --answers)
 NOTE           <sheet>/source/pii — <reason> — informational, not required to run
 ```
 

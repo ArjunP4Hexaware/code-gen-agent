@@ -705,6 +705,11 @@ def emit_framework(
     profile = config.conventions.get(conventions_profile)
     template_name, template_cfg = config.metadata.resolve(iig_template)
     flags: list[str] = []
+    if template_cfg is not None and template_cfg.environment_cells:
+        # 2026-10-14: which environment the run used (the report header names it)
+        from codegen.environments import environment_flags
+
+        flags += environment_flags(config)
 
     payload = metadata_sheet_payload(
         config, root,

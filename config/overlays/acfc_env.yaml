@@ -14,6 +14,37 @@
 # The suite (CODEGEN_SKIP_ENV_OVERLAY=1) stays on the shipped edo_sfmc / iig_v1.
 # Every CLI command's first line and `codegen doctor` name the active profile
 # and template.
+# 2026-10-14: the deployment ENVIRONMENTS a run chooses from — container names,
+# the storage account and other workspace-scoped values are a run input, never
+# silent constants (codegen.environments). CLI --environment <name> /
+# --environment-file <yaml>; the App's run form (the default preselected, or
+# "Other"). With neither, the default is used and INPUT_NEEDED run.environment
+# records it. Every cell filled from here carries an iig_env NOTE naming the
+# environment; the report header prints "environment: D1 (default)". Exactly one
+# entry is marked default. D1 is the only populated one; QA / PROD are
+# placeholders (a cell they fill stays open) until their values are known.
+environments:
+  D1:
+    default: true
+    description: "ACFC D1 workspace (the SD prod rows' containers, round 6 / 7; the CAQH golden)"
+    containers:
+      # ADLS leg: files land in the landing container, the stage table is written
+      # to the stage container (SD prod rows, the SFMC reference IIG, the pair-1
+      # golden ADLS_DELTA!Z2 / AD2); the stage -> standard leg reads the stage
+      # container and writes the standard one (acfc-results round7 pair_2)
+      landing: mftlanding
+      stage: z-use-d1-dlk-stage-01
+      standard: z-use-d1-dlk-std-01
+    # TODO D1: the stage storage account (the CAQH golden's abfss://<container>@<account>...)
+    storage_account: "<<D1:STORAGE_ACCOUNT>>"
+  QA:
+    description: "QA — values not known yet"
+    containers: {landing: "<<QA:CONTAINER.landing>>", stage: "<<QA:CONTAINER.stage>>", standard: "<<QA:CONTAINER.standard>>"}
+    storage_account: "<<QA:STORAGE_ACCOUNT>>"
+  PROD:
+    description: "PROD — values not known yet"
+    containers: {landing: "<<PROD:CONTAINER.landing>>", stage: "<<PROD:CONTAINER.stage>>", standard: "<<PROD:CONTAINER.standard>>"}
+    storage_account: "<<PROD:STORAGE_ACCOUNT>>"
 conventions:
   profile: acfc_prx
   # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands state
@@ -70,8 +101,6 @@ metadata:
           SRC_ADLS_CONNECTION_ID: "7"
           METADATA_CONNECTION_ID: "4"
           TGT_CONNECTION_ID: "2"
-          SRC_CONTAINER_NAME: mftlanding
-          TGT_CONTAINER_NAME: z-use-d1-dlk-stage-01
           # Round 6 (2026-10-13): the same in the SD prod rows, the SFMC reference
           # IIG and the pair-1 golden (ADLS_DELTA!Z2 / AD2); a FAQ has_header /
           # has_trailer answer still wins (derived cells are never overwritten).
@@ -87,13 +116,16 @@ metadata:
         # container (the ADLS TGT_CONTAINER_NAME above) and writes the standard
         # one - the SD prod rows <prefix>-stage-01 / <prefix>-std-01 (acfc-results
         # round7 pair_2 mismatches.md), the CAQH golden the same pair in prod.
+        # 2026-10-14: the containers moved to the run's environment (environments:
+        # above, environment_cells below).
+      environment_cells:
+        ADLS_DELTA_INGESTION_DETAILS:
+          SRC_CONTAINER_NAME: containers.landing
+          TGT_CONTAINER_NAME: containers.stage
         STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_CONTAINER_NAME: z-use-d1-dlk-stage-01
-          TGT_CONTAINER_NAME: z-use-d1-dlk-std-01
+          SRC_CONTAINER_NAME: containers.stage
+          TGT_CONTAINER_NAME: containers.standard
       constant_citations:
-        STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_CONTAINER_NAME: &stgcont "ACFC environment overlay: the stage container the ADLS leg writes (ADLS TGT_CONTAINER_NAME) and the standard container - SD prod rows <prefix>-stage-01 / <prefix>-std-01 (acfc-results round7 pair_2), the CAQH golden's STGDELTA rows"
-          TGT_CONTAINER_NAME: *stgcont
         DATA_FACTORY_PIPELINE_SCHEDULE:
           ACTIVE_END_DATE: "the IIG corpus (D1, 2026-10-14): ACTIVE_END_DATE 100% one value; the pair_2 golden rows '9999-12-31 00:00:00' (acfc-results round5 pair_2)"
         ADLS_DELTA_INGESTION_DETAILS:
@@ -102,8 +134,6 @@ metadata:
           SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
           METADATA_CONNECTION_ID: *acfc
           TGT_CONNECTION_ID: *acfc
-          SRC_CONTAINER_NAME: *acfc
-          TGT_CONTAINER_NAME: *acfc
       # Stage -> standard (2026-10-09): no document and no real row stated this
       # sheet's containers or connection ids, so they stayed OPEN (Friday
       # checklist 2 / 13) and the stage container rode only as an offer.
@@ -305,8 +335,9 @@ metadata:
         std_date_conversion: *dqsfmc
         std_data_type_cast: *dqsfmc
       dq_split_style: header_and_trailer
-      # TODO D1: the stage storage account (the CAQH golden's abfss://<container>@<account>...).
-      dq_split_location: "abfss://{container}@<<D1:STORAGE_ACCOUNT>>.dfs.core.windows.net/{domain_path}Processed/{table}/"
+      # {container} = the environment's stage container, {storage_account} its storage
+      # account (environments: above; D1's is still a placeholder).
+      dq_split_location: "abfss://{container}@{storage_account}.dfs.core.windows.net/{domain_path}Processed/{table}/"
       # 2026-10-14 (D1 post43 item 4): the prod ADLS_DELTA_INGESTION_DETAILS table
       # has a 55th column, FILE_METADATA - NULL on every SD prod row, blank in the
       # SFMC / CAQH IIGs; the iig_v2 template (from the pair-1 RFC package) lacks

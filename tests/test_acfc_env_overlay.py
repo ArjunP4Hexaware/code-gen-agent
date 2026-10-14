@@ -75,7 +75,9 @@ def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_pat
             assert values[header] == expected
             badge, tooltip = tooltips[header]
             assert badge == "SYNTHETIC"
-            assert "config/overlays/acfc_env.yaml" in tooltip
+            # 2026-10-14: the containers come from the run's environment (D1)
+            assert ("config/overlays/acfc_env.yaml" in tooltip
+                    or "environment D1 (default): containers." in tooltip)
         # SCHEMA_DRIFT_FLAG is a feed-family setting since 2026-10-09: the
         # overlay pins the SD family's value — N since round 6 (the SD prod rows
         # and both reference IIGs), not a constant.

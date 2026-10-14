@@ -172,7 +172,8 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK
     lines = [ln for ln in out.splitlines() if ln.startswith(("QUESTION", "UNRESOLVED",
-                                                              "INPUT_NEEDED"))]
+                                                              "INPUT_NEEDED"))
+             and not ln.startswith("INPUT_NEEDED   run.environment")]   # the environment
     assert len(lines) == 1 and lines[0].startswith("INPUT_NEEDED   feeds[")
     key = lines[0][15:].split(" — ", 1)[0]
     assert key.endswith(".active_start_date")
@@ -180,14 +181,14 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     assert xlsx.is_file()
     assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")
-    assert "0 open question(s), 1 input(s) needed" in template
-    assert "gaps: {}" in template and f'inputs:\n  "{key}":' in template
+    assert "0 open question(s), 2 input(s) needed" in template    # + run.environment
+    assert "gaps: {}" in template and f'\n  "{key}":' in template.split("inputs:", 1)[1]
     # the report counts them apart
     report = (tmp_path / "reports" / f"{specs[0].feed_slug}.md").read_text(encoding="utf-8")
-    assert "**Answers owed** — questions: 0, inputs needed: 1" in report
+    assert "**Answers owed** — questions: 0, inputs needed: 2" in report  # + environment
     answers = tmp_path / "answers.yaml"
-    answers.write_text(f'inputs:\n  "{key}": {{value: "2026-11-01 00:00:00"}}\n',
-                       encoding="utf-8")
+    answers.write_text(f'inputs:\n  "{key}": {{value: "2026-11-01 00:00:00"}}\n'
+                       '  "run.environment": {value: D1}\n', encoding="utf-8")
     code = _generate(config, pair, only_feed=feed, answers_path=answers)
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK and "INPUT_NEEDED" not in out and "QUESTION" not in out
@@ -215,7 +216,8 @@ def test_the_same_feed_plus_one_question_exits_3(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == cli.EXIT_NEEDS_ANSWERS
     assert [ln.split()[0] for ln in out.splitlines()
-            if ln.startswith(("QUESTION", "INPUT_NEEDED"))] == ["QUESTION", "INPUT_NEEDED"]
+            if ln.startswith(("QUESTION", "INPUT_NEEDED"))
+            and "run.environment" not in ln] == ["QUESTION", "INPUT_NEEDED"]
 
 
 def test_the_harness_regex_never_reads_an_input_needed_line():

@@ -184,10 +184,12 @@ def test_overlay_path_shapes_render_the_real_target_shape(tmp_path):
     config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY, overlay])
     spec, _gate, xlsx = _run(FRD, config, tmp_path)
     (row, *_more) = _rows(xlsx, "ADLS_DELTA_INGESTION_DETAILS")
+    from codegen.environments import apply_environment
     from codegen.metadata_template import _domain_path, _landing, _landing_rel
 
-    rel = _landing_rel(config.metadata.templates["iig_v2"], "ADLS_DELTA_INGESTION_DETAILS",
-                       _landing(_frd_feed(spec)))
+    # 2026-10-14: the landing container is the run environment's (applied per run)
+    rel = _landing_rel(apply_environment(config.metadata.templates["iig_v2"], config),
+                       "ADLS_DELTA_INGESTION_DETAILS", _landing(_frd_feed(spec)))
     stage = spec.detail_segment.stage_table.table
     assert row["SRC_ADLS_PATH"][0] == rel                             # the shape wins
     assert row["SRC_ADLS_ARCHVL_PATH"][0] == f"{rel}Archive/"

@@ -827,6 +827,11 @@ def metadata_sheet_payload(
     contract = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
 
     template_name, template_cfg = config.metadata.resolve(template)
+    if template_cfg is not None:
+        # 2026-10-14: the run's environment fills the template's environment_cells
+        from codegen.environments import apply_environment
+
+        template_cfg = apply_environment(template_cfg, config)
     profile = config.conventions.get(conventions_profile)
     sheet = template_cfg if template_cfg is not None else config.demo.metadata_sheet
     always_blank = set(sheet.always_blank)

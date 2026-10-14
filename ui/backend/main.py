@@ -946,6 +946,34 @@ class GenerationOptionsRequest(BaseModel):
     playbook_template: str | None = None
 
 
+class EnvironmentRequest(BaseModel):
+    # name = one of the overlay's environments; custom = the "Other" box's
+    # values (containers.<layer>, storage_account, values.<name>); neither =
+    # back to the default
+    name: str | None = None
+    custom: dict[str, str] | None = None
+    custom_name: str | None = None
+
+
+@app.get("/api/demo/environment")
+def environment_options() -> dict:
+    """2026-10-14: the run's environment — the overlay's choices (one
+    default), the choice in effect and its source (default / selected / custom)."""
+    return _require_runner().environment_options()
+
+
+@app.post("/api/demo/environment")
+def select_environment(req: EnvironmentRequest) -> dict:
+    try:
+        _require_runner().select_environment(name=req.name, custom=req.custom,
+                                             custom_name=req.custom_name)
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _require_runner().environment_options()
+
+
 @app.get("/api/demo/generation-options")
 def generation_options() -> dict:
     """M6: the conventions profile / IIG template / playbook template

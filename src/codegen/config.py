@@ -1292,6 +1292,34 @@ class OwedCellConfig(BaseModel):
     question: str
 
 
+class EnvironmentConfig(BaseModel):
+    """One deployment environment of the overlay's ``environments:`` block
+    (2026-10-14, codegen.environments): the containers per layer (landing /
+    stage / standard), the storage account and any other environment-scoped
+    value. A ``<<ENV:...>>`` placeholder leaves the cells it fills open.
+    Exactly one entry is marked ``default: true``."""
+
+    model_config = _MODEL_CONFIG
+
+    default: bool = False
+    description: str = ""
+    containers: dict[str, str] = Field(default_factory=dict)
+    storage_account: str = ""
+    values: dict[str, str] = Field(default_factory=dict)
+
+
+class RunEnvironment(BaseModel):
+    """The environment one run uses (set at run time, never in YAML):
+    ``source`` default (nothing chosen), selected (a named choice) or custom
+    (values given for the run)."""
+
+    model_config = _MODEL_CONFIG
+
+    name: str
+    source: Literal["default", "selected", "custom"]
+    entry: EnvironmentConfig
+
+
 class MetadataTemplateConfig(BaseModel):
     """An IIG workbook template version (M4) other than the default
     ``iig_v1`` (= ``demo.metadata_sheet``): sheets + headers transcribed
@@ -1348,6 +1376,11 @@ class MetadataTemplateConfig(BaseModel):
     # {tab: {header: CorpusCellConfig}}; owed cells {tab: {header: OwedCellConfig}}.
     corpus_cells: dict[str, dict[str, CorpusCellConfig]] = Field(default_factory=dict)
     owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
+    # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
+    # refs containers.<layer> / storage_account / values.<name>) — each with an
+    # iig_env NOTE (codegen.environments). ``environment`` is set at run time.
+    environment_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
+    environment: RunEnvironment | None = None
     date_format_rule_regex: str = r"^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$"
     date_format_param_joiner: str = "--"
     cast_type_order: list[str] = Field(default_factory=list)
@@ -1771,6 +1804,22 @@ class Config(BaseModel):
     storage: StorageConfig = StorageConfig()
     inputs: InputsConfig = InputsConfig()
     upstream: UpstreamConfig = UpstreamConfig()
+    # 2026-10-14: the deployment environments a run chooses from (the overlay's
+    # block; exactly one marked default) and the one THIS run uses (set at run
+    # time by codegen.environments.with_environment, never in YAML).
+    environments: dict[str, EnvironmentConfig] = Field(default_factory=dict)
+    run_environment: RunEnvironment | None = None
+
+    @model_validator(mode="after")
+    def _one_default_environment(self) -> Config:
+        marked = [name for name, env in self.environments.items() if env.default]
+        if self.environments and len(marked) != 1:
+            found = ", ".join(marked) if marked else "none"
+            raise ValueError(
+                f"environments: exactly one environment must be marked `default: true` "
+                f"(found {found} among {', '.join(self.environments)}) — mark one in the "
+                "overlay's environments block")
+        return self
 
 
 _TOP_LEVEL_KEYS = set(Config.model_fields)

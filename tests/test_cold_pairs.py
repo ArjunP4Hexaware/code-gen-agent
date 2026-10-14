@@ -150,7 +150,9 @@ def test_cold_pair_completes_after_the_answers(pair, cold_env, capsys):
     # go-live date no document states) — an INPUT_NEEDED line, never a QUESTION
     assert _needed(out) == [] and not re.search(r"^FAIL ", out, re.MULTILINE), out
     inputs = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED")]
-    assert inputs and all(".active_start_date — " in ln for ln in inputs), out
+    # + 2026-10-14: the environment the run assumed (D1, the default), once
+    assert inputs and all(".active_start_date — " in ln or
+                          ln.startswith("INPUT_NEEDED   run.environment — ") for ln in inputs), out
     verdicts = re.findall(r"^(PASS_WITH_FLAGS|PASS|FAIL)\s", out, re.MULTILINE)
     assert verdicts and set(verdicts) <= {"PASS", "PASS_WITH_FLAGS"}, out
 

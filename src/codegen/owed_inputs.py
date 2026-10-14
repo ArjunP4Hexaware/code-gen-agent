@@ -103,8 +103,9 @@ def answers_owed(flags: list[str]) -> tuple[list[str], list[str]]:
             sheet_layer, _sep, role = where.rpartition("/")
             if is_required_role(sheet_layer.rpartition("/")[2], role):
                 questions.append(where)
-        elif flag.startswith("iig_owed:"):
-            inputs.append(flag[len("iig_owed:"):].split(" — ", 1)[0])
+        elif flag.startswith(("iig_owed:", "environment_assumed:")):
+            # + 2026-10-14: the environment the run assumed (the default)
+            inputs.append(flag.split(":", 1)[1].split(" — ", 1)[0])
         elif flag.startswith("lob_unkeyed:"):
             # 2026-10-14 (D1 pair_12): the feed's ONE file-to-LOB question
             questions.append(flag[len("lob_unkeyed:"):].split(" — ", 1)[0])
@@ -116,7 +117,8 @@ def owed_header(flags: list[str]) -> str:
     questions, inputs = answers_owed(flags)
     line = f"**Answers owed** — questions: {len(questions)}, inputs needed: {len(inputs)}"
     if inputs:
-        line += (" (not blocking — the workbook is written with these cells empty: "
+        line += (" (not blocking — the workbook is written without them, a cell empty or a "
+                 "default assumed: "
                  + ", ".join(inputs) + ")")
     return line
 

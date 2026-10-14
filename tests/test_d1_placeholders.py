@@ -47,6 +47,8 @@ def test_no_d1_placeholder_survives_a_d1_run():
             *placeholders(config.conventions.lob_reference, "conventions.lob_reference")]
     left += [f"conventions.lob_reference key = {k}"
              for k in config.conventions.lob_reference if is_d1_placeholder(k)]
+    # 2026-10-14: the D1 environment's values (the storage account)
+    left += placeholders(config.environments["D1"].model_dump(), "environments.D1")
     if on_d1():
         assert not left, ("D1 overlay missing values for:\n  " + "\n  ".join(left))
     assert left, "the ACFC overlay names its D1 placeholders (home)"

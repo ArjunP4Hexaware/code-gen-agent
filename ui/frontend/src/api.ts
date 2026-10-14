@@ -83,6 +83,31 @@ export interface GenerationOptions {
   playbook_template: GenerationOptionGroup;
 }
 
+// The run's environment (2026-10-14, GET/POST /api/demo/environment): the
+// overlay's environments block, one marked default; "custom" = the values the
+// person typed under "Other".
+export interface EnvironmentOption {
+  name: string;
+  default: boolean;
+  description: string;
+  values: Record<string, string>;
+}
+
+export interface EnvironmentOptions {
+  options: EnvironmentOption[];
+  default: string | null;
+  selected: string | null;
+  source: "default" | "selected" | "custom" | null;
+  custom: Record<string, string> | null;
+  fields: string[];
+}
+
+export interface EnvironmentChoice {
+  name: string | null;
+  custom: Record<string, string> | null;
+  custom_name: string | null;
+}
+
 export type RunMode = "mock" | "live" | "replay";
 
 export interface FeedsResponse {
@@ -927,6 +952,13 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ parts }),
+    }),
+  environment: () => request<EnvironmentOptions>("/api/demo/environment"),
+  setEnvironment: (body: EnvironmentChoice) =>
+    request<EnvironmentOptions>("/api/demo/environment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     }),
   generationOptions: () => request<GenerationOptions>("/api/demo/generation-options"),
   setGenerationOptions: (body: {

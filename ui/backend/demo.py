@@ -349,6 +349,9 @@ class DemoRunner:
         # template. In-memory only, like the output mode.
         self.conventions_profile: str | None = None
         self.iig_template: str | None = None
+        # 2026-10-14: the run's environment — None = the default; else
+        # {"name": <a choice>} or {"custom": {...}, "custom_name": <name>}
+        self.environment_choice: dict | None = None
         self.playbook_template: str | None = None
         # Structured hint for the failed-run card: when a feed-match
         # failure has a known companion FRD, the UI renders a one-click
@@ -1082,6 +1085,57 @@ class DemoRunner:
         self.conventions_profile = conventions_profile
         self.iig_template = iig_template
         self.playbook_template = playbook_template
+
+    def run_environment(self, config=None):
+        """The environment the next run uses (codegen.environments): the
+        choice made on the run form, else the default."""
+        from codegen.environments import select_environment
+
+        config = config or self._store.config
+        choice = self.environment_choice or {}
+        return select_environment(config, name=choice.get("name"), custom=choice.get("custom"),
+                                  custom_name=choice.get("custom_name"))
+
+    def select_environment(self, *, name: str | None = None, custom: dict | None = None,
+                           custom_name: str | None = None) -> None:
+        """Record the run form's environment (a name, "Other" values, or None =
+        the default); raises ValueError (EnvironmentSelectionError) when unusable."""
+        with self._lock:
+            if self.state == "running":
+                raise LiveRunInProgress(
+                    "cannot change the environment while a live run is in progress")
+        from codegen.environments import select_environment
+
+        if custom is not None:
+            choice = {"custom": dict(custom), "custom_name": custom_name or "custom"}
+        else:
+            choice = {"name": name} if name else None
+        if choice is not None:
+            select_environment(self._store.config, name=choice.get("name"),
+                               custom=choice.get("custom"),
+                               custom_name=choice.get("custom_name"))   # validates
+        self.environment_choice = choice
+
+    def environment_options(self) -> dict:
+        """The run form's selector: the overlay's environments (one default),
+        the choice in effect and its source, the "Other" box's field names."""
+        from codegen.environments import default_name, flat_values
+
+        config = self._store.config
+        env = self.run_environment(config)
+        default = default_name(config)
+        fields = list(flat_values(config.environments[default])) if default else []
+        return {
+            "options": [{"name": name, "default": entry.default,
+                         "description": entry.description, "values": flat_values(entry)}
+                        for name, entry in config.environments.items()],
+            "default": default,
+            "selected": env.name if env is not None else None,
+            "source": env.source if env is not None else None,
+            "custom": flat_values(env.entry) if env is not None and env.source == "custom"
+                      else None,
+            "fields": fields,
+        }
 
     def generation_options(self) -> dict:
         """What the selectors offer + what is selected (None = config default)."""
@@ -2053,6 +2107,17 @@ class DemoRunner:
             spec, config, index=index, faq=faq_for_spec(spec, config, base_dir=REPO_ROOT),
             output_mode=self.effective_output_parts(), iig_template=self.iig_template)]
 
+    def _environment_input(self, config, env) -> list[dict]:
+        """The banner item of a run on the DEFAULT environment (framework
+        output, a template with environment cells): which one was assumed."""
+        from codegen.environments import INPUT_KEY, assumed_question
+
+        tpl = config.metadata.templates.get(self.iig_template or config.metadata.template)
+        if env is None or env.source != "default" or tpl is None \
+                or not tpl.environment_cells or "framework" not in self.effective_output_parts():
+            return []
+        return [{"key": INPUT_KEY, "question": assumed_question(config, env), "feed": ""}]
+
     def _note_undecided_vdd(self) -> None:
         """M15e: a run started while the dictionaries are still being indexed
         runs WITHOUT a VDD and says so — never with a name-only guess."""
@@ -2420,6 +2485,10 @@ class DemoRunner:
 
         self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
         specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)
+        # 2026-10-14: the run's environment (the run form's choice, else the
+        # default — then a non-blocking "inputs needed" item names it)
+        run_env = self.run_environment(config)
+        self.inputs_needed += self._environment_input(config, run_env)
 
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = list(pre_failures)
@@ -2443,6 +2512,7 @@ class DemoRunner:
                     iig_template=self.iig_template,
                     playbook_template=self.playbook_template,
                     layout_usage=layout_usage,
+                    environment=run_env,
                 )
                 self.inputs_needed += self._owed_inputs(spec, config, frd_path)
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run

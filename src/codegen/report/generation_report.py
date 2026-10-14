@@ -224,6 +224,11 @@ def write_generation_report(
 
     if any(answers_owed(list(gate.flags))):
         lines += [owed_header(list(gate.flags)), ""]
+    from codegen.environments import header_line
+
+    environment = header_line(list(gate.flags))     # 2026-10-14: the run's environment
+    if environment is not None:
+        lines += [environment, ""]
     lines += _contracts_section(spec)
     lines += _inputs_section(inputs_summary)
     lines += _files_section(written_files, out_root)

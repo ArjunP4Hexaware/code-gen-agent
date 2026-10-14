@@ -106,6 +106,28 @@ environment's constants and the SDOH path shapes — and, since Chunk D
   after `acfc_env.yaml` (later wins). Which convention is current for new feeds
   is on the Friday checklist (`docs/acfc/MULTI_TABLE_DESIGN.md` §7a).
 
+### The run's environment (2026-10-14)
+
+Container names, the storage account and other workspace-scoped values are a
+**run input**, not overlay constants. The overlay's `environments:` block lists
+the choices (D1 populated; QA / PROD placeholders until their values are known),
+each with `containers` per layer (landing / stage / standard), a
+`storage_account` and free `values`; exactly one is `default: true` (config load
+fails naming the block otherwise). The IIG template's `environment_cells` say
+which cell takes which value (ADLS / STGDELTA `SRC_` / `TGT_CONTAINER_NAME`);
+the DQ split rule's location takes `{storage_account}`.
+
+- CLI: `generate --environment <name>` or `--environment-file <yaml>` (a block of
+  the same keys, optionally under its name). With neither, the default is used and
+  `INPUT_NEEDED   run.environment — … assumed D1 …` records it (non-blocking; an
+  answers file's `inputs: run.environment: {value: QA}` selects one on a rerun).
+- App: the Generate page's **Environment** selector (the default preselected) or
+  **Other…** — a box of `key: value` lines (`containers.stage: …`) used as the
+  environment of the next run (`GET` / `POST /api/demo/environment`).
+- Every cell filled from it carries an `iig_env:` NOTE naming the environment; a
+  placeholder value (`<<QA:…>>`) leaves the cell open. The feed report's header
+  prints `environment: D1 (default)` / `(selected)` / `(custom)`.
+
 ### Which codegen runs (2026-10-07: a stale wheel shadowed the tree)
 
 The Apps venv once kept an old pip-installed `codegen` while

@@ -495,6 +495,9 @@ def _run_pairs(
     inputs = _answers_inputs(answers_path)
     gaps = _answers_gaps(answers_path)
     owed_items: list = []
+    config, env_item = _run_environment(config, inputs, output_mode, iig_template)
+    if env_item is not None:
+        owed_items.append(env_item)
     failed = False
     matched_feed = False
     needs_answers = False
@@ -553,6 +556,34 @@ def _run_pairs(
     # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
     # asked for (a QUESTION / UNRESOLVED line) exits 3
     return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
+
+
+def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_template):
+    """2026-10-14: the run's environment. An answers-file ``inputs:
+    run.environment`` selects one when no flag did; a run on the default
+    prints ONE INPUT_NEEDED line naming the environment it assumed (and returns
+    its answers-template item). Only framework runs whose IIG template has
+    environment cells use one."""
+    from codegen import environments as envs
+    from codegen.output_modes import output_parts
+
+    tpl = config.metadata.templates.get(iig_template or config.metadata.template)
+    if "framework" not in output_parts(output_mode if output_mode else config.output.mode) \
+            or tpl is None or not tpl.environment_cells:
+        return config, None
+    chosen = config.run_environment
+    if inputs.get(envs.INPUT_KEY) and (chosen is None or chosen.source == "default"):
+        config = envs.with_environment(config, envs.select_environment(
+            config, name=inputs[envs.INPUT_KEY]))
+    env = envs.run_environment(config)
+    if env is None or env.source != "default":
+        return config, None
+    from codegen.layout.answers_template import TemplateItem
+
+    question = envs.assumed_question(config, env)
+    print(answer_line("INPUT_NEEDED", envs.INPUT_KEY,
+                      f"{question} (not blocking — the run used {env.name})"))
+    return config, TemplateItem(envs.INPUT_KEY, question, list(config.environments), "inputs")
 
 
 def _lob_question(spec):
@@ -1619,7 +1650,8 @@ def main(argv: list[str] | None = None) -> int:
         set_flag(None)
 
 
-def _main(argv: list[str] | None = None) -> int:
+def _parser() -> argparse.ArgumentParser:
+    """The CLI's argument parser (every subcommand)."""
     parser = argparse.ArgumentParser(prog="codegen", description=__doc__, epilog=EXIT_CODES,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1672,6 +1704,15 @@ def _main(argv: list[str] | None = None) -> int:
     generate.add_argument("--answers-template", dest="answers_template", default=None,
                           help="where the INPUT_NEEDED items' answers template goes (default: "
                                "answers_template.yaml in the output root)")
+    # 2026-10-14: the run's environment (containers, storage account ...) is an input
+    environment = generate.add_mutually_exclusive_group()
+    environment.add_argument("--environment", default=None,
+                             help="the deployment environment (a name of the overlay's "
+                                  "environments block: D1, QA, PROD ...); default: the one "
+                                  "marked default (an INPUT_NEEDED line records it)")
+    environment.add_argument("--environment-file", dest="environment_file", default=None,
+                             help="a YAML block of this run's environment values "
+                                  "(containers.<layer>, storage_account, values.<name>)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 
@@ -1869,7 +1910,11 @@ def _main(argv: list[str] | None = None) -> int:
         "doctor", help="print which codegen runs (version, location, overlays, python, "
                        "sys.path) and whether it knows the config's sections")
     doctor.add_argument("--config", default="config/config.yaml")
+    return parser
 
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = _parser()
     from codegen.reasoning.mode import (
         ProviderConfigError,
         check_live_config,
@@ -2059,6 +2104,22 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"{'FAIL':<15} outputs storage — {exc}")
         return 1
     _write_build_stamp(Path(config.output.dir))
+    # 2026-10-14: the run's environment (--environment / --environment-file; else
+    # the default, recorded by an INPUT_NEEDED line in _run_pairs)
+    from codegen.environments import (
+        EnvironmentSelectionError,
+        select_environment,
+        with_environment,
+    )
+
+    try:
+        env_file = getattr(args, "environment_file", None)
+        config = with_environment(config, select_environment(
+            config, name=getattr(args, "environment", None),
+            file=Path(env_file) if env_file else None))
+    except EnvironmentSelectionError as exc:
+        print(f"{'FAIL':<15} environment — {exc}")
+        return 1
     # M9: `generate` parsed --vdd / --profile / --iig-template /
     # --playbook-template and then dropped them (the notebook run inside ACFC
     # had to edit config.yaml to select acfc_prx, and its VDD never reached

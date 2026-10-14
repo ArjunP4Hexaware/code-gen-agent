@@ -241,8 +241,14 @@ class GenerationStore:
         iig_template: str | None = None,
         playbook_template: str | None = None,
         layout_usage=None,
+        environment=None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
+        # 2026-10-14: ``environment`` = the run's (codegen.environments; None =
+        # the default) — the framework emit reads it from the config it is given.
+        from codegen.environments import with_environment
+
+        run_config = with_environment(self.config, environment)
         from codegen.gate.derivations import sibling_type_flags
         from codegen.gate.drag_fill import drag_fill_flags
         from codegen.gate.vdd_check import vdd_cross_check
@@ -314,7 +320,7 @@ class GenerationStore:
                 context, spec, self.config, feed_dir, skip_tests
             )
             framework_artefacts = _run_emit_framework(
-                spec, faq, ddl_sources, self.config, out_root, outcomes,
+                spec, faq, ddl_sources, run_config, out_root, outcomes,
                 base_dir=REPO_ROOT, conventions_profile=conventions_profile,
                 iig_template=iig_template,
             )
@@ -325,7 +331,7 @@ class GenerationStore:
                 stage("framework artefacts")
                 ddl_sources = _read_ddl_sources(feed_dir)
                 framework_artefacts = _run_emit_framework(
-                    spec, faq, ddl_sources, self.config, out_root, outcomes,
+                    spec, faq, ddl_sources, run_config, out_root, outcomes,
                     base_dir=REPO_ROOT, conventions_profile=conventions_profile,
                     iig_template=iig_template,
                 )

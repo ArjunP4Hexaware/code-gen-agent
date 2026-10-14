@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from codegen.config import Config, MetadataTemplateConfig, is_d1_placeholder
+from codegen.config import Config, MetadataTemplateConfig, is_placeholder
 from codegen.contracts.frd import FrdFeed
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
@@ -43,7 +43,15 @@ def _const(tpl: MetadataTemplateConfig, tab: str, header: str) -> dict | None:
     if value is None:
         return None
     citation = tpl.constant_citations.get(tab, {}).get(header) or tpl.citation
-    return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=citation))
+    cell = _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=citation))
+    from codegen.environments import env_note
+
+    note = env_note(tpl, tab, header, value)       # 2026-10-14: the run's environment
+    if note is not None:
+        if not str(value or "").strip():
+            cell = _cell("", "needs_template", f"open — {note}")
+        cell["badge_entry"]["note"] = note
+    return cell
 
 
 _DERIVED_TOKEN_RE = re.compile(r"\{(\w+)\}")
@@ -138,7 +146,7 @@ def _corpus(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
                 f"for {filled} only ({rule.share}; {_PATTERNS_REPORT})")
             cells[header] = cell
             continue
-        if is_d1_placeholder(shape):
+        if is_placeholder(shape):
             todo = rule.todo or "the D1 overlay sets it"
             cell = _cell("", "needs_template", f"open — {shape}: {todo} (corpus: {rule.share})")
             cell["badge_entry"]["note"] = (
@@ -186,16 +194,24 @@ def owed_questions(tpl: MetadataTemplateConfig, faq) -> list[tuple[str, str]]:
     return out
 
 
+def _placeholder_owner(value: str) -> str:
+    """'the D1 overlay' for <<D1:...>>, 'the QA environment' for <<QA:...>>."""
+    match = re.search(r"<<([A-Z][A-Z0-9_]*):", value)
+    env = match.group(1) if match else "D1"
+    return "the D1 overlay" if env == "D1" else f"the {env} environment's values"
+
+
 def _placeholders(tab: str, cells: dict) -> dict:
-    """Any cell still carrying a ``<<D1:...>>`` placeholder (a constant, a
-    template row) is open with a NOTE — the placeholder never reaches a cell."""
+    """Any cell still carrying a ``<<ENV:...>>`` placeholder (a constant, a
+    template row, an environment value) is open with a NOTE — the placeholder
+    never reaches a cell."""
     for header, cell in cells.items():
-        if cell is not None and is_d1_placeholder(cell["value"]):
-            open_cell = _cell("", "needs_template",
-                              f"open — {cell['value']}: the D1 overlay sets it")
+        if cell is not None and is_placeholder(cell["value"]):
+            owner = _placeholder_owner(str(cell["value"]))
+            open_cell = _cell("", "needs_template", f"open — {cell['value']}: {owner} sets it")
+            kind = "iig_d1_placeholder" if owner == "the D1 overlay" else "iig_env_placeholder"
             open_cell["badge_entry"]["note"] = (
-                f"iig_d1_placeholder:{tab}.{header} — {cell['value']} left blank: TODO the D1 "
-                "overlay sets it")
+                f"{kind}:{tab}.{header} — {cell['value']} left blank: TODO {owner} sets it")
             cells[header] = open_cell
     return cells
 
@@ -1499,10 +1515,14 @@ def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_Table
         located = True
         for group in split:
             location = None
-            if tpl.dq_split_location and landing is not None and container:
+            account = (tpl.environment.entry.storage_account
+                       if tpl.environment is not None else "")
+            if tpl.dq_split_location and landing is not None and container and (
+                    account or "{storage_account}" not in tpl.dq_split_location):
                 rel = _landing_rel(tpl, "ADLS_DELTA_INGESTION_DETAILS", landing)
                 location = tpl.dq_split_location.format(
-                    container=container, domain_path=_domain_path(rel), table=group.stage.table)
+                    container=container, domain_path=_domain_path(rel), table=group.stage.table,
+                    storage_account=account)
             located = located and location is not None
             parts += [p for p in (_stage_catalog(config, group.stage), group.stage.schema_name)
                       if p] + [group.stage.table] + ([location] if location else [])
@@ -1517,6 +1537,21 @@ def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_Table
         if not located:
             target = _cell("", "needs_template", "no landing / container / location shape to "
                            "build the tables' locations from — open")
+            needs_account = "{storage_account}" in (tpl.dq_split_location or "")
+            if needs_account and not account:
+                where = (f"environment {tpl.environment.name} ({tpl.environment.source}) states "
+                         "no storage_account" if tpl.environment is not None else
+                         "no environment is defined (environments:)")
+                target["badge_entry"]["note"] = (
+                    f"iig_env:DATA_QUALITY_RULES.TARGET_COLUMN — the tables' locations need the "
+                    f"storage account: {where}; left open")
+        elif tpl.environment is not None and "{storage_account}" in tpl.dq_split_location \
+                and not is_placeholder(target["value"]):
+            env = tpl.environment
+            target["badge_entry"]["note"] = (
+                f"iig_env:DATA_QUALITY_RULES.TARGET_COLUMN — the tables' locations in storage "
+                f"account {env.entry.storage_account!r}, container {container!r} from "
+                f"environment {env.name} ({env.source})")
         cells["TARGET_COLUMN"] = target
         return cells
     target = ",".join([p for p in (catalog, stage.schema_name) if p]
@@ -1753,6 +1788,12 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
     builder = _BUILDERS.get(tab)
     if builder is None:
         return []
+    if tpl.environment is None:
+        # 2026-10-14: the run's environment fills the environment_cells (callers
+        # through metadata_sheet_payload get it applied already)
+        from codegen.environments import apply_environment
+
+        tpl = apply_environment(tpl, config)
     if builder is _stg_std:
         return builder(tab, feed, config, spec, faq, tpl, profile=profile)
     return builder(tab, feed, config, spec, faq, tpl)

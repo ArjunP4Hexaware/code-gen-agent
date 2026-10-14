@@ -91,8 +91,10 @@ def test_stage_rules_per_file_in_the_corpus_order(dq):
     assert _v(split, "INPUT_PARAM") == "SRC_FILE_NAME"
     # the location shape carries the D1 storage account placeholder: open, never written
     assert _v(split, "TARGET_COLUMN") == ""
+    # 2026-10-14: the storage account is the run's environment's (none here)
     assert split["TARGET_COLUMN"]["badge_entry"]["note"].startswith(
-        "iig_d1_placeholder:DATA_QUALITY_RULES.TARGET_COLUMN")
+        "iig_env:DATA_QUALITY_RULES.TARGET_COLUMN — the tables' locations need the storage "
+        "account: no environment is defined")
     assert (_v(custom, "SOURCE_COLUMN"), _v(custom, "INPUT_PARAM"),
             _v(custom, "TARGET_COLUMN")) == ("NWB", "literal", "FILE_TYPE")
     keyed = {"MEMBER_ID", *spec.not_null_columns}

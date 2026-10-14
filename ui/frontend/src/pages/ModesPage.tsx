@@ -15,6 +15,7 @@ import {
 import { ModelUsageList } from "../components/ModelUsage";
 import { NeedsAnswersPanel, type AnswersPayload } from "../components/NeedsAnswersPanel";
 import { InputsNeededBanner } from "../components/InputsNeededBanner";
+import { EnvironmentSelector } from "../components/EnvironmentSelector";
 import { OUTPUT_COPY, OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
@@ -25,6 +26,8 @@ import {
   pairRuleLabel,
   type DatabricksDocumentsResponse,
   type DemoStatus,
+  type EnvironmentChoice,
+  type EnvironmentOptions,
   type FrdChoicesResponse,
   type GenerationOptions,
   type GovernanceChecksResponse,
@@ -293,6 +296,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   useEffect(() => {
     api.generationOptions().then(setGenOptions).catch(() => setGenOptions(null));
   }, []);
+  // 2026-10-14: the run's environment (containers, storage account ...) — the
+  // default preselected; "Other" = a free-text block for this run.
+  const [envOptions, setEnvOptions] = useState<EnvironmentOptions | null>(null);
+  useEffect(() => {
+    api.environment().then(setEnvOptions).catch(() => setEnvOptions(null));
+  }, []);
+  const chooseEnvironment = async (choice: EnvironmentChoice) => {
+    try {
+      setEnvOptions(await api.setEnvironment(choice));
+    } catch (e) {
+      setError(e);
+    }
+  };
   const chooseGenerationOption = async (
     knob: keyof GenerationOptions,
     value: string,
@@ -892,6 +908,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   );
                 })}
               </p>
+            ) : null}
+
+            {envOptions ? (
+              <EnvironmentSelector
+                options={envOptions}
+                disabled={running}
+                onChoose={chooseEnvironment}
+              />
             ) : null}
 
             {!choosing && !chosen.sttm && (status?.selection_error

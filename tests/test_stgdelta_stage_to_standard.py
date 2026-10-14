@@ -75,10 +75,11 @@ def test_the_overlay_selects_the_sd_family_stage_to_standard_settings(sd_run):
     # 2026-10-14 (D1 post43 item 4): the SD prod rows and the CAQH golden state
     # both containers - the stage container in, the standard one out: cited
     # constants; the 2026-10-09 offer-only cell is retired.
-    assert template.constants[STG]["SRC_CONTAINER_NAME"] == STAGE_CONTAINER
-    assert template.constants[STG]["TGT_CONTAINER_NAME"].endswith("-std-01")
-    for column in ("SRC_CONTAINER_NAME", "TGT_CONTAINER_NAME"):
-        assert "round7 pair_2" in template.constant_citations[STG][column]
+    # 2026-10-14: the containers are the run environment's (D1, the default)
+    assert template.environment_cells[STG]["SRC_CONTAINER_NAME"] == "containers.stage"
+    assert config.environments["D1"].containers["stage"] == STAGE_CONTAINER
+    assert template.environment_cells[STG]["TGT_CONTAINER_NAME"] == "containers.standard"
+    assert config.environments["D1"].containers["standard"].endswith("-std-01")
     assert "SRC_CONTAINER_NAME" not in template.open_offers.get(STG, {})
     # round 6 (SD prod rows + SFMC reference IIG): source = the stage table's
     # processed folder, target = the processed directory, archive beside it

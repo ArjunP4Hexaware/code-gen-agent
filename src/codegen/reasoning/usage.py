@@ -51,6 +51,7 @@ class StageUsage:
     calls: int = 0                   # model round-trips actually sent
     requests: int = 0                # work items the stage put to a provider
     failed: int = 0                  # requests whose provider raised
+    recovered: int = 0               # requests answered after a failed attempt
     mock_reason: str | None = None   # why a mock answered (set iff provider == mock)
     recorded_provider: str | None = None   # replay: who produced the recorded set
 
@@ -70,7 +71,18 @@ class StageUsage:
             return f"Mock provider (reason: {self.mock_reason or MOCK_REASON_DEFAULT})"
         label = (f"{model_display_name(self.model)} ({self.endpoint or self.model}) · "
                  f"{self.calls} call(s)")
-        return f"{label}, {self.failed} failed" if self.failed else label
+        if self.failed:
+            label += f", {self.failed} failed"
+        if self.recovered:
+            label += f", {self.recovered} answered on retry"
+        return label
+
+    @property
+    def all_failed(self) -> bool:
+        """A live stage where every request failed (2026-10-14: said in the
+        report header, not only in the flags)."""
+        return (self.provider in LIVE_PROVIDERS and self.requests > 0
+                and self.failed == self.requests)
 
     def as_dict(self) -> dict:
         data = asdict(self)
@@ -84,7 +96,7 @@ class StageUsage:
 
 
 def usage_from_provider(stage: str, provider, *, requests: int, failed: int = 0,
-                        calls: int | None = None) -> StageUsage:
+                        calls: int | None = None, recovered: int = 0) -> StageUsage:
     """Read what a provider instance did. ``calls`` overrides the provider's
     own counter (a provider reused across stages)."""
     name = getattr(provider, "name", "none") if provider is not None else "none"
@@ -98,6 +110,7 @@ def usage_from_provider(stage: str, provider, *, requests: int, failed: int = 0,
                                  else int(getattr(provider, "calls", 0))),
         requests=requests,
         failed=failed,
+        recovered=0 if is_mock else recovered,
         mock_reason=(getattr(provider, "mock_reason", None) or MOCK_REASON_DEFAULT)
         if is_mock and provider is not None else None,
     )
@@ -120,6 +133,7 @@ def merge(stage: str, usages: list[StageUsage]) -> StageUsage:
         calls=sum(u.calls for u in usages),
         requests=sum(u.requests for u in usages),
         failed=sum(u.failed for u in usages),
+        recovered=sum(u.recovered for u in usages),
         mock_reason="; ".join(reasons) or None,
         recorded_provider=first.recorded_provider,
     )
@@ -130,7 +144,10 @@ def layer2_usage(provider, candidates) -> StageUsage:
     provider was asked about (review items of other kinds are not requests)."""
     asked = [c for c in candidates if getattr(c, "kind", "layer2") == "layer2"]
     failed = sum(1 for c in asked if c.response is None)
-    return usage_from_provider("layer2", provider, requests=len(asked), failed=failed)
+    # requests a failed first attempt did not lose (the retry answered)
+    recovered = len({f.request for f in getattr(provider, "failures", []) if f.recovered})
+    return usage_from_provider("layer2", provider, requests=len(asked), failed=failed,
+                               recovered=recovered)
 
 
 def layout_usage(*providers) -> StageUsage:

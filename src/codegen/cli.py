@@ -41,6 +41,7 @@ from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import console_summary, write_generation_report
+from codegen.report.generation_report import all_failed_line
 from codegen.resolve.resolver import ContractMismatchError, normalize_feed_name, resolve_pair
 from codegen.rules.compiler import compile_rules
 
@@ -86,6 +87,10 @@ def _generate_feed(
     outcomes = compile_rules(spec)
     provider = build_provider(config, dry_run)
     candidates = run_reasoning(spec, outcomes, provider)
+    from codegen.reasoning.raw_log import log_layer2_failures
+
+    # 2026-10-14: every failed Layer-2 attempt on the log (reason + RAW, D1-only)
+    log_layer2_failures(provider, spec.feed_slug, config, Path("."))
     from codegen.reasoning.mode import DRY_RUN_OVER_LIVE, provider_mode
 
     if dry_run and provider_mode(config).live:
@@ -217,6 +222,8 @@ def _generate_feed(
     print(console_summary(spec, gate))
     for usage in model_usage:
         print(f"{'MODEL USAGE':<15} {usage.stage}: {usage.label}")
+        if usage.all_failed:
+            print(f"{'WARNING':<15} {all_failed_line(usage)}")
     return gate
 
 

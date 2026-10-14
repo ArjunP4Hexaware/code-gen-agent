@@ -121,12 +121,19 @@ def test_valid_response_first_try(config, monkeypatch):
 
 
 def test_invalid_then_valid_retries_with_error(config, monkeypatch):
-    calls = _stub_chat(monkeypatch, ["not json at all", VALID_JSON])
+    # 2026-10-14: no JSON at all = the "JSON only, no fences" retry; a schema
+    # error = the error itself (no input values) plus the same instruction.
+    calls = _stub_chat(monkeypatch, ["not json at all", VALID_JSON,
+                                     '{"classification": "x"}', VALID_JSON])
     provider = build_provider(_fmapi_config(config), dry_run=False)
     assert provider.complete(_pack()).classification == "mappable"
     assert calls["count"] == 2
     retry_user = calls["kwargs"][1]["messages"][1]["content"]
-    assert "failed schema validation" in retry_user
+    assert "could not be read as JSON" in retry_user
+    assert "Respond with JSON only, no fences" in retry_user
+    assert provider.complete(_pack()).classification == "mappable"
+    retry_user = calls["kwargs"][3]["messages"][1]["content"]
+    assert "failed schema validation" in retry_user and "'x'" not in retry_user
 
 
 def test_exhausted_attempts_raise_provider_error(config, monkeypatch):

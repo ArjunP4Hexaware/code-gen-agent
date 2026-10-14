@@ -194,6 +194,16 @@ def _gate_section(gate: GateResult) -> list[str]:
     return lines
 
 
+def all_failed_line(usage: StageUsage) -> str:
+    """2026-10-14 (D1 pair_12: 5 of 5 Layer-2 calls failed, said only in the
+    flags): a live stage where every request failed, in one line."""
+    titles = {"layer2": "Layer 2 (rule reasoning)", "layout": "Layout recognizer"}
+    return (f"{titles.get(usage.stage, usage.stage)}: every model call failed "
+            f"({usage.failed} of {usage.requests} request(s), {usage.calls} call(s)) — "
+            "no model proposal in this run; the rules stay unmapped for review. "
+            "The reasons are on the run's log (LAYER2 FAILED).")
+
+
 def write_generation_report(
     spec: ResolvedFeedSpec,
     written_files: list[Path],
@@ -206,6 +216,8 @@ def write_generation_report(
     model_usage: list[StageUsage] | None = None,
 ) -> Path:
     lines: list[str] = [f"# Generation report — {spec.feed_id}", ""]
+    lines += [f"> **WARNING** {all_failed_line(u)}\n" for u in model_usage or ()
+              if u.all_failed]
     lines += _contracts_section(spec)
     lines += _inputs_section(inputs_summary)
     lines += _files_section(written_files, out_root)

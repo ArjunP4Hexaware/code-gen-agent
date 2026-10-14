@@ -270,6 +270,9 @@ class GenerationStore:
             provider = build_provider(self.config, dry_run)
             stage(f"Layer-2 reasoning ({provider.name})")
             candidates = run_reasoning(spec, outcomes, provider)
+            from codegen.reasoning.raw_log import log_layer2_failures
+
+            log_layer2_failures(provider, spec.feed_slug, self.config, REPO_ROOT)
             layer2 = layer2_usage(provider, candidates)
             # Segmented-extraction review items join the same review flow;
             # replayed candidate sets already carry them (they are written

@@ -47,6 +47,8 @@ class LayoutProviderError(RuntimeError):
 RAW_LOG_CHARS = 500
 RETRY_INSTRUCTION = ("Respond with JSON only, no fences: the single JSON object, "
                      "with no text before or after it.")
+# The parse error a truncated response gives (Layer 2 raises max_tokens on it).
+TRUNCATED = "ends inside the JSON object"
 _MAX_OBJECT_STARTS = 50
 _FENCE_RE = re.compile(r"```[A-Za-z0-9_-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
 
@@ -76,7 +78,7 @@ def _outermost_object(text: str, start: int) -> tuple[str | None, str]:
             depth -= 1
             if depth == 0:
                 return text[start:index + 1], ""
-    return None, (f"the response ends inside the JSON object ({len(text)} chars; "
+    return None, (f"the response {TRUNCATED} ({len(text)} chars; "
                   "cut off at max_tokens?)")
 
 
@@ -492,6 +494,7 @@ __all__ = [
     "LayoutProviderError",
     "RAW_LOG_CHARS",
     "RETRY_INSTRUCTION",
+    "TRUNCATED",
     "MockLayoutProvider",
     "ask_for_json",
     "build_advice_request",

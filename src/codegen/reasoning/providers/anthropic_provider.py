@@ -3,19 +3,19 @@ dry-run is off (see ``build_provider``); ``anthropic`` is imported lazily so
 the package is not a hard dependency of the deterministic path (install the
 ``live`` extra to get it).
 
-The model is asked for a single JSON object matching CandidateResponse. Each
-invalid attempt is retried with the validation error appended, up to
-``config.reasoning.max_attempts`` total attempts, then ProviderError.
+The model is asked for a single JSON object matching CandidateResponse,
+through the shared ask loop (:mod:`codegen.reasoning.providers.ask`): the
+tolerant JSON parser, each invalid attempt retried with "JSON only, no fences"
+(and the validation error), up to ``config.reasoning.max_attempts`` total
+attempts, then ProviderError; every failed attempt is recorded.
 """
 
 from __future__ import annotations
 
 import json
 
-from pydantic import ValidationError
-
 from codegen.config import Config
-from codegen.reasoning.providers import ProviderError
+from codegen.reasoning.providers.ask import AttemptFailure, ask_candidate
 from codegen.reasoning.schema import CandidateResponse, ContextPack
 
 _SYSTEM_PROMPT = (
@@ -41,47 +41,6 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _first_balanced_object(text: str) -> str | None:
-    """Return the first ``{...}`` block with balanced, string-aware braces."""
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : index + 1]
-    return None
-
-
-def _extract_json(text: str) -> str:
-    """Isolate the JSON object from a response that may carry prose or fences.
-
-    Never raises: with no object present the stripped text is returned as-is
-    and the schema validation downstream turns it into a normal retry.
-    """
-    stripped = text.strip()
-    if stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
-    candidate = _first_balanced_object(stripped)
-    return candidate if candidate is not None else stripped
-
-
 class AnthropicProvider:
     name = "anthropic"
 
@@ -99,32 +58,29 @@ class AnthropicProvider:
         self.calls = 0
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
+        self._truncation_max_tokens = config.reasoning.truncation_max_tokens
+        self.requests = 0
+        self.failures: list[AttemptFailure] = []
 
     def complete(self, pack: ContextPack) -> CandidateResponse:
         user_prompt = "Context pack (the only citable text):\n" + json.dumps(
             pack.model_dump(), indent=2
         )
-        errors: list[str] = []
-        for _ in range(self._max_attempts):
+        self.requests += 1
+
+        def send(prompt: str, max_tokens: int) -> str:
             # No sampling params: claude-opus-4-8 rejects temperature/top_p/top_k
             # with a 400 (removed on Opus 4.7+) — proven by the first live run.
             self.calls += 1
             message = self._client.messages.create(
                 model=self._model,
-                max_tokens=self._max_tokens,
+                max_tokens=max_tokens,
                 system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
+                messages=[{"role": "user", "content": prompt}],
             )
-            text = "".join(block.text for block in message.content if block.type == "text")
-            try:
-                return CandidateResponse.model_validate_json(_extract_json(text))
-            except ValidationError as exc:
-                errors.append(str(exc))
-                user_prompt += (
-                    "\n\nYour previous response failed schema validation:\n"
-                    f"{exc}\nRespond again with ONLY the corrected JSON object."
-                )
-        raise ProviderError(
-            f"no schema-valid response after {self._max_attempts} attempt(s); "
-            f"last error: {errors[-1]}"
-        )
+            return "".join(block.text for block in message.content if block.type == "text")
+
+        return ask_candidate(send, user_prompt, max_attempts=self._max_attempts,
+                             max_tokens=self._max_tokens,
+                             truncation_max_tokens=self._truncation_max_tokens,
+                             failures=self.failures, request=self.requests)

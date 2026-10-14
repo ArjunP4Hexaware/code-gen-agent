@@ -523,6 +523,10 @@ class ReasoningConfig(BaseModel):
     model: str
     max_tokens: int = Field(gt=0)
     max_attempts: int = Field(gt=0)
+    # 2026-10-14: a response that ends inside its JSON object (cut off at
+    # max_tokens — the endpoint's extended thinking spends the same budget) is
+    # retried with this many tokens, said in the log.
+    truncation_max_tokens: int = Field(default=32000, gt=0)
     # Layer-2 transport: "anthropic" (default, direct API) or
     # "databricks_fmapi" (the same Claude model served by Databricks
     # Foundation Model APIs — a transport, not a vendor change; Anthropic

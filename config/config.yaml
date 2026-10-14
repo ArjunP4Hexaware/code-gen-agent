@@ -490,6 +490,10 @@ reasoning:
   # the API returns 400 if one is sent. Live output varies run to run.
   # One retry with the validation error appended, then record a failure.
   max_attempts: 2
+  # 2026-10-14 (D1 post43: pair_12 5 of 5 Layer-2 calls failed): a response
+  # that ends inside its JSON object was cut off at max_tokens (extended
+  # thinking spends the same budget) — that call's retry asks with this many.
+  truncation_max_tokens: 32000
   # Layer-2 transport: anthropic (default) | databricks_fmapi (same Claude
   # model via the databricks.serving_endpoint — transport only; needs the
   # [databricks] extra and resolvable workspace auth; mock still wins on

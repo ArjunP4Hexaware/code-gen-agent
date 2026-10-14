@@ -848,6 +848,9 @@ class JobConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     notification_emails: list[str]
+    # 2026-10-13: EMAIL_TEMPLATE_CONFIG SENDER_EMAIL ({sender}); env
+    # CODEGEN_NOTIFICATION_SENDER wins (a client address never in the YAML).
+    notification_sender: str = ""
     spark_version: str
     node_type_id: str
     num_workers: int = Field(ge=0)
@@ -1254,6 +1257,17 @@ class MetadataTemplateConfig(BaseModel):
     # itself (an environment overlay): {tab: {header: citation}}; a
     # constant without one cites ``citation``.
     constant_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-13 (the IIG corpus's fill rate): cells the corpus fills in >90%
+    # of rows that the inputs DERIVE — tab -> header -> a shape over {source}
+    # (the FRD Data Source, vendor display name), {layer} (Stage | Standard: the
+    # row's _layer), {outcome} (the row's _outcome), {notebook} (the row's
+    # DATABRICKS_NOTEBOOK_NAME), {pipeline} (the schedule name of the row's
+    # _pipeline_role), {sender} (job.notification_sender). A shape without a
+    # token is the corpus's dominant constant. Written only where the builder
+    # left the cell blank (an FAQ answer wins), each column with a NOTE
+    # (iig_derived) and its citation; a token with no value leaves it open.
+    derived_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
+    derived_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
     # The same for a path_patterns shape an overlay supplies: {tab: {header:
     # citation}}; a shape without one cites ``citation`` (the template).
     path_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
@@ -1759,4 +1773,7 @@ def load_config(path: str | Path, overlays: list[str | Path] | None = None) -> C
         emails = [e.strip() for e in re.split(r"[,;]", emails_env) if e.strip()]
         if emails:
             raw.setdefault("job", {})["notification_emails"] = emails
+    sender_env = os.environ.get("CODEGEN_NOTIFICATION_SENDER", "").strip()
+    if sender_env:
+        raw.setdefault("job", {})["notification_sender"] = sender_env
     return Config.model_validate(raw)

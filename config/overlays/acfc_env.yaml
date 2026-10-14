@@ -136,13 +136,52 @@ metadata:
       # notebooks, named as TWO independent references name them: the SFMC IIG
       # (fixtures/reference/SFMC_IIG.xlsx DATABRICKS_NOTEBOOK_DETAILS!L2 / L3) and the
       # SD prod rows (codegen-outputs/iig_validation/round3/pair_2/score.json, the
-      # golden's notebook keys). PIPELINE_NAME stays blank: its {feed} token is the
-      # client's abbreviation, which no document states (FAQ feed_abbreviation).
-      # The pair-1 family names its stage notebook _V1 (its own overlay).
+      # golden's notebook keys). The pair-1 family names its stage notebook _V1 (its
+      # own overlay). 2026-10-13: PIPELINE_NAME = the schedule's name of the row's
+      # leg (_pipeline_role; the same {feed} token the schedule rows use).
       template_rows:
         DATABRICKS_NOTEBOOK_DETAILS:
-          - {DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V0.1, _layer: stage, _citation: &nb "framework notebook per leg — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3 and the SD prod notebook keys (round 3)"}
-          - {DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard, _citation: *nb}
+          - {DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V0.1, _layer: stage, _pipeline_role: file_to_stage, _citation: &nb "framework notebook per leg — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3 and the SD prod notebook keys (round 3)"}
+          - {DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard, _pipeline_role: stage_to_standard, _citation: *nb}
+        EMAIL_TEMPLATE_CONFIG:
+          - {STATUS: Success, _outcome: Completed}
+          - {STATUS: Failed, _outcome: Failed}
+      # 2026-10-13 — the IIG corpus's fill rate (tools/iig_fill_rate.py; at home:
+      # the SFMC reference IIG, the pair-1 golden and the CAQH golden; on D1 the
+      # 199-IIG corpus): columns filled in >90% of corpus rows that the agent left
+      # blank, filled from the inputs (or the corpus's dominant constant), each
+      # with a NOTE (iig_derived). IDs, the workspace URL / secret / cluster ids,
+      # the audit stamps stay always_blank: assigned, never invented.
+      # ACTIVE_START_DATE (a per-RFC go-live date: no document states it, no value
+      # dominates) and BODY_QUERY (one golden, a feed-specific query) stay open.
+      derived_cells:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          APPLICATION_NAME: "{source}"
+        DATABRICKS_NOTEBOOK_DETAILS:
+          PIPELINE_NAME: "{pipeline}"
+          PROCESS_NAME: "{layer} Load for {source}"
+          DATABRICKS_NOTEBOOK_PATH: "/Workspace/iig/{notebook}"
+        EMAIL_TEMPLATE_CONFIG:
+          TEMPLATE_NAME: "{source}"
+          PROCESS_NAME: "{source}"
+          SUBJECT: "{source} Load {outcome}"
+          BODY: "{source} Files Load Process {outcome}"
+          SENDER_NAME: "dbo"
+          SENDER_EMAIL: "{sender}"
+      derived_citations:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          APPLICATION_NAME: "corpus fill rate 2026-10-13: the application = the feed's data source (CAQH golden: every row); an FAQ process_name wins"
+        DATABRICKS_NOTEBOOK_DETAILS:
+          PIPELINE_NAME: "the notebook runs in its leg's pipeline: the DATA_FACTORY_PIPELINE_SCHEDULE name of the file_to_stage / stage_to_standard row (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!B2 / B3 = DATA_FACTORY_PIPELINE_SCHEDULE!B2 / B3)"
+          PROCESS_NAME: "corpus fill rate 2026-10-13: '<Stage|Standard> Load for <source>' (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!E2 / E3; the CAQH golden's two rows); an FAQ process_name wins"
+          DATABRICKS_NOTEBOOK_PATH: "corpus fill rate 2026-10-13: the generic notebooks' folder + the notebook name (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!K2 / K3; the CAQH golden's standard row)"
+        EMAIL_TEMPLATE_CONFIG:
+          TEMPLATE_NAME: "corpus fill rate 2026-10-13: the process label (SFMC / CAQH goldens: the schedule's PROCESS_NAME, '<source> <subprocess>' - the documents state the source only); an FAQ process_name wins"
+          PROCESS_NAME: "corpus fill rate 2026-10-13: the process label (as TEMPLATE_NAME); an FAQ process_name wins"
+          SUBJECT: "corpus fill rate 2026-10-13: '<source> Load Completed | Failed' by STATUS (SFMC IIG EMAIL_TEMPLATE_CONFIG!E2 / E3 shape; the CAQH golden's two rows)"
+          BODY: "corpus fill rate 2026-10-13: '<source> Files Load Process Completed | Failed' by STATUS (SFMC IIG EMAIL_TEMPLATE_CONFIG!F2 / F3; the CAQH golden's two rows)"
+          SENDER_NAME: "corpus fill rate 2026-10-13: the dominant constant (SFMC IIG EMAIL_TEMPLATE_CONFIG!G2 / G3, the CAQH golden's two rows; 4 of 6 home rows)"
+          SENDER_EMAIL: "job.notification_sender (env CODEGEN_NOTIFICATION_SENDER; the tracked value is a synthetic stand-in) - every golden row states a sender address"
       always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
         TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
         DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

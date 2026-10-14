@@ -850,6 +850,9 @@ job:
   # value and never lives in a tracked file or emitted artefact; the client
   # substitutes their DL at deployment.
   notification_emails: ["syn.dl.prodsupport@synthetic.example"]
+  # EMAIL_TEMPLATE_CONFIG SENDER_EMAIL (2026-10-13); synthetic stand-in, the
+  # real address comes from env CODEGEN_NOTIFICATION_SENDER.
+  notification_sender: "syn.dl.sender@synthetic.example"
   # Databricks Runtime / cluster shape for generated job JSON.
   # EDO coding standard: DBR >= 15.4 LTS with Photon enabled only.
   spark_version: "15.4.x-scala2.12"

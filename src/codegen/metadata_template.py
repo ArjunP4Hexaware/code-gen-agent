@@ -46,6 +46,40 @@ def _const(tpl: MetadataTemplateConfig, tab: str, header: str) -> dict | None:
     return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(citation=citation))
 
 
+_DERIVED_TOKEN_RE = re.compile(r"\{(\w+)\}")
+
+
+def _derive(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -> dict:
+    """``derived_cells`` (2026-10-13, the corpus fill rate): each configured
+    shape fills its column where the builder left it blank — the tokens from
+    ``context``, a NOTE per column (``iig_derived:<TAB>.<HEADER>``, the same
+    text on every row so it is said once). A token without a value leaves the
+    cell open: nothing is guessed."""
+    for header, shape in tpl.derived_cells.get(tab, {}).items():
+        current = cells.get(header)
+        if current is not None and str(current["value"] if current["value"] is not None
+                                       else "").strip():
+            continue
+        tokens = _DERIVED_TOKEN_RE.findall(shape)
+        if any(not str(context.get(t) or "").strip() for t in tokens):
+            continue
+        value = _DERIVED_TOKEN_RE.sub(lambda m: str(context[m.group(1)]).strip(), shape)
+        citation = tpl.derived_citations.get(tab, {}).get(header) or tpl.citation
+        what = ("the IIG corpus's dominant constant" if not tokens else
+                "; ".join(f"{{{t}}} = {str(context[t]).strip()!r}" for t in tokens))
+        cell = _cell(value, "synthetic", f"{shape!r} — {what} ({citation})")
+        cell["badge_entry"]["note"] = (
+            f"iig_derived:{tab}.{header} — {shape!r} "
+            f"({'a constant' if not tokens else 'from ' + ', '.join(tokens)}): the IIG "
+            f"corpus fills this column in >90% of rows ({citation})")
+        cells[header] = cell
+    return cells
+
+
+def _source_value(feed: FrdFeed) -> str:
+    return str(_source_cell(feed)["value"] or "").strip()
+
+
 _OPEN_OFFER_TOOLTIP = ("open — no input states it; candidate, NOT written (confirm before "
                        "filling): {offer}")
 
@@ -699,6 +733,7 @@ def _pipeline_roles(tab, feed, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
+        _derive(tpl, tab, cells, {"source": _source_value(feed)})
         rows.append(_with_constants(tpl, tab, cells))
     return rows
 
@@ -717,6 +752,7 @@ def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
+        _derive(tpl, tab, cells, {"source": _source_value(feed)})
         out.append(_with_constants(tpl, tab, cells))
     return out
 
@@ -1167,8 +1203,26 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["PROCESS_NAME"] = process
+        notebook = cells.get("DATABRICKS_NOTEBOOK_NAME")
+        _derive(tpl, tab, cells, {
+            "source": _source_value(feed),
+            "layer": layer.capitalize(),
+            "notebook": notebook["value"] if notebook is not None else "",
+            "pipeline": _role_pipeline_name(feed, faq, tpl, template_row.get("_pipeline_role")),
+        })
         out.append(_with_constants(tpl, tab, cells))
     return out
+
+
+def _role_pipeline_name(feed: FrdFeed, faq, tpl: MetadataTemplateConfig,
+                        role: str | None) -> str:
+    """The schedule's PIPELINE_NAME of ``role`` (pipeline_roles, the same
+    {feed} token) — a notebook row runs in its leg's pipeline."""
+    match = next((r for r in tpl.pipeline_roles if r.role == role), None)
+    if match is None:
+        return ""
+    token, _source = _feed_token(feed, faq)
+    return match.name.format(feed=token)
 
 
 def _date_rule(tpl: MetadataTemplateConfig, fields: list[SttmField]):
@@ -1311,6 +1365,9 @@ def _email_templates(tab, feed, config, spec, faq, tpl) -> list[dict]:
         cells["EMAIL_TO"] = _cell(recipients, "from_standards",
                                   "EDO coding standard: success AND failure alerts to the "
                                   "prod-support DL (synthetic stand-in address)")
+        _derive(tpl, tab, cells, {"source": _source_value(feed),
+                                  "outcome": template_row.get("_outcome", ""),
+                                  "sender": config.job.notification_sender})
         out.append(_with_constants(tpl, tab, cells))
     return out
 

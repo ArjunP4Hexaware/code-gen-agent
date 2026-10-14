@@ -2224,8 +2224,11 @@ class Scrubber:
     """Scrubs one value at a time; the G / A maps span the whole export."""
 
     def __init__(self, scrub_check, universe: frozenset[str], golden_tokens: frozenset[str],
-                 local_terms: list[str], harvested: dict[str, str]) -> None:
+                 local_terms: list[str], harvested: dict[str, str],
+                 allow: frozenset[str] = frozenset()) -> None:
         self.sc = scrub_check
+        # framework vocabulary (tools/iig_vocabulary.yaml, caseless): kept as written
+        self.allow = allow
         self.universe = universe
         self.golden = golden_tokens
         self.local = _term_regex(local_terms)
@@ -2262,7 +2265,7 @@ class Scrubber:
         if not token or len(token) < (5 if token.isdigit() else 3):
             return token
         low = token.casefold()
-        if low in self.universe:
+        if low in self.universe or low in self.allow:
             return token
         prefix = "G" if low in self.golden else "A"
         table = self.maps[prefix]

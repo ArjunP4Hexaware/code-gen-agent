@@ -256,3 +256,118 @@ def test_patterns_slot_values_day_of_schedule_and_masters_scrubbed(tmp_path):
         assert raw not in text and raw not in (out / "patterns.json").read_text(
             encoding="utf-8")
     assert "Stage Load for {table}" in text and "| WEEKLY | 2 | 2 | 100.0 | 2 | 100.0 |" in text
+
+
+# ------------- 2026-10-14 (D1 post44): --top, per-flow, email table, vocabulary
+
+
+def _flow_corpus(tmp_path):
+    """One feed workbook (notebook rows of three flows, a grand master / master)
+    + an email CSV whose rows sit on file and non-file pipelines."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    def sheet(name, head, rows):
+        ws = wb.create_sheet(name)
+        ws.append(head)
+        for row in rows:
+            ws.append(row)
+
+    sheet(ADLS, ["GROUP_ID", "PIPELINE_ID", "OBJECT_NAME", "TGT_TABLE_NAME", "DOMAIN",
+                 "SUBDOMAIN"],
+          [[1, 11, "zqalphafeed_*", "stg_zq.zqalphafeed", "Zqmember", "Zqrisk Zqband"]])
+    sheet(NB, ["PIPELINE_ID", "GROUP_ID", "PROCESS_NAME", "DATABRICKS_NOTEBOOK_NAME",
+               "DATABRICKS_NOTEBOOK_PATH", "CREATED_BY"],
+          [[11, 1, "zqalphafeed Raw to stage load", "ZqxInvokeLoader_V9",
+            "/iig/ZqxInvokeLoader_V9", "zqpersonname"],
+           [12, 1, "zqalphafeed stage to std load", "Zqband_Runner", "/iig/Zqband_Runner",
+            "zqpersonname"],
+           [13, 1, "DQ check for zqalphafeed", "Zqpersonname_nb", "/iig/Zqpersonname_nb",
+            "zqpersonname"]])
+    sheet(SCHED, ["PIPELINE_ID", "PARENT_PIPELINE_ID", "PIPELINE_NAME", "PIPELINE_DESCRIPTION",
+                  "LAYER_NAME"],
+          [[19, None, "PL_GM", "Grand master", None], [18, 19, "PL_M", "Master", None],
+           [11, 18, "PL_File_A", "Zqmember Stage Load", "STAGE"],
+           [12, 18, "PL_File_B", "Zqmember Standard Load", "ZqstdLayer"]])
+    sheet("DATA_QUALITY_RULES", ["GROUP_ID", "RULE_TYPE", "RULE_CLASS"],
+          [[1, "Predefined", "ZqvCheckRule"]])
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    wb.save(tmp_path / "pair_a.xlsx")
+    rows = [("11", "PL_File_A", "Success", "zqalphafeed Load Completed", "Done"),
+            ("11", "PL_File_A", "Zqstatusx", "zqalphafeed Load Zq", "Body"),
+            ("12", "PL_File_B", "Success", "zqalphafeed Load Completed", "Done"),
+            ("19", "PL_GM", "Failed", "Grand failure", "Body"),
+            ("99", "PL_File_Other", "Failed", "Other failed", "Body"),
+            ("98", "Something_Else", "Success", "Else ok", "Body")]
+    (tmp_path / "email_template_config_by_pipeline.csv").write_text(
+        "PIPELINE_ID,PIPELINE_NAME,STATUS,SUBJECT,BODY\n"
+        + "".join(",".join(r) + "\n" for r in rows), encoding="utf-8")
+    (tmp_path / "01_pair_group_index.csv").write_text(
+        "pair_id,group_id,pipeline_id,object_id,flow_type,match_route,confidence,matched_table\n"
+        "pair_a,1,11,1,file_to_stg,x,HIGH,zqalphafeed\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_patterns_flows_email_table_top_and_vocabulary(tmp_path):
+    """D1 post44: the notebook / schedule columns per flow (group index, master
+    rows, the workbook's schedule row, the rules); the email STATUS x SUBJECT x
+    BODY table on file-ingestion pipelines, the email CSV row taking its
+    pipeline's workbook slots; --top caps the lists; the framework vocabulary
+    passes unscrubbed, never a slot-value or person word."""
+    corpus = _flow_corpus(tmp_path / "corpus")
+    keys = fill_rate._diff_module().load_keys(fill_rate.TOOLS / "iig_keys.yaml")
+    books = fill_rate.read_books(fill_rate.workbooks([corpus]),
+                                 [*fill_rate.DEFAULT_SHEETS, *fill_rate.SLOT_SHEETS,
+                                  fill_rate.RULES])
+    index = fill_rate.load_group_index(fill_rate.group_index_paths([corpus]))
+    assert index == {"11": "file_to_stg"}
+    out = tmp_path / "patterns"
+    report = fill_rate.write_patterns(out, books, list(fill_rate.DEFAULT_SHEETS), keys,
+                                      lambda h: keys.is_assignment(h), index=index)
+    assert report["rescan"] == {}
+    nb = report["flows"][NB]
+    assert nb["rows_by_flow"] == {"dq": 1, "file_to_stg": 1, "stg_to_std": 1}
+    assert nb["basis"] == {"group index": 1, "schedule row": 1, "rule": 1}
+    process = nb["columns"]["PROCESS_NAME"]
+    assert process["file_to_stg"]["patterns"] == [["{table} Raw to stage load", 100.0, 1]]
+    assert process["stg_to_std"]["patterns"] == [["{table} stage to std load", 100.0, 1]]
+    names = nb["columns"]["DATABRICKS_NOTEBOOK_NAME"]
+    # a framework notebook name is kept; a slot word (the subdomain's 'Zqband')
+    # and a person word ('zqpersonname') are scrubbed although in the column
+    assert names["file_to_stg"]["values"] == [["ZqxInvokeLoader_V9", 100.0, 1]]
+    assert names["stg_to_std"]["values"][0][0].startswith("G")
+    assert names["dq"]["values"][0][0].startswith("G")
+    sched = report["flows"][SCHED]
+    assert sched["rows_by_flow"] == {"file_to_stg": 1, "grand_master": 1, "master": 1,
+                                     "stg_to_std": 1}
+    assert sched["columns"]["PIPELINE_DESCRIPTION"]["stg_to_std"]["patterns"] == [
+        ["{domain} Standard Load", 100.0, 1]]
+    email = report["email"]
+    assert (email["rows"], email["file_ingestion_rows"]) == (6, 4)
+    assert email["basis"] == {"group index": 2, "schedule row": 2, "pipeline name": 1,
+                              "none": 1}
+    status = {s["status"]: s for s in email["status"]}
+    assert status["Success"] == {"status": "Success", "rows": 3, "file_ingestion_rows": 2,
+                                 "file_ingestion_pipelines": 2}
+    assert status["Zqstatusx"]["file_ingestion_rows"] == 1          # STATUS: vocabulary
+    assert email["statuses_per_pipeline"] == {"1": 2, "2": 1}
+    assert email["combinations"][0] == {"status": "Success", "subject": "{table} Load Completed",
+                                        "body": "Done", "rows": 2, "share": 50.0}
+    first = report["rule_classes"][0]
+    assert (first["rule_type"], first["rule_class"]) == ("Predefined", "ZqvCheckRule")
+    layer = report["sheets"][SCHED]["columns"]["LAYER_NAME"]["top_values"]
+    assert sorted(v for v, _s, _n in layer) == ["STAGE", "ZqstdLayer"]
+    vocab = report["vocabulary"]
+    assert {"zqxinvokeloader", "zqvcheckrule", "zqstatusx", "zqstdlayer"} <= set(vocab["tokens"])
+    assert not {"zqband", "zqpersonname", "zqalphafeed", "zqmember"} & set(vocab["tokens"])
+    text = (out / "patterns.md").read_text(encoding="utf-8")
+    assert "## DATABRICKS_NOTEBOOK_DETAILS per flow" in text
+    assert "| Success | {table} Load Completed | Done | 2 | 50.0 |" in text
+    for raw in ("zqalphafeed", "Zqmember", "zqpersonname", "Zqband"):
+        assert raw not in text and raw not in (out / "patterns.json").read_text(
+            encoding="utf-8")
+    capped = fill_rate.write_patterns(tmp_path / "top1", books, list(fill_rate.DEFAULT_SHEETS),
+                                      keys, lambda h: keys.is_assignment(h), index=index, top=1)
+    assert capped["top"] == 1
+    assert len(capped["sheets"][SCHED]["columns"]["LAYER_NAME"]["top_values"]) == 1
+    assert len(capped["email"]["combinations"]) == 1

@@ -2,7 +2,8 @@
 
     python tools/iig_fill_rate.py --corpus <xlsx | csv | dir> [...] --agent <xlsx | dir> [...]
         [--sheets DATABRICKS_NOTEBOOK_DETAILS,DATA_FACTORY_PIPELINE_SCHEDULE,EMAIL_TEMPLATE_CONFIG]
-        [--threshold 90] [--json out.json] [--show-values] [--patterns DIR]
+        [--threshold 90] [--json out.json] [--show-values] [--patterns DIR [--top N]
+        [--group-index CSV ...] [--vocabulary tools/iig_vocabulary.yaml]]
 
 2026-10-13: for every column of the chosen sheets, how many corpus rows fill it
 (a cell that is not blank and not ``NULL``) against how many agent rows do.
@@ -29,6 +30,19 @@ table, named by its file stem (a suffix allowed: the EMAIL_TEMPLATE_CONFIG
 export tools/build_goldens.py reads, email_template_config_by_pipeline.csv —
 the 199 per-pair workbooks carry no email sheet). Every corpus workbook's
 sheets are listed.
+
+2026-10-14 (D1 post44): ``--top N`` (default: all) caps every value / pattern
+list (``top_values``, ``top_patterns``, the per-flow and email lists); a
+PER-FLOW breakdown (file_to_stg / stg_to_std / dq / grand_master / master,
+else unclassified — the group index by PIPELINE_ID, the master rows, the
+workbook's own schedule row, tools/iig_vocabulary.yaml flow_rules, then
+iig_keys.yaml flow.rules) of the notebook path / name / process name and the
+schedule's PIPELINE_DESCRIPTION; the email sheet's STATUS x SUBJECT pattern x
+BODY pattern table on FILE-INGESTION pipelines with rows / pipelines per
+status (an email row takes the slots of the workbook its PIPELINE_ID is in);
+and a framework-vocabulary allowlist (tools/iig_vocabulary.yaml: notebook
+names, DQ rule types / classes, STATUS values, layer names pass unscrubbed —
+never a token of a slot value or a person column).
 
 Run on D1 over the 199-IIG corpus (docs/acfc/iig_goldens/*.xlsx); at home
 over the SFMC reference IIG, the pair-1 golden and any golden at hand.
@@ -73,7 +87,10 @@ SLOT_COLUMNS = {      # slot -> header ids (case / separators dropped)
 NULLS = {"", "null", "none"}
 HEADER_SCAN_ROWS = 10
 MIN_SLOT_CHARS = 3
-TOP_PATTERNS = 3
+VOCABULARY = TOOLS / "iig_vocabulary.yaml"
+EMAIL = "EMAIL_TEMPLATE_CONFIG"
+GROUP_INDEX_NAMES = ("01_pair_group_index.csv", "01_pair_group_index_addendum.csv")
+UNCLASSIFIED = "unclassified"
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 _SHEET_KEY = re.compile(r"[^A-Z0-9]+")
 _EXCEL_SHEET_CHARS = 31
@@ -452,10 +469,279 @@ def master_counts(books: list[Book]) -> dict:
             "per_workbook": per_book}
 
 
+def _pid(row: dict) -> str:
+    return _diff_module()._id(row.get("pipelineid"))
+
+
+def _ranked(counter: Counter, total: int, top: int | None, render) -> list:
+    """[[rendered key, share %, rows], ...] — the most rows first, ``top`` kept
+    (None: every one)."""
+    return [[render(k), _share(n, total), n] for k, n in counter.most_common(top)]
+
+
+# ------------------------------------------------- framework vocabulary + flows
+
+
+@dataclass(frozen=True)
+class Vocabulary:
+    """tools/iig_vocabulary.yaml (D1 post44)."""
+
+    columns: dict[str, frozenset[str]]                       # sheet key -> header ids
+    listing: dict[str, list[str]] = field(default_factory=dict)   # as the file names them
+    values: tuple[str, ...] = ()
+    person_columns: frozenset[str] = frozenset()
+    flow_rules: tuple[tuple[str, re.Pattern[str], str], ...] = ()
+    breakdown: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    file_flows: frozenset[str] = frozenset()
+    file_name: re.Pattern[str] | None = None
+
+
+_VOCABULARY_KEYS = {"framework_columns", "framework_values", "person_columns", "flow_rules",
+                    "flow_breakdown", "file_ingestion_flows", "file_ingestion_pipeline_name"}
+
+
+def load_vocabulary(path: Path = VOCABULARY, keys=None) -> Vocabulary:
+    """The vocabulary file; ``keys`` (iig_keys.yaml) adds its flow.rules after
+    the file's own. A missing file = no allowlist, no rules of its own."""
+    import yaml
+
+    raw = (yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None) or {}
+    unknown = set(raw) - _VOCABULARY_KEYS
+    if unknown:
+        raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
+    rules = []
+    for n, rule in enumerate(raw.get("flow_rules") or []):
+        if not isinstance(rule, dict) or set(rule) != {"column", "match", "flow"}:
+            raise ValueError(f"{path}: flow_rules[{n}] needs exactly column, match, flow")
+        rules.append((header_id(rule["column"]), re.compile(str(rule["match"])),
+                      str(rule["flow"])))
+    if keys is not None:
+        rules += [(header_id(c), rx, flow) for c, rx, flow in keys.flow_rules]
+    name = raw.get("file_ingestion_pipeline_name")
+    return Vocabulary(
+        columns={sheet_key(s): frozenset(header_id(c) for c in cols or [])
+                 for s, cols in (raw.get("framework_columns") or {}).items()},
+        listing={str(s): [str(c) for c in cols or []]
+                 for s, cols in (raw.get("framework_columns") or {}).items()},
+        values=tuple(str(v) for v in raw.get("framework_values") or []),
+        person_columns=frozenset(header_id(c) for c in raw.get("person_columns") or []),
+        flow_rules=tuple(rules),
+        breakdown={sheet_key(s): tuple(header_id(c) for c in cols or [])
+                   for s, cols in (raw.get("flow_breakdown") or {}).items()},
+        file_flows=frozenset(str(f) for f in raw.get("file_ingestion_flows") or []),
+        file_name=re.compile(str(name)) if name else None)
+
+
+def group_index_paths(corpus: list[Path]) -> list[Path]:
+    """The group index inside a corpus FOLDER (01_pair_group_index.csv) and its
+    round-2 addendum (``<folder>_round2/``), the files that exist — never
+    beside a corpus file (a workbook in Downloads is not the corpus)."""
+    found: list[Path] = []
+    for folder in (p for p in corpus if p.is_dir()):
+        for base in (folder, folder.parent / f"{folder.name}_round2"):
+            for name in GROUP_INDEX_NAMES:
+                if (base / name).is_file() and base / name not in found:
+                    found.append(base / name)
+    return found
+
+
+def load_group_index(paths: list[Path]) -> dict[str, str]:
+    """PIPELINE_ID -> flow_type (tools/iig_diff.py GroupIndex)."""
+    index = _diff_module().GroupIndex(list(paths))
+    return {pid: flow for pid, (flow, _table) in index.by_pipeline.items()}
+
+
+def _rule_flow(row: dict, rules) -> str | None:
+    for cid, regex, flow in rules:
+        if regex.search(str(row.get(cid) or "").strip()):
+            return flow
+    return None
+
+
+class Flows:
+    """A row's flow: the group index by PIPELINE_ID; a grand master / master
+    schedule row; the flow of its PIPELINE_ID's schedule row in its own
+    workbook (else in the workbook that owns the id — an email CSV row); the
+    rules; else unclassified. ``of`` returns (flow, basis)."""
+
+    def __init__(self, books: list[Book], index: dict[str, str], rules) -> None:
+        self.index, self.rules = index, rules
+        self.pipes: dict[int, dict[str, str]] = {}
+        self.owner: dict[str, Book] = {}
+        for book in books:
+            pipes: dict[str, str] = {}
+            for row in book.sheets.get(SCHEDULE, ({}, []))[1]:
+                pid = _pid(row)
+                flow = _is_master(row) or _rule_flow(row, rules)
+                if pid and flow:
+                    pipes.setdefault(pid, flow)
+            self.pipes[id(book)] = pipes
+        # a feed workbook first: its slots are the row's
+        for book in sorted(books, key=lambda b: not any(s in SLOT_SHEETS for s in b.sheets)):
+            if set(book.sheets) <= {EMAIL}:
+                continue
+            for _h, records in book.sheets.values():
+                for row in records:
+                    pid = _pid(row)
+                    if pid:
+                        self.owner.setdefault(pid, book)
+
+    def of(self, book: Book, sheet: str, row: dict) -> tuple[str, str]:
+        pid = _pid(row)
+        if pid and pid in self.index:
+            return self.index[pid], "group index"
+        if sheet == SCHEDULE and _is_master(row):
+            return _is_master(row), "master row"
+        for where in (book, self.owner.get(pid)):
+            if where is not None and pid in self.pipes.get(id(where), {}):
+                return self.pipes[id(where)][pid], "schedule row"
+        flow = _rule_flow(row, self.rules)
+        return (flow, "rule") if flow else (UNCLASSIFIED, "none")
+
+
+@dataclass
+class PatternContext:
+    slots: dict[int, list]
+    flows: Flows
+    vocab: Vocabulary
+
+    def slots_of(self, book: Book, row: dict) -> list:
+        """The row's workbook's slots, else (an email CSV row) the slots of the
+        workbook its PIPELINE_ID is in."""
+        own = self.slots.get(id(book))
+        if own:
+            return own
+        owner = self.flows.owner.get(_pid(row))
+        return self.slots.get(id(owner), []) if owner is not None else []
+
+
+def pattern_context(books: list[Book], tokens: tuple, vocab: Vocabulary,
+                    index: dict[str, str]) -> PatternContext:
+    return PatternContext({id(b): book_slots(b, tokens) for b in books},
+                          Flows(books, index, vocab.flow_rules), vocab)
+
+
+def vocabulary_tokens(books: list[Book], ctx: PatternContext) -> tuple[frozenset[str], dict]:
+    """Caseless tokens the scrub keeps: the framework columns' cells (slot
+    values taken out first) + framework_values, minus every word of a slot value
+    or a person column anywhere in the corpus (framework_values excepted: they
+    are listed by name)."""
+    diff, vocab = _diff_module(), ctx.vocab
+    slot_words: set[str] = set()
+    person_words: set[str] = set()
+    found: set[str] = set()
+    for book in books:
+        for sid, (_h, records) in book.sheets.items():
+            columns = vocab.columns.get(sheet_key(sid), frozenset())
+            for row in records:
+                for cid, value in row.items():
+                    if not filled(value):
+                        continue
+                    words = {t.casefold() for t in diff._tokens(str(value))}
+                    if cid in vocab.person_columns:
+                        person_words |= words
+                    if sid in SLOT_SHEETS and any(cid in ids for ids in SLOT_COLUMNS.values()):
+                        slot_words |= words
+                    if cid in columns:
+                        parts = slot_pattern(value, ctx.slots_of(book, row)).split(_MARK)
+                        found.update(t.casefold() for p in parts[::2] for t in diff._tokens(p))
+    listed = {t.casefold() for v in vocab.values for t in diff._tokens(v)}
+    allowed = (found - slot_words - person_words) | listed
+    return frozenset(allowed), {"from_columns": len(found), "listed": len(listed),
+                                "refused_slot_value": len(found & slot_words),
+                                "refused_person": len((found & person_words) - slot_words)}
+
+
+def flow_breakdown(books: list[Book], sid: str, headers: dict, ctx: PatternContext, scr,
+                   assigned, top: int | None) -> dict | None:
+    """Per flow: rows, and each breakdown column's values / slot patterns."""
+    wanted = ctx.vocab.breakdown.get(sheet_key(sid))
+    if not wanted:
+        return None
+    by_flow: dict[str, list] = defaultdict(list)
+    basis: Counter[str] = Counter()
+    for book in books:
+        for row in book.sheets.get(sid, ({}, []))[1]:
+            flow, why = ctx.flows.of(book, sid, row)
+            basis[why] += 1
+            by_flow[flow].append((book, row))
+    out: dict = {"rows_by_flow": {f: len(r) for f, r in sorted(by_flow.items())},
+                 "basis": dict(basis.most_common()), "columns": {}}
+    for cid in wanted:
+        header = headers.get(cid, cid.upper())
+        if assigned(header):
+            continue
+        per: dict = {}
+        for flow, rows in sorted(by_flow.items()):
+            values = [(b, r) for b, r in rows if filled(r.get(cid))]
+            counts = Counter(str(r[cid]).strip() for _b, r in values)
+            patterns = Counter(slot_pattern(r[cid], ctx.slots_of(b, r)) for b, r in values)
+            per[flow] = {"rows": len(rows), "filled": len(values),
+                         "values": _ranked(counts, len(values), top, scr.scrub),
+                         "patterns": _ranked(patterns, len(values), top,
+                                             lambda p: _scrub_pattern(p, scr))}
+        out["columns"][scr.scrub(header)] = per
+    return out
+
+
+def email_table(books: list[Book], ctx: PatternContext, scr, top: int | None) -> dict | None:
+    """EMAIL_TEMPLATE_CONFIG on FILE-INGESTION pipelines (the PIPELINE_ID's flow
+    in file_ingestion_flows, else an unclassified row whose PIPELINE_NAME
+    matches file_ingestion_pipeline_name): rows / pipelines per STATUS, the
+    statuses per pipeline, and STATUS x SUBJECT pattern x BODY pattern."""
+    rows = [(b, r) for b in books for r in b.sheets.get(EMAIL, ({}, []))[1]]
+    if not rows:
+        return None
+    vocab = ctx.vocab
+    by_flow: Counter[str] = Counter()
+    basis: Counter[str] = Counter()
+    status_all: Counter[str] = Counter()
+    status_file: Counter[str] = Counter()
+    pipelines: dict[str, set[str]] = defaultdict(set)
+    statuses: dict[str, set[str]] = defaultdict(set)
+    combos: Counter[tuple] = Counter()
+    for book, row in rows:
+        flow, why = ctx.flows.of(book, EMAIL, row)
+        name = str(row.get("pipelinename") or "").strip()
+        is_file = flow in vocab.file_flows
+        if not is_file and flow == UNCLASSIFIED and vocab.file_name is not None \
+                and vocab.file_name.search(name):
+            is_file, why = True, "pipeline name"
+        by_flow[flow] += 1
+        basis[why] += 1
+        status = str(row.get("status") or "").strip()
+        status_all[status] += 1
+        if not is_file:
+            continue
+        status_file[status] += 1
+        pipeline = _pid(row) or name
+        pipelines[status].add(pipeline)
+        statuses[pipeline].add(status)
+        slots = ctx.slots_of(book, row)
+        combos[(status, slot_pattern(row.get("subject") or "", slots),
+                slot_pattern(row.get("body") or "", slots))] += 1
+    file_rows = sum(status_file.values())
+    return {
+        "rows": len(rows), "file_ingestion_rows": file_rows,
+        "rows_by_flow": dict(by_flow.most_common()), "basis": dict(basis.most_common()),
+        "status": [{"status": scr.scrub(s) or "<blank>", "rows": n,
+                    "file_ingestion_rows": status_file.get(s, 0),
+                    "file_ingestion_pipelines": len(pipelines.get(s, ()))}
+                   for s, n in status_all.most_common()],
+        "statuses_per_pipeline": {str(k): v for k, v in sorted(
+            Counter(len(v) for v in statuses.values()).items())},
+        "combinations": [{"status": scr.scrub(s) or "<blank>",
+                          "subject": _scrub_pattern(su, scr), "body": _scrub_pattern(bo, scr),
+                          "rows": n, "share": _share(n, file_rows)}
+                         for (s, su, bo), n in combos.most_common(top)]}
+
+
 def patterns_report(books: list[Book], sheets: list[str], assigned, withheld, scr,
-                    tokens: tuple) -> dict:
-    slots = {id(b): book_slots(b, tokens) for b in books}
-    report: dict = {"sheets": {}}
+                    tokens: tuple, top: int | None = None,
+                    ctx: PatternContext | None = None) -> dict:
+    if ctx is None:
+        ctx = pattern_context(books, tokens, load_vocabulary(), {})
+    report: dict = {"top": top, "sheets": {}, "flows": {}}
     for sid in sheets:
         rows = [(b, r) for b in books for r in b.sheets.get(sid, ({}, []))[1]]
         headers: dict[str, str] = {}
@@ -464,30 +750,35 @@ def patterns_report(books: list[Book], sheets: list[str], assigned, withheld, sc
                 headers.setdefault(k, v)
         columns: dict = {}
         for cid, header in headers.items():
-            values = [(b, r.get(cid)) for b, r in rows if filled(r.get(cid))]
+            values = [(b, r) for b, r in rows if filled(r.get(cid))]
             col: dict = {"rows": len(rows), "filled": len(values),
                          "filled_pct": _share(len(values), len(rows))}
             if assigned(header) or withheld(header):
                 col["values"] = "withheld (assigned / withheld column)"
                 columns[scr.scrub(header)] = col
                 continue
-            counts = Counter(str(v).strip() for _b, v in values)
-            patterns = Counter(slot_pattern(v, slots[id(b)]) for b, v in values)
+            counts = Counter(str(r[cid]).strip() for _b, r in values)
+            patterns = Counter(slot_pattern(r[cid], ctx.slots_of(b, r)) for b, r in values)
             if counts:
                 value, n = counts.most_common(1)[0]
                 col.update(dominant_value=scr.scrub(value),
                            dominant_value_share=_share(n, len(values)),
-                           distinct_values=len(counts))
+                           distinct_values=len(counts),
+                           top_values=_ranked(counts, len(values), top, scr.scrub))
             if patterns:
-                top = patterns.most_common(TOP_PATTERNS)
-                col.update(dominant_pattern=_scrub_pattern(top[0][0], scr),
-                           dominant_pattern_share=_share(top[0][1], len(values)),
+                first, n = patterns.most_common(1)[0]
+                col.update(dominant_pattern=_scrub_pattern(first, scr),
+                           dominant_pattern_share=_share(n, len(values)),
                            distinct_patterns=len(patterns),
-                           per_feed=_MARK in top[0][0],
-                           top_patterns=[[_scrub_pattern(p, scr), _share(c, len(values))]
-                                         for p, c in top])
+                           per_feed=_MARK in first,
+                           top_patterns=_ranked(patterns, len(values), top,
+                                                lambda p: _scrub_pattern(p, scr)))
             columns[scr.scrub(header)] = col
         report["sheets"][sid] = {"rows": len(rows), "columns": columns}
+        breakdown = flow_breakdown(books, sid, headers, ctx, scr, assigned, top)
+        if breakdown is not None:
+            report["flows"][sid] = breakdown
+    report["email"] = email_table(books, ctx, scr, top)
     sched = [r for b in books for r in b.sheets.get(SCHEDULE, ({}, []))[1]]
     by_freq: dict[str, list] = defaultdict(list)
     for row in sched:
@@ -518,6 +809,72 @@ def rule_classes(books: list[Book], scr) -> list[dict]:
     return [{"rule_type": scr.scrub(t), "rule_class": scr.scrub(c), "rows": count,
              "workbooks": len(books_with[(t, c)])}
             for (t, c), count in rows.most_common()]
+
+
+def _entries(items: list, md, pct) -> list[str]:
+    return [f"  - {pct(share)}% ({n}) `{md(text) or '<blank>'}`" for text, share, n in items]
+
+
+def _vocabulary_md(vocab: dict | None, md) -> list[str]:
+    if not vocab:
+        return []
+    return ["", "## Framework vocabulary (passed through unscrubbed)", "",
+            f"- columns: {md(vocab['columns'])}",
+            f"- tokens: {vocab['counts']['from_columns']} from the columns, "
+            f"{vocab['counts']['listed']} listed (framework_values); refused: "
+            f"{vocab['counts']['refused_slot_value']} slot-value word(s), "
+            f"{vocab['counts']['refused_person']} person-column word(s)",
+            f"- kept: {md(', '.join(vocab['tokens'])) or 'none'}"]
+
+
+def _flows_md(flows: dict, md, pct) -> list[str]:
+    lines: list[str] = []
+    for sid, entry in flows.items():
+        lines += ["", f"## {sid} per flow", "",
+                  f"- rows by flow: {entry['rows_by_flow']}",
+                  f"- flow from: {entry['basis']}"]
+        for header, per in entry["columns"].items():
+            for flow, d in per.items():
+                lines += ["", f"### {md(header)} - {flow} ({d['filled']} of {d['rows']} "
+                              "filled)", "", "- values:"]
+                lines += _entries(d["values"], md, pct)
+                lines.append("- patterns:")
+                lines += _entries(d["patterns"], md, pct)
+    return lines
+
+
+def _email_md(email: dict | None, md, pct) -> list[str]:
+    if not email:
+        return []
+    lines = ["", f"## {EMAIL} on file-ingestion pipelines", "",
+             f"- rows: {email['rows']}; on file-ingestion pipelines: "
+             f"{email['file_ingestion_rows']}",
+             f"- rows by flow: {email['rows_by_flow']}", f"- flow from: {email['basis']}",
+             f"- statuses per file-ingestion pipeline -> pipelines: "
+             f"{email['statuses_per_pipeline']}", "",
+             "| STATUS | rows | file-ingestion rows | file-ingestion pipelines |",
+             "|---|---|---|---|"]
+    lines += [f"| {md(s['status'])} | {s['rows']} | {s['file_ingestion_rows']} | "
+              f"{s['file_ingestion_pipelines']} |" for s in email["status"]]
+    lines += ["", "| STATUS | SUBJECT pattern | BODY pattern | rows | share % |",
+              "|---|---|---|---|---|"]
+    lines += [f"| {md(c['status'])} | {md(c['subject'])} | {md(c['body'])} | {c['rows']} | "
+              f"{pct(c['share'])} |" for c in email["combinations"]]
+    return lines
+
+
+def _lists_md(report: dict, md, pct) -> list[str]:
+    top = report.get("top")
+    lines = ["", f"## Value and pattern lists ({'all' if top is None else f'top {top}'})"]
+    for sid, sheet in report["sheets"].items():
+        for header, col in sheet["columns"].items():
+            if "top_values" not in col:
+                continue
+            lines += ["", f"### {sid}.{md(header)}", "", "- values:"]
+            lines += _entries(col["top_values"], md, pct)
+            lines.append("- patterns:")
+            lines += _entries(col.get("top_patterns", []), md, pct)
+    return lines
 
 
 def patterns_markdown(report: dict, books: list[Book], sheets: list[str], scr) -> str:
@@ -567,6 +924,10 @@ def patterns_markdown(report: dict, books: list[Book], sheets: list[str], scr) -
               "|---|---|---|---|"]
     lines += [f"| {md(r['rule_type']) or '<blank>'} | {md(r['rule_class']) or '<blank>'} | "
               f"{r['rows']} | {r['workbooks']} |" for r in report["rule_classes"]]
+    lines += _vocabulary_md(report.get("vocabulary"), md)
+    lines += _flows_md(report.get("flows") or {}, md, pct)
+    lines += _email_md(report.get("email"), md, pct)
+    lines += _lists_md(report, md, pct)
     m = report["masters"]
     lines += ["", "## Grand master / master schedule rows", "",
               f"- rows by kind (description / name, else a PARENT_PIPELINE_ID): "
@@ -581,10 +942,16 @@ def patterns_markdown(report: dict, books: list[Book], sheets: list[str], scr) -
 
 
 def write_patterns(out: Path, books: list[Book], sheets: list[str], keys, assigned,
-                   root: Path = TOOLS.parent) -> dict:
+                   root: Path = TOOLS.parent, *, top: int | None = None,
+                   index: dict[str, str] | None = None,
+                   vocabulary: Path = VOCABULARY) -> dict:
     """patterns.md + patterns.json under ``out``, scrubbed; re-scanned, and
-    deleted on a scrub_check hit (the result's ``rescan`` names the classes)."""
+    deleted on a scrub_check hit (the result's ``rescan`` names the classes).
+    ``index``: PIPELINE_ID -> flow (load_group_index); ``top``: list cap."""
     diff = _diff_module()
+    vocab = load_vocabulary(vocabulary, keys)
+    ctx = pattern_context(books, _file_tokens(diff), vocab, index or {})
+    allow, allow_counts = vocabulary_tokens(books, ctx)
     sc = diff.load_scrub_check(root)
     terms = diff.load_local_denylist(root / diff.LOCAL_DENYLIST_REL)
     harvested = sc.harvest_raw_denylist()
@@ -595,12 +962,18 @@ def write_patterns(out: Path, books: list[Book], sheets: list[str], keys, assign
             for row in records:
                 for v in row.values():
                     corpus_tokens.update(t.casefold() for t in diff._tokens(str(v or "")))
-    scr = diff.Scrubber(sc, universe, frozenset(corpus_tokens), terms, harvested)
+    scr = diff.Scrubber(sc, universe, frozenset(corpus_tokens), terms, harvested, allow=allow)
 
     def withheld(header: str) -> bool:
         return header_id(header) in {header_id(c) for c in keys.withhold_values}
 
-    report = patterns_report(books, sheets, assigned, withheld, scr, _file_tokens(diff))
+    report = patterns_report(books, sheets, assigned, withheld, scr, _file_tokens(diff),
+                             top=top, ctx=ctx)
+    report["vocabulary"] = {
+        "columns": vocab.listing,
+        "counts": allow_counts,
+        # only the kept tokens the export shows (outside the fixture universe)
+        "tokens": sorted(t for t in allow if t not in universe)}
     out.mkdir(parents=True, exist_ok=True)
     files = [out / "patterns.md", out / "patterns.json"]
     files[0].write_text(patterns_markdown(report, books, sheets, scr), encoding="utf-8")
@@ -628,6 +1001,14 @@ def main(argv: list[str] | None = None) -> int:
                     help="print / write the dominant corpus value (D1 only: production text)")
     ap.add_argument("--patterns", type=Path, metavar="DIR",
                     help="write the scrubbed patterns.md / patterns.json here")
+    ap.add_argument("--top", type=int, default=None, metavar="N",
+                    help="--patterns: keep the N most common values / patterns per list "
+                         "(default: all)")
+    ap.add_argument("--group-index", nargs="*", type=Path, default=None, metavar="CSV",
+                    help="--patterns: PIPELINE_ID -> flow_type index(es) (default: "
+                         "01_pair_group_index*.csv beside a corpus folder and its _round2)")
+    ap.add_argument("--vocabulary", type=Path, default=VOCABULARY,
+                    help="--patterns: the framework-vocabulary allowlist + flow rules")
     args = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -643,7 +1024,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"corpus: {len(corpus_books)} workbook(s); agent: {len(agent_books)} workbook(s); "
           f"threshold {args.threshold:.0f}%")
-    read = [*sheets, *(s for s in (*SLOT_SHEETS, RULES) if s not in sheets)]
+    read = [*sheets, *(s for s in (*SLOT_SHEETS, RULES, SCHEDULE) if s not in sheets)]
     corpus = read_books(corpus_books, read if args.patterns else sheets)
     agent = read_books(agent_books, sheets)
     print_inventory(corpus, sheets)
@@ -659,7 +1040,13 @@ def main(argv: list[str] | None = None) -> int:
                              encoding="utf-8")
         print(f"wrote {args.json}")
     if args.patterns:
-        patterns = write_patterns(args.patterns, corpus, sheets, keys, assigned)
+        index_files = (args.group_index if args.group_index is not None
+                       else group_index_paths(args.corpus))
+        index = load_group_index(index_files)
+        print(f"group index: {len(index)} pipeline id(s) from "
+              f"{', '.join(str(p) for p in index_files) or 'no file'}")
+        patterns = write_patterns(args.patterns, corpus, sheets, keys, assigned,
+                                  top=args.top, index=index, vocabulary=args.vocabulary)
         if patterns["rescan"]:
             print(f"FAIL patterns not written: the re-scan found "
                   f"{', '.join(f'{k} {v}' for k, v in sorted(patterns['rescan'].items()))}")

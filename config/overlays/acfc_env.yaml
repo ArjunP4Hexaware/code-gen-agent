@@ -78,7 +78,17 @@ metadata:
         # (the IIG workbooks' spelling) was 6 mismatches.
         DATA_FACTORY_PIPELINE_SCHEDULE:
           ACTIVE_END_DATE: "9999-12-31 00:00:00"
+        # 2026-10-14 (D1 post43 item 4): the stage -> standard leg reads the stage
+        # container (the ADLS TGT_CONTAINER_NAME above) and writes the standard
+        # one - the SD prod rows <prefix>-stage-01 / <prefix>-std-01 (acfc-results
+        # round7 pair_2 mismatches.md), the CAQH golden the same pair in prod.
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_CONTAINER_NAME: z-use-d1-dlk-stage-01
+          TGT_CONTAINER_NAME: z-use-d1-dlk-std-01
       constant_citations:
+        STGDELTA_STDDELTA_INGESTION_DET:
+          SRC_CONTAINER_NAME: &stgcont "ACFC environment overlay: the stage container the ADLS leg writes (ADLS TGT_CONTAINER_NAME) and the standard container - SD prod rows <prefix>-stage-01 / <prefix>-std-01 (acfc-results round7 pair_2), the CAQH golden's STGDELTA rows"
+          TGT_CONTAINER_NAME: *stgcont
         DATA_FACTORY_PIPELINE_SCHEDULE:
           ACTIVE_END_DATE: "the IIG corpus (D1, 2026-10-14): ACTIVE_END_DATE 100% one value; the pair_2 golden rows '9999-12-31 00:00:00' (acfc-results round5 pair_2)"
         ADLS_DELTA_INGESTION_DETAILS:
@@ -89,15 +99,12 @@ metadata:
           TGT_CONNECTION_ID: *acfc
           SRC_CONTAINER_NAME: *acfc
           TGT_CONTAINER_NAME: *acfc
-      # Stage -> standard (2026-10-09): no document and no real row states this
-      # sheet's containers or connection ids (IIG test cells holds ADLS_DELTA
-      # rows only), so all five stay OPEN (Friday checklist 2 / 13). The source
-      # container's candidate — the stage container, where the file -> stage row
-      # writes the stage table this row reads — is an INFERENCE: it rides in the
-      # open cell's tooltip, never as the value.
-      open_offers:
-        STGDELTA_STDDELTA_INGESTION_DET:
-          SRC_CONTAINER_NAME: "the d1 stage container z-use-d1-dlk-stage-01 (the ADLS_DELTA rows' TGT_CONTAINER_NAME, where the file -> stage row writes the stage table this row reads) — an inference, stated by no document or real row; Friday checklist 13 (ACFC environment overlay, config/overlays/acfc_env.yaml)"
+      # Stage -> standard (2026-10-09): no document and no real row stated this
+      # sheet's containers or connection ids, so they stayed OPEN (Friday
+      # checklist 2 / 13) and the stage container rode only as an offer.
+      # 2026-10-14 (D1 post43 item 4): the SD prod rows (acfc-results round7
+      # pair_2) and the CAQH golden state both containers - the stage container
+      # in, the standard container out: constants (above). Connection ids stay open.
       # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
       # until this overlay is split per source family — a PRX-shaped feed
       # (pair 1) gets these paths too.
@@ -195,6 +202,26 @@ metadata:
           DAY_OF_SCHEDULE: "the corpus fills it in 3.5% of rows (the shipped '0' filled 100%); its fill per PIPELINE_FREQUENCY decides"
         DATABRICKS_NOTEBOOK_DETAILS:
           PROCESS_NAME: "per-feed in the corpus (dominant value 19.6%); the post43 '<layer> Load for {source}' shape came from the home goldens"
+      # 2026-10-14 (D1 post43 item 4): the prod ADLS_DELTA_INGESTION_DETAILS table
+      # has a 55th column, FILE_METADATA - NULL on every SD prod row, blank in the
+      # SFMC / CAQH IIGs; the iig_v2 template (from the pair-1 RFC package) lacks
+      # it, so every row scored missing. The ACFC sheet carries it, decided blank
+      # (metadata_inserts.sql writes NULL). A list replaces: the shipped headers +
+      # FILE_METADATA.
+      tabs:
+        ADLS_DELTA_INGESTION_DETAILS:
+          headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_FILE_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_FILE_DELIMITER, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, HEADER_FLAG, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, MANDATORY_FIELD_LIST, TGT_CONNECTION_ID, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, RECYCL_ENBL_FLG, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, MAPPING_EXPRESSION, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, FILE_METADATA]
+      deliberate_blanks:
+        ADLS_DELTA_INGESTION_DETAILS:
+          FILE_METADATA: "NULL on every prod row (SD pair_2 golden, acfc-results round7; docs/acfc/QUESTIONS_pair_2.md item 4), blank in the SFMC / CAQH IIGs"
+      # FILE_HEADER_FLAG with no FAQ has_header answer: the file's format decides -
+      # delimited 'Y' (SD prod, SFMC, CAQH), fixed-width 'N' (the pair-1 golden).
+      file_header_flag_by_format: {delimited: "Y", fixed_width: "N"}
+      file_header_flag_citation: "every golden at hand: delimited files Y (SD prod rows, acfc-results round7 pair_2; SFMC IIG ADLS_DELTA!AC2; CAQH golden), the fixed-width pair-1 golden N"
+      # STGDELTA SRC_DATA_TYPE keeps the stated precision: SD prod
+      # 'String:Decimal(10,2)' (acfc-results round7 pair_2); the shipped 'base'
+      # ('String:Decimal') is the pair-1 golden's.
+      data_type_style: full
       always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
         TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
         DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

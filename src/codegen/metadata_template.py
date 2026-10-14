@@ -92,6 +92,11 @@ def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
     for header, offer in tpl.open_offers.get(tab, {}).items():
         if header not in cells:
             cells[header] = _cell("", "needs_template", _OPEN_OFFER_TOOLTIP.format(offer=offer))
+    for header, why in tpl.deliberate_blanks.get(tab, {}).items():
+        if header not in cells or cells[header] is None:
+            cell = _cell("", "synthetic", f"decided blank — {why}")
+            cell["badge_entry"]["deliberate_blank"] = True
+            cells[header] = cell
     return _pending(tpl, tab, cells)
 
 
@@ -670,7 +675,25 @@ def _load_option_cell(strategy, layer_label: str) -> dict:
 _YES_NO = {"yes": "Y", "y": "Y", "true": "Y", "no": "N", "n": "N", "false": "N"}
 
 
-def _header_flag_cells(spec: ResolvedFeedSpec, faq) -> dict:
+def _header_flag_cells(spec: ResolvedFeedSpec, faq, tpl: MetadataTemplateConfig) -> dict:
+    cells = _faq_header_flag_cells(spec, faq)
+    by_format = tpl.file_header_flag_by_format
+    kind = "delimited" if spec.delimiter else "fixed_width"
+    if "FILE_HEADER_FLAG" not in cells and kind in by_format:
+        # 2026-10-14 (D1 post43 item 4): no FAQ answer — the file's format
+        # decides, by the family's observed rule (a NOTE, said once).
+        value = by_format[kind]
+        citation = tpl.file_header_flag_citation or tpl.citation
+        cell = _cell(value, "synthetic",
+                     f"{kind} file -> FILE_HEADER_FLAG {value!r} ({citation})")
+        cell["badge_entry"]["note"] = (
+            f"iig_derived:ADLS_DELTA_INGESTION_DETAILS.FILE_HEADER_FLAG — "
+            f"{kind} file -> {value!r} (no FAQ has_header answer; {citation})")
+        cells["FILE_HEADER_FLAG"] = cell
+    return cells
+
+
+def _faq_header_flag_cells(spec: ResolvedFeedSpec, faq) -> dict:
     """HEADER_FLAG / FILE_HEADER_FLAG / FILE_FOOTER_FLAG — only from a stated
     answer (the FAQ's has_header / has_trailer; the FRD states neither).
     Delimited files: the column-header row -> HEADER_FLAG + FILE_HEADER_FLAG,
@@ -889,7 +912,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                 lowered=landing.lower() if _lower_inputs(tpl, uri) else None)
         if spec.delimiter:
             cells["SRC_FILE_DELIMITER"] = _cell(spec.delimiter, "from_frd")
-        cells.update(_header_flag_cells(spec, faq))
+        cells.update(_header_flag_cells(spec, faq, tpl))
         if spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
         if key_columns:

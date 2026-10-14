@@ -89,7 +89,8 @@ def test_every_corpus_filled_column_is_filled_now(generated):
     assert {r["SENDER_NAME"][0] for r in email.values()} == {"dbo"}
     assert {r["SENDER_EMAIL"][0] for r in email.values()} == {"syn.dl.sender@synthetic.example"}
     # one NOTE per derived column (the same text on every row: said once)
-    derived = [f for f in gate.flags if f.startswith("iig_derived:")]
+    derived = [f for f in gate.flags if f.startswith("iig_derived:")
+               and f.split(":")[1].split(".")[0] in FILLED_NOW]
     assert len(derived) == sum(len(c) for c in FILLED_NOW.values()) == len(set(derived))
     pending = sorted(f.split(" — ")[0] for f in gate.flags if f.startswith("iig_pending:"))
     assert pending == sorted(f"iig_pending:{s}.{c}" for s, cs in PENDING.items() for c in cs)

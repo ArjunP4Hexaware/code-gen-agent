@@ -7,6 +7,7 @@ a. STGDELTA SRC_ / TGT_CATALOG_NAME = the DDL's catalog chain.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from openpyxl import load_workbook
 
@@ -266,19 +267,42 @@ def _spec(delimiter):
     return SimpleNamespace(delimiter=delimiter)
 
 
+# the shipped template: no format rule (FILE_HEADER_FLAG open without an answer)
+_NO_FORMAT_RULE = SimpleNamespace(file_header_flag_by_format={},
+                                  file_header_flag_citation=None, citation="test")
+
+
 def test_delimited_flags_only_from_stated_answers():
     from codegen.metadata_template import _header_flag_cells
 
-    cells = _header_flag_cells(_spec(","), _faq(header="yes", trailer="no"))
+    cells = _header_flag_cells(_spec(","), _faq(header="yes", trailer="no"), _NO_FORMAT_RULE)
     assert {k: v["value"] for k, v in cells.items()} == {
         "HEADER_FLAG": "Y", "FILE_HEADER_FLAG": "Y", "FILE_FOOTER_FLAG": "N"}
     assert all(v["badge_entry"]["badge"] == "from_faq" for v in cells.values())
     assert "has_header 'yes' → Y" in cells["HEADER_FLAG"]["badge_entry"]["tooltip"]
-    only_header = _header_flag_cells(_spec("|"), _faq(header="no"))
+    only_header = _header_flag_cells(_spec("|"), _faq(header="no"), _NO_FORMAT_RULE)
     assert {k: v["value"] for k, v in only_header.items()} == {
         "HEADER_FLAG": "N", "FILE_HEADER_FLAG": "N"}                   # trailer stays open
-    assert _header_flag_cells(_spec(","), _faq()) == {}               # nothing stated: open
-    assert _header_flag_cells(_spec(","), None) == {}
+    assert _header_flag_cells(_spec(","), _faq(), _NO_FORMAT_RULE) == {}   # nothing stated: open
+    assert _header_flag_cells(_spec(","), None, _NO_FORMAT_RULE) == {}
+
+
+def test_file_header_flag_by_format_when_no_answer_states_it():
+    """2026-10-14 (D1 post43 item 4): the ACFC overlay's rule — delimited 'Y'
+    (SD prod, SFMC, CAQH), fixed-width 'N' (pair 1) — fills FILE_HEADER_FLAG
+    with a NOTE when no FAQ has_header answer does; an answer still wins."""
+    from codegen.metadata_template import _header_flag_cells
+
+    rule = SimpleNamespace(file_header_flag_by_format={"delimited": "Y", "fixed_width": "N"},
+                           file_header_flag_citation="goldens", citation="test")
+    for delimiter, value in ((",", "Y"), (None, "N")):
+        cell = _header_flag_cells(_spec(delimiter), None, rule)["FILE_HEADER_FLAG"]
+        assert cell["value"] == value and cell["badge_entry"]["badge"] == "synthetic"
+        assert cell["badge_entry"]["note"].startswith(
+            "iig_derived:ADLS_DELTA_INGESTION_DETAILS.FILE_HEADER_FLAG")
+    answered = _header_flag_cells(_spec(","), _faq(header="no"), rule)
+    assert answered["FILE_HEADER_FLAG"]["value"] == "N"
+    assert answered["FILE_HEADER_FLAG"]["badge_entry"]["badge"] == "from_faq"
 
 
 def test_fixed_width_keeps_the_pre_existing_reading():
@@ -287,6 +311,6 @@ def test_fixed_width_keeps_the_pre_existing_reading():
     the FILE_* flags open."""
     from codegen.metadata_template import _header_flag_cells
 
-    cells = _header_flag_cells(_spec(None), _faq(header="no", trailer="yes"))
+    cells = _header_flag_cells(_spec(None), _faq(header="no", trailer="yes"), _NO_FORMAT_RULE)
     assert list(cells) == ["HEADER_FLAG"]
     assert cells["HEADER_FLAG"]["value"] == "no"

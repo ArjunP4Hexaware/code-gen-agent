@@ -1278,6 +1278,16 @@ class MetadataTemplateConfig(BaseModel):
     # (badge synthetic), never a value an input states (an FAQ answer); one
     # NOTE per column (iig_pending:<TAB>.<HEADER>).
     pending_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post43 item 4): columns DECIDED blank — tab -> header ->
+    # citation. The cell is blank and not open (metadata_inserts.sql writes NULL),
+    # e.g. ADLS FILE_METADATA: NULL on every prod row.
+    deliberate_blanks: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-14: ADLS FILE_HEADER_FLAG by the file's format when no FAQ
+    # has_header answer states it — {"delimited": "Y", "fixed_width": "N"}
+    # (empty = open, as before); a NOTE (iig_derived) and this citation.
+    file_header_flag_by_format: dict[Literal["delimited", "fixed_width"], str] = Field(
+        default_factory=dict)
+    file_header_flag_citation: str | None = None
     # The same for a path_patterns shape an overlay supplies: {tab: {header:
     # citation}}; a shape without one cites ``citation`` (the template).
     path_citations: dict[str, dict[str, str]] = Field(default_factory=dict)

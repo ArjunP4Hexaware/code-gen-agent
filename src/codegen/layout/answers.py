@@ -139,7 +139,10 @@ def load_answers(path: Path) -> AnswersFile:
         if not isinstance(value, dict) or set(value) - {"frd", "vdd"}:
             raise AnswersFileError(f"{path}: pairing[{name!r}] must be {{frd?, vdd?}}")
     inputs: dict[str, str] = {}
-    for key, value in (raw.get("inputs") or {}).items():
+    from codegen.layout.answers_template import flatten_inputs
+
+    # post47: inputs.run / inputs.feeds.<feed> read as run.<k> / feeds.<feed>.<k>
+    for key, value in flatten_inputs(raw.get("inputs") or {}).items():
         stated = value.get("value") if isinstance(value, dict) else value
         if isinstance(stated, (int, float)) and not isinstance(stated, bool):
             stated = str(stated)

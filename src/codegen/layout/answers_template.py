@@ -83,12 +83,36 @@ def read_template(path: Path) -> list[TemplateItem]:
         items.append(TemplateItem(key, str(entry.get("question") or ""),
                                   [str(c) for c in entry.get("candidates") or []], "answers"))
     for section in ("gaps", "inputs"):
-        for key, entry in (raw.get(section) or {}).items():
+        block = raw.get(section) or {}
+        entries = flatten_inputs(block) if section == "inputs" else block
+        for key, entry in entries.items():
             entry = entry if isinstance(entry, dict) else {}
             items.append(TemplateItem(str(key), str(entry.get("question") or ""),
                                       [str(c) for c in entry.get("candidates") or []], section,
                                       files=[str(f) for f in entry.get("files") or {}]))
     return items
+
+
+def flatten_inputs(block: dict) -> dict:
+    """``inputs:`` -> {flat key: entry}: 2026-10-14 (post47) ``run: {<name>: ...}``
+    -> ``run.<name>``, ``feeds: {<feed>: {<name>: ...}}`` -> ``feeds.<feed>.<name>``;
+    any other key (the older flat ``feeds[<i>].<name>`` / ``run.environment``)
+    as it is."""
+    out: dict = {}
+    for key, entry in (block or {}).items():
+        if key == "run" and isinstance(entry, dict) and not _is_entry(entry):
+            out.update({f"run.{name}": value for name, value in entry.items()})
+        elif key == "feeds" and isinstance(entry, dict) and not _is_entry(entry):
+            for feed, names in entry.items():
+                out.update({f"feeds.{feed}.{name}": value
+                            for name, value in (names or {}).items()})
+        else:
+            out[str(key)] = entry
+    return out
+
+
+def _is_entry(entry: dict) -> bool:
+    return "value" in entry or "question" in entry
 
 
 def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
@@ -118,12 +142,74 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
     if inputs:
         # 2026-10-14 (D1 post44): never blocking — the workbook is written with the
         # cell empty; a value here fills it when generate reruns with --answers.
+        # post47: run-level inputs (one value for the whole run) under `run:`,
+        # feed-level under `feeds: <feed>:`.
         lines.append("inputs:")
+        run = [i for i in inputs if i.key.startswith("run.")]
+        if run:
+            lines.append("  run:")
+            for item in run:
+                lines += _indent(_gaps_entry(TemplateItem(
+                    item.key[len("run."):], item.reason, item.candidates)), 2)
+        feeds: dict[str, list[TemplateItem]] = {}
+        other = []
         for item in inputs:
+            if item.key.startswith("feeds.") and item.key.count(".") >= 2:
+                feed, name = item.key[len("feeds."):].split(".", 1)
+                feeds.setdefault(feed, []).append(TemplateItem(name, item.reason,
+                                                               item.candidates))
+            elif not item.key.startswith("run."):
+                other.append(item)
+        if feeds:
+            lines.append("  feeds:")
+            for feed, entries in feeds.items():
+                lines.append(f"    {_q(feed)}:")
+                for entry in entries:
+                    lines += _indent(_gaps_entry(entry), 4)
+        for item in other:          # an older flat key (feeds[<i>].<name>)
             lines += _gaps_entry(item)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return path
+
+
+FILES_SUFFIX = ".lob_by_file"
+
+
+def file_pairs(value: str) -> list[tuple[str, str]]:
+    """``<file>=<value>; ...`` (a ``files:`` answer as text) -> ordered pairs."""
+    pairs = []
+    for part in str(value or "").split(";"):
+        name, sep, answer = part.partition("=")
+        if sep and name.strip() and answer.strip():
+            pairs.append((name.strip(), answer.strip()))
+    return pairs
+
+
+def write_applied_answers(path: Path, gaps: dict[str, str], *, stage: str) -> Path:
+    """2026-10-14 (post47): the ``gaps:`` answers a run applied, as an ordinary
+    answers file (``--answers`` reads it): a per-file answer (the LOB lookup's
+    ``<feed>.lob_by_file``) as its ``files:`` block. EVERY value is written
+    quoted — a LOB code ``0100`` unquoted is YAML's number 64."""
+    lines = [f"# codegen answers — the gaps answers {stage} applied; every value quoted.",
+             "# Rerun the CLI with --answers <this file> to apply the same answers.", "",
+             "gaps:" if gaps else "gaps: {}"]
+    for key, value in gaps.items():
+        lines.append(f"  {_q(key)}:")
+        pairs = file_pairs(value) if key.endswith(FILES_SUFFIX) else []
+        if pairs:
+            lines.append("    files:")
+            lines += [f"      {_q(name)}: {_q(answer)}" for name, answer in pairs]
+        else:
+            lines.append(f"    value: {_q(str(value))}")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return path
+
+
+def _indent(lines: list[str], width: int) -> list[str]:
+    return [" " * width + line for line in lines]
 
 
 def is_role_key(key: str) -> bool:
@@ -131,5 +217,6 @@ def is_role_key(key: str) -> bool:
     return key.count("/") >= _ROLE_KEY_PARTS - 1 and not key.startswith("feeds[")
 
 
-__all__ = ["TEMPLATE_NAME", "TemplateItem", "is_role_key", "read_template",
+__all__ = ["FILES_SUFFIX", "TEMPLATE_NAME", "TemplateItem", "file_pairs", "flatten_inputs",
+           "is_role_key", "read_template", "write_applied_answers",
            "write_answers_template"]

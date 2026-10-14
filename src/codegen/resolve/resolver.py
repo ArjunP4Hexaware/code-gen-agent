@@ -431,8 +431,22 @@ def map_catalog(catalog: str | None, layer: str, config: Config,
     environment value — maps them (case-insensitive key match) and the mapped
     name is emitted in lowercase. An empty map is identity (logical None).
     With a map, a stated catalog that has no entry is written as stated and
-    flagged ``catalog_unmapped:<layer>`` (once per catalog)."""
-    catalog_map = config.conventions.catalog_map
+    flagged ``catalog_unmapped:<layer>`` (once per catalog).
+
+    2026-10-14 (post47): the map is the run's environment's
+    (``codegen.environments.catalog_map``); a CUSTOM environment that states
+    none leaves a stated catalog UNSET (None, its logical name kept) —
+    never the logical name written, never another environment's map."""
+    from codegen import environments as envs
+
+    if catalog is not None and envs.catalogs_unset(config):
+        flag = (f"catalog_unset:{layer} — {catalog!r}: the custom environment states no "
+                "catalog_map; the catalog is left unset (INPUT_NEEDED "
+                f"run.environment.catalog_map.{catalog})")
+        if flag not in flags:
+            flags.append(flag)
+        return None, catalog
+    catalog_map = envs.catalog_map(config)
     if catalog is None or not catalog_map:
         return catalog, None
     mapped = catalog_map.get(catalog)
@@ -1049,6 +1063,26 @@ def _key_files_by_lob_table(frd_feed: FrdFeed, feed_index: int, files: list, fla
 def lob_question(count: int, codes: list[str]) -> str:
     """The ONE question a feed's unkeyed files ask."""
     return f"file-to-LOB mapping for {count} files; FRD lists LOB codes {', '.join(codes)}"
+
+
+def lob_question_item(spec) -> dict | None:
+    """2026-10-14 (post47): the feed's LOB question in the layout-question
+    shape the App's Answers-needed dialog renders — kind ``files``: ONE block,
+    every unkeyed file a key, the FRD's LOB codes its dropdown. Answered as a
+    gaps value ``<file>=<code>; ...`` (what an answers file's ``files:``
+    block reads as). None when every file is keyed."""
+    if not spec.lob_unkeyed or spec.lob_question_key is None:
+        return None
+    key = spec.lob_question_key
+    return {"document": "frd", "key": key, "sheet": None, "layer": None, "role": key,
+            "kind": "files", "reason": lob_question(len(spec.lob_unkeyed), list(spec.lobs)),
+            "header": [], "candidates": [{"value": code} for code in spec.lobs],
+            "files": list(spec.lob_unkeyed),
+            "title": f"The LOB of each file of {spec.feed_id}",
+            "hint": ("No document keys these files to ONE LOB (no plan-id column, no region "
+                     "token, no lob_reference entry). Pick each file's LOB from the FRD's "
+                     "codes; a file left unanswered keeps its LOB cells open."),
+            "suggested": None}
 
 
 def _frd_extraction_flags(frd: FrdContract, frd_feed: FrdFeed) -> list[str]:

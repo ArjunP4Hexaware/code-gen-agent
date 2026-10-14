@@ -495,9 +495,14 @@ def _run_pairs(
     inputs = _answers_inputs(answers_path)
     gaps = _answers_gaps(answers_path)
     owed_items: list = []
-    config, env_item = _run_environment(config, inputs, output_mode, iig_template)
-    if env_item is not None:
-        owed_items.append(env_item)
+    from codegen.environments import EnvironmentSelectionError
+
+    try:
+        config, run_items = _run_environment(config, inputs, output_mode, iig_template)
+    except EnvironmentSelectionError as exc:
+        print(f"{'FAIL':<15} environment — {exc}")
+        return 1
+    owed_items += run_items
     failed = False
     matched_feed = False
     needs_answers = False
@@ -521,7 +526,7 @@ def _run_pairs(
                 continue
             matched_feed = True
             index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
-            faq_answers = owed_mod.answers_for(inputs, index)
+            faq_answers = owed_mod.answers_for(inputs, index, spec.feed_id)
             try:
                 gate = _generate_feed(spec, config, dry_run=dry_run,
                                       skip_tests=skip_tests, output_mode=output_mode,
@@ -563,27 +568,42 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
     run.environment`` selects one when no flag did; a run on the default
     prints ONE INPUT_NEEDED line naming the environment it assumed (and returns
     its answers-template item). Only framework runs whose IIG template has
-    environment cells use one."""
+    environment cells use one.
+
+    2026-10-14 (post47): a custom environment's unset keys may be given as
+    ``inputs.run: environment.<key>``; every run-level input (the environment,
+    a custom environment's unset keys, the run-scoped owed cells) is printed
+    ONCE, in one block, before any feed — and returned as answers-template
+    items (``inputs.run``). A named environment left incomplete raises
+    EnvironmentSelectionError (the caller prints FAIL)."""
     from codegen import environments as envs
+    from codegen import owed_inputs as owed_mod
+    from codegen.layout.answers_template import TemplateItem
     from codegen.output_modes import output_parts
 
     tpl = config.metadata.templates.get(iig_template or config.metadata.template)
-    if "framework" not in output_parts(output_mode if output_mode else config.output.mode) \
-            or tpl is None or not tpl.environment_cells:
-        return config, None
-    chosen = config.run_environment
-    if inputs.get(envs.INPUT_KEY) and (chosen is None or chosen.source == "default"):
-        config = envs.with_environment(config, envs.select_environment(
-            config, name=inputs[envs.INPUT_KEY]))
-    env = envs.run_environment(config)
-    if env is None or env.source != "default":
-        return config, None
-    from codegen.layout.answers_template import TemplateItem
-
-    question = envs.assumed_question(config, env)
-    print(answer_line("INPUT_NEEDED", envs.INPUT_KEY,
-                      f"{question} (not blocking — the run used {env.name})"))
-    return config, TemplateItem(envs.INPUT_KEY, question, list(config.environments), "inputs")
+    if "framework" in output_parts(output_mode if output_mode else config.output.mode) \
+            and tpl is not None and tpl.environment_cells:
+        chosen = config.run_environment
+        if inputs.get(envs.INPUT_KEY) and (chosen is None or chosen.source == "default"):
+            config = envs.with_environment(config, envs.select_environment(
+                config, name=inputs[envs.INPUT_KEY]))
+        env = envs.run_environment(config)
+        given = {key[len(envs.INPUT_KEY) + 1:]: value for key, value in inputs.items()
+                 if key.startswith(f"{envs.INPUT_KEY}.") and str(value).strip()}
+        if env is not None and env.source == "custom" and given:
+            values = {**envs.flat_values(env.entry), **given}
+            config = envs.with_environment(config, envs.select_environment(
+                config, custom={k: v for k, v in values.items() if v}, custom_name=env.name))
+    items = [*owed_mod.environment_inputs(config, output_mode=output_mode,
+                                          iig_template=iig_template),
+             *owed_mod.run_owed_inputs(config, inputs, output_mode=output_mode,
+                                       iig_template=iig_template)]
+    for line in owed_mod.run_block_lines(items):
+        print(line)
+    return config, [TemplateItem(i.key, i.question,
+                                 list(config.environments) if i.key == envs.INPUT_KEY else [],
+                                 owed_mod.INPUTS_SECTION) for i in items]
 
 
 def _lob_question(spec):

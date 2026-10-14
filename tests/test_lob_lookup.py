@@ -255,3 +255,41 @@ def test_a_multi_value_single_code_cell_fails_the_gate_with_its_address(tmp_path
     check = check_iig_workbooks_single_value([path], cfg)
     assert not check.passed
     assert f"x_IIG.xlsx {ADLS}!B3 (LOB): a list" in check.details
+
+
+def test_the_app_asks_the_lob_question_as_one_files_block_and_applies_it(tmp_path):
+    """post47: the App's Answers-needed dialog — the feed's LOB question is ONE
+    item, kind ``files`` (the 18 files as keys, the FRD's codes the dropdown),
+    answered as a gaps value; the re-run keys every file, and the answers it
+    applied are written as an answers file with every value quoted."""
+    from codegen.layout.answers import load_answers
+    from codegen.layout.answers_template import write_applied_answers
+    from codegen.layout.resolve import parse_answers
+    from codegen.resolve.resolver import lob_question_item, resolve_pair
+
+    config, feed, (frd, sttm) = _with_feed(tmp_path, lob_table=REGION_TABLE)
+    (spec,) = [s for s in resolve_pair(frd, sttm, config) if s.feed_id == feed]
+    question = lob_question_item(spec)
+    assert question["kind"] == "files" and question["key"] == spec.lob_question_key
+    assert question["files"] == FILES                                  # 18 keys, one block
+    assert [c["value"] for c in question["candidates"]] == CODES
+    assert question["reason"].startswith("file-to-LOB mapping for 18 files; FRD lists")
+    pytest.importorskip("fastapi")
+    from ui.backend.demo import needs_answer_item
+
+    item = needs_answer_item(question, feed_name=feed)
+    assert (item["label"], item["section"], item["answer_as"]) == ("QUESTION", "gaps", "gap")
+    # the dialog posts "<file>=<code>; ..." (codes as text — 0100, never 64)
+    value = "; ".join(f"{name}={PLAN_LOB[_plan(name)]}" for name in FILES)
+    posted = parse_answers({"gaps": {question["key"]: {"value": value, "source": "user"}}})
+    gaps = {key: entry["value"] for key, entry in posted["gaps"].items()}
+    (answered,) = [s for s in resolve_pair(frd, sttm, config, gaps=gaps) if s.feed_id == feed]
+    assert lob_question_item(answered) is None
+    assert [f.lob for f in answered.files] == [PLAN_LOB[_plan(name)] for name in FILES]
+    # the applied answers, as an answers file: a files: block, every value quoted
+    path = write_applied_answers(tmp_path / "answers.yaml", gaps, stage="this App run")
+    text = path.read_text(encoding="utf-8")
+    assert f'      "{FILES[0]}": "0100"' in text
+    raw = yaml.safe_load(text)["gaps"][question["key"]]["files"]
+    assert raw[FILES[0]] == "0100" and all(isinstance(v, str) for v in raw.values())
+    assert load_answers(path).gaps[question["key"]]["value"] == value

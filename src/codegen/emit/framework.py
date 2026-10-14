@@ -150,11 +150,37 @@ def _sanitize_abbrev(slug: str) -> str:
 
 def _config_default_catalog(config: Config | None, profile, layer: str) -> str | None:
     """The catalog chain's last link: the profile's default_catalog, else the
-    global conventions.default_catalog (M7.1)."""
-    own = profile.default_catalog.get(layer)
+    global conventions.default_catalog (M7.1). 2026-10-14 (post47): the run's
+    environment's default_catalog first (codegen.environments)."""
+    from codegen.environments import default_catalog
+
+    env = default_catalog(config, layer)
+    if env:
+        return env
+    own = profile.default_catalog.get(layer) if profile is not None else None
     if own or config is None:
         return own
     return config.conventions.default_catalog.get(layer)
+
+
+def _custom_env_without_catalog(config: Config | None, layer: str) -> bool:
+    """2026-10-14 (post47): the run's environment is custom and states no
+    catalog for ``layer`` — an INPUT_NEEDED (run.environment.<key>), never a
+    FAIL: the DDL waits for the value, the run proceeds."""
+    from codegen.environments import run_environment
+
+    env = run_environment(config) if config is not None else None
+    return env is not None and env.source == "custom" and not env.entry.default_catalog.get(layer)
+
+
+def _env_catalog_unset_flag(config: Config, layer: str, name: str) -> str:
+    from codegen.environments import run_environment
+
+    env = run_environment(config)
+    return (f"catalog_env_unset:{layer} — {name}: the custom environment {env.name!r} states no "
+            f"catalog for the {layer} layer (catalog_map / default_catalog.{layer}, never taken "
+            f"from a named environment); the {layer} DDL is not written until it is given "
+            "(INPUT_NEEDED run.environment.*)")
 
 
 def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
@@ -174,6 +200,9 @@ def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
                      f"{catalog!r})")
     if profile.require_qualified_names and not (catalog and schema):
         missing = "catalog" if not catalog else "schema"
+        if missing == "catalog" and _custom_env_without_catalog(config, layer):
+            flags.append(_env_catalog_unset_flag(config, layer, f"{schema or '?'}.{name}"))
+            return None
         flags.append(f"{missing}_unstated:{layer} — {schema or '?'}.{name}: sources checked: "
                      "FRD Target Catalog and Schema label, STTM target band catalog column, "
                      f"conventions profile default_catalog[{layer}] — none states one; the "
@@ -535,6 +564,9 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                              f"provenance config_default (conventions default_catalog[{layer}] "
                              f"= {default!r})")
                 qualified = f"{default}.{qualified}"
+            elif profile.require_qualified_names and _custom_env_without_catalog(config, layer):
+                flags.append(_env_catalog_unset_flag(config, layer, qualified))
+                continue
             elif profile.require_qualified_names:
                 flags.append(f"catalog_unstated:{layer} — {qualified}: sources checked: FRD "
                              "Target Catalog and Schema label, STTM target band catalog "

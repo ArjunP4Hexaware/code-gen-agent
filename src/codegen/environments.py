@@ -13,8 +13,20 @@ fails with a clear message otherwise). A run picks one:
 - App: the run form's selector (the default preselected) or "Other" with a
   free-text block of values (``custom``).
 
+2026-10-14 (post47): the catalogs (``catalog_map``, ``default_catalog``) and the
+framework's connection ids (``connection_ids``) are environment keys too. A
+NAMED environment (D1 / QA / PROD, chosen or the default) is a claim that it is
+complete: one with a key unset (blank, or a ``<<ENV:...>>`` placeholder) fails
+the run naming every unset key — except the D1 overlay's own ``<<D1:...>>``
+stand-ins (tests/test_d1_placeholders.py fails on D1 while one survives). A
+CUSTOM environment inherits nothing: a key it leaves out stays unset, the cells
+that would use it stay empty, each one prints ``INPUT_NEEDED
+run.environment.<key>`` and the header reads ``environment: custom (N keys
+unset)``; the run proceeds.
+
 The IIG template's ``environment_cells`` ({sheet: {column: <ref>}}, refs
-``containers.<layer>`` / ``storage_account`` / ``values.<name>``) are filled
+``containers.<layer>`` / ``storage_account`` / ``connection_ids.<name>`` /
+``values.<name>``) are filled
 from the chosen environment, each cell with an ``iig_env:`` NOTE naming it; a
 ``{storage_account}`` token in ``dq_split_location`` takes its storage account.
 A placeholder value (``<<QA:...>>``) leaves the cell open. The report header
@@ -32,12 +44,16 @@ from codegen.config import (
     EnvironmentConfig,
     MetadataTemplateConfig,
     RunEnvironment,
+    is_d1_placeholder,
     is_placeholder,
 )
 
 INPUT_KEY = "run.environment"
 FLAG = "environment"
 ASSUMED_FLAG = "environment_assumed"
+UNSET_FLAG = "environment_unset"
+# the flat-key prefixes of the nested blocks (containers.stage, catalog_map.PR_DLK ...)
+_BLOCKS = ("containers", "catalog_map", "default_catalog", "connection_ids", "values")
 
 
 class EnvironmentSelectionError(ValueError):
@@ -56,16 +72,20 @@ def _lookup(config: Config, name: str) -> str | None:
 
 def entry_from_values(values: dict) -> EnvironmentConfig:
     """A custom environment from flat ``containers.<layer>`` / ``storage_account``
-    / ``values.<name>`` keys or the nested block form (an environments entry)."""
-    nested: dict = {"containers": {}, "values": {}}
+    / ``catalog_map.<logical>`` / ``default_catalog.<layer>`` /
+    ``connection_ids.<name>`` / ``values.<name>`` keys or the nested block form
+    (an environments entry). A key left out (or blank) stays unset — never
+    inherited from a named environment."""
+    nested: dict = {block: {} for block in _BLOCKS}
     for key, value in (values or {}).items():
         key = str(key).strip()
-        if key in ("containers", "values") and isinstance(value, dict):
-            nested[key].update({str(k): str(v) for k, v in value.items() if v is not None})
-        elif key.startswith("containers."):
-            nested["containers"][key.split(".", 1)[1]] = str(value or "").strip()
-        elif key.startswith("values."):
-            nested["values"][key.split(".", 1)[1]] = str(value or "").strip()
+        block, _dot, name = key.partition(".")
+        if key in _BLOCKS and isinstance(value, dict):
+            nested[key].update({str(k): str(v).strip() for k, v in value.items()
+                                if v is not None and str(v).strip()})
+        elif block in _BLOCKS and name:
+            if str(value or "").strip():
+                nested[block][name] = str(value).strip()
         elif key in ("storage_account", "description"):
             nested[key] = str(value or "").strip()
         elif key in ("name", "default"):
@@ -73,7 +93,8 @@ def entry_from_values(values: dict) -> EnvironmentConfig:
         else:
             raise EnvironmentSelectionError(
                 f"custom environment: unknown key {key!r} — use containers.<layer>, "
-                "storage_account or values.<name>")
+                "storage_account, catalog_map.<logical catalog>, default_catalog.<layer>, "
+                "connection_ids.<name> or values.<name>")
     return EnvironmentConfig(**nested)
 
 
@@ -112,11 +133,45 @@ def select_environment(config: Config, *, name: str | None = None,
             raise EnvironmentSelectionError(
                 f"unknown environment {name!r}; choices: "
                 f"{', '.join(config.environments) or 'none defined'} (or --environment-file)")
-        return RunEnvironment(name=found, source="selected", entry=config.environments[found])
+        return _complete(config, RunEnvironment(name=found, source="selected",
+                                                entry=config.environments[found]))
     default = default_name(config)
     if default is None:
         return None
-    return RunEnvironment(name=default, source="default", entry=config.environments[default])
+    return _complete(config, RunEnvironment(name=default, source="default",
+                                            entry=config.environments[default]))
+
+
+def expected_keys(config: Config) -> list[str]:
+    """Every flat key an environment states: the union of the named
+    environments' keys, the default's first."""
+    names = sorted(config.environments, key=lambda n: not config.environments[n].default)
+    keys: dict[str, None] = {}
+    for name in names:
+        keys.update(dict.fromkeys(flat_values(config.environments[name])))
+    return list(keys)
+
+
+def unset_keys(config: Config, entry: EnvironmentConfig) -> list[str]:
+    """The expected keys ``entry`` leaves blank or as a placeholder."""
+    flat = flat_values(entry)
+    return [key for key in expected_keys(config)
+            if not str(flat.get(key) or "").strip() or is_placeholder(flat.get(key))]
+
+
+def _complete(config: Config, env: RunEnvironment) -> RunEnvironment:
+    """A NAMED environment must state every key: one unset (the D1 overlay's
+    own ``<<D1:...>>`` stand-ins excepted) fails the run, naming them all."""
+    flat = flat_values(env.entry)
+    unset = [key for key in unset_keys(config, env.entry) if not is_d1_placeholder(flat.get(key))]
+    if unset:
+        raise EnvironmentSelectionError(
+            f"environment {env.name} is not complete — {len(unset)} key(s) unset: "
+            f"{', '.join(unset)}. A named environment must state every key: set them under "
+            f"environments.{env.name} in the overlay, or pass --environment-file with the "
+            "values you have (a custom environment's missing keys stay open, each an "
+            "INPUT_NEEDED line)")
+    return env
 
 
 def with_environment(config: Config, env: RunEnvironment | None) -> Config:
@@ -132,16 +187,49 @@ def run_environment(config: Config) -> RunEnvironment | None:
 
 
 def env_value(env: RunEnvironment, ref: str) -> str:
-    """A ref's value: ``containers.<layer>``, ``storage_account``, ``values.<name>``."""
-    entry = env.entry
-    if ref.startswith("containers."):
-        return entry.containers.get(ref.split(".", 1)[1], "")
-    if ref.startswith("values."):
-        return entry.values.get(ref.split(".", 1)[1], "")
+    """A ref's value: ``containers.<layer>``, ``storage_account``,
+    ``connection_ids.<name>``, ``catalog_map.<logical>``,
+    ``default_catalog.<layer>``, ``values.<name>``."""
+    block, _dot, name = ref.partition(".")
+    if block in _BLOCKS and name:
+        return getattr(env.entry, block).get(name, "")
     if ref == "storage_account":
-        return entry.storage_account
+        return env.entry.storage_account
     raise ValueError(f"environment_cells: unknown ref {ref!r} (containers.<layer>, "
-                     "storage_account, values.<name>)")
+                     "storage_account, connection_ids.<name>, values.<name>)")
+
+
+def catalog_map(config: Config | None) -> dict[str, str]:
+    """The logical -> physical catalog map a run uses: the run's environment's
+    (a custom one without it maps nothing — its catalogs stay unset), else
+    ``conventions.catalog_map`` (a config with no environments)."""
+    if config is None:
+        return {}
+    env = run_environment(config)
+    if env is not None and (env.entry.catalog_map or env.source == "custom"):
+        return env.entry.catalog_map
+    return config.conventions.catalog_map
+
+
+def catalogs_unset(config: Config | None) -> bool:
+    """A custom environment that states no catalog_map: a stated logical
+    catalog is left unset (its cells open), never written as the logical name."""
+    env = run_environment(config) if config is not None else None
+    return env is not None and env.source == "custom" and not env.entry.catalog_map
+
+
+def default_catalog(config: Config | None, layer: str) -> str | None:
+    """The run's environment's fallback catalog for ``layer`` (None: not stated)."""
+    env = run_environment(config) if config is not None else None
+    if env is None:
+        return None
+    return env.entry.default_catalog.get(layer) or None
+
+
+def label(config: Config | None) -> str | None:
+    """'D1 (default)' — the environment a catalog cell's NOTE names."""
+    env = run_environment(config) if config is not None else None
+    return None if env is None else f"{env.name} ({env.source})"
 
 
 def apply_environment(tpl: MetadataTemplateConfig, config: Config) -> MetadataTemplateConfig:
@@ -184,11 +272,37 @@ def environment_flags(config: Config) -> list[str]:
     env = run_environment(config)
     if env is None:
         return []
-    flags = [f"{FLAG}:{env.name} ({env.source}) — the environment-scoped IIG cells "
-             "(containers, storage account) come from it"]
+    unset = unset_keys(config, env.entry) if env.source == "custom" else []
+    flags = [f"{FLAG}:{header_label(env, unset)} — the environment-scoped IIG cells "
+             "(containers, storage account, catalogs, connection ids) come from it"]
     if env.source == "default":
         flags.append(f"{ASSUMED_FLAG}:{INPUT_KEY} — {assumed_question(config, env)}")
+    flags += [f"{UNSET_FLAG}:{INPUT_KEY}.{key} — {unset_question(env, key)}" for key in unset]
     return flags
+
+
+def header_label(env: RunEnvironment, unset: list[str]) -> str:
+    """``D1 (default)`` / ``QA (selected)`` / ``custom (3 keys unset)`` /
+    ``SANDBOX (custom, 3 keys unset)``."""
+    if env.source != "custom" or not unset:
+        return f"{env.name} ({env.source})"
+    count = f"{len(unset)} key{'s' if len(unset) != 1 else ''} unset"
+    return f"custom ({count})" if env.name == "custom" else f"{env.name} (custom, {count})"
+
+
+def unset_question(env: RunEnvironment, key: str) -> str:
+    return (f"the custom environment {env.name!r} states no {key} (never taken from a named "
+            "environment): the cells that use it are left empty — give it in the environment "
+            f"file / the App's Other box, or under inputs.run: environment.{key}")
+
+
+def unset_items(config: Config) -> list[tuple[str, str]]:
+    """(input key, question) per key a custom run environment leaves unset."""
+    env = run_environment(config)
+    if env is None or env.source != "custom":
+        return []
+    return [(f"{INPUT_KEY}.{key}", unset_question(env, key))
+            for key in unset_keys(config, env.entry)]
 
 
 def assumed_question(config: Config, env: RunEnvironment) -> str:
@@ -206,16 +320,19 @@ def header_line(flags: list[str]) -> str | None:
 
 
 def flat_values(entry: EnvironmentConfig) -> dict[str, str]:
-    """``containers.<layer>`` / ``storage_account`` / ``values.<name>`` -> value
-    (the App's "Other" box and the options list)."""
+    """``containers.<layer>`` / ``storage_account`` / ``catalog_map.<logical>`` /
+    ``default_catalog.<layer>`` / ``connection_ids.<name>`` / ``values.<name>``
+    -> value (the App's "Other" box, the options list, the unset-key check)."""
     out = {f"containers.{k}": v for k, v in entry.containers.items()}
     out["storage_account"] = entry.storage_account
-    out.update({f"values.{k}": v for k, v in entry.values.items()})
+    for block in ("catalog_map", "default_catalog", "connection_ids", "values"):
+        out.update({f"{block}.{k}": v for k, v in getattr(entry, block).items()})
     return out
 
 
-__all__ = ["ASSUMED_FLAG", "FLAG", "INPUT_KEY", "EnvironmentSelectionError",
-           "apply_environment", "assumed_question", "default_name", "entry_from_values",
-           "env_note", "env_value", "environment_flags", "flat_values", "header_line",
-           "load_environment_file", "run_environment", "select_environment",
-           "with_environment"]
+__all__ = ["ASSUMED_FLAG", "FLAG", "INPUT_KEY", "UNSET_FLAG", "EnvironmentSelectionError",
+           "apply_environment", "assumed_question", "catalog_map", "catalogs_unset",
+           "default_catalog", "default_name", "entry_from_values", "env_note", "env_value",
+           "environment_flags", "expected_keys", "flat_values", "header_label", "header_line",
+           "label", "load_environment_file", "run_environment", "select_environment",
+           "unset_items", "unset_keys", "unset_question", "with_environment"]

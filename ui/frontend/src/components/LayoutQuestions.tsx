@@ -11,6 +11,9 @@ import type { LayoutQuestion } from "../api";
    - choice:            radios over the documents' values {value, source, cell}
    - layer:             radios "apply <value> to stage / standard / both"
    - text:              a typed value (a file pattern, a target no document states)
+   - files:             ONE block, a dropdown per file over the candidates' values
+                        (post47: the LOB lookup's file-to-LOB question), posted as
+                        gaps "<file>=<value>; ..." in the question's file order
 
    The answers are kept as AnswerPicks and posted as the layout-answers payload
    ({sttm, frd, vdd, gaps}) by answersPayload. */
@@ -28,6 +31,8 @@ export interface GapPick {
   value: string;
   layer?: string;
   source: string;
+  // kind "files": the per-file picks the value is built from (never posted)
+  files?: Record<string, string>;
 }
 
 export interface AnswerPicks {
@@ -53,7 +58,9 @@ export function isBandQuestion(q: LayoutQuestion): boolean {
 }
 
 export function questionMode(q: LayoutQuestion): QuestionMode {
-  if (q.kind === "choice" || q.kind === "layer" || q.kind === "text") return "gap";
+  if (q.kind === "choice" || q.kind === "layer" || q.kind === "text" || q.kind === "files") {
+    return "gap";
+  }
   if (q.document === "frd") return "frd";
   if (isBandQuestion(q)) return "band";
   return "column";
@@ -85,6 +92,30 @@ export function clearPick(q: LayoutQuestion, picks: AnswerPicks): AnswerPicks {
     bands: without(picks.bands, q.key),
     frd: without(picks.frd, q.key),
     gaps: without(picks.gaps, q.key),
+  };
+}
+
+/** A "files" question's pick for one file ("" = unanswered): the value is
+ *  "<file>=<value>; ..." over the answered files, in the question's order —
+ *  the text an answers file's files: block reads as. No file answered = no pick. */
+export function pickFile(q: LayoutQuestion, file: string, value: string,
+                         picks: AnswerPicks): AnswerPicks {
+  const files = { ...(picks.gaps[q.key]?.files ?? {}) };
+  if (value) files[file] = value;
+  else delete files[file];
+  const order = q.files ?? Object.keys(files);
+  const answered = order.filter((name) => files[name]);
+  if (!answered.length) return clearPick(q, picks);
+  return {
+    ...picks,
+    gaps: {
+      ...picks.gaps,
+      [q.key]: {
+        value: answered.map((name) => `${name}=${files[name]}`).join("; "),
+        source: "user",
+        files,
+      },
+    },
   };
 }
 
@@ -193,7 +224,12 @@ export function answersPayload(questions: LayoutQuestion[], picks: AnswerPicks):
   }
   const frd: Record<string, FrdClaim & { source: string }> = {};
   for (const [key, claim] of Object.entries(picks.frd)) frd[key] = { ...claim, source: "user" };
-  return { sttm, frd, vdd, gaps: { ...picks.gaps } };
+  const gaps: Record<string, GapPick> = {};
+  for (const [key, pick] of Object.entries(picks.gaps)) {
+    const { files: _files, ...posted } = pick;       // the per-file map stays here
+    gaps[key] = posted;
+  }
+  return { sttm, frd, vdd, gaps };
 }
 
 function textPlaceholder(q: LayoutQuestion): string {
@@ -213,6 +249,10 @@ function whyLine(q: LayoutQuestion): string {
       + "proceeding without it leaves the feed with no file and the run stops at extraction.";
   }
   if (q.kind === "text") return "No document states it — type it, or leave it empty.";
+  if (q.kind === "files") {
+    return "Pick each file's value from the list; a file left unanswered stays open "
+      + "(its cells are written empty).";
+  }
   if (isBandQuestion(q)) {
     return "Nothing in the document says which layer these columns are — pick it, or leave "
       + "it unanswered and the sheet's feed stays held back.";
@@ -297,6 +337,32 @@ export function QuestionItem({
           }}
         />
       ) : null}
+      {q.kind === "files" ? (
+        // ONE block: a dropdown per file over the candidates' values (strings —
+        // a code like 0100 stays text end to end)
+        <table className="files-question" style={{ marginTop: 4, fontSize: 12 }}>
+          <tbody>
+            {(q.files ?? []).map((file) => (
+              <tr key={file} data-file={file}>
+                <td><code>{file}</code></td>
+                <td>
+                  <select
+                    aria-label={`${q.key} ${file}`}
+                    value={picks.gaps[q.key]?.files?.[file] ?? ""}
+                    onChange={(e) => onChange(pickFile(q, file, e.target.value, picks))}
+                  >
+                    <option value="">— not answered —</option>
+                    {q.candidates.map((c, i) => (
+                      <option key={`${file}-${i}`} value={c.value ?? ""}>{c.value}</option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {q.kind === "files" ? null : (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
         {q.candidates.map((c, i) => {
           const pickable = pickCandidate(q, c, picks) !== null;
@@ -349,6 +415,7 @@ export function QuestionItem({
           </label>
         )}
       </div>
+      )}
     </div>
   );
 }

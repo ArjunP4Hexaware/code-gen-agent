@@ -1310,13 +1310,19 @@ class OwedCellConfig(BaseModel):
     when: dict[str, str] = Field(default_factory=dict)
     default: str | None = None
     default_share: str | None = None
+    # 2026-10-14 (post47): ``run`` = one value for the whole run (APPLICATION_NAME,
+    # EMAIL_TO): ONE INPUT_NEEDED run.<faq> line in the run-level block, answered
+    # under inputs.run; ``feed`` = per feed (inputs.feeds.<feed>.<faq>).
+    scope: Literal["run", "feed"] = "feed"
 
 
 class EnvironmentConfig(BaseModel):
     """One deployment environment of the overlay's ``environments:`` block
     (2026-10-14, codegen.environments): the containers per layer (landing /
-    stage / standard), the storage account and any other environment-scoped
-    value. A ``<<ENV:...>>`` placeholder leaves the cells it fills open.
+    stage / standard), the storage account, the catalogs, the connection ids
+    and any other environment-scoped value. A ``<<ENV:...>>`` placeholder in a
+    container / the storage account leaves the cells it fills open; in a
+    catalog or connection id it fails the run.
     Exactly one entry is marked ``default: true``."""
 
     model_config = _MODEL_CONFIG
@@ -1325,6 +1331,13 @@ class EnvironmentConfig(BaseModel):
     description: str = ""
     containers: dict[str, str] = Field(default_factory=dict)
     storage_account: str = ""
+    # 2026-10-14 (post47): the catalogs (the STTM's logical catalog -> this
+    # environment's, and the fallback per layer) and the framework's connection
+    # ids. Unlike the containers these never stay open: a run on an environment
+    # that leaves one unset fails, naming the keys (codegen.environments).
+    catalog_map: dict[str, str] = Field(default_factory=dict)
+    default_catalog: dict[str, str] = Field(default_factory=dict)
+    connection_ids: dict[str, str] = Field(default_factory=dict)
     values: dict[str, str] = Field(default_factory=dict)
 
 

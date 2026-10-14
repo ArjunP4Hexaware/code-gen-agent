@@ -207,3 +207,65 @@ describe("the Answers-needed list after a run", () => {
     expect(old.error_detail).toBeNull();
   });
 });
+
+describe("the file-to-LOB question (post47): one block, a dropdown per file", () => {
+  // the home CAQH shape: 18 files, 14 LOB codes (7200 shared), codes as text
+  const plans = ["1340", "1341", "1342", "1343", "1364", "1356", "1357", "1345", "1346",
+                 "1347", "1355", "1353", "1352", "1354", "1358", "1359", "1362", "1363"];
+  const files = plans.map((p) => `SYNCOB_1022_${p}_COBReport_*_P_I_1_T.txt`);
+  const codes = ["0100", "0500", "0530", "0540", "0550", "0900", "1200", "2400", "2600",
+                 "5400", "6400", "7100", "7200", "7700"];
+  const key = "feeds[0].lob_by_file";
+  const item = {
+    key, label: "QUESTION", section: "gaps", answer_as: "gap", feed_name: "syn_cob",
+    sheet: null, reason: "generated with its 18 file rows' LOB cells OPEN",
+    question: { document: "frd", key, sheet: null, layer: null, role: key, kind: "files",
+                reason: `file-to-LOB mapping for 18 files; FRD lists LOB codes ${codes.join(", ")}`,
+                header: [], candidates: codes.map((value) => ({ value })), files,
+                title: "The LOB of each file of syn_cob", suggested: null },
+  };
+
+  function selects(): HTMLSelectElement[] {
+    return [...host.querySelectorAll<HTMLSelectElement>("select")];
+  }
+  function choose(select: HTMLSelectElement, value: string) {
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      setter.call(select, value);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  it("renders ONE block with 18 keys, each a dropdown of the FRD's codes, no radios", () => {
+    const status = normalizeStatus({ state: "done", stages: [], error: null,
+                                     needs_answers: [item] } as unknown as DemoStatus);
+    const items = status.needs_answers as NeedsAnswerItem[];
+    expect(items[0].question.kind).toBe("files");
+    expect(items[0].question.files).toEqual(files);
+    const onRerun = vi.fn();
+    render(<NeedsAnswersPanel items={items} state="done" onRerun={onRerun} />);
+    expect(host.querySelectorAll(".layout-question")).toHaveLength(1);
+    expect(selects()).toHaveLength(18);
+    expect(radios()).toHaveLength(0);
+    for (const select of selects()) {
+      expect([...select.options].map((o) => o.value)).toEqual(["", ...codes]);
+    }
+    expect([...host.querySelectorAll("tr")].map((r) => r.getAttribute("data-file")))
+      .toEqual(files);
+    // answering: the codes stay text (0100, never 64), in the question's file order
+    choose(selects()[1], "0500");
+    choose(selects()[0], "0100");
+    const rerun = [...host.querySelectorAll("button")].find((b) =>
+      b.textContent?.startsWith("Re-run"))!;
+    expect(rerun.textContent).toBe("Re-run with 1 answer…");
+    act(() => rerun.click());
+    expect(onRerun).toHaveBeenCalledWith({
+      sttm: {}, frd: {}, vdd: {},
+      gaps: { [key]: { value: `${files[0]}=0100; ${files[1]}=0500`, source: "user" } },
+    }, 1);
+    // un-answering every file clears the pick
+    choose(selects()[0], "");
+    choose(selects()[1], "");
+    expect(rerun.disabled).toBe(true);
+  });
+});

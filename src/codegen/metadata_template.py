@@ -111,6 +111,7 @@ def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict,
             cells[header] = cell
     _corpus(tpl, tab, cells, context or {})
     _owed(tpl, tab, cells, faq, context or {})
+    _catalog_env_notes(tpl, tab, cells)
     return _placeholders(tab, _pending(tpl, tab, cells))
 
 
@@ -212,21 +213,26 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
 
             cells[header] = base(answer, f"{rule.question} — answered")
             continue
-        how = (f"INPUT_NEEDED feeds[<i>].{rule.faq}: answer under inputs: with generate "
-               f"--answers, or the load-pattern FAQ {rule.faq}")
+        # 2026-10-14 (post47): a run-scoped cell is one value for the whole run
+        # (inputs.run), a feed-scoped one per feed (inputs.feeds.<feed>)
+        kind, how = (("iig_owed_run", f"INPUT_NEEDED run.{rule.faq}: once for the run, under "
+                      "inputs.run with generate --answers") if rule.scope == "run" else
+                     ("iig_owed", f"INPUT_NEEDED feeds.<feed>.{rule.faq}: under "
+                      f"inputs.feeds.<feed> with generate --answers, or the load-pattern FAQ "
+                      f"{rule.faq}"))
         default = _owed_default(rule, {**tpl.corpus_tokens, **(context or {})})
         if default and not is_placeholder(default):
             share = rule.default_share or "default"
             cell = _cell(default, "synthetic",
                          f"default {default!r} ({share}) — owed: {rule.question}")
             cell["badge_entry"]["note"] = (
-                f"iig_owed:{tab}.{key} — {rule.question}; written with the default "
+                f"{kind}:{tab}.{key} — {rule.question}; written with the default "
                 f"{rule.default!r} = {default!r} ({rule.default_share or 'default'}) ({how})")
             cells[header] = cell
             continue
         shown = f" (default {rule.default!r}, a value the D1 overlay sets)" if default else ""
         cell = _cell("", "needs_template", f"owed: {rule.question}{shown}")
-        cell["badge_entry"]["note"] = f"iig_owed:{tab}.{key} — {rule.question}{shown} ({how})"
+        cell["badge_entry"]["note"] = f"{kind}:{tab}.{key} — {rule.question}{shown} ({how})"
         cells[header] = cell
 
 
@@ -241,21 +247,28 @@ def _owed_default(rule, tokens: dict) -> str:
 
 
 def owed_questions(tpl: MetadataTemplateConfig, faq,
-                   tokens: dict | None = None) -> list[tuple[str, str]]:
+                   tokens: dict | None = None, *,
+                   scope: str | None = None) -> list[tuple[str, str]]:
     """(FAQ companion, question) of every owed cell the FAQ leaves unanswered;
-    a rule with a default says which value was written (``tokens`` fill it)."""
+    a rule with a default says which value was written (``tokens`` fill it).
+    ``scope`` (run | feed): only that scope's cells."""
     out: list[tuple[str, str]] = []
     for rules in tpl.owed_cells.values():
         for rule in rules.values():
+            if scope is not None and rule.scope != scope:
+                continue
             answer = getattr(faq, rule.faq, None) if faq is not None else None
             if answer is not None and answer.source != "unknown" and str(answer.value).strip():
                 continue
             question = rule.question
             if rule.default:
                 value = _owed_default(rule, {**tpl.corpus_tokens, **(tokens or {})})
-                question += (f" — written with the default {value!r}"
-                             if value and not is_placeholder(value) else
-                             f" — default {rule.default!r} (set on D1)")
+                if value and not is_placeholder(value):
+                    question += f" — written with the default {value!r}"
+                elif is_placeholder(rule.default):
+                    question += f" — default {rule.default!r} (set on D1)"
+                else:       # a token default for the whole run: each feed's own value
+                    question += f" — written with each feed's default {rule.default}"
             if rule.faq not in [name for name, _q in out]:
                 out.append((rule.faq, question))
     return out
@@ -561,8 +574,43 @@ def catalog_mapping_note(table) -> str:
     conventions.catalog_map mapped ('' when no map applied)."""
     if getattr(table, "catalog_logical", None) is None:
         return ""
-    return (f"; catalog_map {table.catalog_logical} → {table.catalog} (conventions.catalog_map, "
-            "the environment overlay)")
+    if table.catalog is None:
+        return (f"; {_CATALOG_UNSET} — the custom environment states no "
+                f"catalog_map.{table.catalog_logical}")
+    return (f"; catalog_map {table.catalog_logical} → {table.catalog} (the run's environment "
+            "catalog_map)")
+
+
+_CATALOG_UNSET = "catalog unset"
+_CATALOG_MARKERS = ("; catalog_map ", "default_catalog[")
+
+
+def _catalog_env_notes(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> None:
+    """2026-10-14 (post47): every cell whose catalog the run's environment
+    filled (catalog_map / default_catalog) carries an ``iig_env:`` NOTE naming
+    it; a cell whose catalog a custom environment left unset is emptied."""
+    env = tpl.environment
+    if env is None:
+        return
+    for header, cell in cells.items():
+        tooltip = (cell or {}).get("badge_entry", {}).get("tooltip") or ""
+        if cell is None or cell["badge_entry"].get("note"):
+            continue
+        if _CATALOG_UNSET in tooltip:
+            reason = tooltip.split(f"{_CATALOG_UNSET} — ", 1)[1]
+            open_cell = _cell("", "needs_template", f"open — {reason}")
+            open_cell["badge_entry"]["note"] = (
+                f"iig_env:{tab}.{header} — environment {env.name} ({env.source}) states no "
+                "catalog_map: the catalog is unset, the cell left empty")
+            cells[header] = open_cell
+        elif any(marker in tooltip for marker in _CATALOG_MARKERS) and str(cell["value"]):
+            maps = env.entry.catalog_map or {}
+            cell["badge_entry"]["note"] = (
+                f"iig_env:{tab}.{header} — the catalog from environment {env.name} "
+                f"({env.source}): catalog_map "
+                + ", ".join(f"{k} → {v}" for k, v in maps.items())
+                + (f"; default_catalog {env.entry.default_catalog}"
+                   if env.entry.default_catalog else ""))
 
 
 def _landing(feed: FrdFeed) -> str | None:
@@ -861,7 +909,7 @@ def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
     conventions profile's default_catalog[layer] (provenance config_default).
     None when no link states one — the cell stays open (or a template /
     overlay constant fills it)."""
-    if table.catalog:
+    if table.catalog or getattr(table, "catalog_logical", None):
         return _cell(table.catalog, "from_frd",
                      f"{layer} catalog: FRD Target Catalog and Schema label / STTM target "
                      "band catalog column (the DDL's three-part name)"
@@ -873,8 +921,8 @@ def _catalog_cell(config: Config, profile, table, layer: str) -> dict | None:
         return None
     return _cell(default, "synthetic",
                  f"{layer} catalog: no FRD / STTM catalog; provenance config_default "
-                 f"(conventions default_catalog[{layer}] = {default!r}) — the DDL's "
-                 "three-part name uses the same value")
+                 f"(the environment / conventions default_catalog[{layer}] = {default!r}) — "
+                 "the DDL's three-part name uses the same value")
 
 
 def _load_option_cell(strategy, layer_label: str) -> dict:

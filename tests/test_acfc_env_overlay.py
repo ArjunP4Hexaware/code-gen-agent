@@ -55,8 +55,7 @@ def _adls_rows(tmp: Path, slug: str) -> list[tuple[dict, dict]]:
 def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_path):
     plain = load_config(REPO / "config" / "config.yaml")
     with_overlay = load_config(REPO / "config" / "config.yaml", overlays=[OVERLAY])
-    assert with_overlay.conventions.profiles["acfc_prx"].default_catalog == {
-        "stage": "d1_dlk", "standard": "d1_std"}
+    assert _catalogs(with_overlay) == {"stage": "d1_dlk", "standard": "d1_std"}
     (tmp_path / "contracts").mkdir()
     specs, _flags = _pair11_specs(FRD, tmp_path / "contracts", plain)
     assert _generate(specs[0], plain, tmp_path / "plain").verdict == "FAIL"
@@ -75,9 +74,9 @@ def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_pat
             assert values[header] == expected
             badge, tooltip = tooltips[header]
             assert badge == "SYNTHETIC"
-            # 2026-10-14: the containers come from the run's environment (D1)
-            assert ("config/overlays/acfc_env.yaml" in tooltip
-                    or "environment D1 (default): containers." in tooltip)
+            # 2026-10-14: the containers (post47: and the connection ids) come
+            # from the run's environment (D1)
+            assert "environment D1 (default): " in tooltip
         # SCHEMA_DRIFT_FLAG is a feed-family setting since 2026-10-09: the
         # overlay pins the SD family's value — N since round 6 (the SD prod rows
         # and both reference IIGs), not a constant.
@@ -108,7 +107,11 @@ def test_cv_golden_pair_passes_with_the_overlay(tmp_path):
 
 
 def _catalogs(config) -> dict:
-    return config.conventions.profiles["acfc_prx"].default_catalog
+    """post47: the fallback catalogs are the run's environment's (D1, the default)."""
+    from codegen.environments import default_catalog
+
+    found = {layer: default_catalog(config, layer) for layer in ("stage", "standard")}
+    return {layer: value for layer, value in found.items() if value}
 
 
 def _default_on(monkeypatch) -> None:
@@ -120,8 +123,12 @@ def test_default_overlay_is_always_applied(monkeypatch, capsys):
     _default_on(monkeypatch)
     config = load_config(REPO / "config" / "config.yaml")
     assert _catalogs(config) == {"stage": "d1_dlk", "standard": "d1_std"}
-    constants = config.metadata.templates["iig_v2"].constants["ADLS_DELTA_INGESTION_DETAILS"]
-    assert constants["TGT_CONNECTION_ID"] == "2"
+    # post47: the connection ids are D1's (environment_cells), not constants
+    tpl = config.metadata.templates["iig_v2"]
+    assert "TGT_CONNECTION_ID" not in tpl.constants["ADLS_DELTA_INGESTION_DETAILS"]
+    cells = tpl.environment_cells["ADLS_DELTA_INGESTION_DETAILS"]
+    assert cells["TGT_CONNECTION_ID"] == "connection_ids.target"
+    assert config.environments["D1"].connection_ids["target"] == "2"
     assert "SRC_CONTAINER_NAME" not in config.metadata.templates["iig_v2"].always_blank
     assert overlay_paths(REPO / "config" / "config.yaml") == [OVERLAY]
 
@@ -129,7 +136,7 @@ def test_default_overlay_is_always_applied(monkeypatch, capsys):
 def test_an_env_overlay_goes_on_top_of_the_default(monkeypatch, tmp_path, capsys):
     _default_on(monkeypatch)
     other = tmp_path / "other.yaml"
-    other.write_text("conventions: {profiles: {acfc_prx: {default_catalog: {stage: x_stg}}}}\n",
+    other.write_text("environments: {D1: {default_catalog: {stage: x_stg}}}\n",
                      encoding="utf-8")
     monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", f"{OVERLAY};{other}")  # listed twice: once
     assert overlay_paths(REPO / "config" / "config.yaml") == [OVERLAY, other]

@@ -5,7 +5,38 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**Restart here (2026-10-14 late night, post46).** Three briefs, one commit each, marker
+**Restart here (2026-10-14, post47).** Three small items, marker **0.5.8.post47**:
+- **Catalogs + connection ids per environment.** `EnvironmentConfig` gains
+  `catalog_map`, `default_catalog`, `connection_ids` (acfc_env.yaml: D1 real, QA /
+  PROD `<<QA:...>>`); `conventions.catalog_map` / the acfc_prx `default_catalog` /
+  the ADLS connection-id constants are gone from the overlay. Readers:
+  `codegen.environments.catalog_map` / `default_catalog` (resolver `map_catalog`,
+  `emit.framework._config_default_catalog`); ADLS connection ids are
+  `environment_cells` (`connection_ids.<name>`). Catalog cells get an `iig_env:`
+  NOTE (`metadata_template._catalog_env_notes`). A NAMED environment (selected or
+  default) with any key unset FAILS naming every key (`_complete`; D1's own
+  `<<D1:...>>` exempt). A CUSTOM one inherits nothing: missing keys stay unset,
+  their cells empty (an unset catalog: `catalog_env_unset:<layer>` flag, DDL for
+  that layer not written, never FAIL), one `INPUT_NEEDED run.environment.<key>`
+  each, header `environment: SANDBOX (custom, N keys unset)`; `inputs.run:
+  environment.<key>` fills one on a rerun.
+- **INPUT_NEEDED scoping.** `owed_cells.<..>.scope: run` (APPLICATION_NAME,
+  EMAIL_TO; NOTE prefix `iig_owed_run:`) + the environment = RUN-level: printed
+  once before any feed (`owed_inputs.run_block_lines`), one block at the top of
+  each feed report (`run_block`), `inputs.run` in answers_template.yaml. Feed-level
+  keys are now `feeds.<feed_id>.<name>` (`inputs.feeds.<feed>`); the flat
+  `feeds[<i>].` keys still read (`answers_template.flatten_inputs`). App banner
+  groups by `scope`; `DemoRunner._run_level_inputs` (NOT `_run_inputs` — that is
+  the documents tuple).
+- **LOB question in the App dialog.** `resolver.lob_question_item(spec)` = a
+  layout question of kind `files` (the unkeyed files, the FRD codes as
+  candidates); the App appends it to the Answers-needed list, passes the gaps
+  answers to the contract resolver (`resolve_pair(gaps=)` — it was never passed)
+  and writes the applied ones to `<run>/answers.yaml` (`write_applied_answers`,
+  every value quoted). Frontend: `LayoutQuestions` kind `files` (a `<select>` per
+  file, posted `"<file>=<code>; ..."`), `pickFile`.
+
+**Previous restart point (2026-10-14 late night, post46).** Three briefs, one commit each, marker
 **0.5.8.post46**: de9cf44 LOB lookup, 3d6da2d environment input, then post45 patterns +
 bump. **Verified at the head:** see the commit / final report (full suite, ruff, tsc,
 vitest 34). Home CAQH (mock) vs its golden: TOTAL 75.8 -> 77.2 (DQ 86.9: the two per-feed

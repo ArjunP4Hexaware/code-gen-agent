@@ -69,7 +69,8 @@ def test_email_four_status_rows_with_the_corpus_subjects_and_bodies(tmp_path):
                for f in flags)
     assert any(f.startswith("iig_d1_placeholder:EMAIL_TEMPLATE_CONFIG.BODY") and "G564" in f
                for f in flags)
-    assert any(f.startswith("iig_owed:EMAIL_TEMPLATE_CONFIG.EMAIL_TO") and "47.6%" in f
+    # post47: EMAIL_TO is run-level (one value for the run, inputs.run)
+    assert any(f.startswith("iig_owed_run:EMAIL_TEMPLATE_CONFIG.EMAIL_TO") and "47.6%" in f
                for f in flags)
     # the placeholder text never reaches a cell
     for sheet in (EMAIL, NB, SCHED, DQ):
@@ -164,8 +165,9 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
     flags = _notes(gate)
     assert any(f.startswith("iig_owed:DATA_FACTORY_PIPELINE_SCHEDULE.ACTIVE_START_DATE")
                for f in flags)
-    assert any(f.startswith("iig_owed:DATA_FACTORY_PIPELINE_SCHEDULE.APPLICATION_NAME")
-               and f"= '{application}'" in f for f in flags)
+    assert any(f.startswith("iig_owed_run:DATA_FACTORY_PIPELINE_SCHEDULE.APPLICATION_NAME")
+               and f"= '{application}'" in f and "INPUT_NEEDED run.application_name" in f
+               for f in flags)
     assert any(f.startswith("iig_corpus:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_DESCRIPTION")
                and "64.0%" in f for f in flags)
     assert any(f.startswith("iig_corpus:DATA_FACTORY_PIPELINE_SCHEDULE.LAYER_NAME")
@@ -275,47 +277,66 @@ def _generate(config, pair, **kw) -> int:
                           iig_template="iig_v2", **kw)
 
 
-OWED_KEYS = ["active_start_date", "application_name", "email_to",
-             "dq_null_check_input_param", "dq_dedup_input_param"]
+# post47: run-level inputs (once per run, inputs.run) and feed-level (inputs.feeds.<feed>)
+RUN_KEYS = ["run.environment", "run.application_name", "run.email_to"]
+OWED_KEYS = ["active_start_date", "dq_null_check_input_param", "dq_dedup_input_param"]
 
 
 def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     """Owed cells are NOT blocking: INPUT_NEEDED lines (never QUESTION), exit 0,
     the workbook written (ACTIVE_START_DATE empty, APPLICATION_NAME with its
     default), the answers template's inputs: section; values given there fill
-    the cells on the rerun."""
+    the cells on the rerun. post47: the run-level inputs print ONCE, in one
+    block before any feed line; the feed's own under feeds.<feed>."""
     config, specs, pair = _pair11(tmp_path)
     feed = specs[0].feed_id
     code = _generate(config, pair, only_feed=feed)
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK
     assert not [ln for ln in out.splitlines() if ln.startswith(("QUESTION", "UNRESOLVED"))]
-    lines = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED   feeds[")]
+    every = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED")]
+    run = [ln[15:].split(" — ", 1)[0] for ln in every if ln[15:].startswith("run.")]
+    assert run == RUN_KEYS
+    assert every[:3] == [ln for ln in every if ln[15:].startswith("run.")]   # the block first
+    lines = [ln for ln in every if ln.startswith(f"INPUT_NEEDED   feeds.{feed}.")]
     keys = [ln[15:].split(" — ", 1)[0] for ln in lines]
     assert [k.rsplit(".", 1)[1] for k in keys] == OWED_KEYS
-    app_line = next(ln for ln in lines if ".application_name — " in ln)
-    assert "written with the default '" in app_line
+    app_line = next(ln for ln in every if "run.application_name — " in ln)
+    assert "written with each feed's default {source}" in app_line
     xlsx = tmp_path / "out" / specs[0].feed_slug / "framework" / "config_rows.xlsx"
     assert xlsx.is_file()
     assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")
-    assert "0 open question(s), 6 input(s) needed" in template    # + run.environment
-    start = keys[0]
-    assert "gaps: {}" in template and f'\n  "{start}":' in template.split("inputs:", 1)[1]
-    # the report counts them apart
+    assert "0 open question(s), 6 input(s) needed" in template
+    assert "gaps: {}" in template
+    assert '\n  run:\n    "environment":' in template
+    assert f'\n  feeds:\n    "{feed}":\n      "active_start_date":' in template
+    # the report: the run-level block at the top, the feed's own counted apart
     report = (tmp_path / "reports" / f"{specs[0].feed_slug}.md").read_text(encoding="utf-8")
-    assert "**Answers owed** — questions: 0, inputs needed: 6" in report
+    assert "**Run inputs needed: 3**" in report
+    assert "**Answers owed** — questions: 0, inputs needed: 3" in report
     answers = tmp_path / "answers.yaml"
-    answers.write_text("inputs:\n" + "".join(f'  "{k}": {{value: "v-{k.rsplit(".", 1)[1]}"}}\n'
-                                              for k in keys)
-                       + f'  "{start}": {{value: "2026-11-01 00:00:00"}}\n'
-                       '  "run.environment": {value: D1}\n', encoding="utf-8")
+    answers.write_text(
+        "inputs:\n  run:\n    environment: {value: D1}\n"
+        '    application_name: {value: "v-application_name"}\n'
+        '    email_to: {value: "syn.dl@synthetic.example"}\n'
+        f"  feeds:\n    {feed}:\n"
+        '      active_start_date: {value: "2026-11-01 00:00:00"}\n'
+        '      dq_null_check_input_param: {value: "v-null"}\n'
+        '      dq_dedup_input_param: {value: "v-dedup"}\n', encoding="utf-8")
     code = _generate(config, pair, only_feed=feed, answers_path=answers)
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK and "INPUT_NEEDED" not in out and "QUESTION" not in out
     for row in _rows(xlsx, SCHED):
         assert row["ACTIVE_START_DATE"][:2] == ("2026-11-01 00:00:00", FAQ)
         assert row["APPLICATION_NAME"][:2] == ("v-application_name", FAQ)
+    assert all(r["EMAIL_TO"][0] == "syn.dl@synthetic.example" for r in _rows(xlsx, EMAIL))
+    # the older flat keys still read
+    answers.write_text('inputs:\n  "run.environment": {value: D1}\n'
+                       f'  "feeds.{feed}.active_start_date": {{value: "2026-12-01 00:00:00"}}\n',
+                       encoding="utf-8")
+    _generate(config, pair, only_feed=feed, answers_path=answers)
+    assert all(r["ACTIVE_START_DATE"][0] == "2026-12-01 00:00:00" for r in _rows(xlsx, SCHED))
 
 
 def test_the_same_feed_plus_one_question_exits_3(tmp_path, capsys):
@@ -338,7 +359,7 @@ def test_the_same_feed_plus_one_question_exits_3(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == cli.EXIT_NEEDS_ANSWERS
     labels = [ln.split()[0] for ln in out.splitlines()
-              if ln.startswith(("QUESTION", "INPUT_NEEDED")) and "run.environment" not in ln]
+              if ln.startswith(("QUESTION", "INPUT_NEEDED")) and not ln[15:].startswith("run.")]
     assert labels[0] == "QUESTION" and set(labels[1:]) == {"INPUT_NEEDED"}
 
 
@@ -366,7 +387,8 @@ def test_the_app_lists_inputs_needed_as_a_banner_item(tmp_path):
     runner = SimpleNamespace(effective_output_parts=lambda: ["framework"],
                              iig_template="iig_v2")
     items = DemoRunner._owed_inputs(runner, specs[0], config, frd)
-    assert [i["key"].rsplit(".", 1)[1] for i in items] == OWED_KEYS
+    assert [i["key"] for i in items] == [f"feeds.{specs[0].feed_id}.{k}" for k in OWED_KEYS]
     assert items[0]["feed"] == specs[0].feed_id and items[0]["question"]
+    assert {i["scope"] for i in items} == {"feed"}       # the run-level ones: _run_level_inputs
     runner.effective_output_parts = lambda: ["notebook"]
     assert DemoRunner._owed_inputs(runner, specs[0], config, frd) == []

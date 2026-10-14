@@ -2107,16 +2107,16 @@ class DemoRunner:
             spec, config, index=index, faq=faq_for_spec(spec, config, base_dir=REPO_ROOT),
             output_mode=self.effective_output_parts(), iig_template=self.iig_template)]
 
-    def _environment_input(self, config, env) -> list[dict]:
-        """The banner item of a run on the DEFAULT environment (framework
-        output, a template with environment cells): which one was assumed."""
-        from codegen.environments import INPUT_KEY, assumed_question
+    def _run_level_inputs(self, config) -> list[dict]:
+        """The run-level banner items (scope "run"), once per run: the
+        environment assumed (the default) or a custom one's unset keys, and the
+        run-scoped owed cells (APPLICATION_NAME, EMAIL_TO)."""
+        from codegen.owed_inputs import environment_inputs, run_owed_inputs
 
-        tpl = config.metadata.templates.get(self.iig_template or config.metadata.template)
-        if env is None or env.source != "default" or tpl is None \
-                or not tpl.environment_cells or "framework" not in self.effective_output_parts():
-            return []
-        return [{"key": INPUT_KEY, "question": assumed_question(config, env), "feed": ""}]
+        parts = self.effective_output_parts()
+        return [item.as_dict() for item in (
+            *environment_inputs(config, output_mode=parts, iig_template=self.iig_template),
+            *run_owed_inputs(config, {}, output_mode=parts, iig_template=self.iig_template))]
 
     def _note_undecided_vdd(self) -> None:
         """M15e: a run started while the dictionaries are still being indexed
@@ -2483,12 +2483,38 @@ class DemoRunner:
                         f"{len(contract.needs_answers)} answer(s) needed: "
                         + ", ".join(p.key for p in contract.needs_answers))
 
-        self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
-        specs = resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path)
         # 2026-10-14: the run's environment (the run form's choice, else the
-        # default — then a non-blocking "inputs needed" item names it)
+        # default — then a non-blocking "inputs needed" item names it). post47:
+        # chosen BEFORE resolving — the catalogs are the environment's — and the
+        # run-level inputs listed once (scope "run"), never per feed.
         run_env = self.run_environment(config)
-        self.inputs_needed += self._environment_input(config, run_env)
+        from codegen.environments import with_environment
+
+        self.inputs_needed += self._run_level_inputs(with_environment(config, run_env))
+        self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
+        # post47: the gaps answers reach the contract resolver too (the LOB
+        # lookup's per-file answer, feeds[<i>].lob_by_file), and the ones applied
+        # are written to the run folder as an answers file, every value quoted
+        gaps = {key: str(value.get("value") or "")
+                for key, value in ((self.last_answers or {}).get("gaps") or {}).items()
+                if isinstance(value, dict) and str(value.get("value") or "").strip()}
+        if gaps:
+            from codegen.layout.answers_template import write_applied_answers
+
+            write_applied_answers(run_root / "answers.yaml", gaps, stage="this App run")
+        specs = resolve_pair(frd_path, contract_path, with_environment(config, run_env),
+                             vdd_path=vdd_contract_path, gaps=gaps or None)
+        # post47: a feed whose files no document keys to ONE LOB asks ONE question
+        # (every file a key, the FRD's codes a dropdown) — its LOB cells stay open
+        from codegen.resolve.resolver import lob_question_item
+
+        for spec in specs:
+            question = lob_question_item(spec)
+            if question is not None:
+                self._run_items.append(needs_answer_item(
+                    question, feed_name=spec.feed_id,
+                    reason=(f"generated with its {len(spec.lob_unkeyed)} file rows' LOB cells "
+                            "OPEN — answer each file's LOB and re-run")))
 
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = list(pre_failures)

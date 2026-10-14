@@ -124,9 +124,31 @@ the DQ split rule's location takes `{storage_account}`.
 - App: the Generate page's **Environment** selector (the default preselected) or
   **Other…** — a box of `key: value` lines (`containers.stage: …`) used as the
   environment of the next run (`GET` / `POST /api/demo/environment`).
-- Every cell filled from it carries an `iig_env:` NOTE naming the environment; a
-  placeholder value (`<<QA:…>>`) leaves the cell open. The feed report's header
-  prints `environment: D1 (default)` / `(selected)` / `(custom)`.
+- Every cell filled from it carries an `iig_env:` NOTE naming the environment. The
+  feed report's header prints `environment: D1 (default)` / `(selected)` /
+  `(custom)`.
+- **post47 — catalogs and connection ids are environment keys too:**
+  `catalog_map` (the STTM's logical catalog -> this environment's, e.g.
+  `PR_DLK: d1_dlk`), `default_catalog` (`stage` / `standard`, the fallback for a
+  band with Catalog blank) and `connection_ids` (`src_adls` / `metadata` /
+  `target` -> the ADLS SRC_ADLS / METADATA / TGT_CONNECTION_ID cells). They were
+  `conventions.catalog_map`, the acfc_prx profile's `default_catalog` and ADLS
+  constants; a D1 overlay that still sets those must move them under
+  `environments.D1`.
+- **A NAMED environment must be complete.** Choosing D1 / QA / PROD (a flag, the
+  App selector, `inputs.run.environment`, or the default) with a key unset (blank
+  or a `<<ENV:…>>` placeholder) FAILS the run — `FAIL environment — environment QA
+  is not complete — 11 key(s) unset: containers.landing, …`. Only the D1 overlay's
+  own `<<D1:…>>` stand-ins are exempt (`tests/test_d1_placeholders.py` fails on D1
+  while one survives).
+- **A CUSTOM environment inherits nothing** (`--environment-file`, the App's
+  Other…): a key it leaves out stays unset — never taken from D1 or another named
+  environment. The cells that use it stay empty (a catalog left unset: the DDL for
+  that layer is not written, flag `catalog_env_unset:<layer>`, never a FAIL), each
+  key prints `INPUT_NEEDED   run.environment.<key>` in the run-level block, the
+  header reads `environment: SANDBOX (custom, N keys unset)` (`custom (N keys
+  unset)` when unnamed), and the run proceeds. A value given as
+  `inputs.run: environment.<key>: {value: …}` fills it on a rerun.
 
 ### Which codegen runs (2026-10-07: a stale wheel shadowed the tree)
 
@@ -476,15 +498,38 @@ makes a pair NEEDS_ANSWERS:
 ```
 QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet …; answer under gaps: in answers.yaml)
 UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
-INPUT_NEEDED   feeds[0].active_start_date — <question> (feed …; not blocking — the workbook is written without it, the cell empty or with the default named; give it under inputs: and rerun generate --answers)
+INPUT_NEEDED   run.environment — <question> (run-level, once for every feed; not blocking — give it under inputs.run and rerun generate --answers)
+INPUT_NEEDED   feeds.<feed>.active_start_date — <question> (feed …; not blocking — the workbook is written without it, the cell empty or with the default named; give it under inputs.feeds.<feed> and rerun generate --answers)
 NOTE           <sheet>/source/pii — <reason> — informational, not required to run
+```
+
+**INPUT_NEEDED scopes (post47).** RUN-level inputs — the environment
+(`run.environment`, or `run.environment.<key>` per key a custom environment
+leaves unset) and the owed cells marked `scope: run` (APPLICATION_NAME
+`run.application_name`, EMAIL_TO `run.email_to`) — print ONCE per run, in one
+block before any feed line, sit in ONE block at the top of every feed report
+(`**Run inputs needed: N**`) and under `inputs.run` in `answers_template.yaml`; an
+answer applies to every feed. FEED-level inputs (ACTIVE_START_DATE, the DQ
+INPUT_PARAMs) print per feed as `feeds.<feed>.<name>`, are counted in the feed's
+`**Answers owed**` line and sit under `inputs.feeds.<feed>`. The App banner groups
+the same way (`status.inputs_needed[].scope` run | feed). The older flat keys
+(`feeds[<i>].<name>`, `"run.environment"`) still read.
+
+```yaml
+inputs:
+  run:
+    environment: {value: D1}
+    application_name: {value: "…"}
+  feeds:
+    <feed>:
+      active_start_date: {value: "2026-11-01 00:00:00"}
 ```
 
 | Label | Printed when | Answer |
 | --- | --- | --- |
 | `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`, a catalog no source or profile default states: `feeds[i].<layer>_target.catalog`), a file pattern, a disagreement between documents (the FRD's format cell naming another delimiter than the STTM: `feeds[i].delimiter`), a byte width, an FRD field the reader could not place (`feeds[i].file_format` / `lobs` / `stage_target.load_strategy` — Chunk B: these printed `UNRESOLVED`, which pointed at the wrong section), a sheet whose STTM lists no audit row (`feeds[i].audit_columns`, value `NAME:Type; …`, Type String / Timestamp — the framework's set is never added silently), the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
 | `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) — or without a band's LAYER no evidence names (`<sheet>/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line). Chunk B: extract-sttm also holds a sheet back with its unplaced required columns (instead of failing) when its extraction stops on them | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
-| `INPUT_NEEDED` | `generate` (exit `0`, the workbook WRITTEN, the cell left empty): an IIG cell no document states and no corpus value fills, the person owes it but nothing waits on it — `metadata.templates.<t>.owed_cells` (ACFC: ACTIVE_START_DATE, the per-RFC go-live date). Listed under `inputs:` in `answers_template.yaml` (the template header counts "N open question(s), M input(s) needed"); the feed report's header says "questions: N, inputs needed: M"; the App shows a non-blocking "inputs needed" banner (`status.inputs_needed`), never the Answers-needed pause | under `inputs:` (`feeds[i].<name>: {value: …}`), read by `generate --answers` — fills the cell on the rerun |
+| `INPUT_NEEDED` | `generate` (exit `0`, the workbook WRITTEN, the cell left empty): an IIG cell no document states and no corpus value fills, the person owes it but nothing waits on it — `metadata.templates.<t>.owed_cells` (ACFC: ACTIVE_START_DATE, the per-RFC go-live date). Listed under `inputs:` in `answers_template.yaml` (the template header counts "N open question(s), M input(s) needed"); the feed report's header says "questions: N, inputs needed: M"; the App shows a non-blocking "inputs needed" banner (`status.inputs_needed`), never the Answers-needed pause | under `inputs.run` (run-level) / `inputs.feeds.<feed>` (feed-level), read by `generate --answers` — fills the cell on the rerun |
 | `NOTE` | informational — an OPTIONAL column the layout could not place (it reads as empty), an FRD field not read (the gap chain fills it or a QUESTION asks; `extract-frd` on its own always says NOTE), a VDD role (VDD gaps are gate flags), the VDD pairing (`pair.vdd` — a run proceeds without a VDD) | none needed; placing it improves the output |
 
 An FRD field is a QUESTION only while the pair-resolved contract

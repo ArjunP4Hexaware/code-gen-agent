@@ -22,7 +22,16 @@
 # records it. Every cell filled from here carries an iig_env NOTE naming the
 # environment; the report header prints "environment: D1 (default)". Exactly one
 # entry is marked default. D1 is the only populated one; QA / PROD are
-# placeholders (a cell they fill stays open) until their values are known.
+# placeholders until their values are known.
+# 2026-10-14 (post47): the catalogs (catalog_map: the STTM's logical catalog ->
+# this environment's; default_catalog: the fallback per layer) and the
+# framework's connection ids moved here too (were conventions.catalog_map, the
+# acfc_prx profile's default_catalog and ADLS constants). A NAMED environment
+# must state every key - choosing QA / PROD while they are placeholders fails the
+# run naming the unset keys (D1's own <<D1:...>> stand-ins excepted, see
+# tests/test_d1_placeholders.py). A custom environment (--environment-file / the
+# App's "Other") inherits nothing: each key it leaves out is an INPUT_NEEDED line
+# and its cells stay empty.
 environments:
   D1:
     default: true
@@ -37,29 +46,36 @@ environments:
       standard: z-use-d1-dlk-std-01
     # TODO D1: the stage storage account (the CAQH golden's abfss://<container>@<account>...)
     storage_account: "<<D1:STORAGE_ACCOUNT>>"
+    # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands state
+    # LOGICAL catalogs; D1's map, applied to every emitted catalog (cited in the
+    # cell NOTE). default_catalog: the fallback for a band with Catalog blank.
+    catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
+    default_catalog: {stage: d1_dlk, standard: d1_std}
+    # the framework's connection ids as the real ADLS_DELTA_INGESTION_DETAILS rows
+    # carry them (SRC_ADLS / METADATA / TGT_CONNECTION_ID)
+    connection_ids: {src_adls: "7", metadata: "4", target: "2"}
   QA:
     description: "QA — values not known yet"
     containers: {landing: "<<QA:CONTAINER.landing>>", stage: "<<QA:CONTAINER.stage>>", standard: "<<QA:CONTAINER.standard>>"}
     storage_account: "<<QA:STORAGE_ACCOUNT>>"
+    catalog_map: {PR_DLK: "<<QA:CATALOG.PR_DLK>>", PR_STD: "<<QA:CATALOG.PR_STD>>"}
+    default_catalog: {stage: "<<QA:CATALOG.stage>>", standard: "<<QA:CATALOG.standard>>"}
+    connection_ids: {src_adls: "<<QA:CONNECTION_ID.src_adls>>", metadata: "<<QA:CONNECTION_ID.metadata>>", target: "<<QA:CONNECTION_ID.target>>"}
   PROD:
     description: "PROD — values not known yet"
     containers: {landing: "<<PROD:CONTAINER.landing>>", stage: "<<PROD:CONTAINER.stage>>", standard: "<<PROD:CONTAINER.standard>>"}
     storage_account: "<<PROD:STORAGE_ACCOUNT>>"
+    catalog_map: {PR_DLK: "<<PROD:CATALOG.PR_DLK>>", PR_STD: "<<PROD:CATALOG.PR_STD>>"}
+    default_catalog: {stage: "<<PROD:CATALOG.stage>>", standard: "<<PROD:CATALOG.standard>>"}
+    connection_ids: {src_adls: "<<PROD:CONNECTION_ID.src_adls>>", metadata: "<<PROD:CONNECTION_ID.metadata>>", target: "<<PROD:CONNECTION_ID.target>>"}
 conventions:
   profile: acfc_prx
-  # Multi-table rule 7 (docs/acfc/MULTI_TABLE_DESIGN.md): the STTM bands state
-  # LOGICAL catalogs; this is the d1 environment's map, applied to every
-  # emitted catalog (cited in the cell tooltip). Prod: identity (no map).
-  # default_catalog below is the fallback only for a band with Catalog blank.
-  catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
+  # catalog_map / the acfc_prx default_catalog: per environment (environments: above)
   # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the LOB
   # lookup's third source (after the FRD LOB table's plan-id and region
   # columns). TODO D1: no document at home carries it (the CAQH FRD's table is
   # region -> LOB, no plan ids) — the D1 overlay replaces this placeholder.
   lob_reference: {"<<D1:LOB_REFERENCE.plan_id>>": "<<D1:LOB_REFERENCE.lob>>"}
-  profiles:
-    acfc_prx:
-      default_catalog: {stage: d1_dlk, standard: d1_std}
 metadata:
   template: iig_v2
   templates:
@@ -98,9 +114,7 @@ metadata:
         citation: "ACFC environment overlay — the CAQH-style family, observed in the newest real sheet (Friday checklist); SD rows (first real-row scorecard, 2026-10-08)"
       constants:
         ADLS_DELTA_INGESTION_DETAILS:
-          SRC_ADLS_CONNECTION_ID: "7"
-          METADATA_CONNECTION_ID: "4"
-          TGT_CONNECTION_ID: "2"
+          # the connection ids: per environment (environments:, environment_cells)
           # Round 6 (2026-10-13): the same in the SD prod rows, the SFMC reference
           # IIG and the pair-1 golden (ADLS_DELTA!Z2 / AD2); a FAQ has_header /
           # has_trailer answer still wins (derived cells are never overwritten).
@@ -122,6 +136,9 @@ metadata:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_CONTAINER_NAME: containers.landing
           TGT_CONTAINER_NAME: containers.stage
+          SRC_ADLS_CONNECTION_ID: connection_ids.src_adls
+          METADATA_CONNECTION_ID: connection_ids.metadata
+          TGT_CONNECTION_ID: connection_ids.target
         STGDELTA_STDDELTA_INGESTION_DET:
           SRC_CONTAINER_NAME: containers.stage
           TGT_CONTAINER_NAME: containers.standard
@@ -131,9 +148,6 @@ metadata:
         ADLS_DELTA_INGESTION_DETAILS:
           HEADER_FLAG: &refs "both reference IIGs agree (fixtures/reference/SFMC_IIG.xlsx, fixtures/acfc_shapes/pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx ADLS_DELTA_INGESTION_DETAILS) and so do the SD prod rows (round 6)"
           FILE_FOOTER_FLAG: *refs
-          SRC_ADLS_CONNECTION_ID: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
-          METADATA_CONNECTION_ID: *acfc
-          TGT_CONNECTION_ID: *acfc
       # Stage -> standard (2026-10-09): no document and no real row stated this
       # sheet's containers or connection ids, so they stayed OPEN (Friday
       # checklist 2 / 13) and the stage container rode only as an offer.
@@ -173,7 +187,7 @@ metadata:
           TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{reject_table}"
       path_citations:
         ADLS_DELTA_INGESTION_DETAILS:
-          SRC_ADLS_PATH: *acfc
+          SRC_ADLS_PATH: &acfc "ACFC environment overlay (config/overlays/acfc_env.yaml)"
           SRC_ADLS_ARCHVL_PATH: *acfc
           TGT_ADLS_PATH: *acfc
           TGT_RJT_ADLS_PATH: *acfc
@@ -374,12 +388,14 @@ metadata:
           ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}
           APPLICATION_NAME:
             faq: application_name
+            scope: run
             question: "the application name (APPLICATION_NAME, the {application} of every PIPELINE_DESCRIPTION / PROCESS_NAME): the corpus's G1, 27 values, the dominant 38.8%"
             default: "{source}"
             default_share: "the feed's SOURCE, the vendor / source system the FRD states"
         EMAIL_TEMPLATE_CONFIG:
           EMAIL_TO:
             faq: email_to
+            scope: run
             question: "the alert recipients (EMAIL_TO): the corpus's dominant recipient is 47.6% of filled rows (24 values) — not a majority, confirm per feed"
             default: "<<D1:EMAIL.EMAIL_TO>>"
             default_share: "the corpus's dominant recipient, 47.6% (scrubbed G576@<LOCAL_DENYLIST>.G572)"

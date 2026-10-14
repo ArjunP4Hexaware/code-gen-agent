@@ -152,7 +152,11 @@ export interface LayoutQuestion {
     layer?: "stage" | "standard" | "both";
   }[];
   // "text" (M9.1b): a value no document states — typed by the person (gaps).
-  kind?: "role" | "choice" | "layer" | "text";
+  // "files" (post47): ONE value per file (the LOB lookup's question) — every
+  // file a key, the candidates' values its dropdown; posted as gaps
+  // "<file>=<value>; ..." (what an answers file's files: block reads as).
+  kind?: "role" | "choice" | "layer" | "text" | "files";
+  files?: string[];
   // Plain-language help: what is asked, where it usually sits, the
   // pre-selected candidate index (or null).
   title?: string;
@@ -771,6 +775,7 @@ function normalizeQuestion(raw: any): LayoutQuestion {
     reason: typeof raw?.reason === "string" ? raw.reason : "",
     header: Array.isArray(raw?.header) ? raw.header : [],
     candidates: Array.isArray(raw?.candidates) ? raw.candidates : [],
+    ...(Array.isArray(raw?.files) ? { files: raw.files.map(String) } : {}),
   };
 }
 
@@ -780,6 +785,8 @@ export interface InputNeededItem {
   key: string;
   question: string;
   feed: string;
+  // post47: "run" = once for the whole run (inputs.run), "feed" = inputs.feeds.<feed>
+  scope: "run" | "feed";
 }
 
 export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
@@ -790,6 +797,7 @@ export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
       key: item.key,
       question: typeof item.question === "string" ? item.question : "",
       feed: typeof item.feed === "string" ? item.feed : "",
+      scope: (item.scope === "run" ? "run" : "feed") as "run" | "feed",
     }));
 }
 

@@ -220,8 +220,11 @@ def write_generation_report(
               if u.all_failed]
     # 2026-10-14 (D1 post44): blocking questions and non-blocking inputs, counted
     # apart — said whenever the feed owes either (a feed owing nothing: no line)
-    from codegen.owed_inputs import answers_owed, owed_header
+    from codegen.owed_inputs import answers_owed, owed_header, run_block
 
+    # 2026-10-14 (post47): the run-level inputs (environment, APPLICATION_NAME,
+    # EMAIL_TO) in ONE block at the top; the feed's own counted below it
+    lines += run_block(list(gate.flags))
     if any(answers_owed(list(gate.flags))):
         lines += [owed_header(list(gate.flags)), ""]
     from codegen.environments import header_line

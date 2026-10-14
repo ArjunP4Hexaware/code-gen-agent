@@ -41,6 +41,24 @@ describe("InputsNeededBanner", () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("groups the run-level inputs once, then each feed's own", () => {
+    const items = normalizeInputsNeeded([
+      { key: "run.environment", question: "assumed D1", feed: "", scope: "run" },
+      { key: "run.application_name", question: "the app", feed: "", scope: "run" },
+      { key: "feeds.zq_a.active_start_date", question: "go-live", feed: "zq_a", scope: "feed" },
+      { key: "feeds.zq_b.active_start_date", question: "go-live", feed: "zq_b", scope: "feed" },
+    ]);
+    act(() => root.render(<InputsNeededBanner items={items} />));
+    const run = host.querySelector('[aria-label="run inputs"]');
+    expect(run?.textContent).toContain("inputs.run");
+    expect(run?.querySelectorAll("li")).toHaveLength(2);
+    expect(run?.textContent).not.toContain("active_start_date");
+    expect(host.querySelector('[aria-label="feed zq_a inputs"]')?.textContent).toContain(
+      "feeds.zq_a.active_start_date");
+    expect(host.querySelector('[aria-label="feed zq_b inputs"] li')).not.toBeNull();
+    expect(host.textContent).toContain("4 inputs needed");
+  });
+
   it("renders nothing without items", () => {
     act(() => root.render(<InputsNeededBanner items={normalizeInputsNeeded(undefined)} />));
     expect(host.innerHTML).toBe("");

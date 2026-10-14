@@ -83,8 +83,16 @@ def test_an_unmapped_catalog_is_written_as_stated_and_flagged_once(pair4_config)
 
 
 def test_the_d1_environment_overlay_maps_pr_catalogs():
+    """post47: the map is the D1 environment's (environments.D1.catalog_map), the
+    run's default — no longer a conventions constant every environment shares."""
+    from codegen.environments import catalog_map, default_catalog
+
     config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_ENV])
-    assert config.conventions.catalog_map == {"PR_DLK": "d1_dlk", "PR_STD": "d1_std"}
+    assert config.conventions.catalog_map == {}
+    assert config.environments["D1"].catalog_map == {"PR_DLK": "d1_dlk", "PR_STD": "d1_std"}
+    assert catalog_map(config) == {"PR_DLK": "d1_dlk", "PR_STD": "d1_std"}
+    assert (default_catalog(config, "stage"), default_catalog(config, "standard")) == (
+        "d1_dlk", "d1_std")
 
 
 # ------------------------------------------------------------------ pair 4

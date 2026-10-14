@@ -218,6 +218,12 @@ def write_generation_report(
     lines: list[str] = [f"# Generation report — {spec.feed_id}", ""]
     lines += [f"> **WARNING** {all_failed_line(u)}\n" for u in model_usage or ()
               if u.all_failed]
+    # 2026-10-14 (D1 post44): blocking questions and non-blocking inputs, counted
+    # apart — said whenever the feed owes either (a feed owing nothing: no line)
+    from codegen.owed_inputs import answers_owed, owed_header
+
+    if any(answers_owed(list(gate.flags))):
+        lines += [owed_header(list(gate.flags)), ""]
     lines += _contracts_section(spec)
     lines += _inputs_section(inputs_summary)
     lines += _files_section(written_files, out_root)

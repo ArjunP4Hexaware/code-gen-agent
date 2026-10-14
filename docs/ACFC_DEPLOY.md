@@ -428,7 +428,7 @@ contract and the notebook stops before `generate`, saying so.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | ok — every feed the command produced or was asked for is done (PASS / PASS_WITH_FLAGS). A sheet held back for an answer still prints its `QUESTION` lines |
+| `0` | ok — every feed the command produced or was asked for is done (PASS / PASS_WITH_FLAGS). A sheet held back for an answer still prints its `QUESTION` lines; `INPUT_NEEDED` lines (a workbook cell left empty) never change the code |
 | `1` | failed — a feed FAILed its gate, or a command could not complete (`1` wins over `3`) |
 | `3` | NEEDS_ANSWERS — **`layout --require-complete`**: columns left unplaced or questions open (one `UNRESOLVED` / `QUESTION` line each — layout is the first stage, so this is how a pair with unplaced columns reads NEEDS_ANSWERS, not FAILED); **`extract-sttm`**: NO feed produced a usable contract (nothing written: every sheet is held back, or `--require-complete` with layout roles open); **`generate`**: a feed it was asked for (`--feed`) has no contract |
 
@@ -442,15 +442,19 @@ The two branches, so a partial workbook never stops the feeds that are ready:
   the held-back feeds' `QUESTION` lines for information. With `--feed X` where
   `X` is held back, it generates nothing and exits `3`.
 
-Three labels, ONE line each, all in the same form (the label padded to 15
-columns, the key, ` — `, the reason). Only the first two are answers owed —
-the ACFC harness records their keys (`docs/acfc/HARNESS_EXIT_CODES.md`,
-`origin/acfc/harness-exit3`; its `_NEEDED_KEY_RE` matches QUESTION / UNRESOLVED
-only):
+Four labels, ONE line each, all in the same form (the label padded to 15
+columns, the key, ` — `, the reason). Only the first two are BLOCKING answers
+owed — **NEEDS_ANSWERS is triggered by these QUESTION lines (UNRESOLVED = the
+QUESTION form for a column placement) only**; the ACFC harness records their keys
+(`docs/acfc/HARNESS_EXIT_CODES.md`, `origin/acfc/harness-exit3`; its
+`_NEEDED_KEY_RE` matches QUESTION / UNRESOLVED only). `INPUT_NEEDED` (2026-10-14,
+D1 post44) is owed but NOT blocking, and `NOTE` is informational — neither ever
+makes a pair NEEDS_ANSWERS:
 
 ```
 QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet …; answer under gaps: in answers.yaml)
 UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
+INPUT_NEEDED   feeds[0].active_start_date — <question> (feed …; not blocking — the workbook is written with the cell empty; give it under inputs: and rerun generate --answers)
 NOTE           <sheet>/source/pii — <reason> — informational, not required to run
 ```
 
@@ -458,6 +462,7 @@ NOTE           <sheet>/source/pii — <reason> — informational, not required t
 | --- | --- | --- |
 | `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`, a catalog no source or profile default states: `feeds[i].<layer>_target.catalog`), a file pattern, a disagreement between documents (the FRD's format cell naming another delimiter than the STTM: `feeds[i].delimiter`), a byte width, an FRD field the reader could not place (`feeds[i].file_format` / `lobs` / `stage_target.load_strategy` — Chunk B: these printed `UNRESOLVED`, which pointed at the wrong section), a sheet whose STTM lists no audit row (`feeds[i].audit_columns`, value `NAME:Type; …`, Type String / Timestamp — the framework's set is never added silently), the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
 | `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) — or without a band's LAYER no evidence names (`<sheet>/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line). Chunk B: extract-sttm also holds a sheet back with its unplaced required columns (instead of failing) when its extraction stops on them | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
+| `INPUT_NEEDED` | `generate` (exit `0`, the workbook WRITTEN, the cell left empty): an IIG cell no document states and no corpus value fills, the person owes it but nothing waits on it — `metadata.templates.<t>.owed_cells` (ACFC: ACTIVE_START_DATE, the per-RFC go-live date). Listed under `inputs:` in `answers_template.yaml` (the template header counts "N open question(s), M input(s) needed"); the feed report's header says "questions: N, inputs needed: M"; the App shows a non-blocking "inputs needed" banner (`status.inputs_needed`), never the Answers-needed pause | under `inputs:` (`feeds[i].<name>: {value: …}`), read by `generate --answers` — fills the cell on the rerun |
 | `NOTE` | informational — an OPTIONAL column the layout could not place (it reads as empty), an FRD field not read (the gap chain fills it or a QUESTION asks; `extract-frd` on its own always says NOTE), a VDD role (VDD gaps are gate flags), the VDD pairing (`pair.vdd` — a run proceeds without a VDD) | none needed; placing it improves the output |
 
 An FRD field is a QUESTION only while the pair-resolved contract
@@ -477,8 +482,11 @@ A human `NEEDS_ANSWERS` summary line precedes the QUESTION lines; the harness
 ignores it. The harness scans every pair's stdout for QUESTION / UNRESOLVED at
 the END of the pair, whatever the exit codes (HARNESS_EXIT_CODES.md, 517919c),
 so the keys of a partial extraction (exit `0`) are recorded too and the pair
-reads NEEDS_ANSWERS — which is why informational items must never use those
-two labels. The key is printed verbatim (a sheet name's spaces kept; only a
+reads NEEDS_ANSWERS — which is why informational items AND non-blocking inputs
+(`INPUT_NEEDED`) must never use those two labels; `tests/test_iig_corpus_cells.py`
+pins it (a feed with only an INPUT_NEEDED line exits `0` and writes the workbook;
+the same feed plus one QUESTION exits `3`; the harness regex never reads an
+INPUT_NEEDED line). The key is printed verbatim (a sheet name's spaces kept; only a
 line break becomes a space) — the harness's `_NEEDED_KEY_RE` captures
 everything up to ` — `. `tests/test_harness_answer_lines.py` parses every line
 with that regex, copied verbatim from the harness doc.

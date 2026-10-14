@@ -14,6 +14,7 @@ import {
 } from "../components/LayoutQuestions";
 import { ModelUsageList } from "../components/ModelUsage";
 import { NeedsAnswersPanel, type AnswersPayload } from "../components/NeedsAnswersPanel";
+import { InputsNeededBanner } from "../components/InputsNeededBanner";
 import { OUTPUT_COPY, OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
@@ -1011,6 +1012,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       </div>
                     ) : null}
                   </ErrorCard>
+                ) : null}
+                {!running && (status.inputs_needed ?? []).length ? (
+                  <InputsNeededBanner items={status.inputs_needed ?? []} />
                 ) : null}
                 {!running && (status.needs_answers ?? []).length ? (
                   <NeedsAnswersPanel

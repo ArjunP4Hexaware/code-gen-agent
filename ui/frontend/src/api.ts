@@ -204,6 +204,9 @@ export interface DemoStatus {
   // true once other documents are selected: the list names that run's sheets
   // and a re-run is refused (the page hides its controls)
   needs_answers_stale?: boolean;
+  // 2026-10-14: values the last run's IIG workbooks were written WITHOUT
+  // (INPUT_NEEDED, e.g. ACTIVE_START_DATE) — never blocking, a banner only
+  inputs_needed?: InputNeededItem[];
   last_run_label: string | null;
   // feeds the last run set aside (no file for the table, question left unanswered)
   set_aside?: { label: string; error: string }[];
@@ -746,6 +749,25 @@ function normalizeQuestion(raw: any): LayoutQuestion {
   };
 }
 
+// One non-blocking owed value (status.inputs_needed): the answers file's
+// inputs: key, the question, and the feed whose workbook left the cell empty.
+export interface InputNeededItem {
+  key: string;
+  question: string;
+  feed: string;
+}
+
+export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.key === "string")
+    .map((item: any) => ({
+      key: item.key,
+      question: typeof item.question === "string" ? item.question : "",
+      feed: typeof item.feed === "string" ? item.feed : "",
+    }));
+}
+
 function normalizeNeedsAnswers(raw: any): NeedsAnswerItem[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -787,6 +809,7 @@ export function normalizeStatus(raw: DemoStatus): DemoStatus {
     needs_answers: normalizeNeedsAnswers(r.needs_answers),
     needs_answers_inputs: r.needs_answers_inputs ?? null,
     needs_answers_stale: r.needs_answers_stale === true,
+    inputs_needed: normalizeInputsNeeded(r.inputs_needed),
     error_detail: errorDetail(r.error_detail),
   };
 }

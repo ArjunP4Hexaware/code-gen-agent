@@ -264,6 +264,10 @@ class DemoRunner:
         # questions left open at "Proceed with unresolved"). Answered through
         # ``rerun_with_answers``; cleared when the next run starts.
         self.needs_answers: list[dict] = []
+        # 2026-10-14 (D1 post44): values the last run's workbooks were written
+        # WITHOUT (INPUT_NEEDED: ACTIVE_START_DATE ...) — a non-blocking banner,
+        # never the needs_answers pause: [{key, question, feed}]
+        self.inputs_needed: list[dict] = []
         # The readable form of the error that ended the last run (errors.py):
         # type, message, the traceback's innermost frame, the health line.
         self.error_detail: dict | None = None
@@ -1741,6 +1745,8 @@ class DemoRunner:
             # answer_as, feed_name, sheet, reason, question}] — and which
             # documents those keys belong to.
             "needs_answers": list(self.needs_answers),
+            # never blocking: the workbooks are written with these cells empty
+            "inputs_needed": list(self.inputs_needed),
             "needs_answers_inputs": ({"sttm": Path(self._run_inputs[0]).name,
                                       "frd": Path(self._run_inputs[1]).name}
                                      if self.needs_answers and self._run_inputs else None),
@@ -2036,6 +2042,17 @@ class DemoRunner:
         self._stage("pairing", "the FRD pairing did not finish in time — running with what is "
                                "selected now")
 
+    def _owed_inputs(self, spec, config, frd_path) -> list[dict]:
+        """The INPUT_NEEDED items of one generated feed (codegen.owed_inputs):
+        the cells its IIG workbook was written without."""
+        from codegen.faq import faq_for_spec
+        from codegen.owed_inputs import frd_feed_index, owed_inputs
+
+        index = frd_feed_index(frd_path, spec.feed_id, config)
+        return [item.as_dict() for item in owed_inputs(
+            spec, config, index=index, faq=faq_for_spec(spec, config, base_dir=REPO_ROOT),
+            output_mode=self.effective_output_parts(), iig_template=self.iig_template)]
+
     def _note_undecided_vdd(self) -> None:
         """M15e: a run started while the dictionaries are still being indexed
         runs WITHOUT a VDD and says so — never with a name-only guess."""
@@ -2056,6 +2073,7 @@ class DemoRunner:
     def _run(self) -> None:
         self._run_items = []
         self._open_owed = []
+        self.inputs_needed = []
         try:
             self._await_pairing()
             self._note_undecided_vdd()
@@ -2426,6 +2444,7 @@ class DemoRunner:
                     playbook_template=self.playbook_template,
                     layout_usage=layout_usage,
                 )
+                self.inputs_needed += self._owed_inputs(spec, config, frd_path)
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
         if not runs:

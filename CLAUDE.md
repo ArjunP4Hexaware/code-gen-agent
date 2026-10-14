@@ -1,11 +1,33 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-13 midday, `feature/multi-table` head 042b9fa, post36, PUSHED)
+## NEWEST — IIG validation (state as of 2026-10-14 evening, `feature/multi-table`, post44, PUSHED)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**Restart here (2026-10-13, App demo day).** Working tree clean at 042b9fa, `HEAD:src` tree
+**Restart here (2026-10-14).** cd56673 is pushed; the head is the docs-only notes commit
+after it (check `git status -sb` for whether it is pushed), marker **0.5.8.post44**. The post43 report's six
+items are DONE (the post44 bullet below). Verified at cd56673: **1509 passed / 27 skipped**
+(Python 3.11); ruff clean on `src/ tests/ ui/backend/ tools/iig_diff.py
+tools/iig_fill_rate.py` (`tools/build_goldens.py` keeps 8 pre-existing findings); scrub: the
+3 pre-existing hits only (CLAUDE.md, acfc_env.yaml, config.yaml — `document_title_phrase`),
+none on post44's lines. **Waiting on D1 (nothing to do at home until it lands on
+`acfc-pairing-check`):**
+1. `python tools/iig_fill_rate.py --corpus docs/acfc/iig_goldens <path>/email_template_config_by_pipeline.csv --agent <run outputs> --patterns <dir>`
+   → bring home the scrubbed `patterns.md`. It decides the 3b fills (APPLICATION_NAME,
+   notebook PROCESS_NAME, DAY_OF_SCHEDULE — blank + `iig_pending:` NOTE until then), whether
+   the emitter keeps writing grand master / master rows (item 5), and the corpus DQ classes.
+2. Re-run pair_2 and pair_12 on post44: the `LAYER2 FAILED` / `RAW (D1 only)` lines give
+   the still-unknown cause of pair_12's 5/5 Layer-2 failures; ADLS / STGDELTA projected
+   ~99 / ~100 on pair_2 (from D1's per-column counts — RECYCL_RETN_DAYS 7 vs 30 is the open
+   remainder); the `RULES (D1 only)` block for DQ.
+3. Confirm with Soham: the D1 standard container `z-use-d1-dlk-std-01` (assumed by analogy
+   with the stage container); RECYCL_RETN_DAYS.
+DQ next (only once the corpus classes are in, see `docs/acfc/DQ_DIAGNOSTIC_2026-10-14.md`):
+CAQH split rule SOURCE_COLUMN = header + trailer columns and RULE_TYPE Predefined;
+AddCustomColumnsRule / ReferentialCheckRule; SD's STDDelta casts / trims.
+
+**Previous restart point (2026-10-13, App demo day).** Working tree clean at 042b9fa, `HEAD:src` tree
 `54a50fefb007`, marker 0.5.8.post36. The App on D1 deploys from `feature/multi-table` in the D1
 Git folder; `docs/acfc/APP_DEMO_CHECKLIST.md` is the demo script, pinned to that tree and
 version >= post36 (step 5: the run header badge must read `Output: Framework artefacts`).
@@ -209,10 +231,9 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   (61,141 B) is the reference. The SD VDD is only in the user's Downloads folder; its FILES!C2:C4
   say "Delimited text" (D1's reportedly `csv`). Session scratch scripts (`drive_app.py` App HTTP
   driver, `cli_ref.py`, `sd_run.py`) died with the session — rebuild from the checklist.
-- **ON HOLD until after the demo — the round-8 brief:** item 4 Decimal(10,2) precision; STGDELTA
-  SRC_CONTAINER_NAME = the ADLS TGT container; the TGT container as a QUESTION (SFMC uses a third
-  container, pair 1 the stage container); drop Q8; RECYCL Q3; ALL_FILES layout;
-  EMAIL_TEMPLATE_CONFIG. "Do not touch other pairs" this session.
+- **The round-8 brief (was ON HOLD for the demo):** DONE in post44 — Decimal(10,2) precision,
+  the STGDELTA containers (constants stage in / std out, not a QUESTION). Still open: drop Q8;
+  RECYCL Q3; ALL_FILES layout; EMAIL_TEMPLATE_CONFIG (the corpus email CSV — D1 item 1 above).
 - Commits post30 → post33 (oldest first): a7f98fc `run_round.py` (post31/32), 28d3abb iig_diff
   environment tokens, df0e1a7 STGDELTA paths, b9a10c8 SD-family flags, e90562d `_MI` OBJECT_NAME,
   0891329 EMAIL_TEMPLATE_CONFIG export, fff4f57 post33 + `GENIE_RUN_pair_2_r7.md`, 1cd5574 the

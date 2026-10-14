@@ -761,6 +761,33 @@ def split_domain_labels(text: str | None) -> tuple[str | None, str | None] | Non
     return values["domain"], values["sub_domain"]
 
 
+def _lobs_and_table(content: DocxContent, profile: FrdLayoutProfile, prefix: str, text: str,
+                    frd_config, flags: list[str], cell_of) -> tuple[list[str], list[dict]]:
+    """The feed's LOBs. 2026-10-14 (D1 pair_12): a LOB cell holding a Region /
+    LOB table (a nested table, or flattened one cell per line under its header
+    row) is read as rows — ``lobs`` = its LOB column's distinct codes, the rows
+    kept for the resolver to key each file to ONE LOB. Else the cell's list."""
+    from codegen.resolve.files import lob_column, lob_table_from_lines, lob_table_from_rows
+
+    source = profile.fields.get(f"{prefix}.lobs")
+    nested = (content.nested.get((source.table, source.row, source.col))
+              if source is not None else None)
+    table = lob_table_from_rows(nested, frd_config.lob_table_lob_headers) if nested else []
+    if not table:
+        table = lob_table_from_lines(_split(text, ["\n"]), frd_config.lob_table_lob_headers,
+                                     [*frd_config.lob_table_plan_headers,
+                                      *frd_config.lob_table_region_headers])
+    column = lob_column(table, frd_config.lob_table_lob_headers)
+    if column is None:
+        return _split(text, frd_config.list_separators), []
+    lobs = list(dict.fromkeys(row[column] for row in table if row.get(column)))
+    flags.append(f"frd_lob_table:{prefix}.lobs — the {cell_of(f'{prefix}.lobs')} cell is a "
+                 f"table ({', '.join(table[0])}; {len(table)} row(s)): the LOBs are its "
+                 f"{column} column ({len(lobs)} distinct); each file takes ONE row's LOB, "
+                 "keyed by the file name at resolve time — the table is never a cell value")
+    return lobs, table
+
+
 def _split(text: str, separators: list[str]) -> list[str]:
     if not text:
         return []
@@ -1046,6 +1073,8 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                    f"{prefix}.stage_target.load_strategy", ambiguities)
         std_strategy = _strategy(get(f"{prefix}.standard_target.load_strategy"),
                                  f"{prefix}.standard_target.load_strategy", ambiguities)
+        lobs, lob_table = _lobs_and_table(content, profile, prefix, get(f"{prefix}.lobs"),
+                                          frd_config, flags, cell_of)
         feeds.append(FrdFeed(
             feed_name=feed_name or unnamed_feed_name(document_name, feed_index),
             source_system=source_system or "unstated",
@@ -1055,7 +1084,8 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             record_segments=[],
             frequency=get(f"{prefix}.frequency") or None,
             load_windows_sla=[],
-            lobs=_split(get(f"{prefix}.lobs"), frd_config.list_separators),
+            lobs=lobs,
+            lob_table=lob_table,
             **_domain_fields(prefix, domain_text, domain_parts),
             landing_location=_landing(prefix) or None,
             stage_target=TargetSpec(catalog=stage_catalog, schema=stage_schema, tables=tables,

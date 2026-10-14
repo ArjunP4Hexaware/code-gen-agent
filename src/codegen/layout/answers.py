@@ -76,6 +76,23 @@ def _is_band_entry(entry: dict) -> bool:
             and BAND_REF_RE.match(str(entry.get("layer") or "")) is not None)
 
 
+def _files_value(value):
+    """A gaps entry answered per FILE (``files: {<file>: <value>}``, the LOB
+    lookup's question): the filled files as ``<file>=<value>; ...`` text; a
+    block left empty is no answer."""
+    if not isinstance(value, dict) or not isinstance(value.get("files"), dict):
+        return value
+    for name, v in value["files"].items():
+        if v is not None and not isinstance(v, str):
+            # YAML reads an unquoted 0100 as a number (octal 64): never guessed back
+            raise AnswersFileError(f"files[{name!r}] = {v!r}: write the value quoted "
+                                   "(\"0100\") — YAML reads an unquoted code as a number")
+    filled = [f"{name}={v.strip()}" for name, v in value["files"].items() if not _blank(v)]
+    out = {k: v for k, v in value.items() if k not in ("files", "question", "candidates")}
+    out["value"] = "; ".join(filled)
+    return out
+
+
 def load_answers(path: Path) -> AnswersFile:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict) or set(raw) - {"answers", "gaps", "pairing", "inputs"}:
@@ -106,7 +123,8 @@ def load_answers(path: Path) -> AnswersFile:
         if entry.get("document", "sttm") not in ("sttm", "vdd"):
             raise AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
                                    "(FRD cells are placed with `gaps` / in the dialog)")
-    gaps = {key: value for key, value in (raw.get("gaps") or {}).items()
+    gaps = {key: _files_value(value) for key, value in (raw.get("gaps") or {}).items()}
+    gaps = {key: value for key, value in gaps.items()
             if not (isinstance(value, dict) and _blank(value.get("value")))}
     for value in gaps.values():
         # `{value: 13}` (a byte width) is YAML's integer: read as its text.

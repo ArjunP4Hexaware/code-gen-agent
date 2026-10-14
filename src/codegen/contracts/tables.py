@@ -83,6 +83,9 @@ class FeedFile(BaseModel):
     lob: str | None         # the LOB of an expanded file; None = not a per-LOB file
     template: str           # the pattern exactly as stated
     provenance: str
+    # 2026-10-14 (D1 pair_12): which source gave ``lob`` when the LOB lookup
+    # keyed it (answers / frd_plan / frd_region / lob_reference), for the NOTE.
+    lob_source: str | None = None
 
     @property
     def partition_value(self) -> str | None:

@@ -30,6 +30,9 @@ class TemplateItem:
     reason: str
     candidates: list[str] = field(default_factory=list)
     section: str = "gaps"          # gaps | answers | inputs (non-blocking, INPUT_NEEDED)
+    # 2026-10-14 (D1 pair_12): one value PER FILE (the LOB lookup's question):
+    # written as a ``files:`` block, every file a key with an empty value.
+    files: list[str] = field(default_factory=list)
 
 
 def _q(value: str) -> str:
@@ -53,6 +56,12 @@ def _answers_entry(item: TemplateItem) -> list[str]:
 
 
 def _gaps_entry(item: TemplateItem) -> list[str]:
+    if item.files:
+        return [f"  {_q(item.key)}:",
+                "    files:",
+                *(f'      {_q(name)}: ""' for name in item.files),
+                f"    question: {_q(item.reason)}",
+                f"    candidates: {json.dumps(item.candidates, ensure_ascii=False)}"]
     return [f"  {_q(item.key)}:",
             '    value: ""',
             f"    question: {_q(item.reason)}",
@@ -77,7 +86,8 @@ def read_template(path: Path) -> list[TemplateItem]:
         for key, entry in (raw.get(section) or {}).items():
             entry = entry if isinstance(entry, dict) else {}
             items.append(TemplateItem(str(key), str(entry.get("question") or ""),
-                                      [str(c) for c in entry.get("candidates") or []], section))
+                                      [str(c) for c in entry.get("candidates") or []], section,
+                                      files=[str(f) for f in entry.get("files") or {}]))
     return items
 
 

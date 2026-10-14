@@ -105,6 +105,9 @@ def answers_owed(flags: list[str]) -> tuple[list[str], list[str]]:
                 questions.append(where)
         elif flag.startswith("iig_owed:"):
             inputs.append(flag[len("iig_owed:"):].split(" — ", 1)[0])
+        elif flag.startswith("lob_unkeyed:"):
+            # 2026-10-14 (D1 pair_12): the feed's ONE file-to-LOB question
+            questions.append(flag[len("lob_unkeyed:"):].split(" — ", 1)[0])
     return list(dict.fromkeys(questions)), list(dict.fromkeys(inputs))
 
 

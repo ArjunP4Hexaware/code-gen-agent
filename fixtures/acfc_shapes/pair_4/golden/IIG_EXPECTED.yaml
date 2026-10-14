@@ -109,7 +109,10 @@ _anchors:
     PIPELINE_ID: null
     SOURCE: Northwind Benefits
     FREQUENCY: Monthly
-    LOB: "110,120,210,220,310,320"   # open Q7
+    # 2026-10-14 (D1 pair_12): a LOB cell holds ONE code - six LOBs feed every
+    # table, so the row stays open (was the list, open Q7; the CAQH golden's
+    # STGDELTA LOB is blank too).
+    LOB: ""
     ACTIVE_FLAG: "Y"
     SRC_ADLS_CONNECTION_ID: "94"
     METADATA_CONNECTION_ID: "92"

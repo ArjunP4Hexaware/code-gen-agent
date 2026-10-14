@@ -41,6 +41,7 @@ from codegen.faq import LoadPatternFaq, summarize
 from codegen.gate.derivations import (
     check_iig_derivations,
     check_iig_workbooks_single_line,
+    check_iig_workbooks_single_value,
     check_sql_literals,
     join_path,
     normalise_iig_line_breaks,
@@ -876,6 +877,10 @@ def emit_framework(
     # A line break that slipped past the boundary FAILS with its cell address.
     checks.append(check_iig_workbooks_single_line(
         [rows_path] + ([clean_path] if profile.emit_iig_review else [])))
+    # 2026-10-14 (D1 pair_12): a single-code column (LOB ...) never holds a list.
+    checks.append(check_iig_workbooks_single_value(
+        [rows_path] + ([clean_path] if profile.emit_iig_review else []),
+        config.gate.derivations))
     ddl_row = (
         f"| {' / '.join(f'`{name}`' for name in ddl_names)} | Deployment-team "
         "DDL, conformant to the client's reference format (the `.sql` "

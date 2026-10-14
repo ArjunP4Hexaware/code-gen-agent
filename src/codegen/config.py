@@ -417,6 +417,17 @@ class FrdExtractorConfig(BaseModel):
     # blocks, a label-prefixed description or remaining line breaks make
     # them unstated (StructuredValue) instead of a value.
     single_line_fields: list[str] = Field(default_factory=list)
+    # 2026-10-14 (D1 pair_12): the LOB cell may hold a Region / LOB table (a
+    # nested table, or its cells flattened one per line under a header row).
+    # A header in ``lob_table_lob_headers`` is the LOB column; every other
+    # key the files are matched by, in order: a plan-id column
+    # (``lob_table_plan_headers``), then a region column (``..._region_headers``,
+    # REG#) — the resolver's LOB lookup (codegen.resolve.files). The flattened
+    # form is recognised only when its leading lines are all headers from these
+    # lists (normalised: case, blanks).
+    lob_table_lob_headers: list[str] = Field(default_factory=list)
+    lob_table_plan_headers: list[str] = Field(default_factory=list)
+    lob_table_region_headers: list[str] = Field(default_factory=list)
     # M7: words that mark the first row of a nested table as a header row.
     nested_table_header_words: list[str] = Field(default_factory=list)
     # M7: how much of a refused cell's text the contract keeps (logged only).
@@ -833,6 +844,16 @@ class DerivationsConfig(BaseModel):
     sibling_suffixes: list[str] = Field(default_factory=lambda: [
         "_pct", "_pop", "_amt", "_dt", "_cd", "_id", "_nm", "_flg", "_cnt", "_ind", "_qty"])
     sibling_min_group: int = Field(default=3, ge=2)
+    # 2026-10-14 (D1 pair_12): IIG columns holding ONE code (fnmatch patterns
+    # over the header): a written cell with a comma / semicolon / line break,
+    # or a header word (``single_value_header_words``, or the column's own
+    # name), FAILS the gate with its address (gate check iig_single_value).
+    # (FREQUENCY is not one: iig_v1 still writes the FRD's cadence sentence there.)
+    single_value_columns: list[str] = Field(default_factory=lambda: [
+        "LOB", "CLAIM_TYPE*", "ACTIVE_FLAG", "ACTIVE_RULE_FLG", "*_FLAG", "*_FLG",
+        "TGT_PARTITION_VALUE"])
+    single_value_header_words: list[str] = Field(default_factory=lambda: [
+        "LOB", "Line of Business", "Region", "REG#", "Plan ID", "Claim Type"])
 
 
 class GateConfig(BaseModel):
@@ -1114,6 +1135,11 @@ class ConventionsConfig(BaseModel):
     # them (d1: PR_DLK -> d1_dlk; prod: identity). An ENVIRONMENT value — set
     # it in the environment overlay, never here. Empty = identity.
     catalog_map: dict[str, str] = Field(default_factory=dict)
+    # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the
+    # LOB lookup's third source (after the FRD LOB table's plan-id and region
+    # columns): a plan id that is a token of the file name gives its LOB. A
+    # CLIENT value — set it in an overlay, never here. Empty = no reference.
+    lob_reference: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _profile_exists(self) -> ConventionsConfig:
@@ -1215,6 +1241,16 @@ def is_d1_placeholder(value: object) -> bool:
     open (iig_d1_placeholder NOTE); tests/test_d1_placeholders.py fails on D1
     while one survives."""
     return isinstance(value, str) and D1_PLACEHOLDER_RE.search(value) is not None
+
+
+# 2026-10-14: an environment's placeholder (``<<QA:...>>``, ``<<PROD:...>>``,
+# ``<<D1:...>>``) — any one leaves its cell open; only D1's fail the D1 test.
+PLACEHOLDER_RE = re.compile(r"<<[A-Z][A-Z0-9_]*:[^>]*>>")
+
+
+def is_placeholder(value: object) -> bool:
+    """``<<ENV:NAME>>`` anywhere in ``value`` (D1, QA, PROD ...)."""
+    return isinstance(value, str) and PLACEHOLDER_RE.search(value) is not None
 
 
 class CorpusCellConfig(BaseModel):

@@ -367,6 +367,43 @@ def _lob_cell(tpl: MetadataTemplateConfig, value: str, why: str) -> dict:
     return cell
 
 
+def _feed_lob(tpl: MetadataTemplateConfig, tab: str, lobs: list[str], why: str) -> dict:
+    """ONE LOB for a row that no file keys (2026-10-14): the only LOB, else
+    open with a NOTE — never the comma-joined list."""
+    from codegen.metadata_sheet import feed_lob_cell
+
+    if tpl.family_conventions.lob != "codes" or len(lobs) <= 1:
+        return _lob_cell(tpl, lobs[0] if lobs else "", why)
+    return feed_lob_cell(lobs, why, tab)
+
+
+def _file_lob_cell(tpl: MetadataTemplateConfig, tab: str, file, spec: ResolvedFeedSpec) -> dict:
+    """An ADLS row's LOB (2026-10-14, D1 pair_12): the file's own LOB (a LOB
+    token expanded, or keyed by the FRD LOB table / the lob_reference / an
+    answer — the NOTE names the source); a file the table keys to no single
+    LOB stays OPEN (the feed's QUESTION ``lob_by_file`` asks for it); else the
+    feed's one LOB. Never the comma-joined list."""
+    from codegen.resolve.files import LOB_SOURCES
+
+    if file.lob:
+        cell = _lob_cell(tpl, file.lob, f"this file's LOB — {file.provenance}")
+        if file.lob_source and tpl.family_conventions.lob == "codes":
+            cell["badge_entry"]["note"] = (f"iig_lob:{tab}.LOB — the file's LOB from "
+                                           f"{LOB_SOURCES[file.lob_source]}")
+        return cell
+    unkeyed = spec.lob_question_key and file.pattern in spec.lob_unkeyed
+    if unkeyed and tpl.family_conventions.lob == "codes":
+        cell = _cell("", "needs_template", f"open — the FRD LOB table keys no single LOB for "
+                                           f"this file; QUESTION {spec.lob_question_key}")
+        cell["badge_entry"]["note"] = (f"iig_lob:{tab}.LOB — open for {len(spec.lob_unkeyed)} "
+                                       f"file(s) the LOB lookup did not key (QUESTION "
+                                       f"{spec.lob_question_key})")
+        return cell
+    return _feed_lob(tpl, tab, list(spec.lobs),
+                     "the feed's LOB (FRD / STTM header block) — not a per-LOB file "
+                     "(docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")
+
+
 def _schema_drift_cell(tpl: MetadataTemplateConfig) -> dict:
     """ADLS SCHEMA_DRIFT_FLAG by the feed family's convention (2026-10-09):
     the pair-1 (PRX) family 'N', the SD / CAQH-style family 'Y'."""
@@ -973,11 +1010,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
             "SOURCE": _source_cell(feed),
             "FREQUENCY": _frequency(feed, faq, tpl),
-            "LOB": (_lob_cell(tpl, file.lob, f"this file's LOB — {file.provenance}")
-                    if file.lob else
-                    _lob_cell(tpl, ",".join(spec.lobs),
-                              "the feed's LOB (FRD / STTM header block) — not a per-LOB "
-                              "file (docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")),
+            "LOB": _file_lob_cell(tpl, tab, file, spec),
             "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl),
             "SRC_FILE_NAME": _src_file_name_cell(
                 tpl, pattern, file.template,
@@ -1219,9 +1252,10 @@ def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
         "SOURCE": _source_cell(feed),
         "FREQUENCY": _frequency(feed, faq, tpl),
-        "LOB": (_lob_cell(tpl, ",".join(lobs), "the LOBs of the feed's per-LOB files")
+        "LOB": (_feed_lob(tpl, tab, list(dict.fromkeys(lobs)),
+                          "the LOB of the feed's per-LOB files")
                 if lobs else
-                _lob_cell(tpl, ",".join(spec.lobs),
+                _feed_lob(tpl, tab, list(spec.lobs),
                           "the feed's LOB (FRD / STTM header block) — no per-LOB file")),
         "SRC_SCHEMA_NAME": _cell(stage.schema_name, "from_frd"),
         "SRC_TABLE_NAME": _cell(stage.table, "from_frd"),

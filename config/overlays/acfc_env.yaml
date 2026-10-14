@@ -21,6 +21,11 @@ conventions:
   # emitted catalog (cited in the cell tooltip). Prod: identity (no map).
   # default_catalog below is the fallback only for a band with Catalog blank.
   catalog_map: {PR_DLK: d1_dlk, PR_STD: d1_std}
+  # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the LOB
+  # lookup's third source (after the FRD LOB table's plan-id and region
+  # columns). TODO D1: no document at home carries it (the CAQH FRD's table is
+  # region -> LOB, no plan ids) — the D1 overlay replaces this placeholder.
+  lob_reference: {"<<D1:LOB_REFERENCE.plan_id>>": "<<D1:LOB_REFERENCE.lob>>"}
   profiles:
     acfc_prx:
       default_catalog: {stage: d1_dlk, standard: d1_std}

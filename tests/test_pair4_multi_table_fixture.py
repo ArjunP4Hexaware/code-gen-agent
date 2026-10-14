@@ -177,7 +177,9 @@ def test_stg_to_std_is_one_row_per_table_with_the_reference_sheet_on_the_target(
         assert row["OBJECT_NAME"] == "NWB_COB_RPT"     # the generalized file pattern
         assert row["TGT_RJT_TABLE_NAME"] == f"{table.table}_reject"
         assert row["TGT_LOAD_OPTION"] == pair4_nb.LOAD_STRATEGY
-        assert row["LOB"] == _joined(pair4_nb.LOBS)
+        # 2026-10-14 (D1 pair_12): a LOB cell holds ONE code — six LOBs feed every
+        # table, so the per-table row stays open (was the comma-joined list)
+        assert row["LOB"] in (None, "")
 
 
 def test_dq_split_rule_is_one_row_per_adls_object(golden, config):

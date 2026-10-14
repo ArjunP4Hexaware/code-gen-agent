@@ -167,6 +167,11 @@ class ResolvedFeedSpec(BaseModel):
     # The FRD's cadence sentences (FrdFeed.frequency_mentions), for the
     # FREQUENCY normaliser's frequency_ambiguous flag.
     frequency_mentions: list[str] = Field(default_factory=list)
+    # 2026-10-14 (D1 pair_12): files the FRD's LOB table keys to no single LOB
+    # (their LOB cells stay open) and the answers key that asks for them
+    # (``feeds[<i>].lob_by_file`` — a blocking QUESTION). Empty / None otherwise.
+    lob_unkeyed: list[str] = Field(default_factory=list)
+    lob_question_key: str | None = None
 
     @property
     def is_segmented(self) -> bool:

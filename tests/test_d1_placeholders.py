@@ -42,7 +42,11 @@ def placeholders(value, path: str = "") -> list[str]:
 def test_no_d1_placeholder_survives_a_d1_run():
     # CODEGEN_CONFIG_OVERLAYS (the D1 overlay) is applied on top by load_config
     config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY])
-    left = placeholders(config.metadata.templates["iig_v2"].model_dump())
+    left = [*placeholders(config.metadata.templates["iig_v2"].model_dump()),
+            # 2026-10-14: the client lob_reference (plan id -> LOB)
+            *placeholders(config.conventions.lob_reference, "conventions.lob_reference")]
+    left += [f"conventions.lob_reference key = {k}"
+             for k in config.conventions.lob_reference if is_d1_placeholder(k)]
     if on_d1():
         assert not left, ("D1 overlay missing values for:\n  " + "\n  ".join(left))
     assert left, "the ACFC overlay names its D1 placeholders (home)"

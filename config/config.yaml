@@ -366,6 +366,12 @@ extractor:
     solution_requirement_section_row: 4
     inline_pair_separators: [";"]
     list_separators: [",", ";", "\n"]
+    # 2026-10-14 (D1 pair_12): a LOB cell holding a Region / LOB table (nested,
+    # or flattened one cell per line under its header row) — the LOB column's
+    # headers, then the key columns' — a plan id first, a region (REG#) second.
+    lob_table_lob_headers: ["LOB", "Line of Business", "LOB Code"]
+    lob_table_plan_headers: ["Plan", "Plan ID", "Plan Code", "Plan Number", "Plan #"]
+    lob_table_region_headers: ["Region", "REG#", "Region #", "Region Code"]
     domain_separators: ["/", ","]
     target_schema_markers:
       stage: ["STG", "Stage", "Staging"]

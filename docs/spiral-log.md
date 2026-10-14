@@ -124,3 +124,12 @@
 - Earliest signal: n/a
 - Approx. time lost: ~5 minutes (one user round trip)
 - Retro note (the user asked; hook NOT changed): could the hook tell a collection ImportError on a brand-new test file from a repeated fix attempt? Yes, from data it already sees: (1) the failing test file is untracked (`git status` `??`) or was created by a Write in this session; (2) the failure is a collection error (`ImportError while importing test module` / `Interrupted: 1 error during collection`), not an assertion; (3) the missing name CHANGED between the two runs (`cannot import name 'X' from 'M'`) — signal (a)'s signature hashed the error class + test path, so `document_roles` -> `_token_prefix` read as "the same error". Hashing the missing NAME and module into the signature, and not counting (b) edits while the failing file is untracked/new, would have kept both quiet. Logged to ~/.claude/spiral-breaker/proposals.md for the next hook retro.
+
+## 2026-10-14: hook signal (b) — config.py edited 4x while the full ruff command "still failing"
+- Actual cause: not a spiral. The four counted config.py edits ADDED config for a new feature (the FRD LOB-table lookup: lob_table_* headers, conventions.lob_reference, is_placeholder); none was a fix attempt. Re-running the exact command at signal time: 2 fresh E501 in src/codegen/resolve/files.py, both on code written minutes before - one because a bash heredoc turned a backslash line continuation into a run of spaces (the known heredoc gotcha), one a long __all__ line. Both fixed once with the Edit tool; the exact command then exited 0.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command - fresh findings on new code)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): as 2026-10-11 - count (b) edits only after the command has failed on lines those edits did not just write.

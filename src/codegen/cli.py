@@ -493,13 +493,14 @@ def _run_pairs(
     from codegen.resolve.resolver import pending_answers
 
     inputs = _answers_inputs(answers_path)
+    gaps = _answers_gaps(answers_path)
     owed_items: list = []
     failed = False
     matched_feed = False
     needs_answers = False
     for frd_path, sttm_path in pairs:
         try:
-            specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path)
+            specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
             pending = pending_answers(sttm_path)
         except (ContractMismatchError, ValueError) as exc:
             print(f"{'FAIL':<15} {frd_path.name} + {sttm_path.name} — {exc}")
@@ -532,6 +533,12 @@ def _run_pairs(
                 for item in owed:
                     print(owed_mod.input_line(item))
                 owed_items += owed_mod.template_items(owed)
+                # 2026-10-14 (D1 pair_12): files the LOB lookup keyed to no single
+                # LOB — ONE blocking question for the feed (its LOB cells are open)
+                lob_item = _lob_question(spec)
+                if lob_item is not None:
+                    owed_items.append(lob_item)
+                    needs_answers = True
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -546,6 +553,34 @@ def _run_pairs(
     # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
     # asked for (a QUESTION / UNRESOLVED line) exits 3
     return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
+
+
+def _lob_question(spec):
+    """The feed's ONE LOB question (resolver ``lob_unkeyed``): printed as a
+    QUESTION, returned as an answers-template item whose ``files:`` block
+    lists every unkeyed file (candidates = the FRD's LOB codes)."""
+    if not spec.lob_unkeyed or spec.lob_question_key is None:
+        return None
+    from codegen.layout.answers_template import TemplateItem
+    from codegen.resolve.resolver import lob_question
+
+    reason = lob_question(len(spec.lob_unkeyed), list(spec.lobs))
+    print(answer_line("QUESTION", spec.lob_question_key,
+                      f"{reason} (feed {spec.feed_id}; their LOB cells are written OPEN — "
+                      "answer one LOB per file under gaps: files: in answers.yaml)"))
+    return TemplateItem(spec.lob_question_key, f"{reason} (feed {spec.feed_id})",
+                        list(spec.lobs), "gaps", files=list(spec.lob_unkeyed))
+
+
+def _answers_gaps(path: Path | None) -> dict[str, str]:
+    """``generate --answers``: the answers file's ``gaps:`` values as text
+    (the LOB lookup's ``feeds[<i>].lob_by_file``)."""
+    if path is None:
+        return {}
+    from codegen.layout.answers import load_answers
+
+    return {key: str(value.get("value") or "")
+            for key, value in load_answers(path).gaps.items() if isinstance(value, dict)}
 
 
 def _answers_inputs(path: Path | None) -> dict[str, str]:

@@ -209,6 +209,11 @@ class FrdFeed(BaseModel):
     # flag a narrative that names a different token than the delivery
     # statement. Absent from the JSON when empty.
     frequency_mentions: list[str] = Field(default_factory=list)
+    # 2026-10-14 (D1 pair_12): the LOB cell's Region / LOB table, one mapping
+    # per row (header -> cell text). ``lobs`` then holds its LOB column's
+    # distinct codes; the resolver keys each file to ONE row (never the whole
+    # table in a cell). Absent from the JSON when empty.
+    lob_table: list[dict[str, str]] = Field(default_factory=list)
 
     @property
     def is_segmented(self) -> bool:

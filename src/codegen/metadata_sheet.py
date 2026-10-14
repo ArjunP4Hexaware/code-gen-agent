@@ -88,6 +88,23 @@ def _cell(value, badge: str, tooltip: str | None = None) -> dict:
     return {"value": "" if value is None else value, "badge_entry": entry}
 
 
+def feed_lob_cell(lobs: list[str], why: str | None = None, tab: str | None = None) -> dict:
+    """A feed-level LOB cell (2026-10-14, D1 pair_12): a LOB cell holds ONE
+    code. One LOB -> written; several (and no file naming one) -> OPEN with a
+    NOTE, never the comma-joined list (the gate's iig_single_value check fails
+    a multi-value cell)."""
+    if len(lobs) <= 1:
+        return _cell(lobs[0] if lobs else "", "from_frd", why)
+    where = f"{tab}." if tab else ""
+    cell = _cell("", "needs_template",
+                 f"open — the feed lists {len(lobs)} LOBs ({', '.join(lobs)}) and nothing "
+                 "names this row's one: a LOB cell holds ONE code")
+    cell["badge_entry"]["note"] = (
+        f"lob_multi_value_open:{where}LOB — the feed lists {len(lobs)} LOBs "
+        f"({', '.join(lobs)}); no single LOB for the row, left open (never a list in the cell)")
+    return cell
+
+
 def _row(headers: list[str], always_blank: set[str], cells: dict[str, dict],
          **extra) -> dict:
     """Assemble one row: every configured header gets a value + one badge."""
@@ -364,7 +381,7 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency_cell(feed, faq),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "LOB": feed_lob_cell(list(feed.lobs)),
         "SRC_CONTAINER_NAME": container,
         "SRC_ADLS_PATH": src_path,
         "SRC_FILE_NAME": _cell("; ".join(feed.file_name_patterns), "from_frd"),
@@ -479,7 +496,7 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
         "SOURCE": _cell(feed.source_system, "from_frd"),
         "FREQUENCY": _frequency_cell(feed, faq),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "LOB": feed_lob_cell(list(feed.lobs)),
         "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd",
                                   _catalog_tooltip(stage)),
         "SRC_SCHEMA_NAME": _cell(stage_schema, "from_frd"),
@@ -704,7 +721,7 @@ def _static_information_rows(feed: FrdFeed, config: Config, spec, faq,
     return [{
         "FILE_NAME": _cell("; ".join(feed.file_name_patterns), "from_frd"),
         "DESCRIPTION": _cell(feed.feed_name, "from_frd"),
-        "LOB": _cell(", ".join(feed.lobs), "from_frd"),
+        "LOB": feed_lob_cell(list(feed.lobs)),
         "FILE_TYPE": _cell(feed.file_format, "from_frd"),
         "SUPPLIER": _cell(feed.source_system, "from_frd"),
         "vendor_name": _cell(feed.source_system, "from_frd"),

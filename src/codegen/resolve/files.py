@@ -85,5 +85,168 @@ def header_block_files(feed: SttmFeed, tokens: list[str],
                         provenance=f"STTM {sheet} header block 'File(s)'")
 
 
-__all__ = ["FeedFile", "expand_files", "header_block_files", "lob_token", "split_lobs",
-           "split_patterns"]
+# ------------------------------------------------ the FRD's Region / LOB table
+# 2026-10-14 (D1 pair_12, CAQH ADLS_DELTA): the FRD's LOB cell held a Region /
+# LOB table and the agent wrote the whole table, comma-joined, into every row's
+# LOB cell. The golden has ONE LOB code per file row, keyed by the file's plan
+# identifier (several files share one LOB). The table is read as rows; each
+# file is keyed to the row whose key cell (region, REG#, plan id ...) is one of
+# the file name's tokens; a file no row (or several LOBs) keys stays OPEN and
+# is asked for — the table is never written into a cell.
+
+_KEY_SPLIT = re.compile(r"[^0-9A-Za-z#]+")
+# A key shorter than this never matches a file token ("1" would match the
+# "_1_" of every CAQH file name).
+_MIN_KEY_LENGTH = 3
+
+
+def _norm_header(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "")).casefold()
+
+
+def _key(text: str) -> str:
+    return re.sub(r"[\s#]+", "", str(text or "")).casefold()
+
+
+def lob_column(table: list[dict[str, str]], lob_headers: list[str]) -> str | None:
+    """The table's LOB column (its header as written), else None."""
+    wanted = {_norm_header(h) for h in lob_headers}
+    if not table:
+        return None
+    return next((h for h in table[0] if _norm_header(h) in wanted), None)
+
+
+def lob_table_from_rows(rows: list[list[str]], lob_headers: list[str]) -> list[dict[str, str]]:
+    """``rows[0]`` is the header row: exactly one LOB column (``lob_headers``)
+    and at least one other column -> one {header: cell} mapping per data row
+    (blank rows dropped). Anything else -> [] (not a LOB table)."""
+    if len(rows) < 2:
+        return []
+    header = [str(c or "").strip() for c in rows[0]]
+    wanted = {_norm_header(h) for h in lob_headers}
+    if len(header) < 2 or sum(_norm_header(h) in wanted for h in header) != 1 \
+            or any(not h for h in header):
+        return []
+    table: list[dict[str, str]] = []
+    for row in rows[1:]:
+        cells = [str(c or "").strip() for c in row][:len(header)]
+        cells += [""] * (len(header) - len(cells))
+        if any(cells):
+            table.append(dict(zip(header, cells, strict=True)))
+    return table
+
+
+def lob_table_from_lines(lines: list[str], lob_headers: list[str],
+                         key_headers: list[str]) -> list[dict[str, str]]:
+    """A table flattened one cell per line: the leading lines that are all
+    known headers (``lob_headers`` + ``key_headers``, at least two) are the
+    header row, the rest are its rows in order. [] when the lines do not
+    divide into whole rows."""
+    words = {_norm_header(h) for h in [*lob_headers, *key_headers]}
+    lines = [str(line).strip() for line in lines if str(line).strip()]
+    width = 0
+    while width < len(lines) and _norm_header(lines[width]) in words:
+        width += 1
+    if width < 2 or len(lines) == width or (len(lines) - width) % width:
+        return []
+    rows = [lines[i:i + width] for i in range(0, len(lines), width)]
+    return lob_table_from_rows(rows, lob_headers)
+
+
+def parse_lob_answer(text: str | None) -> dict[str, str]:
+    """``gaps: feeds[<i>].lob_by_file`` answer text: ``<file token or
+    pattern>=<LOB>`` pairs (``:`` also accepted) separated by ``;`` or new
+    lines -> {normalised token: LOB}."""
+    answers: dict[str, str] = {}
+    for part in re.split(r"[;\n]+", text or ""):
+        key, sep, lob = part.partition("=") if "=" in part else part.partition(":")
+        if sep and key.strip() and lob.strip():
+            answers[_key(key)] = lob.strip()
+    return answers
+
+
+# The LOB lookup's sources, in order (the NOTE names the one that keyed a file).
+LOB_SOURCES = {
+    "answers": "the answers file (gaps: lob_by_file)",
+    "frd_plan": "the FRD LOB table's plan-id column",
+    "frd_region": "the FRD LOB table's region column (a region token in the file name)",
+    "lob_reference": "the client lob_reference table (conventions.lob_reference)",
+}
+
+
+def _columns(table: list[dict[str, str]], headers: list[str]) -> list[str]:
+    wanted = {_norm_header(h) for h in headers}
+    return [h for h in (table[0] if table else {}) if _norm_header(h) in wanted]
+
+
+def _lob_by_column(table: list[dict[str, str]], lob_header: str, columns: list[str],
+                   tokens: set[str]) -> tuple[str, str] | None:
+    """(LOB, '<column> <cell>') when the rows whose ``columns`` cell is a
+    token of the file name name exactly ONE LOB; else None."""
+    hits: dict[str, str] = {}
+    for row in table:
+        for column in columns:
+            cell = row.get(column, "")
+            key = _key(cell)
+            if row.get(lob_header) and len(key) >= _MIN_KEY_LENGTH and key in tokens:
+                hits.setdefault(row[lob_header], f"{column} {cell!r}")
+    return next(iter(hits.items())) if len(hits) == 1 else None
+
+
+def key_files_by_lob_table(files: list[FeedFile], table: list[dict[str, str]],
+                           lob_header: str | None, *, plan_headers: list[str],
+                           region_headers: list[str], reference: dict[str, str] | None = None,
+                           answers: dict[str, str] | None = None
+                           ) -> tuple[list[FeedFile], list[str]]:
+    """Each file without a LOB takes ONE LOB, the first source that keys it:
+    an answer naming one of its tokens (or its whole pattern); the FRD LOB
+    table's plan-id column (a plan id that is a token of the file name); its
+    region column (a region token in the file name, matched to REG#); the
+    client ``lob_reference`` (plan id -> LOB). Returns (files, unmatched
+    patterns) — a file no source keys (or a source naming several LOBs) keeps
+    lob None: the caller asks ONE question for all of them, and the table is
+    never a cell value. ``FeedFile.lob_source`` records the source."""
+    from codegen.config import is_placeholder
+
+    answers = answers or {}
+    reference = {k: v for k, v in (reference or {}).items()
+                 if not is_placeholder(k) and not is_placeholder(v)}
+    plan = _columns(table, plan_headers)
+    region = _columns(table, region_headers)
+    keyed: list[FeedFile] = []
+    unmatched: list[str] = []
+    for file in files:
+        if file.lob:
+            keyed.append(file)
+            continue
+        tokens = {_key(t) for t in _KEY_SPLIT.split(file.pattern) if t}
+        found: tuple[str, str, str] | None = None
+        answered = next((lob for key, lob in answers.items()
+                         if key == _key(file.pattern) or key in tokens), None)
+        if answered:
+            found = (answered, "answers", "")
+        for source, columns in (("frd_plan", plan), ("frd_region", region)):
+            if found is None and lob_header is not None and columns:
+                hit = _lob_by_column(table, lob_header, columns, tokens)
+                if hit is not None:
+                    found = (hit[0], source, hit[1])
+        if found is None:
+            refs = {lob for plan_id, lob in reference.items()
+                    if len(_key(plan_id)) >= _MIN_KEY_LENGTH and _key(plan_id) in tokens}
+            if len(refs) == 1:
+                found = (refs.pop(), "lob_reference", "")
+        if found is None:
+            unmatched.append(file.pattern)
+            keyed.append(file)
+            continue
+        lob, source, where = found
+        keyed.append(file.model_copy(update={
+            "lob": lob, "lob_source": source,
+            "provenance": f"{file.provenance}; LOB {lob!r} from {LOB_SOURCES[source]}"
+                          + (f" row {where}" if where else "")}))
+    return keyed, unmatched
+
+
+__all__ = ["LOB_SOURCES", "FeedFile", "expand_files", "header_block_files",
+           "key_files_by_lob_table", "lob_column", "lob_table_from_lines",
+           "lob_table_from_rows", "lob_token", "parse_lob_answer", "split_lobs", "split_patterns"]

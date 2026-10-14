@@ -371,6 +371,80 @@ def check_iig_workbooks_single_line(paths: list[Path]) -> GateCheck:
                      details=f"{cells} text cell(s) in {names}: every one single-line")
 
 
+# ------------------------------------------------ single-value IIG cells ---
+# 2026-10-14 (D1 pair_12): the FRD's whole Region / LOB table reached every
+# ADLS row's LOB cell, comma-joined. A column holding ONE code
+# (gate.derivations.single_value_columns) never holds a list or a table's
+# header words: the written workbooks are checked, a violation FAILS the run
+# with its address.
+
+_LIST_SEPARATORS = re.compile(r"[,;\r\n]")
+
+
+def _header_word(value: str, words: list[str]) -> str | None:
+    for word in words:
+        # a word on its own ('LOB_A' is a code, not the header 'LOB'); a word
+        # ending in a mark ('REG#') may run into its number ('REG#1')
+        after = r"(?![A-Za-z0-9_])" if word[-1:].isalnum() else r"(?![A-Za-z_])"
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(word)}{after}", value, re.IGNORECASE):
+            return word
+    return None
+
+
+def single_value_problem(header: str, value: str, cfg: DerivationsConfig) -> str | None:
+    """Why ``value`` cannot sit in the single-code column ``header``, else None."""
+    import fnmatch
+
+    if not isinstance(value, str) or not value.strip() or not any(
+            fnmatch.fnmatchcase(header, p) for p in cfg.single_value_columns):
+        return None
+    if _LIST_SEPARATORS.search(value):
+        return "a list (comma / semicolon / line break)"
+    word = _header_word(value, [*cfg.single_value_header_words, header.replace("_", " ")])
+    if word is not None:
+        return f"a header word ({word!r})"
+    return None
+
+
+def check_iig_workbooks_single_value(paths: list[Path], cfg: DerivationsConfig) -> GateCheck:
+    """Every cell of a single-code column (LOB, CLAIM_TYPE*, the flags ...) of
+    the written IIG workbooks holds one value; a list or a header word FAILS
+    with ``<file> <SHEET>!<A1> (<header>)``. ``_``-sheets are not IIG sheets."""
+    from openpyxl import load_workbook
+
+    problems: list[str] = []
+    cells = 0
+    for path in paths:
+        workbook = load_workbook(path, read_only=True)
+        try:
+            for sheet in workbook.worksheets:
+                if sheet.title.startswith("_"):
+                    continue
+                headers: list = []
+                for row_index, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    if row_index == 1:
+                        headers = [str(h) if h is not None else "" for h in row]
+                        continue
+                    for col_index, value in enumerate(row, start=1):
+                        header = headers[col_index - 1] if col_index <= len(headers) else ""
+                        why = single_value_problem(header, value, cfg)
+                        if header and isinstance(value, str) and value.strip():
+                            cells += 1 if why is None else 0
+                        if why is not None:
+                            problems.append(
+                                f"{path.name} {sheet.title}!{_column_letter(col_index)}"
+                                f"{row_index} ({header}): {why} in '{_truncate(value)}'")
+        finally:
+            workbook.close()
+    if problems:
+        return GateCheck(name="iig_single_value", passed=False,
+                         details="a single-code column holds more than one value: "
+                                 + "; ".join(problems))
+    return GateCheck(name="iig_single_value", passed=True,
+                     details="every single-code cell (" + ", ".join(cfg.single_value_columns)
+                             + ") holds one value")
+
+
 # ---------------------------------------------------------- SQL literals ---
 
 
@@ -454,6 +528,7 @@ def sibling_type_flags(spec: ResolvedFeedSpec, config: Config) -> list[str]:
 __all__ = [
     "check_iig_derivations",
     "check_iig_workbooks_single_line",
+    "check_iig_workbooks_single_value",
     "check_sql_literals",
     "join_path",
     "literal_violations",

@@ -684,6 +684,7 @@ def resolve_feeds(
     frd_sha256: str,
     sttm_sha256: str,
     vdd=None,
+    gaps: dict[str, str] | None = None,
 ) -> list[ResolvedFeedSpec]:
     """Join every FRD feed to its STTM feed. Unmatched feeds on either side
     fail — except a feed the extractor held back as NEEDS_ANSWERS
@@ -708,7 +709,7 @@ def resolve_feeds(
             continue
         matched_sttm_ids.add(feed_id)
         specs.append(_resolve_one(frd, frd_feed, sttm, sttm_feed, config, frd_sha256, sttm_sha256,
-                                  vdd=vdd))
+                                  vdd=vdd, gaps=gaps))
 
     errors = [f"FRD feed has no STTM mapping: {name}" for name in unmatched_frd]
     errors += [
@@ -729,6 +730,7 @@ def _resolve_one(
     frd_sha256: str,
     sttm_sha256: str,
     vdd=None,
+    gaps: dict[str, str] | None = None,
 ) -> ResolvedFeedSpec:
     errors: list[str] = []
     feed_id = sttm_feed.feed_id
@@ -934,6 +936,10 @@ def _resolve_one(
         file_name_patterns, header_lobs or list(frd_feed.lobs), config.extractor.lob_tokens,
         provenance=("FRD / STTM file pattern; LOBs from the STTM header block 'LOB'"
                     if header_lobs else "FRD / STTM file pattern; LOBs from the FRD"))
+    lob_key, lob_unkeyed = _key_files_by_lob_table(frd_feed, feed_index, files, file_flags,
+                                                   config, gaps)
+    if lob_key is not None:
+        files = file_flags.pop()
 
     key_flags: list[str] = []
     natural_key = _detail_key_columns(segments, sttm_feed.load_rules.not_null_columns,
@@ -983,7 +989,66 @@ def _resolve_one(
             *key_flags, *delimiter_flags])),
         files=files,
         frequency_mentions=list(frd_feed.frequency_mentions),
+        lob_unkeyed=lob_unkeyed,
+        lob_question_key=lob_key if lob_unkeyed else None,
     )
+
+
+LOB_ANSWER_FIELD = "lob_by_file"
+
+
+def _key_files_by_lob_table(frd_feed: FrdFeed, feed_index: int, files: list, flags: list,
+                            config: Config, gaps: dict[str, str] | None
+                            ) -> tuple[str | None, list[str]]:
+    """2026-10-14 (D1 pair_12): the FRD's Region / LOB table (``lob_table``,
+    or a contract whose ``lobs`` list is that table flattened) keys each file
+    to ONE LOB — plan-id column, then region column, then the client
+    ``conventions.lob_reference`` (codegen.resolve.files). Appends the keyed
+    file list as the LAST item of ``flags`` (the caller pops it) plus one flag
+    per outcome. Returns (answers key, unmatched files); (None, []) when the
+    FRD carries no LOB table."""
+    from codegen.resolve.files import (
+        LOB_SOURCES,
+        key_files_by_lob_table,
+        lob_column,
+        lob_table_from_lines,
+        parse_lob_answer,
+    )
+
+    frd_cfg = config.extractor.frd
+    table = list(frd_feed.lob_table) or lob_table_from_lines(
+        list(frd_feed.lobs), frd_cfg.lob_table_lob_headers,
+        [*frd_cfg.lob_table_plan_headers, *frd_cfg.lob_table_region_headers])
+    column = lob_column(table, frd_cfg.lob_table_lob_headers)
+    if column is None:
+        return None, []
+    key = f"feeds[{feed_index}].{LOB_ANSWER_FIELD}"
+    keyed, unmatched = key_files_by_lob_table(
+        files, table, column, plan_headers=frd_cfg.lob_table_plan_headers,
+        region_headers=frd_cfg.lob_table_region_headers,
+        reference=config.conventions.lob_reference,
+        answers=parse_lob_answer((gaps or {}).get(key)))
+    by_source: dict[str, int] = {}
+    for file in keyed:
+        if file.lob_source:
+            by_source[file.lob_source] = by_source.get(file.lob_source, 0) + 1
+    flags.append(f"lob_from_table:{key} — {len(keyed) - len(unmatched)} of {len(keyed)} "
+                 f"file(s) keyed to ONE LOB ("
+                 + (", ".join(f"{n} by {LOB_SOURCES[s]}" for s, n in by_source.items())
+                    or "none keyed")
+                 + f"); the FRD LOB table: {', '.join(table[0])}, {len(table)} row(s)")
+    if unmatched:
+        codes = list(dict.fromkeys(row[column] for row in table if row.get(column)))
+        flags.append(f"lob_unkeyed:{key} — {lob_question(len(unmatched), codes)}: "
+                     f"{'; '.join(unmatched)} — their LOB cells stay OPEN (the table is never "
+                     "written into a cell)")
+    flags.append(keyed)
+    return key, unmatched
+
+
+def lob_question(count: int, codes: list[str]) -> str:
+    """The ONE question a feed's unkeyed files ask."""
+    return f"file-to-LOB mapping for {count} files; FRD lists LOB codes {', '.join(codes)}"
 
 
 def _frd_extraction_flags(frd: FrdContract, frd_feed: FrdFeed) -> list[str]:
@@ -1002,7 +1067,8 @@ def pending_answers(sttm_path: Path) -> list:
 
 
 def resolve_pair(frd_path: Path, sttm_path: Path, config: Config,
-                 vdd_path: Path | None = None) -> list[ResolvedFeedSpec]:
+                 vdd_path: Path | None = None,
+                 gaps: dict[str, str] | None = None) -> list[ResolvedFeedSpec]:
     """Load, validate, and join one FRD/STTM contract file pair; a VDD
     contract (M3) attaches to every spec as the third input."""
     frd = FrdContract.model_validate(json.loads(frd_path.read_text(encoding="utf-8")))
@@ -1019,6 +1085,7 @@ def resolve_pair(frd_path: Path, sttm_path: Path, config: Config,
         frd_sha256=sha256_of_file(frd_path),
         sttm_sha256=sha256_of_file(sttm_path),
         vdd=vdd,
+        gaps=gaps,
     )
     if vdd is not None:
         specs = [spec.model_copy(update={"vdd": vdd}) for spec in specs]

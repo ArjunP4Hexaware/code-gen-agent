@@ -2988,6 +2988,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--export-scrubbed", type=Path, metavar="DIR",
                     help="with --golden / --agent: also write mismatches.md, row_keys.md and "
                          "SELF_CHECK.md to DIR, every value scrubbed (safe to hand home)")
+    ap.add_argument("--dump-row", nargs="*", metavar="SHEET[:N]", default=None,
+                    help="print one PAIRED row's golden and agent values side by side, "
+                         "column by column (D1 only - unscrubbed console): SHEET[:N] = the "
+                         "Nth paired row of SHEET (default 1); no value = the first paired "
+                         "row of every sheet")
     ap.add_argument("--golden-structure", action="store_true",
                     help="print row counts per GROUP_ID per sheet of --golden (counts and "
                          "group#k labels only); written to --out when given")
@@ -3032,6 +3037,8 @@ def main(argv: list[str] | None = None) -> int:
             pair_mode=args.pair_mode, build=build, scope_mode=args.scope,
             group_index=args.group_index)
         _print_pair(payload, args.out)
+        for line in dump_rows(diffs, keys, args.dump_row) if args.dump_row is not None else []:
+            print(line)
         return 0
     try:
         load_scrub_check()
@@ -3042,11 +3049,65 @@ def main(argv: list[str] | None = None) -> int:
                                      args.out, args.keys, pair_mode=args.pair_mode, build=build,
                                      scope_mode=args.scope, group_index=args.group_index)
     _print_pair(payload, args.out)
+    for line in dump_rows(diffs, keys, args.dump_row) if args.dump_row is not None else []:
+        print(line)
     check =export_scrubbed(diffs, keys, args.export_scrubbed)
     print(check["line"])
     written = EXPORT_FILES + (SELF_CHECK_FILE,) if not check["rescan"] else (SELF_CHECK_FILE,)
     print(f"wrote {', '.join(str(args.export_scrubbed / f) for f in written)}")
     return 2 if check["rescan"] else 0
+
+
+def paired_rows(d: SheetDiff) -> list[tuple[int, int, list[Cell]]]:
+    """(golden row, agent row, the row's cells) of every paired row, sheet order."""
+    rows: dict[tuple[int, int], list[Cell]] = {}
+    for cell in d.cells:
+        if cell.golden_row is not None and cell.agent_row is not None:
+            rows.setdefault((cell.golden_row, cell.agent_row), []).append(cell)
+    return [(g, a, cells) for (g, a), cells in rows.items()]
+
+
+def dump_rows(diffs: list[SheetDiff], keys: KeyConfig, specs: list[str]) -> list[str]:
+    """2026-10-14 (D1 post44 item 6): ROW DUMP (D1 only - unscrubbed) — a paired
+    row's golden and agent value per column with its status, to read a
+    convention off one row (pair_12: every ADLS row mismatches the same columns).
+    ``specs``: SHEET[:N] (the Nth paired row, 1-based); empty = the first paired
+    row of every sheet. Withheld columns (iig_keys.yaml withhold_values) print
+    <withheld>."""
+    wanted: dict[str, int] = {}
+    for spec in specs:
+        sheet, _sep, n = spec.partition(":")
+        wanted[sheet_id(sheet)] = int(n) if n.strip().isdigit() else 1
+    lines: list[str] = []
+    for d in diffs:
+        if wanted and not any(sheet_id(d.name).startswith(w) for w in wanted):
+            continue
+        n = next((v for w, v in wanted.items() if sheet_id(d.name).startswith(w)), 1)
+        rows = paired_rows(d)
+        if not rows:
+            if wanted:
+                lines.append(f"ROW DUMP (D1 only - unscrubbed) {d.name}: no paired row")
+            continue
+        if n > len(rows):
+            lines.append(f"ROW DUMP (D1 only - unscrubbed) {d.name}: paired row {n} asked, "
+                         f"{len(rows)} paired")
+            continue
+        golden_row, agent_row, cells = rows[n - 1]
+        method = next((c.method for c in cells if c.method), "")
+        lines.append(f"ROW DUMP (D1 only - unscrubbed) {d.name}: paired row {n} of {len(rows)}"
+                     f" ({method or 'paired'}; golden row {_row_ref(golden_row)}, agent row "
+                     f"{_row_ref(agent_row)})")
+
+        def shown(cell: Cell, value: object) -> str:
+            return "<withheld>" if keys.is_withheld(cell.column) else (_raw(value) or "<blank>")
+
+        width = max([len("column"), *(len(c.column) for c in cells)])
+        status_width = max([len("status"), *(len(c.status) for c in cells)])
+        lines.append(f"    {'column':<{width}} | {'status':<{status_width}} | golden | agent")
+        for cell in cells:
+            lines.append(f"    {cell.column:<{width}} | {cell.status:<{status_width}} | "
+                         f"{shown(cell, cell.golden)} | {shown(cell, cell.agent)}")
+    return lines
 
 
 def _golden_structure_cli(golden: Path, keys_path: Path, out: Path | None) -> dict:

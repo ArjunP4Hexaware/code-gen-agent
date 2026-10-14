@@ -71,6 +71,10 @@ class AuditColumn(BaseModel):
 
     column: str
     datatype: Literal["String", "Timestamp"]
+    # 2026-10-14 (D1 post44 item 5): the audit row's load rule as the STTM
+    # states it ("Default to 'CAQH'") — the DQ AddCustomColumnsRule literal.
+    # None (the JSON leaves it out) when the row states none.
+    value_spec: str | None = None
 
 
 # ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------

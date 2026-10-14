@@ -365,7 +365,7 @@ def extract_segmented_contract(
 
     # ---- group rows by segment; per-segment audit rows ---------------------
     fields_by_segment: dict[str, list[_SegRow]] = {}
-    audit_by_segment: dict[str, list[tuple[str, str]]] = {}
+    audit_by_segment: dict[str, list[tuple[str, str, str | None]]] = {}
     annotation_flags: list[str] = []   # audit_column_annotated (audit_names)
     row_counts: dict[str, int] = {}
     segments_found: list[str] = []
@@ -394,7 +394,10 @@ def extract_segmented_contract(
             )
         column = clean_audit_column(column, "audit_columns",
                                     f"{ws.title} row {seg_row.row_number}", annotation_flags)
-        audit_by_segment.setdefault(current_segment, []).append((column, datatype))
+        # 2026-10-14 (D1 post44 item 5): the row's transformation cell rides on
+        # the audit column ("Default to 'CAQH'" — the DQ AddCustomColumnsRule).
+        rule = _cell(row, blocks.stage.get("transformations/data quality"))
+        audit_by_segment.setdefault(current_segment, []).append((column, datatype, rule))
 
     if "Detail" not in fields_by_segment:
         raise WorkbookParseError(f"{ws.title}: no Detail-segment rows found")
@@ -521,7 +524,7 @@ def extract_segmented_contract(
         provenance_notes=provenance_notes,
         # Per-segment audit columns exactly as the STTM lists them.
         segment_audit={
-            segment: [AuditColumn(column=c, datatype=d) for c, d in columns]
+            segment: [AuditColumn(column=c, datatype=d, value_spec=r) for c, d, r in columns]
             for segment, columns in audit_by_segment.items()
         },
     )
@@ -572,7 +575,8 @@ def extract_segmented_contract(
             phi_columns=phi_sources,
             recycle=recycle,
         ),
-        audit_columns=[AuditColumn(column=c, datatype=d) for c, d in detail_audit],
+        audit_columns=[AuditColumn(column=c, datatype=d, value_spec=r)
+                       for c, d, r in detail_audit],
         field_count=len(fields),
         fields=fields,
         segmented=segmented,

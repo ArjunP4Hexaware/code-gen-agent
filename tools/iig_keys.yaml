@@ -45,6 +45,12 @@ object_tables:
     STGDELTA_STDDELTA_INGESTION_DET: [TGT_TABLE_NAME]
     # Column set not seen yet (no RDBMS IIG in the repo): first present wins.
     RDBMS_ADLS_INGESTION_DETAILS: [TGT_TABLE_NAME, SRC_TABLE_NAME, OBJECT_NAME]
+  # 2026-10-14 (D1 post44 item 5): a DATA_QUALITY_RULES row's OBJECT_ID resolves
+  # on its leg's sheet first - STDDelta rules on the stage -> standard objects, every
+  # other type on the file objects (the agent leaves GROUP_ID blank, and one feed's
+  # ADLS and STGDELTA objects both number 1); unresolved there, as before.
+  rule_type_column: RULE_TYPE
+  by_rule_type: {STDDelta: STGDELTA_STDDELTA_INGESTION_DET, "*": ADLS_DELTA_INGESTION_DETAILS}
 
 # THE IGNORED SET (agreed 2026-10-12 for the Venu validation; printed in every
 # report header): columns never scored, reported as needs_assignment — ids the

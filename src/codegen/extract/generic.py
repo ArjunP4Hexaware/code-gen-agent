@@ -71,6 +71,7 @@ class AuditRow:
     datatype_raw: str
     table: str | None
     col: int | None = None          # the stage column cell (citation only)
+    rule: str | None = None         # the row's load rule / transformation cell
 
 
 @dataclass
@@ -261,7 +262,8 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
                 sheet=sp.name, row=row_number,
                 segment=segments.get(normalize(segment_raw)) if segment_raw else None,
                 column=stage_column, datatype_raw=_cell(cells, stage_type_col) or "",
-                table=_cell(cells, stage_table_col), col=stage_column_col))
+                table=_cell(cells, stage_table_col), col=stage_column_col,
+                rule=_audit_rule(sp, cells)))
             continue
         if field_name is None:
             reason = ("field_name role unresolved" if field_col is None
@@ -305,6 +307,19 @@ def _first(row: FieldRow, *keys: str) -> str | None:
         if value is not None:
             return value
     return None
+
+
+_AUDIT_RULE_ROLES = ("rules.load_rule", "source.load_rule", "stage.transformation",
+                     "source.business_rule")
+
+
+def _audit_rule(sp, cells) -> str | None:
+    """An audit row's load rule / transformation cells, as a field's
+    value_spec is read ("Default to 'CAQH'"); None when it states none."""
+    values = {f"{band.layer}.{role}": _cell(cells, col)
+              for band in sp.bands for role, col in band.roles.items()}
+    parts = [values[k] for k in _AUDIT_RULE_ROLES if values.get(k)]
+    return "; ".join(parts) if parts else None
 
 
 def _differs(value: str | None, band_value: str | None) -> str | None:
@@ -970,7 +985,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             else f"{entry.sheet} row {entry.row}", flags)
         if column not in seen:
             seen.add(column)
-            audit.append(AuditColumn(column=column, datatype=datatype))  # type: ignore[arg-type]
+            audit.append(AuditColumn(column=column, datatype=datatype,  # type: ignore[arg-type]
+                                     value_spec=entry.rule))
     if not audit:
         # Chunk B (cold drill): the STTM lists no audit row. The framework's
         # audit set is never added silently: the feed waits for the person's

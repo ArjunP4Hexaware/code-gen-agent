@@ -1279,9 +1279,35 @@ class MetadataTemplateConfig(BaseModel):
     object_name_from_pattern: bool = False
     reject_table_suffix: str | None = None
     segment_filter_pattern: str | None = None
-    dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast"]] = Field(
+    # 2026-10-14 (D1 post44 item 5): the corpus's classes from the STTM —
+    # add_custom_columns (an audit column the STTM defaults to a literal; a
+    # header / trailer feed), null_check (PK + not-null columns), referential_check
+    # (the STTM's recycle lookup), and per STANDARD table lr_trim,
+    # std_date_conversion (a Date column whose load rule states the formats),
+    # std_data_type_cast (standard columns typed other than String).
+    dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast",
+                           "add_custom_columns", "null_check", "referential_check",
+                           "lr_trim", "std_date_conversion", "std_data_type_cast"]] = Field(
         default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
+    # rule kind -> RULE_TYPE (else the sheet's constant); kind -> {header: value}
+    # constant cells (INPUT_PARAM / TARGET_COLUMN framework parameters); kind ->
+    # citation (the golden rows the format comes from).
+    dq_rule_types: dict[str, str] = Field(default_factory=dict)
+    dq_params: dict[str, dict[str, str]] = Field(default_factory=dict)
+    dq_citations: dict[str, str] = Field(default_factory=dict)
+    # LoadHeaderAndTrailerToSeparateTablesRule: "header_columns" = SOURCE_COLUMN
+    # the header table's columns, TARGET_COLUMN <catalog>,<schema>,<tables...>
+    # (the pair-1 reading); "header_and_trailer" = SOURCE_COLUMN header columns
+    # '|' trailer columns, TARGET_COLUMN <catalog>,<schema>,<table>,<location>
+    # per table (the CAQH golden), the location from dq_split_location over
+    # {container} (the ADLS TGT_CONTAINER_NAME constant), {domain_path}, {table}.
+    dq_split_style: Literal["header_columns", "header_and_trailer"] = "header_columns"
+    dq_split_location: str | None = None
+    # AddCustomColumnsRule: an audit row's load rule naming a literal default.
+    dq_literal_regex: str = (r"(?i)\b(?:default(?:ed)?|hard[\s-]*cod(?:e|ed))\s*(?:to|as|with)?"
+                             r"\s*[:=]?\s*['\"‘’“”]([^'\"‘’“”]+)"
+                             r"['\"‘’“”]")
     # 2026-10-14 (D1 post44 items 1-3): cells from the corpus patterns report,
     # {tab: {header: CorpusCellConfig}}; owed cells {tab: {header: OwedCellConfig}}.
     corpus_cells: dict[str, dict[str, CorpusCellConfig]] = Field(default_factory=dict)

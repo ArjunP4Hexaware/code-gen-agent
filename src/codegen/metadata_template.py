@@ -1407,89 +1407,241 @@ def _by_type_order(fields: list[SttmField], type_order: list[str]) -> list[SttmF
     return sorted(fields, key=_rank)
 
 
-def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_TableGroup],
-                detail: _TableGroup) -> dict | None:
-    """Rule 5: the LoadHeaderAndTrailerToSeparateTablesRule cells shared by
-    every file — only when the header / trailer segments land in a table
-    other than the detail. SOURCE_COLUMN = the header table's columns;
-    TARGET_COLUMN = <catalog>,<schema>,<header table>,<trailer table> (the
-    framework convention, the stage catalog mapped). INPUT_PARAM is per file."""
+def _dq_citation(tpl: MetadataTemplateConfig, kind: str) -> str:
+    return tpl.dq_citations.get(kind) or tpl.citation
+
+
+def _dq_head(tpl: MetadataTemplateConfig, kind: str) -> dict:
+    """RULE_CLASS (+ RULE_TYPE when the kind has its own) and the kind's
+    constant parameters (dq_params) — every one a cited template constant."""
+    tooltip = _TEMPLATE_TOOLTIP.format(citation=_dq_citation(tpl, kind))
+    cells = {"RULE_CLASS": _cell(tpl.dq_rule_classes.get(kind, kind), "synthetic", tooltip)}
+    if kind in tpl.dq_rule_types:
+        cells["RULE_TYPE"] = _cell(tpl.dq_rule_types[kind], "synthetic", tooltip)
+    for header, value in tpl.dq_params.get(kind, {}).items():
+        cells[header] = _cell(value, "synthetic", tooltip)
+    return cells
+
+
+def _split_groups(groups: list[_TableGroup], detail: _TableGroup) -> list[_TableGroup]:
+    """The header / trailer tables other than the detail, header first."""
     split = [g for g in groups if g is not detail
              and any(s.segment in ("Header", "Trailer") for s in g.segments)]
-    if not split:
-        return None
     order = {"Header": 0, "Trailer": 1}
     split.sort(key=lambda g: min(order.get(s.segment, 2) for s in g.segments))
+    return split
+
+
+def _stage_catalog(config: Config, table) -> str:
+    if table.catalog:
+        return table.catalog
+    from codegen.emit.framework import _config_default_catalog
+
+    return _config_default_catalog(config, config.conventions.get(None), "stage") or ""
+
+
+def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_TableGroup],
+                detail: _TableGroup, feed: FrdFeed | None = None) -> dict | None:
+    """Rule 5: the LoadHeaderAndTrailerToSeparateTablesRule cells shared by
+    every file — only when the header / trailer segments land in a table
+    other than the detail. ``dq_split_style`` header_columns (pair 1):
+    SOURCE_COLUMN = the header table's columns; TARGET_COLUMN =
+    <catalog>,<schema>,<header table>,<trailer table>; INPUT_PARAM per file.
+    header_and_trailer (the CAQH golden, D1 post44): SOURCE_COLUMN = header
+    columns '|' trailer columns; TARGET_COLUMN = <catalog>,<schema>,<table>,
+    <location> per table (dq_split_location)."""
+    split = _split_groups(groups, detail)
+    if not split:
+        return None
     header = next((g for g in split if any(s.segment == "Header" for s in g.segments)), split[0])
     stage = header.stage
-    catalog = stage.catalog
-    if not catalog:
-        from codegen.emit.framework import _config_default_catalog
-
-        catalog = _config_default_catalog(config, config.conventions.get(None), "stage") or ""
+    catalog = _stage_catalog(config, stage)
+    cells = _dq_head(tpl, "header_trailer_split")
+    if tpl.dq_split_style == "header_and_trailer":
+        landing = _landing(feed) if feed is not None else None
+        container = tpl.constants.get("ADLS_DELTA_INGESTION_DETAILS", {}).get(
+            "TGT_CONTAINER_NAME", "")
+        parts: list[str] = []
+        located = True
+        for group in split:
+            location = None
+            if tpl.dq_split_location and landing is not None and container:
+                rel = _landing_rel(tpl, "ADLS_DELTA_INGESTION_DETAILS", landing)
+                location = tpl.dq_split_location.format(
+                    container=container, domain_path=_domain_path(rel), table=group.stage.table)
+            located = located and location is not None
+            parts += [p for p in (_stage_catalog(config, group.stage), group.stage.schema_name)
+                      if p] + [group.stage.table] + ([location] if location else [])
+        cells["SOURCE_COLUMN"] = _cell(
+            "|".join(",".join(f.stage_column for f in g.fields) for g in split), "from_sttm",
+            "the header table's columns '|' the trailer table's (STTM Stage band; "
+            f"{_dq_citation(tpl, 'header_trailer_split')})")
+        target = _cell(",".join(parts), "from_sttm",
+                       "<catalog>,<schema>,<table>,<location> per header / trailer table "
+                       f"({_dq_citation(tpl, 'header_trailer_split')})"
+                       + catalog_mapping_note(stage))
+        if not located:
+            target = _cell("", "needs_template", "no landing / container / location shape to "
+                           "build the tables' locations from — open")
+        cells["TARGET_COLUMN"] = target
+        return cells
     target = ",".join([p for p in (catalog, stage.schema_name) if p]
                       + [g.stage.table for g in split])
-    return {
-        "RULE_CLASS": _cell(tpl.dq_rule_classes.get("header_trailer_split",
-                                                    "header_trailer_split"), "synthetic",
-                            _TEMPLATE_TOOLTIP.format(citation=tpl.citation)),
-        "SOURCE_COLUMN": _cell(",".join(f.stage_column for f in header.fields), "from_sttm",
-                               f"the header table's columns ({stage.table}, STTM Stage band)"),
-        "TARGET_COLUMN": _cell(target, "from_sttm",
-                               "framework convention <catalog>,<schema>,<header table>,"
-                               "<trailer table> (docs/acfc/MULTI_TABLE_DESIGN.md rule 5)"
-                               + catalog_mapping_note(stage)),
-    }
+    cells["SOURCE_COLUMN"] = _cell(",".join(f.stage_column for f in header.fields), "from_sttm",
+                                   f"the header table's columns ({stage.table}, STTM Stage band)")
+    cells["TARGET_COLUMN"] = _cell(target, "from_sttm",
+                                   "framework convention <catalog>,<schema>,<header table>,"
+                                   "<trailer table> (docs/acfc/MULTI_TABLE_DESIGN.md rule 5)"
+                                   + catalog_mapping_note(stage))
+    return cells
+
+
+def _audit_literals(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) -> list[tuple[str, str]]:
+    """(audit column, literal) for every audit row whose load rule names a
+    literal default (dq_literal_regex: "Default to 'X'"), STTM order."""
+    regex = re.compile(tpl.dq_literal_regex)
+    found: dict[str, str] = {}
+    audits = [*spec.audit_columns, *(a for s in spec.segments for a in s.audit_columns or [])]
+    for audit in audits:
+        match = regex.search(getattr(audit, "value_spec", None) or "")
+        if match is not None:
+            found.setdefault(audit.column, match.group(1).strip())
+    return list(found.items())
+
+
+def _columns_rule(tpl: MetadataTemplateConfig, kind: str, columns: list[str], why: str,
+                  **extra: dict) -> dict:
+    joined = ",".join(columns)
+    return {**_dq_head(tpl, kind), "SOURCE_COLUMN": _cell(joined, "from_sttm", why),
+            "TARGET_COLUMN": _cell(joined, "from_sttm", why), **extra}
+
+
+def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed: FrdFeed,
+                    spec: ResolvedFeedSpec, groups: list[_TableGroup],
+                    detail: _TableGroup) -> list[dict]:
+    """A stage-leg rule kind's rows, the same for every file (OBJECT_ID = the
+    file's ADLS object)."""
+    fields = detail.fields
+    stage = detail.stage
+    if kind == "header_trailer_split":
+        split = _split_rule(tpl, config, groups, detail, feed)
+        if split is None:
+            return []
+        per_file = {} if "INPUT_PARAM" in split else {"_per_file": "INPUT_PARAM"}
+        return [{**split, **per_file}]
+    if kind == "add_custom_columns":
+        # D1 post44: a header / trailer feed's audit literal (the CAQH golden's
+        # FILE_TYPE 'CAQH' row); none written for a flat feed.
+        if not _split_groups(groups, detail):
+            return []
+        return [{**_dq_head(tpl, kind),
+                 "SOURCE_COLUMN": _cell(literal, "from_sttm",
+                                        f"the STTM's audit row {column}: a literal default"),
+                 "TARGET_COLUMN": _cell(column, "from_sttm", "the audit column (STTM)")}
+                for column, literal in _audit_literals(spec, tpl)]
+    if kind == "null_check":
+        keyed = set(_primary_key(fields, "stage")) | set(spec.not_null_columns)
+        columns = [f.stage_column for f in fields if f.stage_column in keyed]
+        if not columns:
+            return []
+        return [_columns_rule(tpl, kind, columns, "the detail table's Primary Key / not-null "
+                                                  "columns (STTM Stage band)")]
+    if kind == "referential_check":
+        recycle = spec.recycle
+        if recycle is None:
+            return []
+        applies = recycle.spec.applies_to.strip().lower()
+        field = next((f for f in fields if applies in ((f.source_column or "").strip().lower(),
+                                                       f.stage_column.lower())), None)
+        if field is None:
+            return []
+        return [{**_dq_head(tpl, kind),
+                 "SOURCE_COLUMN": _cell(field.stage_column, "from_sttm",
+                                        f"the STTM's lookup: {recycle.spec.validation!r} "
+                                        f"(reference {recycle.reference_table})")}]
+    if kind == "date_format":
+        columns, params = _date_rule(tpl, fields)
+        if not columns:
+            return []
+        joined = ",".join(columns)
+        return [{**_dq_head(tpl, kind),
+                 "SOURCE_COLUMN": _cell(joined, "from_sttm", "STTM Load Rule: date conversion"),
+                 "INPUT_PARAM": _cell(";".join(params), "from_sttm",
+                                      "STTM Load Rule text, formats in the template's shape"),
+                 "TARGET_COLUMN": _cell(joined, "from_sttm")}]
+    if kind == "data_type_cast":
+        typed = [f for f in fields if _base_type(f.stage_datatype).lower() != "string"]
+        if not typed:
+            return []
+        typed = _by_type_order(typed, tpl.cast_type_order)  # stable within a type
+        return [_columns_rule(tpl, kind, [f.stage_column for f in typed],
+                              "STTM stage columns typed other than String",
+                              INPUT_PARAM=_cell(_qualified(stage), "from_frd",
+                                                "qualified stage table"
+                                                + catalog_mapping_note(stage)))]
+    return []
+
+
+_STD_KINDS = ("lr_trim", "std_date_conversion", "std_data_type_cast")
+
+
+def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) -> list[dict]:
+    """A STDDelta rule kind's rows for one standard table (D1 post44: the SFMC
+    reference rows' shapes — SOURCE_COLUMN = TARGET_COLUMN the columns)."""
+    standard = group.standard
+    fields = [f for f in group.fields if f.standard_column]
+    if standard is None or not fields:
+        return []
+    if kind == "lr_trim":
+        return [_columns_rule(tpl, kind, [f.standard_column for f in fields],
+                              f"every column of the standard table {standard.table} (STTM "
+                              "Standard band)")]
+    if kind == "std_data_type_cast":
+        typed = [f for f in fields if _base_type(f.standard_datatype).lower() != "string"]
+        if not typed:
+            return []
+        order = [t.lower() for t in tpl.cast_type_order]
+        typed = sorted(typed, key=lambda f: order.index(_base_type(f.standard_datatype).lower())
+                       if _base_type(f.standard_datatype).lower() in order else len(order))
+        return [_columns_rule(tpl, kind, [f.standard_column for f in typed],
+                              "standard columns typed other than String (STTM Standard band)",
+                              INPUT_PARAM=_cell(_qualified(standard), "from_frd",
+                                                "qualified standard table"
+                                                + catalog_mapping_note(standard)))]
+    if kind == "std_date_conversion":
+        regex = re.compile(tpl.date_format_rule_regex, re.IGNORECASE)
+        rows = []
+        for f in fields:
+            if _base_type(f.standard_datatype).lower() != "date":
+                continue
+            match = regex.match(f.value_spec or "")
+            param = (_cell(tpl.date_format_param_joiner.join(match.groups()), "from_sttm",
+                           "STTM Load Rule text, formats in the template's shape")
+                     if match is not None else
+                     _cell("", "needs_template", "the STTM states no source / target date "
+                                                 f"format for {f.standard_column} — open"))
+            rows.append(_columns_rule(tpl, kind, [f.standard_column],
+                                      "a Date-typed standard column (STTM Standard band)",
+                                      INPUT_PARAM=param))
+        return rows
+    return []
 
 
 def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
-    """Rule 5 + the STTM-derived rules, keyed per FILE (decision 2026-10-07):
-    for each ADLS object, the header/trailer split row (when it applies) and
-    the date-format / data-type-cast rows the STTM states, numbered in
-    ``dq_rules`` order; OBJECT_ID = the file's position, as on the ADLS row.
-    Rule classes no input derives are not generated — the review copy lists
-    'additional DQ rules — Engineer' per file (iig_review)."""
+    """Rule 5 + the STTM-derived rules. Stage-leg kinds are keyed per FILE
+    (decision 2026-10-07): for each ADLS object its rows in ``dq_rules``
+    order, OBJECT_ID = the file's position, as on the ADLS row. STDDelta kinds
+    (D1 post44: lr_trim, std_date_conversion, std_data_type_cast) per STANDARD
+    table, OBJECT_ID = its STGDELTA row's. Rule classes no input derives are
+    not generated — the review copy lists 'additional DQ rules — Engineer'
+    per file (iig_review)."""
     if spec is None or not tpl.dq_rules:
         return []
     groups = _table_groups(spec)
     detail = _detail_group(groups)
-    fields = detail.fields
-    stage = detail.stage
     files = (_feed_files(spec, config) if tpl.rows_per_file_pattern else [None])
-    rules: list[dict] = []
-    for kind in tpl.dq_rules:
-        if kind == "header_trailer_split":
-            split = _split_rule(tpl, config, groups, detail)
-            if split is not None:
-                rules.append({**split, "_per_file": "INPUT_PARAM"})
-        elif kind == "date_format":
-            columns, params = _date_rule(tpl, fields)
-            if not columns:
-                continue
-            joined = ",".join(columns)
-            rules.append({
-                "RULE_CLASS": _cell(tpl.dq_rule_classes.get(kind, kind), "synthetic",
-                                    _TEMPLATE_TOOLTIP.format(citation=tpl.citation)),
-                "SOURCE_COLUMN": _cell(joined, "from_sttm", "STTM Load Rule: date conversion"),
-                "INPUT_PARAM": _cell(";".join(params), "from_sttm",
-                                     "STTM Load Rule text, formats in the template's shape"),
-                "TARGET_COLUMN": _cell(joined, "from_sttm"),
-            })
-        elif kind == "data_type_cast":
-            typed = [f for f in fields if _base_type(f.stage_datatype).lower() != "string"]
-            if not typed:
-                continue
-            typed = _by_type_order(typed, tpl.cast_type_order)  # stable within a type
-            joined = ",".join(f.stage_column for f in typed)
-            rules.append({
-                "RULE_CLASS": _cell(tpl.dq_rule_classes.get(kind, kind), "synthetic",
-                                    _TEMPLATE_TOOLTIP.format(citation=tpl.citation)),
-                "SOURCE_COLUMN": _cell(joined, "from_sttm", "STTM stage columns typed "
-                                       "other than String"),
-                "INPUT_PARAM": _cell(_qualified(stage), "from_frd",
-                                     "qualified stage table" + catalog_mapping_note(stage)),
-                "TARGET_COLUMN": _cell(joined, "from_sttm"),
-            })
+    rules = [rule for kind in tpl.dq_rules if kind not in _STD_KINDS
+             for rule in _stage_dq_rules(kind, tpl, config, feed, spec, groups, detail)]
     rows = []
     for number, file in enumerate(files, start=1):
         pattern = _wildcarded(file.pattern, tpl) if file is not None else None
@@ -1504,6 +1656,20 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:
             if pattern is not None:
                 cells["OBJECT_ID"] = _sequence_cell(number, f"file ({pattern})")
             rows.append(_with_constants(tpl, tab, cells))
+    std_kinds = [kind for kind in tpl.dq_rules if kind in _STD_KINDS]
+    if std_kinds and spec.standard_table is not None:
+        all_files = _feed_files(spec, config)
+        for group in groups:
+            std_rules = [rule for kind in std_kinds for rule in _std_dq_rules(kind, tpl, group)]
+            object_id = (_stg_object_id_cell(tpl, group, all_files)
+                         if tpl.family_conventions.stgdelta_object_id == "from_file" else None)
+            for index, rule in enumerate(std_rules, start=1):
+                cells = dict(rule)
+                cells["SEQUENCE_NO"] = _cell(index, "synthetic",
+                                             _TEMPLATE_TOOLTIP.format(citation=tpl.citation))
+                if object_id is not None:
+                    cells["OBJECT_ID"] = dict(object_id)
+                rows.append(_with_constants(tpl, tab, cells))
     return rows
 
 

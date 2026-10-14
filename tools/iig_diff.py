@@ -311,6 +311,11 @@ class KeyConfig:
     object_id_column: str = "OBJECT_ID"
     group_id_column: str = "GROUP_ID"
     object_sources: dict[str, list[str]] = field(default_factory=dict)
+    # 2026-10-14 (D1 post44 item 5): a row's RULE_TYPE -> the sheet its OBJECT_ID
+    # resolves on first ("*" = any other type) - one feed's ADLS and STGDELTA
+    # objects both number 1, and the agent leaves GROUP_ID blank
+    object_rule_type_column: str = "RULE_TYPE"
+    object_by_rule_type: dict[str, str] = field(default_factory=dict)
     env_tokens: tuple[EnvToken, ...] = ()
     # 2026-10-13 identity pairing (iig_keys.yaml identity / flow /
     # convention_columns / group_index)
@@ -423,7 +428,8 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
     objects = raw.get("object_tables") or {}
-    unknown = set(objects) - {"id_column", "group_column", "sources"}
+    unknown = set(objects) - {"id_column", "group_column", "sources", "rule_type_column",
+                              "by_rule_type"}
     if unknown:
         raise ValueError(f"{path}: unknown object_tables keys {sorted(unknown)}")
     return KeyConfig(
@@ -434,6 +440,9 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         object_id_column=str(objects.get("id_column") or "OBJECT_ID"),
         group_id_column=str(objects.get("group_column") or "GROUP_ID"),
         object_sources=_column_lists(path, "object_tables.sources", objects.get("sources")),
+        object_rule_type_column=str(objects.get("rule_type_column") or "RULE_TYPE"),
+        object_by_rule_type={str(k): str(v)
+                             for k, v in (objects.get("by_rule_type") or {}).items()},
         env_tokens=_env_tokens(path, raw.get("environment_tokens"), env_local),
         identity=_column_lists(path, "identity", raw.get("identity")),
         **_flow(path, raw.get("flow")),
@@ -735,6 +744,9 @@ class ObjectTables:
         self.keys = keys
         self.by_group: dict[tuple[str, str], set[str]] = defaultdict(set)
         self.by_object: dict[str, set[str]] = defaultdict(set)
+        # per source sheet (sheet_id): the same two maps (by_rule_type routing)
+        self.sheet_group: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+        self.sheet_object: dict[tuple[str, str], set[str]] = defaultdict(set)
         for name, sheet in sheets.items():
             wanted = keys.object_source(name)
             if not wanted:
@@ -752,8 +764,11 @@ class ObjectTables:
                 )
                 if not obj or not table:
                     continue
-                self.by_group[(normalize(row.get(group_col)) if group_col else "", obj)].add(table)
+                group = normalize(row.get(group_col)) if group_col else ""
+                self.by_group[(group, obj)].add(table)
                 self.by_object[obj].add(table)
+                self.sheet_group[(sheet_id(name), group, obj)].add(table)
+                self.sheet_object[(sheet_id(name), obj)].add(table)
 
     def table_for(self, row: dict[str, object], canon: dict[str, str]) -> str | None:
         id_col = canon.get(self.keys.object_id_column.upper())
@@ -762,10 +777,26 @@ class ObjectTables:
         if not obj:
             return None
         group = normalize(row.get(group_col)) if group_col else ""
+        routed = self._routed(row, canon)
+        if routed is not None:
+            tables = (self.sheet_group.get((routed, group, obj))
+                      or self.sheet_object.get((routed, obj)) or set())
+            if len({normalize(t) for t in tables}) == 1:
+                return sorted(tables)[0]
         tables = self.by_group.get((group, obj)) or self.by_object.get(obj) or set()
         if len({normalize(t) for t in tables}) != 1:
             return None
         return sorted(tables)[0]
+
+    def _routed(self, row: dict[str, object], canon: dict[str, str]) -> str | None:
+        """The sheet a row's RULE_TYPE routes its OBJECT_ID to (by_rule_type)."""
+        routes = self.keys.object_by_rule_type
+        column = canon.get(self.keys.object_rule_type_column.upper())
+        if not routes or column is None:
+            return None
+        rule_type = _raw(row.get(column)).strip().lower()
+        sheet = next((v for k, v in routes.items() if k.lower() == rule_type), routes.get("*"))
+        return sheet_id(sheet) if sheet else None
 
 
 _WORD = re.compile(r"[a-z0-9]+")
@@ -2996,9 +3027,10 @@ def main(argv: list[str] | None = None) -> int:
               "regenerate with the current codegen)")
         return 1
     if args.export_scrubbed is None:
-        payload = run_pair(args.golden, agents if len(agents) > 1 else agents[0], args.out,
-                           args.keys, pair_mode=args.pair_mode, build=build,
-                           scope_mode=args.scope, group_index=args.group_index)
+        payload, diffs, keys = _run_pair(
+            args.golden, agents if len(agents) > 1 else agents[0], args.out, args.keys,
+            pair_mode=args.pair_mode, build=build, scope_mode=args.scope,
+            group_index=args.group_index)
         _print_pair(payload, args.out)
         return 0
     try:
@@ -3010,7 +3042,7 @@ def main(argv: list[str] | None = None) -> int:
                                      args.out, args.keys, pair_mode=args.pair_mode, build=build,
                                      scope_mode=args.scope, group_index=args.group_index)
     _print_pair(payload, args.out)
-    check = export_scrubbed(diffs, keys, args.export_scrubbed)
+    check =export_scrubbed(diffs, keys, args.export_scrubbed)
     print(check["line"])
     written = EXPORT_FILES + (SELF_CHECK_FILE,) if not check["rescan"] else (SELF_CHECK_FILE,)
     print(f"wrote {', '.join(str(args.export_scrubbed / f) for f in written)}")

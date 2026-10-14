@@ -275,6 +275,33 @@ metadata:
       owed_cells:
         DATA_FACTORY_PIPELINE_SCHEDULE:
           ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}
+      # 2026-10-14 (D1 post44 item 5): DATA_QUALITY_RULES from the STTM, the corpus's
+      # classes in frequency order (patterns.json rule_classes: Predefined G72 186 /
+      # G73 160 rows = NullCheckRule (the pair_2 golden's Predefined class) and
+      # AddCustomColumnsRule (the CAQH golden's); STDDelta LRTrimRule 180; Custom
+      # ReferentialCheckRule 52; STDDelta DateConversionRule 34, DataTypeCastRule 32).
+      # Parameter formats: the CAQH golden (split / AddCustomColumns / Referential)
+      # and the SFMC reference IIG (fixtures/reference/SFMC_IIG.xlsx
+      # DATA_QUALITY_RULES: Referential, LRTrim, DateConversion, DataTypeCast).
+      dq_rules: [header_trailer_split, add_custom_columns, null_check, referential_check, lr_trim, std_date_conversion, std_data_type_cast]
+      dq_rule_classes: {header_trailer_split: LoadHeaderAndTrailerToSeparateTablesRule, add_custom_columns: AddCustomColumnsRule, null_check: NullCheckRule, referential_check: ReferentialCheckRule, lr_trim: LRTrimRule, std_date_conversion: DateConversionRule, std_data_type_cast: DataTypeCastRule}
+      dq_rule_types: {header_trailer_split: Predefined, add_custom_columns: Predefined, null_check: Predefined, referential_check: Custom, lr_trim: STDDelta, std_date_conversion: STDDelta, std_data_type_cast: STDDelta}
+      dq_params:
+        header_trailer_split: {INPUT_PARAM: SRC_FILE_NAME}
+        add_custom_columns: {INPUT_PARAM: literal}
+        referential_check: {INPUT_PARAM: stg_files.REF_RULE_VIEW, TARGET_COLUMN: REF_RULE_COL}
+        lr_trim: {INPUT_PARAM: ""}
+      dq_citations:
+        header_trailer_split: &dqcaqh "the CAQH golden's DATA_QUALITY_RULES rows (Predefined; INPUT_PARAM SRC_FILE_NAME, SOURCE_COLUMN header|trailer columns, TARGET_COLUMN catalog,schema,table,location per table)"
+        add_custom_columns: *dqcaqh
+        null_check: "the pair_2 golden's Predefined NullCheckRule rows (acfc-pairing-check 2026-10-14_post44.md); the corpus's top Predefined class"
+        referential_check: "the CAQH golden and fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES (Custom; INPUT_PARAM stg_files.REF_RULE_VIEW, TARGET_COLUMN REF_RULE_COL)"
+        lr_trim: &dqsfmc "fixtures/reference/SFMC_IIG.xlsx DATA_QUALITY_RULES STDDelta rows (SOURCE_COLUMN = TARGET_COLUMN the standard columns)"
+        std_date_conversion: *dqsfmc
+        std_data_type_cast: *dqsfmc
+      dq_split_style: header_and_trailer
+      # TODO D1: the stage storage account (the CAQH golden's abfss://<container>@<account>...).
+      dq_split_location: "abfss://{container}@<<D1:STORAGE_ACCOUNT>>.dfs.core.windows.net/{domain_path}Processed/{table}/"
       # 2026-10-14 (D1 post43 item 4): the prod ADLS_DELTA_INGESTION_DETAILS table
       # has a 55th column, FILE_METADATA - NULL on every SD prod row, blank in the
       # SFMC / CAQH IIGs; the iig_v2 template (from the pair-1 RFC package) lacks

@@ -30,8 +30,8 @@ PAIR = "syn_pair"
 USER = "someone.real" + "@" + "corp-mail.net"   # assembled: no address here
 USERS = "/Workspace/" + "Users/"
 PUSHABLE = {"RUN.md", "compare.txt", "fingerprint_structure.json", "golden_structure.json",
-            "golden_structure.md", "mismatches.md", "row_keys.md", "SELF_CHECK.md",
-            "score_totals.json"}
+            "golden_structure.md", "mismatches.md", "row_keys.md", "sheets.md",
+            "SELF_CHECK.md", "score_totals.json"}
 
 
 @pytest.fixture

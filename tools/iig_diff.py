@@ -212,6 +212,8 @@ SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 # The overall score keeps its meaning (an out-of-scope cell counts as missing);
 # ``comparable_score`` is the one over scoped cells of shared sheets only.
 LEGACY_SCORED = (*SCORED, OUT_OF_SCOPE)
+# The per-column breakdown (score.json ``column_counts``, the scrubbed sheets.md).
+COLUMN_STATUSES = SCORED
 
 # The IIG template layouts (metadata.templates in config/config.yaml; iig_v1 =
 # the 7-tab SFMC reference, iig_v2 = the PRX 8-sheet layout).
@@ -539,13 +541,17 @@ _NOT_FILE_CHAR = re.compile(r"[^0-9a-z#]+")
 def file_identity(value: object, tokens: tuple[re.Pattern[str], ...]) -> str | None:
     """A file name / pattern as an identity: lowercased, directory and extension
     dropped, each ``file_name_tokens`` match (date tokens, digits of a date,
-    wildcards) one marker, separators dropped, markers at the ends trimmed —
-    ``SD_X_CCYY_MM.csv`` = ``SD_X_YYYY_MM.csv`` = ``SD_X_*.csv`` = ``SD_X*``."""
+    wildcards) dropped WHEREVER it sits, separators dropped —
+    ``SD_X_CCYY_MM.csv`` = ``SD_X_YYYY_MM.csv`` = ``SD_X_*.csv`` = ``SD_X*``.
+    2026-10-13 (pair_12, 0 rows paired): the CAQH inventory names a file
+    ``YYYYMMDD_<n>_<n>_<V>_*_P_I_1_T.txt`` (a date FIRST, a wildcard INSIDE),
+    the agent's SRC_FILE_NAME ``<n>_<n>_<V>_P_I_1_T*`` — a marker kept inside
+    the identity made them two files."""
     text = _raw(value).strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
     text = _EXTENSION.sub("", text)
     for pattern in tokens:
         text = pattern.sub("#", text)
-    text = re.sub("#+", "#", _NOT_FILE_CHAR.sub("", text)).strip("#")
+    text = _NOT_FILE_CHAR.sub("", text).replace("#", "")
     return text or None
 
 
@@ -1064,10 +1070,21 @@ class SheetDiff:
     # the worksheet title in diff.xlsx when ``name`` is a display label
     # (a cross-template pair "<golden> → <agent>")
     title: str = ""
+    # a cross-template sheet: the file names each side states (D1 only)
+    file_samples: dict | None = None
 
     def counts(self) -> dict[str, int]:
         c = Counter(cell.status for cell in self.cells)
         return {s: c.get(s, 0) for s in STATUSES}
+
+    def column_counts(self) -> dict[str, dict[str, int]]:
+        """2026-10-13: per column (as the golden writes it), the cells of each
+        scored status — which columns a sheet's score is made of."""
+        out: dict[str, Counter[str]] = {}
+        for cell in self.cells:
+            if cell.status in COLUMN_STATUSES:
+                out.setdefault(cell.column, Counter())[cell.status] += 1
+        return {col: {s: c.get(s, 0) for s in COLUMN_STATUSES} for col, c in out.items()}
 
 
 def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_canon: dict,
@@ -1270,6 +1287,7 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
 
 
 KEY_SAMPLE_ROWS = 5
+FILE_SAMPLE_ROWS = 25
 
 
 def key_samples(d: SheetDiff, keys: KeyConfig, n: int = KEY_SAMPLE_ROWS) -> dict:
@@ -1506,6 +1524,20 @@ def diff_alias_sheet(alias: SheetAlias, golden: Sheet, agent: Sheet,
                                           {g.upper(): a for g, a in mapping}, keys, tables,
                                           None, oos)
     out.identity_text = texts
+    # D1 only (unscrubbed): the file names each side states and their identity,
+    # so a sheet that pairs nothing shows WHY (pair_12: 0 rows paired).
+    out.file_samples = {
+        "golden": [{"row": n, "name": _first(row, g_cols),
+                    "identity": file_identity(_first(row, g_cols), tokens)}
+                   for n, row in golden.rows[:FILE_SAMPLE_ROWS]],
+        "agent": [{"row": n, "feed": feed_of_agent_row(n), "name": name,
+                   "identity": file_identity(name, tokens)}
+                  for n, row in agent.rows
+                  for name in ([_first(row, own)] if own
+                               else feed_files.get(feed_of_agent_row(n), []) or [""])],
+        "golden_rows": len(golden.rows), "agent_rows": len(agent.rows),
+        "agent_files_from": None if own else alias.files_from_sheet,
+    }
     return _tally(out, pairs, oos_rows, golden, agent, keys)
 
 
@@ -1666,6 +1698,8 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "rows": d.rows,
             "columns": d.columns,
             "counts": counts,
+            # 2026-10-13: which columns the score is made of
+            "column_counts": d.column_counts(),
             # A sheet one side does not have has NO score (was 0.0): a template
             # difference, not a result.
             "score": None if one_side else _score(counts),
@@ -1686,6 +1720,8 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
         if d.columns.get("not_comparable") is not None:
             entry["mapped_columns"] = d.columns["mapped"]
             entry["not_comparable"] = d.columns["not_comparable"]
+        if d.file_samples is not None:
+            entry["file_samples"] = d.file_samples       # D1 only (unscrubbed)
         sheets[d.name] = entry
     total_counts = {s: totals.get(s, 0) for s in STATUSES}
     shared: Counter[str] = Counter()
@@ -1884,7 +1920,7 @@ def _run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPORT_STATUSES = (MISMATCH, MISSING, EXTRA)
-EXPORT_FILES = ("mismatches.md", "row_keys.md")
+EXPORT_FILES = ("mismatches.md", "row_keys.md", "sheets.md")
 SELF_CHECK_FILE = "SELF_CHECK.md"
 LOCAL_DENYLIST_REL = Path("docs") / "acfc" / "denylist_local.txt"
 _TOKEN_SPLIT = re.compile(r"([\W_]+)")        # a token = a run of letters / digits
@@ -2222,6 +2258,85 @@ def _write_mismatches(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
     return counts
 
 
+def template_vocabulary(root: Path = REPO_ROOT) -> frozenset[str]:
+    """The IIG template's own sheet names and column headers (config/config.yaml
+    ``demo.metadata_sheet`` = iig_v1, ``metadata.templates`` = iig_v2): template
+    fields, not client data — written as they are in the scrubbed export."""
+    path = Path(root) / "config" / "config.yaml"
+    try:
+        config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return frozenset()
+    layouts = [((config.get("demo") or {}).get("metadata_sheet") or {}).get("tabs") or {}]
+    layouts += [(t or {}).get("tabs") or {}
+                for t in ((config.get("metadata") or {}).get("templates") or {}).values()]
+    words: set[str] = set()
+    for tabs in layouts:
+        for sheet, tab in tabs.items():
+            words.add(str(sheet).upper())
+            words.update(str(h).upper() for h in (tab or {}).get("headers") or [])
+    return frozenset(words)
+
+
+def _template_text(value: str, vocabulary: frozenset[str], scr: Scrubber) -> str:
+    """A template sheet / column name as written, anything else scrubbed."""
+    parts = [p.strip() for p in value.split("→")]
+    if all(p.upper() in vocabulary for p in parts):
+        return value
+    return scr.scrub(value)
+
+
+def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
+                  vocabulary: frozenset[str]) -> int:
+    """sheets.md (2026-10-13): the per-sheet table WITH missing / extra, then
+    each sheet's per-column breakdown — the score made interpretable. Sheet
+    and column names are template fields (written as they are); anything that
+    is not one is scrubbed like every value."""
+    lines = ["# IIG diff per sheet - scrubbed export", "", EXPORT_INTRO, "",
+             "Template sheet and column names are written as they are; every other name "
+             "is scrubbed.", "",
+             "| sheet | paired (identity / position / key) | unpaired (golden / agent) | score "
+             "| comparable | exact | normalized | mismatch | missing | extra | out of scope "
+             "| convention |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    columns_listed = 0
+    detail: list[str] = []
+    for d in diffs:
+        c = d.counts()
+        one_side = d.presence != "compared"
+        score = "-" if one_side else _score(c)
+        comparable = "-" if one_side else _comparable(c)
+        pairing, unpaired = d.pairing or {}, d.unpaired or {}
+        lines.append("| " + " | ".join(str(x) for x in (
+            _md(_template_text(d.name, vocabulary, scr)),
+            f"{pairing.get(BY_IDENTITY, 0)} / {pairing.get(BY_POSITION, 0)} / "
+            f"{pairing.get(BY_KEY, 0)}",
+            f"{unpaired.get('golden', 0)} / {unpaired.get('agent', 0)}",
+            score, "-" if comparable is None else comparable,
+            c[EXACT], c[NORMALIZED], c[MISMATCH], c[MISSING], c[EXTRA], c[OUT_OF_SCOPE],
+            c[CONVENTION])) + " |")
+        per_column = d.column_counts()
+        detail += [f"## {_md(_template_text(d.name, vocabulary, scr))}", ""]
+        if not per_column:
+            detail += [("No cells compared (" + ("sheet on one side only" if one_side else
+                                                  "no row paired or unpaired in scope") + ")."),
+                       ""]
+            continue
+        detail += ["| column | exact | normalized | mismatch | missing | extra |",
+                   "| --- | --- | --- | --- | --- | --- |"]
+        for column, counts in per_column.items():
+            columns_listed += 1
+            detail.append("| " + " | ".join(str(x) for x in (
+                _md(_template_text(column, vocabulary, scr)), counts[EXACT], counts[NORMALIZED],
+                counts[MISMATCH], counts[MISSING], counts[EXTRA])) + " |")
+        detail.append("")
+    lines += ["", "Missing = a golden cell the agent row does not fill (or a golden row "
+                  "no agent row pairs with); extra = an agent cell / row the golden does "
+                  "not have.", "", *detail]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return columns_listed
+
+
 def _write_row_keys(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
                     scr: Scrubber) -> dict[str, int]:
     lines = ["# Row keys - scrubbed export", "", EXPORT_INTRO, ""]
@@ -2307,6 +2422,7 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
     out.mkdir(parents=True, exist_ok=True)
     counts = _write_mismatches(out / EXPORT_FILES[0], diffs, keys, scr)
     listed = _write_row_keys(out / EXPORT_FILES[1], diffs, keys, scr)
+    columns_listed = _write_sheets(out / EXPORT_FILES[2], diffs, scr, template_vocabulary(root))
     cells = sum(counts.values())
     by_status = ", ".join(f"{s} {counts[s]}" for s in EXPORT_STATUSES)
     placeholders = (f"G {len(scr.maps['G'])} ({scr.uses['G']} uses), "
@@ -2319,6 +2435,7 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
              f"{f'{len(harvested)} tokens' if harvested else 'absent or empty'}",
              f"- cells exported: {cells} ({by_status})",
              f"- rows listed in row_keys.md: golden {listed['golden']}, agent {listed['agent']}",
+             f"- per-column rows in sheets.md: {columns_listed}",
              f"- placeholders: {placeholders}",
              f"- scrub_check hits before replacement, per class: {before}"]
     check_path = out / SELF_CHECK_FILE
@@ -2327,8 +2444,8 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
     if hits:
         for name in EXPORT_FILES:
             (out / name).unlink(missing_ok=True)
-        rescan = (f"FAILED - {_class_counts(hits)} (classes only; mismatches.md and "
-                  "row_keys.md deleted)")
+        rescan = (f"FAILED - {_class_counts(hits)} (classes only; "
+                  f"{', '.join(EXPORT_FILES)} deleted)")
     else:
         rescan = "0 hits"
     with check_path.open("a", encoding="utf-8") as fh:
@@ -2602,7 +2719,30 @@ def _print_pair(payload: dict, out: Path) -> None:
     for w in payload["warnings"]:
         print(f"WARNING {w}")
     _print_key_samples(payload)
+    _print_file_samples(payload)
     print(f"wrote {out / 'score.json'}, {out / 'diff.xlsx'}, {out / 'routing.csv'}")
+
+
+def _print_file_samples(payload: dict) -> None:
+    """FILE NAMES (D1 only, unscrubbed): a cross-template sheet's golden file
+    names beside the agent's (FILE_NAME vs the agent's SRC_FILE_NAME), each
+    with the identity it pairs on."""
+    for name, s in payload["sheets"].items():
+        samples = s.get("file_samples")
+        if not samples:
+            continue
+        print(f"FILE NAMES (D1 only - unscrubbed) {name}: golden {samples['golden_rows']} "
+              f"row(s), agent {samples['agent_rows']} row(s); agent files from "
+              f"{samples.get('agent_files_from') or 'the sheet itself'}")
+        golden = [f"{g['name'] or '<blank>'} => {g['identity']}" for g in samples["golden"]]
+        agent = [f"{a['name'] or '<no file>'} => {a['identity']} (feed {a['feed']})"
+                 for a in samples["agent"]]
+        width = max([len("golden FILE_NAME => identity"), *(len(g) for g in golden)])
+        print(f"    {'golden FILE_NAME => identity':<{width}} | agent SRC_FILE_NAME => identity")
+        for i in range(max(len(golden), len(agent))):
+            g = golden[i] if i < len(golden) else ""
+            a = agent[i] if i < len(agent) else ""
+            print(f"    {g:<{width}} | {a}")
 
 
 def _print_key_samples(payload: dict) -> None:

@@ -105,7 +105,7 @@ def _texts(folder: Path) -> str:
 def test_export_lists_every_introduced_mismatch(tmp_path: Path) -> None:
     golden, payload, export, check = _export(tmp_path)
     assert {p.name for p in export.iterdir()} == {"mismatches.md", "row_keys.md",
-                                                  "SELF_CHECK.md"}
+                                                  "sheets.md", "SELF_CHECK.md"}
     rows = _table((export / "mismatches.md").read_text(encoding="utf-8"))
     t = payload["totals"]
     exported = t["mismatch"] + t["missing-in-agent"] + t["extra-in-agent"]
@@ -340,3 +340,54 @@ def test_golden_structure_alone_prints_and_writes_nothing(tmp_path: Path, capsys
     assert g3["pairs_with"]["TGT_TABLE_NAME"] == ["group#1"]
     assert data["groups"]["group#2"]["pairs_with"]["TGT_TABLE_NAME"] == []
     assert "pairs with group#k on TGT_TABLE_NAME hash" in printed
+
+
+def test_sheets_md_carries_missing_extra_and_a_per_column_breakdown(tmp_path: Path) -> None:
+    """2026-10-13: the per-sheet table WITH missing / extra, and per sheet every
+    column's exact / normalized / mismatch / missing / extra — template headers
+    as they are, the values never."""
+    _golden, payload, export, check = _export(tmp_path)
+    assert check["rescan"] == {}
+    md = (export / "sheets.md").read_text(encoding="utf-8")
+    head = md.split("\n## ")[0]
+    table = {r[0]: r for r in _table(head)}
+    for name, s in payload["sheets"].items():
+        row = table[name]                               # template sheet names as they are
+        c = s["counts"]
+        assert row[5:10] == [str(c[k]) for k in ("exact", "normalized", "mismatch",
+                                                 "missing-in-agent", "extra-in-agent")]
+    sched = md.split(f"\n## {SCHED}\n")[1].split("\n## ")[0]
+    per_column = {r[0]: r for r in _table(sched)}
+    counts = payload["sheets"][SCHED]["column_counts"]
+    assert set(per_column) == set(counts)
+    for column, row in per_column.items():
+        assert row[1:] == [str(counts[column][k]) for k in iig_diff.COLUMN_STATUSES]
+    assert sum(int(r[4]) for r in per_column.values()) == \
+        payload["sheets"][SCHED]["counts"]["missing-in-agent"]
+    adls = md.split(f"\n## {ADLS}\n")[1].split("\n## ")[0]
+    assert "| SRC_ADLS_PATH | " in adls and "| SOURCE | " in adls
+    for leak in LEAKS:
+        assert leak not in md
+    # score.json carries the same breakdown
+    for s in payload["sheets"].values():
+        total = Counter()
+        for col_counts in s["column_counts"].values():
+            total.update(col_counts)
+        assert all(total[k] == s["counts"][k] for k in iig_diff.COLUMN_STATUSES)
+
+
+def test_a_non_template_header_is_scrubbed_in_sheets_md(tmp_path: Path) -> None:
+    golden, agent = _build_pair(tmp_path)
+    for path in (golden, agent):
+        wb = openpyxl.load_workbook(path)
+        ws = wb[NB]
+        ws.cell(1, ws.max_column + 1).value = f"{TOKEN}_COL"
+        ws.cell(2, ws.max_column).value = "x" if path == golden else "y"
+        wb.save(path)
+    _payload, diffs, keys = iig_diff._run_pair(golden, agent, tmp_path / "out", KEYS, "key")
+    export = tmp_path / "export"
+    check = iig_diff.export_scrubbed(diffs, keys, export,
+                                     local_denylist=_deny(tmp_path, DENY_TERM), harvest={})
+    assert check["rescan"] == {}
+    md = (export / "sheets.md").read_text(encoding="utf-8")
+    assert TOKEN not in md and "| PROCESS_NAME | " in md

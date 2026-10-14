@@ -192,9 +192,11 @@ sheet_aliases:
       UPDATED_DATE: UPDATED_DATE
 
 # A file name as an identity: lowercased, directory and extension dropped, each
-# match of these (case-insensitive) regexes -> one date / wildcard marker, then
-# separators dropped — so CCYY_MM = YYYY_MM = *, and SD_X_CCYYMMDD.csv =
-# SD_X_*.csv = SD_X* (the agent's wildcarded / prefix_star SRC_FILE_NAME).
+# match of these (case-insensitive) regexes dropped wherever it sits (start,
+# middle, end), then separators dropped — so CCYY_MM = YYYY_MM = *, and
+# SD_X_CCYYMMDD.csv = SD_X_*.csv = SD_X* (the agent's wildcarded / prefix_star
+# SRC_FILE_NAME), and a CAQH-style YYYYMMDD_<n>_<n>_X_*_P_I_1_T.txt =
+# <n>_<n>_X_P_I_1_T* (pair_12, 2026-10-13: a date first, a wildcard inside).
 file_name_tokens:
   - '(?<![a-z0-9])(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss)(?:[_-]?(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss))*(?![a-z0-9])'
   - '(?<!\d)\d{6,8}(?!\d)'

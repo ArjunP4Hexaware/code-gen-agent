@@ -118,11 +118,18 @@ def test_file_identity_normalizes_case_separators_and_date_tokens() -> None:
     tokens = iig_diff.load_keys(KEYS).file_name_tokens
     same = ["NW_X_CCYY_MM.csv", "nw-x-yyyy-mm.CSV", "NW_X_*.csv", "NW_X*", "in/NW_X_202410.csv"]
     assert {iig_diff.file_identity(v, tokens) for v in same} == {"nwx"}
-    # a trailing date / wildcard is trimmed; one inside the name is kept as a marker
+    # a date / wildcard is dropped wherever it sits: end, inside, start
     assert iig_diff.file_identity("NW_X_HDR_CCYYMMDD.txt", tokens) == "nwxhdr"
     assert iig_diff.file_identity("NW_X_HDR_*.txt", tokens) == "nwxhdr"
-    assert iig_diff.file_identity("NW_X_CCYYMMDD_HDR.txt", tokens) == "nwx#hdr"
-    assert iig_diff.file_identity("NW_X_*_HDR.txt", tokens) == "nwx#hdr"
+    assert iig_diff.file_identity("NW_X_CCYYMMDD_HDR.txt", tokens) == "nwxhdr"
+    assert iig_diff.file_identity("NW_X_*_HDR.txt", tokens) == "nwxhdr"
+    # pair_12 (CAQH-shaped, synthetic): the inventory puts the date FIRST and a
+    # wildcard INSIDE; the agent's SRC_FILE_NAME drops both and ends in '*'
+    caqh = {iig_diff.file_identity(v, tokens) for v in (
+        "YYYYMMDD_2041_7310_NW_*_P_I_1_T.txt", "2041_7310_NW_P_I_1_T*",
+        "20261013_2041_7310_NW_P_I_1_T.txt")}
+    assert caqh == {"20417310nwpi1t"}
+    assert iig_diff.file_identity("2041_7311_NW_P_I_1_T*", tokens) != caqh.pop()
     assert iig_diff.file_identity("NW_Y_CCYYMMDD.txt", tokens) != "nwx"
     assert iig_diff.file_identity("", tokens) is None
 
@@ -204,3 +211,35 @@ def test_no_alias_when_both_sides_have_the_golden_sheet(tmp_path: Path) -> None:
     (run / "CODEGEN_BUILD.json").write_text(json.dumps({"sha": "abc1234"}), encoding="utf-8")
     payload = iig_diff.run_pair(golden, book, tmp_path / "out", KEYS)
     assert V1 in payload["sheets"] and LABEL not in payload["sheets"]
+
+
+def test_caqh_shaped_names_pair_and_the_file_names_print_d1_only(tmp_path: Path,
+                                                                  capsys) -> None:
+    """pair_12 (2026-10-13): ALL_FILES -> FILE_ADLS paired 0 rows. The inventory
+    writes a date FIRST and a wildcard INSIDE the name; the agent's
+    SRC_FILE_NAME drops both. Synthetic names, the same shape."""
+    golden_files = ["YYYYMMDD_2041_7310_NW_*_P_I_1_T.txt", "YYYYMMDD_2041_7311_NW_*_P_I_1_T.txt"]
+    agent_files = ["2041_7310_NW_P_I_1_T*", "2041_7311_NW_P_I_1_T*"]
+    golden = _book(tmp_path / "golden.xlsx", {V1: [V1_HEAD, *[
+        _row(V1_HEAD, FILE_NAME=f, domain="Member", subdomain="TPL") for f in golden_files]]})
+    run = tmp_path / "run"
+    book = _book(run / "nw_tpl_dtl" / "nw_tpl_dtl_IIG.xlsx", {
+        V2: [V2_HEAD, _row(V2_HEAD, DOMAIN="Member", SUBDOMAIN="TPL")],
+        ADLS: [ADLS_HEAD, *[[None, j + 1, f"obj_{j}", "Member", "TPL", f, "stg_nw_tpl_dtl"]
+                            for j, f in enumerate(agent_files)]]})
+    (run / "CODEGEN_BUILD.json").write_text(json.dumps(
+        {"sha": "abc1234", "line": "codegen 0.0.test · build abc1234 on b"}), encoding="utf-8")
+    out = tmp_path / "out"
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(book),
+                          "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    s = json.loads((out / "score.json").read_text(encoding="utf-8"))["sheets"][LABEL]
+    assert s["pairing"]["identity"] == 2 and s["comparable_score"] == 100.0
+    samples = s["file_samples"]
+    assert [g["name"] for g in samples["golden"]] == golden_files
+    assert [a["name"] for a in samples["agent"]] == agent_files
+    assert [g["identity"] for g in samples["golden"]] == [a["identity"]
+                                                          for a in samples["agent"]]
+    block = printed.split(f"FILE NAMES (D1 only - unscrubbed) {LABEL}")[1]
+    assert golden_files[0] in block and agent_files[0] in block
+    assert "golden 2 row(s), agent 1 row(s)" in block

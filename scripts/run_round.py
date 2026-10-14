@@ -61,7 +61,7 @@ REFERENCE = ROOT / "docs" / "acfc" / "fingerprints" / "pair_2_sd_home.json"
 SYNTHETIC_EMAIL = "syn.dl.prodsupport@synthetic.example"
 EXIT_MEANING = {0: "ok", 1: "a stage failed", 2: "document gate failed (HARD line / REFUSED / "
                 "no key)", 3: "stop: the layout asks for answers, or the scrub check is not clean"}
-ANSWER_LABELS = ("QUESTION", "UNRESOLVED", "NOTE")
+ANSWER_LABELS = ("QUESTION", "UNRESOLVED", "NOTE", "INPUT_NEEDED")
 LABEL_WIDTH = 15                       # codegen.cli.ANSWER_LABEL_WIDTH
 CLI_TITLE = ("CLI (harness env: mock layout + provider, synthetic e-mail, local storage "
              "under <work>)")
@@ -254,7 +254,9 @@ class Round:
             done = _run(cmd, env)
             text = done.stdout + done.stderr
             keys = answer_keys(text)
-            owed = [k for k in keys if k[0] != "NOTE"]
+            # INPUT_NEEDED (2026-10-14): a value the workbook is written without -
+            # recorded, never a stop; QUESTION / UNRESOLVED stop the round
+            owed = [k for k in keys if k[0] not in ("NOTE", "INPUT_NEEDED")]
             lines += [f"- `{' '.join(['codegen', *cmd[3:]])}` → exit {done.returncode}",
                       f"  first line: `{_first_line(done.stdout)}`"]
             lines += [f"  {label} `{key}`" for label, key in keys]
@@ -266,6 +268,9 @@ class Round:
                         verdicts[word] = verdicts.get(word, 0) + 1
                 lines.append("  verdicts: " + (", ".join(f"{v} ×{n}" for v, n in
                                                         sorted(verdicts.items())) or "none"))
+            inputs = [k for k in keys if k[0] == "INPUT_NEEDED"]
+            if inputs:
+                lines.append(f"  inputs needed: {len(inputs)} (not blocking - cells left empty)")
             if owed or (name in ("layout", "extract-sttm") and done.returncode == 3):
                 self.stop_reason = (f"{name} asks for {len(owed)} answer(s) — keys in the CLI "
                                     "section; no answers are given in a round")

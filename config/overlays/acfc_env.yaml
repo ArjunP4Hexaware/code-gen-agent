@@ -154,10 +154,22 @@ metadata:
       # golden's notebook keys). The pair-1 family names its stage notebook _V1 (its
       # own overlay). 2026-10-13: PIPELINE_NAME = the schedule's name of the row's
       # leg (_pipeline_role; the same {feed} token the schedule rows use).
+      # 2026-10-14 (D1 post44 item 2): the notebook NAME / PATH per flow come from
+      # corpus_cells (below) - the SFMC / round-3 names (FileInvokeDQDeltaTable_V0.1,
+      # DeltaInvokeDQStandardDeltaTable_V2) were the home references, not the corpus.
+      # Item 1: one EMAIL_TEMPLATE_CONFIG row per status the corpus uses on
+      # file-ingestion pipelines - 4 per feed, as the pair_2 golden (acfc-pairing-check
+      # 2026-10-14_post44.md). patterns.json names two (Success 23.1%, Failed 23.1%);
+      # TODO D1: the other two from the --patterns email table (e3689b0), in this list.
       template_rows:
         DATABRICKS_NOTEBOOK_DETAILS:
-          - {DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V0.1, _layer: stage, _pipeline_role: file_to_stage, _citation: &nb "framework notebook per leg — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3 and the SD prod notebook keys (round 3)"}
-          - {DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard, _pipeline_role: stage_to_standard, _citation: *nb}
+          - {_layer: stage, _pipeline_role: file_to_stage, _citation: &nb "one framework notebook row per leg (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS rows 2 / 3; 2 rows per workbook in the corpus: 378 rows / 189 workbooks)"}
+          - {_layer: standard, _pipeline_role: stage_to_standard, _citation: *nb}
+        EMAIL_TEMPLATE_CONFIG:
+          - {STATUS: Success}
+          - {STATUS: Failed}
+          - {STATUS: "<<D1:EMAIL.STATUS_3>>"}
+          - {STATUS: "<<D1:EMAIL.STATUS_4>>"}
       # 2026-10-13 — the IIG corpus's fill rate (tools/iig_fill_rate.py; at home:
       # the SFMC reference IIG, the pair-1 golden and the CAQH golden; on D1 the
       # 199-IIG corpus): columns filled in >90% of corpus rows that the agent left
@@ -173,47 +185,128 @@ metadata:
       derived_cells:
         DATABRICKS_NOTEBOOK_DETAILS:
           PIPELINE_NAME: "{pipeline}"
-          DATABRICKS_NOTEBOOK_PATH: "/Workspace/iig/{notebook}"
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "{source}"
           PROCESS_NAME: "{source}"
-          SUBJECT: "{source} Load {outcome}"
-          BODY: "{source} Files Load Process {outcome}"
-          SENDER_NAME: "dbo"
-          SENDER_EMAIL: "{sender}"
       derived_citations:
         DATABRICKS_NOTEBOOK_DETAILS:
           PIPELINE_NAME: "the notebook runs in its leg's pipeline: the DATA_FACTORY_PIPELINE_SCHEDULE name of the file_to_stage / stage_to_standard row (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!B2 / B3 = DATA_FACTORY_PIPELINE_SCHEDULE!B2 / B3)"
-          DATABRICKS_NOTEBOOK_PATH: "corpus fill rate 2026-10-13: the generic notebooks' folder + the notebook name (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!K2 / K3; the CAQH golden's standard row)"
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "corpus fill rate 2026-10-13: the process label (SFMC / CAQH goldens: the schedule's PROCESS_NAME, '<source> <subprocess>' - the documents state the source only); an FAQ process_name wins"
           PROCESS_NAME: "corpus fill rate 2026-10-13: the process label (as TEMPLATE_NAME); an FAQ process_name wins"
-          SUBJECT: "corpus fill rate 2026-10-13: '<source> Load Completed | Failed' by STATUS (SFMC IIG EMAIL_TEMPLATE_CONFIG!E2 / E3 shape; the CAQH golden's two rows)"
-          BODY: "corpus fill rate 2026-10-13: '<source> Files Load Process Completed | Failed' by STATUS (SFMC IIG EMAIL_TEMPLATE_CONFIG!F2 / F3; the CAQH golden's two rows)"
-          SENDER_NAME: "corpus fill rate 2026-10-13: the dominant constant (SFMC IIG EMAIL_TEMPLATE_CONFIG!G2 / G3, the CAQH golden's two rows; 4 of 6 home rows)"
-          SENDER_EMAIL: "job.notification_sender (env CODEGEN_NOTIFICATION_SENDER; the tracked value is a synthetic stand-in) - every golden row states a sender address"
-      # 2026-10-14 (D1 post43 item 3b): blank with a NOTE until the 199-IIG corpus
-      # patterns report (tools/iig_fill_rate.py --patterns) exists; an FAQ
-      # process_name still wins. Kept: ACTIVE_FLAG, SEQ_NM, TGT_REFRESH_TYPE,
-      # NO_OF_CYCLE_PER_DAY (the corpus agrees).
-      pending_cells:
-        DATA_FACTORY_PIPELINE_SCHEDULE:
-          APPLICATION_NAME: "per-feed in the corpus (dominant value 38.8%); the post43 {source} shape came from the home goldens"
-          DAY_OF_SCHEDULE: "the corpus fills it in 3.5% of rows (the shipped '0' filled 100%); its fill per PIPELINE_FREQUENCY decides"
+      # 2026-10-14 (D1 post44 items 1-3): cells from the 199-IIG corpus's patterns
+      # report (acfc-pairing-check codegen-outputs/pairing_check/patterns_post44/
+      # patterns.json). ONLY values that file states are written; a value it does not
+      # carry (scrubbed G<n> / <LOCAL_DENYLIST>, or a per-flow / per-status list it
+      # has no breakdown for) is a <<D1:...>> placeholder: the cell stays open with
+      # an iig_d1_placeholder NOTE, and tests/test_d1_placeholders.py FAILS on D1
+      # while one survives. TODO D1: an overlay on top of this one (CODEGEN_CONFIG_
+      # OVERLAYS) replaces every placeholder, from the post-e3689b0 --patterns run
+      # (per-flow breakdown, email STATUS table, framework vocabulary unscrubbed).
+      # Every value carries its corpus share in the NOTE (iig_corpus:<TAB>.<HEADER>).
+      corpus_cells:
+        EMAIL_TEMPLATE_CONFIG:
+          SUBJECT:
+            by: status
+            values: {Success: "<<D1:EMAIL.SUBJECT.Success>>", Failed: "<<D1:EMAIL.SUBJECT.Failed>>", "*": "<<D1:EMAIL.SUBJECT.other_status>>"}
+            share: "SUBJECT filled in 19.8% of corpus rows, 162 patterns, the dominant 3.4% (scrubbed G-tokens); no per-STATUS breakdown in patterns.json"
+            todo: "the dominant SUBJECT slot pattern per STATUS from the --patterns email table (file-ingestion pipelines)"
+          BODY:
+            by: status
+            values: {Success: "<<D1:EMAIL.BODY.Success>>", Failed: "<<D1:EMAIL.BODY.Failed>>", "*": "<<D1:EMAIL.BODY.other_status>>"}
+            share: "BODY filled in 19.8% of corpus rows, 156 patterns, the dominant 21.7% (scrubbed G-tokens); no per-STATUS breakdown in patterns.json"
+            todo: "the dominant BODY slot pattern per STATUS from the --patterns email table"
+          ACTIVE_FLAG: {value: "Y", share: "Y in 100.0% of filled corpus rows"}
+          SENDER_NAME: {value: "dbo", share: "dbo in 97.8% of filled corpus rows (DBO 2.2%)"}
+          SENDER_EMAIL:
+            value: "<<D1:EMAIL.SENDER_EMAIL>>"
+            share: "one address in 97.7% of filled corpus rows (scrubbed G30@<LOCAL_DENYLIST>.G31)"
+            todo: "the dominant sender address"
+          EMAIL_TO:
+            value: "<<D1:EMAIL.EMAIL_TO>>"
+            share: "one address in 47.6% of filled corpus rows (the dominant; 24 values), scrubbed G33@<LOCAL_DENYLIST>.G31"
+            todo: "the dominant recipient (47.6% - not a majority: confirm per feed)"
+          EMAIL_NOTIFICATION_URL:
+            value: "<<D1:EMAIL.EMAIL_NOTIFICATION_URL>>"
+            share: "one webhook in 95.4% of corpus rows (scrubbed host <REAL_WEBHOOK_HOST>)"
+            todo: "the dominant webhook URL"
         DATABRICKS_NOTEBOOK_DETAILS:
-          PROCESS_NAME: "per-feed in the corpus (dominant value 19.6%); the post43 '<layer> Load for {source}' shape came from the home goldens"
+          DATABRICKS_NOTEBOOK_NAME:
+            by: flow
+            values: {file_to_stg: "<<D1:NB.NAME.file_to_stg>>", stg_to_std: "<<D1:NB.NAME.stg_to_std>>", dq: "<<D1:NB.NAME.dq>>"}
+            share: "15 name patterns in the corpus; dominant DeltaInvokeDQStandardDeltaTable_V4 29.6%, G4_V0.1 19.6%, {domain}_G6,FileInvokeDQDeltaTable 10.1% - no flow breakdown in patterns.json"
+            todo: "the flow -> notebook table from the --patterns per-flow breakdown"
+          DATABRICKS_NOTEBOOK_PATH:
+            by: flow
+            values: {file_to_stg: "<<D1:NB.PATH.file_to_stg>>", stg_to_std: "<<D1:NB.PATH.stg_to_std>>", dq: "<<D1:NB.PATH.dq>>"}
+            share: "19 path patterns in the corpus; dominant /iig/DeltaInvokeDQStandardDeltaTable_V4 26.5%, /iig/G4_V0.1 19.6% - no flow breakdown in patterns.json"
+            todo: "the flow -> notebook path table from the --patterns per-flow breakdown"
+          PROCESS_NAME:
+            by: flow
+            values: {file_to_stg: "<<D1:NB.PROCESS_NAME.file_to_stg>>", stg_to_std: "<<D1:NB.PROCESS_NAME.stg_to_std>>"}
+            share: "107 patterns; dominant 'G1  Raw to stage load' 19.6% and 'G1  stage to std load' 19.6% (G1 a scrubbed constant, not a slot) - no flow breakdown in patterns.json"
+            todo: "the dominant slot pattern per flow (e.g. '{source} Raw to stage load') from the --patterns per-flow breakdown"
+          SEQ_NM: {value: "1", share: "1 in 64.6% of corpus rows"}
+          ACTIVE_FLAG: {value: "Y", share: "Y in 98.9% of corpus rows"}
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          PIPELINE_DESCRIPTION:
+            by: flow
+            values: {grand_master: "<<D1:SCHED.DESC.grand_master>>", master: "<<D1:SCHED.DESC.master>>", file_to_stg: "<<D1:SCHED.DESC.file_to_stg>>", stg_to_std: "<<D1:SCHED.DESC.stg_to_std>>"}
+            share: "395 patterns; dominant 'G1 Stage Load' 18.9% / 'G1 Standard Load' 18.9% (G1 a scrubbed constant) - no flow breakdown in patterns.json"
+            todo: "the dominant slot pattern per flow from the --patterns per-flow breakdown"
+          APPLICATION_NAME:
+            value: "<<D1:SCHED.APPLICATION_NAME>>"
+            share: "the dominant value G1 in 38.8% of corpus rows (27 values; scrubbed)"
+            todo: "one overlay value (Soham sets it on D1)"
+          DAY_OF_SCHEDULE:
+            by: frequency
+            values: {Weekly: "0"}
+            share: "filled in 3.5% of corpus rows; Daily 0.0% filled, Weekly 29.8% filled with '0' the dominant (14.9% of Weekly rows; WEEKLY: 26.8%)"
+          LAYER_NAME:
+            by: flow
+            values: {file_to_stg: STAGE, stg_to_std: STANDARD}
+            share: "filled in 38.4% of corpus rows: STAGE 88.7%, STANDARD 7.3%"
+          ACTIVE_FLAG: {value: "Y", share: "Y in 97.5% of corpus rows"}
+          NO_OF_CYCLE_PER_DAY: {value: "1", share: "1 in 98.2% of corpus rows"}
+      # ACTIVE_START_DATE: the per-RFC go-live date - no document states it, no value
+      # dominates (19.4%): owed. `generate` prints QUESTION feeds[<i>].active_start_date
+      # and writes it to answers_template.yaml; `generate --answers` (or the FAQ
+      # companion active_start_date) fills it.
+      owed_cells:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}
       # 2026-10-14 (D1 post43 item 4): the prod ADLS_DELTA_INGESTION_DETAILS table
       # has a 55th column, FILE_METADATA - NULL on every SD prod row, blank in the
       # SFMC / CAQH IIGs; the iig_v2 template (from the pair-1 RFC package) lacks
       # it, so every row scored missing. The ACFC sheet carries it, decided blank
       # (metadata_inserts.sql writes NULL). A list replaces: the shipped headers +
       # FILE_METADATA.
+      # 2026-10-14 (D1 post44 items 1 / 3): the corpus's DATA_FACTORY_PIPELINE_SCHEDULE
+      # and EMAIL_TEMPLATE_CONFIG column sets (patterns.md): the schedule's PROCESS_NAME
+      # ... IsFileCopyReqFlag and the email's EMAIL_NOTIFICATION_URL were not iig_v2
+      # columns.
       tabs:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          headers: [PIPELINE_ID, PIPELINE_NAME, PARENT_PIPELINE_ID, PIPELINE_DESCRIPTION, PIPELINE_FREQUENCY, NO_OF_CYCLE_PER_DAY, DAY_OF_SCHEDULE, ACTIVE_FLAG, ACTIVE_START_DATE, ACTIVE_END_DATE, ESTIMATED_START_TIME, APPLICATION_NAME, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, PROCESS_NAME, SUBPROCESS_NAME, LAYER_NAME, COMPLETION_SLA, RUNTIME_SLA, CRITICAL_PROCESSING_PERIOD, UDF1, UDF2, UDF3, UDF4, UDF5, IsFileCopyReqFlag]
+        EMAIL_TEMPLATE_CONFIG:
+          headers: [TEMPLATE_ID, TEMPLATE_NAME, PROCESS_NAME, STATUS, ACTIVE_FLAG, SUBJECT, BODY, BODY_QUERY, SENDER_NAME, SENDER_EMAIL, EMAIL_TO, EMAIL_CC, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, EMAIL_NOTIFICATION_URL]
         ADLS_DELTA_INGESTION_DETAILS:
           headers: [GROUP_ID, OBJECT_ID, OBJECT_NAME, DOMAIN, SUBDOMAIN, PIPELINE_ID, SOURCE, FREQUENCY, LOB, CLAIM_TYPE_ID, ACTIVE_FLAG, SRC_ADLS_CONNECTION_ID, METADATA_CONNECTION_ID, SRC_CONTAINER_NAME, SRC_ADLS_PATH, SRC_FILE_NAME, SRC_FORMAT, SRC_COLUMNS, SRC_DATA_TYPE, SRC_FILE_DELIMITER, SRC_REC_LNGTH, SRC_COL_LNGTH, SRC_COL_STRT_END_INDX, SRC_ADLS_ARCHVL_PATH, SRC_COMPRESSION, HEADER_FLAG, MULTILINE_FLAG, SCHEMA_DRIFT_FLAG, FILE_HEADER_FLAG, FILE_FOOTER_FLAG, MANDATORY_FIELD_LIST, TGT_CONNECTION_ID, TGT_DATABASE_NAME, TGT_TABLE_NAME, TGT_CONTAINER_NAME, TGT_ADLS_PATH, TGT_COLUMN_NAMES, TGT_FORMAT, TGT_DATA_TYPE, TGT_LOAD_OPTION, TGT_RJT_TABLE_NAME, TGT_RJT_ADLS_PATH, TGT_PARTITION_COLUMN, TGT_PARTITION_VALUE, TGT_PRIMARY_KEY, RECYCL_ENBL_FLG, RECYCL_TBL_NM, RECYCL_ADLS_PATH, RECYCL_RETN_DAYS, MAPPING_EXPRESSION, CREATED_BY, CREATED_DATE, UPDATED_BY, UPDATED_DATE, FILE_METADATA]
       deliberate_blanks:
         ADLS_DELTA_INGESTION_DETAILS:
           FILE_METADATA: "NULL on every prod row (SD pair_2 golden, acfc-results round7; docs/acfc/QUESTIONS_pair_2.md item 4), blank in the SFMC / CAQH IIGs"
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          PROCESS_NAME: "the corpus fills it in 60.9% of rows with one EDI process (59.0%) - not generalizable to a new feed (D1 post44 item 3)"
+          SUBPROCESS_NAME: "the corpus fills it in 53.8% of rows, 51 patterns, the dominant 7.3% - not generalizable (D1 post44 item 3)"
+          COMPLETION_SLA: &zero "the IIG corpus fills it in 0.0% of rows (patterns.json, D1 post44)"
+          RUNTIME_SLA: *zero
+          CRITICAL_PROCESSING_PERIOD: *zero
+          UDF1: *zero
+          UDF2: *zero
+          UDF3: *zero
+          UDF4: *zero
+          UDF5: *zero
+          IsFileCopyReqFlag: "the IIG corpus fills it in 4.4% of rows (patterns.json, D1 post44)"
       # FILE_HEADER_FLAG with no FAQ has_header answer: the file's format decides -
       # delimited 'Y' (SD prod, SFMC, CAQH), fixed-width 'N' (the pair-1 golden).
       file_header_flag_by_format: {delimited: "Y", fixed_width: "N"}

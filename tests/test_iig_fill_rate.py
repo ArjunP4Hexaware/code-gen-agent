@@ -37,19 +37,24 @@ SCHED, NB, EMAIL = ("DATA_FACTORY_PIPELINE_SCHEDULE", "DATABRICKS_NOTEBOOK_DETAI
                     "EMAIL_TEMPLATE_CONFIG")
 # Columns the corpus fills in >90% of rows that the agent wrote blank before
 # 2026-10-13 (tools/iig_fill_rate.py, the home goldens) — each now filled.
+# 2026-10-14 (D1 post44 items 1-3): the 199-IIG corpus decides; what its patterns
+# report does not state is a <<D1:...>> placeholder (open, iig_d1_placeholder).
 FILLED_NOW = {
     SCHED: [],
-    NB: ["PIPELINE_NAME", "DATABRICKS_NOTEBOOK_PATH"],
-    EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SUBJECT", "BODY", "SENDER_NAME", "SENDER_EMAIL"],
+    NB: ["PIPELINE_NAME"],
+    EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SENDER_NAME"],
 }
-# 2026-10-14 (D1 post43 item 3b): the 199-IIG corpus disagrees with the home
-# goldens — schedule APPLICATION_NAME / notebook PROCESS_NAME are per-feed there,
-# DAY_OF_SCHEDULE is filled in 3.5% of rows. Blank with a NOTE (pending_cells)
-# until the corpus patterns report: the home goldens still fill them, so the
-# home tool calls them gaps.
-PENDING = {SCHED: ["APPLICATION_NAME", "DAY_OF_SCHEDULE"], NB: ["PROCESS_NAME"]}
-OPEN_GAPS = {SCHED: ["DAY_OF_SCHEDULE", "ACTIVE_START_DATE", "APPLICATION_NAME"],
-             NB: ["PROCESS_NAME"], EMAIL: []}
+# open until the D1 overlay sets them (tests/test_d1_placeholders.py)
+D1_OPEN = {SCHED: ["PIPELINE_DESCRIPTION", "APPLICATION_NAME"],
+           NB: ["PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH", "DATABRICKS_NOTEBOOK_NAME"],
+           EMAIL: ["SUBJECT", "BODY", "SENDER_EMAIL", "EMAIL_TO"]}
+# the home goldens fill these; the corpus does not (DAY_OF_SCHEDULE blank unless
+# Weekly), or no document does (ACTIVE_START_DATE owed), or 2 of the 4 statuses
+# are D1 placeholders (STATUS)
+OPEN_GAPS = {SCHED: ["PIPELINE_DESCRIPTION", "DAY_OF_SCHEDULE", "ACTIVE_START_DATE",
+                     "APPLICATION_NAME"],
+             NB: ["PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH", "DATABRICKS_NOTEBOOK_NAME"],
+             EMAIL: ["STATUS", "SUBJECT", "BODY", "SENDER_EMAIL", "EMAIL_TO"]}
 
 pytestmark = pytest.mark.skipif(not all(p.exists() for p in CORPUS),
                                 reason="committed goldens absent")
@@ -73,27 +78,22 @@ def test_every_corpus_filled_column_is_filled_now(generated):
                 value = row[column][0]
                 assert value not in (None, ""), (sheet, column)
     notebook = _rows(xlsx, NB)
-    for sheet, columns in PENDING.items():
+    for sheet, columns in D1_OPEN.items():
         for row in _rows(xlsx, sheet):
             assert all(row[c][0] in (None, "") for c in columns), (sheet, columns)
     # the corpus's one value, as prod stores it (a datetime)
     assert {r["ACTIVE_END_DATE"][0] for r in _rows(xlsx, SCHED)} == {"9999-12-31 00:00:00"}
-    assert all(r["DATABRICKS_NOTEBOOK_PATH"][0] == "/Workspace/iig/"
-               + r["DATABRICKS_NOTEBOOK_NAME"][0] for r in notebook)
-    schedule = {r["PIPELINE_DESCRIPTION"][0]: r["PIPELINE_NAME"][0] for r in _rows(xlsx, SCHED)}
-    assert [r["PIPELINE_NAME"][0] for r in notebook] == [schedule["File to Stage"],
-                                                         schedule["Stage to Standard"]]
-    email = {r["STATUS"][0]: r for r in _rows(xlsx, EMAIL)}
-    assert email["Success"]["SUBJECT"][0].endswith(" Load Completed")
-    assert email["Failed"]["BODY"][0].endswith(" Files Load Process Failed")
-    assert {r["SENDER_NAME"][0] for r in email.values()} == {"dbo"}
-    assert {r["SENDER_EMAIL"][0] for r in email.values()} == {"syn.dl.sender@synthetic.example"}
+    schedule = [r["PIPELINE_NAME"][0] for r in _rows(xlsx, SCHED)]
+    assert [r["PIPELINE_NAME"][0] for r in notebook] == schedule[2:]   # the two legs
+    assert {r["SENDER_NAME"][0] for r in _rows(xlsx, EMAIL)} == {"dbo"}
     # one NOTE per derived column (the same text on every row: said once)
     derived = [f for f in gate.flags if f.startswith("iig_derived:")
                and f.split(":")[1].split(".")[0] in FILLED_NOW]
-    assert len(derived) == sum(len(c) for c in FILLED_NOW.values()) == len(set(derived))
-    pending = sorted(f.split(" — ")[0] for f in gate.flags if f.startswith("iig_pending:"))
-    assert pending == sorted(f"iig_pending:{s}.{c}" for s, cs in PENDING.items() for c in cs)
+    assert len(derived) == 3 == len(set(derived))      # PIPELINE_NAME, TEMPLATE / PROCESS_NAME
+    placeholders = {f.split(" — ")[0] for f in gate.flags
+                    if f.startswith("iig_d1_placeholder:")}
+    assert {f"iig_d1_placeholder:{s}.{c}" for s, cs in D1_OPEN.items() for c in cs} <= placeholders
+    assert not [f for f in gate.flags if f.startswith("iig_pending:")]
 
 
 def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, capsys):
@@ -107,7 +107,7 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
         assert gaps == expected, sheet
         for column in FILLED_NOW[sheet]:
             assert report[sheet]["columns"][column]["agent_pct"] == 100.0, (sheet, column)
-        for column in PENDING.get(sheet, []):
+        for column in D1_OPEN.get(sheet, []):
             assert report[sheet]["columns"][column]["agent_pct"] == 0.0, (sheet, column)
     # ids / workspace / audit stamps are assigned, never a gap to fill
     nb = report[NB]["columns"]
@@ -117,8 +117,8 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
     # corpus values are production text: withheld unless --show-values
     assert all(c["dominant_value"] is None for s in report.values()
                for c in s["columns"].values())
-    assert "GAPS (3): DAY_OF_SCHEDULE, ACTIVE_START_DATE, APPLICATION_NAME" in (
-        capsys.readouterr().out)
+    assert ("GAPS (4): PIPELINE_DESCRIPTION, DAY_OF_SCHEDULE, ACTIVE_START_DATE, "
+            "APPLICATION_NAME") in capsys.readouterr().out
 
 
 def test_fill_rate_statuses_on_a_synthetic_corpus(tmp_path):

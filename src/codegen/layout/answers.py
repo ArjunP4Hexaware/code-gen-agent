@@ -55,6 +55,9 @@ class AnswersFile:
     entries: list[dict] = field(default_factory=list)
     gaps: dict[str, dict] = field(default_factory=dict)
     pairing: dict[str, dict] = field(default_factory=dict)
+    # 2026-10-14 (D1 post44): values a written workbook still lacks (INPUT_NEEDED
+    # lines, never blocking) — {key: text}, e.g. feeds[0].active_start_date
+    inputs: dict[str, str] = field(default_factory=dict)
 
 
 _ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value",
@@ -75,9 +78,9 @@ def _is_band_entry(entry: dict) -> bool:
 
 def load_answers(path: Path) -> AnswersFile:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    if not isinstance(raw, dict) or set(raw) - {"answers", "gaps", "pairing"}:
+    if not isinstance(raw, dict) or set(raw) - {"answers", "gaps", "pairing", "inputs"}:
         raise AnswersFileError(
-            f"{path}: expected a mapping with `answers`, `gaps` and / or `pairing`")
+            f"{path}: expected a mapping with `answers`, `gaps`, `pairing` and / or `inputs`")
     # 2026-10-13: an answers TEMPLATE entry left empty is not an answer — it
     # is skipped and its question stays open (codegen.layout.answers_template).
     entries = [e for e in raw.get("answers") or []
@@ -117,7 +120,16 @@ def load_answers(path: Path) -> AnswersFile:
     for name, value in pairing.items():
         if not isinstance(value, dict) or set(value) - {"frd", "vdd"}:
             raise AnswersFileError(f"{path}: pairing[{name!r}] must be {{frd?, vdd?}}")
-    return AnswersFile(list(entries), dict(gaps), dict(pairing))
+    inputs: dict[str, str] = {}
+    for key, value in (raw.get("inputs") or {}).items():
+        stated = value.get("value") if isinstance(value, dict) else value
+        if isinstance(stated, (int, float)) and not isinstance(stated, bool):
+            stated = str(stated)
+        if not isinstance(stated, str) and stated is not None:
+            raise AnswersFileError(f"{path}: inputs[{key!r}] must be {{value: <text>}}")
+        if not _blank(stated):
+            inputs[str(key)] = stated.strip()
+    return AnswersFile(list(entries), dict(gaps), dict(pairing), inputs)
 
 
 def _column_of(entry: dict, question) -> int | None:

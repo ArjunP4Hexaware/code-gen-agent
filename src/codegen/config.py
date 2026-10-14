@@ -1206,6 +1206,56 @@ class PipelineRoleConfig(BaseModel):
     parent: str | None = None
 
 
+D1_PLACEHOLDER_RE = re.compile(r"<<D1:[^>]*>>")
+
+
+def is_d1_placeholder(value: object) -> bool:
+    """A config value an environment overlay on D1 must replace (2026-10-14,
+    D1 post44): ``<<D1:NAME>>`` anywhere in it. The cell it would fill stays
+    open (iig_d1_placeholder NOTE); tests/test_d1_placeholders.py fails on D1
+    while one survives."""
+    return isinstance(value, str) and D1_PLACEHOLDER_RE.search(value) is not None
+
+
+class CorpusCellConfig(BaseModel):
+    """One cell filled from the IIG corpus's patterns report (2026-10-14, D1
+    post44; tools/iig_fill_rate.py --patterns): a constant (``value``) or a
+    value per row key (``by`` flow | status | frequency -> ``values``; the
+    key "*" is the fallback, a key with no entry = decided blank). ``share``
+    names the corpus share for the NOTE (iig_corpus:<TAB>.<HEADER>); a value
+    may carry the derived_cells tokens ({source} {feed} {layer} ...) and a
+    ``<<D1:...>>`` placeholder (the cell stays open, ``todo`` in its NOTE)."""
+
+    model_config = _MODEL_CONFIG
+
+    value: str | None = None
+    by: Literal["flow", "status", "frequency"] | None = None
+    values: dict[str, str] = Field(default_factory=dict)
+    share: str
+    todo: str | None = None
+
+    @model_validator(mode="after")
+    def _one_source(self) -> CorpusCellConfig:
+        if (self.value is None) == (self.by is None):
+            raise ValueError("corpus cell: exactly one of `value` or `by` + `values`")
+        if self.by is not None and not self.values:
+            raise ValueError("corpus cell: `by` needs `values`")
+        return self
+
+
+class OwedCellConfig(BaseModel):
+    """A cell no document states and no corpus value fills, owed by the person
+    (2026-10-14, D1 post44 — ACTIVE_START_DATE, the per-RFC go-live date):
+    the load-pattern FAQ companion ``faq`` fills it; unanswered, ``generate``
+    prints a QUESTION (gaps key ``feeds[<i>].<faq>``) and writes it to the
+    answers template — answered with ``generate --answers``."""
+
+    model_config = _MODEL_CONFIG
+
+    faq: str
+    question: str
+
+
 class MetadataTemplateConfig(BaseModel):
     """An IIG workbook template version (M4) other than the default
     ``iig_v1`` (= ``demo.metadata_sheet``): sheets + headers transcribed
@@ -1232,6 +1282,10 @@ class MetadataTemplateConfig(BaseModel):
     dq_rules: list[Literal["header_trailer_split", "date_format", "data_type_cast"]] = Field(
         default_factory=list)
     dq_rule_classes: dict[str, str] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post44 items 1-3): cells from the corpus patterns report,
+    # {tab: {header: CorpusCellConfig}}; owed cells {tab: {header: OwedCellConfig}}.
+    corpus_cells: dict[str, dict[str, CorpusCellConfig]] = Field(default_factory=dict)
+    owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
     date_format_rule_regex: str = r"^\s*Convert\s+(\S+)\s+to\s+(\S+)\s*$"
     date_format_param_joiner: str = "--"
     cast_type_order: list[str] = Field(default_factory=list)

@@ -147,16 +147,19 @@ def test_the_acfc_overlay_names_one_framework_notebook_per_leg():
     repo = Path(__file__).resolve().parents[1]
     acfc = load_config(repo / "config" / "config.yaml",
                        overlays=[repo / "config" / "overlays" / "acfc_env.yaml"])
-    rows = acfc.metadata.templates["iig_v2"].template_rows["DATABRICKS_NOTEBOOK_DETAILS"]
-    assert [(r["DATABRICKS_NOTEBOOK_NAME"], r["_layer"]) for r in rows] == [
-        ("FileInvokeDQDeltaTable_V0.1", "stage"),
-        ("DeltaInvokeDQStandardDeltaTable_V2", "standard")]
-    assert all("SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3" in r["_citation"] for r in rows)
+    tpl = acfc.metadata.templates["iig_v2"]
+    rows = tpl.template_rows["DATABRICKS_NOTEBOOK_DETAILS"]
+    # one row per leg; 2026-10-14 (D1 post44 item 2): the NAME comes from the corpus
+    # patterns per flow (corpus_cells), a D1 placeholder until the D1 overlay sets it
+    assert [(r["_layer"], r["_pipeline_role"]) for r in rows] == [
+        ("stage", "file_to_stage"), ("standard", "stage_to_standard")]
+    assert all("DATABRICKS_NOTEBOOK_NAME" not in r for r in rows)
+    names = tpl.corpus_cells["DATABRICKS_NOTEBOOK_DETAILS"]["DATABRICKS_NOTEBOOK_NAME"]
+    assert names.by == "flow" and set(names.values) >= {"file_to_stg", "stg_to_std"}
     assert "PIPELINE_NAME" not in rows[0]        # its {feed} token is the client's: open
-    # the email rows of the shipped template survive the overlay's merge (_outcome:
-    # row metadata for the overlay's derived SUBJECT / BODY, 2026-10-13)
-    assert acfc.metadata.templates["iig_v2"].template_rows["EMAIL_TEMPLATE_CONFIG"] == [
-        {"STATUS": "Success", "_outcome": "Completed"}, {"STATUS": "Failed", "_outcome": "Failed"}]
+    # item 1: one email row per status the corpus uses (4 per feed, the pair_2 golden)
+    statuses = [r["STATUS"] for r in tpl.template_rows["EMAIL_TEMPLATE_CONFIG"]]
+    assert statuses[:2] == ["Success", "Failed"] and len(statuses) == 4
 
 
 # -- pair 11 end to end ---------------------------------------------------------- #

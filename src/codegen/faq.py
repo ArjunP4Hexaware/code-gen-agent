@@ -115,6 +115,10 @@ class LoadPatternFaq(BaseModel):
     # package is named after — a run input; unanswered = documented
     # placeholder + flag.
     rfc_number: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (D1 post44 item 3): the schedule rows' ACTIVE_START_DATE — the
+    # per-RFC go-live date (owed_cells; `generate --answers` gaps
+    # feeds[<i>].active_start_date sets it for one run).
+    active_start_date: FaqAnswer = FaqAnswer(value="unknown")
     # M7 companions (NOT questions): the engineer-assigned framework ids the
     # DML variables block carries (METADATA_DB_SEMANTICS §2, §5) and the
     # source connection's host. (They fed the retired config_inserts_<env>.sql
@@ -216,6 +220,20 @@ def faq_for_spec(
 ) -> LoadPatternFaq:
     """The one call sites use: file answers + contract prefills."""
     return apply_contract_prefills(load_faq(spec.feed_slug, config, base_dir), spec)
+
+
+def with_faq_answers(faq: LoadPatternFaq, answers: dict[str, str] | None) -> LoadPatternFaq:
+    """2026-10-14 (D1 post44): answers-file values for FAQ companions (gaps
+    ``feeds[<i>].<companion>``, e.g. active_start_date), source engineer; a
+    file answer already given is replaced (the run's answers file is the
+    newer statement). Unknown names are ignored."""
+    updates = {name: FaqAnswer(value=str(value), source="engineer",
+                               evidence="answers file (gaps)")
+               for name, value in (answers or {}).items()
+               if name in LoadPatternFaq.model_fields
+               and LoadPatternFaq.model_fields[name].annotation in (FaqAnswer, "FaqAnswer")
+               and str(value).strip()}
+    return faq.model_copy(update=updates) if updates else faq
 
 
 def summarize(faq: LoadPatternFaq) -> dict[str, Any]:

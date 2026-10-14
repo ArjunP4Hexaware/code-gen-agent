@@ -146,7 +146,11 @@ def test_cold_pair_completes_after_the_answers(pair, cold_env, capsys):
     assert stages["generate"] is not None
     code, out = stages["generate"]
     assert code == cli.EXIT_OK, out
+    # 2026-10-14 (D1 post44): generate still owes ACTIVE_START_DATE (the per-RFC
+    # go-live date no document states) — an INPUT_NEEDED line, never a QUESTION
     assert _needed(out) == [] and not re.search(r"^FAIL ", out, re.MULTILINE), out
+    inputs = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED")]
+    assert inputs and all(".active_start_date — " in ln for ln in inputs), out
     verdicts = re.findall(r"^(PASS_WITH_FLAGS|PASS|FAIL)\s", out, re.MULTILINE)
     assert verdicts and set(verdicts) <= {"PASS", "PASS_WITH_FLAGS"}, out
 

@@ -29,7 +29,7 @@ class TemplateItem:
     key: str                       # a gaps: key, or <sheet>/<layer>/<role>
     reason: str
     candidates: list[str] = field(default_factory=list)
-    section: str = "gaps"          # gaps | answers
+    section: str = "gaps"          # gaps | answers | inputs (non-blocking, INPUT_NEEDED)
 
 
 def _q(value: str) -> str:
@@ -73,10 +73,11 @@ def read_template(path: Path) -> list[TemplateItem]:
         key = f"{entry.get('sheet')}/{entry.get('layer')}/{entry.get('role')}"
         items.append(TemplateItem(key, str(entry.get("question") or ""),
                                   [str(c) for c in entry.get("candidates") or []], "answers"))
-    for key, entry in (raw.get("gaps") or {}).items():
-        entry = entry if isinstance(entry, dict) else {}
-        items.append(TemplateItem(str(key), str(entry.get("question") or ""),
-                                  [str(c) for c in entry.get("candidates") or []], "gaps"))
+    for section in ("gaps", "inputs"):
+        for key, entry in (raw.get(section) or {}).items():
+            entry = entry if isinstance(entry, dict) else {}
+            items.append(TemplateItem(str(key), str(entry.get("question") or ""),
+                                      [str(c) for c in entry.get("candidates") or []], section))
     return items
 
 
@@ -89,8 +90,10 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
     for item in [*(read_template(path) if merge else []), *items]:
         ordered.setdefault(item.key, item)
     answers = [i for i in ordered.values() if i.section == "answers"]
-    gaps = [i for i in ordered.values() if i.section != "answers"]
-    lines = [f"{_HEADER} — {len(ordered)} open question(s), written by {stage}.",
+    inputs = [i for i in ordered.values() if i.section == "inputs"]
+    gaps = [i for i in ordered.values() if i.section not in ("answers", "inputs")]
+    lines = [f"{_HEADER} — {len(ordered) - len(inputs)} open question(s), "
+             f"{len(inputs)} input(s) needed, written by {stage}.",
              "# Fill each empty value / column, then rerun the run's stages with",
              "#   --answers <this file>   (layout, extract-sttm and generate read it).",
              "# An entry left empty is skipped: its question stays open.",
@@ -102,6 +105,12 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
     lines.append("gaps:" if gaps else "gaps: {}")
     for item in gaps:
         lines += _gaps_entry(item)
+    if inputs:
+        # 2026-10-14 (D1 post44): never blocking — the workbook is written with the
+        # cell empty; a value here fills it when generate reruns with --answers.
+        lines.append("inputs:")
+        for item in inputs:
+            lines += _gaps_entry(item)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return path

@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from codegen.config import Config, MetadataTemplateConfig
+from codegen.config import Config, MetadataTemplateConfig, is_d1_placeholder
 from codegen.contracts.frd import FrdFeed
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
@@ -84,7 +84,8 @@ _OPEN_OFFER_TOOLTIP = ("open — no input states it; candidate, NOT written (con
                        "filling): {offer}")
 
 
-def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
+def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict,
+                    context: dict | None = None, faq=None) -> dict:
     for header in tpl.constants.get(tab, {}):
         if header not in cells:
             cells[header] = _const(tpl, tab, header)
@@ -97,7 +98,106 @@ def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
             cell = _cell("", "synthetic", f"decided blank — {why}")
             cell["badge_entry"]["deliberate_blank"] = True
             cells[header] = cell
-    return _pending(tpl, tab, cells)
+    _corpus(tpl, tab, cells, context or {})
+    _owed(tpl, tab, cells, faq)
+    return _placeholders(tab, _pending(tpl, tab, cells))
+
+
+# A corpus value never replaces what an input states (STTM / FRD / FAQ).
+_CORPUS_OVER = frozenset({"synthetic", "from_standards", "needs_template"})
+_PATTERNS_REPORT = "tools/iig_fill_rate.py --patterns, D1 post44"
+
+
+def _corpus_key(values: dict[str, str], key: str) -> str | None:
+    """The entry for ``key`` (case-insensitive), else the "*" fallback."""
+    found = next((v for k, v in values.items() if k.lower() == key.lower()), None)
+    return found if found is not None else values.get("*")
+
+
+def _corpus(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -> None:
+    """``corpus_cells`` (2026-10-14, D1 post44): the corpus patterns report's
+    value — a constant, or by the row's flow / status / frequency (no entry for
+    the row's key = decided blank); tokens from ``context`` as derived_cells;
+    a ``<<D1:...>>`` placeholder leaves the cell open. Each with a NOTE naming
+    the corpus share (iig_corpus / iig_d1_placeholder:<TAB>.<HEADER>)."""
+    for header, rule in tpl.corpus_cells.get(tab, {}).items():
+        current = cells.get(header)
+        if (current is not None and current["badge_entry"]["badge"] not in _CORPUS_OVER
+                and str(current["value"] if current["value"] is not None else "").strip()):
+            continue
+        key = str(context.get(rule.by) or "").strip() if rule.by else ""
+        where = f" ({rule.by} {key!r})" if rule.by else ""
+        shape = rule.value if rule.by is None else _corpus_key(rule.values, key)
+        if shape is None:
+            filled = ", ".join(k for k in rule.values if k != "*")
+            cell = _cell("", "synthetic", f"decided blank — the IIG corpus fills {header} only "
+                                          f"for {rule.by} {filled} ({rule.share})")
+            cell["badge_entry"]["deliberate_blank"] = True
+            cell["badge_entry"]["note"] = (
+                f"iig_corpus:{tab}.{header} — blank for {rule.by} {key!r}: the corpus fills it "
+                f"for {filled} only ({rule.share}; {_PATTERNS_REPORT})")
+            cells[header] = cell
+            continue
+        if is_d1_placeholder(shape):
+            todo = rule.todo or "the D1 overlay sets it"
+            cell = _cell("", "needs_template", f"open — {shape}: {todo} (corpus: {rule.share})")
+            cell["badge_entry"]["note"] = (
+                f"iig_d1_placeholder:{tab}.{header} — {shape}{where} left blank: TODO {todo} "
+                f"(corpus: {rule.share})")
+            cells[header] = cell
+            continue
+        tokens = _DERIVED_TOKEN_RE.findall(shape)
+        if any(not str(context.get(t) or "").strip() for t in tokens):
+            continue
+        value = _DERIVED_TOKEN_RE.sub(lambda m: str(context[m.group(1)]).strip(), shape)
+        cell = _cell(value, "synthetic", f"IIG corpus{where}: {shape!r} — {rule.share} "
+                                         f"({_PATTERNS_REPORT})")
+        cell["badge_entry"]["note"] = (f"iig_corpus:{tab}.{header} — {shape!r}{where}: "
+                                       f"{rule.share} ({_PATTERNS_REPORT})")
+        cells[header] = cell
+
+
+def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq) -> None:
+    """``owed_cells``: the FAQ companion's answer (an answers-file answer rides
+    in as one), else open with a NOTE (iig_owed) — the CLI asks the QUESTION."""
+    for header, rule in tpl.owed_cells.get(tab, {}).items():
+        answer = getattr(faq, rule.faq, None) if faq is not None else None
+        if answer is not None and answer.source != "unknown" and str(answer.value).strip():
+            from codegen.metadata_sheet import _faq_cell as base
+
+            cells[header] = base(answer, f"{rule.question} — answered")
+            continue
+        cell = _cell("", "needs_template", f"owed: {rule.question}")
+        cell["badge_entry"]["note"] = (
+            f"iig_owed:{tab}.{header} — {rule.question} (QUESTION feeds[<i>].{rule.faq}: "
+            f"answer under gaps: with generate --answers, or the load-pattern FAQ {rule.faq})")
+        cells[header] = cell
+
+
+def owed_questions(tpl: MetadataTemplateConfig, faq) -> list[tuple[str, str]]:
+    """(FAQ companion, question) of every owed cell the FAQ leaves unanswered."""
+    out: list[tuple[str, str]] = []
+    for rules in tpl.owed_cells.values():
+        for rule in rules.values():
+            answer = getattr(faq, rule.faq, None) if faq is not None else None
+            if (answer is None or answer.source == "unknown" or not str(answer.value).strip()) \
+                    and (rule.faq, rule.question) not in out:
+                out.append((rule.faq, rule.question))
+    return out
+
+
+def _placeholders(tab: str, cells: dict) -> dict:
+    """Any cell still carrying a ``<<D1:...>>`` placeholder (a constant, a
+    template row) is open with a NOTE — the placeholder never reaches a cell."""
+    for header, cell in cells.items():
+        if cell is not None and is_d1_placeholder(cell["value"]):
+            open_cell = _cell("", "needs_template",
+                              f"open — {cell['value']}: the D1 overlay sets it")
+            open_cell["badge_entry"]["note"] = (
+                f"iig_d1_placeholder:{tab}.{header} — {cell['value']} left blank: TODO the D1 "
+                "overlay sets it")
+            cells[header] = open_cell
+    return cells
 
 
 def _pending(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
@@ -773,8 +873,9 @@ def _pipeline_roles(tab, feed, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
-        _derive(tpl, tab, cells, {"source": _source_value(feed)})
-        rows.append(_with_constants(tpl, tab, cells))
+        context = _row_context(feed, faq, cells, role.role)
+        _derive(tpl, tab, cells, context)
+        rows.append(_with_constants(tpl, tab, cells, context, faq))
     return rows
 
 
@@ -792,8 +893,9 @@ def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
-        _derive(tpl, tab, cells, {"source": _source_value(feed)})
-        out.append(_with_constants(tpl, tab, cells))
+        context = _row_context(feed, faq, cells, template_row.get("_pipeline_role"))
+        _derive(tpl, tab, cells, context)
+        out.append(_with_constants(tpl, tab, cells, context, faq))
     return out
 
 
@@ -1244,14 +1346,30 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
         if process is not None:
             cells["PROCESS_NAME"] = process
         notebook = cells.get("DATABRICKS_NOTEBOOK_NAME")
-        _derive(tpl, tab, cells, {
-            "source": _source_value(feed),
+        context = {
+            **_row_context(feed, faq, cells, template_row.get("_pipeline_role")),
             "layer": layer.capitalize(),
             "notebook": notebook["value"] if notebook is not None else "",
             "pipeline": _role_pipeline_name(feed, faq, tpl, template_row.get("_pipeline_role")),
-        })
-        out.append(_with_constants(tpl, tab, cells))
+        }
+        _derive(tpl, tab, cells, context)
+        out.append(_with_constants(tpl, tab, cells, context, faq))
     return out
+
+
+# A pipeline role (pipeline_roles / a row's _pipeline_role) as the corpus
+# patterns report names the flow (tools/iig_fill_rate.py, iig_keys.yaml flow).
+_ROLE_FLOWS = {"file_to_stage": "file_to_stg", "stage_to_standard": "stg_to_std",
+               "grand_master": "grand_master", "master": "master"}
+
+
+def _row_context(feed: FrdFeed, faq, cells: dict, role: str | None) -> dict:
+    """The tokens / row keys of derived_cells and corpus_cells: {source},
+    {feed}, the row's flow (its pipeline role) and PIPELINE_FREQUENCY."""
+    frequency = cells.get("PIPELINE_FREQUENCY")
+    return {"source": _source_value(feed), "feed": _feed_token(feed, faq)[0],
+            "flow": _ROLE_FLOWS.get(role or "", role or ""),
+            "frequency": str(frequency["value"] or "") if frequency is not None else ""}
 
 
 def _role_pipeline_name(feed: FrdFeed, faq, tpl: MetadataTemplateConfig,
@@ -1405,10 +1523,12 @@ def _email_templates(tab, feed, config, spec, faq, tpl) -> list[dict]:
         cells["EMAIL_TO"] = _cell(recipients, "from_standards",
                                   "EDO coding standard: success AND failure alerts to the "
                                   "prod-support DL (synthetic stand-in address)")
-        _derive(tpl, tab, cells, {"source": _source_value(feed),
-                                  "outcome": template_row.get("_outcome", ""),
-                                  "sender": config.job.notification_sender})
-        out.append(_with_constants(tpl, tab, cells))
+        context = {**_row_context(feed, faq, cells, None),
+                   "outcome": template_row.get("_outcome", ""),
+                   "sender": config.job.notification_sender,
+                   "status": str(template_row.get("STATUS") or "")}
+        _derive(tpl, tab, cells, context)
+        out.append(_with_constants(tpl, tab, cells, context, faq))
     return out
 
 

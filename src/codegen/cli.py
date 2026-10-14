@@ -35,7 +35,7 @@ from codegen.config import Config, load_config, load_dotenv
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.context import TemplateGapError, build_context
 from codegen.emit.emitter import emit_feed
-from codegen.faq import faq_for_spec
+from codegen.faq import faq_for_spec, with_faq_answers
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
 from codegen.reasoning import build_provider, run_reasoning
@@ -79,6 +79,7 @@ def _generate_feed(
     iig_template: str | None = None,
     playbook_template: str | None = None,
     layout_usage=None,
+    faq_answers: dict[str, str] | None = None,
 ) -> GateResult:
     out_root = Path(config.output.dir)
     reports_dir = Path(config.output.reports_dir)
@@ -122,7 +123,7 @@ def _generate_feed(
     candidates = [*segmented_review_items(spec), *candidates]
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus
     # contract prefills; missing file => all defaults, flagged by the gate.
-    faq = faq_for_spec(spec, config)
+    faq = with_faq_answers(faq_for_spec(spec, config), faq_answers)
 
     duplicate_outcome = next(
         (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
@@ -442,7 +443,9 @@ def _write_template(target: Path | None, items: list, stage: str, *, merge: bool
     from codegen.layout.answers_template import write_answers_template
 
     written = write_answers_template(target, items, stage=stage, merge=merge)
-    print(f"{'ANSWERS FILE':<15} {written} — {len(items)} question(s) with their "
+    inputs = sum(1 for i in items if i.section == "inputs")
+    print(f"{'ANSWERS FILE':<15} {written} — {len(items) - inputs} question(s), {inputs} "
+          "input(s) needed, with their "
           "candidates and an empty value; fill it and rerun with --answers "
           f"{written}")
 
@@ -483,9 +486,14 @@ def _run_pairs(
     conventions_profile: str | None = None,
     iig_template: str | None = None,
     playbook_template: str | None = None,
+    answers_path: Path | None = None,
+    template_path: Path | None = None,
 ) -> int:
+    from codegen import owed_inputs as owed_mod
     from codegen.resolve.resolver import pending_answers
 
+    inputs = _answers_inputs(answers_path)
+    owed_items: list = []
     failed = False
     matched_feed = False
     needs_answers = False
@@ -508,12 +516,22 @@ def _run_pairs(
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
             matched_feed = True
+            index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
+            faq_answers = owed_mod.answers_for(inputs, index)
             try:
                 gate = _generate_feed(spec, config, dry_run=dry_run,
                                       skip_tests=skip_tests, output_mode=output_mode,
                                       conventions_profile=conventions_profile,
                                       iig_template=iig_template,
-                                      playbook_template=playbook_template)
+                                      playbook_template=playbook_template,
+                                      faq_answers=faq_answers)
+                owed = owed_mod.owed_inputs(
+                    spec, config, index=index, output_mode=output_mode,
+                    iig_template=iig_template,
+                    faq=with_faq_answers(faq_for_spec(spec, config), faq_answers))
+                for item in owed:
+                    print(owed_mod.input_line(item))
+                owed_items += owed_mod.template_items(owed)
             except TemplateGapError as exc:
                 print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
                 failed = True
@@ -523,7 +541,21 @@ def _run_pairs(
     if only_feed is not None and not matched_feed:
         print(f"{'FAIL':<15} no resolved feed matches --feed {only_feed!r}")
         failed = True
+    _write_template(template_path or Path(config.output.dir) / "answers_template.yaml",
+                    owed_items, "generate", merge=True)
+    # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
+    # asked for (a QUESTION / UNRESOLVED line) exits 3
     return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
+
+
+def _answers_inputs(path: Path | None) -> dict[str, str]:
+    """``generate --answers``: the answers file's ``inputs:`` values (the
+    non-blocking owed cells, codegen.owed_inputs)."""
+    if path is None:
+        return {}
+    from codegen.layout.answers import load_answers
+
+    return load_answers(path).inputs
 
 
 def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
@@ -1598,6 +1630,13 @@ def _main(argv: list[str] | None = None) -> int:
     generate.add_argument("--playbook-template", dest="playbook_template", default=None,
                           help="retired with the RFC package output: accepted, has no "
                                "effect (outputs are notebook and / or framework)")
+    generate.add_argument("--answers", default=None,
+                          help="answers file: its inputs: values fill the non-blocking owed "
+                               "IIG cells (INPUT_NEEDED lines; ACTIVE_START_DATE = "
+                               "feeds[<i>].active_start_date)")
+    generate.add_argument("--answers-template", dest="answers_template", default=None,
+                          help="where the INPUT_NEEDED items' answers template goes (default: "
+                               "answers_template.yaml in the output root)")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 
@@ -2001,6 +2040,9 @@ def _main(argv: list[str] | None = None) -> int:
         conventions_profile=getattr(args, "conventions_profile", None),
         iig_template=getattr(args, "iig_template", None),
         playbook_template=getattr(args, "playbook_template", None),
+        answers_path=Path(args.answers) if getattr(args, "answers", None) else None,
+        template_path=(Path(args.answers_template)
+                       if getattr(args, "answers_template", None) else None),
     )
     push_outputs()
     return code

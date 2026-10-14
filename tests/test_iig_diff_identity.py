@@ -159,7 +159,7 @@ def test_real_shapes_pair_by_identity_comparable_100(tmp_path: Path) -> None:
     assert t["convention"] == 12                       # a status of its own, never scored
     # the identities that paired: feed x flow, never a name
     assert payload["sheets"][PIPE]["key"] == ["@feed", "@flow"]
-    assert payload["sheets"][ADLS]["key"] == ["@feed", "@flow", "TGT_TABLE_NAME"]
+    assert payload["sheets"][ADLS]["key"] == ["@feed", "@flow", "TGT_TABLE_NAME", "@file"]
 
 
 def test_a_golden_row_of_a_feed_the_agent_did_not_write_is_out_of_scope(tmp_path: Path) -> None:

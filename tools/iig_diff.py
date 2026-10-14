@@ -314,6 +314,8 @@ class KeyConfig:
     group_index: tuple[str, ...] = ()
     sheet_aliases: tuple[SheetAlias, ...] = ()
     file_name_tokens: tuple[re.Pattern[str], ...] = ()
+    # 2026-10-14: the columns naming a row's FILE, per sheet (identity @file)
+    file_columns: dict[str, list[str]] = field(default_factory=dict)
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -404,7 +406,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
              "environment_tokens", "identity", "flow", "convention_columns", "group_index",
-             "sheet_aliases", "file_name_tokens"}
+             "sheet_aliases", "file_name_tokens", "file_columns"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -428,6 +430,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         sheet_aliases=_sheet_aliases(path, raw.get("sheet_aliases")),
         file_name_tokens=tuple(re.compile(str(t), re.IGNORECASE)
                                for t in raw.get("file_name_tokens") or []),
+        file_columns=_column_lists(path, "file_columns", raw.get("file_columns")),
     )
 
 
@@ -1182,11 +1185,17 @@ def row_flow(sheet: str, row: dict[str, object], canon: dict[str, str],
 
 
 def _parts(components: list[str], row: dict[str, object], canon: dict[str, str],
-           tables: ObjectTables | None, feed: int | str | None, flow: str | None
+           tables: ObjectTables | None, feed: int | str | None, flow: str | None,
+           files: tuple[list[str], tuple[re.Pattern[str], ...]] = ([], ())
            ) -> list[str | None]:
     out: list[str | None] = []
     for component in components:
-        if component == "@feed":
+        if component == FILE_COMPONENT:
+            # the first file column the row fills, as a file identity
+            names = (row.get(canon[c.upper()]) for c in files[0] if c.upper() in canon)
+            out.append(next((i for i in (file_identity(v, files[1]) for v in names) if i),
+                            None))
+        elif component == "@feed":
             out.append(f"feed#{feed}" if feed is not None else None)
         elif component == "@flow":
             out.append(flow)
@@ -1199,6 +1208,9 @@ def _parts(components: list[str], row: dict[str, object], canon: dict[str, str],
     return out
 
 
+FILE_COMPONENT = "@file"
+
+
 def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str],
                     keys: KeyConfig, tables: tuple, ctx: FeedContext,
                     g_info: dict[int, tuple], oos: set[int], facts: dict,
@@ -1206,8 +1218,9 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
     """Pair on the sheet's identity, hash-indexed. None when no component
     survives (the caller then treats the sheet as having no identity)."""
     g_canon, a_canon = golden.canon(), agent.canon()
+    files = (_by_sheet(keys.file_columns, name) or [], keys.file_name_tokens)
     g_parts = {n: _parts(components, row, g_canon, tables[0], g_info[n][0],
-                         g_info[n][1] or row_flow(name, row, g_canon, keys))
+                         g_info[n][1] or row_flow(name, row, g_canon, keys), files)
                for n, row in golden.rows if n not in oos}
     def agent_side(n: int, row: dict) -> tuple:
         if ctx.self_check:
@@ -1215,7 +1228,7 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
             return feed, flow or row_flow(name, row, a_canon, keys)
         return feed_of_agent_row(n), row_flow(name, row, a_canon, keys)
 
-    a_parts = {n: _parts(components, row, a_canon, tables[1], *agent_side(n, row))
+    a_parts = {n: _parts(components, row, a_canon, tables[1], *agent_side(n, row), files)
                for n, row in agent.rows}
     keep, dropped = [], []
     for i, component in enumerate(components):
@@ -1235,9 +1248,27 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
     # — it matches a row that states none; any other component left empty
     # makes the identity incomplete.
     flow_at = {i for i in keep if components[i] == "@flow"}
+    # @file (2026-10-14, pair_12: 18 CAQH ADLS rows share feed x flow x table)
+    # tells apart only the rows the other components leave EQUAL: a key that
+    # is unique without it pairs without it, so a file-naming difference never
+    # unpairs a row its table already identifies.
+    file_at = {i for i in keep if components[i] == FILE_COMPONENT}
+    base_keep = [i for i in keep if i not in file_at]
+
+    def base(parts: list[str | None]) -> tuple[str | None, ...]:
+        return tuple("-" if parts[i] is None and i in flow_at else parts[i] for i in base_keep)
+
+    repeated: set[tuple] = set()
+    if file_at:
+        for parts in (g_parts, a_parts):
+            counts = Counter(base(p) for p in parts.values())
+            repeated |= {k for k, c in counts.items() if c > 1}
+        facts["file_refined"] = len(repeated)
 
     def ident(parts: list[str | None]) -> tuple[str, ...] | None:
-        chosen = tuple("-" if parts[i] is None and i in flow_at else parts[i] for i in keep)
+        chosen = base(parts)
+        if chosen in repeated:
+            chosen = (*chosen, *(parts[i] for i in sorted(file_at)))
         return None if any(v is None for v in chosen) else chosen  # type: ignore[return-value]
 
     for side, parts in (("golden", g_parts), ("agent", a_parts)):
@@ -2345,7 +2376,7 @@ def _write_row_keys(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
         g_sheet, a_sheet = d.sides
         key = keys.key_for(d.name)
         used = d.facts.get("key")
-        # an identity component (@feed / @flow / @table) is the tool's vocabulary
+        # an identity component (@feed / @flow / @table / @file) is the tool's vocabulary
         used = (", ".join(c if c.startswith("@") else scr.scrub(c) for c in used)
                 if isinstance(used, list) else str(used))
         g2a = {p.golden[0]: p.agent[0] for p in d.pairs if p.golden and p.agent}

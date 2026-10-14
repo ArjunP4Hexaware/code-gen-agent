@@ -96,6 +96,12 @@ environment_tokens:
 #          fixed flow, else the flow rules (LAYER_NAME / PIPELINE_DESCRIPTION /
 #          PROCESS_NAME — semantic columns, never a generated name).
 #   @table OBJECT_ID -> its table (object_tables above), in its own workbook.
+#   @file  the row's FILE: the first of the sheet's file_columns (below) the row
+#          fills, normalized as a file name (file_name_tokens). Used ONLY to tell
+#          apart rows the other components leave equal (2026-10-14, D1 pair_12:
+#          18 CAQH ADLS rows, one per LOB file, share feed x flow x table) — a
+#          key unique without it pairs without it, so a file-naming difference
+#          never unpairs a row its table already identifies.
 # A component that EVERY row of one side leaves empty is dropped from that
 # sheet's identity (said in a warning) — e.g. the agent's iig_v2 notebook row
 # states no flow, the agent's ids are blank so @table never resolves there. A
@@ -113,13 +119,18 @@ environment_tokens:
 identity:
   DATA_FACTORY_PIPELINE_SCHEDULE: ["@feed", "@flow"]
   FILE_ADLS_INGESTION_DETAILS: ["@feed", "@flow"]
-  ADLS_DELTA_INGESTION_DETAILS: ["@feed", "@flow", TGT_TABLE_NAME]
-  STGDELTA_STDDELTA_INGESTION_DET: ["@feed", "@flow", TGT_TABLE_NAME]
+  ADLS_DELTA_INGESTION_DETAILS: ["@feed", "@flow", TGT_TABLE_NAME, "@file"]
+  STGDELTA_STDDELTA_INGESTION_DET: ["@feed", "@flow", TGT_TABLE_NAME, "@file"]
   ADLS_FIXED_WIDTH_HANDLER: ["@feed", TGT_TABLE, SEGMENT, COL]
   DATA_QUALITY_RULES: ["@feed", "@table", SOURCE_COLUMN, RULE_CLASS]
   DATABRICKS_NOTEBOOK_DETAILS: ["@feed", "@flow"]
   EMAIL_TEMPLATE_CONFIG: ["@feed", "@flow", STATUS]
   ALL_FILES_STATIC_INFORMATION: [FILE_NAME]
+
+# The columns naming a row's file, per sheet (identity @file; first non-blank).
+file_columns:
+  ADLS_DELTA_INGESTION_DETAILS: [SRC_FILE_NAME, OBJECT_NAME]
+  STGDELTA_STDDELTA_INGESTION_DET: [OBJECT_NAME, SRC_FILE_NAME]
 
 # A row's flow without the group index. `sheets`: every row of the sheet is
 # that flow. `rules`: the first rule whose column matches (case-insensitive
@@ -197,7 +208,14 @@ sheet_aliases:
 # SD_X_CCYYMMDD.csv = SD_X_*.csv = SD_X* (the agent's wildcarded / prefix_star
 # SRC_FILE_NAME), and a CAQH-style YYYYMMDD_<n>_<n>_X_*_P_I_1_T.txt =
 # <n>_<n>_X_P_I_1_T* (pair_12, 2026-10-13: a date first, a wildcard inside).
+# The LOB / plan segment suffix (2026-10-14, D1 pair_12: ADLS 18 rows and
+# ALL_FILES -> FILE_ADLS 16 golden / 1 agent, 0 paired): the golden writes a
+# CAQH file <n>_<n>_X* (the suffix collapsed into its wildcard), the agent
+# <n>_<n>_X_P_I_1_T* — a trailing run of two or more one-character segments
+# (after the wildcard, so it runs last) is dropped on both sides: both are
+# <n><n>x. A one-letter segment alone (SD_X_CCYYMMDD) is kept.
 file_name_tokens:
   - '(?<![a-z0-9])(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss)(?:[_-]?(?:ccyy|yyyy|yy|mm|dd|hh24|hh|mi|ss))*(?![a-z0-9])'
   - '(?<!\d)\d{6,8}(?!\d)'
   - '[*?]+'
+  - '(?:[_-][a-z0-9]){2,}(?=[#_-]*$)'

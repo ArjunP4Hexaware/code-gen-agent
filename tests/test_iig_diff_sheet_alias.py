@@ -124,11 +124,14 @@ def test_file_identity_normalizes_case_separators_and_date_tokens() -> None:
     assert iig_diff.file_identity("NW_X_CCYYMMDD_HDR.txt", tokens) == "nwxhdr"
     assert iig_diff.file_identity("NW_X_*_HDR.txt", tokens) == "nwxhdr"
     # pair_12 (CAQH-shaped, synthetic): the inventory puts the date FIRST and a
-    # wildcard INSIDE; the agent's SRC_FILE_NAME drops both and ends in '*'
+    # wildcard INSIDE; the agent's SRC_FILE_NAME drops both and ends in '*';
+    # the prod golden collapses the LOB suffix into its wildcard (2026-10-14)
     caqh = {iig_diff.file_identity(v, tokens) for v in (
         "YYYYMMDD_2041_7310_NW_*_P_I_1_T.txt", "2041_7310_NW_P_I_1_T*",
-        "20261013_2041_7310_NW_P_I_1_T.txt")}
-    assert caqh == {"20417310nwpi1t"}
+        "20261013_2041_7310_NW_P_I_1_T.txt", "*2041_7310_NW*.txt", "2041_7310_NW_P_I_1_T")}
+    assert caqh == {"20417310nw"}
+    # one one-letter segment is a name, not a suffix
+    assert iig_diff.file_identity("NW_X_CCYYMMDD.txt", tokens) == "nwx"
     assert iig_diff.file_identity("2041_7311_NW_P_I_1_T*", tokens) != caqh.pop()
     assert iig_diff.file_identity("NW_Y_CCYYMMDD.txt", tokens) != "nwx"
     assert iig_diff.file_identity("", tokens) is None
@@ -243,3 +246,44 @@ def test_caqh_shaped_names_pair_and_the_file_names_print_d1_only(tmp_path: Path,
     block = printed.split(f"FILE NAMES (D1 only - unscrubbed) {LABEL}")[1]
     assert golden_files[0] in block and agent_files[0] in block
     assert "golden 2 row(s), agent 1 row(s)" in block
+
+
+def test_rows_sharing_feed_flow_table_pair_by_file_despite_a_lob_suffix(tmp_path: Path,
+                                                                         capsys) -> None:
+    """D1 pair_12 (2026-10-14): 18 CAQH ADLS rows share feed x flow x target
+    table — the identity could not tell them apart; the golden names each file
+    ``*<n>_<n>_X*.txt`` (the LOB suffix collapsed into the wildcard), the agent
+    ``<n>_<n>_X_P_I_1_T*``. Identity @file (the normalized SRC_FILE_NAME) splits
+    the 18, the suffix normalizes away: all 18 pair by identity, in any order,
+    and ALL_FILES -> FILE_ADLS (16 golden files, one agent feed row) pairs too.
+    Synthetic names, the same shape."""
+    numbers = [7300 + n for n in range(18)]
+    lob = {n: f"{(i * 37) % 9000 + 100:04d}" for i, n in enumerate(numbers)}
+    head = [*ADLS_HEAD, "LOB"]
+    table = "stg_nw_tpl_dtl"
+    golden_rows = [[None, i + 1, f"*2041_{n}_NW", "Member", "TPL", f"*2041_{n}_NW*.txt",
+                    table, lob[n]] for i, n in enumerate(numbers)]
+    agent_rows = [[None, i + 1, f"2041_{n}_NW_P_I_1_T", "Member", "TPL",
+                   f"2041_{n}_NW_P_I_1_T*", table, lob[n]]
+                  for i, n in enumerate(reversed(numbers))]
+    golden = _book(tmp_path / "golden.xlsx", {
+        ADLS: [head, *golden_rows],
+        V1: [V1_HEAD, *[_row(V1_HEAD, FILE_NAME=f"*2041_{n}_NW*.txt", domain="Member",
+                             subdomain="TPL") for n in numbers[:16]]]})
+    run = tmp_path / "run"
+    book = _book(run / "nw_tpl_dtl" / "nw_tpl_dtl_IIG.xlsx", {
+        V2: [V2_HEAD, _row(V2_HEAD, DOMAIN="Member", SUBDOMAIN="TPL")],
+        ADLS: [head, *agent_rows]})
+    (run / "CODEGEN_BUILD.json").write_text(json.dumps(
+        {"sha": "abc1234", "line": "codegen 0.0.test · build abc1234 on b"}), encoding="utf-8")
+    out = tmp_path / "out"
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(book),
+                          "--out", str(out)]) == 0
+    capsys.readouterr()
+    sheets = json.loads((out / "score.json").read_text(encoding="utf-8"))["sheets"]
+    adls = sheets[ADLS]
+    assert adls["pairing"]["identity"] == 18 and adls["key"][-1] == "@file"
+    # each row pairs with its own file: the LOB beside it agrees on all 18
+    assert adls["column_counts"]["LOB"]["exact"] == 18
+    assert adls["column_counts"]["TGT_TABLE_NAME"]["exact"] == 18
+    assert sheets[LABEL]["pairing"]["identity"] == 16

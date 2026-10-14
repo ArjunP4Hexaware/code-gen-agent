@@ -38,11 +38,18 @@ SCHED, NB, EMAIL = ("DATA_FACTORY_PIPELINE_SCHEDULE", "DATABRICKS_NOTEBOOK_DETAI
 # Columns the corpus fills in >90% of rows that the agent wrote blank before
 # 2026-10-13 (tools/iig_fill_rate.py, the home goldens) — each now filled.
 FILLED_NOW = {
-    SCHED: ["APPLICATION_NAME"],
-    NB: ["PIPELINE_NAME", "PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH"],
+    SCHED: [],
+    NB: ["PIPELINE_NAME", "DATABRICKS_NOTEBOOK_PATH"],
     EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SUBJECT", "BODY", "SENDER_NAME", "SENDER_EMAIL"],
 }
-OPEN_GAPS = {SCHED: ["ACTIVE_START_DATE"], NB: [], EMAIL: []}
+# 2026-10-14 (D1 post43 item 3b): the 199-IIG corpus disagrees with the home
+# goldens — schedule APPLICATION_NAME / notebook PROCESS_NAME are per-feed there,
+# DAY_OF_SCHEDULE is filled in 3.5% of rows. Blank with a NOTE (pending_cells)
+# until the corpus patterns report: the home goldens still fill them, so the
+# home tool calls them gaps.
+PENDING = {SCHED: ["APPLICATION_NAME", "DAY_OF_SCHEDULE"], NB: ["PROCESS_NAME"]}
+OPEN_GAPS = {SCHED: ["DAY_OF_SCHEDULE", "ACTIVE_START_DATE", "APPLICATION_NAME"],
+             NB: ["PROCESS_NAME"], EMAIL: []}
 
 pytestmark = pytest.mark.skipif(not all(p.exists() for p in CORPUS),
                                 reason="committed goldens absent")
@@ -66,8 +73,11 @@ def test_every_corpus_filled_column_is_filled_now(generated):
                 value = row[column][0]
                 assert value not in (None, ""), (sheet, column)
     notebook = _rows(xlsx, NB)
-    assert [r["PROCESS_NAME"][0].split(" Load for ")[0] for r in notebook] == ["Stage",
-                                                                              "Standard"]
+    for sheet, columns in PENDING.items():
+        for row in _rows(xlsx, sheet):
+            assert all(row[c][0] in (None, "") for c in columns), (sheet, columns)
+    # the corpus's one value, as prod stores it (a datetime)
+    assert {r["ACTIVE_END_DATE"][0] for r in _rows(xlsx, SCHED)} == {"9999-12-31 00:00:00"}
     assert all(r["DATABRICKS_NOTEBOOK_PATH"][0] == "/Workspace/iig/"
                + r["DATABRICKS_NOTEBOOK_NAME"][0] for r in notebook)
     schedule = {r["PIPELINE_DESCRIPTION"][0]: r["PIPELINE_NAME"][0] for r in _rows(xlsx, SCHED)}
@@ -81,6 +91,8 @@ def test_every_corpus_filled_column_is_filled_now(generated):
     # one NOTE per derived column (the same text on every row: said once)
     derived = [f for f in gate.flags if f.startswith("iig_derived:")]
     assert len(derived) == sum(len(c) for c in FILLED_NOW.values()) == len(set(derived))
+    pending = sorted(f.split(" — ")[0] for f in gate.flags if f.startswith("iig_pending:"))
+    assert pending == sorted(f"iig_pending:{s}.{c}" for s, cs in PENDING.items() for c in cs)
 
 
 def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, capsys):
@@ -94,6 +106,8 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
         assert gaps == expected, sheet
         for column in FILLED_NOW[sheet]:
             assert report[sheet]["columns"][column]["agent_pct"] == 100.0, (sheet, column)
+        for column in PENDING.get(sheet, []):
+            assert report[sheet]["columns"][column]["agent_pct"] == 0.0, (sheet, column)
     # ids / workspace / audit stamps are assigned, never a gap to fill
     nb = report[NB]["columns"]
     for column in ("PIPELINE_ID", "GROUP_ID", "DATABRICKS_WORKSPACE_URL",
@@ -102,7 +116,8 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
     # corpus values are production text: withheld unless --show-values
     assert all(c["dominant_value"] is None for s in report.values()
                for c in s["columns"].values())
-    assert "GAPS (1): ACTIVE_START_DATE" in capsys.readouterr().out
+    assert "GAPS (3): DAY_OF_SCHEDULE, ACTIVE_START_DATE, APPLICATION_NAME" in (
+        capsys.readouterr().out)
 
 
 def test_fill_rate_statuses_on_a_synthetic_corpus(tmp_path):

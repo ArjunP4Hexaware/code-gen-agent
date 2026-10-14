@@ -92,6 +92,23 @@ def _with_constants(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
     for header, offer in tpl.open_offers.get(tab, {}).items():
         if header not in cells:
             cells[header] = _cell("", "needs_template", _OPEN_OFFER_TOOLTIP.format(offer=offer))
+    return _pending(tpl, tab, cells)
+
+
+def _pending(tpl: MetadataTemplateConfig, tab: str, cells: dict) -> dict:
+    """``pending_cells`` (2026-10-14): a template constant or derivation is
+    taken back to an open cell until the IIG corpus's patterns say how prod
+    fills the column; a value an input states (FAQ) stays. One NOTE per column
+    (the same text on every row, said once)."""
+    for header, why in tpl.pending_cells.get(tab, {}).items():
+        current = cells.get(header)
+        if current is not None and current["badge_entry"]["badge"] != "synthetic":
+            continue
+        cell = _cell("", "needs_template", f"open until the corpus patterns report: {why}")
+        cell["badge_entry"]["note"] = (
+            f"iig_pending:{tab}.{header} — left blank until tools/iig_fill_rate.py "
+            f"--patterns says how the IIG corpus fills it: {why}")
+        cells[header] = cell
     return cells
 
 

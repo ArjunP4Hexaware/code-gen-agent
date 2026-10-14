@@ -72,7 +72,15 @@ metadata:
           # has_trailer answer still wins (derived cells are never overwritten).
           HEADER_FLAG: "Y"
           FILE_FOOTER_FLAG: "N"
+        # 2026-10-14 (D1 post43 item 3b): the corpus is 100% one value and it is
+        # a datetime - the D1 pair_2 golden rows read '9999-12-31 00:00:00'
+        # (acfc-results round5 pair_2 mismatches.md); the shipped '9999-12-31'
+        # (the IIG workbooks' spelling) was 6 mismatches.
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          ACTIVE_END_DATE: "9999-12-31 00:00:00"
       constant_citations:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          ACTIVE_END_DATE: "the IIG corpus (D1, 2026-10-14): ACTIVE_END_DATE 100% one value; the pair_2 golden rows '9999-12-31 00:00:00' (acfc-results round5 pair_2)"
         ADLS_DELTA_INGESTION_DETAILS:
           HEADER_FLAG: &refs "both reference IIGs agree (fixtures/reference/SFMC_IIG.xlsx, fixtures/acfc_shapes/pair_1/golden/RFC_ACCUMULATORS_IIG.xlsx ADLS_DELTA_INGESTION_DETAILS) and so do the SD prod rows (round 6)"
           FILE_FOOTER_FLAG: *refs
@@ -151,12 +159,13 @@ metadata:
       # the audit stamps stay always_blank: assigned, never invented.
       # ACTIVE_START_DATE (a per-RFC go-live date: no document states it, no value
       # dominates) and BODY_QUERY (one golden, a feed-specific query) stay open.
+      # 2026-10-14 (D1 post43 item 3b): schedule APPLICATION_NAME (corpus dominant
+      # 38.8%) and notebook PROCESS_NAME (19.6%) are per-feed in prod, not the
+      # home goldens' shapes - taken back to blank (pending_cells, below) until
+      # the corpus patterns report says how prod builds them.
       derived_cells:
-        DATA_FACTORY_PIPELINE_SCHEDULE:
-          APPLICATION_NAME: "{source}"
         DATABRICKS_NOTEBOOK_DETAILS:
           PIPELINE_NAME: "{pipeline}"
-          PROCESS_NAME: "{layer} Load for {source}"
           DATABRICKS_NOTEBOOK_PATH: "/Workspace/iig/{notebook}"
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "{source}"
@@ -166,11 +175,8 @@ metadata:
           SENDER_NAME: "dbo"
           SENDER_EMAIL: "{sender}"
       derived_citations:
-        DATA_FACTORY_PIPELINE_SCHEDULE:
-          APPLICATION_NAME: "corpus fill rate 2026-10-13: the application = the feed's data source (CAQH golden: every row); an FAQ process_name wins"
         DATABRICKS_NOTEBOOK_DETAILS:
           PIPELINE_NAME: "the notebook runs in its leg's pipeline: the DATA_FACTORY_PIPELINE_SCHEDULE name of the file_to_stage / stage_to_standard row (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!B2 / B3 = DATA_FACTORY_PIPELINE_SCHEDULE!B2 / B3)"
-          PROCESS_NAME: "corpus fill rate 2026-10-13: '<Stage|Standard> Load for <source>' (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!E2 / E3; the CAQH golden's two rows); an FAQ process_name wins"
           DATABRICKS_NOTEBOOK_PATH: "corpus fill rate 2026-10-13: the generic notebooks' folder + the notebook name (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!K2 / K3; the CAQH golden's standard row)"
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "corpus fill rate 2026-10-13: the process label (SFMC / CAQH goldens: the schedule's PROCESS_NAME, '<source> <subprocess>' - the documents state the source only); an FAQ process_name wins"
@@ -179,6 +185,16 @@ metadata:
           BODY: "corpus fill rate 2026-10-13: '<source> Files Load Process Completed | Failed' by STATUS (SFMC IIG EMAIL_TEMPLATE_CONFIG!F2 / F3; the CAQH golden's two rows)"
           SENDER_NAME: "corpus fill rate 2026-10-13: the dominant constant (SFMC IIG EMAIL_TEMPLATE_CONFIG!G2 / G3, the CAQH golden's two rows; 4 of 6 home rows)"
           SENDER_EMAIL: "job.notification_sender (env CODEGEN_NOTIFICATION_SENDER; the tracked value is a synthetic stand-in) - every golden row states a sender address"
+      # 2026-10-14 (D1 post43 item 3b): blank with a NOTE until the 199-IIG corpus
+      # patterns report (tools/iig_fill_rate.py --patterns) exists; an FAQ
+      # process_name still wins. Kept: ACTIVE_FLAG, SEQ_NM, TGT_REFRESH_TYPE,
+      # NO_OF_CYCLE_PER_DAY (the corpus agrees).
+      pending_cells:
+        DATA_FACTORY_PIPELINE_SCHEDULE:
+          APPLICATION_NAME: "per-feed in the corpus (dominant value 38.8%); the post43 {source} shape came from the home goldens"
+          DAY_OF_SCHEDULE: "the corpus fills it in 3.5% of rows (the shipped '0' filled 100%); its fill per PIPELINE_FREQUENCY decides"
+        DATABRICKS_NOTEBOOK_DETAILS:
+          PROCESS_NAME: "per-feed in the corpus (dominant value 19.6%); the post43 '<layer> Load for {source}' shape came from the home goldens"
       always_blank: [PIPELINE_ID, PARENT_PIPELINE_ID, GROUP_ID, OBJECT_ID, SRC_CONNECTION_ID,
         TGT_STORAGE_ACCOUNT_NAME, DATABRICKS_WORKSPACE_URL, DATABRICKS_WORKSPACE_SECRET,
         DATABRICKS_CLUSTERID, CLUSTER_DETAILS_ID, TEMPLATE_ID, CREATED_DATE, UPDATED_DATE]

@@ -1272,6 +1272,12 @@ class MetadataTemplateConfig(BaseModel):
     # (iig_derived) and its citation; a token with no value leaves it open.
     derived_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
     derived_citations: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 2026-10-14 (D1 post43 item 3b): columns left BLANK until the corpus
+    # patterns report (tools/iig_fill_rate.py --patterns) says how prod fills
+    # them — tab -> header -> why. Overrides a template constant or derivation
+    # (badge synthetic), never a value an input states (an FAQ answer); one
+    # NOTE per column (iig_pending:<TAB>.<HEADER>).
+    pending_cells: dict[str, dict[str, str]] = Field(default_factory=dict)
     # The same for a path_patterns shape an overlay supplies: {tab: {header:
     # citation}}; a shape without one cites ``citation`` (the template).
     path_citations: dict[str, dict[str, str]] = Field(default_factory=dict)

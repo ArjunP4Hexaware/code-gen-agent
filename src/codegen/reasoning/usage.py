@@ -9,7 +9,7 @@ payloads, the generation report, the CLI line) renders from a
 * a mock provider answered (a lock, a fallback, a dry-run, a test)
     -> "Mock provider (reason: <why>)"
 * a live provider answered
-    -> "Claude Opus 5 (databricks-claude-opus-5) · N call(s)"
+    -> "Claude Opus 5.5 (databricks-claude-opus-5-5) · N call(s)"
 
 ``calls`` counts model round-trips actually sent (schema-validation retries
 included); a mock never sends one. ``mock_reason`` is set on every mock the
@@ -29,8 +29,8 @@ LIVE_PROVIDERS = ("databricks_fmapi", "anthropic")
 
 
 def model_display_name(model: str | None) -> str:
-    """``claude-opus-5`` -> ``Claude Opus 5``; ``claude-opus-4-8`` ->
-    ``Claude Opus 4.8``. Anything else is shown as written."""
+    """``claude-opus-5-5`` -> ``Claude Opus 5.5``; ``claude-opus-5`` ->
+    ``Claude Opus 5``. Anything else is shown as written."""
     if not model:
         return "model (unnamed)"
     parts = model.split("-")

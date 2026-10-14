@@ -264,12 +264,12 @@ def test_live_posture_queries_the_configured_endpoint(config, monkeypatch):
                               base_dir=REPO)
     # ... and only the provider switch's LIVE lets it query the endpoint.
     monkeypatch.setenv("CODEGEN_PROVIDER", "live")
-    live = _with_layout(config, provider="live", endpoint="databricks-claude-opus-5")
+    live = _with_layout(config, provider="live", endpoint="databricks-claude-opus-5-5")
     # Layer 2 mock-locked: the recognizer's own opt-in still stands ...
     monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
     provider = build_layout_provider(live, dry_run=False, base_dir=REPO)
     assert isinstance(provider, FmapiLayoutProvider)
-    assert provider._endpoint == "databricks-claude-opus-5"  # noqa: SLF001
+    assert provider._endpoint == "databricks-claude-opus-5-5"  # noqa: SLF001
     # ... while dry-run and the recognizer's own lock force the mock.
     assert isinstance(build_layout_provider(live, dry_run=True, base_dir=REPO),
                       MockLayoutProvider)

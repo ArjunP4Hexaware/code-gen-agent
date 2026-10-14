@@ -2,7 +2,7 @@
 
 Program policy: Anthropic is the sole model vendor; inside a Databricks
 workspace the intended transport is the **Databricks Foundation Model
-serving endpoint** (``databricks.serving_endpoint``, a Claude Opus 5
+serving endpoint** (``databricks.serving_endpoint``, a Claude Opus 5.5
 endpoint) — a transport, not a vendor change. This module is the ONE place
 that decides:
 

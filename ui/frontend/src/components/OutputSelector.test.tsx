@@ -25,9 +25,9 @@ describe("OutputSelector", () => {
 
 describe("ModelUsageList", () => {
   const stage = (over: Partial<StageUsage>): StageUsage => ({
-    stage: "layer2", provider: "databricks_fmapi", endpoint: "databricks-claude-opus-5",
-    model: "claude-opus-5", calls: 3, requests: 3, failed: 0, mock_reason: null,
-    recorded_provider: null, label: "Claude Opus 5 (databricks-claude-opus-5) · 3 call(s)",
+    stage: "layer2", provider: "databricks_fmapi", endpoint: "databricks-claude-opus-5-5",
+    model: "claude-opus-5-5", calls: 3, requests: 3, failed: 0, mock_reason: null,
+    recorded_provider: null, label: "Claude Opus 5.5 (databricks-claude-opus-5-5) · 3 call(s)",
     forced_mock: false, ...over,
   });
 
@@ -40,7 +40,7 @@ describe("ModelUsageList", () => {
       ]} />,
     );
     expect(html).toContain("Layout recognizer:</strong> Resolved from the documents (no model call needed)");
-    expect(html).toContain("Layer 2 (rule reasoning):</strong> Claude Opus 5 (databricks-claude-opus-5) · 3 call(s)");
+    expect(html).toContain("Layer 2 (rule reasoning):</strong> Claude Opus 5.5 (databricks-claude-opus-5-5) · 3 call(s)");
     expect(html.toLowerCase()).not.toContain("mock");
   });
 

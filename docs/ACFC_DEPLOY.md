@@ -35,13 +35,13 @@ databricks:
   frd_volume: <raw FRD volume>
   sttm_volume: <raw STTM volume>
   output_volume: <publish volume>
-  serving_endpoint: databricks-claude-opus-5
+  serving_endpoint: databricks-claude-opus-5-5
 conventions:
   profile: acfc_prx
   default_catalog: {stage: <stage catalog>, standard: <standard catalog>}
 metadata: {template: iig_v2}
 playbook: {template: main_single}
-layout: {provider: live, endpoint: databricks-claude-opus-5}
+layout: {provider: live, endpoint: databricks-claude-opus-5-5}
 ```
 
 | Section | Key | Why |
@@ -218,13 +218,13 @@ GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.<schema>.<publish volume>   
 `CAN_QUERY` on the serving endpoint (not SQL — an endpoint permission):
 
 - **Declaratively (preferred):** App → Edit → **Resources** → add *Serving
-  endpoint* `databricks-claude-opus-5`, permission **Can query**, key
+  endpoint* `databricks-claude-opus-5-5`, permission **Can query**, key
   `llm-endpoint`. The platform grants the App's service principal the
   permission on deploy.
 - **Or by CLI:**
 
   ```bash
-  databricks serving-endpoints get databricks-claude-opus-5        # -> id
+  databricks serving-endpoints get databricks-claude-opus-5-5        # -> id
   databricks serving-endpoints update-permissions <endpoint-id> --json \
     '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_QUERY"}]}'
   ```

@@ -40,7 +40,7 @@ needs_demo_pair = pytest.mark.skipif(
     reason="demo fixture pair not restored (removed 2026-08-22)",
 )
 
-LIVE_LABEL_PREFIX = "Claude Opus 5 (databricks-claude-opus-5) · "
+LIVE_LABEL_PREFIX = "Claude Opus 5.5 (databricks-claude-opus-5-5) · "
 LOCKED_LABEL = "Mock provider (reason: CODEGEN_FORCE_MOCK_PROVIDER)"
 
 
@@ -49,8 +49,8 @@ class _LiveStub:
     call counter, no network."""
 
     name = "databricks_fmapi"
-    endpoint = "databricks-claude-opus-5"
-    model = "claude-opus-5"
+    endpoint = "databricks-claude-opus-5-5"
+    model = "claude-opus-5-5"
 
     def __init__(self) -> None:
         self.calls = 0
@@ -66,9 +66,9 @@ class _LiveStub:
 
 def test_the_three_label_shapes():
     live = StageUsage(stage="layer2", provider="databricks_fmapi",
-                      endpoint="databricks-claude-opus-5", model="claude-opus-5",
+                      endpoint="databricks-claude-opus-5-5", model="claude-opus-5-5",
                       calls=3, requests=3)
-    assert live.label == "Claude Opus 5 (databricks-claude-opus-5) · 3 call(s)"
+    assert live.label == "Claude Opus 5.5 (databricks-claude-opus-5-5) · 3 call(s)"
     assert StageUsage(stage="layout", provider="mock", requests=0).label == NO_CALL_NEEDED
     locked = StageUsage(stage="layer2", provider="mock", requests=2,
                         mock_reason="CODEGEN_FORCE_MOCK_PROVIDER")

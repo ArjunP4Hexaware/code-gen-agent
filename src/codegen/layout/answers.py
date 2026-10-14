@@ -57,7 +57,13 @@ class AnswersFile:
     pairing: dict[str, dict] = field(default_factory=dict)
 
 
-_ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value"}
+_ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value",
+               # the answers template's reading aids (codegen.layout.answers_template)
+               "question", "candidates"}
+
+
+def _blank(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _is_band_entry(entry: dict) -> bool:
@@ -72,7 +78,11 @@ def load_answers(path: Path) -> AnswersFile:
     if not isinstance(raw, dict) or set(raw) - {"answers", "gaps", "pairing"}:
         raise AnswersFileError(
             f"{path}: expected a mapping with `answers`, `gaps` and / or `pairing`")
-    entries = raw.get("answers") or []
+    # 2026-10-13: an answers TEMPLATE entry left empty is not an answer — it
+    # is skipped and its question stays open (codegen.layout.answers_template).
+    entries = [e for e in raw.get("answers") or []
+               if not (isinstance(e, dict) and {"column", "value"} & set(e)
+                       and all(_blank(e.get(k)) for k in ("column", "value")))]
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict) or set(entry) - _ENTRY_KEYS:
             raise AnswersFileError(f"{path}: answers[{index}] has unknown keys "
@@ -93,7 +103,8 @@ def load_answers(path: Path) -> AnswersFile:
         if entry.get("document", "sttm") not in ("sttm", "vdd"):
             raise AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
                                    "(FRD cells are placed with `gaps` / in the dialog)")
-    gaps = raw.get("gaps") or {}
+    gaps = {key: value for key, value in (raw.get("gaps") or {}).items()
+            if not (isinstance(value, dict) and _blank(value.get("value")))}
     for value in gaps.values():
         # `{value: 13}` (a byte width) is YAML's integer: read as its text.
         stated = value.get("value") if isinstance(value, dict) else None

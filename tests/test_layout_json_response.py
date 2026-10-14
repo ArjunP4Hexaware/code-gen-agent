@@ -40,7 +40,7 @@ PREAMBLED = ("Here is the completed layout profile for the {sheet} you sent. I p
 
 @pytest.fixture(scope="module")
 def config():
-    import pre_m9_vocabulary       # pair 1 leaves its target roles open: a model call
+    import pre_m9_vocabulary  # pair 1 leaves its target roles open: a model call
 
     shipped = load_config(REPO / "config" / "config.yaml")
     stripped = pre_m9_vocabulary.strip(shipped)

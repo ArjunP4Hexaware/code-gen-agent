@@ -346,6 +346,10 @@ class DiscoveryConfig(BaseModel):
     # sheet kind -> alternatives, each a list of header tokens that must ALL
     # appear (normalized substring) on one of the first rows.
     auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)
+    # 2026-10-13 (D1 pair_11): sheet names (``normalize`` form) that are the
+    # workbook's METADATA, never a feed — a "Table_Details" sheet whose short
+    # "Stage Table | Standard Table" header row reads like a band row.
+    metadata_sheet_names: list[str] = Field(default_factory=list)
     yes_values: list[str] = Field(default_factory=list)
     no_values: list[str] = Field(default_factory=list)
     # Validator thresholds (M2.5 §4).
@@ -405,6 +409,10 @@ class FrdExtractorConfig(BaseModel):
     # Ingestion" — an ingestion type) is never a format candidate; the file
     # pattern's extension decides. Empty = every cell counts (the old reading).
     format_tokens: list[str] = Field(default_factory=list)
+    # 2026-10-13 (D1 pair_11): a format cell that says only "a text file"
+    # (``normalize`` form) names no layout; a .csv / .psv / .tsv / .txt
+    # extension the documents state decides (a NOTE), never a question.
+    generic_text_formats: list[str] = Field(default_factory=list)
     # M7: fields whose value must be one line — a nested table, per-file
     # blocks, a label-prefixed description or remaining line breaks make
     # them unstated (StructuredValue) instead of a value.

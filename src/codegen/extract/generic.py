@@ -450,11 +450,11 @@ def _open_band_layers(sheet: SheetData, ir: GenericIR) -> list[PendingAnswer]:
     """Chunk A: a sheet with a band whose layer no evidence names is not
     read into a feed until the band is answered (source | stage | standard)
     — its stage / standard bands may be the wrong columns."""
-    from codegen.layout.profile import BAND_LAYER_ROLE, BAND_REF_RE
+    from codegen.layout.profile import BAND_LAYER_CHOICES, BAND_LAYER_ROLE, BAND_REF_RE
 
     name = sheet.profile.name
     return [PendingAnswer(feed_name=name, sheet=name, key=f"{name}/{u.layer}/{u.role}",
-                          reason=u.reason)
+                          reason=u.reason, candidates=list(BAND_LAYER_CHOICES))
             for u in ir.profile.unresolved_for(name)
             if BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE]
 
@@ -469,7 +469,8 @@ def _open_required_roles(sheet: SheetData, ir: GenericIR, stop: str) -> list[Pen
 
     name = sheet.profile.name
     return [PendingAnswer(feed_name=name, sheet=name, key=f"{name}/{u.layer}/{u.role}",
-                          reason=f"{u.reason} ({stop})")
+                          reason=f"{u.reason} ({stop})",
+                          candidates=[get_column_letter(c) for c in u.candidates])
             for u in ir.profile.unresolved_for(name)
             if u.role != BAND_LAYER_ROLE and is_required_role(u.layer, u.role)]
 
@@ -1003,6 +1004,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             # the feed waits for the answer, the others extract.
             raise NeedsAnswers([PendingAnswer(
                 feed_name=feed.feed_name, sheet=name, key=prefix + "file_name_patterns",
+                candidates=list(dict.fromkeys(patterns)),
                 reason=(f"File for table {feed.feed_name}: the FRD names no file for this "
                         f"feed and the workbook lists {len(distinct)} {patterns}; answer "
                         f"`{prefix}file_name_patterns` under gaps: (the layout question) - "

@@ -162,6 +162,10 @@ class PendingAnswer(BaseModel):
     sheet: str
     key: str              # the answers.yaml `gaps:` key, e.g. feeds[0].stage_target.schema
     reason: str           # which cells / sources were read and found blank
+    # 2026-10-13: the values a person chooses among (the files a sheet may
+    # map, a band's layers, the columns a role may sit in) — the answers
+    # template lists them. Absent from the JSON when empty.
+    candidates: list[str] = Field(default_factory=list)
 
 
 class AuxiliarySheet(BaseModel):

@@ -401,6 +401,9 @@ def _print_file_elimination_notes(flags: list[str]) -> None:
     for flag in flags:
         match = (re.match(r"^frd_unstated:(feeds\[\d+\]\.file_name_patterns) (.*\(by "
                           r"elimination: .*)$", flag)
+                 # 2026-10-13: a file taken by the sheet's best name match
+                 or re.match(r"^frd_unstated:(feeds\[\d+\]\.file_name_patterns) (.*\(best "
+                             r"name match: .*)$", flag)
                  # round 4: a blank STTM Schema column filled from the FRD's one schema
                  or re.match(rf"^{TARGET_FROM_FRD}:(feeds\[\d+\]\.\w+_target\.schema) (.*)$",
                              flag)
@@ -410,6 +413,39 @@ def _print_file_elimination_notes(flags: list[str]) -> None:
         if match:
             print(answer_line("NOTE", match.group(1),
                               f"{match.group(2)} — informational, not required to run"))
+
+
+def _template_path(args: argparse.Namespace, beside: str | None) -> Path | None:
+    """Where the answers template goes: ``--answers-template``, else beside
+    the stage's own output file (the run's folder)."""
+    from codegen.layout.answers_template import TEMPLATE_NAME
+
+    chosen = getattr(args, "answers_template", None)
+    if chosen:
+        return Path(chosen)
+    return Path(beside).parent / TEMPLATE_NAME if beside else None
+
+
+def _write_template(target: Path | None, items: list, stage: str, *, merge: bool) -> None:
+    """2026-10-13 (D1 pair_11): every open question in one file — key, why,
+    candidates, an empty value — filled in the workspace and passed back with
+    --answers (codegen.layout.answers_template)."""
+    if target is None or not items:
+        return
+    from codegen.layout.answers_template import write_answers_template
+
+    written = write_answers_template(target, items, stage=stage, merge=merge)
+    print(f"{'ANSWERS FILE':<15} {written} — {len(items)} question(s) with their "
+          "candidates and an empty value; fill it and rerun with --answers "
+          f"{written}")
+
+
+def _pending_items(pending) -> list:
+    from codegen.extract.generic import answers_section
+    from codegen.layout.answers_template import TemplateItem
+
+    return [TemplateItem(p.key, f"{p.reason} (feed {p.feed_name}, sheet {p.sheet})",
+                         list(p.candidates), answers_section(p.key)) for p in pending]
 
 
 def _print_needs_answers(pending) -> None:
@@ -535,15 +571,25 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         _print_needs_answers(exc.pending)
         print(f"{'NOT EXTRACTED':<15} {args.out} — every feed needs an answer (no contract "
               "written)")
+        _write_template(_template_path(args, args.out), _pending_items(exc.pending),
+                        "extract-sttm", merge=True)
         return EXIT_NEEDS_ANSWERS
     except UnresolvedLayoutError as exc:
         # --require-complete and the layout leaves roles open: the answers file
         # places them; nothing extracted, exit 3.
+        from openpyxl.utils import get_column_letter
+
+        from codegen.layout.answers_template import TemplateItem
+
         for role in exc.unresolved:
             print(answer_line("UNRESOLVED", f"{role.sheet}/{role.layer}/{role.role}",
                               f"{role.reason} (place it under answers: in answers.yaml)"))
         print(f"{'NOT EXTRACTED':<15} {args.out} — {len(exc.unresolved)} layout role(s) open "
               "(--require-complete)")
+        _write_template(_template_path(args, args.out), [
+            TemplateItem(f"{r.sheet}/{r.layer}/{r.role}", r.reason,
+                         [get_column_letter(c) for c in r.candidates], "answers")
+            for r in exc.unresolved], "extract-sttm", merge=True)
         return EXIT_NEEDS_ANSWERS
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
         print(f"{'FAIL':<15} extract-sttm — {exc}")
@@ -554,8 +600,10 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         print(answer_line("NOTE", "frd.split", contract.frd_split.flags[0]))
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.feeds)} feed(s): {feeds}")
     # Some feeds produced a contract: it is written and the exit is 0; the
-    # held-back sheets still print their QUESTION lines.
+    # held-back sheets still print their QUESTION lines (and the template).
     _print_needs_answers(contract.needs_answers)
+    _write_template(_template_path(args, args.out), _pending_items(contract.needs_answers),
+                    "extract-sttm", merge=True)
     return EXIT_OK
 
 
@@ -1013,8 +1061,28 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         if owed:
             print(f"{'NEEDS_ANSWERS':<15} layout — {len(owed)} answer(s) owed "
                   "(--require-complete); nothing is wrong with the documents")
+            _write_template(_template_path(args, args.frd_contract_out or args.profile_out),
+                            _question_items(owed), "layout", merge=False)
             return EXIT_NEEDS_ANSWERS
     return 0
+
+
+def _question_items(questions) -> list:
+    """Layout questions as answers-template items: a column placement under
+    answers: (its candidate headers), every other question under gaps: (its
+    candidate values)."""
+    from codegen.layout.answers_template import TemplateItem
+
+    items = []
+    for q in questions:
+        if q.kind == "role" and q.document != "frd":
+            candidates = [str(c.get("header") or c.get("col")) for c in q.candidates]
+            items.append(TemplateItem(q.key, q.reason, candidates, "answers"))
+        else:
+            candidates = [str(c.get("value") if "value" in c else c.get("layer"))
+                          for c in q.candidates]
+            items.append(TemplateItem(q.key, q.reason, candidates, "gaps"))
+    return items
 
 
 def _extract_vdd(args: argparse.Namespace, config: Config) -> int:
@@ -1547,6 +1615,10 @@ def _main(argv: list[str] | None = None) -> int:
                                            "called")
     extract.add_argument("--require-complete", action="store_true",
                          help="refuse when the layout has unresolved roles")
+    extract.add_argument("--answers-template", dest="answers_template", default=None,
+                         help="where to write the answers template when answers are owed "
+                              "(default: answers_template.yaml beside --out; questions a "
+                              "layout run wrote there are kept)")
 
     layout = subparsers.add_parser(
         "layout",
@@ -1581,6 +1653,10 @@ def _main(argv: list[str] | None = None) -> int:
                              "columns — structural labels only, no data rows")
     layout.add_argument("--require-complete", action="store_true",
                         help="print the open questions and exit non-zero when roles remain")
+    layout.add_argument("--answers-template", dest="answers_template", default=None,
+                        help="with --require-complete: where to write the open questions as an "
+                             "answers template (default: answers_template.yaml beside "
+                             "--frd-contract-out / --profile-out)")
 
     pair = subparsers.add_parser(
         "pair",

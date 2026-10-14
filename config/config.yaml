@@ -250,6 +250,12 @@ extractor:
       layout: [["field name", "type", "length", "start", "end"]]
       version: [["version", "date"]]
       lob_crosswalk: [["lob"]]
+    # 2026-10-13 (D1 pair_11): a sheet with one of these names (normalized:
+    # case, separators) is the workbook's metadata - classified table_details,
+    # never a mapping sheet, so never a feed. A mapping-shaped sheet on which
+    # NO role resolves while another sheet maps fields is metadata too.
+    metadata_sheet_names: ["table details", "table detail", "tables details", "table list",
+                           "tables list", "table metadata", "target tables"]
     yes_values: ["yes", "y", "true", "x", "required", "mandatory", "m", "not null", "1"]
     no_values: ["no", "n", "false", "optional", "situational", "s", "null", "0", "nullable"]
     # Validator plausibility thresholds (M2.5 §4): share of data cells under
@@ -381,6 +387,12 @@ extractor:
     format_tokens: [csv, psv, tsv, pipe, comma, tab, semicolon, delimited, delimiter,
                     separated, fixed, fixed width, fixed-width, fixedwidth, positional, json,
                     parquet, avro, orc, xml, txt, text, dat, excel, xlsx, xls]
+    # 2026-10-13 (D1 pair_11, "Text files" vs the STTM's csv): a format cell
+    # that names only a text file says nothing about its layout - the file's
+    # extension (csv / psv / tsv / txt, from the patterns or the STTM / VDD
+    # format cell) decides, printed as a NOTE.
+    generic_text_formats: ["text", "texts", "text file", "text files", "flat file",
+                           "flat files", "txt", "txt file", "txt files", "text format"]
     # Fields read as ONE line: a nested table, per-file blocks ("<File> file
     # Ingestion from <Src>:" headings with "Domain = ..." lines), a
     # label-prefixed description ("Vendor Files = ...") or a remaining line

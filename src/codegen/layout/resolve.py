@@ -1669,6 +1669,8 @@ _GAP_FIELDS = ("file_format", "delimiter", "frequency", "stage_target.load_strat
 _STTM_AUTHORITATIVE = ("stage_target.schema", "stage_target.tables")
 # Round 7: the file-name extensions that state a format (_FeedGapFiller._file_format).
 _FORMAT_EXTENSIONS = ("csv", "psv", "tsv")
+# A generic "text file" format cell: these extensions decide (2026-10-13).
+_TEXT_EXTENSIONS = ("csv", "psv", "tsv", "txt")
 
 
 def _cell_row(cell: str) -> tuple[str, str]:
@@ -1768,6 +1770,74 @@ def _mutual_unique_matches(tables: list[str], files: list[str]) -> dict[str, str
             if len(fs) == 1 and reverse[fs[0]] == [t]}
 
 
+def file_identity(name: str) -> str:
+    """One file however the documents spell it (2026-10-13, D1 pair_11): the
+    FRD's "X_DNC_Report_MMDDYYYY.csv" and File Details' "X_DNC_Report_*.csv"
+    are the same file — case, separators, folder, extension and date /
+    wildcard tokens dropped."""
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", PurePosixPath(name.strip()).name)
+    tokens = [t for t in re.split(r"[^a-z0-9*]+", stem.lower()) if t]
+    kept = [t for t in tokens if not _FILE_DATE_TOKEN.match(t) and not _DATE_TOKEN.match(t)]
+    return "_".join(kept) or normalize(name)
+
+
+def _same_word(a: str, b: str) -> bool:
+    """Equal, or one the other's prefix ("repor" = "report": a sheet title
+    cut at 31 characters)."""
+    return a == b or (min(len(a), len(b)) >= 4 and (a.startswith(b) or b.startswith(a)))
+
+
+def _match_score(sheet_tokens: set[str], file_tokens: set[str]) -> float:
+    """Jaccard overlap of two token sets (``_same_word`` equality)."""
+    if not sheet_tokens or not file_tokens:
+        return 0.0
+    shared = sum(1 for s in sheet_tokens if any(_same_word(s, f) for f in file_tokens))
+    return shared / (len(sheet_tokens) + len(file_tokens) - shared)
+
+
+def best_file_matches(sheets: dict[str, set[str]], files: list[str], *,
+                      shared_sheet: set[str] | None = None, shared_file: set[str] | None = None
+                      ) -> tuple[dict[str, tuple[str, float, list[str]]],
+                                 dict[str, list[tuple[str, float]]]]:
+    """2026-10-13 (D1 pair_11, five file questions): each sheet against the
+    files by token overlap — its title, its File Name row, its feed label.
+    Tokens every file shares (the vendor prefix) and tokens every sheet shares
+    carry nothing and are dropped (``shared_sheet`` / ``shared_file``: computed
+    over ALL the workbook's sheets / files when the caller passes the open
+    ones only — a family word like "risk" is no evidence). A sheet whose best score is unique and
+    above zero takes that file, unless another sheet scores the same file as
+    high or higher (then it is asked). Returns (sheet -> (file, score, the
+    words that matched)) and (sheet -> its tied best (file, score)) for the
+    sheets left to ask."""
+    file_tokens = {f: _name_tokens(f) for f in files}
+    if shared_file is None:
+        shared_file = set.intersection(*file_tokens.values()) if len(files) > 1 else set()
+    file_tokens = {f: toks - shared_file for f, toks in file_tokens.items()}
+    if shared_sheet is None:
+        shared_sheet = set.intersection(*sheets.values()) if len(sheets) > 1 else set()
+    sheets = {s: toks - shared_sheet for s, toks in sheets.items()}
+    picks: dict[str, tuple[str, float]] = {}
+    ties: dict[str, list[tuple[str, float]]] = {}
+    for sheet, toks in sheets.items():
+        ranked = sorted(((f, _match_score(toks, file_tokens[f])) for f in files),
+                        key=lambda item: -item[1])
+        top = ranked[0][1] if ranked else 0.0
+        best = [(f, s) for f, s in ranked if s == top and s > 0]
+        if len(best) == 1:
+            picks[sheet] = best[0]
+        else:
+            ties[sheet] = best
+    chosen: dict[str, tuple[str, float, list[str]]] = {}
+    for sheet, (name, score) in picks.items():
+        if any(s >= score for other, (f, s) in picks.items() if other != sheet and f == name):
+            ties[sheet] = [(name, score)]
+            continue
+        words = sorted(t for t in sheets[sheet]
+                       if any(_same_word(t, f) for f in file_tokens[name]))
+        chosen[sheet] = (name, score, words)
+    return chosen, ties
+
+
 TARGET_FROM_FRD = "sttm_target_from_frd"
 
 
@@ -1814,8 +1884,8 @@ def _blank_sheet_targets(index: int, entry: dict, feed, files: list[str],
                     title=f"{layer.capitalize()} schema of {entry['sheet']}",
                     hint=f"The {layer} schema this sheet's table lands in.", kind="text"))
         key = f"feeds[{index}].{layer}_target.tables"
-        if key in gaps:
-            continue
+        if key in gaps or entry.get(f"{layer}_table"):
+            continue          # answered, or the sheet's own band states the table
         quoted = ", ".join(repr(f) for f in files) or "no file"
         frd_says = (f"the FRD's 'Target Table Name' names files ({quoted}), not tables" if files
                     else "the FRD names no table for this sheet")
@@ -1912,7 +1982,9 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     seen: set[str] = set()
     candidates = []
     for name, cell in pool:
-        key = normalize(name)
+        # One candidate per FILE (2026-10-13): the FRD's spelling (first in the
+        # pool) and File Details' wildcard one made every match ambiguous.
+        key = file_identity(name) if normalize(name) else ""
         if key and key not in seen:
             seen.add(key)
             candidates.append((name, cell))
@@ -1993,14 +2065,33 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
 
     matched = _mutual_unique_matches([label(e) for e in sheet_tables],
                                      [n for n, _c in candidates])
+    # 2026-10-13 (D1 pair_11): the tables left unmatched — each sheet's title,
+    # File Name row and label against the files nobody matched; a unique best
+    # overlap is taken (a NOTE), a tie is asked with the tied files named.
+    scored: dict[str, tuple[str, float, list[str]]] = {}
+    tied: dict[str, list[tuple[str, float]]] = {}
+    open_entries = [e for e in sheet_tables if label(e) not in matched]
+    open_files = [n for n, _c in candidates if n not in matched.values()]
+    if len(sheet_tables) > 1 and open_entries and open_files:
+        tokens = {e["sheet"]: (_name_tokens(e["sheet"]) | _name_tokens(label(e))
+                               | {t for n, _c in e.get("own_files") or []
+                                  for t in _name_tokens(n)})
+                  for e in sheet_tables}
+        every_file = [_name_tokens(n) for n, _c in candidates]
+        scored, tied = best_file_matches(
+            {e["sheet"]: tokens[e["sheet"]] for e in open_entries}, open_files,
+            shared_sheet=set.intersection(*tokens.values()),
+            shared_file=set.intersection(*every_file) if len(every_file) > 1 else set())
     # 2026-10-12 (owner decision, fewer questions — was: only the dialog's
     # suggestion): when the unique name matches leave exactly ONE table and
     # ONE file over (which also means the documents list exactly as many files
     # as there are tables), that file is the table's value BY ELIMINATION,
     # flagged `(by elimination ...)` and printed as a NOTE — never asked. Two
     # or more left over on either side stays a question (no suggestion).
-    leftover_files = [n for n, _c in candidates if n not in matched.values()]
-    leftover_tables = [label(e) for e in sheet_tables if label(e) not in matched]
+    taken_files = {*matched.values(), *(f for f, _s, _w in scored.values())}
+    leftover_files = [n for n, _c in candidates if n not in taken_files]
+    leftover_tables = [label(e) for e in sheet_tables
+                       if label(e) not in matched and e["sheet"] not in scored]
     eliminated = (leftover_files[0] if len(leftover_files) == 1 and len(leftover_tables) == 1
                   else None)
     for index, entry in enumerate(sheet_tables):
@@ -2041,6 +2132,14 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                 patterns = [name]
                 flags.append(f"frd_unstated:{key} source_used:{cell}: "
                              f"{name!r} (unique name match with table {table!r})")
+            elif entry["sheet"] in scored:
+                name, score, words = scored[entry["sheet"]]
+                cell = next(c for n, c in candidates if n == name)
+                patterns = [name]
+                flags.append(f"frd_unstated:{key} source_used:{cell}: {name!r} (best name "
+                             f"match: sheet {entry['sheet']!r} / table {table!r} share "
+                             f"{words} with the file, overlap {score:.2f}; no other file "
+                             "scores as high)")
             elif eliminated is not None and table == leftover_tables[0]:
                 cell = next(c for n, c in candidates if n == eliminated)
                 patterns = [eliminated]
@@ -2050,12 +2149,18 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                              "tables and every other file pairs with another table)")
             else:
                 title, hint, _s = frd_field_help(key, [], config)
+                best = [n for n, _s in tied.get(entry["sheet"], [])]
+                why = (f"tie between {best} (equal name overlap)" if len(best) > 1 else
+                       f"{best[0]!r} matches another sheet as well or better" if best else
+                       "no file name shares a word with the sheet / table")
+                ordered = ([(n, c) for n, c in candidates if n in best]
+                           + [(n, c) for n, c in candidates if n not in best])
                 questions.append(LayoutQuestion(
                     document="frd", sheet=None, layer=None, role=key,
                     reason=f"which file feeds stage table {table!r} (sheet {entry['sheet']!r})? "
-                           "no unique name match", header=[],
+                           f"{why}; candidates: {[n for n, _c in ordered]}", header=[],
                     candidates=[{"value": n, "source": "STTM FILE_DETAILS / FRD", "cell": c}
-                                for n, c in candidates],
+                                for n, c in ordered],
                     title=f"File for table {table}", hint=hint, kind="choice"))
         if entry["stage_table"] is None:
             target_flags, target_questions = _blank_sheet_targets(
@@ -2455,7 +2560,7 @@ class _FeedGapFiller:
         self.result.handled.add(key)
         return True
 
-    def _extension_formats(self) -> list:
+    def _extension_formats(self, allowed: tuple[str, ...] = _FORMAT_EXTENSIONS) -> list:
         """One statement per distinct delimiter-naming extension (.csv / .psv /
         .tsv) of this feed's file patterns — a .txt / .dat name says nothing
         about the layout."""
@@ -2464,7 +2569,7 @@ class _FeedGapFiller:
         out: list = []
         for pattern in _feed_get(self.patched, "file_name_patterns") or []:
             ext = PurePosixPath(pattern.strip()).suffix.lstrip(".").lower()
-            if ext in _FORMAT_EXTENSIONS and all(s.value != ext for s in out):
+            if ext in allowed and all(s.value != ext for s in out):
                 out.append(Statement(ext, "file name",
                                      f"file name pattern {pattern!r} (extension .{ext})"))
         return out
@@ -2479,6 +2584,51 @@ class _FeedGapFiller:
         own = {_cell_row(cell) for value, cell in self.vdd.get("file_patterns", [])
                if normalize(value).replace("ccyy", "yyyy") in wanted}
         return [(v, c) for v, c in rows if _cell_row(c) in own] or rows
+
+    def _generic_text_format(self, stated: str) -> bool:
+        """2026-10-13 (D1 pair_11): the FRD's format cell says only "Text
+        files" — every csv / psv / tsv / txt file is a text file, so it never
+        disagrees with an extension. The extension the documents state decides:
+        the file patterns', else a STTM / VDD format cell that IS an extension
+        ("csv", ".psv") — flag ``format_from_extension`` (a NOTE). Two
+        different extensions = a QUESTION listing them; none = the chain as
+        before (False)."""
+        from codegen.resolve.gapfill import Statement
+
+        frd = self.frd_stmt("file_format", stated)
+        found = self._extension_formats(_TEXT_EXTENSIONS)
+        cells: list = []
+        if "file_format" in self.meta:
+            value, cell = self.meta["file_format"]
+            cells.append(Statement(value, "STTM", cell))
+        cells += [Statement(v, "VDD", cell) for v, cell in self._own_vdd_rows("file_format")]
+        for cell in cells:
+            ext = normalize(cell.value).lstrip(".")
+            if ext in _TEXT_EXTENSIONS:
+                if all(s.value != ext for s in found):
+                    found.append(Statement(ext, cell.source, f"{cell.cell}: {cell.value!r}"))
+            elif cell.value and not any(normalize(cell.value) == normalize(g) for g in
+                                        self.config.extractor.frd.generic_text_formats):
+                return False                     # another document states a real format
+        if not found:
+            return False
+        key = self.prefix + "file_format"
+        if len(found) > 1:
+            self.ask("file_format", "choice",
+                     [{"value": s.value, "source": s.source, "cell": s.cell} for s in found],
+                     f"the FRD format cell ({frd.cell}) says {stated!r} and the documents "
+                     f"state {len(found)} extensions ({', '.join(s.value for s in found)}); "
+                     "choose the format to use")
+            return True
+        ext = found[0]
+        self.patched = _feed_set(self.patched, "file_format", ext.value)
+        self.result.fills.append({"field": key, "title": self._title(key), "value": ext.value,
+                                  "source": ext.source, "cell": ext.cell})
+        self.result.flags.append(f"format_from_extension:{key} {ext.cell} -> {ext.value!r}; "
+                                 f"the FRD format cell ({frd.cell}) says {stated!r}: a text file, "
+                                 "not its layout (extractor.frd.generic_text_formats)")
+        self.result.handled.add(key)
+        return True
 
     def _file_format(self) -> bool:
         """Round 7 (D1 App, VDD attached, 2026-10-13): the FRD's 'Object/data
@@ -2505,6 +2655,9 @@ class _FeedGapFiller:
         stated = _feed_get(self.feed, "file_format")
         if stated is None:
             return False
+        if normalize(stated) in {normalize(g) for g in
+                                 self.config.extractor.frd.generic_text_formats}:
+            return self._generic_text_format(stated)
         exts = self._extension_formats()
         frd = self.frd_stmt("file_format", stated)
         if is_format_text(stated, self.config.extractor.frd.format_tokens):

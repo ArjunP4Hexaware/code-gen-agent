@@ -679,6 +679,8 @@ def _content(workbook, config: ExtractorConfig, name: str, digest: str,
             sheets, confidence, unresolved = (candidates, candidate_confidence,
                                               candidate_unresolved)
             notes = [*notes, *candidate_notes]
+    sheets, confidence, unresolved = _metadata_sheets(workbook, sheets, confidence, unresolved,
+                                                      disc, notes)
     mapping_sheets = [s for s in sheets if s.kind == "mapping"]
     if not mapping_sheets:
         diagnostics.extend(notes)
@@ -694,6 +696,51 @@ def _content(workbook, config: ExtractorConfig, name: str, digest: str,
     return LayoutProfile(fingerprint=digest, sheets=sheets, confidence=confidence,
                          source="synonyms", strategy="content", unresolved=unresolved,
                          notes=list(diagnostics))
+
+
+def _metadata_sheets(workbook, sheets: list[SheetProfile], confidence: dict[str, float],
+                     unresolved: list[UnresolvedRole], disc: DiscoveryConfig, notes: list[str]
+                     ) -> tuple[list[SheetProfile], dict[str, float], list[UnresolvedRole]]:
+    """2026-10-13 (D1 pair_11): the workbook's metadata sheet is never a feed.
+    A "Table_Details" sheet whose short "Stage Table | Standard Table" header
+    row reads as a band row became a sixth feed with nine UNRESOLVED roles.
+    A mapping-read sheet is metadata (kind ``table_details``) when its name is
+    one of ``extractor.discovery.metadata_sheet_names``, or when NO role
+    resolves on it while another mapping sheet of the workbook maps fields;
+    its open roles go with it. The last mapping sheet is never taken."""
+    names = {normalize(n) for n in disc.metadata_sheet_names}
+    mapping = [s for s in sheets if s.kind == "mapping"]
+    mapping_fields = [s for s in mapping
+                      if any(Role.FIELD_NAME.value in b.roles or Role.COLUMN.value in b.roles
+                             for b in s.bands)]
+    out: list[SheetProfile] = []
+    dropped: set[str] = set()
+    for sp in sheets:
+        if sp.kind != "mapping" or len(mapping) - len(dropped) <= 1:
+            out.append(sp)
+            continue
+        by_name = normalize(sp.name) in names
+        empty = (not any(b.roles for b in sp.bands)
+                 and any(other.name != sp.name for other in mapping_fields))
+        if not (by_name or empty):
+            out.append(sp)
+            continue
+        dropped.add(sp.name)
+        why = ("its name is a metadata sheet name (extractor.discovery.metadata_sheet_names)"
+               if by_name else "no role resolves on it while the workbook's other sheets map "
+                               "fields")
+        notes.append(f"sheet {sp.name!r}: metadata (table details), never a feed - {why}; "
+                     f"its {sum(1 for u in unresolved if u.sheet == sp.name)} open role(s) "
+                     "dropped with it")
+        ws = workbook[sp.name]
+        header_row = sp.band_row or sp.header_row
+        row = next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=True), ())
+        out.append(SheetProfile(name=sp.name, kind="table_details", header_row=header_row,
+                                headers=[str(text(c)) for c in row if text(c) is not None]))
+    if not dropped:
+        return sheets, confidence, unresolved
+    return (out, {k: v for k, v in confidence.items() if k.split("/")[0] not in dropped},
+            [u for u in unresolved if u.sheet not in dropped])
 
 
 def _discover_mapping_sheet(ws, disc: DiscoveryConfig, config: ExtractorConfig,

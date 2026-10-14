@@ -1065,8 +1065,9 @@ metadata:
       # '_layer' steers which FRD load strategy feeds TGT_REFRESH_TYPE.
       template_rows:
         EMAIL_TEMPLATE_CONFIG:
-          - {STATUS: Success}
-          - {STATUS: Failed}
+          # _outcome: row metadata, never a cell ({outcome} of derived_cells, 2026-10-13)
+          - {STATUS: Success, _outcome: Completed}
+          - {STATUS: Failed, _outcome: Failed}
 
 rfc:
   # M5 (2026-09-18): the `rfc` output mode's package tree, the INGESTION

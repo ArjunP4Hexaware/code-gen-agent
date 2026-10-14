@@ -153,9 +153,10 @@ def test_the_acfc_overlay_names_one_framework_notebook_per_leg():
         ("DeltaInvokeDQStandardDeltaTable_V2", "standard")]
     assert all("SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3" in r["_citation"] for r in rows)
     assert "PIPELINE_NAME" not in rows[0]        # its {feed} token is the client's: open
-    # the email rows of the shipped template survive the overlay's merge
+    # the email rows of the shipped template survive the overlay's merge (_outcome:
+    # row metadata for the overlay's derived SUBJECT / BODY, 2026-10-13)
     assert acfc.metadata.templates["iig_v2"].template_rows["EMAIL_TEMPLATE_CONFIG"] == [
-        {"STATUS": "Success"}, {"STATUS": "Failed"}]
+        {"STATUS": "Success", "_outcome": "Completed"}, {"STATUS": "Failed", "_outcome": "Failed"}]
 
 
 # -- pair 11 end to end ---------------------------------------------------------- #

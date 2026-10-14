@@ -143,9 +143,6 @@ metadata:
         DATABRICKS_NOTEBOOK_DETAILS:
           - {DATABRICKS_NOTEBOOK_NAME: FileInvokeDQDeltaTable_V0.1, _layer: stage, _pipeline_role: file_to_stage, _citation: &nb "framework notebook per leg — SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!L2 / L3 and the SD prod notebook keys (round 3)"}
           - {DATABRICKS_NOTEBOOK_NAME: DeltaInvokeDQStandardDeltaTable_V2, _layer: standard, _pipeline_role: stage_to_standard, _citation: *nb}
-        EMAIL_TEMPLATE_CONFIG:
-          - {STATUS: Success, _outcome: Completed}
-          - {STATUS: Failed, _outcome: Failed}
       # 2026-10-13 — the IIG corpus's fill rate (tools/iig_fill_rate.py; at home:
       # the SFMC reference IIG, the pair-1 golden and the CAQH golden; on D1 the
       # 199-IIG corpus): columns filled in >90% of corpus rows that the agent left

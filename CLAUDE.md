@@ -98,6 +98,37 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   (`columns`: OBJECT_ID, domain, subdomain, CREATED_DATE, UPDATED_DATE — only domain /
   subdomain scored), the rest `not_comparable` per side (score.json + console). Applies only
   when neither side has the other's sheet. Tests `tests/test_iig_diff_sheet_alias.py`.
+- **post43 — the identity-diff report's four items** (`acfc-pairing-check`
+  `2026-10-13_identity_diff.md`; one commit each + the Opus 5.5 labels):
+  (1) **live layout JSON** — `layout/model.py` `parse_json_response` (fences, a preamble,
+  the outermost balanced object, never a nested one) + `ask_for_json` (one retry with
+  `RETRY_INSTRUCTION` "Respond with JSON only, no fences"); every rejected response logged,
+  first 500 chars, D1-only: stderr `RAW (D1 only)` + `<runtime cache>/rejections/<fp>.raw.json`.
+  Tests `tests/test_layout_json_response.py`. (2) **Pyx questions** (synthetic
+  `family_e_multi.build_sttm_reports` / `build_frd_reports` reproduce D1's 22 → 0):
+  a metadata sheet (`extractor.discovery.metadata_sheet_names`, or no role resolving while
+  other sheets map) is kind `table_details`, never a feed; FRD "Text files"
+  (`extractor.frd.generic_text_formats`) + a csv / psv / tsv / txt extension → the extension,
+  `format_from_extension` NOTE; files per sheet: one candidate per FILE (`file_identity`),
+  then `best_file_matches` (sheet title + File Name row + label vs the files, Jaccard, words
+  shared by all sheets / files dropped) → unique best = NOTE "best name match", a tie =
+  QUESTION naming the tied files; `answers_template.yaml` beside `--out` whenever answers
+  are owed (layout `--require-complete` starts it, extract-sttm adds; empty entries are
+  skipped by `load_answers`). Tests `tests/test_pyx_questions.py`. (3) **iig_diff** —
+  scrubbed `sheets.md` (per-sheet table with missing / extra + per-column breakdown,
+  template headers verbatim), score.json `column_counts` + `file_samples`, console
+  `FILE NAMES (D1 only - unscrubbed)`; pair_12's 0 rows = a CAQH inventory name with a date
+  FIRST and a wildcard INSIDE vs the agent's prefix-star SRC_FILE_NAME: `file_identity` now
+  drops date / wildcard tokens wherever they sit. (4) **corpus fill rate** —
+  `tools/iig_fill_rate.py` (GAP = corpus >= 90 %, agent not; assigned = needs_assignment +
+  always_blank); ACFC overlay `derived_cells` (shapes over {source} {layer} {outcome}
+  {notebook} {pipeline} {sender}; one `iig_derived` NOTE per column) fills notebook
+  PIPELINE_NAME / PROCESS_NAME / NOTEBOOK_PATH, schedule APPLICATION_NAME, email
+  TEMPLATE_NAME / PROCESS_NAME / SUBJECT / BODY / SENDER_NAME (dbo) / SENDER_EMAIL
+  (`job.notification_sender`, env `CODEGEN_NOTIFICATION_SENDER`). The 199-IIG corpus is
+  D1-only: measured over the 3 home goldens (SFMC, pair_1, CAQH) — 11 gaps → 1
+  (ACTIVE_START_DATE, a go-live date). `docs/acfc/IIG_FILL_RATE_2026-10-13.md`; tests
+  `tests/test_iig_fill_rate.py`. Run the tool on D1 over `docs/acfc/iig_goldens`.
 - **post39 — the live D1 check's four fixes** (`origin/acfc-pairing-check`
   `codegen-outputs/pairing_check/2026-10-13_live_three_pairs.md`; one commit each):
   (1) **pair_12 CAQH** — `frd_docx.split_domain_labels`: a cell with a `Domain:` AND a

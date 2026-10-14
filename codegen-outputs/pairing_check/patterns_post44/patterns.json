@@ -1,0 +1,4049 @@
+{
+  "sheets": {
+    "DATABRICKS_NOTEBOOK_DETAILS": {
+      "rows": 378,
+      "columns": {
+        "PIPELINE_ID": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "PIPELINE_NAME": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "G1_G2 stage to std load",
+          "dominant_value_share": 3.2,
+          "distinct_values": 183,
+          "dominant_pattern": "Pl_File_G3_{table}_Regular_ADLS_To_Delta_Incr",
+          "dominant_pattern_share": 9.8,
+          "distinct_patterns": 208,
+          "per_feed": true,
+          "top_patterns": [
+            [
+              "Pl_File_G3_{table}_Regular_ADLS_To_Delta_Incr",
+              9.8
+            ],
+            [
+              "{feed} Raw to stage load",
+              9.5
+            ],
+            [
+              "G1_{source} stage to std load",
+              2.9
+            ]
+          ]
+        },
+        "GROUP_ID": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "SEQ_NM": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "1",
+          "dominant_value_share": 64.6,
+          "distinct_values": 62,
+          "dominant_pattern": "1",
+          "dominant_pattern_share": 64.6,
+          "distinct_patterns": 62,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "1",
+              64.6
+            ],
+            [
+              "2",
+              2.1
+            ],
+            [
+              "3",
+              1.1
+            ]
+          ]
+        },
+        "PROCESS_NAME": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "G1  Raw to stage load",
+          "dominant_value_share": 19.6,
+          "distinct_values": 85,
+          "dominant_pattern": "G1  Raw to stage load",
+          "dominant_pattern_share": 19.6,
+          "distinct_patterns": 107,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G1  Raw to stage load",
+              19.6
+            ],
+            [
+              "G1  stage to std load",
+              19.6
+            ],
+            [
+              "G1_{source}  stage to std load",
+              2.9
+            ]
+          ]
+        },
+        "TGT_REFRESH_TYPE": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "Overwrite",
+          "dominant_value_share": 62.4,
+          "distinct_values": 6,
+          "dominant_pattern": "Overwrite",
+          "dominant_pattern_share": 62.4,
+          "distinct_patterns": 6,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "Overwrite",
+              62.4
+            ],
+            [
+              "upsert_delete",
+              19.0
+            ],
+            [
+              "Append",
+              12.7
+            ]
+          ]
+        },
+        "ACTIVE_FLAG": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "Y",
+          "dominant_value_share": 98.9,
+          "distinct_values": 2,
+          "dominant_pattern": "Y",
+          "dominant_pattern_share": 98.9,
+          "distinct_patterns": 2,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "Y",
+              98.9
+            ],
+            [
+              "N",
+              1.1
+            ]
+          ]
+        },
+        "DATABRICKS_WORKSPACE_URL": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "DATABRICKS_WORKSPACE_SECRET": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "DATABRICKS_CLUSTERID": {
+          "rows": 378,
+          "filled": 368,
+          "filled_pct": 97.4,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "DATABRICKS_NOTEBOOK_PATH": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "/iig/DeltaInvokeDQStandardDeltaTable_V4",
+          "dominant_value_share": 26.5,
+          "distinct_values": 16,
+          "dominant_pattern": "/iig/DeltaInvokeDQStandardDeltaTable_V4",
+          "dominant_pattern_share": 26.5,
+          "distinct_patterns": 19,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "/iig/DeltaInvokeDQStandardDeltaTable_V4",
+              26.5
+            ],
+            [
+              "/iig/G4_V0.1",
+              19.6
+            ],
+            [
+              "/Workspace/G5/{domain}_G6,/Workspace/G5/FileInvokeDQDeltaTable",
+              9.0
+            ]
+          ]
+        },
+        "DATABRICKS_NOTEBOOK_NAME": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "dominant_value": "DeltaInvokeDQStandardDeltaTable_V4",
+          "dominant_value_share": 29.6,
+          "distinct_values": 12,
+          "dominant_pattern": "DeltaInvokeDQStandardDeltaTable_V4",
+          "dominant_pattern_share": 29.6,
+          "distinct_patterns": 15,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "DeltaInvokeDQStandardDeltaTable_V4",
+              29.6
+            ],
+            [
+              "G4_V0.1",
+              19.6
+            ],
+            [
+              "{domain}_G6,FileInvokeDQDeltaTable",
+              10.1
+            ]
+          ]
+        },
+        "CREATED_BY": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "CREATED_DATE": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "UPDATED_BY": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "UPDATED_DATE": {
+          "rows": 378,
+          "filled": 378,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "CLUSTER_DETAILS_ID": {
+          "rows": 378,
+          "filled": 236,
+          "filled_pct": 62.4,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "DELETE_DATABRICKS_NOTEBOOK_NAME": {
+          "rows": 378,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "DQ_NOTEBOOK_PATH": {
+          "rows": 378,
+          "filled": 0,
+          "filled_pct": 0.0
+        }
+      }
+    },
+    "DATA_FACTORY_PIPELINE_SCHEDULE": {
+      "rows": 35658,
+      "columns": {
+        "PIPELINE_ID": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "PIPELINE_NAME": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "PL_File_STAGE_G7_G8_extract",
+          "dominant_value_share": 0.5,
+          "distinct_values": 247,
+          "dominant_pattern": "Pl_File_G3_{table}_Regular_ADLS_To_Delta_Incr",
+          "dominant_pattern_share": 8.2,
+          "distinct_patterns": 376,
+          "per_feed": true,
+          "top_patterns": [
+            [
+              "Pl_File_G3_{table}_Regular_ADLS_To_Delta_Incr",
+              8.2
+            ],
+            [
+              "Pl_File_G3_{table}_TPL_ADLS_To_Delta_Incr",
+              3.1
+            ],
+            [
+              "Pl_File_G3_{table}_G9_ADLS_To_Delta_Incr",
+              2.0
+            ]
+          ]
+        },
+        "PARENT_PIPELINE_ID": {
+          "rows": 35658,
+          "filled": 32824,
+          "filled_pct": 92.1,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "PIPELINE_DESCRIPTION": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "G1 Stage Load",
+          "dominant_value_share": 18.9,
+          "distinct_values": 157,
+          "dominant_pattern": "G1 Stage Load",
+          "dominant_pattern_share": 18.9,
+          "distinct_patterns": 395,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G1 Stage Load",
+              18.9
+            ],
+            [
+              "G1 Standard Load",
+              18.9
+            ],
+            [
+              "G3_G10 0550 LOB Daily File Pipeline Incremental Load to STAGE",
+              0.7
+            ]
+          ]
+        },
+        "PIPELINE_FREQUENCY": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "Daily",
+          "dominant_value_share": 68.5,
+          "distinct_values": 7,
+          "dominant_pattern": "Daily",
+          "dominant_pattern_share": 68.5,
+          "distinct_patterns": 7,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "Daily",
+              68.5
+            ],
+            [
+              "Monthly",
+              23.0
+            ],
+            [
+              "Weekly",
+              4.5
+            ]
+          ]
+        },
+        "NO_OF_CYCLE_PER_DAY": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "1",
+          "dominant_value_share": 98.2,
+          "distinct_values": 2,
+          "dominant_pattern": "1",
+          "dominant_pattern_share": 98.2,
+          "distinct_patterns": 2,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "1",
+              98.2
+            ],
+            [
+              "3",
+              1.8
+            ]
+          ]
+        },
+        "DAY_OF_SCHEDULE": {
+          "rows": 35658,
+          "filled": 1258,
+          "filled_pct": 3.5,
+          "dominant_value": "0",
+          "dominant_value_share": 54.8,
+          "distinct_values": 3,
+          "dominant_pattern": "0",
+          "dominant_pattern_share": 54.8,
+          "distinct_patterns": 3,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "0",
+              54.8
+            ],
+            [
+              "0.0",
+              44.0
+            ],
+            [
+              "5",
+              1.3
+            ]
+          ]
+        },
+        "ACTIVE_FLAG": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "Y",
+          "dominant_value_share": 97.5,
+          "distinct_values": 2,
+          "dominant_pattern": "Y",
+          "dominant_pattern_share": 97.5,
+          "distinct_patterns": 2,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "Y",
+              97.5
+            ],
+            [
+              "N",
+              2.5
+            ]
+          ]
+        },
+        "ACTIVE_START_DATE": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "2025-12-20 00:00:00",
+          "dominant_value_share": 19.4,
+          "distinct_values": 44,
+          "dominant_pattern": "2025-12-20 00:00:00",
+          "dominant_pattern_share": 19.4,
+          "distinct_patterns": 44,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "2025-12-20 00:00:00",
+              19.4
+            ],
+            [
+              "2025-12-20",
+              19.4
+            ],
+            [
+              "2024-10-24 00:00:00",
+              8.6
+            ]
+          ]
+        },
+        "ACTIVE_END_DATE": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "9999-12-31 00:00:00",
+          "dominant_value_share": 50.0,
+          "distinct_values": 2,
+          "dominant_pattern": "9999-12-31 00:00:00",
+          "dominant_pattern_share": 50.0,
+          "distinct_patterns": 2,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "9999-12-31 00:00:00",
+              50.0
+            ],
+            [
+              "9999-12-31",
+              50.0
+            ]
+          ]
+        },
+        "ESTIMATED_START_TIME": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "APPLICATION_NAME": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "dominant_value": "G1",
+          "dominant_value_share": 38.8,
+          "distinct_values": 19,
+          "dominant_pattern": "G1",
+          "dominant_pattern_share": 38.8,
+          "distinct_patterns": 27,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G1",
+              38.8
+            ],
+            [
+              "G11.0",
+              30.6
+            ],
+            [
+              "G3 834 G12 G13",
+              6.7
+            ]
+          ]
+        },
+        "CREATED_BY": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "CREATED_DATE": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "UPDATED_BY": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "UPDATED_DATE": {
+          "rows": 35658,
+          "filled": 35658,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "PROCESS_NAME": {
+          "rows": 35658,
+          "filled": 21698,
+          "filled_pct": 60.9,
+          "dominant_value": "G3 834 G12",
+          "dominant_value_share": 59.0,
+          "distinct_values": 22,
+          "dominant_pattern": "G3 834 G12",
+          "dominant_pattern_share": 56.0,
+          "distinct_patterns": 33,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G3 834 G12",
+              56.0
+            ],
+            [
+              "G14",
+              8.4
+            ],
+            [
+              "G1_G2",
+              6.5
+            ]
+          ]
+        },
+        "SUBPROCESS_NAME": {
+          "rows": 35658,
+          "filled": 19170,
+          "filled_pct": 53.8,
+          "dominant_value": "G2",
+          "dominant_value_share": 7.6,
+          "distinct_values": 45,
+          "dominant_pattern": "G2",
+          "dominant_pattern_share": 7.3,
+          "distinct_patterns": 51,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G2",
+              7.3
+            ],
+            [
+              "G13 LAYOUT",
+              6.6
+            ],
+            [
+              "G15",
+              4.7
+            ]
+          ]
+        },
+        "LAYER_NAME": {
+          "rows": 35658,
+          "filled": 13704,
+          "filled_pct": 38.4,
+          "dominant_value": "STAGE",
+          "dominant_value_share": 88.7,
+          "distinct_values": 6,
+          "dominant_pattern": "STAGE",
+          "dominant_pattern_share": 88.7,
+          "distinct_patterns": 6,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "STAGE",
+              88.7
+            ],
+            [
+              "STANDARD",
+              7.3
+            ],
+            [
+              "STAGE AND STANDARD",
+              2.3
+            ]
+          ]
+        },
+        "COMPLETION_SLA": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "RUNTIME_SLA": {
+          "rows": 35658,
+          "filled": 16,
+          "filled_pct": 0.0,
+          "dominant_value": "6",
+          "dominant_value_share": 100.0,
+          "distinct_values": 1,
+          "dominant_pattern": "6",
+          "dominant_pattern_share": 100.0,
+          "distinct_patterns": 1,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "6",
+              100.0
+            ]
+          ]
+        },
+        "CRITICAL_PROCESSING_PERIOD": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "UDF1": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "UDF2": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "UDF3": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "UDF4": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "UDF5": {
+          "rows": 35658,
+          "filled": 0,
+          "filled_pct": 0.0
+        },
+        "IsFileCopyReqFlag": {
+          "rows": 35658,
+          "filled": 1580,
+          "filled_pct": 4.4,
+          "dominant_value": "N",
+          "dominant_value_share": 88.5,
+          "distinct_values": 2,
+          "dominant_pattern": "N",
+          "dominant_pattern_share": 88.5,
+          "distinct_patterns": 2,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "N",
+              88.5
+            ],
+            [
+              "Y",
+              11.5
+            ]
+          ]
+        }
+      }
+    },
+    "EMAIL_TEMPLATE_CONFIG": {
+      "rows": 13468,
+      "columns": {
+        "PIPELINE_ID": {
+          "rows": 13468,
+          "filled": 13468,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "PIPELINE_NAME": {
+          "rows": 13468,
+          "filled": 13468,
+          "filled_pct": 100.0,
+          "dominant_value": "PL_Gmstr_G16_Historical_Load",
+          "dominant_value_share": 7.3,
+          "distinct_values": 1367,
+          "dominant_pattern": "PL_Gmstr_G16_Historical_Load",
+          "dominant_pattern_share": 7.3,
+          "distinct_patterns": 1367,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "PL_Gmstr_G16_Historical_Load",
+              7.3
+            ],
+            [
+              "PL_CHLD_G17_G18_STD_TO_G19_G20",
+              4.7
+            ],
+            [
+              "PL_CHLD_G17_G18_FL_G19",
+              3.6
+            ]
+          ]
+        },
+        "TEMPLATE_ID": {
+          "rows": 13468,
+          "filled": 13468,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "TEMPLATE_NAME": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "G21 G22",
+          "dominant_value_share": 26.1,
+          "distinct_values": 50,
+          "dominant_pattern": "G21 G22",
+          "dominant_pattern_share": 26.1,
+          "distinct_patterns": 50,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G21 G22",
+              26.1
+            ],
+            [
+              "G23_G24",
+              13.8
+            ],
+            [
+              "G23_G24_Hist",
+              11.5
+            ]
+          ]
+        },
+        "PROCESS_NAME": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "G21 G22",
+          "dominant_value_share": 26.1,
+          "distinct_values": 54,
+          "dominant_pattern": "G21 G22",
+          "dominant_pattern_share": 26.1,
+          "distinct_patterns": 54,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G21 G22",
+              26.1
+            ],
+            [
+              "G23_G24",
+              13.8
+            ],
+            [
+              "G23_G24_Hist",
+              11.5
+            ]
+          ]
+        },
+        "STATUS": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "Success",
+          "dominant_value_share": 23.1,
+          "distinct_values": 16,
+          "dominant_pattern": "Success",
+          "dominant_pattern_share": 23.1,
+          "distinct_patterns": 16,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "Success",
+              23.1
+            ],
+            [
+              "Failed",
+              23.1
+            ],
+            [
+              "G25",
+              16.6
+            ]
+          ]
+        },
+        "ACTIVE_FLAG": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "Y",
+          "dominant_value_share": 100.0,
+          "distinct_values": 1,
+          "dominant_pattern": "Y",
+          "dominant_pattern_share": 100.0,
+          "distinct_patterns": 1,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "Y",
+              100.0
+            ]
+          ]
+        },
+        "SUBJECT": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "G23 G24 G26 Daily File Not Received -",
+          "dominant_value_share": 3.4,
+          "distinct_values": 162,
+          "dominant_pattern": "G23 G24 G26 Daily File Not Received -",
+          "dominant_pattern_share": 3.4,
+          "distinct_patterns": 162,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G23 G24 G26 Daily File Not Received -",
+              3.4
+            ],
+            [
+              "G23 G24 G26 Daily File Received -",
+              3.4
+            ],
+            [
+              "G23 G24 G26 Daily Load Completed -",
+              3.4
+            ]
+          ]
+        },
+        "BODY": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "The G27 files have not been received for the CM Automation. G28 review and take the necessary G29.",
+          "dominant_value_share": 21.7,
+          "distinct_values": 156,
+          "dominant_pattern": "The G27 files have not been received for the CM Automation. G28 review and take the necessary G29.",
+          "dominant_pattern_share": 21.7,
+          "distinct_patterns": 156,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "The G27 files have not been received for the CM Automation. G28 review and take the necessary G29.",
+              21.7
+            ],
+            [
+              "G23 G24 G26 Daily File Not Received",
+              3.4
+            ],
+            [
+              "Received The G27 Files for G23 G24 G26 Daily",
+              3.4
+            ]
+          ]
+        },
+        "SENDER_NAME": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "dbo",
+          "dominant_value_share": 97.8,
+          "distinct_values": 2,
+          "dominant_pattern": "dbo",
+          "dominant_pattern_share": 97.8,
+          "distinct_patterns": 2,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "dbo",
+              97.8
+            ],
+            [
+              "DBO",
+              2.2
+            ]
+          ]
+        },
+        "SENDER_EMAIL": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "G30@<LOCAL_DENYLIST>.G31",
+          "dominant_value_share": 97.7,
+          "distinct_values": 5,
+          "dominant_pattern": "G30@<LOCAL_DENYLIST>.G31",
+          "dominant_pattern_share": 97.7,
+          "distinct_patterns": 5,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G30@<LOCAL_DENYLIST>.G31",
+              97.7
+            ],
+            [
+              "DL-ACFC: G32 Data Lake Production Support",
+              1.6
+            ],
+            [
+              "G30@<LOCAL_DENYLIST>.G31",
+              0.3
+            ]
+          ]
+        },
+        "EMAIL_TO": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "G33@<LOCAL_DENYLIST>.G31",
+          "dominant_value_share": 47.6,
+          "distinct_values": 24,
+          "dominant_pattern": "G33@<LOCAL_DENYLIST>.G31",
+          "dominant_pattern_share": 47.6,
+          "distinct_patterns": 24,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G33@<LOCAL_DENYLIST>.G31",
+              47.6
+            ],
+            [
+              "G33@<LOCAL_DENYLIST>.G31,dl_acfc_G34@<LOCAL_DENYLIST>.G31,<EMAIL>",
+              17.4
+            ],
+            [
+              "G30@<LOCAL_DENYLIST>.G31",
+              8.3
+            ]
+          ]
+        },
+        "EMAIL_CC": {
+          "rows": 13468,
+          "filled": 2536,
+          "filled_pct": 18.8,
+          "dominant_value": "G35@<LOCAL_DENYLIST>.G31,G36@<LOCAL_DENYLIST>.G31,G37@<LOCAL_DENYLIST>.G31,G38@<LOCAL_DENYLIST>.G31,G39@<LOCAL_DENYLIST>.G31,G40@<LOCAL_DENYLIST>.G31,G41@<LOCAL_DENYLIST>.G31,G42@<LOCAL_DENYLIST>.G31,G43@<LOCAL_DENYLIST>.G31",
+          "dominant_value_share": 26.7,
+          "distinct_values": 27,
+          "dominant_pattern": "G35@<LOCAL_DENYLIST>.G31,G36@<LOCAL_DENYLIST>.G31,G37@<LOCAL_DENYLIST>.G31,G38@<LOCAL_DENYLIST>.G31,G39@<LOCAL_DENYLIST>.G31,G40@<LOCAL_DENYLIST>.G31,G41@<LOCAL_DENYLIST>.G31,G42@<LOCAL_DENYLIST>.G31,G43@<LOCAL_DENYLIST>.G31",
+          "dominant_pattern_share": 26.7,
+          "distinct_patterns": 27,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "G35@<LOCAL_DENYLIST>.G31,G36@<LOCAL_DENYLIST>.G31,G37@<LOCAL_DENYLIST>.G31,G38@<LOCAL_DENYLIST>.G31,G39@<LOCAL_DENYLIST>.G31,G40@<LOCAL_DENYLIST>.G31,G41@<LOCAL_DENYLIST>.G31,G42@<LOCAL_DENYLIST>.G31,G43@<LOCAL_DENYLIST>.G31",
+              26.7
+            ],
+            [
+              "G44-G45@<LOCAL_DENYLIST>.G46.G31,G47@<LOCAL_DENYLIST>.G31,G48@<LOCAL_DENYLIST>.G31",
+              18.3
+            ],
+            [
+              "G35@<LOCAL_DENYLIST>.G31,G36@<LOCAL_DENYLIST>.G31,G37@<LOCAL_DENYLIST>.G31,G38@<LOCAL_DENYLIST>.G31,G39@<LOCAL_DENYLIST>.G31,G40@<LOCAL_DENYLIST>.G31",
+              12.1
+            ]
+          ]
+        },
+        "CRETAED_BY": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "CREATED_AT": {
+          "rows": 13468,
+          "filled": 2668,
+          "filled_pct": 19.8,
+          "dominant_value": "2025-12-18 12:30:00",
+          "dominant_value_share": 25.3,
+          "distinct_values": 36,
+          "dominant_pattern": "2025-12-18 12:30:00",
+          "dominant_pattern_share": 25.3,
+          "distinct_patterns": 36,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "2025-12-18 12:30:00",
+              25.3
+            ],
+            [
+              "2025-10-23 09:47:20",
+              19.6
+            ],
+            [
+              "2025-07-31 11:12:13",
+              11.5
+            ]
+          ]
+        },
+        "UPDATED_BY": {
+          "rows": 13468,
+          "filled": 13468,
+          "filled_pct": 100.0,
+          "values": "withheld (assigned / withheld column)"
+        },
+        "UPDATED_AT": {
+          "rows": 13468,
+          "filled": 13468,
+          "filled_pct": 100.0,
+          "dominant_value": "2026-07-02 15:34:17",
+          "dominant_value_share": 24.1,
+          "distinct_values": 39,
+          "dominant_pattern": "2026-07-02 15:34:17",
+          "dominant_pattern_share": 24.1,
+          "distinct_patterns": 39,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "2026-07-02 15:34:17",
+              24.1
+            ],
+            [
+              "2026-07-02 15:34:42",
+              24.1
+            ],
+            [
+              "2026-07-02 15:33:29",
+              16.0
+            ]
+          ]
+        },
+        "EMAIL_NOTIFICATION_URL": {
+          "rows": 13468,
+          "filled": 13468,
+          "filled_pct": 100.0,
+          "dominant_value": "https://<REAL_WEBHOOK_HOST>:443/api/LOG_EMAIL_WITH_G49/G50/When_an_G51_request_is_received/G52?api-version=2022-05-01&sp=%G53%G54_an_G51_request_is_received%G55&sv=1.0&G56=G57-G58",
+          "dominant_value_share": 95.4,
+          "distinct_values": 3,
+          "dominant_pattern": "https://<REAL_WEBHOOK_HOST>:443/api/LOG_EMAIL_WITH_G49/G50/When_an_G51_request_is_received/G52?api-version=2022-05-01&sp=%G53%G54_an_G51_request_is_received%G55&sv=1.0&G56=G57-G58",
+          "dominant_pattern_share": 95.4,
+          "distinct_patterns": 3,
+          "per_feed": false,
+          "top_patterns": [
+            [
+              "https://<REAL_WEBHOOK_HOST>:443/api/LOG_EMAIL_WITH_G49/G50/When_an_G51_request_is_received/G52?api-version=2022-05-01&sp=%G53%G54_an_G51_request_is_received%G55&sv=1.0&G56=G57-G58",
+              95.4
+            ],
+            [
+              "https://prod-10.G59.logic.G32.G31/G60/G61/G50/G62/paths/G52?api-version=2016-10-01&sp=%G53%G63%G55&sv=1.0&G56=G64_G65-G66",
+              4.3
+            ],
+            [
+              "https://prod-58.G59.logic.G32.G31:443/G60/G67/G50/G62/paths/G52?api-version=2016-10-01&sp=%G53%G63%G55&sv=1.0&G56=G68_G69_G70",
+              0.3
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "day_of_schedule_by_frequency": {
+    "Daily": {
+      "rows": 24410,
+      "filled": 0,
+      "filled_pct": 0.0,
+      "dominant": null
+    },
+    "Monthly": {
+      "rows": 8200,
+      "filled": 32,
+      "filled_pct": 0.4,
+      "dominant": [
+        "5",
+        0.2
+      ]
+    },
+    "Weekly": {
+      "rows": 1592,
+      "filled": 474,
+      "filled_pct": 29.8,
+      "dominant": [
+        "0",
+        14.9
+      ]
+    },
+    "WEEKLY": {
+      "rows": 1178,
+      "filled": 632,
+      "filled_pct": 53.7,
+      "dominant": [
+        "0",
+        26.8
+      ]
+    },
+    "G71": {
+      "rows": 158,
+      "filled": 0,
+      "filled_pct": 0.0,
+      "dominant": null
+    },
+    "MONTHLY": {
+      "rows": 96,
+      "filled": 96,
+      "filled_pct": 100.0,
+      "dominant": [
+        "0",
+        100.0
+      ]
+    },
+    "DAILY": {
+      "rows": 24,
+      "filled": 24,
+      "filled_pct": 100.0,
+      "dominant": [
+        "0",
+        100.0
+      ]
+    }
+  },
+  "masters": {
+    "rows_by_kind": {
+      "master": 1850,
+      "grand_master": 1830,
+      "parent": 1161
+    },
+    "groups_under_a_master": {
+      "0": 4445,
+      "1": 396
+    },
+    "master_rows_per_group": {
+      "1": 2,
+      "2": 197
+    },
+    "per_workbook": [
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 0,
+        "parent_only": 1
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 0,
+        "parent_only": 1
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 1,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 2
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 1,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 11
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 1,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 24,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 4,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 8,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 0,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 0,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 92,
+        "groups": 0,
+        "grand_master": 6,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 111,
+        "groups": 0,
+        "grand_master": 4,
+        "master": 5,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      },
+      {
+        "schedule_rows": 4,
+        "groups": 0,
+        "grand_master": 1,
+        "master": 1,
+        "parent_only": 0
+      }
+    ]
+  },
+  "rule_classes": [
+    {
+      "rule_type": "Predefined",
+      "rule_class": "G72",
+      "rows": 186,
+      "workbooks": 114
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "LRTrimRule",
+      "rows": 180,
+      "workbooks": 104
+    },
+    {
+      "rule_type": "Predefined",
+      "rule_class": "G73",
+      "rows": 160,
+      "workbooks": 90
+    },
+    {
+      "rule_type": "Custom",
+      "rule_class": "ReferentialCheckRule",
+      "rows": 52,
+      "workbooks": 16
+    },
+    {
+      "rule_type": "Predefined",
+      "rule_class": "G74",
+      "rows": 38,
+      "workbooks": 4
+    },
+    {
+      "rule_type": "Predefined",
+      "rule_class": "LoadHeaderAndTrailerToSeparateTablesRule",
+      "rows": 36,
+      "workbooks": 2
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "DateConversionRule",
+      "rows": 34,
+      "workbooks": 26
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "DataTypeCastRule",
+      "rows": 32,
+      "workbooks": 28
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "DateFormatRule",
+      "rows": 16,
+      "workbooks": 10
+    },
+    {
+      "rule_type": "Predefined",
+      "rule_class": "G75",
+      "rows": 10,
+      "workbooks": 8
+    },
+    {
+      "rule_type": "Custom",
+      "rule_class": "DateFormatRule",
+      "rows": 10,
+      "workbooks": 10
+    },
+    {
+      "rule_type": "STGDelta",
+      "rule_class": "G76",
+      "rows": 8,
+      "workbooks": 4
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "G77",
+      "rows": 8,
+      "workbooks": 6
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "G78",
+      "rows": 8,
+      "workbooks": 8
+    },
+    {
+      "rule_type": "STGDelta",
+      "rule_class": "ReferentialCheckRule",
+      "rows": 6,
+      "workbooks": 2
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "G72",
+      "rows": 6,
+      "workbooks": 2
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "G79",
+      "rows": 4,
+      "workbooks": 4
+    },
+    {
+      "rule_type": "Custom",
+      "rule_class": "G77",
+      "rows": 4,
+      "workbooks": 4
+    },
+    {
+      "rule_type": "Custom",
+      "rule_class": "DataTypeCastRule",
+      "rows": 4,
+      "workbooks": 4
+    },
+    {
+      "rule_type": "Predefined",
+      "rule_class": "G80",
+      "rows": 2,
+      "workbooks": 2
+    },
+    {
+      "rule_type": "STDDelta",
+      "rule_class": "G77_NEW",
+      "rows": 2,
+      "workbooks": 2
+    }
+  ]
+}

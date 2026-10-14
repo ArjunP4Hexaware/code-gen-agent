@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Protocol
 
@@ -30,7 +31,105 @@ from codegen.layout.profile import ROLE_DEFINITIONS, LayoutProfile, UnresolvedRo
 
 
 class LayoutProviderError(RuntimeError):
-    """A provider produced no usable profile."""
+    """A provider produced no usable profile. ``raw`` holds the first
+    ``RAW_LOG_CHARS`` characters of every response that was read (D1-only
+    diagnostics; never written to a contract, report or tracked file)."""
+
+    def __init__(self, message: str, raw: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.raw = list(raw or [])
+
+
+# 2026-10-13 (D1 pair_11, "no JSON profile after 2 attempts; Expecting value:
+# line 1 column 1"): the response body was never parsed. Every rejected
+# response is logged (first RAW_LOG_CHARS characters) and the parser takes
+# the JSON object out of fences / a preamble before giving up.
+RAW_LOG_CHARS = 500
+RETRY_INSTRUCTION = ("Respond with JSON only, no fences: the single JSON object, "
+                     "with no text before or after it.")
+_MAX_OBJECT_STARTS = 50
+_FENCE_RE = re.compile(r"```[A-Za-z0-9_-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
+
+
+def _outermost_object(text: str, start: int) -> tuple[str | None, str]:
+    """The ``{...}`` opening at ``start`` with balanced, string-aware braces,
+    else ``(None, why)``."""
+    if start == -1:
+        return None, ("empty response" if not text.strip()
+                      else f"no '{{' in the response ({len(text)} chars)")
+    depth = 0
+    in_string = escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1], ""
+    return None, (f"the response ends inside the JSON object ({len(text)} chars; "
+                  "cut off at max_tokens?)")
+
+
+def parse_json_response(text: str) -> dict:
+    """The JSON object a model response carries, tolerant of the wrapping a
+    model adds: markdown fences (```json … ```), any preamble before the first
+    ``{`` and any text after the object (the outermost balanced object is
+    taken). Raises ``ValueError`` naming why when there is no object."""
+    text = text or ""
+    candidates = [m.group(1) for m in _FENCE_RE.finditer(text)] + [text]
+    why = ""
+    for candidate in candidates:
+        start = candidate.find("{")
+        # A brace in the preamble ("the {sheet} layout:") is skipped: the
+        # first opening brace whose balanced block parses is the object.
+        for _ in range(_MAX_OBJECT_STARTS):
+            body, reason = _outermost_object(candidate, start)
+            if body is None:
+                why = why or reason
+                break
+            try:
+                value = json.loads(body)
+            except ValueError as exc:
+                why = why or f"the object is not valid JSON: {exc}"
+            else:
+                if isinstance(value, dict):
+                    return value
+            # never an object nested inside the one that failed
+            start = candidate.find("{", start + len(body))
+    raise ValueError(why or "no JSON object in the response")
+
+
+def ask_for_json(send, user_prompt: str, max_attempts: int, what: str,
+                 counter=None) -> dict:
+    """``send(prompt) -> text`` until a response parses; a failed attempt is
+    retried with ``RETRY_INSTRUCTION`` appended. Every unparsed response is
+    kept (first ``RAW_LOG_CHARS`` characters) on the error it raises."""
+    errors: list[str] = []
+    raw: list[str] = []
+    prompt = user_prompt
+    for _ in range(max(1, max_attempts)):
+        if counter is not None:
+            counter()
+        text = send(prompt)
+        try:
+            return parse_json_response(text)
+        except ValueError as exc:
+            errors.append(str(exc))
+            raw.append((text or "")[:RAW_LOG_CHARS])
+            prompt = (f"{user_prompt}\n\nYour previous response could not be read as "
+                      f"JSON ({exc}). {RETRY_INSTRUCTION}")
+    raise LayoutProviderError(
+        f"no JSON {what} after {len(errors)} attempt(s); last error: {errors[-1]}", raw=raw)
 
 
 class LayoutModelProvider(Protocol):
@@ -259,47 +358,29 @@ class FmapiLayoutProvider:
         self.model = config.reasoning.model
         self.calls = 0
 
-    def complete_layout(self, request: dict) -> dict:
+    def _chat(self, system: str):
         from codegen.databricks import chat
-        from codegen.reasoning.providers.anthropic_provider import _extract_json
 
+        def send(prompt: str) -> str:
+            return chat(self._cfg, messages=[{"role": "system", "content": system},
+                                             {"role": "user", "content": prompt}],
+                        endpoint=self._endpoint, max_tokens=self._max_tokens)
+        return send
+
+    def _count(self) -> None:
+        self.calls += 1
+
+    def complete_layout(self, request: dict) -> dict:
         self.requests.append(request)
         user_prompt = "Layout request (the only material):\n" + json.dumps(request, indent=2)
-        errors: list[str] = []
-        for _ in range(self._max_attempts):
-            self.calls += 1
-            text = chat(self._cfg, messages=[{"role": "system", "content": _SYSTEM_PROMPT},
-                                             {"role": "user", "content": user_prompt}],
-                        endpoint=self._endpoint, max_tokens=self._max_tokens)
-            try:
-                return json.loads(_extract_json(text))
-            except ValueError as exc:
-                errors.append(str(exc))
-                user_prompt += (f"\n\nYour previous response was not a JSON object: {exc}. "
-                                "Respond again with ONLY the JSON object.")
-        raise LayoutProviderError(
-            f"no JSON profile after {self._max_attempts} attempt(s); last error: {errors[-1]}")
+        return ask_for_json(self._chat(_SYSTEM_PROMPT), user_prompt, self._max_attempts,
+                            "profile", counter=self._count)
 
     def advise_layout(self, request: dict) -> dict:
-        from codegen.databricks import chat
-        from codegen.reasoning.providers.anthropic_provider import _extract_json
-
         self.requests.append(request)
         user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
-        errors: list[str] = []
-        for _ in range(self._max_attempts):
-            self.calls += 1
-            text = chat(self._cfg, messages=[{"role": "system", "content": _ADVICE_SYSTEM_PROMPT},
-                                             {"role": "user", "content": user_prompt}],
-                        endpoint=self._endpoint, max_tokens=self._max_tokens)
-            try:
-                return json.loads(_extract_json(text))
-            except ValueError as exc:
-                errors.append(str(exc))
-                user_prompt += (f"\n\nYour previous response was not a JSON object: {exc}. "
-                                "Respond again with ONLY the JSON object.")
-        raise LayoutProviderError(
-            f"no JSON advice after {self._max_attempts} attempt(s); last error: {errors[-1]}")
+        return ask_for_json(self._chat(_ADVICE_SYSTEM_PROMPT), user_prompt, self._max_attempts,
+                            "advice", counter=self._count)
 
 
 class AnthropicLayoutProvider:
@@ -314,61 +395,36 @@ class AnthropicLayoutProvider:
         self.endpoint: str | None = None
         self.calls = 0
 
-    def complete_layout(self, request: dict) -> dict:
+    def _messages(self, system: str):
         import anthropic
 
-        from codegen.reasoning.providers.anthropic_provider import _extract_json
-
-        self.requests.append(request)
         from codegen.reasoning.mode import guard_live_call
 
         guard_live_call("the layout recognizer (Anthropic API)", sdk_module=anthropic)
         client = anthropic.Anthropic()
-        user_prompt = "Layout request (the only material):\n" + json.dumps(request, indent=2)
-        errors: list[str] = []
-        for _ in range(self._max_attempts):
-            self.calls += 1
+
+        def send(prompt: str) -> str:
             message = client.messages.create(
-                model=self._model, max_tokens=self._max_tokens, system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}])
-            text = "".join(block.text for block in message.content
+                model=self._model, max_tokens=self._max_tokens, system=system,
+                messages=[{"role": "user", "content": prompt}])
+            return "".join(block.text for block in message.content
                            if getattr(block, "type", "") == "text")
-            try:
-                return json.loads(_extract_json(text))
-            except ValueError as exc:
-                errors.append(str(exc))
-                user_prompt += (f"\n\nYour previous response was not a JSON object: {exc}. "
-                                "Respond again with ONLY the JSON object.")
-        raise LayoutProviderError(
-            f"no JSON profile after {self._max_attempts} attempt(s); last error: {errors[-1]}")
+        return send
+
+    def _count(self) -> None:
+        self.calls += 1
+
+    def complete_layout(self, request: dict) -> dict:
+        self.requests.append(request)
+        user_prompt = "Layout request (the only material):\n" + json.dumps(request, indent=2)
+        return ask_for_json(self._messages(_SYSTEM_PROMPT), user_prompt, self._max_attempts,
+                            "profile", counter=self._count)
 
     def advise_layout(self, request: dict) -> dict:
-        import anthropic
-
-        from codegen.reasoning.providers.anthropic_provider import _extract_json
-
         self.requests.append(request)
-        from codegen.reasoning.mode import guard_live_call
-
-        guard_live_call("the layout recognizer (Anthropic API)", sdk_module=anthropic)
-        client = anthropic.Anthropic()
         user_prompt = "Questions (the only material):\n" + json.dumps(request, indent=2)
-        errors: list[str] = []
-        for _ in range(self._max_attempts):
-            self.calls += 1
-            message = client.messages.create(
-                model=self._model, max_tokens=self._max_tokens, system=_ADVICE_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}])
-            text = "".join(block.text for block in message.content
-                           if getattr(block, "type", "") == "text")
-            try:
-                return json.loads(_extract_json(text))
-            except ValueError as exc:
-                errors.append(str(exc))
-                user_prompt += (f"\n\nYour previous response was not a JSON object: {exc}. "
-                                "Respond again with ONLY the JSON object.")
-        raise LayoutProviderError(
-            f"no JSON advice after {self._max_attempts} attempt(s); last error: {errors[-1]}")
+        return ask_for_json(self._messages(_ADVICE_SYSTEM_PROMPT), user_prompt,
+                            self._max_attempts, "advice", counter=self._count)
 
 
 def build_layout_provider(config: Config, dry_run: bool, base_dir: Path | None = None
@@ -434,10 +490,14 @@ __all__ = [
     "FmapiLayoutProvider",
     "LayoutModelProvider",
     "LayoutProviderError",
+    "RAW_LOG_CHARS",
+    "RETRY_INSTRUCTION",
     "MockLayoutProvider",
+    "ask_for_json",
     "build_advice_request",
     "build_frd_request",
     "build_layout_provider",
+    "parse_json_response",
     "build_sttm_request",
     "validate_advice",
 ]

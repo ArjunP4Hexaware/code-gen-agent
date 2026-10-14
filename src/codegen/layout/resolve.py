@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -67,6 +68,7 @@ from codegen.layout.frd_profile import (
 )
 from codegen.layout.hints import frd_field_help, role_help
 from codegen.layout.model import (
+    RAW_LOG_CHARS,
     LayoutModelProvider,
     LayoutProviderError,
     build_frd_request,
@@ -442,6 +444,26 @@ def _log_rejections(caches: _Caches, digest: str, document: str, rejections: lis
     return _save_runtime(payload, caches.runtime / "rejections", f"{digest}.json")
 
 
+def _log_raw_responses(caches: _Caches, digest: str, document: str,
+                       raw: list[str]) -> Path | None:
+    """D1-only diagnostics (2026-10-13, pair_11 "Expecting value: line 1
+    column 1"): the first ``RAW_LOG_CHARS`` characters of every model response
+    that was rejected, on stderr and in ``<runtime cache>/rejections/
+    <fingerprint>.raw.json`` (the state role — never a tracked file, a
+    contract or a report). A response can echo the header labels it was
+    shown, so this stays on the workspace that ran it."""
+    if not raw:
+        return None
+    for number, response in enumerate(raw, 1):
+        print(f"RAW (D1 only)  {document} model response {number}/{len(raw)}, first "
+              f"{RAW_LOG_CHARS} chars: {response!r}", file=sys.stderr)
+    if caches.runtime is None:
+        return None
+    payload = {"fingerprint": digest, "document": document, "chars": RAW_LOG_CHARS,
+               "responses": raw}
+    return _save_runtime(payload, caches.runtime / "rejections", f"{digest}.raw.json")
+
+
 def _save_runtime(payload: dict, runtime_cache_dir: Path | None, name: str) -> Path | None:
     if runtime_cache_dir is not None and "fixtures" in Path(runtime_cache_dir).parts:
         # A runtime profile carries the document's REAL sheet names; fixtures/
@@ -764,12 +786,16 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             answer = provider.complete_layout(request)
         except LayoutProviderError as exc:
             rejections.append(Rejection(document, None, None, None, f"model: {exc}"))
+            _log_raw_responses(caches, digest, document, exc.raw)
         else:
             # 2026-10-13 (D1 pair_11): one schema error no longer discards the
             # whole answer — every error is reported, the valid sheets / bands
             # go on to the same workbook validation as before.
             model_profile, error_lines, schema_errors = salvage_layout_answer(answer, profile)
             rejections += [Rejection(document, None, None, None, line) for line in error_lines]
+            if error_lines:
+                _log_raw_responses(caches, digest, document,
+                                   [json.dumps(answer, ensure_ascii=False)[:RAW_LOG_CHARS]])
         if model_profile is not None:
             # Every claim in the answer — sheets, header/band rows, spans,
             # roles — is validated against the workbook FIRST; only the
@@ -1025,11 +1051,14 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
             model_profile = FrdLayoutProfile.model_validate(answer)
         except LayoutProviderError as exc:
             rejections.append(Rejection("frd", None, None, None, f"model: {exc}"))
+            _log_raw_responses(caches, digest, "frd", exc.raw)
         except ValidationError as exc:
             rejections.append(Rejection("frd", None, None, None,
                                         "model response failed schema validation: "
                                         f"{str(exc).splitlines()[0]}"))
             schema_errors = _schema_errors(exc)
+            _log_raw_responses(caches, digest, "frd",
+                               [json.dumps(answer, ensure_ascii=False)[:RAW_LOG_CHARS]])
         else:
             claims = {k: v.model_dump(mode="json") for k, v in model_profile.fields.items()}
             profile = _merge_frd(profile, claims, "model", config.layout.model_confidence)

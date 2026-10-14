@@ -178,6 +178,9 @@ def _corpus_book(path, feed: str, domain: str, *, email_name: str = EMAIL,
             "9999-12-31"],
            [10 * group + 2, 10 * group + 8, f"{domain} stage to standard", "WEEKLY", 2,
             "9999-12-31"]])
+    sheet("DATA_QUALITY_RULES", ["GROUP_ID", "RULE_TYPE", "RULE_CLASS", "SOURCE_COLUMN"],
+          [[group, "STDDelta", "LRTrimRule", "a"], [group, "STDDelta", "DataTypeCastRule", "b"],
+           [group, "Predefined", "CheckRule", "c"]][:group + 1])
     sheet(email_name, ["TEMPLATE_NAME", "STATUS", "SUBJECT"],
           [[f"{feed} TPL", "Success", f"{feed} Load Completed"],
            [f"{feed} TPL", "Failed", f"{feed} Load Failed"]], title=title_row)
@@ -202,14 +205,14 @@ def test_every_corpus_workbook_lists_its_sheets_and_a_csv_is_one_table(tmp_path,
                        email_name="email_template_config", title_row=True)
     two = _corpus_book(tmp_path / "pair_b.xlsx", "zq_beta_feed", "Claims",
                        email_name="NOT_AN_EMAIL_SHEET", group=2)
-    (tmp_path / "email_template_config.csv").write_text(
+    (tmp_path / "email_template_config_by_pipeline.csv").write_text(
         "TEMPLATE_NAME,STATUS,SUBJECT\nX TPL,Success,X Load Completed\n", encoding="utf-8")
     books = fill_rate.read_books(fill_rate.workbooks([tmp_path]), list(fill_rate.DEFAULT_SHEETS))
     fill_rate.print_inventory(books, list(fill_rate.DEFAULT_SHEETS))
     out = capsys.readouterr().out
-    assert f"{one.name}: 4 sheet(s)" in out and "EMAIL_TEMPLATE_CONFIG 2" in out
-    assert f"{two.name}: 4 sheet(s)" in out and "NOT_AN_EMAIL_SHEET" in out
-    assert "email_template_config.csv: 1 sheet(s)" in out
+    assert f"{one.name}: 5 sheet(s)" in out and "EMAIL_TEMPLATE_CONFIG 2" in out
+    assert f"{two.name}: 5 sheet(s)" in out and "NOT_AN_EMAIL_SHEET" in out
+    assert "email_template_config_by_pipeline.csv: 1 sheet(s)" in out
     assert f"{EMAIL}: in 2 of 3 corpus workbook(s)" in out
     rows = fill_rate.merge_books(books, {EMAIL})[EMAIL][1]
     assert len(rows) == 3 and {r["status"] for r in rows} == {"Success", "Failed"}
@@ -220,7 +223,8 @@ def test_patterns_slot_values_day_of_schedule_and_masters_scrubbed(tmp_path):
               for n, (feed, domain) in enumerate((("zqalphafeed", "Zqmember"),
                                                   ("zqbetafeed", "Zqclaims")), 1)]
     keys = fill_rate._diff_module().load_keys(fill_rate.TOOLS / "iig_keys.yaml")
-    books = fill_rate.read_books(corpus, [*fill_rate.DEFAULT_SHEETS, *fill_rate.SLOT_SHEETS])
+    books = fill_rate.read_books(corpus, [*fill_rate.DEFAULT_SHEETS, *fill_rate.SLOT_SHEETS,
+                                          fill_rate.RULES])
     out = tmp_path / "patterns"
     report = fill_rate.write_patterns(out, books, list(fill_rate.DEFAULT_SHEETS), keys,
                                       lambda h: keys.is_assignment(h))
@@ -241,7 +245,13 @@ def test_patterns_slot_values_day_of_schedule_and_masters_scrubbed(tmp_path):
     assert masters["rows_by_kind"] == {"grand_master": 2, "master": 2}
     assert masters["groups_under_a_master"] == {"1": 4}           # one GROUP_ID each
     assert masters["master_rows_per_group"] == {"2": 2}           # per group, not shared
+    # the corpus's DQ rule classes (D1 post43 item 6), most rows first
+    assert report["rule_classes"] == [
+        {"rule_type": "STDDelta", "rule_class": "LRTrimRule", "rows": 2, "workbooks": 2},
+        {"rule_type": "STDDelta", "rule_class": "DataTypeCastRule", "rows": 2, "workbooks": 2},
+        {"rule_type": "Predefined", "rule_class": "CheckRule", "rows": 1, "workbooks": 1}]
     text = (out / "patterns.md").read_text(encoding="utf-8")
+    assert "| STDDelta | LRTrimRule | 2 | 2 |" in text
     for raw in ("zqalphafeed", "zqbetafeed", "Zqmember", "Zqclaims"):
         assert raw not in text and raw not in (out / "patterns.json").read_text(
             encoding="utf-8")

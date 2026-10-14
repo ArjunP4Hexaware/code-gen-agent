@@ -25,7 +25,10 @@ files are re-scanned with scripts/scrub_check.py (a hit deletes them) — safe
 to bring home. Sheets match by name with case and separators ignored (a name
 cut to Excel's 31 characters matches its full name); a header row is the
 first of the top rows with two or more cells; a ``.csv`` corpus file is one
-table, named by its file stem. Every corpus workbook's sheets are listed.
+table, named by its file stem (a suffix allowed: the EMAIL_TEMPLATE_CONFIG
+export tools/build_goldens.py reads, email_template_config_by_pipeline.csv —
+the 199 per-pair workbooks carry no email sheet). Every corpus workbook's
+sheets are listed.
 
 Run on D1 over the 199-IIG corpus (docs/acfc/iig_goldens/*.xlsx); at home
 over the SFMC reference IIG, the pair-1 golden and any golden at hand.
@@ -49,6 +52,9 @@ TOOLS = Path(__file__).resolve().parent
 DEFAULT_SHEETS = ("DATABRICKS_NOTEBOOK_DETAILS", "DATA_FACTORY_PIPELINE_SCHEDULE",
                   "EMAIL_TEMPLATE_CONFIG")
 SCHEDULE = "DATA_FACTORY_PIPELINE_SCHEDULE"
+# 2026-10-14 (D1 post43 item 6): the corpus's DQ rule classes (--patterns)
+RULES = "DATA_QUALITY_RULES"
+RULE_COLUMNS = ("ruletype", "ruleclass")
 # The ingestion sheets whose cells name a workbook's feed / tables / files —
 # the slot values of --patterns (ALL_FILES_STATIC_INFORMATION is the whole
 # inventory, never one feed's).
@@ -164,7 +170,10 @@ def read_books(paths: list[Path], wanted) -> list[Book]:
     books: list[Book] = []
     for path in paths:
         if path.suffix.lower() == ".csv":
-            target = match_sheet(path.stem, wanted)
+            # a table export: its stem names the table, possibly with a suffix
+            # (build_goldens' email_template_config_by_pipeline.csv)
+            target = match_sheet(path.stem, wanted) or next(
+                (w for w in wanted if sheet_key(path.stem).startswith(sheet_key(w))), None)
             book = Book(path.name, [path.stem])
             if target:
                 with path.open(encoding="utf-8-sig", newline="") as fh:
@@ -492,7 +501,23 @@ def patterns_report(books: list[Book], sheets: list[str], assigned, withheld, sc
                                                     if filled(d)).most_common(1))}
         for freq, days in sorted(by_freq.items(), key=lambda kv: -len(kv[1]))}
     report["masters"] = master_counts(books)
+    report["rule_classes"] = rule_classes(books, scr)
     return report
+
+
+def rule_classes(books: list[Book], scr) -> list[dict]:
+    """DATA_QUALITY_RULES rows per (RULE_TYPE, RULE_CLASS) over the corpus,
+    and how many workbooks have each (scrubbed), the most rows first."""
+    rows: Counter[tuple] = Counter()
+    books_with: dict[tuple, set[int]] = defaultdict(set)
+    for n, book in enumerate(books):
+        for row in book.sheets.get(RULES, ({}, []))[1]:
+            key = tuple(str(row.get(c) or "").strip() for c in RULE_COLUMNS)
+            rows[key] += 1
+            books_with[key].add(n)
+    return [{"rule_type": scr.scrub(t), "rule_class": scr.scrub(c), "rows": count,
+             "workbooks": len(books_with[(t, c)])}
+            for (t, c), count in rows.most_common()]
 
 
 def patterns_markdown(report: dict, books: list[Book], sheets: list[str], scr) -> str:
@@ -536,6 +561,12 @@ def patterns_markdown(report: dict, books: list[Book], sheets: list[str], scr) -
         dom = d["dominant"] or ["", None]
         lines.append(f"| {md(freq)} | {d['rows']} | {d['filled']} | {pct(d['filled_pct'])} | "
                      f"{md(dom[0])} | {pct(dom[1])} |")
+    lines += ["", f"## {RULES} rule classes (RULE_TYPE x RULE_CLASS)", "",
+              f"- workbooks with the sheet: {sum(1 for b in books if RULES in b.sheets)} of "
+              f"{len(books)}", "", "| RULE_TYPE | RULE_CLASS | rows | workbooks |",
+              "|---|---|---|---|"]
+    lines += [f"| {md(r['rule_type']) or '<blank>'} | {md(r['rule_class']) or '<blank>'} | "
+              f"{r['rows']} | {r['workbooks']} |" for r in report["rule_classes"]]
     m = report["masters"]
     lines += ["", "## Grand master / master schedule rows", "",
               f"- rows by kind (description / name, else a PARENT_PIPELINE_ID): "
@@ -612,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"corpus: {len(corpus_books)} workbook(s); agent: {len(agent_books)} workbook(s); "
           f"threshold {args.threshold:.0f}%")
-    read = [*sheets, *(s for s in SLOT_SHEETS if s not in sheets)]
+    read = [*sheets, *(s for s in (*SLOT_SHEETS, RULES) if s not in sheets)]
     corpus = read_books(corpus_books, read if args.patterns else sheets)
     agent = read_books(agent_books, sheets)
     print_inventory(corpus, sheets)

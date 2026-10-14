@@ -325,6 +325,8 @@ class KeyConfig:
     file_columns: dict[str, list[str]] = field(default_factory=dict)
     # 2026-10-14: flows whose agent rows are group-level (never extra)
     group_level_flows: tuple[str, ...] = ()
+    # 2026-10-14: sheet -> the columns tabulated per side (rule classes, D1 only)
+    rule_diagnostics: dict[str, list[str]] = field(default_factory=dict)
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -415,7 +417,8 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
              "environment_tokens", "identity", "flow", "convention_columns", "group_index",
-             "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows"}
+             "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows",
+             "rule_diagnostics"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -441,6 +444,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
                                for t in raw.get("file_name_tokens") or []),
         file_columns=_column_lists(path, "file_columns", raw.get("file_columns")),
         group_level_flows=tuple(str(f) for f in raw.get("group_level_flows") or []),
+        rule_diagnostics=_column_lists(path, "rule_diagnostics", raw.get("rule_diagnostics")),
     )
 
 
@@ -1086,6 +1090,7 @@ class SheetDiff:
     title: str = ""
     # a cross-template sheet: the file names each side states (D1 only)
     file_samples: dict | None = None
+    rule_samples: dict | None = None     # 2026-10-14: D1 only (unscrubbed)
 
     def counts(self) -> dict[str, int]:
         c = Counter(cell.status for cell in self.cells)
@@ -1300,6 +1305,15 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
 
     for side, parts in (("golden", g_parts), ("agent", a_parts)):
         texts[side] = {n: " | ".join(p[i] or "<none>" for i in keep) for n, p in parts.items()}
+    # 2026-10-14 (D1 post43 item 6): which component keeps rows apart — distinct
+    # values per side and how many both sides have (counts only).
+    overlap = {}
+    for i in keep:
+        g_vals = {p[i] for p in g_parts.values() if p[i] is not None}
+        a_vals = {p[i] for p in a_parts.values() if p[i] is not None}
+        overlap[components[i]] = {"golden": len(g_vals), "agent": len(a_vals),
+                                  "shared": len(g_vals & a_vals)}
+    facts["component_overlap"] = overlap
     by_identity: dict[tuple[str, ...], list] = defaultdict(list)
     a_rows = dict(agent.rows)
     for n, parts in a_parts.items():
@@ -1459,7 +1473,34 @@ def diff_sheet(
                                           scope if agent is not None else None, oos,
                                           group_rows)
     out.identity_text = texts
+    out.rule_samples = rule_samples(name, golden, agent, keys, texts)
     return _tally(out, pairs, oos_rows, golden, agent, keys, group_rows)
+
+
+RULE_SAMPLE_ROWS = 60
+
+
+def rule_samples(name: str, golden: Sheet | None, agent: Sheet | None, keys: KeyConfig,
+                 texts: dict) -> dict | None:
+    """2026-10-14 (D1 post43 item 6, DATA_QUALITY_RULES diagnostic): per side,
+    the rows per value of the ``rule_diagnostics`` columns (RULE_TYPE x
+    RULE_CLASS) and every row's identity as paired. UNSCRUBBED: console +
+    score.json, D1 only; the scrubbed sheets.md carries the class table."""
+    columns = _by_sheet(keys.rule_diagnostics, name)
+    if not columns:
+        return None
+    out: dict = {"columns": columns}
+    for side, sheet in (("golden", golden), ("agent", agent)):
+        if sheet is None:
+            out[side] = {"rows": 0, "values": [], "identities": []}
+            continue
+        canon = sheet.canon()
+        counts = Counter(tuple(_raw(row.get(canon.get(c.upper(), ""))).strip() for c in columns)
+                         for _n, row in sheet.rows)
+        out[side] = {"rows": len(sheet.rows),
+                     "values": [[*k, n] for k, n in sorted(counts.items(), key=lambda kv: -kv[1])],
+                     "identities": list((texts.get(side) or {}).values())[:RULE_SAMPLE_ROWS]}
+    return out
 
 
 def _tally(out: SheetDiff, pairs: list[RowPair], oos_rows: set[int], golden: Sheet | None,
@@ -1791,6 +1832,10 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             entry["not_comparable"] = d.columns["not_comparable"]
         if d.file_samples is not None:
             entry["file_samples"] = d.file_samples       # D1 only (unscrubbed)
+        if d.rule_samples is not None:
+            entry["rule_samples"] = d.rule_samples       # D1 only (unscrubbed)
+        if d.facts.get("component_overlap"):
+            entry["component_overlap"] = d.facts["component_overlap"]
         sheets[d.name] = entry
     total_counts = {s: totals.get(s, 0) for s in STATUSES}
     shared: Counter[str] = Counter()
@@ -2387,6 +2432,23 @@ def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
             c[CONVENTION])) + " |")
         per_column = d.column_counts()
         detail += [f"## {_md(_template_text(d.name, vocabulary, scr))}", ""]
+        overlap = d.facts.get("component_overlap") or {}
+        if overlap:
+            # an identity component (@feed / @flow / @table / @file) is the tool's vocabulary
+            named = {c: c if c.startswith("@") else _md(_template_text(c, vocabulary, scr))
+                     for c in overlap}
+            detail += ["Identity components (distinct values golden / agent / shared): "
+                       + "; ".join(f"{named[c]} {o['golden']}/{o['agent']}/{o['shared']}"
+                                   for c, o in overlap.items()), ""]
+        if d.rule_samples:
+            rs = d.rule_samples
+            detail += [f"Rows per {' x '.join(rs['columns'])} (values scrubbed):", "",
+                       "| side | " + " | ".join(rs["columns"]) + " | rows |",
+                       "| --- | " + " | ".join("---" for _ in rs["columns"]) + " | --- |"]
+            for side in ("golden", "agent"):
+                detail += [f"| {side} | " + " | ".join(_md(scr.scrub(x)) for x in v[:-1])
+                           + f" | {v[-1]} |" for v in rs[side]["values"]]
+            detail.append("")
         if not per_column:
             detail += [("No cells compared (" + ("sheet on one side only" if one_side else
                                                   "no row paired or unpaired in scope") + ")."),
@@ -2791,6 +2853,7 @@ def _print_pair(payload: dict, out: Path) -> None:
         print(f"WARNING {w}")
     _print_key_samples(payload)
     _print_file_samples(payload)
+    _print_rule_samples(payload)
     print(f"wrote {out / 'score.json'}, {out / 'diff.xlsx'}, {out / 'routing.csv'}")
 
 
@@ -2810,6 +2873,34 @@ def _print_file_samples(payload: dict) -> None:
                  for a in samples["agent"]]
         width = max([len("golden FILE_NAME => identity"), *(len(g) for g in golden)])
         print(f"    {'golden FILE_NAME => identity':<{width}} | agent SRC_FILE_NAME => identity")
+        for i in range(max(len(golden), len(agent))):
+            g = golden[i] if i < len(golden) else ""
+            a = agent[i] if i < len(agent) else ""
+            print(f"    {g:<{width}} | {a}")
+
+
+def _print_rule_samples(payload: dict) -> None:
+    """RULES (D1 only, unscrubbed): a rule sheet's classes per side, which
+    identity component keeps the rows apart, and every row's identity."""
+    for name, s in payload["sheets"].items():
+        samples = s.get("rule_samples")
+        if not samples:
+            continue
+        cols = " x ".join(samples["columns"])
+        print(f"RULES (D1 only - unscrubbed) {name}: golden {samples['golden']['rows']} "
+              f"row(s), agent {samples['agent']['rows']} row(s); rows per {cols}")
+        for side in ("golden", "agent"):
+            values = "; ".join(f"{' / '.join(v[:-1]) or '<blank>'} {v[-1]}"
+                               for v in samples[side]["values"]) or "none"
+            print(f"    {side}: {values}")
+        overlap = s.get("component_overlap") or {}
+        if overlap:
+            print("    identity components (distinct values golden / agent / shared): "
+                  + "; ".join(f"{c} {o['golden']}/{o['agent']}/{o['shared']}"
+                              for c, o in overlap.items()))
+        golden, agent = samples["golden"]["identities"], samples["agent"]["identities"]
+        width = max([len("golden identity"), *(len(v) for v in golden)])
+        print(f"    {'golden identity':<{width}} | agent identity")
         for i in range(max(len(golden), len(agent))):
             g = golden[i] if i < len(golden) else ""
             a = agent[i] if i < len(agent) else ""

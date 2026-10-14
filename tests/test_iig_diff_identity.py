@@ -337,3 +337,44 @@ def test_agent_master_rows_are_group_level_not_extra(tmp_path: Path, capsys) -> 
     assert payload["totals"]["group_level_rows"] == 4
     # a golden that DOES carry master rows: they pair or count as usual
     assert iig_diff.group_level_rows(PIPE, [], None, None, iig_diff.load_keys(KEYS)) == set()
+
+
+def test_rule_sheet_diagnostic_classes_identities_and_component_overlap(tmp_path: Path,
+                                                                        capsys) -> None:
+    """D1 post43 item 6 (diagnostic only): DATA_QUALITY_RULES paired 0 rows on
+    CAQH. Per side the rows per RULE_TYPE x RULE_CLASS and every row's identity
+    (console + score.json, D1 only), and for every sheet each identity
+    component's distinct values per side and how many both have — here
+    SOURCE_COLUMN is the component that keeps the rows apart."""
+    golden = _golden(tmp_path / "golden.xlsx")
+    run = tmp_path / "run"
+    agents = [_agent(run, feed, domain) for feed, (domain, _pkg) in FEEDS.items()]
+    for book in agents:                       # the agent names another source column
+        wb = openpyxl.load_workbook(book)
+        for row in wb[DQ].iter_rows(min_row=2):
+            row[DQ_HEAD.index("SOURCE_COLUMN")].value = "zz_" + str(
+                row[DQ_HEAD.index("SOURCE_COLUMN")].value)
+        wb.save(book)
+    _stamp(run)
+    out = tmp_path / "out"
+    assert iig_diff.main(["--golden", str(golden), "--agent", *map(str, agents),
+                          "--out", str(out), "--group-index", str(_index(tmp_path / "i.csv")),
+                          "--export-scrubbed", str(tmp_path / "export")]) == 0
+    s = json.loads((out / "score.json").read_text(encoding="utf-8"))["sheets"][DQ]
+    assert s["pairing"]["identity"] == 0
+    samples = s["rule_samples"]
+    assert samples["columns"] == ["RULE_TYPE", "RULE_CLASS"]
+    assert samples["golden"]["values"] == [["Predefined", "CheckRule", 2],
+                                          ["Custom", "DateFormat", 2]]
+    assert samples["agent"]["values"] == samples["golden"]["values"]
+    assert len(samples["golden"]["identities"]) == len(samples["agent"]["identities"]) == 4
+    overlap = s["component_overlap"]
+    assert overlap["SOURCE_COLUMN"] == {"golden": 2, "agent": 2, "shared": 0}
+    assert overlap["RULE_CLASS"]["shared"] == 2
+    printed = capsys.readouterr().out
+    block = printed.split("RULES (D1 only - unscrubbed) DATA_QUALITY_RULES")[1]
+    assert "golden 4 row(s), agent 4 row(s)" in block
+    assert "SOURCE_COLUMN 2/2/0" in block and "zzmemberid" in block
+    sheets_md = (tmp_path / "export" / "sheets.md").read_text(encoding="utf-8")
+    assert "Rows per RULE_TYPE x RULE_CLASS" in sheets_md
+    assert "SOURCE_COLUMN 2/2/0" in sheets_md and "zzmemberid" not in sheets_md

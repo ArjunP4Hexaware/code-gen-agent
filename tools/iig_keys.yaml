@@ -161,6 +161,14 @@ flow:
 # masters per GROUP_ID) says whether prod keeps them per group or per domain.
 group_level_flows: [grand_master, master]
 
+# RULE DIAGNOSTICS (2026-10-14, D1 post43 item 6 - diagnostic only): the
+# DATA_QUALITY_RULES rows per RULE_TYPE x RULE_CLASS on each side and every row's
+# identity (console + score.json, D1 only; sheets.md the scrubbed class table),
+# and for every sheet the identity components' overlap (distinct values per
+# side, shared) - which component keeps rows apart.
+rule_diagnostics:
+  DATA_QUALITY_RULES: [RULE_TYPE, RULE_CLASS]
+
 # CONVENTION columns: values generated under a naming convention — the agent's
 # from config.yaml (engineering_standards job_name_pattern WF_... /
 # notebook_name_pattern NB_..., pipeline_roles PL_..., reject_table_suffix,

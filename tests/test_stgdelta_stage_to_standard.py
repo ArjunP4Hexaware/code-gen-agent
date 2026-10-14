@@ -72,12 +72,14 @@ def test_the_overlay_selects_the_sd_family_stage_to_standard_settings(sd_run):
     config, _runs = sd_run
     template = config.metadata.templates["iig_v2"]
     assert template.family_conventions.stgdelta_object_id == "from_file"
-    # No STGDELTA constant: the source container is an inference, offered only.
-    assert "SRC_CONTAINER_NAME" not in template.constants.get(STG, {})
-    assert "SRC_CONTAINER_NAME" not in template.constant_citations.get(STG, {})
-    offer = template.open_offers[STG]["SRC_CONTAINER_NAME"]
-    assert STAGE_CONTAINER in offer and "Friday checklist 13" in offer
-    assert "config/overlays/acfc_env.yaml" in offer
+    # 2026-10-14 (D1 post43 item 4): the SD prod rows and the CAQH golden state
+    # both containers - the stage container in, the standard one out: cited
+    # constants; the 2026-10-09 offer-only cell is retired.
+    assert template.constants[STG]["SRC_CONTAINER_NAME"] == STAGE_CONTAINER
+    assert template.constants[STG]["TGT_CONTAINER_NAME"].endswith("-std-01")
+    for column in ("SRC_CONTAINER_NAME", "TGT_CONTAINER_NAME"):
+        assert "round7 pair_2" in template.constant_citations[STG][column]
+    assert "SRC_CONTAINER_NAME" not in template.open_offers.get(STG, {})
     # round 6 (SD prod rows + SFMC reference IIG): source = the stage table's
     # processed folder, target = the processed directory, archive beside it
     assert template.path_patterns[STG]["SRC_ADLS_PATH"] == "/{domain_path}Processed/{stage_table}"
@@ -117,20 +119,21 @@ def test_stage_to_standard_paths_are_container_relative(sd_run):
         assert gate.verdict == "PASS_WITH_FLAGS"
 
 
-def test_no_document_states_this_sheets_containers_or_connections(sd_run):
+def test_containers_from_real_rows_connections_stay_open(sd_run):
+    """2026-10-14 (D1 post43 item 4): the containers are stated by the SD prod
+    rows (round 7) - the stage container in, the standard one out; the
+    connection ids are still stated by nothing and stay open."""
     _config, runs = sd_run
     for _slug, (gate, book) in runs.items():
+        (adls,) = _sheet(book, ADLS)
         (stg,) = _sheet(book, STG)
-        for column in ("SRC_CONTAINER_NAME", "TGT_CONTAINER_NAME", "SRC_ADLS_CONNECTION_ID",
-                       "METADATA_CONNECTION_ID", "TGT_CONNECTION_ID"):
+        assert stg["SRC_CONTAINER_NAME"] == adls["TGT_CONTAINER_NAME"] == STAGE_CONTAINER
+        assert stg["TGT_CONTAINER_NAME"].endswith("-std-01")
+        for column in ("SRC_ADLS_CONNECTION_ID", "METADATA_CONNECTION_ID", "TGT_CONNECTION_ID"):
             assert stg[column] in (None, ""), column          # open: Friday checklist 2 / 13
-        # the source container's candidate (an inference) rides in the open cell's tooltip
-        badge, tooltip = _tooltips(book, STG)[2]["SRC_CONTAINER_NAME"]
-        assert badge == "NEEDS CLIENT TEMPLATE"
-        assert tooltip.startswith("open — no input states it; candidate, NOT written")
-        assert STAGE_CONTAINER in tooltip and "Friday checklist 13" in tooltip
         (blank,) = [f for f in gate.flags if f.startswith(f"iig_blank:{STG}: ")]
-        assert "SRC_CONTAINER_NAME" in blank.split(": ", 1)[1].split(", ")
+        open_columns = blank.split(": ", 1)[1].split(", ")
+        assert "SRC_CONTAINER_NAME" not in open_columns and "TGT_CONNECTION_ID" in open_columns
 
 
 def test_an_offered_cell_can_never_also_be_a_constant():

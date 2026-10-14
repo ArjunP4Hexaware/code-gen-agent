@@ -305,3 +305,35 @@ def test_the_identity_check_tool_counts_a_corpus(tmp_path: Path, capsys) -> None
     assert (f"  {PIPE}: rows 8, identified 8, by position 0, unidentified 0, "
             "repeated identities 0") in out
     assert "PL_File_" not in out                            # counts only
+
+
+def test_agent_master_rows_are_group_level_not_extra(tmp_path: Path, capsys) -> None:
+    """D1 post43 item 5: the agent writes a grand master + master pipeline per
+    feed; the golden GROUP_ID workbooks carry none. Those agent rows are
+    "group-level rows: N (not scored)" — never extra-in-agent — until the corpus
+    count says whether prod keeps them per group or per domain."""
+    golden = _golden(tmp_path / "golden.xlsx")
+    run = tmp_path / "run"
+    agents = [_agent(run, feed, domain) for feed, (domain, _pkg) in FEEDS.items()]
+    for book in agents:
+        wb = openpyxl.load_workbook(book)
+        ws = wb[PIPE]
+        ws.cell(row=1, column=len(PIPE_HEAD) + 1, value="PIPELINE_DESCRIPTION")
+        for description in ("Grand master", "Master"):
+            ws.append([None, f"PL_{description.upper().replace(' ', '')}_X", "Monthly", "Y",
+                       None, None, description])
+        wb.save(book)
+    payload = _run(tmp_path, golden, agents)
+    s = payload["sheets"][PIPE]
+    assert s["group_level_rows"] == 4
+    assert s["rows"]["extra-in-agent"] == 0 and s["unpaired"]["agent"] == 0
+    assert s["counts"]["group-level"] == 4 * (len(PIPE_HEAD) + 1)
+    # the only extra cells: the legs' PIPELINE_DESCRIPTION, a column the golden lacks
+    extra = {c: n["extra-in-agent"] for c, n in s["column_counts"].items()
+             if n["extra-in-agent"]}
+    assert extra == {"PIPELINE_DESCRIPTION": 4}
+    assert iig_diff.GROUP_LEVEL not in (*iig_diff.SCORED, *iig_diff.LEGACY_SCORED)
+    assert any("group-level rows: 4 (not scored)" in w for w in s["warnings"])
+    assert payload["totals"]["group_level_rows"] == 4
+    # a golden that DOES carry master rows: they pair or count as usual
+    assert iig_diff.group_level_rows(PIPE, [], None, None, iig_diff.load_keys(KEYS)) == set()

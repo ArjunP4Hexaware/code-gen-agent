@@ -207,7 +207,14 @@ CONVENTION = "convention"
 # whole-GROUP_ID export, the agent wrote the run's own feeds) — reported as
 # "out of scope: N rows", never as missing.
 OUT_OF_SCOPE = "out-of-scope"
-STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION)
+# 2026-10-14 (D1 post43 item 5): an agent row of a GROUP-level flow (iig_keys.yaml
+# group_level_flows: the grand master / master pipelines the agent writes per
+# feed) on a sheet whose golden carries no row of that flow (the golden group
+# workbooks do not) — reported as "group-level rows: N (not scored)", never as
+# extra, until the corpus says whether prod keeps them per group or per domain.
+GROUP_LEVEL = "group-level"
+STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION,
+            GROUP_LEVEL)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 # The overall score keeps its meaning (an out-of-scope cell counts as missing);
 # ``comparable_score`` is the one over scoped cells of shared sheets only.
@@ -316,6 +323,8 @@ class KeyConfig:
     file_name_tokens: tuple[re.Pattern[str], ...] = ()
     # 2026-10-14: the columns naming a row's FILE, per sheet (identity @file)
     file_columns: dict[str, list[str]] = field(default_factory=dict)
+    # 2026-10-14: flows whose agent rows are group-level (never extra)
+    group_level_flows: tuple[str, ...] = ()
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -406,7 +415,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
              "environment_tokens", "identity", "flow", "convention_columns", "group_index",
-             "sheet_aliases", "file_name_tokens", "file_columns"}
+             "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -431,6 +440,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         file_name_tokens=tuple(re.compile(str(t), re.IGNORECASE)
                                for t in raw.get("file_name_tokens") or []),
         file_columns=_column_lists(path, "file_columns", raw.get("file_columns")),
+        group_level_flows=tuple(str(f) for f in raw.get("group_level_flows") or []),
     )
 
 
@@ -1063,6 +1073,7 @@ class SheetDiff:
     sides: tuple = (None, None)       # (golden Sheet | None, agent Sheet | None)
     tables: tuple = (None, None)      # (golden ObjectTables, agent ObjectTables)
     out_of_scope_rows: int = 0        # golden rows of feeds the agent did not write
+    group_level_rows: int = 0         # agent grand master / master rows, not scored
     # rows paired per method, rows left unpaired per side (in scope)
     pairing: dict = field(default_factory=dict)
     unpaired: dict = field(default_factory=dict)
@@ -1090,9 +1101,23 @@ class SheetDiff:
         return {col: {s: c.get(s, 0) for s in COLUMN_STATUSES} for col, c in out.items()}
 
 
+def group_level_rows(name: str, pairs: list[RowPair], golden: Sheet | None,
+                     agent: Sheet | None, keys: KeyConfig) -> set[int]:
+    """The unpaired agent rows of a group-level flow (``group_level_flows``)
+    on a sheet whose golden has no row of that flow."""
+    if not keys.group_level_flows or golden is None or agent is None:
+        return set()
+    g_canon, a_canon = golden.canon(), agent.canon()
+    golden_flows = {row_flow(name, row, g_canon, keys) for _n, row in golden.rows}
+    return {p.agent[0] for p in pairs if p.agent and not p.golden
+            and (flow := row_flow(name, p.agent[1], a_canon, keys)) in keys.group_level_flows
+            and flow not in golden_flows}
+
+
 def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_canon: dict,
                     keys: KeyConfig, tables: tuple, scope: FeedScope | None,
-                    oos_rows: set[int] | None = None) -> tuple[list[Cell], set[int]]:
+                    oos_rows: set[int] | None = None,
+                    group_rows: frozenset[int] = frozenset()) -> tuple[list[Cell], set[int]]:
     """Every cell of every pair, with its status; + the golden rows out of
     scope (``oos_rows`` when the caller decided them, else the scope's test).
     A CONVENTION column's cell is ``convention`` — never scored."""
@@ -1118,6 +1143,8 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
             a_val = a_row.get(a_canon[col]) if in_a else None
             if out_of_scope:
                 status = OUT_OF_SCOPE
+            elif g_row is None and pair.agent[0] in group_rows:
+                status = GROUP_LEVEL
             elif keys.is_assignment(label):
                 status = ASSIGN
             elif keys.is_convention(label):
@@ -1427,29 +1454,35 @@ def diff_sheet(
         "golden_only": [g_canon[c] for c in order if c in g_canon and c not in a_canon],
         "agent_only": [a_canon[c] for c in order if c in a_canon and c not in g_canon],
     }
+    group_rows = frozenset(group_level_rows(name, pairs, golden, agent, keys))
     out.cells, oos_rows = _classify_pairs(pairs, order, g_canon, a_canon, keys, tables,
-                                          scope if agent is not None else None, oos)
+                                          scope if agent is not None else None, oos,
+                                          group_rows)
     out.identity_text = texts
-    return _tally(out, pairs, oos_rows, golden, agent, keys)
+    return _tally(out, pairs, oos_rows, golden, agent, keys, group_rows)
 
 
 def _tally(out: SheetDiff, pairs: list[RowPair], oos_rows: set[int], golden: Sheet | None,
-           agent: Sheet | None, keys: KeyConfig) -> SheetDiff:
+           agent: Sheet | None, keys: KeyConfig,
+           group_rows: frozenset[int] = frozenset()) -> SheetDiff:
     """Rows paired per method, unpaired per side, the row counts."""
     out.pairing = {m: sum(1 for p in pairs if p.golden and p.agent and p.method == m)
                    for m in (BY_IDENTITY, BY_POSITION, BY_KEY)}
     out.unpaired = {"golden": sum(1 for p in pairs if p.golden and not p.agent
                                   and p.golden[0] not in oos_rows),
-                    "agent": sum(1 for p in pairs if p.agent and not p.golden)}
+                    "agent": sum(1 for p in pairs if p.agent and not p.golden
+                                 and p.agent[0] not in group_rows)}
     out.rows = {
         "golden": len(golden.rows) if golden else 0,
         "agent": len(agent.rows) if agent else 0,
         "paired": sum(1 for p in pairs if p.golden and p.agent),
         MISSING: sum(1 for p in pairs if p.golden and not p.agent
                      and p.golden[0] not in oos_rows),
-        EXTRA: sum(1 for p in pairs if p.agent and not p.golden),
+        EXTRA: sum(1 for p in pairs if p.agent and not p.golden
+                   and p.agent[0] not in group_rows),
     }
     out.out_of_scope_rows = len(oos_rows)
+    out.group_level_rows = len(group_rows)
     out.key_samples = key_samples(out, keys)
     return out
 
@@ -1717,6 +1750,10 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
         if d.out_of_scope_rows:
             sheet_warnings.append(f"out of scope: {d.out_of_scope_rows} golden row(s) of "
                                   "feeds this run did not write (not missing)")
+        if d.group_level_rows:
+            sheet_warnings.append(f"group-level rows: {d.group_level_rows} (not scored) - "
+                                  "the agent's grand master / master rows; the golden "
+                                  "group workbooks carry none")
         warnings += [f"{d.name}: {w}" for w in sheet_warnings]
         entry: dict = {
             "presence": d.presence,
@@ -1736,6 +1773,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "score": None if one_side else _score(counts),
             "comparable_score": None if one_side else _comparable(counts),
             "out_of_scope_rows": d.out_of_scope_rows,
+            "group_level_rows": d.group_level_rows,
             "needs_assignment": assign,
             # 2026-10-13: HOW rows were matched — never read a score without it
             "pairing": d.pairing,
@@ -1783,6 +1821,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_score": _comparable({s: shared.get(s, 0) for s in STATUSES}),
             "comparable_cells": sum(shared.get(s, 0) for s in SCORED),
             "out_of_scope_rows": sum(d.out_of_scope_rows for d in diffs),
+            "group_level_rows": sum(d.group_level_rows for d in diffs),
             "pairing": {m: pairing.get(m, 0) for m in (BY_IDENTITY, BY_POSITION, BY_KEY)},
             "unpaired": {s: unpaired.get(s, 0) for s in ("golden", "agent")},
             "convention_cells": {k: convention.get(k, 0) for k in ("cells", "differing")},
@@ -2737,7 +2776,8 @@ def _print_pair(payload: dict, out: Path) -> None:
     print(f"TOTAL: score {t['score']}; " + ", ".join(f"{k} {t[k]}" for k in STATUSES))
     print(f"COMPARABLE: score {t.get('comparable_score')} over {t.get('comparable_cells')} "
           f"scoped cell(s) of the sheets both sides have; out of scope: "
-          f"{t.get('out_of_scope_rows', 0)} golden row(s)")
+          f"{t.get('out_of_scope_rows', 0)} golden row(s); group-level rows: "
+          f"{t.get('group_level_rows', 0)} (not scored)")
     print(f"PAIRING: identity {t['pairing'].get(BY_IDENTITY, 0)}, position "
           f"{t['pairing'].get(BY_POSITION, 0)}, key {t['pairing'].get(BY_KEY, 0)} row(s); "
           f"unpaired golden {t['unpaired']['golden']}, agent {t['unpaired']['agent']}; "

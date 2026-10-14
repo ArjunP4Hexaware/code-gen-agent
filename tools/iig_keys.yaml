@@ -153,6 +153,14 @@ flow:
     - {column: PROCESS_NAME, match: "^stage load", flow: file_to_stg}
     - {column: PROCESS_NAME, match: "^standard load", flow: stg_to_std}
 
+# GROUP-LEVEL flows (2026-10-14, D1 post43 item 5): the agent writes a grand
+# master and a master pipeline per feed (6 schedule rows on pair_2); the golden
+# GROUP_ID workbooks carry none. An unpaired agent row of these flows, on a sheet
+# whose golden has no row of that flow, is "group-level rows: N (not scored)" -
+# never extra - until the corpus count (tools/iig_fill_rate.py --patterns,
+# masters per GROUP_ID) says whether prod keeps them per group or per domain.
+group_level_flows: [grand_master, master]
+
 # CONVENTION columns: values generated under a naming convention — the agent's
 # from config.yaml (engineering_standards job_name_pattern WF_... /
 # notebook_name_pattern NB_..., pipeline_roles PL_..., reject_table_suffix,

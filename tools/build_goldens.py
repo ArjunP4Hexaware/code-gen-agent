@@ -362,6 +362,36 @@ def _filter_by_pipeline_id(
     return kept, len(rows) - len(kept)
 
 
+def _with_ancestors(headers: list[str], rows: list[list],
+                    pipeline_ids: set[str]) -> set[str]:
+    """2026-10-14 (D1 post44 item 4): ``pipeline_ids`` and every pipeline above
+    them in the schedule (PARENT_PIPELINE_ID, transitively) — the grand master /
+    master rows of the feed's groups, which the corpus carries for every group
+    and the PIPELINE_ID filter used to drop (iig_diff scored the agent's own as
+    "group-level rows (not scored)")."""
+    upper = [h.upper() for h in headers]
+    if "PIPELINE_ID" not in upper or "PARENT_PIPELINE_ID" not in upper:
+        return set(pipeline_ids)
+    p, q = upper.index("PIPELINE_ID"), upper.index("PARENT_PIPELINE_ID")
+
+    def ident(value: object) -> str:
+        text = str(value).strip() if value is not None else ""
+        return text[:-2] if text.endswith(".0") else text
+
+    parent_of = {ident(r[p]): ident(r[q]) for r in rows
+                 if p < len(r) and q < len(r) and ident(r[p])}
+    # the id as the row's own cell spells it ('8.0'): what the filter compares
+    raw_of = {ident(r[p]): str(r[p]).strip() for r in rows if p < len(r) and ident(r[p])}
+    keep = {ident(i) for i in pipeline_ids}
+    frontier = list(keep)
+    while frontier:
+        parent = parent_of.get(frontier.pop(), "")
+        if parent and parent not in ("0", "-1") and parent not in keep:
+            keep.add(parent)
+            frontier.append(parent)
+    return {raw_of.get(i, i) for i in keep} | keep | set(pipeline_ids)
+
+
 # 834-family SRC_FILE_NAME prefix conventions (pair_8 et al.):
 # FD = Daily, FW = Weekly, FM = Monthly, FR = Quarterly.
 _834_PREFIXES = {"FD", "FW", "FM", "FR"}
@@ -504,10 +534,12 @@ def build_one_pair(pair_label: str, group_ids: list[str],
     for sn in list(final_sheets):
         if sn.lower() == "data_factory_pipeline_schedule":
             h, r = final_sheets[sn]
-            kept, dropped = _filter_by_pipeline_id(h, r, pair_pids)
-            if dropped:
-                print(f"    {pair_label}/{sn}: schedule filtered "
-                      f"{len(r)} -> {len(kept)} (dropped {dropped})")
+            # the pair's pipelines AND their grand master / master parents
+            scope = _with_ancestors(h, r, pair_pids)
+            kept, dropped = _filter_by_pipeline_id(h, r, scope)
+            print(f"    {pair_label}/{sn}: schedule filtered "
+                  f"{len(r)} -> {len(kept)} (dropped {dropped}; "
+                  f"{len(scope - pair_pids)} parent pipeline(s) kept)")
             final_sheets[sn] = (h, kept)
 
     # Filter adls_fixed_width_handler by the pair's PIPELINE_IDs

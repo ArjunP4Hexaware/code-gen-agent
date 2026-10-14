@@ -158,6 +158,15 @@ flow:
     - {column: PIPELINE_DESCRIPTION, match: "^master$", flow: master}
     - {column: PROCESS_NAME, match: "^stage load", flow: file_to_stg}
     - {column: PROCESS_NAME, match: "^standard load", flow: stg_to_std}
+    # 2026-10-14 (D1 post44 items 3 / 4): a grand master / master row by its
+    # description anywhere in the text (the corpus: '<process> Grand Master
+    # Pipeline'), else by its name's role token (PL_GMSTR_ / PL_Gmstr_, PL_MSTR_):
+    # the agent's description is open until the D1 overlay sets it, and the
+    # rebuilt goldens carry the masters (tools/build_goldens.py).
+    - {column: PIPELINE_DESCRIPTION, match: 'grand\s*[-_ ]?\s*master', flow: grand_master}
+    - {column: PIPELINE_DESCRIPTION, match: '(?<![a-z])master(?![a-z])', flow: master}
+    - {column: PIPELINE_NAME, match: '(^|_)g(rand)?_?ma?st(e)?r(_|$)', flow: grand_master}
+    - {column: PIPELINE_NAME, match: '(^|_)ma?st(e)?r(_|$)', flow: master}
 
 # GROUP-LEVEL flows (2026-10-14, D1 post43 item 5): the agent writes a grand
 # master and a master pipeline per feed (6 schedule rows on pair_2); the golden

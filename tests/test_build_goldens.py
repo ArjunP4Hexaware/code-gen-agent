@@ -70,10 +70,11 @@ def test_pair_wide_rows_collapse_and_keep_their_sources(tmp_path, capsys):
     golden = tmp_path / "out" / "sfmc_iig_golden.xlsx"
     dedup = report["dedup"]
 
-    # schedule: the two file pipelines (the masters are not the pair's: filtered
-    # first) arrived once per export, audit stamps differing
+    # schedule: the two file pipelines AND their master / grand master (D1 post44
+    # item 4: the parents of the pair's pipelines are the pair's too) arrived once
+    # per export, audit stamps differing
     assert dedup["DATA_FACTORY_PIPELINE_SCHEDULE"] == {
-        "before": 4, "after": 2, "contributing_groups": {2: 2}, "group_ids": []}
+        "before": 8, "after": 4, "contributing_groups": {2: 4}, "group_ids": []}
     header, rows = _rows(golden, "DATA_FACTORY_PIPELINE_SCHEDULE")
     src = header.index(build_goldens.SOURCE_COLUMN)
     assert {r[src] for r in rows} == {",".join(GROUPS)}
@@ -87,8 +88,9 @@ def test_pair_wide_rows_collapse_and_keep_their_sources(tmp_path, capsys):
     files = dedup["ALL_FILES_STATIC_INFORMATION"]
     assert files["after"] * 2 == files["before"] and files["contributing_groups"] == {
         2: files["after"]}
-    assert ("sfmc/DATA_FACTORY_PIPELINE_SCHEDULE: dedup 4 -> 2; rows by number of "
-            "contributing exports {2: 2}") in printed
+    assert ("sfmc/DATA_FACTORY_PIPELINE_SCHEDULE: dedup 8 -> 4; rows by number of "
+            "contributing exports {2: 4}") in printed
+    assert "2 parent pipeline(s) kept" in printed
     assert "sfmc/ADLS_DELTA_INGESTION_DETAILS: dedup 1 -> 1" in printed
     assert "GROUP_ID on the rows: ['SYN-GRP-001']" in printed
 
@@ -120,4 +122,18 @@ def test_iig_diff_never_scores_the_provenance_and_shows_it_in_row_keys(tmp_path,
     row_keys = (tmp_path / "export" / "row_keys.md").read_text(encoding="utf-8")
     assert "| golden row | key | status | agent row | source exports |" in row_keys
     schedule = row_keys.split("## DATA_FACTORY_PIPELINE_SCHEDULE", 1)[1].split("\n## ", 1)[0]
-    assert schedule.count("| 2: ") == 2           # both file pipelines, from both exports
+    assert schedule.count("| 2: ") == 4           # file pipelines + masters, both exports
+
+
+def test_the_grand_master_and_master_above_the_pairs_pipelines_are_kept():
+    """D1 post44 item 4: the corpus has a grand master / master for every group;
+    the schedule filter keeps the pair's pipelines and every parent above them
+    (PARENT_PIPELINE_ID, transitively; ids as text, '1.0' = '1'), never an
+    unrelated pipeline."""
+    headers = ["PIPELINE_ID", "PARENT_PIPELINE_ID", "PIPELINE_DESCRIPTION"]
+    rows = [[11, 8.0, "file to stage"], [12, 8, "stage to standard"], [8, 9.0, "master"],
+            [9.0, 0, "grand master"], [21, 7, "another group"], [7, 0, "its grand master"]]
+    scope = build_goldens._with_ancestors(headers, rows, {"11", "12"})
+    assert scope == {"11", "12", "8", "9", "9.0"}
+    kept, dropped = build_goldens._filter_by_pipeline_id(headers, rows, scope)
+    assert [r[0] for r in kept] == [11, 12, 8, 9] and dropped == 2

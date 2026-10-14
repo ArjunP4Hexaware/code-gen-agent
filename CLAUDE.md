@@ -129,6 +129,34 @@ version >= post36 (step 5: the run header badge must read `Output: Framework art
   D1-only: measured over the 3 home goldens (SFMC, pair_1, CAQH) — 11 gaps → 1
   (ACTIVE_START_DATE, a go-live date). `docs/acfc/IIG_FILL_RATE_2026-10-13.md`; tests
   `tests/test_iig_fill_rate.py`. Run the tool on D1 over `docs/acfc/iig_goldens`.
+- **post44 — the post43 report's six items** (`acfc-pairing-check`
+  `2026-10-14_post43.md`; one commit each): (1) **Layer 2** — both live providers ask
+  through `reasoning/providers/ask.py::ask_candidate` (post43 `parse_json_response`, one
+  `RETRY_INSTRUCTION` retry, a response that `TRUNCATED` = "ends inside the JSON object"
+  retried with `reasoning.truncation_max_tokens` 32000); every failed attempt an
+  `AttemptFailure` on `provider.failures`, logged by `reasoning/raw_log.py`
+  (`LAYER2 FAILED` reason, `RAW (D1 only)` 500 chars, the max_tokens NOTE;
+  `<state>/rejections/layer2_<feed>.raw.json`); `StageUsage.recovered` / `all_failed` -> a
+  `> **WARNING**` report header + console line. Tests `tests/test_layer2_failures.py`.
+  (2) **iig_diff identity `@file`** (`iig_keys.yaml file_columns`) splits ONLY rows the
+  other components leave equal (CAQH: 18 ADLS rows, one table); `file_name_tokens` drops a
+  trailing run of 2+ one-character segments (CAQH `_P_I_1_T`) — home CAQH ADLS and
+  ALL_FILES -> FILE_ADLS 18 / 18 paired. (3a) `iig_fill_rate.py --patterns DIR`: scrubbed
+  `patterns.md` / `.json` (dominant value + slot pattern {table} {schema} {domain} … per
+  column, DAY_OF_SCHEDULE per PIPELINE_FREQUENCY, master rows per GROUP_ID, DQ rule
+  classes), re-scanned with scrub_check. (3c) sheets match case / separator-blind, a header
+  row may sit under a title, `.csv` table exports (suffix allowed); the 199 per-pair
+  workbooks carry NO email sheet — build_goldens reads `email_template_config_by_pipeline.csv`.
+  (3b) `pending_cells` (blank + `iig_pending:` NOTE, never over an FAQ value): schedule
+  APPLICATION_NAME / DAY_OF_SCHEDULE, notebook PROCESS_NAME; ACTIVE_END_DATE
+  `9999-12-31 00:00:00` (the corpus's datetime). (4) ACFC overlay: FILE_HEADER_FLAG by
+  format (`file_header_flag_by_format`: delimited Y / fixed-width N), ADLS FILE_METADATA
+  (the prod 55th column; `deliberate_blanks` -> NULL in the SQL), STGDELTA containers
+  stage in / std out (constants, the offer retired), `data_type_style: full`
+  (`String:Decimal(10,2)`). Tests `tests/test_iig_cheap_misses.py`. (5) iig_diff status
+  `group-level` (`group_level_flows`: grand_master / master agent rows the golden lacks) —
+  "group-level rows: N (not scored)". (6) DQ diagnostic only: `component_overlap` per
+  identity sheet, `RULES (D1 only)` block / `rule_samples`; `docs/acfc/DQ_DIAGNOSTIC_2026-10-14.md`.
 - **post39 — the live D1 check's four fixes** (`origin/acfc-pairing-check`
   `codegen-outputs/pairing_check/2026-10-13_live_three_pairs.md`; one commit each):
   (1) **pair_12 CAQH** — `frd_docx.split_domain_labels`: a cell with a `Domain:` AND a

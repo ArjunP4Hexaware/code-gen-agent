@@ -9,7 +9,8 @@ addresses, the webhook URL) is a ``<<D1:...>>`` placeholder: the cell stays OPEN
 with an ``iig_d1_placeholder:`` NOTE (tests/test_d1_placeholders.py fails on D1
 while one survives). Owed cells are INPUT_NEEDED lines, never QUESTIONs:
 ACTIVE_START_DATE written empty, APPLICATION_NAME / EMAIL_TO written WITH their
-default, the NullCheckRule / DeDuplicationRule INPUT_PARAM open.
+default; the NullCheckRule / DeDuplicationRule INPUT_PARAM is the target table's
+FQN (2026-10-14, framework owner).
 """
 
 from __future__ import annotations
@@ -207,8 +208,8 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
                and "38.4%" in f for f in flags)
 
 
-def test_dq_baseline_null_check_dedup_and_lr_trim_with_owed_input_params(tmp_path):
-    _spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
+def test_dq_baseline_null_check_dedup_and_lr_trim_with_the_target_fqn(tmp_path):
+    spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
     rows = _rows(xlsx, DQ)
     classes = [r["RULE_CLASS"][0] for r in rows]
     assert {"NullCheckRule", "DeDuplicationRule", "LRTrimRule"} <= set(classes)
@@ -218,11 +219,14 @@ def test_dq_baseline_null_check_dedup_and_lr_trim_with_owed_input_params(tmp_pat
     for row in rows:
         if row["RULE_CLASS"][0] in ("NullCheckRule", "DeDuplicationRule"):
             assert row["RULE_TYPE"][0] == "Predefined"
-            assert row["INPUT_PARAM"][0] in (None, "") and row["INPUT_PARAM"][1] == OPEN
+            # 2026-10-14 (framework owner, the pair_9 goldens): the target table's
+            # FQN — the environment catalog (D1: PR_DLK -> d1_dlk) + STTM schema.table
+            stage = spec.detail_segment.stage_table
+            assert row["INPUT_PARAM"][0] == f"d1_dlk.{stage.schema_name}.{stage.table}"
     flags = _notes(gate)
-    for rule in ("NullCheckRule", "DeDuplicationRule"):
-        assert any(f.startswith("iig_owed:DATA_QUALITY_RULES.INPUT_PARAM") and rule in f
-                   for f in flags), rule
+    assert not [f for f in flags if f.startswith("iig_owed:DATA_QUALITY_RULES.INPUT_PARAM")]
+    assert any(f.startswith("iig_env:DATA_QUALITY_RULES.INPUT_PARAM — the catalog from "
+                            "environment D1 (default)") for f in flags)
 
 
 def test_an_application_name_answer_is_the_application_everywhere(tmp_path):
@@ -333,8 +337,7 @@ RUN_KEYS = ["run.environment", "run.environment.storage_account", "run.applicati
             "run.email_to"]
 # + framework owner's rule 1: PIPELINE_NAME, BSA-assigned, one per flow row
 FLOWS = ["grand_master", "master", "file_to_stg", "stg_to_std"]
-OWED_KEYS = [*(f"pipeline_name.{flow}" for flow in FLOWS), "active_start_date",
-             "dq_null_check_input_param", "dq_dedup_input_param"]
+OWED_KEYS = [*(f"pipeline_name.{flow}" for flow in FLOWS), "active_start_date"]
 
 
 def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
@@ -362,7 +365,7 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     assert xlsx.is_file()
     assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")
-    assert "0 open question(s), 11 input(s) needed" in template
+    assert "0 open question(s), 9 input(s) needed" in template
     assert "gaps: {}" in template
     assert '\n  run:\n    "environment":' in template
     assert f'\n  feeds:\n    "{feed}":\n      "pipeline_name.grand_master":' in template
@@ -370,7 +373,7 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     # the report: the run-level block at the top, the feed's own counted apart
     report = (tmp_path / "reports" / f"{specs[0].feed_slug}.md").read_text(encoding="utf-8")
     assert "**Run inputs needed: 4**" in report
-    assert "**Answers owed** — questions: 0, inputs needed: 7" in report
+    assert "**Answers owed** — questions: 0, inputs needed: 5" in report
     answers = tmp_path / "answers.yaml"
     answers.write_text(
         "inputs:\n  run:\n    environment: {value: D1}\n"
@@ -378,8 +381,6 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
         '    email_to: {value: "syn.dl@synthetic.example"}\n'
         f"  feeds:\n    {feed}:\n"
         '      active_start_date: {value: "2026-11-01 00:00:00"}\n'
-        '      dq_null_check_input_param: {value: "v-null"}\n'
-        '      dq_dedup_input_param: {value: "v-dedup"}\n'
         + "".join(f'      "pipeline_name.{flow}": {{value: "SYN_PL_{flow.upper()}"}}\n'
                   for flow in FLOWS), encoding="utf-8")
     code = _generate(config, pair, only_feed=feed, answers_path=answers)

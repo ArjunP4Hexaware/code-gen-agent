@@ -448,17 +448,10 @@ metadata:
             question: "the alert recipients (EMAIL_TO): the corpus's dominant recipient is 47.6% of filled rows (24 values) — not a majority, confirm per feed"
             default: "<<D1:EMAIL.EMAIL_TO>>"
             default_share: "the corpus's dominant recipient, 47.6% (scrubbed G576@<LOCAL_DENYLIST>.G572)"
-        DATA_QUALITY_RULES:
-          INPUT_PARAM@NullCheckRule:
-            header: INPUT_PARAM
-            when: {RULE_CLASS: NullCheckRule}
-            faq: dq_null_check_input_param
-            question: "the NullCheckRule INPUT_PARAM shape (no home golden carries one; the D1 dump supplies it)"
-          INPUT_PARAM@DeDuplicationRule:
-            header: INPUT_PARAM
-            when: {RULE_CLASS: DeDuplicationRule}
-            faq: dq_dedup_input_param
-            question: "the DeDuplicationRule INPUT_PARAM shape (no home golden carries one; the D1 dump supplies it)"
+        # 2026-10-14 (framework owner): the NullCheckRule / DeDuplicationRule INPUT_PARAM
+        # is the target table's FQN <catalog>.<schema>.<table> (the pair_9 goldens) -
+        # derived (metadata_template._target_fqn_cell), no longer an owed input; open
+        # only while the environment's catalog is unset (its own INPUT_NEEDED asks).
       # 2026-10-14 (D1 post45 item 1): DATA_QUALITY_RULES from the STTM, the corpus's
       # classes (patterns_post45 rule_classes): the baseline per feed NullCheckRule
       # (Predefined, 186 rows / 114 workbooks), DeDuplicationRule (Predefined, 160 / 90

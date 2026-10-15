@@ -107,7 +107,7 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     for key in ("run.environment", "run.environment.storage_account", "run.application_name",
                 "run.email_to"):
         assert f"- `{key}`" in report
-    assert "**Answers owed** — questions: 0, inputs needed: 7" in report   # + 4 pipeline names
+    assert "**Answers owed** — questions: 0, inputs needed: 5" in report   # 4 pipeline names
     assert (f"iig_env:{ADLS}.TGT_CONTAINER_NAME — '{d1.containers['stage']}' from environment "
             "D1 (default): containers.stage") in report
     # post47: answers_template.yaml groups them: inputs.run once, inputs.feeds.<feed>
@@ -123,7 +123,7 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     assert list(inputs["feeds"][spec.feed_id]) == [
         *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
                                                "stg_to_std")),
-        "active_start_date", "dq_null_check_input_param", "dq_dedup_input_param"]
+        "active_start_date"]
     assert inputs["run"]["environment"]["candidates"] == ["D1", "QA", "PROD"]
     assert load_answers(path).inputs == {}            # every value empty: nothing answered
 
@@ -188,6 +188,11 @@ def test_a_custom_environment_file_fills_the_custom_values(tmp_path, capsys):
     (stg,) = _rows(_xlsx(tmp_path, spec), STG)
     assert stg["SRC_CATALOG_NAME"][0] in (None, "") and stg["TGT_CATALOG_NAME"][0] in (None, "")
     assert "d1_dlk" not in str(stg) and "d1_dlk" not in str(adls)
+    # 2026-10-14: the NullCheckRule / DeDuplicationRule INPUT_PARAM is the target FQN —
+    # its catalog unset here: open (the catalog's own INPUT_NEEDED asks), no DQ input
+    for row in _rows(_xlsx(tmp_path, spec), "DATA_QUALITY_RULES"):
+        if row["RULE_CLASS"][0] in ("NullCheckRule", "DeDuplicationRule"):
+            assert row["INPUT_PARAM"][0] in (None, "")
     report = _report(tmp_path, spec)
     assert "environment: SANDBOX (custom, 7 keys unset)" in report
     out = capsys.readouterr().out

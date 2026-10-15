@@ -1896,6 +1896,31 @@ def _audit_literals(spec: ResolvedFeedSpec, tpl: MetadataTemplateConfig) -> list
     return list(found.items())
 
 
+def _target_fqn_cell(config: Config, table) -> dict:
+    """NullCheckRule / DeDuplicationRule INPUT_PARAM (2026-10-14, framework owner;
+    the pair_9 goldens): the target table's FQN <catalog>.<schema>.<table> — the
+    run's environment catalog (catalog_map / default_catalog) + the STTM
+    schema.table. A catalog left unset keeps the cell open: the environment's
+    INPUT_NEEDED run.environment.catalog_map.<X> / default_catalog.stage asks
+    for it."""
+    catalog = _stage_catalog(config, table)
+    if catalog and table.schema_name:
+        how = (catalog_mapping_note(table) if table.catalog else
+               "; default_catalog[stage] (no STTM / FRD catalog)")
+        return _cell(f"{catalog}.{table.schema_name}.{table.table}", "from_sttm",
+                     "the target table's FQN <catalog>.<schema>.<table> (pair_9 goldens): "
+                     f"the STTM schema.table{how}")
+    cell = _cell("", "needs_template",
+                 "open — the target table's FQN needs its catalog, unset in the run's "
+                 "environment")
+    cell["badge_entry"]["note"] = (
+        "iig_env:DATA_QUALITY_RULES.INPUT_PARAM — the NullCheckRule / DeDuplicationRule "
+        f"target {table.schema_name}.{table.table} needs its catalog: unset in the run's "
+        "environment (INPUT_NEEDED run.environment.catalog_map.* / default_catalog.stage); "
+        "left open")
+    return cell
+
+
 def _columns_rule(tpl: MetadataTemplateConfig, kind: str, columns: list[str], why: str,
                   **extra: dict) -> dict:
     joined = ",".join(columns)
@@ -1932,14 +1957,18 @@ def _stage_dq_rules(kind: str, tpl: MetadataTemplateConfig, config: Config, feed
         # per workbook, not one per file); over the detail table's key columns.
         keyed = set(_primary_key(fields, "stage")) | set(spec.not_null_columns)
         columns = [f.stage_column for f in fields if f.stage_column in keyed]
+        # 2026-10-14 (framework owner, the pair_9 goldens): INPUT_PARAM = the target
+        # table's FQN <catalog>.<schema>.<table>
+        target = _target_fqn_cell(config, stage)
         if not columns:
             rule = _dq_head(tpl, kind)
             rule["SOURCE_COLUMN"] = _cell("", "needs_template",
                                           "the STTM marks no Primary Key / not-null column on "
                                           "the detail table — open")
-            return [{**rule, "_per_feed": True}]
+            return [{**rule, "INPUT_PARAM": target, "_per_feed": True}]
         return [{**_columns_rule(tpl, kind, columns, "the detail table's Primary Key / "
-                                                     "not-null columns (STTM Stage band)"),
+                                                     "not-null columns (STTM Stage band)",
+                                 INPUT_PARAM=target),
                  "_per_feed": True}]
     if kind == "referential_check":
         recycle = spec.recycle

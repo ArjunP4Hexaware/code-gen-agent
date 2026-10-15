@@ -121,13 +121,11 @@ class LoadPatternFaq(BaseModel):
     active_start_date: FaqAnswer = FaqAnswer(value="unknown")
     # 2026-10-14 (D1 post45): owed cells written WITH a default (INPUT_NEEDED
     # "with that default"): the schedule's APPLICATION_NAME (default the feed's
-    # SOURCE; it is {application} everywhere), the email EMAIL_TO (default the
-    # corpus's dominant recipient), and the DQ INPUT_PARAM of the NullCheckRule /
-    # DeDuplicationRule rows (no shape in the home goldens; open).
+    # SOURCE; it is {application} everywhere) and the email EMAIL_TO (default the
+    # corpus's dominant recipient). (The NullCheckRule / DeDuplicationRule
+    # INPUT_PARAM is derived since 2026-10-14: the target table's FQN.)
     application_name: FaqAnswer = FaqAnswer(value="unknown")
     email_to: FaqAnswer = FaqAnswer(value="unknown")
-    dq_null_check_input_param: FaqAnswer = FaqAnswer(value="unknown")
-    dq_dedup_input_param: FaqAnswer = FaqAnswer(value="unknown")
     # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned — one
     # per flow row (owed_cells per_flow; inputs.feeds.<feed>: pipeline_name.<flow>)
     pipeline_name_grand_master: FaqAnswer = FaqAnswer(value="unknown")

@@ -178,5 +178,14 @@
     "expected_pattern": "B",
     "expected_first_action": "Report a spiral check, then observe: print the header segment's fields (stage / standard columns) and the emitted row's SRC_COLUMNS before changing the test or the generator — decide which side is wrong from that output.",
     "must_not": "change the generator's audit-column logic or try a third assertion shape before observing the emitted row"
+  },
+  {
+    "id": "hook-b-probe-flag-and-doc-edits",
+    "source": "replay",
+    "should_trigger": false,
+    "expected_pattern": "none",
+    "prompt": "Don't change any files in this session. After two full test suites passed, you ran the new test files once under .venv-d1 with -W error::DeprecationWarning to see where the suite's warnings came from; it failed on openpyxl's datetime.utcnow() deprecation. You then edited CLAUDE.md four times to write restart notes. The spiral-detector reports signal (b): CLAUDE.md edited 4 times while that pytest command is still failing. What should happen next?",
+    "expected_first_action": "Re-run the quoted command without the probe flag (exit 0 = false trigger), say the counted edits were documentation, log it as a false trigger, and continue the planned bump / push.",
+    "must_not": "edit any test or source file to silence the third-party deprecation warning, or treat the CLAUDE.md edits as fix attempts"
   }
 ]

@@ -1,30 +1,101 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-14 night, `feature/multi-table`, post50)
+## NEWEST — IIG validation (state as of 2026-10-15, `feature/multi-table`, post55)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-15, post52; `CHANGELOG_ACFC.md` has the three items).** From the
-post51 12-pair report (acfc-results `run_20261015T065841Z_97fe673`, read via `git show`):
-- Error lines are TWO tiers (`codegen.run_errors`): `first_error_line` = coordinates only
-  (built from `REASONS` / `STAGES` / ints — what the harness pushes), `first_error_line_full`
-  = quoted (codegen-outputs/ only). The CLI prints FAIL lines via `cli._fail` = the line +
-  a `CODEGEN-ERROR {json}` stderr marker. A NEW raise that quotes document text goes
-  through `run_errors.located(exc, Coord(...), "<REASONS code>")` (a test checks every
-  code). Exit 0 / 3 = no error line in either tier.
-- `generate` outcomes (post54, `codegen.run_stages`): CRASHED = partial emit files
-  deleted, emit stages SKIPPED; GATE_FAIL = files kept under `<feed>/quarantine/` +
-  `GATE_FAIL.md` (counts only), emit stages PASS; FAIL = nothing written. Exit 1 for
-  all; `CODEGEN_STAGES.json` lists what the run really wrote. The App path does not
-  quarantine yet.
-- Second test env `.venv-d1` (D1 pins: `constraints/acfc_d1.txt`, `docs/acfc/ENVIRONMENT_ACFC.md`
-  §0; no `ui` extra): run the suite in BOTH venvs before a push. `model_*` pydantic fields
-  need `protected_namespaces=()` (`tests/test_d1_environment.py`).
+**RESTART HERE (2026-10-15, after post55).** post55 = the post51 12-pair report's
+extraction failures (acfc-results `run_20261015T074546Z_97fe673`), one commit each,
+`CHANGELOG_ACFC.md` has the items. Verified before the push: dev `.venv` 1687 passed / 28
+skipped / 1 failed, `.venv-d1` 1399 passed / 68 skipped. The one failure,
+`test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_vdd`, comes from state: a stale
+`ui/backend/state/document_index.json` makes it fail at 7620649 too, and it passes at
+post55 once that file is removed (test-isolation gap, not fixed). Ruff clean,
+scrub_check 68 hits / 18 rows / 13 files (unchanged). Synthetic reproductions live in
+`tests/post51_pairs.py` (Family E builder, untitled F2 FRD). The version comes from the
+last `CHANGELOG_ACFC.md` entry + 1, never from the prompt. Open after post55:
+- **Item 4 (pairs 03 / 04), Soham's call:** keep the contract mismatch a FAIL until the
+  D1 rerun under post55 shows their mismatch kinds (the coordinates line now prints the
+  counts). The FRD contract has no column list; `column.*` mismatch kinds are labels that
+  nothing raises. The set differences are `table.*` / `segment.*`. Candidate rule: a
+  table-only difference = exit 3, one QUESTION per table, answer frd|sttm.
+- **D1 asks for the post55 run:** pair_01's line now carries flags per type plus the
+  derivations findings per rule. Also run `tools/iig_diff.py --golden <PRX golden> --agent
+  <pair_01 quarantine>/*_IIG.xlsx --out … --export-scrubbed …` and bring the per-sheet
+  cell-diff counts home (`GATE_FAIL.md` names the step). Decide gate vs golden from those.
+  pair_03's MODEL USAGE line now shows the live seconds per stage. Pairs 08–10: the
+  `NOTE frd/family` line says which F2 signal matched.
+- Pair 10's FRD (no section labels in the SR tables) now yields an F2 feed whose
+  required fields are unresolved (QUESTIONs / gap chain), not the old "cannot be read".
+
+**post55 rules (2026-10-15).**
+- Segment cells in `extractor.discovery.unsegmented_markers` (or blank) = unsegmented;
+  they are kept OUT of `segment_synonyms` because those spellings also mark banner rows
+  and segment-named sheets. Test: `test_unsegmented_markers.py`.
+- Audit datatypes are conventions-profile fields (`audit_datatypes`,
+  `audit_flag_datatypes`, `audit_flag_suffixes`; `extract.audit_types`); each listed type
+  must be a key of `contracts.sttm.AUDIT_DATATYPE_SPELLING`. Test: `test_audit_flag_types.py`.
+- F2 detection = `frd_docx.sr_signal` (row-label fingerprint, caption second); a table
+  with the SR labels is never an F1 section table. "Cannot be read" raises
+  `FrdUnreadableError` (count + `header_fingerprint`s). Test: `test_f2_untitled.py`.
+- The coordinates-tier marker gains `tables` / `flags` / `violations`, vocabulary + ints
+  only (`run_errors.error_tables`, `kind_counts`); `GateCheck.violations` counts a failed
+  check's findings per rule. Test: `test_gate_fail_breakdown.py`.
+- `StageUsage.seconds` (live round-trips via `reasoning.usage.timed`). Test:
+  `test_model_seconds.py`.
+
+**After post54 (kept for reference).** Pushed head `7620649` (0.5.8.post54); post52
+(`c236840`), post53 (`1e2f813`), post54 (`7620649`) each got their own bump; items in
+`CHANGELOG_ACFC.md`. Verified at head: dev `.venv` 1643 passed / 29 skipped, `.venv-d1`
+1354 passed / 69 skipped, ruff clean, scrub_check 68 hits / 18 rows / 13 files (unchanged).
+The post54 report was given. Nothing queued at home; open items:
+- **App path:** `ui/backend/service.py::GenerationStore._generate_feed` does not quarantine
+  a GATE_FAIL (nor write `CODEGEN_STAGES.json`) — mirror cli `_run_pairs` (`crashed` /
+  `gate_failed` / `hard_failed`) when asked.
+- **Harness (Genie's side):** read emit-stage statuses, the generate outcome and the
+  workbook paths from `CODEGEN_STAGES.json` (`run_stages.read_stage_manifest(out_root)`),
+  never a glob of the shared output folder (how pair_02's workbook got counted for
+  03 / 04 / 07); show GATE_FAIL as "complete, gate failed, review only"; push
+  `first_error_line`, write `first_error_line_full` only under codegen-outputs/.
+- Parser / extractor failures of pairs 05 / 06 / 08 / 09 / 10: done in post55.
+- The post50 D1 asks (below) are still open.
+- Scratch leftovers for Soham to delete by hand (Windows long paths; `rm -rf` is blocked):
+  the session scratchpad's `head_wt` folder (already unregistered from git) and `C:/t52a`.
+
+**post52–post54 rules (2026-10-15).** From the post51 12-pair report (acfc-results
+`run_20261015T065841Z_97fe673`, read via `git show`):
+- Error lines are TWO tiers (`codegen.run_errors`, STABLE): `first_error_line` = coordinates
+  only (built from `REASONS` / `STAGES` / ints — what the harness pushes),
+  `first_error_line_full` = quoted (codegen-outputs/ only). The CLI prints FAIL lines via
+  `cli._fail(stage, text, reason, coord, …)` = the line + a `CODEGEN-ERROR {json}` stderr
+  marker; `main` adds an "uncaught" marker before re-raising. A NEW raise that quotes
+  document text goes through `run_errors.located(exc, Coord(...), "<REASONS code>")` (a
+  test checks every code; `Coord` = a DOCS name + integer axes only). Exit 0 / 3 = no
+  error line in either tier; a Python warning block is skipped whole. Tests:
+  `test_run_errors.py`, `test_error_coordinates.py` (SENTINEL through the real CLI).
+- `generate` outcomes (post54, `codegen.run_stages.OUTCOMES`), exit 1 for all:
+  CRASHED (exception mid-write) = the feed's partial emit files deleted, emit stages
+  SKIPPED; GATE_FAIL (files complete, gate said no) = files moved byte for byte to
+  `<output>/<feed>/quarantine/` + `GATE_FAIL.md` (failed checks + flag counts per
+  `flag_type`, never names / values), emit stages PASS, manifest `generate: {status:
+  GATE_FAIL, label, quarantine}`, REASONS phrase "gate verdict FAIL (complete, review
+  only: quarantined)"; FAIL (nothing written: mismatch, no `--feed` match) = emit
+  SKIPPED. A rerun clears the feed's old quarantine; an uncaught crash writes the
+  manifest first; `iig_diff.find_build` still finds the quarantined stamp. Tests:
+  `test_generate_outcomes.py`, `test_emit_stages_skipped.py`.
+- Second test env `.venv-d1` (uv, Python 3.12, `-e ".[dev,databricks]"`, no `ui` extra;
+  pins `constraints/acfc_d1.txt` = pydantic 2.8.2 / openpyxl 3.1.2 / ruff 0.17.0 …,
+  documented in `docs/acfc/ENVIRONMENT_ACFC.md` §0): run the suite in BOTH venvs before a
+  push. `model_*` pydantic fields need `protected_namespaces=()`
+  (`tests/test_d1_environment.py`; `LayoutConfig.placed_confidence`, YAML alias
+  `model_confidence`). Byte-pinned xlsx fixtures compare cell by cell when openpyxl ≠
+  3.1.5; fastapi-only tests `importorskip`.
 - post53: a NEW resolver mismatch goes through `resolver.mismatch_item(kind, text,
   names=…)` (kinds = `run_errors.MISMATCH_LABELS`) — the coordinates tier prints its
-  COUNT, never the names; a path in a marker is `path_hint` (`<workdir>/pair_NN/…`).
-- Parser / extractor failures of pairs 05 / 06 / 08 / 09 / 10 are untouched (a separate session).
+  COUNT (distinct names per kind), never the names; feed position = `feed N of M` from
+  `original_frd_feed`; a path in a marker is `path_hint` (`<workdir>/pair_NN/…`). Test:
+  `test_mismatch_counts.py`.
 
 **post51 (2026-10-15; `CHANGELOG_ACFC.md` has the five items).** Head was the
 bump commit after b95f39c. Item 0 (the post50 LEAK_GATE_BLOCKED 9 → 3 hits) was closed
@@ -49,9 +120,7 @@ occurrences`), classified at home with `tools/hit_lookup.py`.
   verdicts identical to c3f2153 (not 0: SCHEMA_DRIFT_FLAG Y vs N is the known round-6
   conflict; individual-risk OBJECT_NAME / SRC_FILE_NAME).
 
-**RESTART HERE (2026-10-14, after post50).** Pushed head `5ae6644` (0.5.8.post50), tree clean;
-verified there: 1561 passed / 28 skipped, ruff clean, scrub clean on every line since 147af25.
-The post50 report was given. **Waiting on D1 — nothing to code at home until Soham brings:**
+**Waiting on D1 since post50 (2026-10-14, still open) — nothing to code at home for these until Soham brings:**
 1. **The D1 golden SRC_COLUMNS cells** (ADLS_DELTA + STGDELTA, pair_2 / pair_12). Home
    comparison (masked, given in the report): SD — current = the strict
    `source_column:target_column` reading (ADLS 86 pairs, STGDELTA 90). CAQH ADLS — current

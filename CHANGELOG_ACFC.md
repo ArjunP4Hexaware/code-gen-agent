@@ -4,6 +4,48 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post55 — 2026-10-15 (D1 post51 12-pair report: the extraction failures)
+
+From acfc-results `run_20261015T074546Z_97fe673`. Each fix has a synthetic
+reproduction of the pair's exact error line (`tests/post51_pairs.py`).
+- **pair_05**: a Segment column of `NA` / `-` / blank no longer FAILs "outside
+  the Header/Detail/Trailer vocabulary". New `extractor.discovery.
+  unsegmented_markers` (`na`, `n/a`, `-`, `none`, `null`): a sheet whose Segment
+  cells are only these (or blank) is unsegmented, with a contract note. The
+  segmented path needs one real segment word, and a marker beside one still
+  FAILs at its coordinates.
+- **pair_06**: a flag / indicator audit column (`*_FLAG`, `*_IND`) may be
+  `tinyint` / `int` / `smallint` / `boolean`; every other audit column stays
+  `string` / `timestamp`. The sets are conventions-profile fields
+  (`audit_datatypes`, `audit_flag_datatypes`, `audit_flag_suffixes`;
+  `docs/acfc/OVERLAY_FIELDS.md`), so an overlay widens them. Framework DDL
+  renders `DELETE_FLAG TINYINT`.
+- **pairs 08–10**: F2 FRDs whose Solution Requirement tables carry no caption
+  are now read. A table counts as one by its row labels (`extractor.frd.
+  solution_requirement_labels` / `_required_labels` / `_min_labels`), with the
+  caption as a second signal. `codegen layout` prints `NOTE frd/family — F2
+  signal: <header-row fingerprint | caption> — table(s) [...]`. The section row
+  is found when the caption row is missing, and labels may sit after a blank
+  first column. An F2 feed whose tables name no section lists its required
+  fields as unresolved, never an empty feed. "Cannot be read" now names the
+  table COUNT and each table's header-row fingerprint (12 hex of `term_sha256`
+  over row 0), never a title: `… at FRD: 12 tables, header-row fingerprints …`.
+- **pairs 03 / 04**: the count-only mismatch summary (post52 / post53) is
+  confirmed end to end: `contract mismatch, feed 1 of 1: 2 tables only in FRD`.
+  It stays FAIL for now. The FRD carries no column list, so the set differences
+  are tables / segments, and which kinds become NEEDS_ANSWERS waits for these
+  two pairs' counts under post55.
+- **pair_01**: the gate is unchanged. On a FAIL, the full report (ACFC-side)
+  lists the flags grouped by type, and stdout prints `GATE_FLAGS <type> — n`.
+  The pushed line carries counts only: `… (failed checks: derivations
+  [path_whitespace 9]; flags by type: path_normalised 9, …)`. `GATE_FAIL.md`
+  gains the findings-by-rule table and the D1 step to score the quarantined
+  workbook (`tools/iig_diff.py … --export-scrubbed`).
+- **pair_03 at 109 s**: no stage scales with the column count (a 330-column
+  synthetic pair takes about 5 s under mock), and no model call runs per column.
+  The MODEL USAGE line now carries the live calls' seconds (`· 2 call(s) in
+  97.3s`), so the next D1 run shows which stage spent them.
+
 ## 0.5.8.post54 — 2026-10-15 (generate: CRASHED vs GATE_FAIL)
 
 Two failure outcomes of the generate stage, exit code 1 for both

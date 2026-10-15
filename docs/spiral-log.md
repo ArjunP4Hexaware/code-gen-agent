@@ -142,3 +142,18 @@
 - Earliest signal that would have revealed it: printing the emitted row once before writing the assertion
 - Approx. time lost: ~4 minutes
 - Permanent fix: the test now asserts on the observed shape (tail = the segment's own audit rows minus data columns; nothing else added)
+
+## 2026-10-15: hook signal (b) — CLAUDE.md edited 4x while a .venv-d1 pytest command "still failing"
+- Actual cause: not a spiral. The failing run was a one-off PROBE: the post55 test files under
+  `.venv-d1` with `-W error::DeprecationWarning`, to see whether the suite's 9010 warnings came
+  from new code; openpyxl 3.1.2 (the D1 pin) calls `datetime.utcnow()` on Python 3.12, which
+  the flag turned into errors. The four counted CLAUDE.md edits were the post55 restart notes,
+  not fix attempts. Re-running the command without the probe flag: 44 passed, exit 0.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the command the signal quotes, minus the
+  probe flag; exit 0)
+- Hook signal: b, false positive
+- Earliest signal: n/a
+- Approx. time lost: ~3 minutes
+- Proposed refinement (for a retro, not now): a command run with `-W error::...` is a probe;
+  and documentation-only files (CLAUDE.md, CHANGELOG) should not count as (b) edits.

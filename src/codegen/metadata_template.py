@@ -815,16 +815,59 @@ def _object_name(pattern: str, tokens: list[str] | None = None,
     return stem
 
 
+def _feed_key(feed: FrdFeed, spec: ResolvedFeedSpec | None) -> str:
+    """The feed id ``feed_overrides`` is keyed by (the run's feed_id)."""
+    if spec is not None:
+        return spec.feed_id
+    from codegen.resolve.resolver import normalize_feed_name
+
+    return normalize_feed_name(feed.feed_name)
+
+
+def _feed_override(tpl: MetadataTemplateConfig, feed_id: str | None):
+    """The template's ``feed_overrides`` entry for ``feed_id`` (None: none)."""
+    if not feed_id:
+        return None
+    return next((o for k, o in tpl.feed_overrides.items() if k.lower() == feed_id.lower()), None)
+
+
+def _prefix_middle(pattern: str, tokens: list[str] | None, bound: list[str] | None) -> str:
+    """'*' + the name core + '*' + the extension (2026-10-15, src_file_name
+    prefix_middle): the leading wildcard / date-token segments dropped, the
+    name cut at its first wildcard, trailing date / time tokens dropped —
+    'YYYYMMDD_core_*_X.txt' -> '*core*.txt', 'name_YYYY_MM.csv' -> '*name*.csv'."""
+    name = PurePosixPath(pattern).name
+    stem, dot, ext = name.rpartition(".") if "." in name else (name, "", "")
+    token_re = "|".join(re.escape(t) for t in sorted(tokens or [], key=len, reverse=True))
+    leading = re.compile(rf"^(?:\*|(?:{token_re})+)[_\-. ]*" if token_re else r"^\*[_\-. ]*")
+    while (match := leading.match(stem)) is not None and match.end() > 0:
+        stem = stem[match.end():]
+    core = stem.split("*", 1)[0].rstrip("_-. ")
+    core = _object_name(core, tokens, bound) if core else core
+    return f"*{core}*" + (f"{dot}{ext}" if ext else "")
+
+
 def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
-                        badge: str) -> dict:
-    """ADLS SRC_FILE_NAME by the family convention: the pattern (date tokens
-    as '*'), or the OBJECT_NAME prefix + '*' (prefix_star — the SD rows)."""
-    if tpl.family_conventions.src_file_name == "prefix_star":
+                        badge: str, feed_id: str | None = None) -> dict:
+    """ADLS SRC_FILE_NAME by the family convention (or the feed's
+    ``feed_overrides.<feed_id>.src_file_name``): the pattern (date tokens as
+    '*'), the OBJECT_NAME prefix + '*' (prefix_star — the SD rows, the suffix
+    wildcard), or '*' + the name core + '*' + the extension (prefix_middle)."""
+    override = _feed_override(tpl, feed_id)
+    style = (override.src_file_name if override is not None and override.src_file_name
+             else tpl.family_conventions.src_file_name)
+    why = (f"feed_overrides.{feed_id}.src_file_name: {style}"
+           if override is not None and override.src_file_name
+           else f"family convention src_file_name: {style}; {_family_citation(tpl)}")
+    if style == "prefix_middle":
+        value = _prefix_middle(pattern, tpl.object_name_strip_tokens,
+                               tpl.object_name_bound_tokens)
+        return _cell(value, badge, f"stated {stated!r} — '*' + the name core + '*' + the "
+                                   f"extension ({why})")
+    if style == "prefix_star":
         value = _object_name(pattern, tpl.object_name_strip_tokens,
                              tpl.object_name_bound_tokens) + "*"
-        return _cell(value, badge, f"stated {stated!r} — the name prefix + '*' (family "
-                                   f"convention src_file_name: prefix_star; "
-                                   f"{_family_citation(tpl)})")
+        return _cell(value, badge, f"stated {stated!r} — the name prefix + '*' ({why})")
     return _cell(pattern, badge, f"stated {stated!r}" if pattern != stated else None)
 
 
@@ -1270,7 +1313,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl),
             "SRC_FILE_NAME": _src_file_name_cell(
                 tpl, pattern, file.template,
-                "from_frd" if feed.file_name_patterns else "from_sttm"),
+                "from_frd" if feed.file_name_patterns else "from_sttm", _feed_key(feed, spec)),
             "SRC_COLUMNS": _cell(src_columns, "from_sttm"),
             "SRC_DATA_TYPE": src_type_cell,
             "TGT_DATABASE_NAME": _cell(stage.schema_name, "from_frd"),
@@ -1647,8 +1690,30 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "pipeline": _role_pipeline_name(feed, faq, tpl, template_row.get("_pipeline_role")),
         }
         _derive(tpl, tab, cells, context)
-        out.append(_with_constants(tpl, tab, cells, context, faq))
+        out.append(_notebook_path_root(tpl, _with_constants(tpl, tab, cells, context, faq)))
     return out
+
+
+def _notebook_path_root(tpl: MetadataTemplateConfig, row: dict) -> dict:
+    """2026-10-15 (D1 post50): every DATABRICKS_NOTEBOOK_PATH segment starts with
+    ``notebook_path_prefix`` (the workspace root, e.g. /Workspace) — a segment
+    without it gets it prepended, said in the cell NOTE."""
+    root = (tpl.notebook_path_prefix or "").rstrip("/")
+    cell = row.get("DATABRICKS_NOTEBOOK_PATH")
+    value = str((cell or {}).get("value") or "")
+    if not root or not value.strip() or is_placeholder(value):
+        return row
+    segments = [s.strip() for s in value.split(",")]
+    fixed = [s if s == root or s.startswith(root + "/") else f"{root}/{s.lstrip('/')}"
+             for s in segments]
+    if fixed == segments:
+        return row
+    entry = dict(cell.get("badge_entry") or {})
+    note = (f"iig_notebook_path:DATABRICKS_NOTEBOOK_PATH — the workspace root {root!r} "
+            f"(notebook_path_prefix) prepended: {value!r} -> {','.join(fixed)!r}")
+    entry["note"] = f"{entry['note']}; {note}" if entry.get("note") else note
+    return {**row, "DATABRICKS_NOTEBOOK_PATH": {**cell, "value": ",".join(fixed),
+                                                "badge_entry": entry}}
 
 
 # A pipeline role (pipeline_roles / a row's _pipeline_role) as the corpus
@@ -2101,24 +2166,51 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:  # noqa: C901
     return rows
 
 
-def email_status_set(tpl: MetadataTemplateConfig, faq) -> tuple[list[str] | None, str]:
+def _pick_statuses(statuses: list[str], wanted: list[str]) -> list[str]:
+    lowered = {w.strip().lower() for w in wanted if str(w).strip()}
+    return [s for s in statuses if s.lower() in lowered]
+
+
+def email_status_default_label(tpl: MetadataTemplateConfig) -> str:
+    """The default status set as the INPUT_NEEDED question / NOTE name it."""
+    rule = tpl.email_status_input
+    if tpl.email_status_default:
+        return ", ".join(tpl.email_status_default) + " (email_status_default)"
+    return (rule.default if rule is not None and rule.default else None) or "all four"
+
+
+def email_status_set(tpl: MetadataTemplateConfig, faq,
+                     feed_id: str | None = None) -> tuple[list[str] | None, str]:
     """(the statuses to write — None = every template row, the NOTE text): the
-    run's answer to ``email_status_input`` (comma / semicolon separated, matched
-    case-insensitively; 'all' / 'all four' = every one), else the default."""
+    feed's ``feed_overrides.<feed_id>.email_statuses`` (2026-10-15), else the
+    run's answer to ``email_status_input`` (comma / semicolon separated,
+    matched case-insensitively; 'all' / 'all four' = every one), else
+    ``email_status_default`` ([] = every one)."""
     rule = tpl.email_status_input
     statuses = [str(r.get("STATUS") or "") for r in tpl.template_rows.get(
         "EMAIL_TEMPLATE_CONFIG") or []]
+    override = _feed_override(tpl, feed_id)
+    if override is not None and override.email_statuses:
+        keep = _pick_statuses(statuses, override.email_statuses)
+        return keep, (f"iig_email_statuses:EMAIL_TEMPLATE_CONFIG.STATUS — the feed's status "
+                      f"set (feed_overrides.{feed_id}.email_statuses): {', '.join(keep) or 'none'}"
+                      f" (of {', '.join(statuses)})")
+    default = _pick_statuses(statuses, tpl.email_status_default) or None
     if rule is None:
-        return None, ""
+        return default, (f"iig_email_statuses:EMAIL_TEMPLATE_CONFIG.STATUS — the default "
+                         f"status set (email_status_default): {', '.join(default)}"
+                         if default else "")
     answer = getattr(faq, rule.faq, None) if faq is not None else None
     stated = (str(answer.value).strip() if answer is not None and answer.source != "unknown"
               else "")
-    if not stated or stated.lower() in ("all", "all four", "*"):
-        how = ("answered 'all'" if stated else
-               f"INPUT_NEEDED run.{rule.faq}: once for the run, under inputs.run")
+    if stated.lower() in ("all", "all four", "*"):
         return None, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; written "
-                      f"with the default {rule.default or 'all four'!r}: "
-                      f"{', '.join(statuses)} ({how})")
+                      f"with every status: {', '.join(statuses)} (answered 'all')")
+    if not stated:
+        how = f"INPUT_NEEDED run.{rule.faq}: once for the run, under inputs.run"
+        return default, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; "
+                         f"written with the default {email_status_default_label(tpl)!r}: "
+                         f"{', '.join(default or statuses)} ({how})")
     wanted = [s.strip().lower() for s in re.split(r"[,;|]", stated) if s.strip()]
     keep = [s for s in statuses if s.lower() in wanted]
     unknown = [w for w in wanted if w not in {s.lower() for s in statuses}]
@@ -2132,7 +2224,7 @@ def _email_templates(tab, feed, config, spec, faq, tpl) -> list[dict]:
     recipients = ";".join(config.job.notification_emails)
     rows = tpl.template_rows.get(tab) or [{}]
     # 2026-10-14 (framework owner): the status set is a run-level input
-    keep, status_note = email_status_set(tpl, faq)
+    keep, status_note = email_status_set(tpl, faq, _feed_key(feed, spec))
     if keep is not None:
         rows = [r for r in rows if str(r.get("STATUS") or "") in keep]
     out = []

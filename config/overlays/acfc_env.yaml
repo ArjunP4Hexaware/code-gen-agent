@@ -304,6 +304,12 @@ metadata:
       # A TPL subdomain selects the TPL_FileInvokeDQDeltaTable notebook (CAQH: "Third
       # Party Liability").
       tpl_subdomains: ["TPL", "Third Party Liability"]
+      # 2026-10-15 (D1 post50 item 3): every DATABRICKS_NOTEBOOK_PATH segment starts
+      # with the workspace root (the pair_12 golden's paths do; the corpus's stg_to_std
+      # value below lacked it) - prepended in code, said in the cell NOTE. The notebook
+      # names / versions themselves are overlay values: the ACFC-side overlay
+      # (codegen-state/overlays/acfc_prx.yaml, docs/acfc/OVERLAY_FIELDS.md) sets them.
+      notebook_path_prefix: /Workspace
       # 2026-10-14 (framework owner): the two-notebook handler forms (FixedWidthHandler /
       # PIPE_DELIMITED_SEGMENT_HNDLR + FileInvokeDQDeltaTable) are the EDI 834 feeds' -
       # the corpus's handler prefixes are EDI_834Prop / 834PROP only. Applied only when

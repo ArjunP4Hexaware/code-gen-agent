@@ -88,7 +88,9 @@ def test_notebook_names_paths_and_process_names_by_flow_and_format(tmp_path):
         "FileInvokeDQDeltaTable_V0.1", "/Workspace/iig/FileInvokeDQDeltaTable_V0.1")
     assert (standard["DATABRICKS_NOTEBOOK_NAME"][0],
             standard["DATABRICKS_NOTEBOOK_PATH"][0]) == (
-        "DeltaInvokeDQStandardDeltaTable_V4", "/iig/DeltaInvokeDQStandardDeltaTable_V4")
+        # 2026-10-15: notebook_path_prefix prepends the /Workspace root the corpus
+        # value lacks (the pair_12 golden's paths carry it)
+        "DeltaInvokeDQStandardDeltaTable_V4", "/Workspace/iig/DeltaInvokeDQStandardDeltaTable_V4")
     assert stage["PROCESS_NAME"][0] == f"{application}  Raw to stage load"
     assert standard["PROCESS_NAME"][0] == f"{application}  stage to std load"
     for row in (stage, standard):

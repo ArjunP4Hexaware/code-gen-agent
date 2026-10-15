@@ -158,6 +158,12 @@ flow:
     - {column: PIPELINE_DESCRIPTION, match: "^master$", flow: master}
     - {column: PROCESS_NAME, match: "^stage load", flow: file_to_stg}
     - {column: PROCESS_NAME, match: "^standard load", flow: stg_to_std}
+    # 2026-10-15 (D1 post50): the corpus PROCESS_NAME shapes the agent writes since
+    # post45 ('<application>  Raw to stage load' / '<application>  stage to std load') -
+    # without them both notebook rows had no flow, one identity, and a single-feed
+    # workbook read as ONE notebook row (pair_12: stg_to_std "dropped").
+    - {column: PROCESS_NAME, match: 'raw to stag', flow: file_to_stg}
+    - {column: PROCESS_NAME, match: 'stage to (std|standard)', flow: stg_to_std}
     # 2026-10-14 (D1 post44 items 3 / 4): a grand master / master row by its
     # description anywhere in the text (the corpus: '<process> Grand Master
     # Pipeline'), else by its name's role token (PL_GMSTR_ / PL_Gmstr_, PL_MSTR_):

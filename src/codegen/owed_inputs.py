@@ -131,12 +131,16 @@ def run_owed_inputs(config, inputs: dict[str, str] | None, *, output_mode=None,
              if run_key(name) not in answered]
     rule = tpl.email_status_input
     if rule is not None and run_key(rule.faq) not in answered:
-        # 2026-10-14 (framework owner): the email status set, default all four
+        # 2026-10-14 (framework owner): the email status set, default all four;
+        # 2026-10-15: or the overlay's email_status_default
+        from codegen.metadata_template import _pick_statuses, email_status_default_label
+
         statuses = [str(r.get("STATUS") or "") for r in
                     tpl.template_rows.get("EMAIL_TEMPLATE_CONFIG") or []]
+        written = _pick_statuses(statuses, tpl.email_status_default) or statuses
         items.append(OwedInput(run_key(rule.faq), f"{rule.question} — written with the "
-                               f"default {rule.default or 'all four'!r}: "
-                               f"{', '.join(statuses)}", "", RUN))
+                               f"default {email_status_default_label(tpl)!r}: "
+                               f"{', '.join(written)}", "", RUN))
     return items
 
 

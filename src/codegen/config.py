@@ -1196,8 +1196,12 @@ class FamilyConventionsConfig(BaseModel):
     # First real-row scorecard (2026-10-08, the three SD rows):
     # ADLS SRC_FILE_NAME: "pattern" = the stated pattern, date tokens as '*'
     # (the pair-1 / pair-4 goldens); "prefix_star" = the OBJECT_NAME prefix + '*'
-    # (date / time tokens and the extension dropped — the SD rows).
-    src_file_name: Literal["pattern", "prefix_star"] = "pattern"
+    # (date / time tokens and the extension dropped — the SD rows; the SUFFIX
+    # wildcard). 2026-10-15: "prefix_middle" = leading and middle wildcards:
+    # '*' + the name core + '*' + the extension (leading date-token segments and
+    # everything from the first wildcard on dropped). Per feed:
+    # feed_overrides.<feed_id>.src_file_name.
+    src_file_name: Literal["pattern", "prefix_star", "prefix_middle"] = "pattern"
     # The IIG's audit columns: [] = the STTM's audit rows (the PRX three);
     # a list = the family's own, in order (SD / CAQH: LOB, SRC_FILE_NAME,
     # REC_CREATION_TIME, REC_UPDATED_TIME) — a column the STTM types keeps its
@@ -1387,6 +1391,17 @@ class EnvironmentSchemaConfig(BaseModel):
         return self
 
 
+class FeedOverrideConfig(BaseModel):
+    """One feed's overrides of the IIG template (2026-10-15,
+    ``metadata.templates.<t>.feed_overrides.<feed_id>``; the values live in the
+    ACFC-side overlay ``codegen-state/overlays/<profile>.yaml``)."""
+
+    model_config = _MODEL_CONFIG
+
+    email_statuses: list[str] | None = None
+    src_file_name: Literal["pattern", "prefix_star", "prefix_middle"] | None = None
+
+
 class RunEnvironment(BaseModel):
     """The environment one run uses (set at run time, never in YAML):
     ``source`` default (nothing chosen), selected (a named choice) or custom
@@ -1481,6 +1496,16 @@ class MetadataTemplateConfig(BaseModel):
     # INPUT_NEEDED (``faq``, scope run) with the default "all four" (every
     # template_rows status); an answer (comma-separated statuses) trims the rows.
     email_status_input: OwedCellConfig | None = None
+    # 2026-10-15 (D1 post50 item 3; values in the ACFC-side overlay,
+    # docs/acfc/OVERLAY_FIELDS.md): the statuses written when the run gives no
+    # email_status_input answer ([] = every template row) ...
+    email_status_default: list[str] = Field(default_factory=list)
+    # ... and per feed (its feed_id): the status set (wins over the run's answer
+    # and the default) and the SRC_FILE_NAME style.
+    feed_overrides: dict[str, FeedOverrideConfig] = Field(default_factory=dict)
+    # The workspace root every DATABRICKS_NOTEBOOK_PATH segment starts with; a
+    # segment without it gets it prepended (NOTE). "" = paths as written.
+    notebook_path_prefix: str = ""
     owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
     # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
     # refs containers.<layer> / storage_account / values.<name>) — each with an
@@ -1954,6 +1979,10 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 # Opt out only with CODEGEN_SKIP_ENV_OVERLAY=1 (the test suite does).
 DEFAULT_OVERLAY = Path("overlays") / "acfc_env.yaml"
 SKIP_ENV_OVERLAY = "CODEGEN_SKIP_ENV_OVERLAY"
+# 2026-10-15: the ACFC-side overlay, outside the tracked tree (gitignored):
+# <dir>/<conventions profile>.yaml, applied right after acfc_env.yaml
+STATE_OVERLAYS_ENV = "CODEGEN_STATE_OVERLAYS_DIR"
+STATE_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / "codegen-state" / "overlays"
 _announced_overlays: set[tuple[str, ...]] = set()
 _last_applied: list[str] = []
 
@@ -1973,6 +2002,9 @@ def overlay_paths(path: str | Path, overlays: list[str | Path] | None = None) ->
     default = Path(path).parent / DEFAULT_OVERLAY
     if os.environ.get(SKIP_ENV_OVERLAY, "").strip() != "1" and default.is_file():
         candidates.append(default)
+    state = state_overlay(path, candidates)
+    if state is not None:
+        candidates.append(state)
     candidates += [Path(p) for p in (overlays or [])]
     env_overlays = os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").strip()
     if env_overlays:
@@ -1985,6 +2017,28 @@ def overlay_paths(path: str | Path, overlays: list[str | Path] | None = None) ->
             seen.add(key)
             ordered.append(candidate)
     return ordered
+
+
+def state_overlay(path: str | Path, before: list[Path]) -> Path | None:
+    """``codegen-state/overlays/<profile>.yaml`` (``CODEGEN_STATE_OVERLAYS_DIR``
+    moves the folder) for the conventions profile the config file plus the
+    ``before`` overlays state — None when absent. Field meanings:
+    docs/acfc/OVERLAY_FIELDS.md."""
+    folder = Path(os.environ.get(STATE_OVERLAYS_ENV) or STATE_OVERLAYS_DIR)
+    if not folder.is_dir():
+        return None
+    profile = None
+    for source in (Path(path), *before):
+        try:
+            raw = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        conventions = raw.get("conventions") if isinstance(raw, dict) else None
+        if isinstance(conventions, dict) and conventions.get("profile"):
+            profile = str(conventions["profile"])
+    profile = profile or ConventionsConfig.model_fields["profile"].default
+    candidate = folder / f"{profile}.yaml"
+    return candidate if candidate.is_file() else None
 
 
 def _announce(paths: list[Path]) -> None:

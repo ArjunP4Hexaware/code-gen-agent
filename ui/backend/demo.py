@@ -2140,9 +2140,8 @@ class DemoRunner:
         """The run-level banner items (scope "run"), once per run: the
         environment assumed (the default) or a custom one's unset keys, and the
         run-scoped owed cells (APPLICATION_NAME, EMAIL_TO)."""
-        from codegen.owed_inputs import environment_inputs, run_owed_inputs
-
         from codegen.environments import required_items
+        from codegen.owed_inputs import environment_inputs, run_owed_inputs
 
         parts = self.effective_output_parts()
         tpl = config.metadata.templates.get(self.iig_template or config.metadata.template)

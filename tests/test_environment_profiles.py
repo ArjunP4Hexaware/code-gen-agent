@@ -202,10 +202,9 @@ DQ_KEYS = ("dq_rules", "dq_rule_classes", "dq_rule_types", "dq_params", "dq_cita
 
 def _split_target(pair4_spec, tmp_path, account: str) -> dict:
     from acfc_shapes import FIXTURE_ROOT, pair4_nb
-    from multi_table_golden import PAIR4_OVERLAY
-
     from codegen.contracts.frd import FrdContract
     from codegen.metadata_template import template_tab_rows
+    from multi_table_golden import PAIR4_OVERLAY
 
     acfc = yaml.safe_load(ACFC_OVERLAY.read_text(encoding="utf-8"))
     knobs = {k: v for k, v in acfc["metadata"]["templates"]["iig_v2"].items() if k in DQ_KEYS}

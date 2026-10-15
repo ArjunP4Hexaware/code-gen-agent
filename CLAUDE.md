@@ -5,7 +5,22 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-15, post51; `CHANGELOG_ACFC.md` has the five items).** Head = the
+**RESTART HERE (2026-10-15, post52; `CHANGELOG_ACFC.md` has the three items).** From the
+post51 12-pair report (acfc-results `run_20261015T065841Z_97fe673`, read via `git show`):
+- Error lines are TWO tiers (`codegen.run_errors`): `first_error_line` = coordinates only
+  (built from `REASONS` / `STAGES` / ints — what the harness pushes), `first_error_line_full`
+  = quoted (codegen-outputs/ only). The CLI prints FAIL lines via `cli._fail` = the line +
+  a `CODEGEN-ERROR {json}` stderr marker. A NEW raise that quotes document text goes
+  through `run_errors.located(exc, Coord(...), "<REASONS code>")` (a test checks every
+  code). Exit 0 / 3 = no error line in either tier.
+- `generate`: a failed feed's emit artefacts are deleted, the emit stages print SKIPPED,
+  `CODEGEN_STAGES.json` (`codegen.run_stages`) lists what the run really wrote.
+- Second test env `.venv-d1` (D1 pins: `constraints/acfc_d1.txt`, `docs/acfc/ENVIRONMENT_ACFC.md`
+  §0; no `ui` extra): run the suite in BOTH venvs before a push. `model_*` pydantic fields
+  need `protected_namespaces=()` (`tests/test_d1_environment.py`).
+- Parser / extractor failures of pairs 05 / 06 / 08 / 09 / 10 are untouched (a separate session).
+
+**post51 (2026-10-15; `CHANGELOG_ACFC.md` has the five items).** Head was the
 bump commit after b95f39c. Item 0 (the post50 LEAK_GATE_BLOCKED 9 → 3 hits) was closed
 "unclassifiable from current reports" (the gate writes 4-field stubs); the gate fix is
 Genie's — it should emit per-hit JSONL (`output_file, pattern_class, term_sha256,

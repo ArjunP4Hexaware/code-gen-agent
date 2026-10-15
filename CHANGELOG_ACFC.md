@@ -4,6 +4,53 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post52 — 2026-10-15 (D1 post51 report: two defects + the pydantic addendum)
+
+1. **Error lines: two tiers, coordinates only in the one a report carries.** The
+   post51 report's 4 static-denylist hits were all document text inside
+   `first_error_line`. `codegen.run_errors.first_error_line(returncode, stderr,
+   stdout)` (same STABLE signature) now returns ONLY fixed vocabulary + integers:
+   `FAIL            extract-sttm — STTM audit column invalid at STTM sheet 3 row 4
+   col 11 [WorkbookParseError]`. New `first_error_line_full` (same signature) is the
+   quoted line, for `codegen-outputs/` inside ACFC only. The CLI pairs every `FAIL`
+   line with a `CODEGEN-ERROR {json}` marker on stderr (stage, reason code, `Coord`);
+   118 raise sites in the STTM parser, FRD extractor, VDD reader, layout and generator
+   attach their position via `run_errors.located(exc, Coord(...), reason)` (message
+   text unchanged); an uncaught error gets a marker too. The harness phrases
+   `contract not found:`, `no resolved feed matches --feed`, `produced no feeds`,
+   `under gaps:` survive in the reason phrases. `scripts/run_round.py` prints the
+   coordinates line (the quoted one stays in its work dir); `acfc_run.py` keeps both.
+   **Harness side:** keep importing `first_error_line` for the report; write
+   `first_error_line_full` only under `codegen-outputs/`.
+2. **Emit stages SKIPPED, never PASS, after a failed Generate.** Pairs 03 / 04 / 07
+   showed DDL / IIG / DML emit PASS with pair_02's exact unpopulated counts. A generate
+   run where anything failed (contract mismatch, template gap, gate verdict FAIL, an
+   uncaught error) prints `SKIPPED        <ddl_emit|iig_emit|dml_emit> — upstream
+   stage generate failed`, deletes every emit artefact a failed feed wrote or rewrote
+   (no partial workbook), keeps the exit code, and writes
+   `<output root>/CODEGEN_STAGES.json` (`codegen.run_stages`, STABLE: stage statuses
+   + the artefacts this run actually wrote, per feed). **Harness side:** read the
+   emit-stage statuses and the workbook to count from `CODEGEN_STAGES.json`
+   (`run_stages.read_stage_manifest(out_root)`), never from a glob of the output
+   folder — it is shared across pairs, which is how pair_02's workbook was counted
+   for pairs 03 / 04 / 07.
+3. **The pydantic addendum (pair_07's error line was a warning).**
+   a. `layout.model_confidence` is `LayoutConfig.placed_confidence` in Python (YAML key
+      kept as alias) with `protected_namespaces=()` on the model; the App's
+      `FeedRun.model_usage` (an API key, not renamed) gets `protected_namespaces=()`.
+      `tests/test_d1_environment.py` fails on any unprotected `model_*` field at any
+      pydantic version.
+   b. A Python warning BLOCK is skipped whole: the head line, its continuation (blank
+      lines inside the message included — pydantic's own message has one), through the
+      indented source line; it ends early at a traceback / error / CLI-label / log line.
+   c. Per stage, exit-code first: 0 (PASS) and 3 (NEEDS_ANSWERS) return `None` from
+      both tiers — stderr is read only for a FAILed stage.
+   The D1 pin set (pydantic 2.8.2, openpyxl 3.1.2, jinja2 3.1.6, pyyaml 6.0.1, ruff
+   0.17.0, databricks-sdk 0.30.0) is `constraints/acfc_d1.txt` + §0 of
+   `docs/acfc/ENVIRONMENT_ACFC.md`; the suite runs in the dev venv AND `.venv-d1`
+   before a push. Under openpyxl 3.1.2 the byte-pinned `.xlsx` fixtures are compared
+   cell by cell.
+
 ## 0.5.8.post51 — 2026-10-15 (D1 post50 follow-ups)
 
 1. **Run errors: exit code first, warnings never the error** (904178e).

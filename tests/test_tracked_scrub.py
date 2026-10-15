@@ -91,3 +91,10 @@ def test_a_named_local_denylist_that_is_missing_is_an_error(tmp_path, monkeypatc
     monkeypatch.setenv(scrub.LOCAL_DENYLIST_ENV, str(tmp_path / "absent.txt"))
     with pytest.raises(OSError):
         scrub.active_denylist()
+
+
+def test_the_ledger_itself_adds_no_hit():
+    """The ledger names real tracked files; their copy suffix is a scrub pattern —
+    written percent-encoded, so a scan of docs/acfc/ never counts the ledger."""
+    assert scrub.scan_paths([scrub.LEDGER], scrub.active_denylist()) == []
+    assert scrub.ledger_path_decode(scrub.ledger_path_encode("a (7).xlsx")) == "a (7).xlsx"

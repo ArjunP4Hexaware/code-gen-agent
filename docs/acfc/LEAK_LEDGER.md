@@ -67,17 +67,18 @@ class (a deny-listed SD document title phrase). Files and counts only:
 | `docs/acfc/IIG_SCORECARD_2026-10-07.md` | 1 |
 | `docs/acfc/METADATA_DB_SEMANTICS.md` | 1 |
 | `docs/acfc/metadata_inserts.sql` | 1 |
-| `docs/acfc/review/ADDITION (7).md` | 1 |
-| `docs/acfc/review/config_inserts (7).xlsx` | 16 |
-| `docs/acfc/review/config_rows (10).xlsx` | 18 |
-| `docs/acfc/review/metadata_inserts (1).sql` | 1 |
+| `docs/acfc/review/ADDITION %287%29.md` | 1 |
+| `docs/acfc/review/config_inserts %287%29.xlsx` | 16 |
+| `docs/acfc/review/config_rows %2810%29.xlsx` | 18 |
+| `docs/acfc/review/metadata_inserts %281%29.sql` | 1 |
 | `docs/acfc/review/sd_community_demographic_risk_IIG.xlsx` | 11 |
 | `docs/acfc/review/sd_community_demographic_risk_IIG_REVIEW.xlsx` | 11 |
-| `docs/acfc/sd_community_demographic_risk_standard_table_creation (7).txt` | 1 |
+| `docs/acfc/sd_community_demographic_risk_standard_table_creation %287%29.txt` | 1 |
 
 The other 4: `harvested_raw_value` in `docs/acfc/iig_goldens/01_pair_group_index.csv`
 (already in the table above). Scrubbing these is a backlog item; until then they are
-baselined below.
+baselined below. Paths in this section are written with `(` / `)` as `%28` / `%29`: a
+copy-suffixed document name is itself a scrub pattern, and the ledger adds no hit.
 
 ## Known-hit baseline (2026-10-15)
 
@@ -103,14 +104,14 @@ docs/acfc/iig_goldens/01_pair_group_index.csv	harvested_raw_value	74e6a6aa3db53c
 docs/acfc/iig_goldens/01_pair_group_index.csv	harvested_raw_value	763c6b4d710a6120c44064018b9bdbfbd4e0db1937f9651cac2bc9e4d54a0ae1	1
 docs/acfc/iig_goldens/01_pair_group_index.csv	harvested_raw_value	9c831775ac11b8d67ae05d68bb272ef493dde8ce7f5cad3293549e693ac85bd3	1
 docs/acfc/metadata_inserts.sql	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
-docs/acfc/review/ADDITION (7).md	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
-docs/acfc/review/config_inserts (7).xlsx	document_title_phrase	754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c	14
-docs/acfc/review/config_inserts (7).xlsx	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	2
-docs/acfc/review/config_rows (10).xlsx	document_title_phrase	754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c	16
-docs/acfc/review/config_rows (10).xlsx	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	2
-docs/acfc/review/metadata_inserts (1).sql	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
+docs/acfc/review/ADDITION %287%29.md	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
+docs/acfc/review/config_inserts %287%29.xlsx	document_title_phrase	754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c	14
+docs/acfc/review/config_inserts %287%29.xlsx	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	2
+docs/acfc/review/config_rows %2810%29.xlsx	document_title_phrase	754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c	16
+docs/acfc/review/config_rows %2810%29.xlsx	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	2
+docs/acfc/review/metadata_inserts %281%29.sql	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
 docs/acfc/review/sd_community_demographic_risk_IIG.xlsx	document_title_phrase	754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c	11
 docs/acfc/review/sd_community_demographic_risk_IIG_REVIEW.xlsx	document_title_phrase	754350e1cd2f1b5159f33de64a1e85a597cbfb81f6d9783a59011c66273a537c	11
-docs/acfc/sd_community_demographic_risk_standard_table_creation (7).txt	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
+docs/acfc/sd_community_demographic_risk_standard_table_creation %287%29.txt	document_title_phrase	aa5ba889e06d6ba11931bc8aefd6ce5582456803046c1de93a7e01ebfeb6845f	1
 ```
 <!-- known-hit baseline: end -->

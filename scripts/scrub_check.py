@@ -251,8 +251,19 @@ def read_ledger_baseline(ledger: Path = LEDGER) -> set[tuple[str, str, str]]:
     for line in block.splitlines():
         parts = line.strip().strip("`").split("\t")
         if len(parts) in (3, 4) and re.fullmatch(r"[0-9a-f]{64}", parts[2]):
-            out.add((parts[0], parts[1], parts[2]))
+            out.add((ledger_path_decode(parts[0]), parts[1], parts[2]))
     return out
+
+
+def ledger_path_encode(path: str) -> str:
+    """A path as the ledger writes it: '(' / ')' percent-encoded — a real
+    document's copy suffix ('name (7).xlsx') is itself a scrub pattern
+    (copy_suffixed_document_name), and the ledger must not add a hit."""
+    return path.replace("%", "%25").replace("(", "%28").replace(")", "%29")
+
+
+def ledger_path_decode(path: str) -> str:
+    return path.replace("%28", "(").replace("%29", ")").replace("%25", "%")
 
 
 def write_ledger_baseline(rows, ledger: Path = LEDGER) -> None:
@@ -262,8 +273,8 @@ def write_ledger_baseline(rows, ledger: Path = LEDGER) -> None:
     of (file, class, sha256), or a {row: occurrences} mapping (a 4th column)."""
     text = ledger.read_text(encoding="utf-8")
     counts = rows if isinstance(rows, dict) else {}
-    body = "\n".join(f"{f}\t{k}\t{d}" + (f"\t{counts[(f, k, d)]}" if counts else "")
-                      for f, k, d in sorted(rows))
+    body = "\n".join(f"{ledger_path_encode(f)}\t{k}\t{d}"
+                      + (f"\t{counts[(f, k, d)]}" if counts else "") for f, k, d in sorted(rows))
     block = f"{LEDGER_BEGIN}\n```\n{body}\n```\n{LEDGER_END}"
     if LEDGER_BEGIN in text:
         head, rest = text.split(LEDGER_BEGIN, 1)

@@ -193,6 +193,12 @@ rule_diagnostics:
 convention_columns: [DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_NOTEBOOK_NAME,
                      TEMPLATE_NAME, TGT_RJT_TABLE_NAME]
 
+# STATUS rows (2026-10-14, the framework owner): the email status set varies per
+# pipeline in the corpus (4 / 2 / 1 statuses) and the agent writes all four by default
+# (a run-level input the BSA trims) - an unpaired agent row whose STATUS the golden
+# does not use is "status not in golden", never extra.
+status_columns: {EMAIL_TEMPLATE_CONFIG: STATUS}
+
 # BSA-OWNED columns (2026-10-14, the framework owner's rule): the BSA assigns the
 # value; the agent leaves it blank (INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>).
 # Never used to pair, never scored, never missing: status "bsa-owned", counted on

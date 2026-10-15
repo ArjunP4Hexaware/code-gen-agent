@@ -103,8 +103,9 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
             "catalog_map PR_DLK → d1_dlk, PR_STD → d1_std") in report
     # post47: the run-level inputs in ONE block at the top; the feed's own below it
     # (+ post47b: D1's own storage-account placeholder, provider=mock)
-    assert report.index("**Run inputs needed: 4**") < report.index("**Answers owed**")
-    for key in ("run.environment", "run.environment.storage_account", "run.application_name",
+    assert report.index("**Run inputs needed: 5**") < report.index("**Answers owed**")
+    for key in ("run.environment", "run.environment.storage_account", "run.email_statuses",
+                "run.application_name",
                 "run.email_to"):
         assert f"- `{key}`" in report
     assert "**Answers owed** — questions: 0, inputs needed: 5" in report   # 4 pipeline names
@@ -118,7 +119,7 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     path = tmp_path / "out" / "answers_template.yaml"
     inputs = yaml.safe_load(path.read_text(encoding="utf-8"))["inputs"]
     assert list(inputs["run"]) == ["environment", "environment.storage_account",
-                                   "application_name", "email_to"]
+                                   "application_name", "email_to", "email_statuses"]
     assert list(inputs["feeds"]) == [spec.feed_id]
     assert list(inputs["feeds"][spec.feed_id]) == [
         *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
@@ -333,7 +334,8 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monk
     # post47: the run-level items, scope "run", once (environment + the run-scoped cells)
     items = runner._run_level_inputs(with_environment(config, runner.run_environment()))
     assert [i["key"] for i in items] == ["run.environment", "run.environment.storage_account",
-                                         "run.application_name", "run.email_to"]
+                                         "run.application_name", "run.email_to",
+                                         "run.email_statuses"]
     assert {i["scope"] for i in items} == {"run"} and "assumed D1" in items[0]["question"]
     # post47b: the shipped QA is placeholders — accepted under provider=mock (its
     # keys are banner items), refused under provider=live naming the unset keys

@@ -2098,9 +2098,40 @@ def _dq_rules(tab, feed, config, spec, faq, tpl) -> list[dict]:  # noqa: C901
     return rows
 
 
+def email_status_set(tpl: MetadataTemplateConfig, faq) -> tuple[list[str] | None, str]:
+    """(the statuses to write — None = every template row, the NOTE text): the
+    run's answer to ``email_status_input`` (comma / semicolon separated, matched
+    case-insensitively; 'all' / 'all four' = every one), else the default."""
+    rule = tpl.email_status_input
+    statuses = [str(r.get("STATUS") or "") for r in tpl.template_rows.get(
+        "EMAIL_TEMPLATE_CONFIG") or []]
+    if rule is None:
+        return None, ""
+    answer = getattr(faq, rule.faq, None) if faq is not None else None
+    stated = (str(answer.value).strip() if answer is not None and answer.source != "unknown"
+              else "")
+    if not stated or stated.lower() in ("all", "all four", "*"):
+        how = ("answered 'all'" if stated else
+               f"INPUT_NEEDED run.{rule.faq}: once for the run, under inputs.run")
+        return None, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; written "
+                      f"with the default {rule.default or 'all four'!r}: "
+                      f"{', '.join(statuses)} ({how})")
+    wanted = [s.strip().lower() for s in re.split(r"[,;|]", stated) if s.strip()]
+    keep = [s for s in statuses if s.lower() in wanted]
+    unknown = [w for w in wanted if w not in {s.lower() for s in statuses}]
+    return keep, (f"iig_email_statuses:EMAIL_TEMPLATE_CONFIG.STATUS — the status set "
+                  f"answered: {', '.join(keep) or 'none'} (of {', '.join(statuses)})"
+                  + (f"; not a template status, ignored: {', '.join(unknown)}" if unknown
+                     else ""))
+
+
 def _email_templates(tab, feed, config, spec, faq, tpl) -> list[dict]:
     recipients = ";".join(config.job.notification_emails)
     rows = tpl.template_rows.get(tab) or [{}]
+    # 2026-10-14 (framework owner): the status set is a run-level input
+    keep, status_note = email_status_set(tpl, faq)
+    if keep is not None:
+        rows = [r for r in rows if str(r.get("STATUS") or "") in keep]
     out = []
     for template_row in rows:
         cells = {
@@ -2121,7 +2152,10 @@ def _email_templates(tab, feed, config, spec, faq, tpl) -> list[dict]:
         _derive(tpl, tab, cells, context)
         # D1 post45: the subject / body's {template_name} is the row's TEMPLATE_NAME
         context["template_name"] = _cell_text(cells.get("TEMPLATE_NAME")).strip()
-        out.append(_with_constants(tpl, tab, cells, context, faq))
+        row = _with_constants(tpl, tab, cells, context, faq)
+        if status_note and row.get("STATUS") is not None:
+            row["STATUS"]["badge_entry"]["note"] = status_note
+        out.append(row)
     return out
 
 

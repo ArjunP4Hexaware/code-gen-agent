@@ -217,6 +217,14 @@ metadata:
       # file-ingestion pipelines - 4 per feed (patterns_post45 email: FilesNotReceived /
       # New Files to Process on 293, Success / Failed on 349 file-ingestion pipelines;
       # 293 pipelines carry all four), in the corpus's order.
+      # 2026-10-14 (framework owner): the email status set varies in the corpus (4
+      # statuses: 293 pipelines; 2: 56; 1: 256; the CAQH golden 2, SD 4) - all four by
+      # default, a run-level INPUT_NEEDED run.email_statuses so the BSA can trim it.
+      email_status_input:
+        faq: email_statuses
+        scope: run
+        default: "all four"
+        question: "the EMAIL_TEMPLATE_CONFIG status set (comma-separated: FilesNotReceived, New Files to Process, Success, Failed): the corpus writes 4 statuses on 293 pipelines, 2 on 56, 1 on 256"
       template_rows:
         DATABRICKS_NOTEBOOK_DETAILS:
           - {_layer: stage, _pipeline_role: file_to_stage, _citation: &nb "one framework notebook row per leg (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS rows 2 / 3; 2 rows per workbook in the corpus: 378 rows / 189 workbooks)"}

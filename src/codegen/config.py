@@ -1444,6 +1444,11 @@ class MetadataTemplateConfig(BaseModel):
     # these regexes (case-insensitive); every other file_to_stg feed runs the
     # single notebook. None configured = the format alone decides (as before).
     edi_feed_patterns: list[str] = Field(default_factory=list)
+    # 2026-10-14 (framework owner): the email status set is the BSA's — the corpus
+    # writes 4 statuses on 293 pipelines, 2 on 56, 1 on 256. A run-level
+    # INPUT_NEEDED (``faq``, scope run) with the default "all four" (every
+    # template_rows status); an answer (comma-separated statuses) trims the rows.
+    email_status_input: OwedCellConfig | None = None
     owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
     # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
     # refs containers.<layer> / storage_account / values.<name>) — each with an

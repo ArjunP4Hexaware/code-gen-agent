@@ -126,9 +126,18 @@ def run_owed_inputs(config, inputs: dict[str, str] | None, *, output_mode=None,
     if tpl is None or not tpl.owed_cells:
         return []
     answered = {key for key, value in (inputs or {}).items() if str(value).strip()}
-    return [OwedInput(run_key(name), question, "", RUN)
-            for name, question in owed_questions(tpl, None, scope=RUN)
-            if run_key(name) not in answered]
+    items = [OwedInput(run_key(name), question, "", RUN)
+             for name, question in owed_questions(tpl, None, scope=RUN)
+             if run_key(name) not in answered]
+    rule = tpl.email_status_input
+    if rule is not None and run_key(rule.faq) not in answered:
+        # 2026-10-14 (framework owner): the email status set, default all four
+        statuses = [str(r.get("STATUS") or "") for r in
+                    tpl.template_rows.get("EMAIL_TEMPLATE_CONFIG") or []]
+        items.append(OwedInput(run_key(rule.faq), f"{rule.question} — written with the "
+                               f"default {rule.default or 'all four'!r}: "
+                               f"{', '.join(statuses)}", "", RUN))
+    return items
 
 
 def environment_inputs(config, *, output_mode=None,

@@ -224,8 +224,12 @@ GROUP_LEVEL = "group-level"
 # 2026-10-14 (rule 3): a sheet the agent leaves empty by rule (an MFT feed's
 # FILE_ADLS_INGESTION_DETAILS) — reported as such, never missing, no score.
 EMPTY_BY_RULE = "empty-by-rule"
+# 2026-10-14 (framework owner): an agent row whose status (iig_keys.yaml
+# status_columns: EMAIL_TEMPLATE_CONFIG STATUS) the golden does not use — the
+# status set is the BSA's to trim — "status not in golden", never extra.
+STATUS_NOT_IN_GOLDEN = "status-not-in-golden"
 STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION,
-            GROUP_LEVEL, BSA_OWNED)
+            GROUP_LEVEL, BSA_OWNED, STATUS_NOT_IN_GOLDEN)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 # The overall score keeps its meaning (an out-of-scope cell counts as missing);
 # ``comparable_score`` is the one over scoped cells of shared sheets only.
@@ -347,6 +351,8 @@ class KeyConfig:
     rule_diagnostics: dict[str, list[str]] = field(default_factory=dict)
     # 2026-10-14 (rule 3): the MFT detection / alias retarget (iig_keys.yaml mft)
     mft: dict = field(default_factory=dict)
+    # 2026-10-14: sheet -> its status column (status rows not in the golden)
+    status_columns: dict[str, str] = field(default_factory=dict)
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -442,7 +448,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
              "environment_tokens", "identity", "flow", "convention_columns", "bsa_columns",
              "group_index",
              "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows",
-             "rule_diagnostics", "mft"}
+             "rule_diagnostics", "mft", "status_columns"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -475,6 +481,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         group_level_flows=tuple(str(f) for f in raw.get("group_level_flows") or []),
         rule_diagnostics=_column_lists(path, "rule_diagnostics", raw.get("rule_diagnostics")),
         mft=_mft(path, raw.get("mft")),
+        status_columns={str(k): str(v) for k, v in (raw.get("status_columns") or {}).items()},
     )
 
 
@@ -1162,6 +1169,7 @@ class SheetDiff:
     tables: tuple = (None, None)      # (golden ObjectTables, agent ObjectTables)
     out_of_scope_rows: int = 0        # golden rows of feeds the agent did not write
     group_level_rows: int = 0         # agent grand master / master rows, not scored
+    status_rows: int = 0              # agent rows of a status the golden does not use
     # rows paired per method, rows left unpaired per side (in scope)
     pairing: dict = field(default_factory=dict)
     unpaired: dict = field(default_factory=dict)
@@ -1203,10 +1211,28 @@ def group_level_rows(name: str, pairs: list[RowPair], golden: Sheet | None,
             and flow not in golden_flows}
 
 
+def status_rows(name: str, pairs: list[RowPair], golden: Sheet | None,
+                agent: Sheet | None, keys: KeyConfig) -> set[int]:
+    """The unpaired agent rows whose status (``status_columns``) the golden's
+    rows never carry (the email status set the BSA trims)."""
+    column = next((c for s, c in keys.status_columns.items() if sheet_id(s) == sheet_id(name)),
+                  None)
+    if column is None or golden is None or agent is None:
+        return set()
+    g_col = golden.canon().get(column.upper())
+    a_col = agent.canon().get(column.upper())
+    if g_col is None or a_col is None:
+        return set()
+    used = {normalize(row.get(g_col)) for _n, row in golden.rows}
+    return {p.agent[0] for p in pairs if p.agent and not p.golden
+            and normalize(p.agent[1].get(a_col)) not in used}
+
+
 def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_canon: dict,
                     keys: KeyConfig, tables: tuple, scope: FeedScope | None,
                     oos_rows: set[int] | None = None,
-                    group_rows: frozenset[int] = frozenset()) -> tuple[list[Cell], set[int]]:
+                    group_rows: frozenset[int] = frozenset(),
+                    status_only: frozenset[int] = frozenset()) -> tuple[list[Cell], set[int]]:
     """Every cell of every pair, with its status; + the golden rows out of
     scope (``oos_rows`` when the caller decided them, else the scope's test).
     A CONVENTION column's cell is ``convention`` — never scored."""
@@ -1234,6 +1260,8 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
                 status = OUT_OF_SCOPE
             elif g_row is None and pair.agent[0] in group_rows:
                 status = GROUP_LEVEL
+            elif g_row is None and pair.agent[0] in status_only:
+                status = STATUS_NOT_IN_GOLDEN
             elif keys.is_assignment(label):
                 status = ASSIGN
             elif keys.is_bsa(label):
@@ -1555,12 +1583,13 @@ def diff_sheet(
         "agent_only": [a_canon[c] for c in order if c in a_canon and c not in g_canon],
     }
     group_rows = frozenset(group_level_rows(name, pairs, golden, agent, keys))
+    status_only = frozenset(status_rows(name, pairs, golden, agent, keys)) - group_rows
     out.cells, oos_rows = _classify_pairs(pairs, order, g_canon, a_canon, keys, tables,
                                           scope if agent is not None else None, oos,
-                                          group_rows)
+                                          group_rows, status_only)
     out.identity_text = texts
     out.rule_samples = rule_samples(name, golden, agent, keys, texts)
-    return _tally(out, pairs, oos_rows, golden, agent, keys, group_rows)
+    return _tally(out, pairs, oos_rows, golden, agent, keys, group_rows, status_only)
 
 
 RULE_SAMPLE_ROWS = 60
@@ -1591,8 +1620,10 @@ def rule_samples(name: str, golden: Sheet | None, agent: Sheet | None, keys: Key
 
 def _tally(out: SheetDiff, pairs: list[RowPair], oos_rows: set[int], golden: Sheet | None,
            agent: Sheet | None, keys: KeyConfig,
-           group_rows: frozenset[int] = frozenset()) -> SheetDiff:
+           group_rows: frozenset[int] = frozenset(),
+           status_only: frozenset[int] = frozenset()) -> SheetDiff:
     """Rows paired per method, unpaired per side, the row counts."""
+    group_rows = group_rows | status_only        # neither is unpaired / extra
     out.pairing = {m: sum(1 for p in pairs if p.golden and p.agent and p.method == m)
                    for m in (BY_IDENTITY, BY_POSITION, BY_KEY)}
     out.unpaired = {"golden": sum(1 for p in pairs if p.golden and not p.agent
@@ -1609,7 +1640,8 @@ def _tally(out: SheetDiff, pairs: list[RowPair], oos_rows: set[int], golden: She
                    and p.agent[0] not in group_rows),
     }
     out.out_of_scope_rows = len(oos_rows)
-    out.group_level_rows = len(group_rows)
+    out.group_level_rows = len(group_rows - status_only)
+    out.status_rows = len(status_only)
     out.key_samples = key_samples(out, keys)
     return out
 
@@ -1915,6 +1947,10 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
         if d.out_of_scope_rows:
             sheet_warnings.append(f"out of scope: {d.out_of_scope_rows} golden row(s) of "
                                   "feeds this run did not write (not missing)")
+        if d.status_rows:
+            sheet_warnings.append(f"status not in golden: {d.status_rows} agent row(s) of a "
+                                  "status the golden does not use (the BSA's status set; not "
+                                  "extra, not scored)")
         if d.group_level_rows:
             sheet_warnings.append(f"group-level rows: {d.group_level_rows} (not scored) - "
                                   "the agent's grand master / master rows; the golden "
@@ -1939,6 +1975,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_score": None if one_side else _comparable(counts),
             "out_of_scope_rows": d.out_of_scope_rows,
             "group_level_rows": d.group_level_rows,
+            "status_not_in_golden_rows": d.status_rows,
             "needs_assignment": assign,
             # 2026-10-13: HOW rows were matched — never read a score without it
             "pairing": d.pairing,
@@ -1994,6 +2031,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "comparable_cells": sum(shared.get(s, 0) for s in SCORED),
             "out_of_scope_rows": sum(d.out_of_scope_rows for d in diffs),
             "group_level_rows": sum(d.group_level_rows for d in diffs),
+            "status_not_in_golden_rows": sum(d.status_rows for d in diffs),
             "pairing": {m: pairing.get(m, 0) for m in (BY_IDENTITY, BY_POSITION, BY_KEY)},
             "unpaired": {s: unpaired.get(s, 0) for s in ("golden", "agent")},
             "convention_cells": {k: convention.get(k, 0) for k in ("cells", "differing")},
@@ -3137,7 +3175,8 @@ def _print_pair(payload: dict, out: Path) -> None:
     print(f"COMPARABLE: score {t.get('comparable_score')} over {t.get('comparable_cells')} "
           f"scoped cell(s) of the sheets both sides have; out of scope: "
           f"{t.get('out_of_scope_rows', 0)} golden row(s); group-level rows: "
-          f"{t.get('group_level_rows', 0)} (not scored)")
+          f"{t.get('group_level_rows', 0)} (not scored); status not in golden: "
+          f"{t.get('status_not_in_golden_rows', 0)} agent row(s) (not scored)")
     print(f"PAIRING: identity {t['pairing'].get(BY_IDENTITY, 0)}, position "
           f"{t['pairing'].get(BY_POSITION, 0)}, key {t['pairing'].get(BY_KEY, 0)} row(s); "
           f"unpaired golden {t['unpaired']['golden']}, agent {t['unpaired']['agent']}; "

@@ -126,6 +126,9 @@ class LoadPatternFaq(BaseModel):
     # INPUT_PARAM is derived since 2026-10-14: the target table's FQN.)
     application_name: FaqAnswer = FaqAnswer(value="unknown")
     email_to: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (framework owner): the EMAIL_TEMPLATE_CONFIG status set — a
+    # run-level input (inputs.run: email_statuses), default all four statuses
+    email_statuses: FaqAnswer = FaqAnswer(value="unknown")
     # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned — one
     # per flow row (owed_cells per_flow; inputs.feeds.<feed>: pipeline_name.<flow>)
     pipeline_name_grand_master: FaqAnswer = FaqAnswer(value="unknown")

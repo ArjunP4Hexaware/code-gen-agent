@@ -13,19 +13,34 @@ Two layers:
    numbers, author tags, VM names, 4+ digit IDs from ID columns, contact
    names). Raw values are never written into this tracked file.
 
+3. A local term file (2026-10-15) — ``CODEGEN_SCRUB_DENYLIST`` names a
+   gitignored file, one term per line (``#`` comments / blank lines skipped):
+   :func:`load_local_denylist`, merged by :func:`active_denylist`.
+
 Usage:
     python scripts/scrub_check.py [path ...]     # default: fixtures/reference out
-Exit 1 on any hit. Also importable: harvest_raw_denylist(), scan_paths().
+    python scripts/scrub_check.py --rebaseline [root ...]   # default: config docs/acfc
+        # rewrites the docs/acfc/LEAK_LEDGER.md baseline rows: one
+        # "<file> <class> <sha256(term)>" per tracked hit (never the term)
+Exit 1 on any hit. Also importable: harvest_raw_denylist(), scan_paths(),
+scan_hits(), active_denylist(), ledger_baseline().
 """
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 RAW = REPO / "inputs" / "reference_raw"
+LOCAL_DENYLIST_ENV = "CODEGEN_SCRUB_DENYLIST"
+LEDGER = REPO / "docs" / "acfc" / "LEAK_LEDGER.md"
+LEDGER_BEGIN = "<!-- known-hit baseline: begin -->"
+LEDGER_END = "<!-- known-hit baseline: end -->"
+LEDGER_ROOTS = ("config", "docs/acfc")
 
 GENERIC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("databricks_workspace_host", re.compile(r"adb-\d{6,}\.\d+\.azuredatabricks\.net")),
@@ -56,15 +71,20 @@ TITLE_PHRASE_SHA256 = frozenset({
 _WORD = re.compile(r"[a-z0-9]+")
 
 
+def title_phrases(text: str) -> list[str]:
+    """The word pairs / triples of ``text`` that are a deny-listed document title
+    phrase (for hashing only — never printed)."""
+    import hashlib
+    words = _WORD.findall(text.lower())
+    return [phrase for n in (2, 3) for i in range(len(words) - n + 1)
+            if hashlib.sha256((phrase := " ".join(words[i:i + n])).encode("utf-8")).hexdigest()
+            in TITLE_PHRASE_SHA256]
+
+
 def title_hits(text: str) -> int:
     """How many word pairs / triples of ``text`` are a deny-listed document title
     phrase (the phrase itself is never returned)."""
-    import hashlib
-    words = _WORD.findall(text.lower())
-    return sum(
-        hashlib.sha256(" ".join(words[i:i + n]).encode("utf-8")).hexdigest()
-        in TITLE_PHRASE_SHA256
-        for n in (2, 3) for i in range(len(words) - n + 1))
+    return len(title_phrases(text))
 
 # 2026-10-12 (round3 pair_2 score.json committed a workspace path carrying a
 # user's address): ANY e-mail address and ANY /Workspace/Users/<user> path,
@@ -148,6 +168,111 @@ def harvest_raw_denylist() -> dict[str, str]:
     return deny
 
 
+def load_local_denylist(path: str | Path | None = None) -> dict[str, str]:
+    """token -> "local_denylist" from the file ``CODEGEN_SCRUB_DENYLIST`` names
+    (or ``path``): one term per line, ``#`` comments and blank lines skipped.
+    {} when no file is named; a named file that is missing is an error."""
+    path = path or os.environ.get(LOCAL_DENYLIST_ENV, "").strip()
+    if not path:
+        return {}
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    return {line.strip(): "local_denylist" for line in lines
+            if line.strip() and not line.lstrip().startswith("#")}
+
+
+def active_denylist() -> dict[str, str]:
+    """The harvested raw denylist plus the local term file."""
+    return {**harvest_raw_denylist(), **load_local_denylist()}
+
+
+def scan_hits(paths: list[Path], deny: dict[str, str] | None = None):
+    """[(path, class, term)] — the same hits as :func:`scan_paths`, each with
+    the FULL matched term (for hashing; never print it)."""
+    deny = deny if deny is not None else harvest_raw_denylist()
+    hits: list[tuple[Path, str, str]] = []
+    for root in paths:
+        files = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
+        for f in files:
+            if RAW in f.parents or f == RAW or f.resolve() == Path(__file__).resolve():
+                continue
+            for text in _iter_strings(f):
+                for klass, pat in GENERIC_PATTERNS:
+                    m = pat.search(text)
+                    if m:
+                        hits.append((f, klass, m.group(0)))
+                for klass, match in structural_hits(text)[:1]:
+                    hits.append((f, klass, match))
+                phrases = title_phrases(text)
+                if phrases:
+                    hits.append((f, "document_title_phrase", phrases[0]))
+                for tok, klass in deny.items():
+                    if len(tok) >= 5 and tok in text:
+                        hits.append((f, klass, tok))
+    return hits
+
+
+def tracked_files(*roots: str, repo: Path = REPO) -> list[Path]:
+    """``git ls-files`` under ``roots`` (paths that exist in the working tree)."""
+    done = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", "--", *roots],
+                          capture_output=True, check=True)
+    names = [n for n in done.stdout.decode("utf-8", "replace").split("\0") if n]
+    return [repo / n for n in names if (repo / n).is_file()]
+
+
+def ledger_baseline(files: list[Path], deny: dict[str, str] | None = None,
+                    repo: Path = REPO, ledger: Path = LEDGER) -> set[tuple[str, str, str]]:
+    """{(repo-relative file, class, term_sha256)} of every hit in ``files``
+    (the ledger itself is skipped: it holds only hashes)."""
+    return set(ledger_hit_counts(files, deny, repo, ledger))
+
+
+def ledger_hit_counts(files: list[Path], deny: dict[str, str] | None = None,
+                      repo: Path = REPO, ledger: Path = LEDGER) -> dict[tuple[str, str, str], int]:
+    """(repo-relative file, class, term_sha256) -> hits (one per scanned text:
+    an xlsx cell, a whole text file) — the ledger rows' occurrences column."""
+    sys.path.insert(0, str(repo / "src"))
+    from collections import Counter
+
+    from codegen.term_hash import term_sha256
+
+    files = [f for f in files if Path(f).resolve() != Path(ledger).resolve()]
+    return dict(Counter(
+        (Path(p).resolve().relative_to(repo.resolve()).as_posix(), klass, term_sha256(term))
+        for p, klass, term in scan_hits(files, deny)))
+
+
+def read_ledger_baseline(ledger: Path = LEDGER) -> set[tuple[str, str, str]]:
+    """The (file, class, sha256) lines between the ledger's baseline markers."""
+    text = ledger.read_text(encoding="utf-8")
+    if LEDGER_BEGIN not in text:
+        return set()
+    block = text.split(LEDGER_BEGIN, 1)[1].split(LEDGER_END, 1)[0]
+    out = set()
+    for line in block.splitlines():
+        parts = line.strip().strip("`").split("\t")
+        if len(parts) in (3, 4) and re.fullmatch(r"[0-9a-f]{64}", parts[2]):
+            out.add((parts[0], parts[1], parts[2]))
+    return out
+
+
+def write_ledger_baseline(rows, ledger: Path = LEDGER) -> None:
+    """Replace the rows between the ledger's baseline markers (the prose above
+    and below is kept; the markers are appended when absent). Deliberate only:
+    ``scrub_check.py --rebaseline`` — the test never writes. ``rows`` is a set
+    of (file, class, sha256), or a {row: occurrences} mapping (a 4th column)."""
+    text = ledger.read_text(encoding="utf-8")
+    counts = rows if isinstance(rows, dict) else {}
+    body = "\n".join(f"{f}\t{k}\t{d}" + (f"\t{counts[(f, k, d)]}" if counts else "")
+                      for f, k, d in sorted(rows))
+    block = f"{LEDGER_BEGIN}\n```\n{body}\n```\n{LEDGER_END}"
+    if LEDGER_BEGIN in text:
+        head, rest = text.split(LEDGER_BEGIN, 1)
+        text = head + block + rest.split(LEDGER_END, 1)[1]
+    else:
+        text = text.rstrip("\n") + "\n\n" + block + "\n"
+    ledger.write_bytes(text.encode("utf-8"))
+
+
 def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
     """Return [(path, class, context)] for every denylist hit under paths."""
     deny = deny if deny is not None else harvest_raw_denylist()
@@ -175,6 +300,13 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["--rebaseline"]:
+        rows = ledger_hit_counts(tracked_files(*(argv[1:] or LEDGER_ROOTS)), active_denylist())
+        write_ledger_baseline(rows)
+        print(f"{LEDGER.relative_to(REPO).as_posix()}: {len(rows)} baseline row(s), "
+              f"{sum(rows.values())} hit(s) written (file, class, sha256, occurrences — never "
+              "the term)")
+        return 0
     targets = [Path(a) for a in argv] or [REPO / "fixtures" / "reference", REPO / "out"]
     targets = [t for t in targets if t.exists()]
     hits = scan_paths(targets)

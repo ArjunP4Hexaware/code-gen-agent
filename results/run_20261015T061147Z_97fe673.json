@@ -1,8 +1,0 @@
-{
-  "status": "LEAK_GATE_BLOCKED",
-  "sha": "97fe6731d8c4ce47b832dc9529ff3628be309ff9",
-  "timestamp": "20261015T061147Z",
-  "real_hits": 40,
-  "self_match_hits": 2,
-  "denylist_sha256": "a0f4c0950233d657945d07f9914cb62b315b032e345770291c8976d3106c8df0"
-}

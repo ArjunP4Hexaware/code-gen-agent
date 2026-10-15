@@ -5,6 +5,32 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
+**post49 (2026-10-14) — the client framework owner's rules 1–5**, one commit each
+(8a2108d, 86bcc16, 8e4c65c, 49d3e73, 7d59a3f), marker **0.5.8.post49**; tests in
+`tests/test_framework_owner_rules.py` + the touched files.
+1. **PIPELINE_NAME is BSA-assigned.** ACFC `pipeline_roles` carry no name (`name: None`);
+   owed cells `per_flow` on schedule + notebook: `INPUT_NEEDED
+   feeds.<feed>.pipeline_name.<flow>` (FAQ companions `pipeline_name_<flow>`; answers_for maps
+   `.`→`_`). iig_v2 email has no PIPELINE_NAME. iig_diff: `bsa_columns` → status
+   `bsa-owned` (never missing / scored; `bsa_cells` cells + golden_filled).
+2. **PIPELINE_DESCRIPTION long shapes** (corpus_cells values; short forms in `alternatives` +
+   `alternative_shares`, NOTE only; `per_lob` + `per_lob_share`: a LOB-fan-out feed's ONE
+   file_to_stg row is left OPEN with each LOB's description in the NOTE). Shapes provisional
+   until the D1 dump of pair_2 / pair_12 cells — overlay-editable.
+3. **FILE_ADLS empty for MFT** (`file_adls_rows: per_file`, `mft_landing_markers:
+   [mftlanding]`; `metadata_template.mft_landing`): headers only + `iig_file_adls_mft` NOTE;
+   non-MFT = one row per ADLS_DELTA row. iig_diff `mft:` block: ALL_FILES alias retargeted to
+   ADLS_DELTA, FILE_ADLS presence `empty-by-rule`. pair_11's FRD landing is itself under
+   mftlanding.
+4. **SRC_COLUMNS** `src_columns_style: source_target` (source names when EVERY one is an
+   identifier, else the stage columns throughout, verbatim) + `audit_columns_from_sttm` (a
+   table's own STTM audit rows, in order). Home CAQH: ADLS SRC_COLUMNS 0 → 18/18, STGDELTA 3/3,
+   ADLS TGT_COLUMN_NAMES 18/18; TOTAL 79.1 (no LOB answers). SD unchanged.
+5. **Header check** — iig_diff `header_report` / `compare_headers` (score.json `headers`,
+   console HEADERS first, `## Headers` first in sheets.md). Home CAQH: 2 golden-side issues
+   (notebook DQ_NOTEBOOK_PATH / DELETE order = iig_v1's; email CRETAED_BY / CREATED_AT).
+- Spiral: hook (a) on the rule-4 audit test — my oracle guessed the row layout; logged.
+
 **post48 (2026-10-14) — the D1 exemption replaced by the provider.** A NAMED
 environment with a key unset (blank / any `<<ENV:...>>`, D1's included) is FATAL
 only under provider=live and no `--dry-run` (`environments._complete(live=)`; CLI

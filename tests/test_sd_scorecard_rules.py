@@ -127,14 +127,11 @@ def test_the_sd_family_rows(sd_rows, slug):
     for column, value in SD_EXPECTED[slug].items():
         assert row[column] == value, column
     assert row["SOURCE"] == "VENDOR_C"                              # rule 3: the id dropped
-    # rule 4, 2026-10-14 (the framework owner's rule 4, audit_columns_from_sttm): the
-    # STTM's OWN audit rows, verbatim and in order (pair 11 states three — the real SD
-    # STTM states the SD family's four, so the SD rows are unchanged), typed in the
-    # data columns' casing
-    assert row["TGT_COLUMN_NAMES"].split(",")[-3:] == [
-        "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME"]
-    assert "LOB" not in row["TGT_COLUMN_NAMES"].split(",")
-    assert row["TGT_DATA_TYPE"].split(",")[-3:] == ["String", "Timestamp", "Timestamp"]
+    # rule 4: the SD family's audit columns, typed in the data columns' casing
+    assert row["TGT_COLUMN_NAMES"].split(",")[-4:] == [
+        "LOB", "SRC_FILE_NAME", "REC_CREATION_TIME", "REC_UPDATED_TIME"]
+    assert row["TGT_DATA_TYPE"].split(",")[-4:] == ["String", "String", "Timestamp",
+                                                    "Timestamp"]
     # rule 5: a file's fields are strings
     assert all(t.startswith("String:") for t in row["SRC_DATA_TYPE"].split(","))
     # rule 6 (round 6, 2026-10-13): no document states a recycle -> the SD

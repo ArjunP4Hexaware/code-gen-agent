@@ -26,6 +26,9 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
    identifier, else the stage columns throughout, verbatim) + `audit_columns_from_sttm` (a
    table's own STTM audit rows, in order). Home CAQH: ADLS SRC_COLUMNS 0 → 18/18, STGDELTA 3/3,
    ADLS TGT_COLUMN_NAMES 18/18; TOTAL 79.1 (no LOB answers). SD unchanged.
+   **REVERTED on the branch (Soham: wait for the D1 golden cells)** — kept on the local
+   branch `wip/src-columns-rule4` (49d3e73 + 3b0082d); re-apply with `git cherry-pick`
+   once the D1 SRC_COLUMNS cells confirm the reading.
 5. **Header check** — iig_diff `header_report` / `compare_headers` (score.json `headers`,
    console HEADERS first, `## Headers` first in sheets.md). Home CAQH: 2 golden-side issues
    (notebook DQ_NOTEBOOK_PATH / DELETE order = iig_v1's; email CRETAED_BY / CREATED_AT).

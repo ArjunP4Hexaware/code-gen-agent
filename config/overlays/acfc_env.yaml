@@ -158,12 +158,7 @@ metadata:
       # SDOH-shaped (Socially Determined, 2026-10-07): applies to EVERY feed
       # until this overlay is split per source family — a PRX-shaped feed
       # (pair 1) gets these paths too.
-      # 2026-10-14 (framework owner's rule 4): SRC_COLUMNS = '<source>:<target>' pairs in
-      # STTM order, verbatim (the source band's identifier, else the stage column - the
-      # CAQH golden's ADLS rows: the detail table's stage columns); a table's audit
-      # columns = the STTM's own audit rows for it (CAQH: header / trailer 3, detail 5).
-      src_columns_style: source_target
-      audit_columns_from_sttm: true
+      src_columns_style: named
       # 2026-10-14 (framework owner's rule 3): FILE_ADLS_INGESTION_DETAILS is EMPTY for
       # an MFT-landed feed (headers only + an iig_file_adls_mft NOTE) - MFT = the
       # landing path / container names mftlanding as a path segment (SD and CAQH

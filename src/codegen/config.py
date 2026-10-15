@@ -1115,6 +1115,27 @@ class ConventionsProfileConfig(BaseModel):
     block_using_prefix: dict[str, str] = Field(default_factory=dict)
     # Audit-column type spelling in the DDL (contract enum -> as written).
     audit_type_casing: dict[str, str] = Field(default_factory=dict)
+    # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
+    # datatypes extract-sttm accepts (workbook spelling, normalized). Every
+    # audit column: audit_datatypes; a column ending in one of
+    # audit_flag_suffixes (DELETE_FLAG, ACTIVE_IND) also audit_flag_datatypes.
+    # Widen per profile in an overlay; each entry must be a key of
+    # contracts.sttm.AUDIT_DATATYPE_SPELLING (what the DDL can render).
+    audit_datatypes: list[str] = Field(default_factory=lambda: ["string", "timestamp"])
+    audit_flag_datatypes: list[str] = Field(
+        default_factory=lambda: ["tinyint", "int", "smallint", "boolean"])
+    audit_flag_suffixes: list[str] = Field(default_factory=lambda: ["_flag", "_ind"])
+
+    @field_validator("audit_datatypes", "audit_flag_datatypes")
+    @classmethod
+    def _known_audit_types(cls, value: list[str]) -> list[str]:
+        from codegen.contracts.sttm import AUDIT_DATATYPE_SPELLING
+
+        unknown = [t for t in value if t.strip().lower() not in AUDIT_DATATYPE_SPELLING]
+        if unknown:
+            raise ValueError(f"audit datatype(s) {unknown} have no contract spelling; "
+                             f"expected among {sorted(AUDIT_DATATYPE_SPELLING)}")
+        return value
     # M7: every CREATE must name catalog.schema.table. The catalog resolves
     # FRD label -> STTM band -> default_catalog[layer] (each with provenance);
     # none -> that layer's DDL is NOT written and the gate FAILs

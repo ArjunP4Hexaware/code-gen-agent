@@ -50,13 +50,14 @@ from codegen.contracts.sttm import (
     TableRef,
 )
 from codegen.extract.audit_names import clean_audit_column
+from codegen.extract.audit_types import audit_datatype
+from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError, _norm, _text
 from codegen.faq import load_faq
 from codegen.layout.profile import LayoutProfile, SheetProfile
 from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
 from codegen.run_errors import Coord, located
 
-_AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 _YES_VALUES = {"yes", "y", "true"}
 _DELIMITER_RE = re.compile(r"delimited\s*(\S)")
 # The STTM trailer "Record Type" comment states the static marker, e.g.
@@ -395,11 +396,11 @@ def extract_segmented_contract(
                 f"{ws.title} row {seg_row.row_number}: row carries neither a Segment "
                 "value nor an audit-column identity"
             ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit")
-        datatype = _AUDIT_DATATYPES.get(_norm(datatype_raw))
+        datatype = audit_datatype(column, datatype_raw, config)
         if datatype is None:
             raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: audit column {column!r} has "
-                f"datatype {datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
+                f"datatype {datatype_raw!r}; {audit_expectation(column, config)}"
             ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit")
         column = clean_audit_column(column, "audit_columns",
                                     f"{ws.title} row {seg_row.row_number}", annotation_flags)

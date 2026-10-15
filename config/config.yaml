@@ -923,6 +923,12 @@ conventions:
       trailing_newline: false
       block_using_prefix: {stage: "", standard: " "}
       audit_type_casing: {String: STRING, Timestamp: TIMESTAMP}
+      # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
+      # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
+      # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.
+      audit_datatypes: [string, timestamp]
+      audit_flag_datatypes: [tinyint, int, smallint, boolean]
+      audit_flag_suffixes: [_flag, _ind]
       # M7: three-part names or no DDL (catalog_unstated:<layer> FAILs).
       # default_catalog is the LAST fallback (FRD label -> STTM band -> here);
       # empty = none configured. Set per environment in an overlay.

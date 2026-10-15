@@ -45,6 +45,8 @@ _SQL_TYPES = {
     "int": "INT",
     "integer": "INT",
     "bigint": "BIGINT",
+    "tinyint": "TINYINT",
+    "smallint": "SMALLINT",
     "timestamp": "TIMESTAMP",
     "date": "DATE",
     "double": "DOUBLE",

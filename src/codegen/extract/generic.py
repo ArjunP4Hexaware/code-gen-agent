@@ -43,6 +43,8 @@ from codegen.contracts.sttm import (
     TableRef,
 )
 from codegen.extract.audit_names import clean_audit_column
+from codegen.extract.audit_types import audit_datatype
+from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
 from codegen.run_errors import Coord, located, sheet_number
@@ -1005,11 +1007,11 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     audit: list[AuditColumn] = []
     seen: set[str] = set()
     for entry in sheet.audit:
-        datatype = _AUDIT_DATATYPES.get(normalize(entry.datatype_raw))
+        datatype = audit_datatype(entry.column, entry.datatype_raw, config)
         if datatype is None:
             raise located(GenericExtractionError(
                 f"sheet {name!r} row {entry.row}: audit column {entry.column!r} has datatype "
-                f"{entry.datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"),
+                f"{entry.datatype_raw!r}; {audit_expectation(entry.column, config)}"),
                 _at(ir, entry.sheet, entry.row), "sttm.audit")
         column = clean_audit_column(
             entry.column, prefix + "audit_columns",

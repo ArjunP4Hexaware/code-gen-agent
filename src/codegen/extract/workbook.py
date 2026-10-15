@@ -33,6 +33,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from codegen.config import ExtractorConfig
+from codegen.extract.audit_types import audit_datatype
+from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.layout.profile import Role
 from codegen.run_errors import Coord, located, sheet_number
 
@@ -62,10 +64,6 @@ LEGACY_TABLE_ROLES = {
     "columnname": Role.COLUMN,
     "datatype": Role.TARGET_TYPE,
 }
-
-# Audit rows carry lowercase workbook datatypes; the contract's AuditColumn
-# is a Literal["String", "Timestamp"], so normalize casing here.
-_AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 
 # Row-2 headers whose normalized text names a segment column mark the
 # segmented dialect even before stage tables are compared.
@@ -717,11 +715,12 @@ def _parse_audit_row(
             Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["columnname"] + 1),
             "sttm.audit")
     raw_datatype = _text(row[stage_cols["datatype"]]) or ""
-    datatype = _AUDIT_DATATYPES.get(_norm(raw_datatype))
+    # The legacy MAPPING- reader holds no Config: the profile model's defaults.
+    datatype = audit_datatype(column, raw_datatype, None)
     if datatype is None:
         raise located(WorkbookParseError(
             f"{ws.title} row {row_number}: audit column {column!r} has datatype "
-            f"{raw_datatype!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
+            f"{raw_datatype!r}; {audit_expectation(column, None)}"
         ), Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["datatype"] + 1), "sttm.audit")
     return AuditRow(column=column, datatype=datatype)
 

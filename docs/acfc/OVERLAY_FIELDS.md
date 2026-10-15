@@ -34,6 +34,19 @@ under `metadata.templates.iig_v2.`
 `<feed_id>` is the run's feed id (`normalize_feed_name` of the FRD feed name; the
 report file name). Unknown keys fail the config load (the loader is loud).
 
+Extraction fields under `conventions.profiles.<profile>.` (2026-10-15, D1 post51
+pair_06) — the audit-column datatypes `extract-sttm` accepts:
+
+| Field | Meaning |
+| --- | --- |
+| `audit_datatypes` | Types any audit column may carry (default `string`, `timestamp`). |
+| `audit_flag_datatypes` | Types a flag / indicator audit column may ALSO carry (default `tinyint`, `int`, `smallint`, `boolean`). |
+| `audit_flag_suffixes` | Column-name endings that make an audit column a flag / indicator (default `_flag`, `_ind`; case-insensitive). |
+
+Each listed type must be one the contract can spell (`string`, `timestamp`,
+`tinyint`, `smallint`, `int`, `integer`, `bigint`, `boolean`); any other fails
+the config load.
+
 ## 2. `codegen-state/environments/<name>.yaml`
 
 One environment profile; resolution and the required keys:

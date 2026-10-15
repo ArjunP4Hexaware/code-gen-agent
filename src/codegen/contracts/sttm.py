@@ -66,11 +66,24 @@ class LoadRules(BaseModel):
     recycle: RecycleSpec | None
 
 
+# Audit-column datatype: the workbook's spelling (normalized) -> the contract
+# spelling. String / Timestamp are the original two; the integer / boolean
+# types came with D1 post51 pair_06 (a DELETE_FLAG typed tinyint). Which ones a
+# column may carry is the conventions profile's choice (audit_datatypes /
+# audit_flag_datatypes, extract.audit_types); this map is the closed set any
+# profile may list, each one emit.context.sql_type can render.
+AUDIT_DATATYPE_SPELLING = {
+    "string": "String", "timestamp": "Timestamp", "tinyint": "TINYINT",
+    "smallint": "SMALLINT", "int": "INT", "integer": "INT", "bigint": "BIGINT",
+    "boolean": "BOOLEAN",
+}
+
+
 class AuditColumn(BaseModel):
     model_config = _MODEL_CONFIG
 
     column: str
-    datatype: Literal["String", "Timestamp"]
+    datatype: Literal["String", "Timestamp", "TINYINT", "SMALLINT", "INT", "BIGINT", "BOOLEAN"]
     # 2026-10-14 (D1 post44 item 5): the audit row's load rule as the STTM
     # states it ("Default to 'CAQH'") — the DQ AddCustomColumnsRule literal.
     # None (the JSON leaves it out) when the row states none.

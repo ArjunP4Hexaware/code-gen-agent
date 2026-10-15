@@ -15,6 +15,7 @@ from typing import Any
 from codegen.config import Config, EngineeringStandardsConfig
 from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
 from codegen.faq import WRITER_BEHAVIOR, LoadPatternFaq, summarize
+from codegen.run_errors import Coord, located
 
 # Contract file-name patterns use date placeholders; longest tokens first so
 # CCYYMMDD is consumed before CCYY / MM. "*" is a free wildcard.
@@ -175,7 +176,9 @@ def sql_type(contract_datatype: str) -> str:
         return f"DECIMAL({decimal.group(1)},{decimal.group(2)})"
     mapped = _SQL_TYPES.get(normalized.lower())
     if mapped is None:
-        raise TemplateGapError(f"no SQL type mapping for contract datatype {contract_datatype!r}")
+        # quotes the STTM datatype cell; the caller's coordinates stand
+        raise located(TemplateGapError(
+            f"no SQL type mapping for contract datatype {contract_datatype!r}"), None, "sttm.type")
     return mapped
 
 
@@ -297,6 +300,11 @@ def resolve_notebook_name(
     return _collapse_name(standards.notebook_name_pattern.format(**components))
 
 
+def _segment_number(spec: ResolvedFeedSpec, segment: SegmentSpec) -> int | None:
+    """1-based position of ``segment`` in the feed (an error's coordinate)."""
+    return next((i for i, s in enumerate(spec.segments, 1) if s is segment), None)
+
+
 def _segment_context(
     segment: SegmentSpec, spec: ResolvedFeedSpec, config: Config,
     faq: LoadPatternFaq | None = None, fixed_width: bool = False,
@@ -314,9 +322,9 @@ def _segment_context(
         else:
             record_type_value = config.segments.record_type_values.get(segment.segment)
         if record_type_value is None:
-            raise TemplateGapError(
+            raise located(TemplateGapError(
                 f"no record_type value configured for segment '{segment.segment}'"
-            )
+            ), Coord("contract", segment=_segment_number(spec, segment)), "template.gap")
     positions: list[tuple[str, int, int]] = []
     if fixed_width:
         for f in segment.fields:
@@ -328,13 +336,16 @@ def _segment_context(
             if start is None or length is None:
                 from codegen.resolve.widths import width_key
 
-                raise TemplateGapError(
+                raise located(TemplateGapError(
                     f"fixed-width feed: field {f.source_column!r} in segment "
                     f"'{segment.segment}' has no start / byte width "
                     f"(start={f.source_start!r}, length={f.source_length!r}, "
                     f"end={f.source_end!r}): the STTM length is not an integer, the STTM "
                     "states no end, and the VDD has no start / end for this field — answer "
-                    f"`{width_key(0, f.source_column)}` (gaps) or pass the VDD")
+                    f"`{width_key(0, f.source_column)}` (gaps) or pass the VDD"),
+                    Coord("contract", segment=_segment_number(spec, segment),
+                          field=segment.fields.index(f) + 1),
+                    "answers.missing")
             positions.append((f.source_column, start, length))
     not_null_stage = [
         f.stage_column for f in segment.fields if f.stage_column in set(spec.not_null_columns)
@@ -519,18 +530,19 @@ def build_context(
             recycle_key
         )
         if key_stage is None:
-            raise TemplateGapError(
+            raise located(TemplateGapError(
                 f"recycle applies_to '{recycle_key}' has no stage column in the Detail segment"
-            )
+            ), Coord("contract", segment=_segment_number(spec, spec.detail_segment)),
+                "template.gap")
         filter_column = None
         filter_value = None
         if spec.recycle.reference_filter is not None:
             match = _EQUALITY_FILTER_RE.match(spec.recycle.reference_filter)
             if match is None:
-                raise TemplateGapError(
+                raise located(TemplateGapError(
                     "reference filter is not a simple equality, no template covers "
                     f"it: {spec.recycle.reference_filter!r}"
-                )
+                ), Coord("contract"), "template.gap")
             filter_column = match.group("column")
             filter_value = match.group("value").strip("'")
         recycle = {

@@ -44,6 +44,7 @@ import yaml
 from openpyxl.utils import column_index_from_string
 
 from codegen.layout.discover import normalize
+from codegen.run_errors import Coord, located
 
 
 class AnswersFileError(ValueError):
@@ -85,8 +86,9 @@ def _files_value(value):
     for name, v in value["files"].items():
         if v is not None and not isinstance(v, str):
             # YAML reads an unquoted 0100 as a number (octal 64): never guessed back
-            raise AnswersFileError(f"files[{name!r}] = {v!r}: write the value quoted "
-                                   "(\"0100\") — YAML reads an unquoted code as a number")
+            raise located(AnswersFileError(f"files[{name!r}] = {v!r}: write the value quoted "
+                                           "(\"0100\") — YAML reads an unquoted code as a number"),
+                          Coord("answers"), "answers.file")
     filled = [f"{name}={v.strip()}" for name, v in value["files"].items() if not _blank(v)]
     out = {k: v for k, v in value.items() if k not in ("files", "question", "candidates")}
     out["value"] = "; ".join(filled)
@@ -96,8 +98,9 @@ def _files_value(value):
 def load_answers(path: Path) -> AnswersFile:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict) or set(raw) - {"answers", "gaps", "pairing", "inputs"}:
-        raise AnswersFileError(
-            f"{path}: expected a mapping with `answers`, `gaps`, `pairing` and / or `inputs`")
+        raise located(AnswersFileError(
+            f"{path}: expected a mapping with `answers`, `gaps`, `pairing` and / or `inputs`"),
+            Coord("answers"), "answers.file")
     # 2026-10-13: an answers TEMPLATE entry left empty is not an answer — it
     # is skipped and its question stays open (codegen.layout.answers_template).
     entries = [e for e in raw.get("answers") or []
@@ -105,24 +108,29 @@ def load_answers(path: Path) -> AnswersFile:
                        and all(_blank(e.get(k)) for k in ("column", "value")))]
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict) or set(entry) - _ENTRY_KEYS:
-            raise AnswersFileError(f"{path}: answers[{index}] has unknown keys "
-                                   f"{sorted(set(entry) - _ENTRY_KEYS)}")
+            raise located(AnswersFileError(f"{path}: answers[{index}] has unknown keys "
+                                           f"{sorted(set(entry) - _ENTRY_KEYS)}"),
+                          Coord("answers", n=index + 1), "answers.file")
         if _is_band_entry(entry):
             from codegen.layout.profile import BAND_LAYER_CHOICES
 
             layer = entry.get("value", entry.get("column"))
             if "sheet" not in entry or layer not in BAND_LAYER_CHOICES:
-                raise AnswersFileError(
+                raise located(AnswersFileError(
                     f"{path}: answers[{index}] answers {entry.get('layer')} of sheet "
                     f"{entry.get('sheet')!r}: it needs `sheet:` and `value:` "
-                    f"{' | '.join(BAND_LAYER_CHOICES)}")
+                    f"{' | '.join(BAND_LAYER_CHOICES)}"),
+                    Coord("answers", n=index + 1), "answers.file")
             continue
         missing = {"sheet", "role", "column"} - set(entry)
         if missing:
-            raise AnswersFileError(f"{path}: answers[{index}] is missing {sorted(missing)}")
+            raise located(AnswersFileError(
+                f"{path}: answers[{index}] is missing {sorted(missing)}"),
+                Coord("answers", n=index + 1), "answers.file")
         if entry.get("document", "sttm") not in ("sttm", "vdd"):
-            raise AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
-                                   "(FRD cells are placed with `gaps` / in the dialog)")
+            raise located(AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
+                                           "(FRD cells are placed with `gaps` / in the dialog)"),
+                          Coord("answers", n=index + 1), "answers.file")
     gaps = {key: _files_value(value) for key, value in (raw.get("gaps") or {}).items()}
     gaps = {key: value for key, value in gaps.items()
             if not (isinstance(value, dict) and _blank(value.get("value")))}
@@ -133,11 +141,14 @@ def load_answers(path: Path) -> AnswersFile:
             value["value"] = str(stated)
     for key, value in gaps.items():
         if not isinstance(value, dict) or not isinstance(value.get("value"), str):
-            raise AnswersFileError(f"{path}: gaps[{key!r}] must be {{value: <text>, layer?}}")
+            raise located(AnswersFileError(
+                f"{path}: gaps[{key!r}] must be {{value: <text>, layer?}}"),
+                Coord("answers"), "answers.file")
     pairing = raw.get("pairing") or {}
     for name, value in pairing.items():
         if not isinstance(value, dict) or set(value) - {"frd", "vdd"}:
-            raise AnswersFileError(f"{path}: pairing[{name!r}] must be {{frd?, vdd?}}")
+            raise located(AnswersFileError(f"{path}: pairing[{name!r}] must be {{frd?, vdd?}}"),
+                          Coord("answers"), "answers.file")
     inputs: dict[str, str] = {}
     from codegen.layout.answers_template import flatten_inputs
 
@@ -147,7 +158,8 @@ def load_answers(path: Path) -> AnswersFile:
         if isinstance(stated, (int, float)) and not isinstance(stated, bool):
             stated = str(stated)
         if not isinstance(stated, str) and stated is not None:
-            raise AnswersFileError(f"{path}: inputs[{key!r}] must be {{value: <text>}}")
+            raise located(AnswersFileError(f"{path}: inputs[{key!r}] must be {{value: <text>}}"),
+                          Coord("answers"), "answers.file")
         if not _blank(stated):
             inputs[str(key)] = stated.strip()
     return AnswersFile(list(entries), dict(gaps), dict(pairing), inputs)
@@ -169,9 +181,10 @@ def _column_among(entry: dict, columns: dict[int, str], sheet: str | None) -> in
     if len(by_header) == 1:
         return by_header[0]
     if len(by_header) > 1:
-        raise AnswersFileError(
+        raise located(AnswersFileError(
             f"header {text!r} names {len(by_header)} columns on sheet {sheet!r} "
-            f"({sorted(by_header)}) — give the column index instead")
+            f"({sorted(by_header)}) — give the column index instead"),
+            Coord("answers"), "answers.file")
     if text.isalpha() and len(text) <= 3:            # a column letter
         return column_index_from_string(text.upper())
     return None
@@ -190,7 +203,8 @@ def _placed_role(entry: dict, index: int, profile, workbook) -> tuple[str, int] 
             or entry["sheet"] not in workbook.sheetnames:
         return None
     if entry["role"] not in {r.value for r in Role}:
-        raise AnswersFileError(f"answers[{index}]: {entry['role']!r} is not a layout role")
+        raise located(AnswersFileError(f"answers[{index}]: {entry['role']!r} is not a layout role"),
+                      Coord("answers", n=index + 1), "answers.file")
     header = next(workbook[sheet.name].iter_rows(min_row=sheet.header_row,
                                                  max_row=sheet.header_row, values_only=True))
 
@@ -207,15 +221,17 @@ def _placed_role(entry: dict, index: int, profile, workbook) -> tuple[str, int] 
     if not bands:
         return None
     if len(bands) > 1:
-        raise AnswersFileError(
+        raise located(AnswersFileError(
             f"answers[{index}]: sheet {entry['sheet']!r} has several bands "
-            f"({[b.layer for b in bands]}) that could carry {entry['role']!r} — add `layer:`")
+            f"({[b.layer for b in bands]}) that could carry {entry['role']!r} — add `layer:`"),
+            Coord("answers", n=index + 1), "answers.file")
     band = bands[0]
     column = _column_among(entry, headers(band), sheet.name)
     if column is None:
-        raise AnswersFileError(
+        raise located(AnswersFileError(
             f"answers[{index}]: column {entry['column']!r} is neither a header of the "
-            f"{band.layer} band of sheet {entry['sheet']!r}, an index nor a column letter")
+            f"{band.layer} band of sheet {entry['sheet']!r}, an index nor a column letter"),
+            Coord("answers", n=index + 1), "answers.file")
     return confidence_key(sheet.name, band.layer, entry["role"]), column
 
 
@@ -286,14 +302,16 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
             out[document][key] = column
             continue
         if len(matches) > 1:
-            raise AnswersFileError(
+            raise located(AnswersFileError(
                 f"answers[{index}]: role {entry['role']!r} is open in several layers of sheet "
-                f"{entry['sheet']!r} ({sorted(str(q.layer) for q in matches)}) — add `layer:`")
+                f"{entry['sheet']!r} ({sorted(str(q.layer) for q in matches)}) — add `layer:`"),
+                Coord("answers", n=index + 1), "answers.file")
         column = _column_of(entry, matches[0])
         if column is None:
-            raise AnswersFileError(
+            raise located(AnswersFileError(
                 f"answers[{index}]: column {entry['column']!r} is neither a candidate header "
-                f"of sheet {entry['sheet']!r}, an index nor a column letter")
+                f"of sheet {entry['sheet']!r}, an index nor a column letter"),
+                Coord("answers", n=index + 1), "answers.file")
         out[document][matches[0].key] = column
     from codegen.extract.generic import AUDIT_KEY_RE
     from codegen.layout.resolve import answerable_frd_field, unanswerable_frd_reason

@@ -48,6 +48,7 @@ from codegen.layout.profile import (
     band_ref,
     confidence_key,
 )
+from codegen.run_errors import Coord, located
 
 # Synonym-table hits are exact normalized matches: full confidence.
 _SYNONYM_CONFIDENCE = 1.0
@@ -183,8 +184,9 @@ def discover_vdd(path: Path, config: ExtractorConfig,
         else:
             diagnostics.append("no field sheet matches an STTM table name; all kept")
     if not any(s.kind in ("vdd_files", "vdd_fields") for s in sheets):
-        raise NoLayoutError(f"{path.name}: no FILES sheet and no field sheet signature found; "
-                            f"sheets present: {workbook.sheetnames}")
+        raise located(NoLayoutError(f"{path.name}: no FILES sheet and no field sheet signature "
+                                    f"found; sheets present: {workbook.sheetnames}"),
+                      Coord("VDD"), "vdd.layout")
     profile = LayoutProfile(fingerprint=digest, sheets=sheets, confidence=confidence,
                             source="synonyms", strategy="vdd", unresolved=unresolved,
                             notes=list(diagnostics))
@@ -285,11 +287,11 @@ def discover(path: Path, config: ExtractorConfig,
                              refused=refused)
     if refused is not None:
         raise refused
-    raise NoLayoutError(
+    raise located(NoLayoutError(
         f"{path.name}: no mapping sheets found — no discovery strategy applies "
         f"(prefix {config.mapping_sheet_prefix!r}, segmented family, content-driven); "
         f"sheets present: {workbook.sheetnames}; diagnostics: {diagnostics}"
-    )
+    ), Coord("STTM"), "sttm.layout")
 
 
 # ------------------------------------------------ strategy 1: MAPPING- prefix

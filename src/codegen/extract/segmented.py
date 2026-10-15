@@ -54,6 +54,7 @@ from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError,
 from codegen.faq import load_faq
 from codegen.layout.profile import LayoutProfile, SheetProfile
 from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+from codegen.run_errors import Coord, located
 
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 _YES_VALUES = {"yes", "y", "true"}
@@ -114,15 +115,15 @@ def _find_mapping_sheet(workbook, seg_config: SegmentedExtractorConfig,
                 candidates.append((ws, index, rows))
             break
     if not candidates:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{name}: no sheet matches the segmented layout family "
             "(band row + metadata block / Segment header)"
-        )
+        ), Coord("STTM"), "sttm.layout")
     if len(candidates) > 1:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{name}: {len(candidates)} sheets match the segmented layout family "
             f"({[c[0].title for c in candidates]}); expected exactly one mapping sheet"
-        )
+        ), Coord("STTM"), "sttm.layout")
     return candidates[0]
 
 
@@ -138,15 +139,16 @@ def _parse_metadata_block(rows, band_row: int, seg_config: SegmentedExtractorCon
         if key in wanted and value is not None:
             logical = wanted[key]
             if logical in facts:
-                raise WorkbookParseError(
-                    f"{sheet}: metadata key {row[0]!r} appears more than once")
+                raise located(WorkbookParseError(
+                    f"{sheet}: metadata key {row[0]!r} appears more than once"),
+                        Coord("STTM"), "sttm.duplicate")
             facts[logical] = value
     missing = {"files", "generator", "file_type"} - set(facts)
     if missing:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet}: metadata block is missing key(s) "
             f"{sorted(seg_config.metadata_keys[m] for m in missing)}"
-        )
+        ), Coord("STTM"), "sttm.missing")
     return facts
 
 
@@ -170,15 +172,16 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
             if text in names or any(text.startswith(n.split(" (")[0]) for n in names)
         ]
         if not matches:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet}: unrecognized source-block header {header[index]!r} "
                 f"(column {index + 1}); known: {seg_config.source_headers}"
-            )
+            ), Coord("STTM", col=index + 1), "sttm.header")
         source.setdefault(matches[0], index)
     required = {"field_name", "datatype", "segment"} - set(source)
     if required:
-        raise WorkbookParseError(
-            f"{sheet}: source block is missing required column(s) {sorted(required)}")
+        raise located(WorkbookParseError(
+            f"{sheet}: source block is missing required column(s) {sorted(required)}"),
+                Coord("STTM"), "sttm.missing")
 
     def _table_block(start: int, end: int, band: str) -> dict[str, int]:
         known = {_norm(h): h for h in seg_config.table_headers}
@@ -188,15 +191,16 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
             if not text:
                 continue
             if text not in known:
-                raise WorkbookParseError(
+                raise located(WorkbookParseError(
                     f"{sheet}: unrecognized {band}-block header {header[index]!r} "
                     f"(column {index + 1}); expected one of {seg_config.table_headers}"
-                )
+                ), Coord("STTM", col=index + 1), "sttm.header")
             resolved.setdefault(text, index)
         missing = {"schema", "tablename", "columnname", "datatype"} - set(resolved)
         if missing:
-            raise WorkbookParseError(
-                f"{sheet}: {band} block is missing column(s) {sorted(missing)}")
+            raise located(WorkbookParseError(
+                f"{sheet}: {band} block is missing column(s) {sorted(missing)}"),
+                    Coord("STTM"), "sttm.missing")
         return resolved
 
     stage = _table_block(stage_start, standard_start or (max_col + 1), "stage")
@@ -219,17 +223,19 @@ def _segment_rows(rows, header_row: int, blocks: _Blocks,
         field_name = _cell(row, blocks.source["field_name"])
         segment = canonical.get(_norm(segment_raw)) if segment_raw is not None else None
         if segment_raw is not None and segment is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet} row {row_number}: unrecognized Segment value {segment_raw!r} "
                 f"(known: {sorted(seg_config.segment_names.values())})"
-            )
+            ), Coord("STTM", row=row_number, col=blocks.source["segment"] + 1), "sttm.segment")
         if segment is None and field_name is not None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet} row {row_number}: field {field_name!r} carries no Segment value"
-            )
+            ), Coord("STTM", row=row_number, col=blocks.source["segment"] + 1), "sttm.segment")
         out.append(_SegRow(row_number=row_number, segment=segment, values=row))
     if not out:
-        raise WorkbookParseError(f"{sheet}: no data rows below the header row")
+        raise located(
+            WorkbookParseError(f"{sheet}: no data rows below the header row"),
+            Coord("STTM"), "sttm.missing")
     return out
 
 
@@ -249,17 +255,19 @@ def _derive_identification(seg_rows: list[_SegRow], blocks: _Blocks,
     The citation is the verbatim STTM comment cell the derivation rests on."""
     trailer_rows = [r for r in seg_rows if r.segment == "Trailer"]
     if not trailer_rows:
-        raise WorkbookParseError(f"{sheet}: no Trailer-segment rows found")
+        raise located(
+            WorkbookParseError(f"{sheet}: no Trailer-segment rows found"),
+            Coord("STTM"), "sttm.segment")
     first = trailer_rows[0]
     comment = _cell(first.values, blocks.source.get("comments")) or ""
     match = _TRAILER_MARKER_RE.search(comment)
     if match is None:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet} row {first.row_number}: the Trailer record-type comment does "
             f"not state a static marker value (comment: {comment!r}); record "
             "identification cannot be derived — declare a confirmed "
             "record_type_discriminators override in the feed's FAQ instead"
-        )
+        ), Coord("STTM", row=first.row_number), "sttm.record_type")
     return RecordIdentification(
         method="derived_from_sttm",
         trailer_marker=match.group(1),
@@ -319,9 +327,10 @@ def extract_segmented_contract(
         found = discover(workbook_path, config.extractor)
         profile, workbook = found.profile, found.workbook
     if profile.strategy != "segmented_family":
-        raise SegmentedWorkbookError(
+        raise located(SegmentedWorkbookError(
             f"{workbook_path.name}: {refusal_evidence}; the segmented extractor cannot "
-            f"resolve this workbook (discovery strategy {profile.strategy!r})")
+            f"resolve this workbook (discovery strategy {profile.strategy!r})"),
+                Coord("STTM"), "sttm.segment")
     sheet_profile = profile.mapping_sheets[0]
     ws = workbook[sheet_profile.name]
     rows = list(ws.iter_rows(values_only=True))
@@ -342,12 +351,12 @@ def extract_segmented_contract(
     faq = load_faq(normalize_feed_name(feed_id), config)
     override = faq.record_type_discriminators
     if override is not None and override.status != "confirmed":
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: record_type_discriminators in the FAQ "
             "is an OVERRIDE and requires status 'confirmed' — record "
             "identification is derived from the STTM by default "
             f"(declared status: {override.status!r})"
-        )
+        ), Coord("FAQ"), "config")
     if override is not None:
         identification = RecordIdentification(
             method="declared_override",
@@ -382,16 +391,16 @@ def extract_segmented_contract(
         column = _cell(row, blocks.stage.get("columnname"))
         datatype_raw = _cell(row, blocks.stage.get("datatype")) or ""
         if column is None or current_segment is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: row carries neither a Segment "
                 "value nor an audit-column identity"
-            )
+            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit")
         datatype = _AUDIT_DATATYPES.get(_norm(datatype_raw))
         if datatype is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: audit column {column!r} has "
                 f"datatype {datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
-            )
+            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit")
         column = clean_audit_column(column, "audit_columns",
                                     f"{ws.title} row {seg_row.row_number}", annotation_flags)
         # 2026-10-14 (D1 post44 item 5): the row's transformation cell rides on
@@ -400,7 +409,9 @@ def extract_segmented_contract(
         audit_by_segment.setdefault(current_segment, []).append((column, datatype, rule))
 
     if "Detail" not in fields_by_segment:
-        raise WorkbookParseError(f"{ws.title}: no Detail-segment rows found")
+        raise located(
+            WorkbookParseError(f"{ws.title}: no Detail-segment rows found"),
+            Coord.in_sheet("STTM", ws), "sttm.segment")
 
     # ---- both layers, scoped by Load Strategy — never by the schema block --
     sttm_has_standard = blocks.standard is not None and any(
@@ -512,10 +523,10 @@ def extract_segmented_contract(
 
     detail_audit = audit_by_segment.get("Detail", [])
     if not detail_audit:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no Detail-segment audit rows found "
             "(rows with empty source cells inside the Detail block)"
-        )
+        ), Coord("STTM"), "sttm.audit")
 
     segmented = SegmentedExtraction(
         segments_found=segments_found,
@@ -550,11 +561,11 @@ def extract_segmented_contract(
     delimiter = frd_feed.delimiter or _metadata_delimiter(facts) or \
         _FORMAT_DELIMITERS.get(frd_feed.file_format.lower())
     if delimiter is None:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no delimiter in the FRD, the metadata "
             f"block ({facts['file_type']!r}), or implied by format "
             f"{frd_feed.file_format!r}"
-        )
+        ), Coord("FRD"), "frd.missing")
 
     feed = SttmFeed(
         feed_id=feed_id,
@@ -691,7 +702,9 @@ def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
 
 def _require(sheet: str, row_number: int, value: str | None, what: str) -> str:
     if value is None:
-        raise WorkbookParseError(f"{sheet} row {row_number}: {what} is empty")
+        raise located(
+            WorkbookParseError(f"{sheet} row {row_number}: {what} is empty"),
+            Coord("STTM", row=row_number), "sttm.missing")
     return value
 
 
@@ -713,10 +726,10 @@ def _match_frd_feed(frd: FrdContract, facts: dict[str, str], name: str) -> FrdFe
         if workbook_patterns & {_canonical_file_name(p) for p in feed.file_name_patterns}
     ]
     if len(matches) != 1:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{name}: {len(matches)} FRD feeds match the metadata File(s) patterns "
             f"{sorted(workbook_patterns)} (FRD feeds: {[f.feed_name for f in frd.feeds]})"
-        )
+        ), Coord("FRD"), "contract.mismatch")
     return matches[0]
 
 
@@ -726,10 +739,10 @@ def _match_file_pattern(files_value: str, frd_feed: FrdFeed, name: str) -> str:
         canonical = _canonical_file_name(line)
         if canonical in frd_canonical:
             return line.strip()
-    raise WorkbookParseError(
+    raise located(WorkbookParseError(
         f"{name}: none of the metadata File(s) entries match the FRD's "
         f"file_name_patterns {frd_feed.file_name_patterns}"
-    )
+    ), Coord("STTM"), "contract.mismatch")
 
 
 def _metadata_delimiter(facts: dict[str, str]) -> str | None:

@@ -62,6 +62,7 @@ from codegen.layout.profile import LayoutProfile
 # _FORMAT_DELIMITERS is the resolver's own format->delimiter implication —
 # imported so extractor and resolver can never disagree.
 from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+from codegen.run_errors import Coord, error_coord, located, sheet_number
 
 
 class ExtractionError(ValueError):
@@ -144,12 +145,13 @@ def extract_contract(
 
     owed = [u for u in profile.unresolved if is_required_role(u.layer, u.role)]
     if require_complete and owed:
-        raise UnresolvedLayoutError(
+        raise located(UnresolvedLayoutError(
             f"{workbook_path.name}: layout has {len(owed)} unresolved required role(s) "
             "and --require-complete is set: "
             + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in owed),
             owed,
-        )
+        ), Coord("STTM", sheet=sheet_number(found.workbook, owed[0].sheet)),
+            "layout.unresolved")
     if profile.strategy == "segmented_family":
         from codegen.extract.segmented import extract_segmented_contract
 
@@ -217,6 +219,13 @@ def extract_contract(
         except NeedsAnswers as held:
             # One sheet without a stated target holds back ITS feed only.
             pending.extend(held.pending)
+        except ExtractionError as exc:
+            # The raise sites name the sheet in their text; the coordinates
+            # tier gets its position here (the IR carries no sheet order).
+            if error_coord(exc) is None:
+                located(exc, Coord("STTM", sheet=sheet_number(found.workbook, sheet.sheet_name)),
+                        getattr(exc, "reason", None))
+            raise
     if not feeds and pending:
         raise NeedsAnswersError(pending)
     if ir.file_details_skipped:
@@ -235,10 +244,11 @@ def extract_contract(
         and f.feed_name not in held_back
     ]
     if unmatched_frd:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"FRD feed(s) {unmatched_frd} have no mapping sheet in {ir.workbook_name} "
             f"(sheet stage tables: {sorted(sheet_tables)})"
-        )
+        ), Coord("feed", n=[f.feed_name for f in frd.feeds].index(unmatched_frd[0]) + 1,
+                 of=len(frd.feeds)), "sttm.missing")
 
     return SttmContract(
         contract_name=contract_name
@@ -350,18 +360,19 @@ def _match_frd_feed(sheet: SheetIR, frd: FrdContract,
                 return free[pos]
             except (ValueError, IndexError):
                 pass
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"sheet {sheet.sheet_name!r}: every TableName cell is blank and "
             f"{len(free)} FRD feed(s) {[f.feed_name for f in free]} are claimed by no other "
-            "sheet — the sheet cannot be paired; state the table in the STTM")
+            "sheet — the sheet cannot be paired; state the table in the STTM"),
+            None, "sttm.missing")
     matches = [f for f in frd.feeds if sheet.stage_table in f.stage_target.tables]
     if len(matches) != 1:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"sheet {sheet.sheet_name!r} (stage table {sheet.stage_table!r}) matches "
             f"{len(matches)} FRD feeds "
             f"{[f.feed_name for f in matches] or [f.feed_name for f in frd.feeds]}; "
             "expected exactly one whose stage_target.tables contains it"
-        )
+        ), None, "sttm.conflict")
     return matches[0]
 
 
@@ -386,20 +397,20 @@ def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
     ]
     if len(matches) != 1:
         if not feed.file_name_patterns:
-            raise ExtractionError(
+            raise located(ExtractionError(
                 f"feed {feed.feed_name!r}: the FRD contract names NO file for it "
                 f"(file_name_patterns is empty) while FILE_DETAILS lists "
                 f"{[r.file_name for r in ir.file_details]}. Answer the layout dialog's "
                 f"'File for table {feed.feed_name}' question (the run paused there) or add "
                 "the file name to the FRD — the agent never guesses a file."
-            )
-        raise ExtractionError(
+            ), None, "frd.missing")
+        raise located(ExtractionError(
             f"feed {feed.feed_name!r}: {len(matches)} FILE_DETAILS rows match its "
             f"file_name_patterns {feed.file_name_patterns} "
             f"(FILE_DETAILS file names: {[r.file_name for r in ir.file_details]}; "
             "compared after date-placeholder canonicalization: CCYY->YYYY, "
             "case-insensitive)"
-        )
+        ), None, "sttm.conflict")
     return matches[0]
 
 
@@ -423,11 +434,11 @@ def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None) -> str:
     if implied is None:
         implied = _extension_delimiter(file_name)
     if implied is None:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {feed.feed_name!r}: format {feed.file_format!r} has no implied "
             "delimiter, the FRD contract states none and the file name "
             f"{file_name!r} has no delimiter-bearing extension (csv / psv / tsv)"
-        )
+        ), None, "frd.missing")
     return implied
 
 
@@ -480,11 +491,11 @@ def _resolve_targets(sheet: SheetIR, frd_feed: FrdFeed, file_details: FileDetail
 def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Config,
                 feed_index: int = 0) -> SttmFeed:
     if frd_feed.is_segmented:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: FRD declares record segments "
             f"{frd_feed.record_segments} — segmented feeds are not supported by this "
             "extractor (flat dialect only; see CLAUDE.md)"
-        )
+        ), None, "sttm.segment")
 
     file_details = _match_file_details(frd_feed, ir)
     feed_id = config.feed_aliases.get(frd_feed.feed_name) or normalize_feed_name(
@@ -495,25 +506,25 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
 
     frd_has_standard = bool(frd_feed.standard_target.tables)
     if frd_has_standard != (sheet.standard_table is not None):
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: standard-target presence disagrees — FRD "
             f"standard tables {frd_feed.standard_target.tables}, sheet "
             f"{sheet.sheet_name!r} standard table {sheet.standard_table!r}"
-        )
+        ), None, "contract.mismatch")
     if sheet.standard_table is not None and sheet.standard_table not in (
         frd_feed.standard_target.tables
     ):
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: sheet standard table {sheet.standard_table!r} "
             f"is not among FRD standard tables {frd_feed.standard_target.tables}"
-        )
+        ), None, "contract.mismatch")
 
     if not sheet.audit:
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: sheet {sheet.sheet_name!r} has no audit rows "
             "(trailing rows with source-side 'NA'); the contract requires at least one "
             "audit column"
-        )
+        ), None, "sttm.audit")
 
     recycle = None
     recycle_text = parse_recycle_text(sheet)
@@ -584,9 +595,9 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             extraction_flags=flags,
         )
     except ValueError as exc:  # pydantic ValidationError is a ValueError
-        raise ExtractionError(
+        raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: extracted feed fails contract validation:\n{exc}"
-        ) from exc
+        ), None, "contract.invalid") from exc
 
 
 def contract_to_json(contract: SttmContract) -> str:

@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from codegen.contracts.frd import RecordSegment
 from codegen.contracts.sttm import AuditColumn, SttmFeed, SttmField
+from codegen.run_errors import Coord, located
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 _SEGMENT_ORDER: tuple[RecordSegment, ...] = ("Header", "Detail", "Trailer")
@@ -170,10 +171,11 @@ def feed_tables(feed: SttmFeed) -> list[SttmTable]:
         standard_triples = list(dict.fromkeys(_standard_triple(feed, f) for f in carried))
         if len(standard_triples) > 1:
             named = ", ".join(".".join(p for p in t if p) for t in standard_triples if t)
-            raise TableModelError(
+            raise located(TableModelError(
                 f"feed {feed.feed_id!r}: stage table {stage_def.qualified_name} maps to "
                 f"{len(standard_triples)} standard tables ({named}); one standard table per "
-                "stage table (docs/acfc/MULTI_TABLE_DESIGN.md rule 1)")
+                "stage table (docs/acfc/MULTI_TABLE_DESIGN.md rule 1)"),
+                Coord("contract", table=len(tables) + 1), "sttm.conflict")
         standard_def = None
         if standard_triples:
             s_catalog, s_schema, s_table = standard_triples[0]  # type: ignore[misc]
@@ -193,9 +195,10 @@ def detail_table(tables: list[SttmTable]) -> SttmTable:
         return detail[0]
     if len(tables) == 1:
         return tables[0]
-    raise TableModelError(
+    raise located(TableModelError(
         f"{len(tables)} tables and {len(detail)} hold the Detail segment — the detail table "
-        f"is undetermined ({[t.stage_def.qualified_name for t in tables]})")
+        f"is undetermined ({[t.stage_def.qualified_name for t in tables]})"),
+        Coord("contract"), "sttm.conflict")
 
 
 def split_tables(tables: list[SttmTable]) -> list[SttmTable]:

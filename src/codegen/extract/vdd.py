@@ -18,6 +18,7 @@ from codegen.contracts.sttm import LayoutSummary
 from codegen.contracts.vdd import CellRef, PositionRow, VddContract, VddField, VddFile
 from codegen.layout.discover import Discovery, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
+from codegen.run_errors import Coord, located
 
 _INT_RE = re.compile(r"^\s*0*(\d+)(?:\.0+)?\s*$")
 
@@ -75,7 +76,8 @@ def read_vdd(found: Discovery, name: str, config: Config, *, generated_date: str
         else:
             ignored.append(sp.name)
     if not files and not fields:
-        raise VddExtractionError(f"{name}: no FILES sheet and no field sheet recognised")
+        raise located(VddExtractionError(f"{name}: no FILES sheet and no field sheet "
+                                         "recognised"), Coord("VDD"), "vdd.layout")
     return VddContract(
         contract_name=contract_name or f"VDD contract extracted from {name}",
         generated_from_vdd=name,

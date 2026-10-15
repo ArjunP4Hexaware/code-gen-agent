@@ -20,6 +20,7 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from codegen.emit.context import TemplateGapError
 from codegen.emit.notebook import build_notebook
+from codegen.run_errors import Coord, located
 
 # The only audit columns the generated audit module knows how to populate.
 _KNOWN_AUDIT_COLUMNS = {
@@ -93,12 +94,12 @@ def unknown_audit_columns(audit_columns) -> list[str]:
 def _check_gaps(context: dict[str, Any], framework_only: bool = False) -> None:
     unknown_audit = unknown_audit_columns(context["audit_columns"])
     if unknown_audit and not framework_only:
-        raise TemplateGapError(
+        raise located(TemplateGapError(
             f"no template populates audit column(s) {unknown_audit}; "
             f"known: {sorted(_KNOWN_AUDIT_COLUMNS)} \u2014 the notebook pipeline cannot write "
             "them; generate --output-mode framework (the framework populates audit columns) "
             "or rename them in the STTM to a known audit column"
-        )
+        ), Coord("contract"), "template.gap")
 
 
 def emit_feed(context: dict[str, Any], output_root: Path,

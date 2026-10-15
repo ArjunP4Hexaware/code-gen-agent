@@ -285,13 +285,18 @@ class Round:
                 self.section(CLI_TITLE, lines)
                 return 3
             if done.returncode:
-                # D1 post50: warnings (a Pydantic deprecation) are never the error
+                # D1 post50: warnings (a Pydantic deprecation) are never the error.
+                # D1 post51: two tiers — the coordinates-only line may be pushed; the
+                # quoted line (sheet / table names) stays in the work dir
                 fail = run_errors.first_error_line(done.returncode, done.stderr,
                                                    done.stdout) or ""
-                # the detail quotes sheet / table names: the label only, never the text
-                lines.append(f"  STOP — {name} failed; first error: "
-                             f"`{fail.split(' ', 1)[0] or 'none printed'}` (detail withheld, "
-                             f"{len(fail)} chars)")
+                full = run_errors.first_error_line_full(done.returncode, done.stderr,
+                                                        done.stdout) or ""
+                (self.work / f"{name}.first_error_full.txt").write_text(
+                    full + "\n", encoding="utf-8")
+                lines.append(f"  STOP — {name} failed; first error (coordinates only): "
+                             f"`{fail or 'none printed'}` (the quoted line is in the work "
+                             "dir, never pushed)")
                 self.section(CLI_TITLE, lines)
                 return 1
         self.section(CLI_TITLE, lines)

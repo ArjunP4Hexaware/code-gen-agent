@@ -22,6 +22,7 @@ from codegen.contracts.resolved import (
     SegmentSpec,
 )
 from codegen.contracts.sttm import SttmContract, SttmFeed, SttmField
+from codegen.run_errors import Coord, located
 
 # Format -> implied delimiter when a contract leaves it null.
 _FORMAT_DELIMITERS = {"csv": ",", "psv": "|"}
@@ -246,7 +247,9 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
 def _parse_reference(validation_text: str, feed: str) -> tuple[str, str, str | None]:
     match = _REFERENCE_RE.search(validation_text) or _CLIENT_REFERENCE_RE.search(validation_text)
     if match is None:
-        raise ContractMismatchError(
+        # quotes the STTM validation text: the reason only (no position here;
+        # the caller's coordinates stand)
+        raise located(ContractMismatchError(
             feed,
             [
                 "recycle validation text is not parseable as "
@@ -254,7 +257,7 @@ def _parse_reference(validation_text: str, feed: str) -> tuple[str, str, str | N
                 "'Check with <id_column> from ... <table> [FOR <filter>]': "
                 f"{validation_text!r}"
             ],
-        )
+        ), None, "contract.mismatch")
     filter_text = match.group("filter")
     return (
         match.group("table"),
@@ -732,7 +735,10 @@ def resolve_feeds(
         for feed_id in sorted(set(sttm_by_id) - matched_sttm_ids)
     ]
     if errors:
-        raise ContractMismatchError(frd.contract_name, errors)
+        # names feeds on both sides: the reason only (the whole pair; the
+        # caller's coordinates stand)
+        raise located(ContractMismatchError(frd.contract_name, errors), None,
+                      "contract.mismatch")
     return specs
 
 
@@ -938,7 +944,10 @@ def _resolve_one(
         )
 
     if errors:
-        raise ContractMismatchError(feed_id, errors)
+        position = next((i for i, f in enumerate(frd.feeds, 1) if f is frd_feed), None)
+        raise located(ContractMismatchError(feed_id, errors),
+                      Coord("feed", n=position, of=len(frd.feeds)) if position else None,
+                      "contract.mismatch")
 
     # Multi-table rule 2: the files the feed receives — the resolved patterns,
     # expanded per LOB when one carries a LOB token. The LOBs are the STTM

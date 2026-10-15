@@ -45,6 +45,7 @@ from codegen.contracts.sttm import (
 from codegen.extract.audit_names import clean_audit_column
 from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
+from codegen.run_errors import Coord, located, sheet_number
 
 _AUDIT_DATATYPES = {"string": "String", "timestamp": "Timestamp"}
 _CANONICAL_SEGMENTS = ("Header", "Detail", "Trailer")
@@ -102,6 +103,16 @@ class GenericIR:
     # FILE_DETAILS rows that do not fit the row schema, skipped (one
     # extraction-report line each — codegen.extract.annotations).
     annotations: list[str] = field(default_factory=list)
+    # The workbook's sheet order — error coordinates name a sheet by its
+    # 1-based position, never its name (codegen.run_errors.Coord).
+    sheetnames: list[str] = field(default_factory=list)
+
+
+def _at(ir: GenericIR | None, sheet_name: str | None, row: int | None = None,
+        col: int | None = None) -> Coord:
+    """An STTM position for an error's coordinates tier."""
+    return Coord("STTM", sheet=sheet_number(ir.sheetnames, sheet_name) if ir else None,
+                 row=row, col=col)
 
 
 def layout_summary(profile: LayoutProfile) -> LayoutSummary:
@@ -134,7 +145,8 @@ def read_workbook(found: Discovery, name: str, config: Config) -> GenericIR:
         elif sp.kind != "ignore":
             auxiliary.append(_read_auxiliary(ws, sp, annotations))
     return GenericIR(workbook_name=name, profile=profile, sheets=sheets, auxiliary=auxiliary,
-                     version=version, diagnostics=diagnostics, annotations=annotations)
+                     version=version, diagnostics=diagnostics, annotations=annotations,
+                     sheetnames=list(getattr(workbook, "sheetnames", None) or []))
 
 
 def _read_auxiliary(ws, sp: SheetProfile, annotations: list[str] | None = None
@@ -550,12 +562,12 @@ def _match_feed(sheet: SheetData, stage_table: str | None, frd: FrdContract,
         notes.append(f"sheet {sheet.profile.name!r} paired to the FRD's only feed "
                      f"{frd.feeds[0].feed_name!r} (single sheet, single feed)")
         return frd.feeds[0]
-    raise GenericExtractionError(
+    raise located(GenericExtractionError(
         f"sheet {sheet.profile.name!r} (stage table {stage_table!r}, file patterns "
         f"{sorted(patterns)}) matches {len(matches)} FRD feeds "
         f"{[f.feed_name for f in frd.feeds]}; expected exactly one by stage table or "
         "file pattern"
-    )
+    ), _at(ir, sheet.profile.name), "sttm.conflict")
 
 
 def _sheet_file_patterns(sheet: SheetData, ir: GenericIR | None) -> list[str]:
@@ -648,9 +660,10 @@ def parse_audit_answers(gaps: dict | None) -> dict[int, list[tuple[str, str]]]:
                 continue
             datatype = _AUDIT_DATATYPES.get(normalize(dtype))
             if datatype is None:
-                raise GenericExtractionError(
+                raise located(GenericExtractionError(
                     f"answers file: gaps[{key!r}] entry {part.strip()!r} needs NAME:Type with "
-                    f"Type one of {sorted(set(_AUDIT_DATATYPES.values()))}")
+                    f"Type one of {sorted(set(_AUDIT_DATATYPES.values()))}"),
+                    Coord("answers"), "answers.file")
             columns.append((name.strip(), datatype))
         if columns:
             out[int(match.group(1))] = columns
@@ -699,13 +712,14 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     if shared:
         # 2026-10-13: say WHICH sheets met one FRD feed, and what splits them —
         # never the bare "duplicate feed_id(s)" of the contract model.
-        raise GenericExtractionError(
+        first_shared = next(iter(shared.values()))
+        raise located(GenericExtractionError(
             "; ".join(f"sheets {sheets} all pair with the one FRD feed {fid!r}"
                       for fid, sheets in shared.items())
             + " — each mapping sheet must be its own feed: write the FRD contract with "
             "`codegen layout --frd-contract-out` (it splits one FRD block into a feed per "
             "sheet, named by the sheet's own File Name row, else the sheet), or give each "
-            "sheet its own file / table")
+            "sheet its own file / table"), _at(ir, first_shared[-1]), "sttm.conflict")
     if ir.annotations:
         from codegen.extract.annotations import flag
 
@@ -777,25 +791,28 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     sp = sheet.profile
     name = sp.name
     if not sheet.fields:
-        raise GenericExtractionError(
+        raise located(GenericExtractionError(
             f"sheet {name!r}: no field rows could be read "
             f"(skipped: {sheet.skipped[:3]}{'…' if len(sheet.skipped) > 3 else ''}; "
-            f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})")
+            f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})"),
+            _at(ir, name, sp.header_row), "sttm.missing")
     if sp.band("stage") is None:
         targets = [f"{b.layer} (columns {b.col_start}-{b.col_end}, "
                    f"{b.layer_evidence or 'band row'})"
                    for b in sp.bands if b.layer == "standard"]
-        raise GenericExtractionError(
+        raise located(GenericExtractionError(
             f"sheet {name!r} has no stage band - its target band(s) read as {targets or 'none'}; "
             "a feed lands in stage first. If a band IS the stage band, answer its layer under "
             f"answers: (`{name}/band[<n>]/layer`: stage, the target bands numbered left to "
-            "right) - an answer outranks every other evidence")
+            "right) - an answer outranks every other evidence"),
+            _at(ir, name, sp.band_row), "sttm.band")
     missing = [role for role in ("column", "target_type")
                if all(r.values.get(f"stage.{role}") is None for r in sheet.fields)]
     if missing:
-        raise GenericExtractionError(
+        raise located(GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
-            "empty) — a contract needs stage column and data type per field")
+            "empty) — a contract needs stage column and data type per field"),
+            _at(ir, name, sp.header_row), "sttm.missing")
     flags: list[str] = []
     band_table, table_provenance = _band_constant(sheet, "stage.table")
     stage_catalog, _ = _band_constant(sheet, "stage.catalog")
@@ -858,10 +875,13 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     if segmented:
         unknown = sorted({r.segment_raw for r in sheet.fields if r.segment is None} - {None})
         if unknown:
-            raise GenericExtractionError(
+            first_row = next(r.row for r in sheet.fields
+                             if r.segment is None and r.segment_raw is not None)
+            raise located(GenericExtractionError(
                 f"sheet {name!r}: segment spelling(s) {unknown} are outside the "
                 f"{'/'.join(_CANONICAL_SEGMENTS)} vocabulary (extractor.discovery."
-                "segment_synonyms); the contract dialect cannot carry them")
+                "segment_synonyms); the contract dialect cannot carry them"),
+                _at(ir, name, first_row, sp.segment_column), "sttm.record_type")
 
     fields: list[SttmField] = []
     markers = _unmapped_markers(config)
@@ -898,9 +918,10 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                          "target cell on its row")
             continue
         if stage_column is None or stage_type is None:
-            raise GenericExtractionError(
+            raise located(GenericExtractionError(
                 f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
-                f"column/data type (column={stage_column!r}, type={stage_type!r})")
+                f"column/data type (column={stage_column!r}, type={stage_type!r})"),
+                _at(ir, name, row.row, stage_column_col), "sttm.missing")
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values
         # (meant for yes/no columns) do not apply to it.
@@ -976,9 +997,10 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     for entry in sheet.audit:
         datatype = _AUDIT_DATATYPES.get(normalize(entry.datatype_raw))
         if datatype is None:
-            raise GenericExtractionError(
+            raise located(GenericExtractionError(
                 f"sheet {name!r} row {entry.row}: audit column {entry.column!r} has datatype "
-                f"{entry.datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}")
+                f"{entry.datatype_raw!r}; expected one of {sorted(_AUDIT_DATATYPES)}"),
+                _at(ir, entry.sheet, entry.row), "sttm.audit")
         column = clean_audit_column(
             entry.column, prefix + "audit_columns",
             f"{entry.sheet}!{get_column_letter(entry.col)}{entry.row}" if entry.col
@@ -1069,9 +1091,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             extraction_flags=flags,
         )
     except ValueError as exc:
-        raise GenericExtractionError(
+        raise located(GenericExtractionError(
             f"feed {feed.feed_name!r}: extracted feed fails contract validation:\n{exc}"
-        ) from exc
+        ), _at(ir, name), "contract.invalid") from exc
 
 
 def extract_generic_contract(found: Discovery, workbook_path: Path, frd: FrdContract,

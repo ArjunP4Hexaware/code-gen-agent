@@ -145,10 +145,12 @@ for name in documents:
 
 # DBTITLE 1,Pair by content, resolve the layout, extract, generate
 from codegen.cli import EXIT_FAILED, EXIT_NEEDS_ANSWERS, EXIT_OK  # noqa: E402
-from codegen.run_errors import first_error_line  # noqa: E402
+from codegen.run_errors import first_error_line, first_error_line_full  # noqa: E402
 
 STEPS: dict[str, int] = {}             # step -> codegen exit code (the summary below)
-ERRORS: dict[str, str] = {}            # step -> its first error line (exit != 0)
+# D1 post51: two tiers — coordinates only (safe to copy into a report) / quoted
+ERRORS: dict[str, str] = {}            # step -> its first error line, coordinates only
+ERRORS_FULL: dict[str, str] = {}       # step -> the quoted line (stays in this workspace)
 NEEDS_ANSWERS: list[str] = []          # the CLI's QUESTION / UNRESOLVED lines (answer keys)
 
 
@@ -157,10 +159,12 @@ def run(label: str, *args: str) -> int:
     done = launch_codegen(REPO, *args)
     print(done.stdout + (("\nSTDERR:\n" + done.stderr) if done.stderr.strip() else ""))
     STEPS[label] = done.returncode
-    # D1 post50: the exit code decides; a warning on stderr is never the error
+    # D1 post50: the exit code decides (0 PASS / 3 NEEDS_ANSWERS: no error line);
+    # a warning on stderr is never the error
     error = first_error_line(done.returncode, done.stderr, done.stdout)
     if error is not None:
         ERRORS[label] = error
+        ERRORS_FULL[label] = first_error_line_full(done.returncode, done.stderr, done.stdout)
     NEEDS_ANSWERS.extend(line for line in done.stdout.splitlines()
                          if line.startswith(("QUESTION", "UNRESOLVED")) and line not in NEEDS_ANSWERS)
     return done.returncode
@@ -279,6 +283,8 @@ MEANING = {EXIT_OK: "ok", EXIT_FAILED: "FAILED", EXIT_NEEDS_ANSWERS: "needs answ
 for step, code in STEPS.items():
     print(f"{step:<14} {MEANING.get(code, f'exit {code}')}"
           + (f" — first error: {ERRORS[step]}" if ERRORS.get(step) else ""))
+    if ERRORS_FULL.get(step):
+        print(f"{'':<14}   quoted (this workspace only): {ERRORS_FULL[step]}")
 if NEEDS_ANSWERS:
     print("\nNEEDS ANSWERS — the outputs above were written for every feed that could "
           "proceed; answer these keys under `gaps:` in the pair folder's answers.yaml and "

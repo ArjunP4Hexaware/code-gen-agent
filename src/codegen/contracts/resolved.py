@@ -23,6 +23,7 @@ from codegen.contracts.sttm import (
 )
 from codegen.contracts.tables import FeedFile
 from codegen.contracts.vdd import VddContract
+from codegen.run_errors import Coord, located
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -183,4 +184,5 @@ class ResolvedFeedSpec(BaseModel):
         for segment in self.segments:
             if segment.segment == "Detail":
                 return segment
-        raise ValueError(f"feed '{self.feed_id}' has no Detail segment")
+        raise located(ValueError(f"feed '{self.feed_id}' has no Detail segment"),
+                      Coord("contract"), "sttm.segment")

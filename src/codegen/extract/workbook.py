@@ -34,6 +34,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from codegen.config import ExtractorConfig
 from codegen.layout.profile import Role
+from codegen.run_errors import Coord, located, sheet_number
 
 if TYPE_CHECKING:
     from codegen.layout.discover import Discovery
@@ -191,7 +192,7 @@ def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
         # The flat API is the legacy MAPPING- reader: its own errors stand.
         found = discover(path, config, legacy_mapping=True)
     except NoLayoutError as exc:
-        raise WorkbookParseError(str(exc)) from exc
+        raise located(WorkbookParseError(str(exc)), Coord("STTM"), "sttm.layout") from exc
     profile = found.profile
     if profile.strategy == "mapping_prefix":
         return workbook_ir(found, path.name, config)
@@ -204,14 +205,14 @@ def parse_workbook(path: Path, config: ExtractorConfig) -> WorkbookIR:
         routed = ("" if profile.strategy == "segmented_family"
                   else " — the segmented extractor could not resolve it, so content-driven "
                        "discovery took it (extract_contract routes there)")
-        raise SegmentedWorkbookError(
+        raise located(SegmentedWorkbookError(
             f"{path.name}: {family[0] if family else profile.notes[0]}. This layout family "
             "is recognized but unsupported by the flat parser (flat dialect only)" + routed
-        )
-    raise ContentLayoutDetected(
+        ), Coord("STTM"), "sttm.segment")
+    raise located(ContentLayoutDetected(
         f"{path.name}: no MAPPING- sheets; content-driven discovery found mapping sheet(s) "
         f"{[s.name for s in profile.mapping_sheets]} — use extract_contract"
-    )
+    ), Coord("STTM"), "sttm.layout")
 
 
 def workbook_ir(found: Discovery, name: str, config: ExtractorConfig) -> WorkbookIR:
@@ -271,7 +272,7 @@ def _reject_segmented_family(workbook, config: ExtractorConfig, name: str) -> No
             header_row = rows[index + 1] if index + 1 < len(rows) else ()
             segment_header = any(_norm(c).startswith("segment") for c in header_row)
             if metadata_above or segment_header:
-                raise SegmentedWorkbookError(
+                raise located(SegmentedWorkbookError(
                     f"{name}: sheet {sheet_name!r} matches the segmented (metadata-block"
                     f" + band-row) layout family — band labels {sorted(found)} on row "
                     f"{index + 1}"
@@ -279,7 +280,9 @@ def _reject_segmented_family(workbook, config: ExtractorConfig, name: str) -> No
                     + (", per-row Segment column in the header" if segment_header else "")
                     + ". This layout family is recognized but unsupported in v1 "
                     "(flat dialect only) — see docs/SEGMENTED_MODE_DESIGN.md"
-                )
+                ),
+                    Coord("STTM", sheet=sheet_number(workbook, sheet_name), row=index + 1),
+                    "sttm.segment")
 
 
 # ------------------------------------------------------------- metadata sheets
@@ -291,7 +294,9 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str,
 
     sheet_name = config.file_details_sheet
     if sheet_name not in workbook.sheetnames:
-        raise WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing")
+        raise located(
+            WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing"),
+            Coord("STTM"), "sttm.missing")
     ws = workbook[sheet_name]
 
     header = [_norm(c) for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
@@ -300,10 +305,10 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str,
         normalized = [_norm(s) for s in synonyms]
         hits = [i for i, h in enumerate(header) if h in normalized]
         if len(hits) != 1:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet_name}: expected exactly one {logical!r} header among {synonyms} "
                 f"in row 1, found {len(hits)} (headers: {header})"
-            )
+            ), Coord.in_sheet("STTM", ws, row=1), "sttm.header")
         return hits[0]
 
     fd_headers = config.file_details_headers
@@ -328,10 +333,10 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str,
         if vendor is None and file_name is None:
             continue
         if vendor is None or file_name is None:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{sheet_name} row {row_number}: Vendor and FileName must both be present "
                 f"(got vendor={vendor!r}, file_name={file_name!r})"
-            )
+            ), Coord.in_sheet("STTM", ws, row=row_number), "sttm.value")
         target = _text(row[target_col]) if target_col is not None else None
         rows.append(
             FileDetailsRow(vendor=vendor, file_name=file_name, frequency=_text(row[freq_col]),
@@ -340,7 +345,9 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str,
                                         f"{row_number}" if target else None))
         )
     if not rows:
-        raise WorkbookParseError(f"{sheet_name}: no data rows")
+        raise located(
+            WorkbookParseError(f"{sheet_name}: no data rows"),
+            Coord.in_sheet("STTM", ws), "sttm.missing")
     return tuple(rows)
 
 
@@ -350,7 +357,9 @@ def _parse_version_history(workbook, config: ExtractorConfig, name: str) -> str:
     version."""
     sheet_name = config.version_history_sheet
     if sheet_name not in workbook.sheetnames:
-        raise WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing")
+        raise located(
+            WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing"),
+            Coord("STTM"), "sttm.missing")
     ws = workbook[sheet_name]
 
     version_col: int | None = None
@@ -362,9 +371,9 @@ def _parse_version_history(workbook, config: ExtractorConfig, name: str) -> str:
             header_row = row_number
             break
     if version_col is None or header_row is None:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet_name}: no header row containing both 'Version' and 'Date' found"
-        )
+        ), Coord.in_sheet("STTM", ws), "sttm.header")
 
     versions = [
         _text(row[version_col])
@@ -372,7 +381,9 @@ def _parse_version_history(workbook, config: ExtractorConfig, name: str) -> str:
         if _text(row[version_col]) is not None
     ]
     if not versions:
-        raise WorkbookParseError(f"{sheet_name}: header found but no version rows below it")
+        raise located(
+            WorkbookParseError(f"{sheet_name}: header found but no version rows below it"),
+            Coord.in_sheet("STTM", ws, row=header_row), "sttm.missing")
     return versions[-1]  # type: ignore[return-value]  # None filtered above
 
 
@@ -395,24 +406,24 @@ def _find_bands(ws: Worksheet, config: ExtractorConfig) -> _Bands:
     def _start(label: str) -> int | None:
         hits = [i for i, v in enumerate(row1) if v == _norm(label)]
         if len(hits) > 1:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title}: band label {label!r} appears {len(hits)} times in row 1"
-            )
+            ), Coord.in_sheet("STTM", ws, row=1), "sttm.band")
         return hits[0] if hits else None
 
     source = _start(labels.source)
     stage = _start(labels.stage)
     standard = _start(labels.standard)
     if source is None or stage is None:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title}: row 1 must carry the {labels.source!r} and {labels.stage!r} "
             f"band labels; found {[v for v in row1 if v]}"
-        )
+        ), Coord.in_sheet("STTM", ws, row=1), "sttm.band")
     if not source < stage or (standard is not None and not stage < standard):
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title}: band labels out of order (source at {source}, stage at {stage}, "
             f"standard at {standard})"
-        )
+        ), Coord.in_sheet("STTM", ws, row=1), "sttm.band")
     stage_end = standard if standard is not None else ws.max_column
     return _Bands(
         source=(source, stage),
@@ -430,11 +441,11 @@ def _find_recycle_column(
     prefix = _norm(config.recycle_header_prefix)
     hits = [i for i, h in enumerate(headers) if _norm(h).startswith(prefix)]
     if len(hits) > 1:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title}: {len(hits)} row-2 headers start with "
             f"{config.recycle_header_prefix!r} (columns {[i + 1 for i in hits]}); "
             "expected at most one"
-        )
+        ), Coord.in_sheet("STTM", ws, row=2), "sttm.header")
     return hits[0] if hits else None
 
 
@@ -457,31 +468,31 @@ def _resolve_source_headers(
         if not header:
             continue
         if header in _SEGMENT_HEADERS:
-            raise SegmentedWorkbookError(
+            raise located(SegmentedWorkbookError(
                 f"{ws.title}: header {headers[index]!r} names a record segment column — "
                 "segmented (Header/Detail/Trailer) STTM workbooks are not supported by "
                 "this extractor (flat dialect only; see CLAUDE.md)"
-            )
+            ), Coord.in_sheet("STTM", ws, row=2, col=index + 1), "sttm.segment")
         matches = [logical for logical, names in synonyms.items() if header in names]
         if not matches:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title}: unrecognized source-block header {headers[index]!r} "
                 f"(column {index + 1}, row 2); known synonyms: {config.header_synonyms}"
-            )
+            ), Coord.in_sheet("STTM", ws, row=2, col=index + 1), "sttm.header")
         logical = matches[0]
         if logical in resolved:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title}: source-block header for {logical!r} appears twice "
                 f"(columns {resolved[logical] + 1} and {index + 1})"
-            )
+            ), Coord.in_sheet("STTM", ws, row=2, col=index + 1), "sttm.duplicate")
         resolved[logical] = index
 
     missing = set(LEGACY_REQUIRED_SOURCE) - set(resolved)
     if missing:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title}: source block is missing required column(s) {sorted(missing)}; "
             f"row-2 headers seen: {[headers[i] for i in range(*band)]}"
-        )
+        ), Coord.in_sheet("STTM", ws, row=2), "sttm.missing")
     return resolved
 
 
@@ -507,20 +518,20 @@ def _resolve_table_headers(
         if header.startswith(_norm(config.recycle_header_prefix)):
             continue
         if header not in known:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title}: unrecognized {band_name}-block header {headers[index]!r} "
                 f"(column {index + 1}, row 2); expected one of {config.table_block_headers}"
-            )
+            ), Coord.in_sheet("STTM", ws, row=2, col=index + 1), "sttm.header")
         if header in resolved:
-            raise WorkbookParseError(
+            raise located(WorkbookParseError(
                 f"{ws.title}: {band_name}-block header {headers[index]!r} appears twice"
-            )
+            ), Coord.in_sheet("STTM", ws, row=2, col=index + 1), "sttm.duplicate")
         resolved[header] = index
     missing = set(known) - set(resolved)
     if missing:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title}: {band_name} block is missing column(s) {sorted(missing)}"
-        )
+        ), Coord.in_sheet("STTM", ws, row=2), "sttm.missing")
     return resolved
 
 
@@ -533,16 +544,18 @@ def _parse_bool(
         return True
     if normalized in false_values:
         return False
-    raise WorkbookParseError(
+    raise located(WorkbookParseError(
         f"{ws.title} row {row_number}: unparseable {kind} value {value!r} "
         f"(expected one of {true_values + false_values})"
-    )
+    ), Coord.in_sheet("STTM", ws, row=row_number), "sttm.value")
 
 
 def _required_text(ws: Worksheet, row_number: int, value: object, column_name: str) -> str:
     text = _text(value)
     if text is None:
-        raise WorkbookParseError(f"{ws.title} row {row_number}: {column_name} is empty")
+        raise located(
+            WorkbookParseError(f"{ws.title} row {row_number}: {column_name} is empty"),
+            Coord.in_sheet("STTM", ws, row=row_number), "sttm.missing")
     return text
 
 
@@ -607,7 +620,10 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
 
         null_check = _norm(row[source_cols["null_check"]])
         if not null_check:
-            raise WorkbookParseError(f"{ws.title} row {row_number}: NULL-check cell is empty")
+            raise located(
+                WorkbookParseError(f"{ws.title} row {row_number}: NULL-check cell is empty"),
+                Coord.in_sheet("STTM", ws, row=row_number, col=source_cols["null_check"] + 1),
+                "sttm.missing")
         nullable = not null_check.startswith("not null")
 
         rows.append(
@@ -641,25 +657,27 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
         )
 
     if not rows:
-        raise WorkbookParseError(f"{ws.title}: no mapping rows found")
+        raise located(
+            WorkbookParseError(f"{ws.title}: no mapping rows found"),
+            Coord.in_sheet("STTM", ws), "sttm.missing")
     stated_stage = {(s, t) for s, t in stage_refs if s is not None or t is not None}
     stage_schemas = {s for s, _t in stage_refs if s is not None}
     stage_tables = {t for _s, t in stage_refs if t is not None}
     if len(stage_schemas) > 1 or len(stage_tables) > 1:
-        raise SegmentedWorkbookError(
+        raise located(SegmentedWorkbookError(
             f"{ws.title}: mapping rows land in {len(stated_stage)} stage tables "
             f"{sorted(str(t) for _, t in stated_stage)} — this is the segmented "
             "(Header/Detail/Trailer) STTM dialect, which is not supported by this "
             "extractor (flat dialect only; see CLAUDE.md)"
-        )
+        ), Coord.in_sheet("STTM", ws), "sttm.segment")
     standard_schemas = {s for s, _t in standard_refs if s is not None}
     standard_tables = {t for _s, t in standard_refs if t is not None}
     if len(standard_schemas) > 1 or len(standard_tables) > 1:
         stated_standard = {(s, t) for s, t in standard_refs if s is not None or t is not None}
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title}: mapping rows name {len(stated_standard)} standard tables "
             f"{sorted(str(t) for _, t in stated_standard)}; expected exactly one"
-        )
+        ), Coord.in_sheet("STTM", ws), "sttm.conflict")
 
     def only(values: set[str]) -> str | None:
         return next(iter(values)) if values else None
@@ -692,17 +710,19 @@ def _parse_audit_row(
 ) -> AuditRow:
     column = _text(row[stage_cols["columnname"]])
     if column is None or _norm(column) == "na":
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title} row {row_number}: audit row carries no stage ColumnName "
             f"(got {column!r}) — audit column identities are unrecoverable"
-        )
+        ),
+            Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["columnname"] + 1),
+            "sttm.audit")
     raw_datatype = _text(row[stage_cols["datatype"]]) or ""
     datatype = _AUDIT_DATATYPES.get(_norm(raw_datatype))
     if datatype is None:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{ws.title} row {row_number}: audit column {column!r} has datatype "
             f"{raw_datatype!r}; expected one of {sorted(_AUDIT_DATATYPES)}"
-        )
+        ), Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["datatype"] + 1), "sttm.audit")
     return AuditRow(column=column, datatype=datatype)
 
 
@@ -723,26 +743,26 @@ def parse_recycle_text(sheet: SheetIR) -> RecycleText | None:
     if not flagged:
         return None
     if len(flagged) > 1:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet.sheet_name}: {len(flagged)} rows carry recycle text "
             f"({[r.source_column for r in flagged]}); expected at most one"
-        )
+        ), Coord("STTM"), "sttm.conflict")
     row = flagged[0]
     text = row.recycle_text
     assert text is not None
     match = _RECYCLE_FLAG_RE.search(text)
     if match is None:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet.sheet_name} row {row.row_number}: recycle cell has no 'Y (...)' "
             f"flag marker: {text!r}"
-        )
+        ), Coord("STTM", row=row.row_number), "sttm.value")
     validation = text[match.end() :].strip()
     if validation.endswith(")"):
         validation = validation[:-1].rstrip()
     if not validation:
-        raise WorkbookParseError(
+        raise located(WorkbookParseError(
             f"{sheet.sheet_name} row {row.row_number}: recycle flag carries no validation text"
-        )
+        ), Coord("STTM", row=row.row_number), "sttm.missing")
     window_match = _WINDOW_DAYS_RE.search(text)
     return RecycleText(
         applies_to=row.source_column,

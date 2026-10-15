@@ -90,6 +90,7 @@ from codegen.layout.profile import (
     missing_required_roles,
 )
 from codegen.layout.validate import Rejection, validate_profile
+from codegen.run_errors import Coord, located
 
 _STEM_MIN = 4
 
@@ -2930,30 +2931,35 @@ _ANSWER_KEY_RE = re.compile(r"^[^/]+/(source|rules|stage|standard|files|fields)/
 
 def parse_answers(raw: dict) -> dict:
     """Validate the shape of a user's answers payload (values only; the
-    merge step re-validates every claim against the document)."""
+    merge step re-validates every claim against the document). Answer keys
+    carry sheet names: every error is ``located`` at the answers file only."""
     out: dict = {"sttm": {}, "frd": {}, "vdd": {}}
+
+    def bad(message: str) -> BaseException:
+        return located(ValueError(message), Coord("answers"), "answers.file")
+
     for document in ("sttm", "vdd"):
         for key, col in (raw.get(document) or {}).items():
             if document == "sttm" and is_band_layer_key(str(key)):
                 # Chunk A: <sheet>/band[<n>]/layer is answered with a layer.
                 if col not in BAND_LAYER_CHOICES:
-                    raise ValueError(f"bad STTM answer {key!r}: {col!r} - a band layer is one "
-                                     f"of {' | '.join(BAND_LAYER_CHOICES)}")
+                    raise bad(f"bad STTM answer {key!r}: {col!r} - a band layer is one "
+                              f"of {' | '.join(BAND_LAYER_CHOICES)}")
                 out[document][str(key)] = col
                 continue
             if not _ANSWER_KEY_RE.match(str(key)) or not isinstance(col, int) or col < 1:
-                raise ValueError(f"bad {document.upper()} answer {key!r}: {col!r}")
+                raise bad(f"bad {document.upper()} answer {key!r}: {col!r}")
             out[document][key] = col
     for path, claim in (raw.get("frd") or {}).items():
         if not isinstance(claim, dict):
-            raise ValueError(f"bad FRD answer {path!r}")
+            raise bad(f"bad FRD answer {path!r}")
         out["frd"][path] = claim
     out["gaps"] = {}
     for key, choice in (raw.get("gaps") or {}).items():
         if not isinstance(choice, dict) or not isinstance(choice.get("value"), str):
-            raise ValueError(f"bad gap answer {key!r}: expected {{value, layer?, source?}}")
+            raise bad(f"bad gap answer {key!r}: expected {{value, layer?, source?}}")
         if choice.get("layer") not in (None, "stage", "standard", "both"):
-            raise ValueError(f"bad gap answer {key!r}: layer must be stage | standard | both")
+            raise bad(f"bad gap answer {key!r}: layer must be stage | standard | both")
         out["gaps"][str(key)] = {"value": choice["value"], "layer": choice.get("layer"),
                                  "source": str(choice.get("source") or "user")}
     from codegen.resolve.widths import parse_width_answers

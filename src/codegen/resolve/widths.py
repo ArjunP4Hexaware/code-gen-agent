@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import re
 
+from codegen.run_errors import Coord, located
+
 _INTEGER_RE = re.compile(r"^\s*0*(\d+)(?:\.0+)?\s*$")
 _PRECISION_RE = re.compile(
     r"^\s*(?:[A-Za-z][A-Za-z ]*\(\s*)?(\d+)\s*[,.]\s*(\d+)\s*\)?\s*$")
@@ -89,8 +91,9 @@ def parse_width_answers(gaps: dict | None) -> dict[int, dict[str, int]]:
         value = choice.get("value") if isinstance(choice, dict) else choice
         width = as_integer(value)
         if width is None or width <= 0:
-            raise ValueError(f"bad width answer {key!r}: {value!r} is not a positive integer "
-                             "(a byte width — never a precision)")
+            raise located(ValueError(f"bad width answer {key!r}: {value!r} is not a positive "
+                                     "integer (a byte width — never a precision)"),
+                          Coord("answers"), "answers.file")
         out.setdefault(int(match.group(1)), {})[normalize_field_name(match.group(2))] = width
     return out
 

@@ -49,6 +49,7 @@ from codegen.layout.frd_profile import (
     FrdUnresolved,
     frd_fingerprint,
 )
+from codegen.run_errors import Coord, located
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _LOAD_STRATEGIES = ("Truncate and Load", "Append", "Upsert")
@@ -125,10 +126,12 @@ def read_docx(path: Path, prose_ok: bool = False) -> DocxContent:
         with zipfile.ZipFile(path) as archive:
             root = ET.fromstring(archive.read("word/document.xml"))
     except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
-        raise FrdDocxError(f"{path.name}: not a readable .docx ({exc})") from exc
+        raise located(FrdDocxError(f"{path.name}: not a readable .docx ({exc})"),
+                      Coord("FRD"), "frd.docx") from exc
     body = root.find(f"{_W}body")
     if body is None:
-        raise FrdDocxError(f"{path.name}: document has no body")
+        raise located(FrdDocxError(f"{path.name}: document has no body"),
+                      Coord("FRD"), "frd.docx")
     tables: list[list[list[str]]] = []
     paragraphs: list[tuple[int, str]] = []
     nested: dict[tuple[int, int, int], list[list[str]]] = {}
@@ -150,7 +153,8 @@ def read_docx(path: Path, prose_ok: bool = False) -> DocxContent:
             if text:
                 paragraphs.append((len(tables), text))
     if not tables and not (prose_ok and paragraphs):
-        raise FrdDocxError(f"{path.name}: document carries no tables")
+        raise located(FrdDocxError(f"{path.name}: document carries no tables"),
+                      Coord("FRD"), "frd.unreadable")
     return DocxContent(tables=tables, paragraphs=paragraphs, nested=nested)
 
 
@@ -192,10 +196,10 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
         return _discover_f1(tables, f1_tables, labels, digest, config)
     if sr_tables:
         return _discover_f2(tables, sr_tables, sections, labels, digest, config)
-    raise FrdDocxError(
+    raise located(FrdDocxError(
         "no metadata section table (F1) and no Solution Requirement table (F2) found; "
         f"table titles seen: {[t[0][0][:40] for t in tables if t and t[0]][:12]}"
-    )
+    ), Coord("FRD"), "frd.unreadable")
 
 
 def _section_key(title: str, sections: dict[str, str]) -> str | None:

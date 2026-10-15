@@ -44,6 +44,7 @@ from codegen.report import console_summary, write_generation_report
 from codegen.report.generation_report import all_failed_line
 from codegen.resolve.resolver import ContractMismatchError, normalize_feed_name, resolve_pair
 from codegen.rules.compiler import compile_rules
+from codegen.run_errors import Coord, report_error
 
 
 def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) -> Path | None:
@@ -312,6 +313,20 @@ EXIT_CODES = f"""exit codes:
   (`codegen layout --answers answers.yaml`).
 """
 
+def _fail(stage: str, text: str, reason: str, coord: Coord | None = None, *,
+          exc: BaseException | None = None, checks=()) -> None:
+    """One FAIL line and its error marker (D1 post51, 2026-10-15). The line
+    (stdout) keeps the quoted text — :func:`codegen.run_errors.first_error_line_full`
+    reads it, inside ACFC only; the ``CODEGEN-ERROR`` marker (stderr) carries the
+    stage, a reason code and coordinates only — what
+    :func:`codegen.run_errors.first_error_line` (the harness, a pushed report)
+    reads. An exception's own coordinates (``run_errors.located``) win."""
+    if isinstance(exc, FileNotFoundError) and reason == "unclassified":
+        reason = "input.not_found"
+    print(f"{'FAIL':<15} {text}")
+    report_error(stage, reason, coord, exc=exc, checks=checks)
+
+
 # The ACFC harness (codegen-watch, docs/acfc/HARNESS_EXIT_CODES.md on
 # origin/acfc/harness-exit3) reads the needed answer keys from these lines:
 # the key is the text between the padded label and the em-dash separator.
@@ -488,8 +503,10 @@ def _run_pairs(
     playbook_template: str | None = None,
     answers_path: Path | None = None,
     template_path: Path | None = None,
+    command: str = "generate",
 ) -> int:
     from codegen import owed_inputs as owed_mod
+    from codegen import run_stages
     from codegen.resolve.resolver import pending_answers
 
     inputs = _answers_inputs(answers_path)
@@ -501,19 +518,26 @@ def _run_pairs(
         config, run_items, env_questions = _run_environment(config, inputs, output_mode,
                                                             iig_template, dry_run=dry_run)
     except EnvironmentSelectionError as exc:
-        print(f"{'FAIL':<15} environment — {exc}")
+        _fail(command, f"environment — {exc}", "environment", Coord("environment"), exc=exc)
         return 1
     owed_items += run_items
     failed = False
     matched_feed = False
     # 2026-10-15: a required environment value unset is a QUESTION (exit 3)
     needs_answers = env_questions
-    for frd_path, sttm_path in pairs:
+    # D1 post51 (2026-10-15): the emit stages are SKIPPED when generation failed;
+    # a failed feed's emit artefacts are deleted; CODEGEN_STAGES.json says so
+    out_root = Path(config.output.dir)
+    kept: dict[str, list[Path]] = {stage: [] for stage in run_stages.EMIT_STAGES}
+    feed_entries: list[dict] = []
+    for pair_no, (frd_path, sttm_path) in enumerate(pairs, 1):
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
             pending = pending_answers(sttm_path)
         except (ContractMismatchError, ValueError) as exc:
-            print(f"{'FAIL':<15} {frd_path.name} + {sttm_path.name} — {exc}")
+            _fail(command, f"{frd_path.name} + {sttm_path.name} — {exc}",
+                  "contract.mismatch" if isinstance(exc, ContractMismatchError)
+                  else "contract.invalid", Coord("pair", n=pair_no, of=len(pairs)), exc=exc)
             failed = True
             continue
         # Every feed WITH a contract is generated; a held-back feed's answers are
@@ -523,12 +547,15 @@ def _run_pairs(
         _print_needs_answers(asked if only_feed is not None else pending)
         if asked:
             needs_answers = matched_feed = True
-        for spec in specs:
+        for feed_no, spec in enumerate(specs, 1):
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
             matched_feed = True
             index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
             faq_answers = owed_mod.answers_for(inputs, index, spec.feed_id)
+            feed_dir = out_root / spec.feed_slug
+            before = run_stages.snapshot(feed_dir)
+            where = Coord("feed", n=feed_no, of=len(specs))
             try:
                 gate = _generate_feed(spec, config, dry_run=dry_run,
                                       skip_tests=skip_tests, output_mode=output_mode,
@@ -550,20 +577,47 @@ def _run_pairs(
                     owed_items.append(lob_item)
                     needs_answers = True
             except TemplateGapError as exc:
-                print(f"{'FAIL':<15} {spec.feed_id} — template gap: {exc}")
+                _fail(command, f"{spec.feed_id} — template gap: {exc}", "template.gap", where,
+                      exc=exc)
                 failed = True
+                removed = run_stages.remove_partial(feed_dir, before)
+                feed_entries.append(run_stages.feed_entry(
+                    out_root, feed_no, len(specs), "FAIL", {}, removed))
                 continue
+            except Exception:
+                # an uncaught error mid-feed: no partial workbook survives it
+                run_stages.remove_partial(feed_dir, before)
+                raise
             if gate.verdict == "FAIL":
                 failed = True
+                report_error(command, "gate.verdict_fail", where, checks=[
+                    c.name for c in gate.checks if not c.passed and not c.not_run])
+                removed = run_stages.remove_partial(feed_dir, before)
+                feed_entries.append(run_stages.feed_entry(
+                    out_root, feed_no, len(specs), "FAIL", {}, removed))
+                continue
+            written = run_stages.written_since(feed_dir, before)
+            for stage, paths in written.items():
+                kept[stage] += paths
+            feed_entries.append(run_stages.feed_entry(
+                out_root, feed_no, len(specs), gate.verdict, written))
     if only_feed is not None and not matched_feed:
-        print(f"{'FAIL':<15} no resolved feed matches --feed {only_feed!r}")
+        _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
         failed = True
     _write_template(template_path or Path(config.output.dir) / "answers_template.yaml",
                     owed_items, "generate", merge=True)
     # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
     # asked for (a QUESTION / UNRESOLVED line) or a required environment value
     # (2026-10-15) exits 3
-    return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
+    code = 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
+    statuses = run_stages.stage_statuses(failed, code == EXIT_NEEDS_ANSWERS, kept)
+    for stage in run_stages.EMIT_STAGES:
+        if failed:
+            print(f"{'SKIPPED':<15} {stage} — {run_stages.SKIPPED_UPSTREAM} (exit code "
+                  "unchanged; a failed feed's emit artefacts are removed)")
+    run_stages.write_stage_manifest(out_root, command=command, exit_code=code,
+                                    statuses=statuses, feeds=feed_entries)
+    return code
 
 
 def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_template,
@@ -743,7 +797,8 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
             for r in exc.unresolved], "extract-sttm", merge=True)
         return EXIT_NEEDS_ANSWERS
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
-        print(f"{'FAIL':<15} extract-sttm — {exc}")
+        _fail("extract-sttm", f"extract-sttm — {exc}", "sttm.unreadable", Coord("STTM"),
+              exc=exc)
         return 1
     feeds = ", ".join(f"{f.feed_id} ({f.field_count} fields)" for f in contract.feeds)
     if contract.frd_split is not None:
@@ -898,7 +953,8 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
 
     sttm = Path(args.sttm)
     if not sttm.is_file():
-        print(f"{'FAIL':<15} pair — workbook not found: {sttm}")
+        _fail("pair", f"pair — workbook not found: {sttm}", "workbook.not_found",
+              Coord("STTM"))
         return 1
     folders = [Path(d) for d in (args.candidates or [str(sttm.parent)])]
     everything = [p for d in folders if d.is_dir() for p in sorted(d.iterdir()) if p.is_file()]
@@ -927,7 +983,8 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
             overrides = overrides.merged(load_pair_overrides(path))
             print(f"{'OVERRIDES':<15} {path.name} — {len(overrides.groups)} pair(s) listed")
     except PairOverridesError as exc:
-        print(f"{'FAIL':<15} pair — pairs override file: {exc}")
+        _fail("pair", f"pair — pairs override file: {exc}", "pairs.file", Coord("pairs"),
+              exc=exc)
         return 1
     other_sttms = [r.name for r in roles if r.role == "sttm"]
     if other_sttms and not (overrides.lookup(sttm.name, "frd")
@@ -942,7 +999,8 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
         chosen = (load_answers(Path(args.answers)).pairing.get(sttm.name, {})
                   if args.answers else {})
     except (AnswersFileError, OSError) as exc:
-        print(f"{'FAIL':<15} pair — answers file: {exc}")
+        _fail("pair", f"pair — answers file: {exc}", "answers.file", Coord("answers"),
+              exc=exc)
         return 1
     failed = owed = False
     by_name = {r.name: r for r in roles}
@@ -952,6 +1010,8 @@ def _pair(args: argparse.Namespace, config: Config) -> int:
             known = chosen[kind] in candidates
             print(f"{'PAIRED' if known else 'FAIL':<15} {kind} {chosen[kind]} — answers file"
                   + ("" if known else " names a document that is not among the candidates"))
+            if not known:
+                report_error("pair", "answers.file", Coord("answers"))
             failed = failed or not known
             continue
         # An override may name a file the role gate left out — the person's call.
@@ -1015,6 +1075,15 @@ def _unreadable_reason(exc: Exception, workbook: Path, frd: Path | None) -> str:
             "(layout.provider: live)")
 
 
+def _unreadable_where(exc: Exception) -> tuple[str, Coord]:
+    """(reason, coordinates) of a document no reader can open."""
+    from codegen.extract.frd_docx import FrdDocxError
+
+    if isinstance(exc, FrdDocxError):
+        return "frd.unreadable", Coord("FRD")
+    return "sttm.unreadable", Coord("STTM")
+
+
 def _layout(args: argparse.Namespace, config: Config) -> int:
     """Resolve and print the layout of a workbook (and optionally its FRD
     document): source per role, confidences, unresolved roles, the
@@ -1024,7 +1093,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
 
     workbook = Path(args.workbook)
     if not workbook.is_file():
-        print(f"{'FAIL':<15} layout — workbook not found: {workbook}")
+        _fail("layout", f"layout — workbook not found: {workbook}", "workbook.not_found",
+              Coord("STTM"))
         return 1
     from codegen.layout.answers import (
         AnswersFileError,
@@ -1043,7 +1113,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         # volume when configured; never under fixtures/.
         runtime_cache, push_cache = runtime_layout_cache(config, Path("."))
     except StorageError as exc:
-        print(f"{'FAIL':<15} layout — state storage: {exc}")
+        _fail("layout", f"layout — state storage: {exc}", "storage", Coord("storage"),
+              exc=exc)
         return 1
 
     def resolve(answers: dict | None, refresh: bool = False, prior=None):
@@ -1061,7 +1132,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
     except unreadable as exc:
         # Chunk B (cold drill): a document no reader can open is a FAIL that
         # names the document and the remedy, never a traceback.
-        print(f"{'FAIL':<15} layout — {_unreadable_reason(exc, workbook, frd)}")
+        _fail("layout", f"layout — {_unreadable_reason(exc, workbook, frd)}",
+              *_unreadable_where(exc), exc=exc)
         return 1
     names = {"sttm": workbook.name, "frd": frd.name if frd else "", "vdd": vdd.name if vdd else ""}
     if args.refresh:
@@ -1077,7 +1149,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             vdd_book = (load_workbook_for_answers(vdd, stop_after)
                         if vdd is not None and result.vdd is not None else None)
         except (AnswersFileError, OSError) as exc:
-            print(f"{'FAIL':<15} layout — answers file: {exc}")
+            _fail("layout", f"layout — answers file: {exc}", "answers.file", Coord("answers"),
+                  exc=exc)
             return 1
         answers: dict = {"sttm": {}, "frd": {}, "vdd": {}, "gaps": {}}
         notes: list[str] = []
@@ -1098,7 +1171,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 found, notes = apply_answers(answers_file, result.questions, names,
                                              documents=documents)
             except AnswersFileError as exc:
-                print(f"{'FAIL':<15} layout — answers file: {exc}")
+                _fail("layout", f"layout — answers file: {exc}", "answers.file",
+                      Coord("answers"), exc=exc)
                 return 1
             merged = {k: {**answers.get(k, {}), **found.get(k, {})} for k in found}
             if merged == answers:
@@ -1107,7 +1181,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             try:
                 result = resolve(answers, refresh=args.refresh, prior=result)
             except unreadable as exc:
-                print(f"{'FAIL':<15} layout — {_unreadable_reason(exc, workbook, frd)}")
+                _fail("layout", f"layout — {_unreadable_reason(exc, workbook, frd)}",
+                      *_unreadable_where(exc), exc=exc)
                 return 1
         for note in _answer_notes(notes, seen, profile=result.sttm.profile):
             print(f"{'NOTE':<15} {note}")
@@ -1170,7 +1245,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             result.sttm.profile.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
     if args.frd_contract_out:
         if result.frd_contract is None:
-            print(f"{'FAIL':<15} layout — --frd-contract-out needs --frd")
+            _fail("layout", "layout — --frd-contract-out needs --frd", "usage")
             return 1
         from codegen.extract.frd_docx import contract_to_json as frd_contract_to_json
 
@@ -1268,7 +1343,7 @@ def _extract_vdd(args: argparse.Namespace, config: Config) -> int:
             Path(args.profile).write_text(profile.model_dump_json(indent=2) + "\n",
                                           encoding="utf-8", newline="\n")
     except (VddExtractionError, NoLayoutError, FileNotFoundError, ValueError) as exc:
-        print(f"{'FAIL':<15} extract-vdd — {exc}")
+        _fail("extract-vdd", f"extract-vdd — {exc}", "vdd.unreadable", Coord("VDD"), exc=exc)
         return 1
     print(f"{'EXTRACTED':<15} {args.out} — {len(contract.files)} file row(s), "
           f"{len(contract.fields)} field(s) on {contract.field_sheets}, "
@@ -1297,7 +1372,7 @@ def _extract_frd(args: argparse.Namespace, config: Config) -> int:
             profile_path.write_text(profile.model_dump_json(indent=2) + "\n",
                                     encoding="utf-8", newline="\n")
     except (FrdDocxError, FileNotFoundError, ValueError) as exc:
-        print(f"{'FAIL':<15} extract-frd — {exc}")
+        _fail("extract-frd", f"extract-frd — {exc}", "frd.docx", Coord("FRD"), exc=exc)
         return 1
     feeds = ", ".join(f.feed_name for f in contract.feeds)
     print(f"{'EXTRACTED':<15} {args.out} — family {profile.family}, layout source "
@@ -1340,7 +1415,7 @@ def _sharepoint_fetch(args: argparse.Namespace, config: Config) -> int:
         print(f"dest:    {args.dest}")
         fetched = client.fetch_to_dir(args.dest, suffixes=SUPPORTED_SUFFIXES)
     except (SharePointConfigError, GraphError) as exc:
-        print(f"{'FAIL':<15} sharepoint-fetch — {exc}")
+        _fail("sharepoint-fetch", f"sharepoint-fetch — {exc}", "storage", exc=exc)
         return 1
 
     for item in fetched:
@@ -1352,6 +1427,7 @@ def _sharepoint_fetch(args: argparse.Namespace, config: Config) -> int:
             f"(supported: {sorted(SUPPORTED_SUFFIXES)}). Upload an STTM workbook or an "
             f"FRD contract, or check sharepoint.input_folder in config/config.yaml."
         )
+        report_error("sharepoint-fetch", "input.not_found", Coord("storage"))
         return 1
     print(f"\n{len(fetched)} file(s) -> {args.dest}")
     return 0
@@ -1402,7 +1478,7 @@ def _sharepoint_publish(args: argparse.Namespace, config: Config) -> int:
     try:
         artifacts = _publishable(args, config)
     except ValueError as exc:
-        print(f"{'FAIL':<15} sharepoint-publish — {exc}")
+        _fail("sharepoint-publish", f"sharepoint-publish — {exc}", "publish", exc=exc)
         return 1
 
     missing = [p for p in artifacts if not p.is_file()]
@@ -1412,6 +1488,7 @@ def _sharepoint_publish(args: argparse.Namespace, config: Config) -> int:
             + ", ".join(str(p) for p in missing)
             + ". Run `codegen generate` (or generate-all) first."
         )
+        report_error("sharepoint-publish", "publish", Coord("output"))
         return 1
 
     try:
@@ -1425,7 +1502,7 @@ def _sharepoint_publish(args: argparse.Namespace, config: Config) -> int:
             print(f"{'PUBLISHED':<15} {name} — {path.stat().st_size:,} bytes "
                   f"-> {result.get('webUrl', '<no url>')}")
     except (SharePointConfigError, GraphError) as exc:
-        print(f"{'FAIL':<15} sharepoint-publish — {exc}")
+        _fail("sharepoint-publish", f"sharepoint-publish — {exc}", "publish", exc=exc)
         return 1
 
     print(f"\n{len(artifacts)} artifact(s) published to "
@@ -1453,7 +1530,7 @@ def _databricks_publish(args: argparse.Namespace, config: Config) -> int:
     try:
         artifacts = _publishable(args, config)
     except ValueError as exc:
-        print(f"{'FAIL':<15} databricks-publish — {exc}")
+        _fail("databricks-publish", f"databricks-publish — {exc}", "publish", exc=exc)
         return 1
     missing = [p for p in artifacts if not p.is_file()]
     if missing:
@@ -1462,6 +1539,7 @@ def _databricks_publish(args: argparse.Namespace, config: Config) -> int:
             + ", ".join(str(p) for p in missing)
             + ". Run `codegen generate` (or generate-all) first."
         )
+        report_error("databricks-publish", "publish", Coord("output"))
         return 1
 
     try:
@@ -1479,7 +1557,7 @@ def _databricks_publish(args: argparse.Namespace, config: Config) -> int:
             print(f"{'PUBLISHED':<15} {item['name']} — "
                   f"{item['size_bytes']:,} bytes -> {item['path']}")
     except (DatabricksConfigError, DatabricksTransportError) as exc:
-        print(f"{'FAIL':<15} databricks-publish — {exc}")
+        _fail("databricks-publish", f"databricks-publish — {exc}", "publish", exc=exc)
         return 1
 
     print(f"\n{len(artifacts)} artifact(s) published to /Volumes/"
@@ -1570,6 +1648,7 @@ def _databricks_seed_landing(args: argparse.Namespace, config: Config) -> int:
         print(f"{'FAIL':<15} databricks-seed-landing — demo contract pair not found "
               f"({frd_path.name}, {sttm_path.name}); synthetic content comes from "
               "the resolved demo spec only.")
+        report_error("databricks-seed-landing", "contract.not_found", Coord("contract"))
         return 1
     specs = resolve_pair(frd_path, sttm_path, config)
 
@@ -1594,7 +1673,8 @@ def _databricks_seed_landing(args: argparse.Namespace, config: Config) -> int:
         cfg = config_for(config.databricks)
         target = f"{cfg.catalog}.{cfg.schema}.{cfg.landing_volume}"
     except DatabricksConfigError as exc:
-        print(f"{'FAIL':<15} databricks-seed-landing — {exc}")
+        _fail("databricks-seed-landing", f"databricks-seed-landing — {exc}", "storage",
+              exc=exc)
         return 1
 
     print(f"target volume: {target}  (the ONLY writable location)")
@@ -1624,7 +1704,8 @@ def _databricks_seed_landing(args: argparse.Namespace, config: Config) -> int:
             print(f"{'UPLOADED':<15} {path} — {len(data):,} bytes")
         listed = list_landing(cfg)
     except (DatabricksConfigError, DatabricksTransportError) as exc:
-        print(f"{'FAIL':<15} databricks-seed-landing — {exc}")
+        _fail("databricks-seed-landing", f"databricks-seed-landing — {exc}", "storage",
+              exc=exc)
         return 1
 
     # Verify: everything sent must list back with the size we sent.
@@ -1637,6 +1718,7 @@ def _databricks_seed_landing(args: argparse.Namespace, config: Config) -> int:
     ]
     if mismatches:
         print(f"{'FAIL':<15} verification mismatch:\n  - " + "\n  - ".join(mismatches))
+        report_error("databricks-seed-landing", "verify", Coord("storage"))
         return 1
 
     manifest = {
@@ -1695,8 +1777,20 @@ def main(argv: list[str] | None = None) -> int:
     silence_pydantic_deprecations()
     try:
         return _main(argv)
+    except Exception as exc:
+        # D1 post51: an uncaught error still gets its coordinates-only marker;
+        # the traceback (the quoted tier) follows on stderr, exit code unchanged
+        report_error(_stage_of(sys.argv[1:] if argv is None else argv), "uncaught", exc=exc)
+        raise
     finally:
         set_flag(None)
+
+
+def _stage_of(argv: list[str]) -> str:
+    """The CLI command named on ``argv`` (the marker's stage)."""
+    from codegen.run_errors import STAGES
+
+    return next((a for a in argv if a in STAGES), "codegen")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -2015,7 +2109,7 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         check_live_config(config)
     except ProviderConfigError as exc:
-        print(f"{'FAIL':<15} provider — {exc}")
+        _fail("codegen", f"provider — {exc}", "provider", exc=exc)
         return EXIT_FAILED
 
     if args.command == "extract-sttm":
@@ -2037,7 +2131,8 @@ def _main(argv: list[str] | None = None) -> int:
             # shell_mode pinned synthetic: this command stays offline.
             payload = source_files_payload(config, Path.cwd(), shell_mode="synthetic")
         except FileNotFoundError as exc:
-            print(f"{'FAIL':<15} demo-source-files — {exc}")
+            _fail("demo-source-files", f"demo-source-files — {exc}", "input.not_found",
+                  exc=exc)
             return 1
         print(json.dumps(payload, indent=2))
         return 0
@@ -2067,7 +2162,8 @@ def _main(argv: list[str] | None = None) -> int:
                 config, Path.cwd(), specs=specs, unmapped_by_slug=unmapped
             )
         except FileNotFoundError as exc:
-            print(f"{'FAIL':<15} demo-metadata-sheet — {exc}")
+            _fail("demo-metadata-sheet", f"demo-metadata-sheet — {exc}", "input.not_found",
+                  exc=exc)
             return 1
         if args.xlsx:
             build_workbook(payload).save(args.xlsx)
@@ -2108,12 +2204,13 @@ def _main(argv: list[str] | None = None) -> int:
                     print(f"{'FETCHED':<15} {local.name} — {item['size']:,} bytes")
                     fetched += 1
         except (DatabricksConfigError, DatabricksTransportError) as exc:
-            print(f"{'FAIL':<15} databricks-fetch — {exc}")
+            _fail("databricks-fetch", f"databricks-fetch — {exc}", "storage", exc=exc)
             return 1
         if not fetched:
             print(f"{'FAIL':<15} databricks-fetch — no supported documents in "
                   "either volume. Upload an STTM workbook or an FRD document, or "
                   "check the `databricks:` section of config/config.yaml.")
+            report_error("databricks-fetch", "input.not_found", Coord("storage"))
             return 1
         print(f"\n{fetched} file(s) -> {args.dest}")
         return 0
@@ -2125,16 +2222,14 @@ def _main(argv: list[str] | None = None) -> int:
         return _databricks_publish(args, config)
 
     if args.command == "generate":
-        try:
-            pairs = [
-                (
-                    _contract_path(args.frd_contract, config),
-                    _contract_path(args.sttm_contract, config),
-                )
-            ]
-        except FileNotFoundError as exc:
-            print(f"{'FAIL':<15} {exc}")
-            return 1
+        paths: list[Path] = []
+        for role, value in (("FRD", args.frd_contract), ("STTM", args.sttm_contract)):
+            try:
+                paths.append(_contract_path(value, config))
+            except FileNotFoundError as exc:
+                _fail("generate", str(exc), "contract.not_found", Coord(role), exc=exc)
+                return 1
+        pairs = [(paths[0], paths[1])]
         only_feed = args.feed
     else:
         if not config.contracts.pairs:
@@ -2145,6 +2240,7 @@ def _main(argv: list[str] | None = None) -> int:
                 "Restore anonymized contract pairs in config/config.yaml or run "
                 "`codegen generate --frd-contract X --sttm-contract Y`."
             )
+            report_error(args.command, "config", Coord("config"))
             return 1
         contracts_dir = Path(config.contracts.dir)
         pairs = [(contracts_dir / p.frd, contracts_dir / p.sttm) for p in config.contracts.pairs]
@@ -2153,7 +2249,7 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         config, push_outputs = _outputs_through_storage(config)
     except Exception as exc:  # noqa: BLE001 — a storage URI / auth problem, named
-        print(f"{'FAIL':<15} outputs storage — {exc}")
+        _fail(args.command, f"outputs storage — {exc}", "storage", Coord("output"), exc=exc)
         return 1
     _write_build_stamp(Path(config.output.dir))
     # 2026-10-14: the run's environment (--environment / --environment-file; else
@@ -2171,7 +2267,8 @@ def _main(argv: list[str] | None = None) -> int:
             file=Path(env_file) if env_file else None,
             live=_live_run(config, getattr(args, "dry_run", False))))
     except EnvironmentSelectionError as exc:
-        print(f"{'FAIL':<15} environment — {exc}")
+        _fail(args.command, f"environment — {exc}", "environment", Coord("environment"),
+              exc=exc)
         return 1
     # M9: `generate` parsed --vdd / --profile / --iig-template /
     # --playbook-template and then dropped them (the notebook run inside ACFC
@@ -2181,7 +2278,7 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         vdd_path = _contract_path(vdd_contract, config) if vdd_contract else None
     except FileNotFoundError as exc:
-        print(f"{'FAIL':<15} {exc}")
+        _fail(args.command, str(exc), "contract.not_found", Coord("VDD"), exc=exc)
         return 1
     code = _run_pairs(
         pairs, config, only_feed=only_feed, dry_run=args.dry_run,
@@ -2192,6 +2289,7 @@ def _main(argv: list[str] | None = None) -> int:
         answers_path=Path(args.answers) if getattr(args, "answers", None) else None,
         template_path=(Path(args.answers_template)
                        if getattr(args, "answers_template", None) else None),
+        command=args.command,
     )
     push_outputs()
     return code

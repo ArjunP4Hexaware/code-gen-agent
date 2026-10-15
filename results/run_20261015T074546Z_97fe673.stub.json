@@ -1,0 +1,10 @@
+{
+  "status": "LEAK_GATE_BLOCKED",
+  "sha": "97fe6731d8c4ce47b832dc9529ff3628be309ff9",
+  "timestamp": "20261015T074546Z",
+  "real_hits": 13,
+  "self_match_hits": 0,
+  "harvested_terms_dropped": 420,
+  "static_denylist_sha256": "94323278e2554673734d6020f5b19bd9a6244f78791cc9a13d3fa4c5584ca494",
+  "harvested_terms_sha256": "9049c99f413269a0be5457305d58d042617e72f3f8390cba707ce14d9fcf7912"
+}

@@ -92,7 +92,8 @@ def test_notebook_names_paths_and_process_names_by_flow_and_format(tmp_path):
     assert standard["PROCESS_NAME"][0] == f"{application}  stage to std load"
     for row in (stage, standard):
         assert row["SEQ_NM"][0] in ("1", 1) and row["ACTIVE_FLAG"][0] == "Y"
-        assert row["PIPELINE_NAME"][0]                       # the leg's pipeline, as before
+        # framework owner's rule 1: BSA-assigned — blank, owed per flow
+        assert row["PIPELINE_NAME"][0] in (None, "") and row["PIPELINE_NAME"][1] == OPEN
     flags = _notes(gate)
     assert any(f.startswith("iig_corpus:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME")
                and "V0.2 4.0%" in f and "Nikshit" in f for f in flags)
@@ -146,14 +147,15 @@ def test_a_scrubbed_handler_prefix_leaves_the_name_open_naming_the_variant():
 def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tmp_path):
     _spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
     application, _freq = _source_and_freq(xlsx)
-    rows = {r["PIPELINE_NAME"][0]: r for r in _rows(xlsx, SCHED)}
-    got = [(name.split("_")[1], r["LAYER_NAME"][0], r["PIPELINE_DESCRIPTION"][0])
-           for name, r in rows.items()]
-    assert got == [("GMSTR", None, f"{application} Grand Master Pipeline"),
-                   ("MSTR", None, f"{application} Master Pipeline"),
-                   ("File", "STAGE", f"{application} Stage Load"),
-                   ("File", "STANDARD", f"{application} Standard Load")]
-    for row in rows.values():
+    rows = _rows(xlsx, SCHED)          # grand master, master, file -> stage, stage -> std
+    got = [(r["LAYER_NAME"][0], r["PIPELINE_DESCRIPTION"][0]) for r in rows]
+    assert got == [(None, f"{application} Grand Master Pipeline"),
+                   (None, f"{application} Master Pipeline"),
+                   ("STAGE", f"{application} Stage Load"),
+                   ("STANDARD", f"{application} Standard Load")]
+    for row in rows:
+        # framework owner's rule 1: PIPELINE_NAME is BSA-assigned — blank, owed
+        assert row["PIPELINE_NAME"][0] in (None, "") and row["PIPELINE_NAME"][1] == OPEN
         assert row["DAY_OF_SCHEDULE"][0] in (None, "")       # not Weekly: blank
         assert row["DAY_OF_SCHEDULE"][1] == DECIDED          # decided, not open
         assert row["ACTIVE_START_DATE"][0] in (None, "")
@@ -281,7 +283,10 @@ def _generate(config, pair, **kw) -> int:
 # post47b: + D1's storage-account placeholder (provider=mock: an INPUT_NEEDED, not exempt)
 RUN_KEYS = ["run.environment", "run.environment.storage_account", "run.application_name",
             "run.email_to"]
-OWED_KEYS = ["active_start_date", "dq_null_check_input_param", "dq_dedup_input_param"]
+# + framework owner's rule 1: PIPELINE_NAME, BSA-assigned, one per flow row
+FLOWS = ["grand_master", "master", "file_to_stg", "stg_to_std"]
+OWED_KEYS = [*(f"pipeline_name.{flow}" for flow in FLOWS), "active_start_date",
+             "dq_null_check_input_param", "dq_dedup_input_param"]
 
 
 def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
@@ -302,21 +307,22 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     assert every[:4] == [ln for ln in every if ln[15:].startswith("run.")]   # the block first
     lines = [ln for ln in every if ln.startswith(f"INPUT_NEEDED   feeds.{feed}.")]
     keys = [ln[15:].split(" — ", 1)[0] for ln in lines]
-    assert [k.rsplit(".", 1)[1] for k in keys] == OWED_KEYS
+    assert [k[len(f"feeds.{feed}."):] for k in keys] == OWED_KEYS
     app_line = next(ln for ln in every if "run.application_name — " in ln)
     assert "written with each feed's default {source}" in app_line
     xlsx = tmp_path / "out" / specs[0].feed_slug / "framework" / "config_rows.xlsx"
     assert xlsx.is_file()
     assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")
-    assert "0 open question(s), 7 input(s) needed" in template
+    assert "0 open question(s), 11 input(s) needed" in template
     assert "gaps: {}" in template
     assert '\n  run:\n    "environment":' in template
-    assert f'\n  feeds:\n    "{feed}":\n      "active_start_date":' in template
+    assert f'\n  feeds:\n    "{feed}":\n      "pipeline_name.grand_master":' in template
+    assert '\n      "active_start_date":' in template
     # the report: the run-level block at the top, the feed's own counted apart
     report = (tmp_path / "reports" / f"{specs[0].feed_slug}.md").read_text(encoding="utf-8")
     assert "**Run inputs needed: 4**" in report
-    assert "**Answers owed** — questions: 0, inputs needed: 3" in report
+    assert "**Answers owed** — questions: 0, inputs needed: 7" in report
     answers = tmp_path / "answers.yaml"
     answers.write_text(
         "inputs:\n  run:\n    environment: {value: D1}\n"
@@ -325,7 +331,9 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
         f"  feeds:\n    {feed}:\n"
         '      active_start_date: {value: "2026-11-01 00:00:00"}\n'
         '      dq_null_check_input_param: {value: "v-null"}\n'
-        '      dq_dedup_input_param: {value: "v-dedup"}\n', encoding="utf-8")
+        '      dq_dedup_input_param: {value: "v-dedup"}\n'
+        + "".join(f'      "pipeline_name.{flow}": {{value: "SYN_PL_{flow.upper()}"}}\n'
+                  for flow in FLOWS), encoding="utf-8")
     code = _generate(config, pair, only_feed=feed, answers_path=answers)
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK and "QUESTION" not in out
@@ -337,6 +345,12 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
         assert row["ACTIVE_START_DATE"][:2] == ("2026-11-01 00:00:00", FAQ)
         assert row["APPLICATION_NAME"][:2] == ("v-application_name", FAQ)
     assert all(r["EMAIL_TO"][0] == "syn.dl@synthetic.example" for r in _rows(xlsx, EMAIL))
+    # rule 1: the BSA's pipeline names, one per flow row — the notebook row of a
+    # flow takes the same answer
+    assert [r["PIPELINE_NAME"][0] for r in _rows(xlsx, SCHED)] == [
+        f"SYN_PL_{flow.upper()}" for flow in FLOWS]
+    assert [r["PIPELINE_NAME"][0] for r in _rows(xlsx, NB)] == [
+        "SYN_PL_FILE_TO_STG", "SYN_PL_STG_TO_STD"]
     # the older flat keys still read
     answers.write_text('inputs:\n  "run.environment": {value: D1}\n'
                        f'  "feeds.{feed}.active_start_date": {{value: "2026-12-01 00:00:00"}}\n',

@@ -128,6 +128,12 @@ class LoadPatternFaq(BaseModel):
     email_to: FaqAnswer = FaqAnswer(value="unknown")
     dq_null_check_input_param: FaqAnswer = FaqAnswer(value="unknown")
     dq_dedup_input_param: FaqAnswer = FaqAnswer(value="unknown")
+    # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned — one
+    # per flow row (owed_cells per_flow; inputs.feeds.<feed>: pipeline_name.<flow>)
+    pipeline_name_grand_master: FaqAnswer = FaqAnswer(value="unknown")
+    pipeline_name_master: FaqAnswer = FaqAnswer(value="unknown")
+    pipeline_name_file_to_stg: FaqAnswer = FaqAnswer(value="unknown")
+    pipeline_name_stg_to_std: FaqAnswer = FaqAnswer(value="unknown")
     # M7 companions (NOT questions): the engineer-assigned framework ids the
     # DML variables block carries (METADATA_DB_SEMANTICS §2, §5) and the
     # source connection's host. (They fed the retired config_inserts_<env>.sql

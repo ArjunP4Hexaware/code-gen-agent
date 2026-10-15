@@ -1227,7 +1227,9 @@ class PipelineRoleConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
     role: str
-    name: str
+    # 2026-10-14 (framework owner's rule 1): None = the name is BSA-assigned —
+    # never generated (the ACFC overlay; an owed cell asks for it per flow)
+    name: str | None = None
     description: str
     parent: str | None = None
 
@@ -1314,6 +1316,10 @@ class OwedCellConfig(BaseModel):
     # EMAIL_TO): ONE INPUT_NEEDED run.<faq> line in the run-level block, answered
     # under inputs.run; ``feed`` = per feed (inputs.feeds.<feed>.<faq>).
     scope: Literal["run", "feed"] = "feed"
+    # 2026-10-14 (framework owner's rule 1): one value PER FLOW ROW — the FAQ
+    # companion ``<faq>_<flow>``, the input key ``<faq>.<flow>`` (PIPELINE_NAME:
+    # pipeline_name.file_to_stg ...); the flows are the template's pipeline roles.
+    per_flow: bool = False
 
 
 class EnvironmentConfig(BaseModel):

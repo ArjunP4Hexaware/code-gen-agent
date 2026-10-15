@@ -232,15 +232,14 @@ metadata:
       # 38.8%) and notebook PROCESS_NAME (19.6%) are per-feed in prod, not the
       # home goldens' shapes - taken back to blank (pending_cells, below) until
       # the corpus patterns report says how prod builds them.
+      # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned - no
+      # longer derived from the schedule's generated name (pipeline_roles below
+      # carry no name; owed_cells ask for it per flow row).
       derived_cells:
-        DATABRICKS_NOTEBOOK_DETAILS:
-          PIPELINE_NAME: "{pipeline}"
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "{source}"
           PROCESS_NAME: "{source}"
       derived_citations:
-        DATABRICKS_NOTEBOOK_DETAILS:
-          PIPELINE_NAME: "the notebook runs in its leg's pipeline: the DATA_FACTORY_PIPELINE_SCHEDULE name of the file_to_stage / stage_to_standard row (SFMC IIG DATABRICKS_NOTEBOOK_DETAILS!B2 / B3 = DATA_FACTORY_PIPELINE_SCHEDULE!B2 / B3)"
         EMAIL_TEMPLATE_CONFIG:
           TEMPLATE_NAME: "corpus fill rate 2026-10-13: the process label (SFMC / CAQH goldens: the schedule's PROCESS_NAME, '<source> <subprocess>' - the documents state the source only); an FAQ process_name wins"
           PROCESS_NAME: "corpus fill rate 2026-10-13: the process label (as TEMPLATE_NAME); an FAQ process_name wins"
@@ -384,8 +383,23 @@ metadata:
       # D1 placeholder) so the BSA can change them; the NullCheckRule /
       # DeDuplicationRule INPUT_PARAM shape is in no home golden: open until the D1
       # dump supplies it.
+      # 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned - blank on
+      # every sheet that carries it (schedule, notebook; the iig_v2 email sheet has no
+      # such column), one feed-level INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>
+      # per flow row (per_flow; the notebook row of a flow takes the same answer).
+      pipeline_roles:
+        - {role: grand_master, description: "Grand master"}
+        - {role: master, description: "Master", parent: grand_master}
+        - {role: file_to_stage, description: "File to Stage", parent: master}
+        - {role: stage_to_standard, description: "Stage to Standard", parent: master}
       owed_cells:
+        DATABRICKS_NOTEBOOK_DETAILS:
+          PIPELINE_NAME: &bsa_pipeline_name
+            faq: pipeline_name
+            per_flow: true
+            question: "the pipeline name (PIPELINE_NAME) of this flow's row - BSA-assigned (framework owner's rule): never generated"
         DATA_FACTORY_PIPELINE_SCHEDULE:
+          PIPELINE_NAME: *bsa_pipeline_name
           ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}
           APPLICATION_NAME:
             faq: application_name

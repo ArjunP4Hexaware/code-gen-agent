@@ -190,8 +190,14 @@ rule_diagnostics:
 # the email template named after the feed), the prod goldens' legacy names. Never
 # used to pair, never scored: status "convention", reported as their own count
 # (and how many differ) — expected to differ against legacy goldens.
-convention_columns: [PIPELINE_NAME, DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_NOTEBOOK_NAME,
+convention_columns: [DATABRICKS_NOTEBOOK_NAME, DELETE_DATABRICKS_NOTEBOOK_NAME,
                      TEMPLATE_NAME, TGT_RJT_TABLE_NAME]
+
+# BSA-OWNED columns (2026-10-14, the framework owner's rule): the BSA assigns the
+# value; the agent leaves it blank (INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>).
+# Never used to pair, never scored, never missing: status "bsa-owned", counted on
+# its own (cells, and how many the golden fills).
+bsa_columns: [PIPELINE_NAME]
 
 # Golden GROUP_ID / PIPELINE_ID -> flow_type + matched_table (repo-relative;
 # the files missing are skipped). --group-index replaces the list.

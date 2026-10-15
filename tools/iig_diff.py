@@ -39,9 +39,13 @@ in the EDO standard — zero rows paired on pair_2):
   dropped (warned), a row whose identity stays incomplete is left unpaired;
 * a sheet with NO identity pairs by position only when both sides have the
   same number of rows — otherwise its rows stay unpaired, said in a warning;
-* CONVENTION columns (``convention_columns``: PIPELINE_NAME, the notebook
-  names, TEMPLATE_NAME, ...) are never used to pair and never scored: status
+* CONVENTION columns (``convention_columns``: the notebook names,
+  TEMPLATE_NAME, ...) are never used to pair and never scored: status
   ``convention``, counted with how many differ;
+* BSA-OWNED columns (``bsa_columns``: PIPELINE_NAME — the framework owner's
+  rule 1, 2026-10-14: the BSA assigns it, the agent leaves it blank) are never
+  missing, never scored: status ``bsa-owned``, counted with how many the golden
+  fills;
 * every sheet reports rows paired by identity / by position / unpaired, so a
   score is never read without how its rows were matched.
 
@@ -203,6 +207,10 @@ ASSIGN = "needs_assignment"
 # (iig_keys.yaml ``convention_columns``: PIPELINE_NAME, notebook names, ...):
 # never used to pair, never scored — counted on its own, with how many differ.
 CONVENTION = "convention"
+# 2026-10-14 (framework owner's rule 1): a column the BSA assigns (iig_keys.yaml
+# ``bsa_columns``: PIPELINE_NAME) — the agent leaves it blank on purpose: never
+# missing, never scored, counted on its own like the convention cells.
+BSA_OWNED = "bsa-owned"
 # 2026-10-13: a golden row of ANOTHER feed of the group (the golden is a
 # whole-GROUP_ID export, the agent wrote the run's own feeds) — reported as
 # "out of scope: N rows", never as missing.
@@ -214,7 +222,7 @@ OUT_OF_SCOPE = "out-of-scope"
 # extra, until the corpus says whether prod keeps them per group or per domain.
 GROUP_LEVEL = "group-level"
 STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION,
-            GROUP_LEVEL)
+            GROUP_LEVEL, BSA_OWNED)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 # The overall score keeps its meaning (an out-of-scope cell counts as missing);
 # ``comparable_score`` is the one over scoped cells of shared sheets only.
@@ -256,6 +264,7 @@ _FILLS = {
     ASSIGN: "E7E6E6",
     OUT_OF_SCOPE: "F2F2F2",
     CONVENTION: "FCE4D6",
+    BSA_OWNED: "E2EFDA",
 }
 
 
@@ -323,6 +332,7 @@ class KeyConfig:
     flow_sheets: dict[str, str] = field(default_factory=dict)
     flow_rules: tuple[tuple[str, re.Pattern[str], str], ...] = ()
     convention_columns: tuple[str, ...] = ()
+    bsa_columns: tuple[str, ...] = ()
     group_index: tuple[str, ...] = ()
     sheet_aliases: tuple[SheetAlias, ...] = ()
     file_name_tokens: tuple[re.Pattern[str], ...] = ()
@@ -338,6 +348,9 @@ class KeyConfig:
 
     def is_convention(self, column: str) -> bool:
         return column.upper() in {c.upper() for c in self.convention_columns}
+
+    def is_bsa(self, column: str) -> bool:
+        return column.upper() in {c.upper() for c in self.bsa_columns}
 
     def env_state(self) -> dict[str, str]:
         """token -> 'resolved' / 'unresolved: local:<name>, …' (names, never values)."""
@@ -421,7 +434,8 @@ def _env_tokens(path: Path, raw: object, local_path: Path | None) -> tuple[EnvTo
 def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     known = {"sheets", "needs_assignment", "withhold_values", "ignore_sheets", "object_tables",
-             "environment_tokens", "identity", "flow", "convention_columns", "group_index",
+             "environment_tokens", "identity", "flow", "convention_columns", "bsa_columns",
+             "group_index",
              "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows",
              "rule_diagnostics"}
     unknown = set(raw) - known
@@ -447,6 +461,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         identity=_column_lists(path, "identity", raw.get("identity")),
         **_flow(path, raw.get("flow")),
         convention_columns=tuple(str(c) for c in raw.get("convention_columns") or []),
+        bsa_columns=tuple(str(c) for c in raw.get("bsa_columns") or []),
         group_index=tuple(str(c) for c in raw.get("group_index") or []),
         sheet_aliases=_sheet_aliases(path, raw.get("sheet_aliases")),
         file_name_tokens=tuple(re.compile(str(t), re.IGNORECASE)
@@ -1183,6 +1198,8 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
                 status = GROUP_LEVEL
             elif keys.is_assignment(label):
                 status = ASSIGN
+            elif keys.is_bsa(label):
+                status = BSA_OWNED
             elif keys.is_convention(label):
                 status = CONVENTION
             elif not in_g:
@@ -1767,6 +1784,14 @@ def _convention(cells: list[Cell]) -> dict[str, int]:
     return {"cells": len(paired), "differing": differing}
 
 
+def _bsa(cells: list[Cell]) -> dict[str, int]:
+    """BSA-owned cells (rule 1): how many, how many the golden fills (the
+    agent leaves every one blank)."""
+    owned = [c for c in cells if c.status == BSA_OWNED]
+    return {"cells": len(owned),
+            "golden_filled": sum(1 for c in owned if str(c.golden or "").strip())}
+
+
 def _comparable(counts: dict[str, int]) -> float | None:
     """Over SCOPED cells only (out-of-scope rows left out)."""
     scored = sum(counts.get(s, 0) for s in SCORED)
@@ -1852,6 +1877,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "unpaired": d.unpaired,
             "identity_dropped": d.facts.get("identity_dropped"),
             "convention_cells": _convention(d.cells),
+            "bsa_cells": _bsa(d.cells),
             # D1 only (unscrubbed): the key convention each side follows.
             "key_samples": d.key_samples,
             "warnings": sheet_warnings,
@@ -1876,10 +1902,12 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
     pairing: Counter[str] = Counter()
     unpaired: Counter[str] = Counter()
     convention: Counter[str] = Counter()
+    bsa: Counter[str] = Counter()
     for d in diffs:
         pairing.update(d.pairing)
         unpaired.update(d.unpaired)
         convention.update(_convention(d.cells))
+        bsa.update(_bsa(d.cells))
     templates = template_facts(diffs)
     scope = next((d.facts.get("scope") for d in diffs if d.facts.get("scope")), None)
     return {
@@ -1901,6 +1929,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "pairing": {m: pairing.get(m, 0) for m in (BY_IDENTITY, BY_POSITION, BY_KEY)},
             "unpaired": {s: unpaired.get(s, 0) for s in ("golden", "agent")},
             "convention_cells": {k: convention.get(k, 0) for k in ("cells", "differing")},
+            "bsa_cells": {k: bsa.get(k, 0) for k in ("cells", "golden_filled")},
         },
         "sheets": sheets,
         "warnings": warnings,
@@ -2446,8 +2475,8 @@ def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
              "is scrubbed.", "",
              "| sheet | paired (identity / position / key) | unpaired (golden / agent) | score "
              "| comparable | exact | normalized | mismatch | missing | extra | out of scope "
-             "| convention |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "| convention | bsa-owned |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     columns_listed = 0
     detail: list[str] = []
     for d in diffs:
@@ -2463,7 +2492,7 @@ def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
             f"{unpaired.get('golden', 0)} / {unpaired.get('agent', 0)}",
             score, "-" if comparable is None else comparable,
             c[EXACT], c[NORMALIZED], c[MISMATCH], c[MISSING], c[EXTRA], c[OUT_OF_SCOPE],
-            c[CONVENTION])) + " |")
+            c[CONVENTION], c[BSA_OWNED])) + " |")
         per_column = d.column_counts()
         detail += [f"## {_md(_template_text(d.name, vocabulary, scr))}", ""]
         overlap = d.facts.get("component_overlap") or {}
@@ -2880,6 +2909,10 @@ def _print_pair(payload: dict, out: Path) -> None:
           f"convention cells {t['convention_cells']['cells']} "
           f"({t['convention_cells']['differing']} "
           "differ — never scored)")
+    bsa = t.get("bsa_cells") or {}
+    print(f"BSA-OWNED: {bsa.get('cells', 0)} cell(s) the BSA assigns (PIPELINE_NAME; the "
+          f"golden fills {bsa.get('golden_filled', 0)}) — left blank by rule, never missing, "
+          "never scored")
     note = (payload.get("templates") or {}).get("note")
     if note:
         print(f"NOTE {note}")

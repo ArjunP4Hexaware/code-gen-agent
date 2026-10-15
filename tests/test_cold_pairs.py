@@ -154,6 +154,7 @@ def test_cold_pair_completes_after_the_answers(pair, cold_env, capsys):
     # post45: APPLICATION_NAME / EMAIL_TO (written with a default) and the two DQ
     # INPUT_PARAM shapes — every one an INPUT_NEEDED, never a QUESTION
     owed = (".active_start_date — ", ".application_name — ", ".email_to — ",
+            ".pipeline_name.",              # framework owner's rule 1: BSA, per flow
             ".dq_null_check_input_param — ", ".dq_dedup_input_param — ")
     assert inputs and all(any(k in ln for k in owed) or
                           ln.startswith("INPUT_NEEDED   run.environment") for ln in inputs), out

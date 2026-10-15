@@ -44,19 +44,21 @@ SCHED, NB, EMAIL = ("DATA_FACTORY_PIPELINE_SCHEDULE", "DATABRICKS_NOTEBOOK_DETAI
 # delimited feed: no scrubbed handler prefix) and the four statuses are filled now.
 FILLED_NOW = {
     SCHED: ["PIPELINE_DESCRIPTION", "APPLICATION_NAME"],
-    NB: ["PIPELINE_NAME", "PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH",
-         "DATABRICKS_NOTEBOOK_NAME"],
+    NB: ["PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH", "DATABRICKS_NOTEBOOK_NAME"],
     EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SENDER_NAME", "STATUS", "SUBJECT"],
 }
 # open until the D1 overlay sets them (tests/test_d1_placeholders.py): the scrubbed
 # sender address (a placeholder) and the recipients (owed, a placeholder default)
 D1_OPEN = {EMAIL: ["SENDER_EMAIL", "EMAIL_TO"]}
+# 2026-10-14 (framework owner's rule 1): PIPELINE_NAME is BSA-assigned — blank on
+# the schedule and notebook rows, owed per flow (INPUT_NEEDED)
+BSA_OPEN = {SCHED: ["PIPELINE_NAME"], NB: ["PIPELINE_NAME"]}
 D1_PLACEHOLDER = {EMAIL: ["SENDER_EMAIL"]}
 # the home goldens fill these; the corpus does not (DAY_OF_SCHEDULE blank unless
 # Weekly), or no document does (ACTIVE_START_DATE owed), or the value is scrubbed
 # (SENDER_EMAIL, EMAIL_TO; BODY: 1 of the 4 status bodies carries the word G564)
-OPEN_GAPS = {SCHED: ["DAY_OF_SCHEDULE", "ACTIVE_START_DATE"],
-             NB: [],
+OPEN_GAPS = {SCHED: ["PIPELINE_NAME", "DAY_OF_SCHEDULE", "ACTIVE_START_DATE"],
+             NB: ["PIPELINE_NAME"],
              EMAIL: ["BODY", "SENDER_EMAIL", "EMAIL_TO"]}
 
 pytestmark = pytest.mark.skipif(not all(p.exists() for p in CORPUS),
@@ -86,13 +88,15 @@ def test_every_corpus_filled_column_is_filled_now(generated):
             assert all(row[c][0] in (None, "") for c in columns), (sheet, columns)
     # the corpus's one value, as prod stores it (a datetime)
     assert {r["ACTIVE_END_DATE"][0] for r in _rows(xlsx, SCHED)} == {"9999-12-31 00:00:00"}
-    schedule = [r["PIPELINE_NAME"][0] for r in _rows(xlsx, SCHED)]
-    assert [r["PIPELINE_NAME"][0] for r in notebook] == schedule[2:]   # the two legs
+    for sheet, columns in BSA_OPEN.items():
+        for row in _rows(xlsx, sheet):
+            assert all(row[c][0] in (None, "") for c in columns), (sheet, columns)
+    assert len(notebook) == 2                                          # the two legs
     assert {r["SENDER_NAME"][0] for r in _rows(xlsx, EMAIL)} == {"dbo"}
     # one NOTE per derived column (the same text on every row: said once)
     derived = [f for f in gate.flags if f.startswith("iig_derived:")
                and f.split(":")[1].split(".")[0] in FILLED_NOW]
-    assert len(derived) == 3 == len(set(derived))      # PIPELINE_NAME, TEMPLATE / PROCESS_NAME
+    assert len(derived) == 2 == len(set(derived))      # TEMPLATE / PROCESS_NAME
     placeholders = {f.split(" — ")[0] for f in gate.flags
                     if f.startswith("iig_d1_placeholder:")}
     assert {f"iig_d1_placeholder:{s}.{c}" for s, cs in D1_PLACEHOLDER.items()
@@ -121,7 +125,7 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
     # corpus values are production text: withheld unless --show-values
     assert all(c["dominant_value"] is None for s in report.values()
                for c in s["columns"].values())
-    assert "GAPS (2): DAY_OF_SCHEDULE, ACTIVE_START_DATE" in capsys.readouterr().out
+    assert "GAPS (3): PIPELINE_NAME, DAY_OF_SCHEDULE, ACTIVE_START_DATE" in capsys.readouterr().out
 
 
 def test_fill_rate_statuses_on_a_synthetic_corpus(tmp_path):

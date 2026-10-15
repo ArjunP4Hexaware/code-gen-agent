@@ -154,9 +154,11 @@ def test_real_shapes_pair_by_identity_comparable_100(tmp_path: Path) -> None:
     t = payload["totals"]
     assert t["comparable_score"] == 100.0 and t["mismatch"] == 0
     assert t["pairing"]["identity"] == 16 and t["unpaired"] == {"golden": 0, "agent": 0}
-    # PIPELINE_NAME (schedule + notebook) and DATABRICKS_NOTEBOOK_NAME: 12 cells, all differ
-    assert t["convention_cells"] == {"cells": 12, "differing": 12}
-    assert t["convention"] == 12                       # a status of its own, never scored
+    # DATABRICKS_NOTEBOOK_NAME: 4 convention cells, all differ; PIPELINE_NAME
+    # (schedule + notebook, 8 cells) is BSA-owned (rule 1): counted apart, never scored
+    assert t["convention_cells"] == {"cells": 4, "differing": 4}
+    assert t["convention"] == 4                        # a status of its own, never scored
+    assert t["bsa_cells"] == {"cells": 8, "golden_filled": 8} and t["bsa-owned"] == 8
     # the identities that paired: feed x flow, never a name
     assert payload["sheets"][PIPE]["key"] == ["@feed", "@flow"]
     assert payload["sheets"][ADLS]["key"] == ["@feed", "@flow", "TGT_TABLE_NAME", "@file"]

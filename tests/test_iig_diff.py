@@ -241,10 +241,12 @@ def test_missing_extra_rows_columns_and_sheets(tmp_path: Path) -> None:
     # paired row: FREQUENCY missing (column absent), NEW_COL extra; the GONE
     # row: FREQUENCY missing; the NEW row: NEW_COL extra (a cell neither
     # workbook has — GONE x NEW_COL, NEW x FREQUENCY — is not counted).
-    # PIPELINE_NAME is a CONVENTION column (2026-10-13): counted apart.
+    # PIPELINE_NAME is BSA-OWNED (2026-10-14, the framework owner's rule 1; was a
+    # convention column): never missing, never scored, counted apart.
     assert s["counts"]["missing-in-agent"] == 1 + 1
     assert s["counts"]["extra-in-agent"] == 1 + 1
-    assert s["counts"]["convention"] == 3
+    assert s["counts"]["bsa-owned"] == 3 and s["counts"]["convention"] == 0
+    assert s["bsa_cells"]["cells"] == 3
     assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["presence"] == "golden-only"
     # STATUS missing; TEMPLATE_NAME is a convention column
     assert payload["sheets"]["EMAIL_TEMPLATE_CONFIG"]["counts"]["missing-in-agent"] == 1
@@ -428,7 +430,7 @@ def test_fuzzy_mode_strips_pl_prefix(tmp_path: Path) -> None:
     # Fuzzy mode pairs by normalized key; PIPELINE_NAME is a CONVENTION column
     # (2026-10-13): never scored, counted apart — PIPELINE_FREQUENCY exact.
     assert s["counts"]["mismatch"] == 0
-    assert s["counts"]["convention"] == 1
+    assert s["counts"]["bsa-owned"] == 1        # PIPELINE_NAME: BSA-owned (rule 1)
 
 
 def test_fuzzy_key_normalization() -> None:
@@ -744,3 +746,17 @@ def test_scope_all_scores_every_golden_row(tmp_path):
                                 pair_mode="key")
     assert payload["totals"]["out_of_scope_rows"] == 0
     assert payload["sheets"][ADLS]["rows"]["missing-in-agent"] == 4
+
+
+def test_a_blank_bsa_owned_pipeline_name_is_never_missing(tmp_path: Path) -> None:
+    """2026-10-14 (the framework owner's rule 1): PIPELINE_NAME is BSA-assigned —
+    the agent leaves it blank; the golden's name is never missing-in-agent and
+    never scored, counted on its own (bsa-owned, golden_filled)."""
+    golden = _book(tmp_path / "g.xlsx", {PIPE: [HEAD, [1, "PL_SYN_A", "Daily", None]]})
+    agent = _book(tmp_path / "a.xlsx", {PIPE: [HEAD, [2, None, "Daily", None]]})
+    payload = iig_diff.run_pair(golden, agent, tmp_path / "out", KEYS, pair_mode="position")
+    s = payload["sheets"][PIPE]
+    assert s["counts"]["missing-in-agent"] == 0 and s["counts"]["mismatch"] == 0
+    assert s["counts"]["bsa-owned"] == 1
+    assert s["bsa_cells"] == {"cells": 1, "golden_filled": 1}
+    assert payload["totals"]["bsa_cells"] == {"cells": 1, "golden_filled": 1}

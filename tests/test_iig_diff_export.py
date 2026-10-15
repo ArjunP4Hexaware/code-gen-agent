@@ -121,7 +121,7 @@ def test_export_lists_every_introduced_mismatch(tmp_path: Path) -> None:
     header = next(wb[SCHED].iter_rows(values_only=True))
     wb.close()
     expected = {h for h in header if h and not keys.is_assignment(h)
-                and not keys.is_convention(h)}               # never scored
+                and not keys.is_convention(h) and not keys.is_bsa(h)}   # never scored
     missing = [r for r in rows if r[0] == SCHED and r[2] == "missing-in-agent"]
     assert {r[1] for r in missing} == expected and len(missing) == len(expected)
     assert all("golden row 5, agent row -" in r[5] for r in missing)

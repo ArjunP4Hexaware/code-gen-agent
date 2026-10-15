@@ -207,7 +207,13 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
         if any(_cell_text(cells.get(column)).strip() != value
                for column, value in rule.when.items()):
             continue
-        answer = getattr(faq, rule.faq, None) if faq is not None else None
+        flow = (context or {}).get("flow") or ""
+        if rule.per_flow and not flow:
+            continue
+        # rule 1: a per-flow cell is the companion <faq>_<flow>, key <faq>.<flow>
+        name = f"{rule.faq}_{flow}" if rule.per_flow else rule.faq
+        label = f"{rule.faq}.{flow}" if rule.per_flow else rule.faq
+        answer = getattr(faq, name, None) if faq is not None else None
         if answer is not None and answer.source != "unknown" and str(answer.value).strip():
             from codegen.metadata_sheet import _faq_cell as base
 
@@ -217,9 +223,9 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
         # (inputs.run), a feed-scoped one per feed (inputs.feeds.<feed>)
         kind, how = (("iig_owed_run", f"INPUT_NEEDED run.{rule.faq}: once for the run, under "
                       "inputs.run with generate --answers") if rule.scope == "run" else
-                     ("iig_owed", f"INPUT_NEEDED feeds.<feed>.{rule.faq}: under "
+                     ("iig_owed", f"INPUT_NEEDED feeds.<feed>.{label}: under "
                       f"inputs.feeds.<feed> with generate --answers, or the load-pattern FAQ "
-                      f"{rule.faq}"))
+                      f"{name}"))
         default = _owed_default(rule, {**tpl.corpus_tokens, **(context or {})})
         if default and not is_placeholder(default):
             share = rule.default_share or "default"
@@ -256,6 +262,18 @@ def owed_questions(tpl: MetadataTemplateConfig, faq,
     for rules in tpl.owed_cells.values():
         for rule in rules.values():
             if scope is not None and rule.scope != scope:
+                continue
+            if rule.per_flow:
+                # rule 1: one input per flow row (the template's pipeline roles)
+                for flow in dict.fromkeys(_ROLE_FLOWS.get(r.role, r.role)
+                                          for r in tpl.pipeline_roles):
+                    answer = (getattr(faq, f"{rule.faq}_{flow}", None)
+                              if faq is not None else None)
+                    if (answer is not None and answer.source != "unknown"
+                            and str(answer.value).strip()):
+                        continue
+                    if f"{rule.faq}.{flow}" not in [n for n, _q in out]:
+                        out.append((f"{rule.faq}.{flow}", f"{rule.question} — the {flow} row"))
                 continue
             answer = getattr(faq, rule.faq, None) if faq is not None else None
             if answer is not None and answer.source != "unknown" and str(answer.value).strip():
@@ -1018,15 +1036,15 @@ def _pipeline_roles(tab, feed, faq, tpl, extra: dict | None = None) -> list[dict
     citation = tpl.pipeline_roles_citation or tpl.citation
     rows = []
     for role in tpl.pipeline_roles:
-        name = role.name.format(feed=token)
         cells = {
-            "PIPELINE_NAME": _cell(name, "synthetic",
-                                   f"template constant — {citation}: {role.name!r} with "
-                                   f"{{feed}} = {token!r} ({source})"),
             "PIPELINE_DESCRIPTION": _cell(role.description, "synthetic",
                                           f"template constant — {citation}: the {role.role} "
                                           "pipeline"),
         }
+        if role.name is not None:      # rule 1: None = BSA-assigned, never generated
+            cells["PIPELINE_NAME"] = _cell(role.name.format(feed=token), "synthetic",
+                                           f"template constant — {citation}: {role.name!r} "
+                                           f"with {{feed}} = {token!r} ({source})")
         if role.parent is None:
             parent = _cell("0", "synthetic",
                            "template constant — framework convention: the top pipeline's "
@@ -1591,7 +1609,7 @@ def _role_pipeline_name(feed: FrdFeed, faq, tpl: MetadataTemplateConfig,
     """The schedule's PIPELINE_NAME of ``role`` (pipeline_roles, the same
     {feed} token) — a notebook row runs in its leg's pipeline."""
     match = next((r for r in tpl.pipeline_roles if r.role == role), None)
-    if match is None:
+    if match is None or match.name is None:
         return ""
     token, _source = _feed_token(feed, faq)
     return match.name.format(feed=token)

@@ -107,7 +107,7 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     for key in ("run.environment", "run.environment.storage_account", "run.application_name",
                 "run.email_to"):
         assert f"- `{key}`" in report
-    assert "**Answers owed** — questions: 0, inputs needed: 3" in report
+    assert "**Answers owed** — questions: 0, inputs needed: 7" in report   # + 4 pipeline names
     assert (f"iig_env:{ADLS}.TGT_CONTAINER_NAME — '{d1.containers['stage']}' from environment "
             "D1 (default): containers.stage") in report
     # post47: answers_template.yaml groups them: inputs.run once, inputs.feeds.<feed>
@@ -121,6 +121,8 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
                                    "application_name", "email_to"]
     assert list(inputs["feeds"]) == [spec.feed_id]
     assert list(inputs["feeds"][spec.feed_id]) == [
+        *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
+                                               "stg_to_std")),
         "active_start_date", "dq_null_check_input_param", "dq_dedup_input_param"]
     assert inputs["run"]["environment"]["candidates"] == ["D1", "QA", "PROD"]
     assert load_answers(path).inputs == {}            # every value empty: nothing answered

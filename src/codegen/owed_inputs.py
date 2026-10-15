@@ -37,6 +37,8 @@ INPUTS_SECTION = "inputs"
 RUN = "run"
 FEED = "feed"
 _RUN_KEY_RE = re.compile(r"INPUT_NEEDED (run\.[\w.]+)")
+# a feed-level owed NOTE's input name (rule 1: per flow, pipeline_name.<flow>)
+_FEED_KEY_RE = re.compile(r"INPUT_NEEDED feeds\.<feed>\.([\w.]+?):")
 
 
 @dataclass(frozen=True)
@@ -83,8 +85,10 @@ def answers_for(inputs: dict[str, str], index: int | str,
     out = {key[len(RUN) + 1:]: value for key, value in inputs.items()
            if key.startswith(f"{RUN}.") and not key.startswith(f"{RUN}.environment")}
     for prefix in (f"feeds[{index}].", *([f"feeds.{feed_id}."] if feed_id else [])):
-        out.update({key[len(prefix):]: value for key, value in inputs.items()
-                    if key.startswith(prefix)})
+        # a per-flow key <faq>.<flow> (rule 1: pipeline_name.file_to_stg) is the
+        # FAQ companion <faq>_<flow>
+        out.update({key[len(prefix):].replace(".", "_"): value
+                    for key, value in inputs.items() if key.startswith(prefix)})
     return out
 
 
@@ -201,7 +205,10 @@ def answers_owed(flags: list[str]) -> tuple[list[str], list[str]]:
             if is_required_role(sheet_layer.rpartition("/")[2], role):
                 questions.append(where)
         elif flag.startswith("iig_owed:"):
-            inputs.append(flag.split(":", 1)[1].split(" — ", 1)[0])
+            # by INPUT name (a per-flow cell on two sheets is one input per flow)
+            match = _FEED_KEY_RE.search(flag)
+            inputs.append(match.group(1) if match
+                          else flag.split(":", 1)[1].split(" — ", 1)[0])
         elif flag.startswith("lob_unkeyed:"):
             # 2026-10-14 (D1 pair_12): the feed's ONE file-to-LOB question
             questions.append(flag[len("lob_unkeyed:"):].split(" — ", 1)[0])

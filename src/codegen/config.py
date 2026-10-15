@@ -1276,11 +1276,16 @@ class CorpusCellConfig(BaseModel):
     # the share of each ``values`` key (the NOTE names it; else ``share``)
     shares: dict[str, str] = Field(default_factory=dict)
     todo: str | None = None
-    # An alternative shape offered in the NOTE (never written) for a row whose
-    # context sets ``offer_when`` (e.g. lob_fanout: a feed that fans out per LOB).
-    offer: str | None = None
-    offer_when: str | None = None
-    offer_share: str | None = None
+    # 2026-10-14 (framework owner's rule 2): per key, an ALTERNATIVE shape named
+    # in the NOTE, never written (the short "{application} Stage Load" forms), and
+    # its corpus share.
+    alternatives: dict[str, str] = Field(default_factory=dict)
+    alternative_shares: dict[str, str] = Field(default_factory=dict)
+    # per key, the shape of a feed that fans out per LOB ({lob} = one LOB code):
+    # prod runs one pipeline per LOB, the IIG writes ONE row per flow — the cell
+    # is left open, its NOTE listing the description of every LOB's pipeline.
+    per_lob: dict[str, str] = Field(default_factory=dict)
+    per_lob_share: str | None = None
 
     @model_validator(mode="after")
     def _one_source(self) -> CorpusCellConfig:

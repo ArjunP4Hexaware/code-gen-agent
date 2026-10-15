@@ -349,22 +349,42 @@ metadata:
           SEQ_NM: {value: "1", share: "1 in 64.6% of corpus rows"}
           ACTIVE_FLAG: {value: "Y", share: "Y in 98.9% of corpus rows"}
         DATA_FACTORY_PIPELINE_SCHEDULE:
+          # 2026-10-14 (framework owner's rule 2): the DETAILED corpus shapes are the
+          # default; the short "{application} Stage Load" forms are alternatives named
+          # in the NOTE. The slot filling is provisional (implemented against the
+          # patterns_post45 shapes; the pair_2 / pair_12 goldens' cells come from a D1
+          # dump) - every shape here is overlay-editable. {domain} = the FRD domain
+          # (patterns.json slots it so), {freq} = Daily / Weekly / Monthly,
+          # {application} = APPLICATION_NAME, {lob} = one LOB code.
+          # A feed that fans out per LOB has ONE file_to_stg row while prod runs one
+          # pipeline per LOB: that cell is left open, its NOTE listing each LOB's
+          # description (per_lob); a feed with one LOB / none omits the LOB segment.
           PIPELINE_DESCRIPTION:
             by: flow
             values:
+              file_to_stg: "{domain} {freq} File Pipeline Incremental Load to STAGE"
+              stg_to_std: "{application} {domain} Regular STANDARD Load"
+              grand_master: "{domain} {freq} Grand Master Pipeline"
+              master: "{domain} Master Pipeline for RAW to Stage Regular load"
+            share: "patterns_post45 per-flow PIPELINE_DESCRIPTION, the detailed shapes (framework owner's rule 2)"
+            shares:
+              file_to_stg: "file_to_stg: the '{domain} <LOB> LOB <Freq> File Pipeline Incremental Load to STAGE' family, ~1.4-2.1% per LOB x frequency (the top detailed pattern), the LOB segment omitted for a feed with no LOB fan-out"
+              stg_to_std: "stg_to_std: 'G1 G66 Regular STANDARD Load' 1.7% each of 10 514 rows (the detailed family; G1 = the application)"
+              grand_master: "grand_master: '... Daily / Weekly / Monthly Grand Master Pipeline' 5.1% each of 2 922 rows"
+              master: "master: '... Master Pipeline for RAW to Stage Regular load' 9.6% each of 1 850 rows"
+            per_lob:
+              file_to_stg: "{domain} {lob} LOB {freq} File Pipeline Incremental Load to STAGE"
+            per_lob_share: "e.g. '{domain} 0550 LOB Daily File Pipeline Incremental Load to STAGE' 2.1%, one pipeline per LOB"
+            alternatives:
               file_to_stg: "{application} Stage Load"
               stg_to_std: "{application} Standard Load"
               grand_master: "{application} Grand Master Pipeline"
               master: "{application} Master Pipeline"
-            share: "patterns_post45 per-flow PIPELINE_DESCRIPTION (G1 = the application)"
-            shares:
-              file_to_stg: "file_to_stg: 'G1 Stage Load' 33.3% of 20 212 rows"
-              stg_to_std: "stg_to_std: 'G1 Standard Load' 64.0% of 10 514 rows"
-              grand_master: "grand_master: 'G1 Grand Master Pipeline' 6.2% of 2 922 rows (the top slot pattern)"
-              master: "master: 'G1 Master Pipeline' 9.8% of 1 850 rows (the top slot pattern)"
-            offer: "{domain} {lob} LOB {freq} File Pipeline Incremental Load to STAGE"
-            offer_when: lob_fanout
-            offer_share: "the per-LOB file_to_stg form, e.g. '{domain} 0550 LOB Daily File Pipeline Incremental Load to STAGE' 2.1%, one per LOB"
+            alternative_shares:
+              file_to_stg: "'G1 Stage Load' 33.3% of 20 212 rows"
+              stg_to_std: "'G1 Standard Load' 64.0% of 10 514 rows"
+              grand_master: "'G1 Grand Master Pipeline' 6.2% of 2 922 rows"
+              master: "'G1 Master Pipeline' 9.8% of 1 850 rows"
           DAY_OF_SCHEDULE:
             by: frequency
             values: {Weekly: "0"}

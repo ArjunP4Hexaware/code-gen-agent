@@ -146,13 +146,16 @@ def test_a_scrubbed_handler_prefix_leaves_the_name_open_naming_the_variant():
 
 def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tmp_path):
     _spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
-    application, _freq = _source_and_freq(xlsx)
+    application, freq = _source_and_freq(xlsx)
+    domain = _rows(xlsx, ADLS)[0]["DOMAIN"][0]
     rows = _rows(xlsx, SCHED)          # grand master, master, file -> stage, stage -> std
     got = [(r["LAYER_NAME"][0], r["PIPELINE_DESCRIPTION"][0]) for r in rows]
-    assert got == [(None, f"{application} Grand Master Pipeline"),
-                   (None, f"{application} Master Pipeline"),
-                   ("STAGE", f"{application} Stage Load"),
-                   ("STANDARD", f"{application} Standard Load")]
+    # framework owner's rule 2: the DETAILED corpus shapes (no LOB fan-out: the LOB
+    # segment omitted); the short forms only in the NOTE
+    assert got == [(None, f"{domain} {freq} Grand Master Pipeline"),
+                   (None, f"{domain} Master Pipeline for RAW to Stage Regular load"),
+                   ("STAGE", f"{domain} {freq} File Pipeline Incremental Load to STAGE"),
+                   ("STANDARD", f"{application} {domain} Regular STANDARD Load")]
     for row in rows:
         # framework owner's rule 1: PIPELINE_NAME is BSA-assigned — blank, owed
         assert row["PIPELINE_NAME"][0] in (None, "") and row["PIPELINE_NAME"][1] == OPEN
@@ -171,7 +174,9 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
                and f"= '{application}'" in f and "INPUT_NEEDED run.application_name" in f
                for f in flags)
     assert any(f.startswith("iig_corpus:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_DESCRIPTION")
-               and "64.0%" in f for f in flags)
+               and "1.7%" in f and f"alternative (the short corpus form): '{application} "
+               "Standard Load' ('G1 Standard Load' 64.0% of 10 514 rows) — not written" in f
+               for f in flags)
     assert any(f.startswith("iig_corpus:DATA_FACTORY_PIPELINE_SCHEDULE.LAYER_NAME")
                and "38.4%" in f for f in flags)
 
@@ -207,21 +212,38 @@ def test_an_application_name_answer_is_the_application_everywhere(tmp_path):
     xlsx = tmp_path / "out" / spec.feed_slug / "framework" / "config_rows.xlsx"
     sched = _rows(xlsx, SCHED)
     assert {r["APPLICATION_NAME"][0] for r in sched} == {"SYNAPP"}
-    assert sched[2]["PIPELINE_DESCRIPTION"][0] == "SYNAPP Stage Load"
+    domain = _rows(xlsx, ADLS)[0]["DOMAIN"][0]
+    assert sched[3]["PIPELINE_DESCRIPTION"][0] == f"SYNAPP {domain} Regular STANDARD Load"
     assert _rows(xlsx, NB)[0]["PROCESS_NAME"][0] == "SYNAPP  Raw to stage load"
     assert FaqAnswer                                          # the companion's model
 
 
-def test_a_feed_that_fans_out_per_lob_is_offered_the_per_lob_description(tmp_path, capsys):
-    from test_lob_lookup import PLAN_LOB, PLANS, _generate, _with_feed, _xlsx
+def test_a_feed_that_fans_out_per_lob_leaves_the_stage_description_open(tmp_path, capsys):
+    """Rule 2: prod runs one file_to_stg pipeline per LOB ('{domain} <LOB> LOB
+    <Freq> File Pipeline ...'); the IIG has ONE row — open, the NOTE listing every
+    LOB's description, never one LOB picked; the other flows are written."""
+    from test_lob_lookup import CODES, PLAN_LOB, PLANS, _generate, _with_feed, _xlsx
 
     table = [{"Plan ID": p, "LOB": PLAN_LOB[p]} for p in PLANS]
     config, feed, pair = _with_feed(tmp_path, lob_table=table)
     _generate(config, pair, feed)
     capsys.readouterr()
+    xlsx = _xlsx(tmp_path, feed)
+    sched = _rows(xlsx, SCHED)
+    domain, freq = _rows(xlsx, ADLS)[0]["DOMAIN"][0], _source_and_freq_rows(xlsx)
+    assert sched[2]["PIPELINE_DESCRIPTION"][0] in (None, "")
+    assert sched[2]["PIPELINE_DESCRIPTION"][1] == OPEN
+    assert sched[3]["PIPELINE_DESCRIPTION"][0].endswith(" Regular STANDARD Load")
     report = next((tmp_path / "reports").glob("*.md")).read_text(encoding="utf-8")
-    assert "alternative for a feed that fans out per LOB: '" in report
-    assert "LOB" in _rows(_xlsx(tmp_path, feed), SCHED)[2]["PIPELINE_DESCRIPTION"][0] or True
+    assert f"this feed fans out over {len(CODES)} LOBs and has ONE row — left open" in report
+    for code in CODES:
+        assert (f"'{domain} {code} LOB {freq} File Pipeline Incremental Load to STAGE'"
+                in report), code
+
+
+def _source_and_freq_rows(xlsx) -> str:
+    freq = str(_rows(xlsx, ADLS)[0]["FREQUENCY"][0])         # one row per file here
+    return freq[:1].upper() + freq[1:].lower()
 
 
 def test_weekly_day_of_schedule_and_a_d1_overlay_replacing_placeholders(tmp_path):

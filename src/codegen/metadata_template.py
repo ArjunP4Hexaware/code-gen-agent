@@ -153,6 +153,10 @@ def _corpus(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
         share = _corpus_key(rule.shares, key) if rule.by and rule.shares else None
         share = share or rule.share
         tokens_map = {**tpl.corpus_tokens, **context}
+        per_lob = _corpus_key(rule.per_lob, key) if rule.per_lob else None
+        if per_lob is not None and context.get("lob_fanout"):
+            _corpus_per_lob(tab, header, cells, rule, per_lob, where, tokens_map)
+            continue
         tokens = _DERIVED_TOKEN_RE.findall(shape)
         filled = shape
         if not is_placeholder(shape):
@@ -173,22 +177,46 @@ def _corpus(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
         cell = _cell(filled, "synthetic", f"IIG corpus{where}: {shape!r} — {share} "
                                           f"({_PATTERNS_REPORT})")
         note = f"iig_corpus:{tab}.{header} — {shape!r}{where}: {share} ({_PATTERNS_REPORT})"
-        offer = _corpus_offer(rule, tokens_map)
-        if offer:
-            note += offer
+        note += _corpus_alternative(rule, key, tokens_map)
         cell["badge_entry"]["note"] = note
         cells[header] = cell
 
 
-def _corpus_offer(rule, tokens_map: dict) -> str:
-    """The NOTE's alternative shape (never written) for a row whose context
-    sets ``offer_when`` — e.g. the per-LOB pipeline description."""
-    if not rule.offer or not rule.offer_when or not tokens_map.get(rule.offer_when):
+def _fill_tokens(shape: str, tokens_map: dict) -> str:
+    """``shape`` with its tokens filled; a token without a value shown as <token>."""
+    return _DERIVED_TOKEN_RE.sub(
+        lambda m: str(tokens_map.get(m.group(1)) or f"<{m.group(1)}>").strip(), shape)
+
+
+def _corpus_alternative(rule, key: str, tokens_map: dict) -> str:
+    """Rule 2: the NOTE's alternative shape for the row's key (the short
+    corpus form) — named with its share, never written."""
+    alternative = _corpus_key(rule.alternatives, key) if rule.alternatives else None
+    if not alternative:
         return ""
-    offered = _DERIVED_TOKEN_RE.sub(
-        lambda m: str(tokens_map.get(m.group(1)) or f"<{m.group(1)}>").strip(), rule.offer)
-    return (f"; alternative for a feed that fans out per LOB: {offered!r}"
-            + (f" ({rule.offer_share})" if rule.offer_share else "") + " — not written")
+    share = _corpus_key(rule.alternative_shares, key) if rule.alternative_shares else None
+    return (f"; alternative (the short corpus form): {_fill_tokens(alternative, tokens_map)!r}"
+            + (f" ({share})" if share else "") + " — not written")
+
+
+def _corpus_per_lob(tab: str, header: str, cells: dict, rule, shape: str, where: str,
+                    tokens_map: dict) -> None:
+    """Rule 2: a feed that fans out per LOB — prod runs one pipeline per LOB
+    (the corpus's '{domain} {lob} LOB {freq} ...' rows), the IIG writes ONE row
+    per flow: the cell is left OPEN, its NOTE listing every LOB's description
+    (never one LOB picked, never a list in the cell)."""
+    lobs = [lob for lob in str(tokens_map.get("lob_list") or "").split(", ") if lob]
+    described = [_fill_tokens(shape, {**tokens_map, "lob": lob}) for lob in lobs]
+    share = rule.per_lob_share or rule.share
+    cell = _cell("", "needs_template",
+                 f"open — the feed fans out over {len(lobs)} LOBs and has ONE row: the "
+                 f"per-LOB shape {shape!r} needs one pipeline per LOB ({share})")
+    cell["badge_entry"]["note"] = (
+        f"iig_corpus:{tab}.{header} — {shape!r}{where}: one pipeline per LOB in the corpus "
+        f"({share}); this feed fans out over {len(lobs)} LOBs and has ONE row — left open, "
+        "never one LOB picked: " + "; ".join(repr(d) for d in described)
+        + _corpus_alternative(rule, str(tokens_map.get(rule.by) or ""), tokens_map))
+    cells[header] = cell
 
 
 def _cell_text(cell: dict | None) -> str:
@@ -1072,7 +1100,7 @@ def _lob_context(spec: ResolvedFeedSpec | None, config: Config) -> dict:
         return {}
     lobs = list(dict.fromkeys(f.lob for f in _feed_files(spec, config) if f.lob))
     return {"lob_fanout": "yes" if len(lobs) > 1 else "",
-            "lob": "<LOB: " + ", ".join(lobs) + ">" if len(lobs) > 1 else ""}
+            "lob_list": ", ".join(lobs) if len(lobs) > 1 else ""}
 
 
 def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:

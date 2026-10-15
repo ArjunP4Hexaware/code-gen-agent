@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post53 — 2026-10-15 (addendum 4: derived values never reach the error line)
+
+Feed slugs, work-dir paths and contract keys are generated, not harvested, so the
+leak gate cannot see them. The coordinates tier (`first_error_line`) already
+printed none (it is built from vocabulary + integers); post53 makes what it prints
+for them useful:
+- **Contract mismatch = counts on the first line**, e.g. `contract mismatch,
+  feed 1 of 1: 2 tables only in FRD, 1 table only in STTM`. Every resolver
+  mismatch item is tagged by kind (`resolver.mismatch_item`; labels in
+  `run_errors.MISMATCH_LABELS`). Names count once, so three segments naming one
+  table are 1 table. `ContractMismatchError.counts` rides the marker.
+  The full message's first line carries the same summary.
+- **A feed is `feed N of M`**: the mismatch coordinate now uses the original
+  FRD feed object (the gap chain had replaced it, so it read `pair 1 of 1`).
+- **A path is `<workdir>/pair_07/…`** (`run_errors.path_hint`: only a harness
+  `pair_NN` folder survives), e.g. `contract not found: STTM <workdir>/pair_07/…`.
+- Column names were already coordinates (the post52 raise-site audit).
+
 ## 0.5.8.post52 — 2026-10-15 (D1 post51 report: two defects + the pydantic addendum)
 
 1. **Error lines: two tiers, coordinates only in the one a report carries.** The

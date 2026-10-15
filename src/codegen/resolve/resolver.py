@@ -55,14 +55,59 @@ _WINDOW_DAYS_RE = re.compile(r"(\d+)\s*days?", re.IGNORECASE)
 _AS_IS_RE = re.compile(r"\bAS[\s\-‑]?IS\b", re.IGNORECASE)
 
 
+class MismatchItem(str):
+    """One mismatch line (the quoted text) tagged with its kind
+    (``codegen.run_errors.MISMATCH_LABELS``) and the names it covers — used
+    only to COUNT distinct names (three segments naming one table = 1 table);
+    the names are never printed by the coordinates tier."""
+
+    kind: str
+    count: int
+    names: tuple[str, ...]
+
+
+def mismatch_item(kind: str, text: str, count: int = 1,
+                  names: tuple | list = ()) -> MismatchItem:
+    item = MismatchItem(text)
+    item.kind = kind
+    item.names = tuple(str(n) for n in names)
+    item.count = len(set(item.names)) if item.names else max(int(count), 1)
+    return item
+
+
+def _mismatch_counts(errors: list[str]) -> dict[str, int]:
+    """kind -> distinct names (named items) + count (unnamed items)."""
+    named: dict[str, set[str]] = {}
+    counts: dict[str, int] = {}
+    for error in errors:
+        kind = getattr(error, "kind", "other")
+        names = getattr(error, "names", ())
+        if names:
+            named.setdefault(kind, set()).update(names)
+        else:
+            counts[kind] = counts.get(kind, 0) + getattr(error, "count", 1)
+    for kind, names in named.items():
+        counts[kind] = counts.get(kind, 0) + len(names)
+    return counts
+
+
 class ContractMismatchError(ValueError):
-    """The FRD and STTM contracts disagree; generation must not proceed."""
+    """The FRD and STTM contracts disagree; generation must not proceed.
+
+    D1 post51 addendum 4: the first line carries the summary as COUNTS
+    (``self.counts``, by kind) — the coordinates tier prints only those
+    ("contract mismatch, feed 2 of 3: 1 table only in FRD, 2 value conflicts");
+    the names stay on the bullet lines (the full tier)."""
 
     def __init__(self, feed: str, errors: list[str]) -> None:
+        from codegen.run_errors import mismatch_summary
+
         self.feed = feed
         self.errors = errors
+        self.counts: dict[str, int] = _mismatch_counts(errors)
         bullet_list = "\n  - ".join(errors)
-        super().__init__(f"contract mismatch for feed '{feed}':\n  - {bullet_list}")
+        super().__init__(f"contract mismatch for feed '{feed}' ({mismatch_summary(self.counts)})"
+                         f":\n  - {bullet_list}")
 
 
 def normalize_feed_name(name: str) -> str:
@@ -218,10 +263,11 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
         return ""
     if explicit:
         if len(set(explicit)) > 1:
-            errors.append(
+            errors.append(mismatch_item(
+                "value.conflict",
                 f"delimiter disagrees: STTM says {sttm_feed.source_file.delimiter!r}, "
                 f"FRD says {frd_feed.delimiter!r}"
-            )
+            ))
         return explicit[0]
     implied = _FORMAT_DELIMITERS.get((frd_feed.file_format or "").lower())
     if implied is None:
@@ -236,10 +282,11 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
                              ".psv '|', .tsv tab; a .txt / .dat file needs the FRD)")
                 break
     if implied is None:
-        errors.append(
+        errors.append(mismatch_item(
+            "value.unstated",
             f"format '{frd_feed.file_format}' has no implied delimiter, neither contract "
             "states one, and no file pattern carries a csv / psv / tsv extension"
-        )
+        ))
         return ""
     return implied
 
@@ -252,10 +299,11 @@ def _parse_reference(validation_text: str, feed: str) -> tuple[str, str, str | N
         raise located(ContractMismatchError(
             feed,
             [
+                mismatch_item("rule.unparseable",
                 "recycle validation text is not parseable as "
                 "'against <id_column> in <table> [where <filter>]' or "
                 "'Check with <id_column> from ... <table> [FOR <filter>]': "
-                f"{validation_text!r}"
+                f"{validation_text!r}")
             ],
         ), None, "contract.mismatch")
     filter_text = match.group("filter")
@@ -349,9 +397,11 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
             feed = feed.model_copy(update={"file_format": others[0].value})
             flags.append(fill_flag("file_format", others[0]))
         elif len(others) > 1:
-            errors.append("the FRD states no file format and the other documents disagree: "
-                          + "; ".join(f"{s.source} {s.cell} says {s.value!r}" for s in others)
-                          + " — choose one in the layout dialog")
+            errors.append(mismatch_item(
+                "value.conflict",
+                "the FRD states no file format and the other documents disagree: "
+                + "; ".join(f"{s.source} {s.cell} says {s.value!r}" for s in others)
+                + " — choose one in the layout dialog"))
     if feed.delimiter is None:
         others = others_for("delimiter", "delimiter")
         # The FRD's own format cell first (only the FRD's: a format the STTM
@@ -359,7 +409,7 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
         char, flag, error = _delimiter_from_format_text(frd_feed, others, feed_index, frd,
                                                         config)
         if error is not None:
-            errors.append(error)
+            errors.append(mismatch_item("value.conflict", error))
         elif char is not None:
             feed = feed.model_copy(update={"delimiter": char})
             flags.append(flag)
@@ -412,9 +462,11 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
                 update={"load_strategy": statement.value})})
             flags.append(fill_flag("stage_target.load_strategy", statement))
         elif "any" in parsed:
-            errors.append(f"the STTM states one load strategy ({parsed['any']!r}, {cell}) "
-                          "without a layer — say which layer it applies to in the layout "
-                          "dialog, or answer the FAQ load_mode")
+            errors.append(mismatch_item(
+                "value.unstated",
+                f"the STTM states one load strategy ({parsed['any']!r}, {cell}) "
+                "without a layer — say which layer it applies to in the layout "
+                "dialog, or answer the FAQ load_mode"))
     if feed.standard_target.load_strategy is None:
         if parsed.get("standard"):
             statement = Statement(parsed["standard"], "STTM", cell)
@@ -519,13 +571,17 @@ def _resolve_segments(
 
     if not frd_feed.is_segmented and not (sttm_feed.is_segmented and segment_names):
         if sttm_feed.is_segmented:
-            errors.append("STTM fields carry record_segment but the FRD declares no segments")
+            errors.append(mismatch_item(
+                "segment.sttm_only",
+                "STTM fields carry record_segment but the FRD declares no segments",
+                names=sorted({f.record_segment for f in sttm_feed.fields if f.record_segment})))
         if not _table_in(sttm_feed.stage.table, frd_feed.stage_target.tables, "STTM", "FRD",
                          flags):
-            errors.append(
+            errors.append(mismatch_item(
+                "table.sttm_only",
                 f"STTM stage table '{sttm_feed.stage.table}' is not among FRD stage "
-                f"tables {frd_feed.stage_target.tables}"
-            )
+                f"tables {frd_feed.stage_target.tables}", names=[sttm_feed.stage.table]
+            ))
         table = ResolvedTable(
             catalog=catalog, schema_name=stage_schema, table=sttm_feed.stage.table, role="stage",
             catalog_logical=catalog_logical,
@@ -533,10 +589,11 @@ def _resolve_segments(
         return [SegmentSpec(segment="Detail", stage_table=table, fields=sttm_feed.fields)]
 
     if not sttm_feed.is_segmented:
-        errors.append(
+        errors.append(mismatch_item(
+            "segment.frd_only",
             f"FRD declares segments {frd_feed.record_segments} but no STTM field "
-            "carries record_segment/stage_table"
-        )
+            "carries record_segment/stage_table", names=frd_feed.record_segments or []
+        ))
         return []
 
     segments: list[SegmentSpec] = []
@@ -544,13 +601,17 @@ def _resolve_segments(
     for segment_name in segment_names:
         seg_fields = [f for f in sttm_feed.fields if f.record_segment == segment_name]
         if not seg_fields:
-            errors.append(f"FRD segment '{segment_name}' has no fields in the STTM contract")
+            errors.append(mismatch_item(
+                "segment.frd_only",
+                f"FRD segment '{segment_name}' has no fields in the STTM contract",
+                names=[segment_name]))
             continue
         seg_tables = {f.stage_table for f in seg_fields}
         if len(seg_tables) > 1:
-            errors.append(
+            errors.append(mismatch_item(
+                "table.conflict",
                 f"segment '{segment_name}' maps to multiple stage tables: {sorted(seg_tables)}"
-            )
+            ))
         seg_table = seg_fields[0].stage_table
         assert seg_table is not None  # guaranteed by SttmFeed validation
         # Rule 6: a table takes catalog / schema from its OWN band — a row
@@ -561,10 +622,11 @@ def _resolve_segments(
             seg_catalog, seg_catalog_logical = map_catalog(row_catalog, "stage", config, flags)
         seg_schema = next((f.stage_schema for f in seg_fields if f.stage_schema), stage_schema)
         if not _table_in(seg_table, frd_feed.stage_target.tables, "STTM", "FRD", flags):
-            errors.append(
+            errors.append(mismatch_item(
+                "table.sttm_only",
                 f"segment '{segment_name}' stage table '{seg_table}' is not among FRD "
-                f"stage tables {frd_feed.stage_target.tables}"
-            )
+                f"stage tables {frd_feed.stage_target.tables}", names=[seg_table]
+            ))
         # Per-segment STANDARD table (segmented dialect: H/D/T map to their
         # own tables in BOTH layers). Catalog/schema come from the STTM's
         # standard target group when the FRD's Target Schema block names
@@ -572,10 +634,11 @@ def _resolve_segments(
         standard_table = None
         seg_standard_tables = {f.standard_table for f in seg_fields} - {None}
         if len(seg_standard_tables) > 1:
-            errors.append(
+            errors.append(mismatch_item(
+                "table.conflict",
                 f"segment '{segment_name}' maps to multiple standard tables: "
                 f"{sorted(t for t in seg_standard_tables if t)}"
-            )
+            ))
         elif seg_standard_tables and sttm_feed.standard is not None:
             stated = stated_catalog(
                 "standard",
@@ -614,17 +677,22 @@ def _resolve_segments(
     sttm_segments = {f.record_segment for f in sttm_feed.fields if f.record_segment}
     extra = sttm_segments - set(segment_names)
     if extra:
-        errors.append(f"STTM fields name segments the FRD does not declare: {sorted(extra)}")
+        errors.append(mismatch_item(
+            "segment.sttm_only",
+            f"STTM fields name segments the FRD does not declare: {sorted(extra)}",
+            names=sorted(extra)))
 
     if segments and not any(s.segment == "Detail" for s in segments):
-        errors.append("no Detail segment resolved; the data-carrying segment is required")
+        errors.append(mismatch_item(
+            "segment.missing", "no Detail segment resolved; the data-carrying segment is required"))
     if segments:
         detail = next((s for s in segments if s.segment == "Detail"), None)
         if detail is not None and sttm_feed.stage.table != detail.stage_table.table:
-            errors.append(
+            errors.append(mismatch_item(
+                "table.conflict",
                 f"STTM stage.table '{sttm_feed.stage.table}' should be the Detail segment "
                 f"table '{detail.stage_table.table}'"
-            )
+            ))
     return segments
 
 
@@ -729,9 +797,10 @@ def resolve_feeds(
         specs.append(_resolve_one(frd, frd_feed, sttm, sttm_feed, config, frd_sha256, sttm_sha256,
                                   vdd=vdd, gaps=gaps))
 
-    errors = [f"FRD feed has no STTM mapping: {name}" for name in unmatched_frd]
+    errors = [mismatch_item("feed.frd_only", f"FRD feed has no STTM mapping: {name}")
+              for name in unmatched_frd]
     errors += [
-        f"STTM feed '{feed_id}' has no FRD feed"
+        mismatch_item("feed.sttm_only", f"STTM feed '{feed_id}' has no FRD feed")
         for feed_id in sorted(set(sttm_by_id) - matched_sttm_ids)
     ]
     if errors:
@@ -765,7 +834,8 @@ def _resolve_one(
     feed_index = next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0)
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd,
                                                      feed_index=feed_index, frd=frd)
-    errors.extend(gap_errors)
+    errors.extend(e if isinstance(e, MismatchItem) else mismatch_item("value.conflict", e)
+                  for e in gap_errors)
     catalog_flags: list[str] = []
     catalog, catalog_logical = map_catalog(
         stated_catalog("stage", sttm_feed.stage.catalog, frd_feed.stage_target.catalog,
@@ -815,25 +885,31 @@ def _resolve_one(
                     f"FILES sheet states {file_name_patterns} (File Name Pattern, row(s) "
                     f"{sorted({row for _p, row in vdd_patterns})})")
             else:
-                errors.append(
+                errors.append(mismatch_item(
+                    "value.unstated",
                     "no source names a file pattern: the FRD states none, the STTM meta rows "
                     "'File Names' / 'File Name Example' and its File Details sheet are blank, "
                     "and no VDD FILES sheet was given (or its File Name Pattern column is "
                     "empty) — answer `feeds[0].file_patterns` in the layout dialog or under "
-                    "`gaps:` in the answers file, or pass the VDD (`generate --vdd`)")
+                    "`gaps:` in the answers file, or pass the VDD (`generate --vdd`)"))
     # Hard stops that remain: fields every source is silent on and the
     # generator cannot proceed without (a reader needs the format; a writer
     # needs the stage strategy). Domain / standard strategy are blank-and-flag.
     if frd_feed.file_format is None:
-        errors.append("no source states the file format: FRD 'Object/data Format', the STTM "
-                      "'File Format' meta row and the VDD FILES sheet are all blank")
+        errors.append(mismatch_item(
+            "value.unstated",
+            "no source states the file format: FRD 'Object/data Format', the STTM "
+            "'File Format' meta row and the VDD FILES sheet are all blank"))
     if frd_feed.stage_target.load_strategy is None:
-        errors.append("no source states the stage load strategy: FRD 'Load Strategy STG' blank, "
-                      "the STTM 'Load Strategy' meta row states none per layer, and the FAQ "
-                      "load_mode is unanswered — answer it in the layout dialog or the FAQ")
+        errors.append(mismatch_item(
+            "value.unstated",
+            "no source states the stage load strategy: FRD 'Load Strategy STG' blank, "
+            "the STTM 'Load Strategy' meta row states none per layer, and the FAQ "
+            "load_mode is unanswered — answer it in the layout dialog or the FAQ"))
 
     if not frd_feed.lobs:
-        errors.append("FRD feed declares no LOBs; the LOB audit column needs at least one")
+        errors.append(mismatch_item(
+            "value.unstated", "FRD feed declares no LOBs; the LOB audit column needs at least one"))
 
     # --- side tables, derived from the Detail stage table ------------------
     detail_table_name = next(
@@ -862,10 +938,11 @@ def _resolve_one(
     if recycle_spec is not None and recycle_spec.enabled:
         frd_days = _frd_window_days(frd_feed)
         if frd_days is not None and frd_days != recycle_spec.recycle_window_days:
-            errors.append(
+            errors.append(mismatch_item(
+                "value.conflict",
                 f"recycle window disagrees: FRD text says {frd_days} days, "
                 f"STTM spec says {recycle_spec.recycle_window_days} days"
-            )
+            ))
         reference_table, reference_id_column, reference_filter = _parse_reference(
             recycle_spec.validation, feed_id
         )
@@ -900,9 +977,11 @@ def _resolve_one(
     unaccounted = [t for t in frd_feed.stage_target.tables
                    if not _table_in(t, sorted(accounted), "FRD", "STTM", [])]
     if unaccounted:
-        errors.append(
-            f"FRD stage tables not mapped by any STTM field or recycle rule: {unaccounted}"
-        )
+        errors.append(mismatch_item(
+            "table.frd_only",
+            f"FRD stage tables not mapped by any STTM field or recycle rule: {unaccounted}",
+            names=unaccounted
+        ))
 
     # --- standard target ---------------------------------------------------
     standard_table: ResolvedTable | None = None
@@ -910,10 +989,11 @@ def _resolve_one(
     if sttm_feed.standard is not None:
         if not frd_feed.standard_target.tables:
             if sttm_feed.segmented is None:
-                errors.append(
+                errors.append(mismatch_item(
+                    "table.sttm_only",
                     f"STTM names standard table '{sttm_feed.standard.table}' but the FRD "
-                    "standard target is empty"
-                )
+                    "standard target is empty", names=[sttm_feed.standard.table]
+                ))
             # Segmented extraction: the standard layer is scoped by the FRD's
             # Load Strategy STD; its catalog/schema/tables come from the
             # STTM's standard target group (the FRD's Target Schema block
@@ -921,10 +1001,12 @@ def _resolve_one(
             # on the extraction, never inferred silently.
         elif not _table_in(sttm_feed.standard.table, frd_feed.standard_target.tables, "STTM",
                            "FRD", provenance_flags):
-            errors.append(
+            errors.append(mismatch_item(
+                "table.sttm_only",
                 f"STTM standard table '{sttm_feed.standard.table}' is not among FRD "
-                f"standard tables {frd_feed.standard_target.tables}"
-            )
+                f"standard tables {frd_feed.standard_target.tables}",
+                names=[sttm_feed.standard.table]
+            ))
         standard_catalog, standard_logical = map_catalog(
             stated_catalog("standard", sttm_feed.standard.catalog,
                            frd_feed.standard_target.catalog, catalog_flags),
@@ -938,13 +1020,16 @@ def _resolve_one(
         )
         standard_strategy = frd_feed.standard_target.load_strategy
     elif frd_feed.standard_target.tables:
-        errors.append(
+        errors.append(mismatch_item(
+            "table.frd_only",
             f"FRD names standard tables {frd_feed.standard_target.tables} but the STTM "
-            "has no standard mapping"
-        )
+            "has no standard mapping", names=frd_feed.standard_target.tables
+        ))
 
     if errors:
-        position = next((i for i, f in enumerate(frd.feeds, 1) if f is frd_feed), None)
+        # the ORIGINAL feed object: the gap chain above may have replaced frd_feed
+        position = next((i for i, f in enumerate(frd.feeds, 1) if f is original_frd_feed),
+                        None)
         raise located(ContractMismatchError(feed_id, errors),
                       Coord("feed", n=position, of=len(frd.feeds)) if position else None,
                       "contract.mismatch")

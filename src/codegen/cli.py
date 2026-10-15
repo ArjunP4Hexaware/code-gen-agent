@@ -314,17 +314,18 @@ EXIT_CODES = f"""exit codes:
 """
 
 def _fail(stage: str, text: str, reason: str, coord: Coord | None = None, *,
-          exc: BaseException | None = None, checks=()) -> None:
+          exc: BaseException | None = None, checks=(), path=None) -> None:
     """One FAIL line and its error marker (D1 post51, 2026-10-15). The line
     (stdout) keeps the quoted text — :func:`codegen.run_errors.first_error_line_full`
     reads it, inside ACFC only; the ``CODEGEN-ERROR`` marker (stderr) carries the
     stage, a reason code and coordinates only — what
     :func:`codegen.run_errors.first_error_line` (the harness, a pushed report)
-    reads. An exception's own coordinates (``run_errors.located``) win."""
+    reads. An exception's own coordinates (``run_errors.located``) win; ``path``
+    becomes ``<workdir>/pair_NN/…`` there (``run_errors.path_hint``)."""
     if isinstance(exc, FileNotFoundError) and reason == "unclassified":
         reason = "input.not_found"
     print(f"{'FAIL':<15} {text}")
-    report_error(stage, reason, coord, exc=exc, checks=checks)
+    report_error(stage, reason, coord, exc=exc, checks=checks, path=path)
 
 
 # The ACFC harness (codegen-watch, docs/acfc/HARNESS_EXIT_CODES.md on
@@ -2227,7 +2228,8 @@ def _main(argv: list[str] | None = None) -> int:
             try:
                 paths.append(_contract_path(value, config))
             except FileNotFoundError as exc:
-                _fail("generate", str(exc), "contract.not_found", Coord(role), exc=exc)
+                _fail("generate", str(exc), "contract.not_found", Coord(role), exc=exc,
+                      path=value)
                 return 1
         pairs = [(paths[0], paths[1])]
         only_feed = args.feed
@@ -2278,7 +2280,8 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         vdd_path = _contract_path(vdd_contract, config) if vdd_contract else None
     except FileNotFoundError as exc:
-        _fail(args.command, str(exc), "contract.not_found", Coord("VDD"), exc=exc)
+        _fail(args.command, str(exc), "contract.not_found", Coord("VDD"), exc=exc,
+              path=vdd_contract)
         return 1
     code = _run_pairs(
         pairs, config, only_feed=only_feed, dry_run=args.dry_run,

@@ -18,6 +18,9 @@ post51 12-pair report (acfc-results `run_20261015T065841Z_97fe673`, read via `gi
 - Second test env `.venv-d1` (D1 pins: `constraints/acfc_d1.txt`, `docs/acfc/ENVIRONMENT_ACFC.md`
   §0; no `ui` extra): run the suite in BOTH venvs before a push. `model_*` pydantic fields
   need `protected_namespaces=()` (`tests/test_d1_environment.py`).
+- post53: a NEW resolver mismatch goes through `resolver.mismatch_item(kind, text,
+  names=…)` (kinds = `run_errors.MISMATCH_LABELS`) — the coordinates tier prints its
+  COUNT, never the names; a path in a marker is `path_hint` (`<workdir>/pair_NN/…`).
 - Parser / extractor failures of pairs 05 / 06 / 08 / 09 / 10 are untouched (a separate session).
 
 **post51 (2026-10-15; `CHANGELOG_ACFC.md` has the five items).** Head was the

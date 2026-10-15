@@ -187,7 +187,7 @@ REASONS: dict[str, str] = {
     "input.not_found": "input file not found",
     "workbook.not_found": "workbook not found",
     "contract.not_found": "contract not found:",
-    "contract.mismatch": "FRD / STTM contract mismatch",
+    "contract.mismatch": "contract mismatch",
     "contract.invalid": "contract fails validation",
     "feed.no_match": "no resolved feed matches --feed",
     "feed.none_produced": "produced no feeds",
@@ -230,6 +230,67 @@ REASONS: dict[str, str] = {
     "verify": "verification mismatch",
 }
 
+# Addendum 4 (post52): a contract mismatch is summarised by COUNTS on the first
+# line — "contract mismatch, feed 2 of 3: 1 table only in FRD, 2 value conflicts"
+# — never the names. Kind -> (singular, plural); the resolver tags each item
+# (codegen.resolve.resolver.mismatch_item), the exception carries the counts.
+MISMATCH_LABELS: dict[str, tuple[str, str]] = {
+    "feed.frd_only": ("feed only in FRD", "feeds only in FRD"),
+    "feed.sttm_only": ("feed only in STTM", "feeds only in STTM"),
+    "table.frd_only": ("table only in FRD", "tables only in FRD"),
+    "table.sttm_only": ("table only in STTM", "tables only in STTM"),
+    "table.conflict": ("table conflict", "table conflicts"),
+    "segment.frd_only": ("segment only in FRD", "segments only in FRD"),
+    "segment.sttm_only": ("segment only in STTM", "segments only in STTM"),
+    "segment.missing": ("required segment missing", "required segments missing"),
+    "column.frd_only": ("column only in FRD", "columns only in FRD"),
+    "column.sttm_only": ("column only in STTM", "columns only in STTM"),
+    "column.type_conflict": ("type conflict", "type conflicts"),
+    "value.conflict": ("value conflict", "value conflicts"),
+    "value.unstated": ("value stated in no document", "values stated in no document"),
+    "rule.unparseable": ("recycle rule not parseable", "recycle rules not parseable"),
+    "other": ("other mismatch", "other mismatches"),
+}
+
+
+def mismatch_summary(counts: object) -> str:
+    """``{kind: n}`` as the coordinates tier prints it, in :data:`MISMATCH_LABELS`
+    order; unknown kinds / non-int counts are dropped."""
+    if not isinstance(counts, dict):
+        return ""
+    parts = []
+    for kind, (one, many) in MISMATCH_LABELS.items():
+        n = counts.get(kind)
+        if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+            parts.append(f"{n} {one if n == 1 else many}")
+    return ", ".join(parts)
+
+
+def error_counts(exc: BaseException | None) -> dict[str, int]:
+    """The first ``counts`` mapping on ``exc`` or its chain (registered kinds only)."""
+    for e in _chain(exc):
+        counts = getattr(e, "counts", None)
+        if isinstance(counts, dict):
+            return {k: v for k, v in counts.items() if k in MISMATCH_LABELS
+                    and isinstance(v, int) and not isinstance(v, bool) and v > 0}
+    return {}
+
+
+_PAIR_DIR = re.compile(r"^pair_\d{1,4}$")
+_WHERE = re.compile(r"^<workdir>(?:/pair_\d{1,4})?/\u2026$")
+
+
+def path_hint(path: object) -> str | None:
+    """A path as the coordinates tier may show it (addendum 4): the work dir and
+    every name in it elided, the harness's own ``pair_NN`` folder kept —
+    ``<workdir>/pair_07/…``; ``<workdir>/…`` when there is none."""
+    if path is None:
+        return None
+    parts = [p for p in re.split(r"[\\/]+", str(path)) if p]
+    pair = next((p for p in reversed(parts) if _PAIR_DIR.match(p)), None)
+    return f"<workdir>/{pair}/\u2026" if pair else "<workdir>/\u2026"
+
+
 MARKER = "CODEGEN-ERROR "
 _EXC_NAME = re.compile(r"^[A-Za-z_][\w.]{0,80}(?:Error|Exception|Exit|Interrupt|Blocked)$")
 _CHECK_NAME = re.compile(r"^[a-z][a-z0-9_]{0,48}$")
@@ -240,8 +301,8 @@ def _exc_name(name: object) -> str | None:
 
 
 def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
-                 exc: BaseException | None = None, checks: tuple[str, ...] | list[str] = ()
-                 ) -> str:
+                 exc: BaseException | None = None, checks: tuple[str, ...] | list[str] = (),
+                 path: object = None) -> str:
     """One ``CODEGEN-ERROR {json}`` line. An exception's own coordinates and
     reason (:func:`located`) win over the catch site's; every field is checked
     against this module's vocabulary on the way in AND on the way out."""
@@ -252,15 +313,17 @@ def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
         "coord": coord.as_dict() if isinstance(coord, Coord) else None,
         "exception": _exc_name(type(exc).__name__) if exc is not None else None,
         "checks": [c for c in checks if isinstance(c, str) and _CHECK_NAME.match(c)][:12],
+        "counts": error_counts(exc),
+        "where": path_hint(path),
     }
     return MARKER + json.dumps(payload, sort_keys=True)
 
 
 def report_error(stage: str, reason: str, coord: Coord | None = None, *,
                  exc: BaseException | None = None, checks: tuple[str, ...] | list[str] = (),
-                 stream=None) -> None:
+                 path: object = None, stream=None) -> None:
     """Print the marker for one FAIL line (stderr by default)."""
-    print(error_marker(stage, reason, coord, exc=exc, checks=checks),
+    print(error_marker(stage, reason, coord, exc=exc, checks=checks, path=path),
           file=stream or sys.stderr, flush=True)
 
 
@@ -273,8 +336,15 @@ def coordinate_line(payload: object) -> str:
     phrase = REASONS[reason]
     line = f"{'FAIL':<15} {stage} — {phrase}"
     coord = Coord.from_dict(data.get("coord"))
-    if coord is not None:
+    if reason == "contract.mismatch":
+        # "contract mismatch, feed 2 of 3: 4 columns only in FRD, ..." (addendum 4)
+        summary = mismatch_summary(data.get("counts"))
+        line += (f", {coord}" if coord is not None else "") + (f": {summary}" if summary else "")
+    elif coord is not None:
         line += f" {coord}" if phrase.endswith(":") else f" at {coord}"
+    where = data.get("where")
+    if isinstance(where, str) and _WHERE.match(where):
+        line += f" {where}"
     checks = [c for c in (data.get("checks") or []) if isinstance(c, str)
               and _CHECK_NAME.match(c)][:12] if isinstance(data.get("checks"), list) else []
     if checks:
@@ -447,7 +517,8 @@ def silence_pydantic_deprecations() -> None:
     warnings.filterwarnings("ignore", category=PydanticDeprecationWarning)
 
 
-__all__ = ["DOCS", "MARKER", "REASONS", "STAGES", "Coord", "column_number", "coordinate_line",
-           "error_coord", "error_marker", "error_reason", "first_error_line",
-           "first_error_line_full", "is_warning_line", "located", "report_error",
-           "sheet_number", "silence_pydantic_deprecations", "without_warnings"]
+__all__ = ["DOCS", "MARKER", "MISMATCH_LABELS", "REASONS", "STAGES", "Coord", "column_number",
+           "coordinate_line", "error_coord", "error_counts", "error_marker", "error_reason",
+           "first_error_line", "first_error_line_full", "is_warning_line", "located",
+           "mismatch_summary", "path_hint", "report_error", "sheet_number",
+           "silence_pydantic_deprecations", "without_warnings"]

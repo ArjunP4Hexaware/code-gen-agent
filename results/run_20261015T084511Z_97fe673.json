@@ -1,0 +1,88 @@
+{
+  "status": "OK",
+  "branch": "feature/multi-table",
+  "sha": "97fe6731d8c4ce47b832dc9529ff3628be309ff9",
+  "timestamp": "20261015T084511Z",
+  "environment": {
+    "python_version": "3.12.3",
+    "packages": {
+      "codegen-data-engineer-agent": "0.5.8.post51",
+      "openpyxl": "3.1.2",
+      "pydantic": "2.8.2",
+      "jinja2": "3.1.6",
+      "pyyaml": "6.0.1",
+      "ruff": "0.17.0",
+      "databricks-sdk": "0.30.0"
+    },
+    "endpoint": "databricks-claude-opus-5 (EndpointStateReady.READY)"
+  },
+  "pairs": [
+    {
+      "pair": "pair_11",
+      "status": "OK",
+      "runtime_sec": 11.6,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 11,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 1,
+          "sheet_1": 81,
+          "sheet_2": 18,
+          "sheet_3": 18,
+          "sheet_4": 13,
+          "sheet_5": 26,
+          "sheet_6": 26,
+          "sheet_7": 27,
+          "sheet_8": 20
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 1,
+        "sheet_1": 81,
+        "sheet_2": 18,
+        "sheet_3": 18,
+        "sheet_4": 13,
+        "sheet_5": 26,
+        "sheet_6": 26,
+        "sheet_7": 27,
+        "sheet_8": 20
+      }
+    }
+  ],
+  "leak_gate": {
+    "terms_checked": 251,
+    "real_hits": 0,
+    "self_match_hits": 0,
+    "static_denylist_sha256": "6e003a4601df372cf3bd18362bb6e21e4852c224880b683aef0254ea6d9d9d92",
+    "harvested_terms_sha256": "65419907fa748f767210d817bb7dffd02fa556a4368767e7f646e71409699667",
+    "verdict": "CLEAN"
+  }
+}

@@ -5,7 +5,25 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-15, after post55).** post55 = the post51 12-pair report's
+**RESTART HERE (2026-10-15, after post56).** post56 = two items (`CHANGELOG_ACFC.md`):
+- Per-feed IIG cell counts in `CODEGEN_STAGES.json` (`feeds[].iig_cells`: per sheet
+  `open_for_bsa` / `empty_other` / `template_blanks` + `open_inputs`;
+  `run_stages.iig_unpopulated(out_root)` is the harness reader). The old harness metric
+  = empty cells of the sheet's used range (reproduced pair_02's numbers on the home SD
+  run); the "constant" was one workbook counted for two pairs. One input can open several
+  cells, so cells ≠ inputs. Test: `test_iig_cell_counts.py`. openpyxl 3.1.2 keeps a
+  `load_workbook(path)` file open, so a workbook read on the generate path must come from
+  its bytes, or the quarantine move fails on Windows (`.venv-d1` caught it).
+- One environment resolver `codegen.environments.resolve` (CLI + App). Per-field
+  `RunEnvironment.sources` are shown in the picker. The `codegen-state` root is the
+  `CODEGEN_STATE_DIR` setting (`config.state_root`), and the App logs `state_dirs_line()`
+  at startup. The App's 10:07 miss = a staged copy without `codegen-state/`
+  (gitignored), so ACFC must copy it into the staged tree and set the variable. Test:
+  `test_environment_resolution_parity.py`.
+- Harness asks: read per-feed `iig_cells` (never a workbook glob); set `CODEGEN_STATE_DIR`
+  on the App.
+
+**After post55 (kept for reference).** post55 = the post51 12-pair report's
 extraction failures (acfc-results `run_20261015T074546Z_97fe673`), one commit each,
 `CHANGELOG_ACFC.md` has the items. Verified before the push: dev `.venv` 1687 passed / 28
 skipped / 1 failed, `.venv-d1` 1399 passed / 68 skipped. The one failure,

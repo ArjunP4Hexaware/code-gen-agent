@@ -4,6 +4,37 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post56 — 2026-10-15 (IIG cell counts per feed; one environment resolver)
+
+- **IIG cell counts.** pair_11 (4 feeds) and pair_12 (1 feed) printed the same
+  nine "unpopulated" numbers because the harness counted one workbook for both.
+  Its metric (empty cells of each sheet's used range) matches the generator's
+  own SD workbook exactly, so the counter was right but the file was wrong.
+  Each feed now writes its own counts to `CODEGEN_STAGES.json`
+  (`feeds[].iig_cells`; read them with `codegen.run_stages.iig_unpopulated(out_root)`),
+  per sheet over the rows the generator wrote:
+  - `open_for_bsa`: empty cells that the inputs panel asks about (an owed-cell
+    or environment NOTE);
+  - `empty_other`: every other empty cell;
+  - `template_blanks`: the old number, kept for this release only.
+  
+  `open_inputs` lists the input keys behind the `open_for_bsa` cells. One
+  input can leave several cells open (`run.email_to` on each status row), so
+  cells ≠ inputs. The harness should read these per feed instead of scanning a
+  workbook.
+- **Environment resolution.** The App and the CLI share one resolver,
+  `codegen.environments.resolve`. Precedence: explicit file >
+  `<state root>/environments/<name>.yaml` > the overlay block > unset
+  (INPUT_NEEDED, or a QUESTION for a required key). Every field records its
+  source, and the picker shows it.
+  
+  The 10:07 mismatch came from where `codegen-state/` was looked up: next to
+  the code. The App runs a staged copy with no `codegen-state/` (gitignored, so
+  `databricks sync` skips it). New App setting **`CODEGEN_STATE_DIR`**: copy
+  `codegen-state/` into the staged tree and point the variable at it
+  (`docs/ACFC_APP_ENV.md`). The App logs `codegen-state root: …` at startup,
+  with `[MISSING]` after any folder it cannot see.
+
 ## 0.5.8.post55 — 2026-10-15 (D1 post51 12-pair report: the extraction failures)
 
 From acfc-results `run_20261015T074546Z_97fe673`. Each fix has a synthetic

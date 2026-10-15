@@ -221,13 +221,22 @@ class PairResolution:
             "pair_cache_hit": self.pair_cache_hit,
             "provider_calls": self.provider_calls,
             "sttm": _document_report(self.sttm),
-            "frd": _document_report(self.frd) if self.frd else None,
+            "frd": _frd_report(self.frd) if self.frd else None,
             "vdd": _document_report(self.vdd) if self.vdd else None,
             "gap_fills": list(self.gap_fills),
             "cross_checks": [c.render() for c in self.cross_checks],
             "flags": list(self.flags),
             "questions": [q.as_dict() for q in self.questions],
         }
+
+
+def _frd_report(doc: DocumentResolution) -> dict:
+    """The FRD's report adds its family and, for F2, which signal found the
+    Solution Requirement tables (D1 post51: caption or header-row fingerprint)."""
+    from codegen.extract.frd_docx import F2_SIGNAL_NOTE
+
+    return {**_document_report(doc), "family": doc.profile.family,
+            "family_signals": [n for n in doc.profile.notes if n.startswith(F2_SIGNAL_NOTE)]}
 
 
 def _document_report(doc: DocumentResolution) -> dict:

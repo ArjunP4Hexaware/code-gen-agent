@@ -367,6 +367,15 @@ extractor:
       vendor_abbreviation: ["Vendor Abbreviation"]
     solution_requirement_prefix: "Solution Requirement"
     solution_requirement_section_row: 4
+    # D1 post51 pairs 08-10: SR tables without a caption are found by their
+    # row labels (SHAPES_FOR_PORT section F2): every required label + at
+    # least min_labels of the list; the caption is the second signal.
+    solution_requirement_labels: ["Name", "Business Requirement", "Functional Requirement",
+                                  "Impact Details", "Solution Acceptance Criteria", "Priority",
+                                  "Source/Reference", "Traced Requirements",
+                                  "Related Requirements", "IS Owner"]
+    solution_requirement_required_labels: ["Business Requirement", "Functional Requirement"]
+    solution_requirement_min_labels: 5
     inline_pair_separators: [";"]
     list_separators: [",", ";", "\n"]
     # 2026-10-14 (D1 pair_12): a LOB cell holding a Region / LOB table (nested,

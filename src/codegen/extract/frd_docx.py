@@ -10,7 +10,10 @@ Two document families (docs/acfc/SHAPES_FOR_PORT.md §2):
 - **F2** — no metadata tables; Solution Requirement tables whose row-4
   label names the metadata section. The requirement's Functional
   Requirement text becomes a rule of that section, and ``Label: value``
-  pairs inside the row-4 text are read with the same label synonyms.
+  pairs inside the row-4 text are read with the same label synonyms. A
+  Solution Requirement table is found by its row labels (``sr_signal``: the
+  ``solution_requirement_labels`` fingerprint), its caption a second signal —
+  D1 post51 pairs 08-10 carried none.
 
 Same discipline as the STTM path: :func:`discover_frd` builds an
 :class:`~codegen.layout.frd_profile.FrdLayoutProfile` (positions + labels,
@@ -84,6 +87,17 @@ _RULE_LABELS = ("business_rules", "transformation_logic", "filter_criteria",
 
 class FrdDocxError(ValueError):
     """The document cannot be read as an F1/F2 FRD; message names the spot."""
+
+
+class FrdUnreadableError(FrdDocxError):
+    """No F1 / F2 table found (D1 post51 pairs 08-10). Carries the table count
+    and each table's header-row fingerprint for the coordinates tier
+    (``run_errors.error_tables``) — never a table's text."""
+
+    def __init__(self, message: str, *, table_count: int, fingerprints: list[str]) -> None:
+        super().__init__(message)
+        self.table_count = table_count
+        self.fingerprints = list(fingerprints)
 
 
 # ------------------------------------------------------------- docx reading
@@ -177,11 +191,15 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     digest = frd_fingerprint(tables)
     sections = _lookup(config.section_titles)
     labels = _lookup(config.labels)
-    sr_prefix = normalize_label(config.solution_requirement_prefix)
+    signals = {i: s for i in range(len(tables))
+               if (s := sr_signal(i, tables[i], content, config)) is not None}
+    # A table with the Solution Requirement row labels is never an F1 section
+    # table (a requirement NAMED "Data quality" fits the F1 reference-column
+    # variant's shape).
     f1_tables = [(i, section_title(t, sections)[1]) for i, t in enumerate(tables)
-                 if section_title(t, sections) is not None]
-    sr_tables = [i for i, t in enumerate(tables)
-                 if t and t[0] and normalize_label(t[0][0]).startswith(sr_prefix)]
+                 if section_title(t, sections) is not None
+                 and not (signals.get(i) or "").startswith("header-row")]
+    sr_tables = sorted(signals)
     if not tables:
         # Chunk B (cold drill): a free-form FRD (paragraphs only). Prose has
         # no label to read a value by: no field is placed, every required
@@ -195,11 +213,84 @@ def discover_frd(content: DocxContent, config: FrdExtractorConfig) -> FrdLayoutP
     if f1_tables:
         return _discover_f1(tables, f1_tables, labels, digest, config)
     if sr_tables:
-        return _discover_f2(tables, sr_tables, sections, labels, digest, config)
-    raise located(FrdDocxError(
-        "no metadata section table (F1) and no Solution Requirement table (F2) found; "
-        f"table titles seen: {[t[0][0][:40] for t in tables if t and t[0]][:12]}"
-    ), Coord("FRD"), "frd.unreadable")
+        profile = _discover_f2(tables, sr_tables, sections, labels, digest, config)
+        by_signal: dict[str, list[int]] = {}
+        for i in sr_tables:
+            by_signal.setdefault(signals[i], []).append(i)
+        notes = [f"{F2_SIGNAL_NOTE} {signal} \u2014 table(s) {indexes}"
+                 for signal, indexes in sorted(by_signal.items())]
+        return profile.model_copy(update={"notes": notes + list(profile.notes)})
+    # D1 post51: never the tables' text (titles were document content) - the
+    # count and each table's header-row fingerprint (header_fingerprint).
+    prints = [header_fingerprint(t) for t in tables]
+    raise located(FrdUnreadableError(
+        "no metadata section table (F1) and no Solution Requirement table (F2) found among "
+        f"{len(tables)} table(s); header-row fingerprints: {prints[:16]}"
+        + (f" (+{len(prints) - 16} more)" if len(prints) > 16 else ""),
+        table_count=len(tables), fingerprints=prints[:16]), Coord("FRD"), "frd.unreadable")
+
+
+F2_SIGNAL_NOTE = "F2 signal:"
+_LABEL_CELL_MAX = 60
+_LABEL_BOUNDARY = (" ", ":", "/", "(", "-")
+
+
+def header_fingerprint(rows: list[list[str]]) -> str:
+    """12 hex of ``term_sha256`` over a table's row 0 (normalized cells joined
+    by ``|``) - names a table shape in an error line without its text. At
+    home: ``term_sha256("version|date|author|description")[:12]``."""
+    from codegen.term_hash import term_sha256
+
+    row = rows[0] if rows else []
+    return term_sha256("|".join(normalize_label(c) for c in row))[:12]
+
+
+def _names_label(cell: str, label: str) -> bool:
+    return cell == label or (cell.startswith(label)
+                             and cell[len(label):len(label) + 1] in _LABEL_BOUNDARY)
+
+
+def sr_signal(index: int, rows: list[list[str]], content: DocxContent,
+              config: FrdExtractorConfig) -> str | None:
+    """Why table ``index`` is a Solution Requirement table, or None:
+    ``header-row fingerprint (k labels)`` (the row labels of SHAPES_FOR_PORT
+    section F2, required ones present), ``+ caption`` when its caption also says
+    so; ``caption`` alone for a captioned table the fingerprint misses (the
+    short requirement tables of the documented shape)."""
+    cells = {normalize_label(c) for row in rows for c in row
+             if c.strip() and len(c) <= _LABEL_CELL_MAX}
+    wanted = [normalize_label(label) for label in config.solution_requirement_labels]
+    found = [label for label in wanted if any(_names_label(c, label) for c in cells)]
+    required = [normalize_label(label) for label in config.solution_requirement_required_labels]
+    fingerprint = (all(label in found for label in required)
+                   and len(found) >= config.solution_requirement_min_labels)
+    prefix = normalize_label(config.solution_requirement_prefix)
+    before = [text for at, text in content.paragraphs if at == index]
+    caption = (any(normalize_label(c).startswith(prefix) for c in (rows[0] if rows else []))
+               or bool(before and normalize_label(before[-1]).startswith(prefix)))
+    if fingerprint:
+        return f"header-row fingerprint ({len(found)} labels)" + (" + caption" if caption
+                                                                  else "")
+    return "caption" if caption else None
+
+
+def _first_cell(row: list[str]) -> tuple[int, str] | None:
+    return next(((col, cell) for col, cell in enumerate(row) if cell.strip()), None)
+
+
+def _section_row(rows: list[list[str]], sections: dict[str, str],
+                 config: FrdExtractorConfig) -> tuple[int, int] | None:
+    """(row, label col) of the row naming the metadata section: the configured
+    row when its first filled cell names one, else the first row that does
+    (an untitled table may carry no caption row, so the label moves up)."""
+    order = [config.solution_requirement_section_row] + list(range(len(rows)))
+    for index in order:
+        if index >= len(rows):
+            continue
+        first = _first_cell(rows[index])
+        if first is not None and normalize_label(first[1]) in sections:
+            return index, first[0]
+    return None
 
 
 def _section_key(title: str, sections: dict[str, str]) -> str | None:
@@ -378,20 +469,19 @@ def _discover_f2(tables, sr_tables, sections, labels, digest, config) -> FrdLayo
     feed_index = 0
     for table_index in sr_tables:
         rows = tables[table_index]
-        title = rows[0][0]
-        section_row = config.solution_requirement_section_row
-        if section_row >= len(rows) or not rows[section_row]:
-            notes.append(f"table {table_index} ({title}): no row {section_row}; skipped")
+        title = rows[0][0] if rows and rows[0] else ""
+        located_row = _section_row(rows, sections, config)
+        if located_row is None:
+            notes.append(f"table {table_index}: no row names a metadata section; skipped")
             continue
-        section_label = rows[section_row][0]
-        section = sections.get(normalize_label(section_label))
-        if section is None:
-            notes.append(f"table {table_index} ({title}): row-{section_row} label "
-                         f"{section_label!r} names no metadata section; skipped")
-            continue
+        section_row, label_col = located_row
+        section_label = rows[section_row][label_col]
+        section = sections[normalize_label(section_label)]
         refs.append(FrdSectionRef(table=table_index, section=section, title=section_label,
                                   feed_index=feed_index))
-        for row_index, row in enumerate(rows[1:], start=1):
+        # Row 0 is read too: an untitled table's first row is a label row (a
+        # caption row names no label, so it is passed over).
+        for row_index, row in enumerate(rows):
             if row_index == section_row:
                 continue
             found = _row_label(row, labels, title, fixed)
@@ -417,16 +507,17 @@ def _discover_f2(tables, sr_tables, sections, labels, digest, config) -> FrdLayo
             for path in _paths_for(key, feed_index, section, rule_counts):
                 fields.setdefault(path, source)
                 confidence[path] = 1.0
-        # Label: value pairs inside the row-4 text, read with the same synonyms.
-        text = rows[section_row][1] if len(rows[section_row]) > 1 else ""
+        # Label: value pairs inside the section row's text, same synonyms.
+        value_col = label_col + 1
+        text = rows[section_row][value_col] if len(rows[section_row]) > value_col else ""
         for inline_label, _value in _inline_pairs(text, config):
             key = labels.get(normalize_label(inline_label))
             if key is None:
                 notes.append(f"table {table_index} row {section_row}: inline label "
                              f"{inline_label!r} maps to no contract field")
                 continue
-            source = FrdFieldSource(table=table_index, row=section_row, col=0, value_col=1,
-                                    label=section_label, section=section,
+            source = FrdFieldSource(table=table_index, row=section_row, col=label_col,
+                                    value_col=value_col, label=section_label, section=section,
                                     inline_label=inline_label, feed_index=feed_index)
             for path in _paths_for(key, feed_index, section, rule_counts):
                 fields.setdefault(path, source)
@@ -451,7 +542,10 @@ def _discover_f2(tables, sr_tables, sections, labels, digest, config) -> FrdLayo
             confidence[path] = 1.0
     profile = FrdLayoutProfile(fingerprint=digest, family="F2", source="synonyms",
                                fields=fields, confidence=confidence, sections=refs, notes=notes)
-    return _with_unresolved(profile, [], 1 if refs else 0)
+    # One feed even when no requirement names a section (pair 10's shape: the
+    # metadata sits in free text) - its required fields are then unresolved
+    # (gap chain / QUESTION), never a silently empty feed.
+    return _with_unresolved(profile, [], 1)
 
 
 def _inline_pairs(text: str, config: FrdExtractorConfig) -> list[tuple[str, str]]:

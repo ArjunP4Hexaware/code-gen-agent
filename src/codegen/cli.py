@@ -1259,6 +1259,11 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             if document == "sttm":
                 _print_elimination_notes(result.sttm.profile)
             else:
+                # D1 post51 pairs 08-10: which signal found the F2 tables (a
+                # table count + signal name; no document text).
+                for note in doc.get("family_signals") or []:
+                    print(answer_line("NOTE", "frd/family",
+                                      f"{note} — informational"))
                 _print_file_elimination_notes(result.flags)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):

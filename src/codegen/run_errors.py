@@ -276,6 +276,44 @@ def error_counts(exc: BaseException | None) -> dict[str, int]:
     return {}
 
 
+# D1 post51 pairs 08-10: an FRD in no documented family is described by its
+# table COUNT and each table's header-row fingerprint (12 hex of term_sha256
+# over row 0, codegen.extract.frd_docx.header_fingerprint) - never a title.
+_FINGERPRINT = re.compile(r"^[0-9a-f]{12}$")
+MAX_FINGERPRINTS = 16
+
+
+def error_tables(exc: BaseException | None) -> dict[str, object] | None:
+    """``{"count": n, "fingerprints": [...]}`` from the first exception on the
+    chain that carries ``table_count`` (validated: an int, 12-hex strings)."""
+    for e in _chain(exc):
+        count = getattr(e, "table_count", None)
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            prints = getattr(e, "fingerprints", None) or []
+            return {"count": count,
+                    "fingerprints": [p for p in prints if isinstance(p, str)
+                                     and _FINGERPRINT.match(p)][:MAX_FINGERPRINTS]}
+    return None
+
+
+def tables_summary(tables: object) -> str:
+    """The marker's ``tables`` as the coordinates tier prints it; '' when invalid."""
+    if not isinstance(tables, dict):
+        return ""
+    count = tables.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        return ""
+    prints = [p for p in (tables.get("fingerprints") or []) if isinstance(p, str)
+              and _FINGERPRINT.match(p)][:MAX_FINGERPRINTS] \
+        if isinstance(tables.get("fingerprints"), list) else []
+    text = f"{count} table{'' if count == 1 else 's'}"
+    if prints:
+        text += f", header-row fingerprints {' '.join(prints)}"
+        if count > len(prints):
+            text += f" (+{count - len(prints)} more)"
+    return text
+
+
 _PAIR_DIR = re.compile(r"^pair_\d{1,4}$")
 _WHERE = re.compile(r"^<workdir>(?:/pair_\d{1,4})?/\u2026$")
 
@@ -307,7 +345,7 @@ def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
     reason (:func:`located`) win over the catch site's; every field is checked
     against this module's vocabulary on the way in AND on the way out."""
     coord = error_coord(exc) or coord
-    payload = {
+    payload: dict[str, object] = {
         "stage": stage if stage in STAGES else "codegen",
         "reason": error_reason(exc) or (reason if reason in REASONS else "unclassified"),
         "coord": coord.as_dict() if isinstance(coord, Coord) else None,
@@ -316,6 +354,9 @@ def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
         "counts": error_counts(exc),
         "where": path_hint(path),
     }
+    tables = error_tables(exc)
+    if tables is not None:
+        payload["tables"] = tables
     return MARKER + json.dumps(payload, sort_keys=True)
 
 
@@ -342,6 +383,10 @@ def coordinate_line(payload: object) -> str:
         line += (f", {coord}" if coord is not None else "") + (f": {summary}" if summary else "")
     elif coord is not None:
         line += f" {coord}" if phrase.endswith(":") else f" at {coord}"
+    tables = tables_summary(data.get("tables"))
+    if tables:
+        # "... at FRD: 12 tables, header-row fingerprints 1a2b3c4d5e6f ..."
+        line += f": {tables}"
     where = data.get("where")
     if isinstance(where, str) and _WHERE.match(where):
         line += f" {where}"
@@ -519,6 +564,7 @@ def silence_pydantic_deprecations() -> None:
 
 __all__ = ["DOCS", "MARKER", "MISMATCH_LABELS", "REASONS", "STAGES", "Coord", "column_number",
            "coordinate_line", "error_coord", "error_counts", "error_marker", "error_reason",
+           "error_tables", "tables_summary",
            "first_error_line", "first_error_line_full", "is_warning_line", "located",
            "mismatch_summary", "path_hint", "report_error", "sheet_number",
            "silence_pydantic_deprecations", "without_warnings"]

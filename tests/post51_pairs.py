@@ -74,3 +74,13 @@ def family_e_frd(path: Path, *, tables: tuple[str, ...] = ("feed_5_dtl",),
     })
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
+
+
+def untitled_f2_frd(path: Path, caption: str = "blank", spacer: bool = False) -> Path:
+    """The F2 (Solution Requirement) FRD of tests/acfc_shapes with UNTITLED
+    requirement tables (D1 post51 pairs 08-10): ``caption`` "blank" = row 0
+    empty, "none" = no caption row; ``spacer`` = an empty first column."""
+    from acfc_shapes.frd import build_f2_pair8
+
+    path.write_bytes(build_f2_pair8(caption=caption, spacer=spacer))
+    return path

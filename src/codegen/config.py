@@ -400,8 +400,21 @@ class FrdExtractorConfig(BaseModel):
     # Rows 1-3 of every F1 section table (and the F2 SR rows) by label.
     fixed_rows: dict[str, list[str]] = Field(default_factory=dict)
     solution_requirement_prefix: str = "Solution Requirement"
-    # 0-based row index whose first cell names the metadata section (F2).
+    # 0-based row index whose first cell names the metadata section (F2); a
+    # table whose row there names none is scanned for the row that does.
     solution_requirement_section_row: int = Field(default=4, ge=1)
+    # 2026-10-15 (D1 post51 pairs 08-10, untitled SR tables): the F2 table's
+    # row-label fingerprint (SHAPES_FOR_PORT section F2). A table is a Solution
+    # Requirement table when its short cells name every required label and
+    # at least ``min_labels`` of these (normalized; a cell may continue the
+    # label after ' ', ':', '/', '(' or '-'); the caption is a second signal.
+    solution_requirement_labels: list[str] = Field(default_factory=lambda: [
+        "Name", "Business Requirement", "Functional Requirement", "Impact Details",
+        "Solution Acceptance Criteria", "Priority", "Source/Reference", "Traced Requirements",
+        "Related Requirements", "IS Owner"])
+    solution_requirement_required_labels: list[str] = Field(default_factory=lambda: [
+        "Business Requirement", "Functional Requirement"])
+    solution_requirement_min_labels: int = Field(default=5, ge=2)
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
     list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
     domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])

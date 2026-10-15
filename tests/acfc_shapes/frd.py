@@ -259,9 +259,14 @@ F2_SECTION_LABELS = ["Descriptive Metadata", "Structural Metadata", "Administrat
 
 
 def _solution_requirement(number: int, name: str, business: str, functional: str,
-                          section_label: str, section_text: str) -> str:
-    return table([
-        [f"Solution Requirement: {number}", "", "", ""],
+                          section_label: str, section_text: str, caption: str = "row",
+                          spacer: bool = False) -> str:
+    """``caption``: "row" = row 0 reads ``Solution Requirement: <n>`` (the
+    documented shape); "blank" = row 0 is there but empty; "none" = no row 0
+    (D1 post51 pairs 08-10: the detector saw '' titles). ``spacer`` puts an
+    empty first column before the labels."""
+    rows = [
+        [f"Solution Requirement: {number}" if caption == "row" else "", "", "", ""],
         ["Name", name, "", ""],
         ["Business \nRequirement", business, "", ""],
         ["Functional Requirement:", functional, "", ""],
@@ -271,10 +276,15 @@ def _solution_requirement(number: int, name: str, business: str, functional: str
         ["Priority", "High", "Source/Reference", "SYN-BR-00" + str(number)],
         ["Traced Requirements", f"SYN-BR-00{number}", "", ""],
         ["IS Owner", "SYN IS Owner", "", ""],
-    ])
+    ]
+    if caption == "none":
+        rows = rows[1:]
+    if spacer:
+        rows = [[""] + row for row in rows]
+    return table(rows)
 
 
-def build_f2_pair8() -> bytes:
+def build_f2_pair8(caption: str = "row", spacer: bool = False) -> bytes:
     """F2 (pairs 8/9/10 shape): Heading 1 / Heading 4 paragraphs, no
     metadata section tables; one Solution Requirement table per section
     label, the label sitting in row 4 as a cell value. Business Requirement
@@ -315,7 +325,8 @@ def build_f2_pair8() -> bytes:
     ]
     for number, (label, name, business, functional, text) in enumerate(requirements, start=1):
         parts.append(paragraph(f"2.{number} {name}", style="Heading4"))
-        parts.append(_solution_requirement(number, name, business, functional, label, text))
+        parts.append(_solution_requirement(number, name, business, functional, label, text,
+                                           caption, spacer))
     parts.append(paragraph("3. Approvals", style="Heading1"))
     parts.append(table([["Approver", "Role"], ["SYN Approver", "Data Governance"]]))
     return docx_bytes(parts)

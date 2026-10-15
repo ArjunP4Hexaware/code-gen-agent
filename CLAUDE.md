@@ -5,6 +5,29 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
+**RESTART HERE (2026-10-15, post51; `CHANGELOG_ACFC.md` has the five items).** Head = the
+bump commit after b95f39c. Item 0 (the post50 LEAK_GATE_BLOCKED 9 → 3 hits) was closed
+"unclassifiable from current reports" (the gate writes 4-field stubs); the gate fix is
+Genie's — it should emit per-hit JSONL (`output_file, pattern_class, term_sha256,
+occurrences`), classified at home with `tools/hit_lookup.py`.
+- `codegen.run_errors.first_error_line` + `codegen.term_hash.term_sha256` are STABLE APIs
+  the harness imports. Config fields renamed in Python only: `discovery.thresholds`
+  (YAML `validate`), `dml.db_schema` (YAML `schema`).
+- Environments are PROFILES (D1 / A2 / PR): `codegen-state/environments/<name>.yaml`
+  over the overlay block; a required key (storage account, containers) unset =
+  `QUESTION run.environment.<key>`, exit 3. The suite runs on its own synthetic D1
+  profile (`tests/environment_profiles/d1.yaml`; fixture `no_environment_profiles`
+  opts out). ACFC must place `codegen-state/environments/d1.yaml` or every run exits 3.
+- The ACFC-side overlay `codegen-state/overlays/<profile>.yaml` (after acfc_env.yaml)
+  holds notebook names / versions, status sets, per-feed SRC_FILE_NAME styles
+  (`docs/acfc/OVERLAY_FIELDS.md`); both `codegen-state/` folders are gitignored.
+- Pre-push: `tests/test_tracked_scrub.py` vs the hashed rows in `docs/acfc/LEAK_LEDGER.md`
+  (68 known hits / 18 rows; `scripts/scrub_check.py --rebaseline`); local terms via
+  `CODEGEN_SCRUB_DENYLIST`.
+- Home SD scorecard (three SD rows, `IIG test cells.xlsx`): diff 1 / 1 / 3, per-cell
+  verdicts identical to c3f2153 (not 0: SCHEMA_DRIFT_FLAG Y vs N is the known round-6
+  conflict; individual-risk OBJECT_NAME / SRC_FILE_NAME).
+
 **RESTART HERE (2026-10-14, after post50).** Pushed head `5ae6644` (0.5.8.post50), tree clean;
 verified there: 1561 passed / 28 skipped, ruff clean, scrub clean on every line since 147af25.
 The post50 report was given. **Waiting on D1 — nothing to code at home until Soham brings:**

@@ -13,8 +13,11 @@ post51 12-pair report (acfc-results `run_20261015T065841Z_97fe673`, read via `gi
   a `CODEGEN-ERROR {json}` stderr marker. A NEW raise that quotes document text goes
   through `run_errors.located(exc, Coord(...), "<REASONS code>")` (a test checks every
   code). Exit 0 / 3 = no error line in either tier.
-- `generate`: a failed feed's emit artefacts are deleted, the emit stages print SKIPPED,
-  `CODEGEN_STAGES.json` (`codegen.run_stages`) lists what the run really wrote.
+- `generate` outcomes (post54, `codegen.run_stages`): CRASHED = partial emit files
+  deleted, emit stages SKIPPED; GATE_FAIL = files kept under `<feed>/quarantine/` +
+  `GATE_FAIL.md` (counts only), emit stages PASS; FAIL = nothing written. Exit 1 for
+  all; `CODEGEN_STAGES.json` lists what the run really wrote. The App path does not
+  quarantine yet.
 - Second test env `.venv-d1` (D1 pins: `constraints/acfc_d1.txt`, `docs/acfc/ENVIRONMENT_ACFC.md`
   §0; no `ui` extra): run the suite in BOTH venvs before a push. `model_*` pydantic fields
   need `protected_namespaces=()` (`tests/test_d1_environment.py`).

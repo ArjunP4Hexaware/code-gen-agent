@@ -199,7 +199,7 @@ REASONS: dict[str, str] = {
     "config": "configuration invalid",
     "usage": "command-line usage error",
     "storage": "storage unavailable",
-    "gate.verdict_fail": "gate verdict FAIL",
+    "gate.verdict_fail": "gate verdict FAIL (complete, review only: quarantined)",
     "template.gap": "template gap",
     "generate.emit": "generator could not render an artefact",
     "frd.unreadable": "FRD in no documented family (F1 / F2)",

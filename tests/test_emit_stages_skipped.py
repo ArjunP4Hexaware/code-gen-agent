@@ -1,8 +1,10 @@
 """D1 post51 (2026-10-15): DDL / IIG workbook / DML emit read PASS on pairs
 whose Generate FAILED (pairs 03 / 04 / 07 carried pair_02's exact unpopulated
-counts). The emit stages are SKIPPED when generation failed, the exit code is
-unchanged, a failed feed's emit artefacts are deleted, and CODEGEN_STAGES.json
-(codegen.run_stages) records what the run actually wrote."""
+counts). The emit stages are SKIPPED when generation CRASHED (or failed before
+writing), the exit code is unchanged, a crashed feed's emit artefacts are
+deleted, and CODEGEN_STAGES.json (codegen.run_stages) records what the run
+actually wrote. A GATE_FAIL keeps its files in quarantine:
+tests/test_generate_outcomes.py."""
 
 from __future__ import annotations
 
@@ -82,28 +84,15 @@ def _assert_skipped(code, out, err, tmp_path, reason):
         assert f"{'SKIPPED':<15} {stage} — {run_stages.SKIPPED_UPSTREAM}" in out
     assert not _emit_files(tmp_path / "out" / FEED), "a partial emit artefact survived"
     manifest = run_stages.read_stage_manifest(tmp_path / "out")
-    assert manifest["exit"] == 1 and manifest["stages"]["generate"]["status"] == "FAIL"
+    assert manifest["exit"] == 1 and manifest["stages"]["generate"]["status"] == "CRASHED"
     for stage in run_stages.EMIT_STAGES:
         assert manifest["stages"][stage] == {"status": "SKIPPED",
                                              "reason": run_stages.SKIPPED_UPSTREAM}
     (feed,) = manifest["feeds"]
-    assert feed["status"] == "FAIL" and feed["removed"] > 0
+    assert feed["status"] == "CRASHED" and feed["removed"] > 0
     assert all(not paths for paths in feed["artefacts"].values())
     assert any(ln.startswith(MARKER) for ln in err.splitlines())
     assert first_error_line(code, err, out).startswith(f"{'FAIL':<15} generate — {reason}")
-
-
-def test_a_gate_fail_skips_the_emit_stages_and_removes_the_workbook(contracts, tmp_path,
-                                                                     capsys, monkeypatch):
-    real = cli.compute_verdict
-
-    def failing(*args, **kwargs):
-        return real(*args, **kwargs).model_copy(update={"verdict": "FAIL"})
-
-    monkeypatch.setattr(cli, "compute_verdict", failing)
-    code = cli.main(contracts)
-    captured = capsys.readouterr()
-    _assert_skipped(code, captured.out, captured.err, tmp_path, "gate verdict FAIL at feed 1 of 1")
 
 
 def test_a_failure_after_the_workbook_was_written_removes_it(contracts, tmp_path, capsys,

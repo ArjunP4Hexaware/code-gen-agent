@@ -526,11 +526,16 @@ def _run_pairs(
     matched_feed = False
     # 2026-10-15: a required environment value unset is a QUESTION (exit 3)
     needs_answers = env_questions
-    # D1 post51 (2026-10-15): the emit stages are SKIPPED when generation failed;
-    # a failed feed's emit artefacts are deleted; CODEGEN_STAGES.json says so
+    # D1 post51 (2026-10-15): CODEGEN_STAGES.json records the generate outcome.
+    # CRASHED (an exception mid-write): the feed's partial emit files are deleted,
+    # the emit stages SKIPPED. GATE_FAIL (complete, the gate said no): the files
+    # are kept under <feed>/quarantine/ + GATE_FAIL.md, the emit stages PASS.
+    # FAIL (nothing written: a mismatch, no --feed match): emit stages SKIPPED.
     out_root = Path(config.output.dir)
     kept: dict[str, list[Path]] = {stage: [] for stage in run_stages.EMIT_STAGES}
     feed_entries: list[dict] = []
+    crashed = gate_failed = hard_failed = False
+    quarantined: list[str] = []
     for pair_no, (frd_path, sttm_path) in enumerate(pairs, 1):
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
@@ -539,7 +544,7 @@ def _run_pairs(
             _fail(command, f"{frd_path.name} + {sttm_path.name} — {exc}",
                   "contract.mismatch" if isinstance(exc, ContractMismatchError)
                   else "contract.invalid", Coord("pair", n=pair_no, of=len(pairs)), exc=exc)
-            failed = True
+            failed = hard_failed = True
             continue
         # Every feed WITH a contract is generated; a held-back feed's answers are
         # printed. Exit 3 only when a feed asked for (--feed) is one of them.
@@ -555,6 +560,7 @@ def _run_pairs(
             index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
             faq_answers = owed_mod.answers_for(inputs, index, spec.feed_id)
             feed_dir = out_root / spec.feed_slug
+            run_stages.clear_quarantine(feed_dir)
             before = run_stages.snapshot(feed_dir)
             where = Coord("feed", n=feed_no, of=len(specs))
             try:
@@ -580,22 +586,41 @@ def _run_pairs(
             except TemplateGapError as exc:
                 _fail(command, f"{spec.feed_id} — template gap: {exc}", "template.gap", where,
                       exc=exc)
-                failed = True
+                failed = crashed = True
                 removed = run_stages.remove_partial(feed_dir, before)
                 feed_entries.append(run_stages.feed_entry(
-                    out_root, feed_no, len(specs), "FAIL", {}, removed))
+                    out_root, feed_no, len(specs), "CRASHED", {}, removed))
                 continue
             except Exception:
-                # an uncaught error mid-feed: no partial workbook survives it
-                run_stages.remove_partial(feed_dir, before)
-                raise
-            if gate.verdict == "FAIL":
-                failed = True
-                report_error(command, "gate.verdict_fail", where, checks=[
-                    c.name for c in gate.checks if not c.passed and not c.not_run])
+                # CRASHED: an uncaught error mid-feed — no partial workbook survives
+                # it, the manifest says so, the error propagates (exit 1)
                 removed = run_stages.remove_partial(feed_dir, before)
                 feed_entries.append(run_stages.feed_entry(
-                    out_root, feed_no, len(specs), "FAIL", {}, removed))
+                    out_root, feed_no, len(specs), "CRASHED", {}, removed))
+                run_stages.write_stage_manifest(
+                    out_root, command=command, exit_code=1,
+                    statuses=run_stages.stage_statuses("CRASHED", kept), feeds=feed_entries)
+                raise
+            if gate.verdict == "FAIL":
+                # GATE_FAIL: complete artefacts, the gate said no — kept for review
+                failed = gate_failed = True
+                report_error(command, "gate.verdict_fail", where, checks=[
+                    c.name for c in gate.checks if not c.passed and not c.not_run])
+                moved = run_stages.quarantine(feed_dir, before)
+                q_dir = feed_dir / run_stages.QUARANTINE_DIR
+                q_dir.mkdir(parents=True, exist_ok=True)
+                (q_dir / run_stages.GATE_FAIL_FILE).write_text(
+                    run_stages.gate_fail_note(gate, feed_no, len(specs), len(moved)),
+                    encoding="utf-8", newline="\n")
+                written = run_stages.by_stage(moved)
+                for stage, paths in written.items():
+                    kept[stage] += paths
+                quarantined.append(q_dir.relative_to(out_root).as_posix())
+                feed_entries.append(run_stages.feed_entry(
+                    out_root, feed_no, len(specs), "GATE_FAIL", written,
+                    quarantine_dir=q_dir))
+                print(f"{'GATE_FAIL':<15} {spec.feed_id} \u2014 {run_stages.REVIEW_ONLY}: "
+                      f"{len(moved)} file(s) moved to {q_dir} ({run_stages.GATE_FAIL_FILE})")
                 continue
             written = run_stages.written_since(feed_dir, before)
             for stage, paths in written.items():
@@ -604,18 +629,21 @@ def _run_pairs(
                 out_root, feed_no, len(specs), gate.verdict, written))
     if only_feed is not None and not matched_feed:
         _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
-        failed = True
+        failed = hard_failed = True
     _write_template(template_path or Path(config.output.dir) / "answers_template.yaml",
                     owed_items, "generate", merge=True)
     # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
     # asked for (a QUESTION / UNRESOLVED line) or a required environment value
     # (2026-10-15) exits 3
     code = 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
-    statuses = run_stages.stage_statuses(failed, code == EXIT_NEEDS_ANSWERS, kept)
+    outcome =("CRASHED" if crashed else "FAIL" if hard_failed else
+               "GATE_FAIL" if gate_failed else
+               "NEEDS_ANSWERS" if code == EXIT_NEEDS_ANSWERS else "PASS")
+    statuses = run_stages.stage_statuses(outcome, kept, quarantined)
     for stage in run_stages.EMIT_STAGES:
-        if failed:
+        if outcome in ("CRASHED", "FAIL"):
             print(f"{'SKIPPED':<15} {stage} — {run_stages.SKIPPED_UPSTREAM} (exit code "
-                  "unchanged; a failed feed's emit artefacts are removed)")
+                  "unchanged; a crashed feed's partial emit artefacts are removed)")
     run_stages.write_stage_manifest(out_root, command=command, exit_code=code,
                                     statuses=statuses, feeds=feed_entries)
     return code

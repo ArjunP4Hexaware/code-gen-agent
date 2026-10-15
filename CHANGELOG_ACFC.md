@@ -4,6 +4,29 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post54 — 2026-10-15 (generate: CRASHED vs GATE_FAIL)
+
+Two failure outcomes of the generate stage, exit code 1 for both
+(`codegen.run_stages.OUTCOMES`; CODEGEN_STAGES.json `stages.generate.status`):
+- **CRASHED** (an exception mid-write: a template gap, an uncaught error): the
+  feed's partial emit files are deleted and the emit stages SKIPPED, as post52.
+  An uncaught crash now writes the manifest before the error propagates.
+- **GATE_FAIL** (files complete, the correctness gate said no): every file the
+  feed wrote is KEPT, moved byte for byte to `<output>/<feed>/quarantine/` (same
+  relative paths) beside a `GATE_FAIL.md`. That file lists the failed checks and
+  the flag counts per type, with no names or values (those stay in the run's full
+  report, ACFC-side). The emit stages report PASS, and the manifest says
+  `generate: {status: GATE_FAIL, label: "complete, gate failed, review only",
+  quarantine: [...]}`, with each feed's artefact paths under `quarantine/`.
+  `tools/iig_diff.py` still scores the quarantined workbook: its build stamp is
+  3 folders up, within the 5 it searches. Generating the feed again clears its
+  old quarantine. Console: `GATE_FAIL      <feed> — complete, gate failed,
+  review only: N file(s) moved to …`.
+- **FAIL** (nothing written: a contract mismatch, no feed matching `--feed`):
+  emit stages SKIPPED.
+- The App's own generate path (`ui/backend/service.py`) does not quarantine yet;
+  it can read the same outcome from `CODEGEN_STAGES.json` for CLI runs.
+
 ## 0.5.8.post53 — 2026-10-15 (addendum 4: derived values never reach the error line)
 
 Feed slugs, work-dir paths and contract keys are generated, not harvested, so the

@@ -171,7 +171,7 @@ import subprocess
 import sys
 import zipfile
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import openpyxl
@@ -221,6 +221,9 @@ OUT_OF_SCOPE = "out-of-scope"
 # workbooks do not) — reported as "group-level rows: N (not scored)", never as
 # extra, until the corpus says whether prod keeps them per group or per domain.
 GROUP_LEVEL = "group-level"
+# 2026-10-14 (rule 3): a sheet the agent leaves empty by rule (an MFT feed's
+# FILE_ADLS_INGESTION_DETAILS) — reported as such, never missing, no score.
+EMPTY_BY_RULE = "empty-by-rule"
 STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION,
             GROUP_LEVEL, BSA_OWNED)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
@@ -342,6 +345,8 @@ class KeyConfig:
     group_level_flows: tuple[str, ...] = ()
     # 2026-10-14: sheet -> the columns tabulated per side (rule classes, D1 only)
     rule_diagnostics: dict[str, list[str]] = field(default_factory=dict)
+    # 2026-10-14 (rule 3): the MFT detection / alias retarget (iig_keys.yaml mft)
+    mft: dict = field(default_factory=dict)
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -437,7 +442,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
              "environment_tokens", "identity", "flow", "convention_columns", "bsa_columns",
              "group_index",
              "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows",
-             "rule_diagnostics"}
+             "rule_diagnostics", "mft"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -469,6 +474,7 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         file_columns=_column_lists(path, "file_columns", raw.get("file_columns")),
         group_level_flows=tuple(str(f) for f in raw.get("group_level_flows") or []),
         rule_diagnostics=_column_lists(path, "rule_diagnostics", raw.get("rule_diagnostics")),
+        mft=_mft(path, raw.get("mft")),
     )
 
 
@@ -494,6 +500,38 @@ def _sheet_aliases(path: Path, raw: object) -> tuple[SheetAlias, ...]:
             tuple(str(c) for c in source.get("columns") or []),
             tuple((str(g), str(a)) for g, a in dict(spec["columns"]).items())))
     return tuple(out)
+
+
+_MFT_KEYS = {"markers", "detect", "empty_sheet", "alias_golden_sheet", "alias_agent_sheet",
+             "alias_agent_files"}
+
+
+def _mft(path: Path, raw: object) -> dict:
+    raw = dict(raw or {})
+    unknown = set(raw) - _MFT_KEYS
+    if unknown:
+        raise ValueError(f"{path}: unknown mft keys {sorted(unknown)}")
+    return raw
+
+
+def agent_mft_marker(agent: dict[str, Sheet], keys: KeyConfig) -> str | None:
+    """Rule 3: the MFT marker an agent workbook's landing names (iig_keys.yaml
+    ``mft.detect``: a marker as a path segment of those columns); None = not MFT."""
+    markers = {str(m).lower() for m in keys.mft.get("markers") or []}
+    if not markers:
+        return None
+    for sheet_name, columns in (keys.mft.get("detect") or {}).items():
+        sheet = _sheet_named(agent, sheet_name)
+        if sheet is None:
+            continue
+        canon = sheet.canon()
+        cols = [canon[c.upper()] for c in columns if c.upper() in canon]
+        for _n, row in sheet.rows:
+            for col in cols:
+                for segment in re.split(r"[/\\@:]+", str(row.get(col) or "").lower()):
+                    if segment in markers:
+                        return segment
+    return None
 
 
 def _flow(path: Path, raw: object) -> dict:
@@ -1741,13 +1779,29 @@ def diff_workbooks(
     # Cross-template sheets (iig_keys.yaml sheet_aliases): only when the golden
     # lacks the agent's sheet AND the agent lacks the golden's.
     aliased: dict[str, tuple[str, SheetAlias]] = {}   # golden sheet -> (agent sheet, alias)
+    # 2026-10-14 (rule 3): an MFT agent writes FILE_ADLS empty — the golden's
+    # ALL_FILES file rows pair with the agent's ADLS_DELTA rows instead (that
+    # sheet is still diffed against the golden's own ADLS_DELTA as well)
+    mft = agent_mft_marker(a, keys)
+    retargeted: set[str] = set()
     for alias in keys.sheet_aliases:
         g_name = next((n for n in g if sheet_id(n) == sheet_id(alias.golden_sheet)), None)
+        if mft and keys.mft.get("alias_agent_sheet") and sheet_id(alias.golden_sheet) == \
+                sheet_id(str(keys.mft.get("alias_golden_sheet") or "")):
+            alias = replace(alias, agent_sheet=str(keys.mft["alias_agent_sheet"]),
+                            agent_files=tuple(str(c) for c in
+                                              keys.mft.get("alias_agent_files") or []),
+                            files_from_sheet=None, files_from_columns=())
+            a_name = a_by_id.get(sheet_id(alias.agent_sheet))
+            if g_name and a_name and sheet_id(alias.golden_sheet) not in a_by_id:
+                aliased[g_name] = (a_name, alias)
+                retargeted.add(g_name)
+            continue
         a_name = a_by_id.get(sheet_id(alias.agent_sheet))
         if (g_name and a_name and sheet_id(alias.agent_sheet) not in g_ids
                 and sheet_id(alias.golden_sheet) not in a_by_id):
             aliased[g_name] = (a_name, alias)
-    taken = {a_name for a_name, _alias in aliased.values()}
+    taken = {a_name for g_name, (a_name, _alias) in aliased.items() if g_name not in retargeted}
     names = list(g) + [n for n in a if sheet_id(n) not in g_ids and n not in taken]
     result = []
     for name in names:
@@ -1758,7 +1812,20 @@ def diff_workbooks(
                 "golden_sheet": name, "agent_sheet": a_name,
                 "note": "Different IIG template versions: rows paired by file name, only "
                         "the columns both templates have compared (iig_keys.yaml "
-                        "sheet_aliases); the rest not comparable."}
+                        "sheet_aliases); the rest not comparable."
+                        + (f" MFT feed (landing {mft!r}): the file rows are the agent's "
+                           f"{a_name} rows (rule 3)." if name in retargeted else "")}
+        elif (mft and sheet_id(name) == sheet_id(str(keys.mft.get("empty_sheet") or ""))
+              and not (a.get(a_by_id.get(sheet_id(name), "")) or Sheet(name, [], [])).rows):
+            # rule 3: an MFT feed's FILE_ADLS is empty by rule — never missing
+            sd = SheetDiff(name, EMPTY_BY_RULE,
+                           {"key": [], "warnings": [],
+                            "empty_by_rule": f"MFT: the agent's landing names {mft!r}"},
+                           sides=(g.get(name), a.get(a_by_id.get(sheet_id(name), ""))),
+                           tables=tables)
+            golden_rows = len(g[name].rows) if name in g else 0
+            sd.rows = {"golden": golden_rows, "agent": 0, "paired": 0,
+                       "missing-in-agent": 0, "extra-in-agent": 0}
         else:
             sd = diff_sheet(name, g.get(name), a.get(a_by_id.get(sheet_id(name), "")), keys,
                             tables, pair_mode=pair_mode, scope=scope, ctx=ctx)
@@ -1841,7 +1908,8 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             entry["equal"] += normalize(cell.golden) == normalize(cell.agent)
         sheet_warnings = list(d.facts.get("warnings", []))
         one_side = {"golden-only": "sheet not in agent",
-                    "agent-only": "sheet not in golden"}.get(d.presence)
+                    "agent-only": "sheet not in golden",
+                    EMPTY_BY_RULE: "empty by rule (MFT)"}.get(d.presence)
         if one_side:
             sheet_warnings.append(f"{one_side} — no score")
         if d.out_of_scope_rows:

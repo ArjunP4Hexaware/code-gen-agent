@@ -287,3 +287,53 @@ def test_rows_sharing_feed_flow_table_pair_by_file_despite_a_lob_suffix(tmp_path
     assert adls["column_counts"]["LOB"]["exact"] == 18
     assert adls["column_counts"]["TGT_TABLE_NAME"]["exact"] == 18
     assert sheets[LABEL]["pairing"]["identity"] == 16
+
+
+MFT_ADLS_HEAD = [*ADLS_HEAD, "SRC_CONTAINER_NAME", "SRC_ADLS_PATH"]
+
+
+def _mft_agent(run: Path) -> list[Path]:
+    """The agent of an MFT-landed feed (framework owner's rule 3): FILE_ADLS
+    written with its headers only; the ADLS rows land under mftlanding."""
+    books = []
+    for feed, (domain, sub, _golden_files, files) in FEEDS.items():
+        books.append(_book(run / feed / f"{feed}_IIG.xlsx", {
+            V2: [V2_HEAD],
+            ADLS: [MFT_ADLS_HEAD, *[[None, j + 1, f"obj_{j}", domain, sub, f, f"stg_{feed}",
+                                     "mftlanding", f"/mftlanding/inbound/{feed}/"]
+                                    for j, f in enumerate(files)]],
+        }))
+    (run / "CODEGEN_BUILD.json").write_text(json.dumps(
+        {"sha": "abc1234", "line": "codegen 0.0.test · build abc1234 on b"}), encoding="utf-8")
+    return books
+
+
+def test_an_mft_feed_pairs_all_files_with_adls_delta_and_file_adls_is_empty_by_rule(
+        tmp_path: Path, capsys) -> None:
+    """Rule 3: the golden's ALL_FILES file rows pair with the agent's ADLS_DELTA
+    rows on the file identity; FILE_ADLS (the golden's rows too) is reported
+    "empty by rule (MFT)" — never missing, no score."""
+    golden = _golden(tmp_path / "golden.xlsx", others=False)
+    wb = openpyxl.load_workbook(golden)                    # a v2-style FILE_ADLS row too
+    ws = wb.create_sheet(V2)
+    ws.append(V2_HEAD)
+    ws.append(_row(V2_HEAD, DOMAIN="Member", SUBDOMAIN="Risk", SOURCE_TYPE="File"))
+    wb.save(golden)
+    books = _mft_agent(tmp_path / "run")
+    keys = iig_diff.load_keys(KEYS)
+    agent = iig_diff.read_agent_workbooks(books, keys)
+    assert iig_diff.agent_mft_marker(agent, keys) == "mftlanding"
+    out = tmp_path / "out"
+    assert iig_diff.main(["--golden", str(golden), "--agent", *map(str, books),
+                          "--out", str(out)]) == 0
+    capsys.readouterr()
+    sheets = json.loads((out / "score.json").read_text(encoding="utf-8"))["sheets"]
+    s = sheets[f"{V1} → {ADLS}"]
+    assert s["pairing"] == {"identity": 3, "position": 0, "key": 0}
+    assert s["unpaired"] == {"golden": 0, "agent": 0}
+    assert s["counts"]["exact"] == 3 * 2 and s["counts"]["missing-in-agent"] == 0
+    assert "MFT feed (landing 'mftlanding')" in s["template_mismatch"]["note"]
+    empty = sheets[V2]
+    assert empty["presence"] == "empty-by-rule" and empty["note"] == "empty by rule (MFT)"
+    assert empty["score"] is None and empty["counts"]["missing-in-agent"] == 0
+    assert empty["rows"]["golden"] == 1

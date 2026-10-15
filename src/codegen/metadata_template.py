@@ -1124,7 +1124,73 @@ def _pipeline_schedule(tab, feed, config, spec, faq, tpl) -> list[dict]:
     return out
 
 
+_MFT_COLUMNS = ("SRC_CONTAINER_NAME", "SRC_ADLS_PATH", "TGT_ADLS_PATH")
+ADLS_TAB = "ADLS_DELTA_INGESTION_DETAILS"
+
+
+def _mft_marker(values: list, markers: list[str]) -> str | None:
+    """The MFT marker one of ``values`` names as a path segment (None: none)."""
+    wanted = {m.lower() for m in markers}
+    for value in values:
+        for segment in re.split(r"[/\\@:]+", str(value or "").lower()):
+            if segment in wanted:
+                return segment
+    return None
+
+
+def mft_landing(feed: FrdFeed, config: Config, spec: ResolvedFeedSpec | None,
+                tpl: MetadataTemplateConfig, adls_rows: list[dict] | None = None) -> str | None:
+    """Rule 3: the MFT marker the feed's landing names — the FRD landing
+    location, or an ADLS_DELTA row's SRC_CONTAINER_NAME / SRC_ADLS_PATH /
+    TGT_ADLS_PATH (None: not landed by MFT, or no markers configured)."""
+    if not tpl.mft_landing_markers:
+        return None
+    if adls_rows is None:
+        adls_rows = _adls_delta(ADLS_TAB, feed, config, spec, None, tpl) if spec else []
+    values = [feed.landing_location, *(_cell_text(row.get(c)) for row in adls_rows
+                                       for c in _MFT_COLUMNS)]
+    return _mft_marker(values, tpl.mft_landing_markers)
+
+
+def file_adls_mft_note(feed: FrdFeed, config: Config, spec: ResolvedFeedSpec | None,
+                       tpl: MetadataTemplateConfig) -> str | None:
+    """The NOTE of an MFT feed's FILE_ADLS_INGESTION_DETAILS (headers only)."""
+    if tpl.file_adls_rows != "per_file":
+        return None
+    marker = mft_landing(feed, config, spec, tpl)
+    if marker is None:
+        return None
+    return (f"iig_file_adls_mft:FILE_ADLS_INGESTION_DETAILS — empty by rule: the feed lands by "
+            f"MFT (its landing names {marker!r}); the sheet is written with its headers only "
+            "(framework owner's rule 3) — the file rows are ADLS_DELTA_INGESTION_DETAILS'")
+
+
+# The FILE_ADLS cells copied from the file's ADLS_DELTA row (rule 3, non-MFT):
+# the copy lands the file where the ADLS leg reads it.
+_FILE_ADLS_FROM_ADLS = {"OBJECT_ID": "OBJECT_ID", "DOMAIN": "DOMAIN", "SUBDOMAIN": "SUBDOMAIN",
+                        "TGT_CONTAINER_NAME": "SRC_CONTAINER_NAME",
+                        "TGT_ADLS_PATH": "SRC_ADLS_PATH"}
+
+
 def _file_adls(tab, feed, config, spec, faq, tpl) -> list[dict]:
+    if tpl.file_adls_rows == "per_file" and spec is not None:
+        adls_rows = _adls_delta(ADLS_TAB, feed, config, spec, faq, tpl)
+        if mft_landing(feed, config, spec, tpl, adls_rows) is not None:
+            return []           # rule 3: MFT-landed — headers only (file_adls_mft_note)
+        out = []
+        for adls in adls_rows:
+            file = _cell_text(adls.get("SRC_FILE_NAME")) or "the feed's file"
+            cells = {}
+            for header, source in _FILE_ADLS_FROM_ADLS.items():
+                cell = adls.get(source)
+                if cell is None:
+                    continue
+                copied = _cell(cell["value"], cell["badge_entry"]["badge"],
+                               f"the ADLS_DELTA_INGESTION_DETAILS row of {file}: {source} "
+                               "(framework owner's rule 3: one FILE_ADLS row per file)")
+                cells[header] = copied
+            out.append(_with_constants(tpl, tab, cells))
+        return out
     cells = {
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),

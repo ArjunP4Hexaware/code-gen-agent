@@ -239,6 +239,19 @@ sheet_aliases:
       CREATED_DATE: CREATED_DATE
       UPDATED_DATE: UPDATED_DATE
 
+# MFT-landed feeds (2026-10-14, the framework owner's rule 3): FILE_ADLS is empty
+# by rule. An agent workbook whose ADLS_DELTA rows name a marker as a path segment
+# in these columns is MFT: the golden's ALL_FILES file rows pair with the agent's
+# ADLS_DELTA rows (alias retargeted, on the file identity), and an empty agent
+# FILE_ADLS sheet reports "empty by rule (MFT)" - never missing, no score.
+mft:
+  markers: [mftlanding]
+  detect: {ADLS_DELTA_INGESTION_DETAILS: [SRC_CONTAINER_NAME, SRC_ADLS_PATH, TGT_ADLS_PATH]}
+  empty_sheet: FILE_ADLS_INGESTION_DETAILS
+  alias_golden_sheet: ALL_FILES_STATIC_INFORMATION
+  alias_agent_sheet: ADLS_DELTA_INGESTION_DETAILS
+  alias_agent_files: [SRC_FILE_NAME]
+
 # A file name as an identity: lowercased, directory and extension dropped, each
 # match of these (case-insensitive) regexes dropped wherever it sits (start,
 # middle, end), then separators dropped — so CCYY_MM = YYYY_MM = *, and

@@ -1384,6 +1384,13 @@ class MetadataTemplateConfig(BaseModel):
     # SRC_DATA_TYPE pairs: full types | base types ('Decimal' for Decimal(17,2)).
     data_type_style: Literal["full", "base"] = "full"
     rows_per_file_pattern: bool = False
+    # 2026-10-14 (framework owner's rule 3): FILE_ADLS_INGESTION_DETAILS. "feed" =
+    # one row from the FRD landing (shipped); "per_file" = one row per
+    # ADLS_DELTA_INGESTION_DETAILS row — and NONE (headers only + a NOTE) for a
+    # feed landed by MFT: a landing path / container naming one of
+    # ``mft_landing_markers`` as a path segment.
+    file_adls_rows: Literal["feed", "per_file"] = "feed"
+    mft_landing_markers: list[str] = Field(default_factory=list)
     object_name_from_pattern: bool = False
     reject_table_suffix: str | None = None
     segment_filter_pattern: str | None = None

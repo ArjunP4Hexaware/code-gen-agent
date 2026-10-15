@@ -159,6 +159,12 @@ metadata:
       # until this overlay is split per source family — a PRX-shaped feed
       # (pair 1) gets these paths too.
       src_columns_style: named
+      # 2026-10-14 (framework owner's rule 3): FILE_ADLS_INGESTION_DETAILS is EMPTY for
+      # an MFT-landed feed (headers only + an iig_file_adls_mft NOTE) - MFT = the
+      # landing path / container names mftlanding as a path segment (SD and CAQH
+      # both); any other feed gets one FILE_ADLS row per ADLS_DELTA row (its file).
+      file_adls_rows: per_file
+      mft_landing_markers: [mftlanding]
       path_patterns:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_PATH: "{landing_rel}"

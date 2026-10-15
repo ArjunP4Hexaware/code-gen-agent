@@ -763,6 +763,18 @@ def emit_framework(
         flags.extend(blank_flags(payload))
     # Path notes (iig_path_shape_on_uri / path_normalised) for every template.
     flags.extend(shape_flags(payload))
+    # 2026-10-14 (framework owner's rule 3): an MFT-landed feed's FILE_ADLS sheet
+    # is written with its headers only — said once
+    file_adls = payload["tabs"].get("FILE_ADLS_INGESTION_DETAILS")
+    if template_cfg is not None and file_adls is not None and not file_adls["rows"]:
+        from codegen.environments import apply_environment
+        from codegen.metadata_sheet import _feed_from_spec
+        from codegen.metadata_template import file_adls_mft_note
+
+        note = file_adls_mft_note(_feed_from_spec(spec), config, spec,
+                                  apply_environment(template_cfg, config))
+        if note is not None:
+            flags.append(note)
     banner = _provenance_banner_rows(spec, faq, config,
                                      _faq_sha(spec, config, base_dir))
 

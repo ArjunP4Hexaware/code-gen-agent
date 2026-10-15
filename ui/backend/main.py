@@ -172,6 +172,11 @@ async def lifespan(app: FastAPI):
     overlays = _config_overlays()
     print(f"UI starting — version {_app_version() or 'unknown'}; config overlays (in order): "
           f"{' -> '.join(overlays) if overlays else '(none)'}")
+    # post56: where the environment profiles / ACFC overlay are read from (the
+    # App runs a staged copy; set CODEGEN_STATE_DIR when it is not the checkout)
+    from codegen.environments import state_dirs_line
+
+    print(state_dirs_line(), flush=True)
     if store is None:
         print(f"UI starting with EMPTY STATE — {startup_error}")
     else:

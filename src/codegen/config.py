@@ -1463,6 +1463,10 @@ class RunEnvironment(BaseModel):
     source: Literal["default", "selected", "custom"]
     entry: EnvironmentConfig
     origin: str = ""
+    # post56: flat key -> where ITS value came from (the explicit file / App
+    # form, the codegen-state profile, the overlay block, the answers file, or
+    # "unset — INPUT_NEEDED ..." / "unset — QUESTION ..."); codegen.environments.
+    sources: dict[str, str] = {}
 
 
 class MetadataTemplateConfig(BaseModel):
@@ -2031,6 +2035,24 @@ SKIP_ENV_OVERLAY = "CODEGEN_SKIP_ENV_OVERLAY"
 # <dir>/<conventions profile>.yaml, applied right after acfc_env.yaml
 STATE_OVERLAYS_ENV = "CODEGEN_STATE_OVERLAYS_DIR"
 STATE_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / "codegen-state" / "overlays"
+# 2026-10-15 (post56): the codegen-state ROOT is a setting. Derived from this
+# file's location it is the checkout's folder for the CLI, but the App runs a
+# staged copy (`databricks sync` honours .gitignore, which keeps codegen-state
+# out) — the App showed D1 from the overlay while the checkout's
+# environments/d1.yaml existed. CODEGEN_STATE_DIR names it for every entry
+# point; the specific *_DIR variables still win for their own folder.
+STATE_DIR_ENV = "CODEGEN_STATE_DIR"
+STATE_DIR = Path(__file__).resolve().parents[2] / "codegen-state"
+
+
+def state_root() -> Path:
+    """The codegen-state folder: ``CODEGEN_STATE_DIR``, else ``<repo>/codegen-state``."""
+    return Path(os.environ.get(STATE_DIR_ENV) or STATE_DIR)
+
+
+def state_overlays_dir() -> Path:
+    """``CODEGEN_STATE_OVERLAYS_DIR``, else ``<state root>/overlays``."""
+    return Path(os.environ.get(STATE_OVERLAYS_ENV) or state_root() / "overlays")
 _announced_overlays: set[tuple[str, ...]] = set()
 _last_applied: list[str] = []
 
@@ -2072,7 +2094,7 @@ def state_overlay(path: str | Path, before: list[Path]) -> Path | None:
     moves the folder) for the conventions profile the config file plus the
     ``before`` overlays state — None when absent. Field meanings:
     docs/acfc/OVERLAY_FIELDS.md."""
-    folder = Path(os.environ.get(STATE_OVERLAYS_ENV) or STATE_OVERLAYS_DIR)
+    folder = state_overlays_dir()
     if not folder.is_dir():
         return None
     profile = None

@@ -57,6 +57,9 @@ command: ["python", "-m", "ui.backend.main"]
 #                              first; CODEGEN_SKIP_ENV_OVERLAY=1 opts out of it.
 #                              The list in effect: startup line + GET /api/health)
 #   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>
+#   CODEGEN_STATE_DIR          codegen-state   (post56: a LOCAL folder deployed with
+#                              the App - copy the checkout's codegen-state/ into the
+#                              staged tree; the startup line names it, [MISSING] if absent)
 
 # --- 2026-10-07: a Git deploy is self-sufficient --------------------------
 # ACFC workspace paths are committed HERE on explicit instruction (Soham,

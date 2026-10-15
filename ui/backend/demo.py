@@ -1089,13 +1089,14 @@ class DemoRunner:
     def run_environment(self, config=None):
         """The environment the next run uses (codegen.environments): the
         choice made on the run form, else the default."""
-        from codegen.environments import select_environment
+        from codegen.environments import resolve
 
+        # post56: the CLI's resolver and precedence (one function)
         config = config or self._store.config
         choice = self.environment_choice or {}
-        return select_environment(config, name=choice.get("name"), custom=choice.get("custom"),
-                                  custom_name=choice.get("custom_name"),
-                                  overrides=choice.get("overrides"))
+        return resolve(config, name=choice.get("name"), custom=choice.get("custom"),
+                       custom_name=choice.get("custom_name"),
+                       overrides=choice.get("overrides"))
 
     def select_environment(self, *, name: str | None = None, custom: dict | None = None,
                            custom_name: str | None = None,
@@ -1108,7 +1109,7 @@ class DemoRunner:
             if self.state == "running":
                 raise LiveRunInProgress(
                     "cannot change the environment while a live run is in progress")
-        from codegen.environments import select_environment
+        from codegen.environments import resolve
 
         edited = {k: str(v) for k, v in (overrides or {}).items() if str(v or "").strip()}
         if custom is not None:
@@ -1118,10 +1119,9 @@ class DemoRunner:
         else:
             choice = None
         if choice is not None:
-            select_environment(self._store.config, name=choice.get("name"),
-                               custom=choice.get("custom"),
-                               custom_name=choice.get("custom_name"),
-                               overrides=choice.get("overrides"))   # validates
+            resolve(self._store.config, name=choice.get("name"), custom=choice.get("custom"),
+                    custom_name=choice.get("custom_name"),
+                    overrides=choice.get("overrides"))              # validates
         self.environment_choice = choice
 
     def environment_options(self) -> dict:
@@ -1132,11 +1132,13 @@ class DemoRunner:
         from codegen.environments import (
             banner,
             default_name,
+            display_path,
             expected_keys,
             flat_values,
             missing_required,
+            profiles_dir,
             required_keys,
-            select_environment,
+            resolve,
         )
 
         config = self._store.config
@@ -1145,17 +1147,21 @@ class DemoRunner:
         fields = expected_keys(config) if default else []
         profiles = []
         for name, entry in config.environments.items():
-            resolved = select_environment(config, name=name, live=False)
+            resolved = resolve(config, name=name, live=False)
             profiles.append({"name": name, "default": entry.default,
                              "description": entry.description,
                              "values": flat_values(resolved.entry),
                              "origin": resolved.origin,
+                             "sources": dict(resolved.sources),
                              "missing_required": missing_required(config, resolved.entry)})
         return {
             "options": profiles,
             "required": required_keys(config),
             "missing_required": missing_required(config, env.entry) if env is not None else [],
             "origin": env.origin if env is not None else None,
+            # post56: per field, where the run's value comes from (the picker)
+            "sources": dict(env.sources) if env is not None else {},
+            "profiles_dir": display_path(profiles_dir()),
             "banner": banner(config, env) if env is not None else None,
             "edited": (self.environment_choice or {}).get("overrides") or None,
             "default": default,

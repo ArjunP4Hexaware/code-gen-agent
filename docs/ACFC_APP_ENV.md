@@ -15,6 +15,17 @@ shared with the App` (naming the App's service principal) / `not set`.
 | `CODEGEN_STORAGE_STATE` | `workspace:/Workspace/<…>/codegen/state` | **Can Manage** |
 | `CODEGEN_STORAGE_OUTPUTS` | `workspace:/Workspace/<…>/codegen/outputs` | **Can Manage** |
 | `CODEGEN_CONFIG_OVERLAYS` | `config/overlays/acfc_env.yaml` | — (a file in the deployed tree) |
+| `CODEGEN_STATE_DIR` | the `codegen-state` folder as a LOCAL path in the deployed tree (e.g. `codegen-state`, relative to the App's source root) | — (files deployed with the App) |
+
+`CODEGEN_STATE_DIR` (post56): the environment profiles (`environments/<name>.yaml`)
+and the ACFC overlay (`overlays/<profile>.yaml`) are read from it. Without it the
+App looks next to its own code, and a staged deploy has no `codegen-state` there
+(it is gitignored, and `databricks sync` honours `.gitignore`). Copy the
+checkout's `codegen-state/` into the staged tree before the sync and set the
+variable to it. The App's startup log prints `codegen-state root: … ; environments
+… ; overlays …`, with `[MISSING]` after any folder it cannot see, and the
+environment picker names the folder ("profiles read from …") and each field's
+source.
 
 The folders must exist before the App starts — the agent never creates a
 root. `workspace:` = the Workspace API (never the `/Workspace` mount).

@@ -95,6 +95,8 @@ export interface EnvironmentOption {
   description: string;
   values: Record<string, string>;
   origin?: string;
+  // post56: per field, where its value comes from (codegen.environments.resolve)
+  sources?: Record<string, string>;
   missing_required?: string[];
 }
 
@@ -108,6 +110,9 @@ export interface EnvironmentOptions {
   required?: string[];
   missing_required?: string[];
   origin?: string | null;
+  // post56: the run's per-field sources; the folder profiles are read from
+  sources?: Record<string, string>;
+  profiles_dir?: string;
   banner?: string | null;
   edited?: Record<string, string> | null;
 }

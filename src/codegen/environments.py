@@ -58,11 +58,14 @@ from pathlib import Path
 import yaml
 
 from codegen.config import (
+    STATE_DIR_ENV,
     Config,
     EnvironmentConfig,
     MetadataTemplateConfig,
     RunEnvironment,
     is_placeholder,
+    state_overlays_dir,
+    state_root,
 )
 
 INPUT_KEY = "run.environment"
@@ -139,8 +142,23 @@ def load_environment_file(path: Path) -> tuple[str, EnvironmentConfig]:
 
 def profiles_dir() -> Path:
     """Where the per-workspace profile files live: ``CODEGEN_ENVIRONMENTS_DIR``,
-    else ``<repo>/codegen-state/environments`` (gitignored)."""
-    return Path(os.environ.get(PROFILES_DIR_ENV) or PROFILES_DIR)
+    else ``<state root>/environments`` (``CODEGEN_STATE_DIR``, else
+    ``<repo>/codegen-state``; gitignored)."""
+    return Path(os.environ.get(PROFILES_DIR_ENV) or state_root() / "environments")
+
+
+def state_dirs_line() -> str:
+    """Where this process reads codegen-state from — the App logs it at
+    startup (post56: the App read a staged copy that had none)."""
+    root = state_root()
+    how = STATE_DIR_ENV if os.environ.get(STATE_DIR_ENV) else "next to the code"
+    folders = [("environments", profiles_dir(), PROFILES_DIR_ENV),
+               ("overlays", state_overlays_dir(), "CODEGEN_STATE_OVERLAYS_DIR")]
+    parts = [f"{label} {display_path(path)}"
+             + (f" ({var})" if os.environ.get(var) else "")
+             + ("" if path.is_dir() else " [MISSING]") for label, path, var in folders]
+    return (f"codegen-state root: {display_path(root)} ({how})"
+            + ("" if root.is_dir() else " [MISSING]") + "; " + "; ".join(parts))
 
 
 def profile_file(name: str) -> Path | None:
@@ -182,32 +200,84 @@ def _named(config: Config, name: str, source: str) -> RunEnvironment:
             f"{', '.join(config.environments) or 'none defined'} (or a profile file "
             f"{display_path(profiles_dir())}/<name>.yaml, or --environment-file)")
     base = config.environments.get(found) if found else None
+    overlay = (f"overlay environments.{found}", flat_values(base)) if base is not None else None
     if path is None:
         return RunEnvironment(name=found, source=source, entry=base,
-                              origin=f"overlay environments.{found}")
+                              origin=f"overlay environments.{found}",
+                              sources=field_sources(config, [overlay]))
     _file_name, entry = load_environment_file(path)
+    profile = (f"profile {display_path(path)}", flat_values(entry))
     if base is not None:
         entry = overlay_values(base, flat_values(entry))
     return RunEnvironment(name=found or name.strip().upper(), source=source, entry=entry,
-                          origin=display_path(path))
+                          origin=display_path(path),
+                          sources=field_sources(config, [profile, overlay]))
 
 
-def select_environment(config: Config, *, name: str | None = None,
-                       file: Path | None = None, custom: dict | None = None,
-                       custom_name: str | None = None, overrides: dict | None = None,
-                       live: bool | None = None) -> RunEnvironment | None:
-    """The run's environment: ``--environment-file`` (``file``) or the App's
-    "Other" values (``custom``) — custom, nothing inherited; else a named
-    profile (``name``, else the default name) = its profile file over its
-    overlay block, the App's edited fields (``overrides``) on top. None when
-    no environment is defined and nothing custom is given."""
+def _stated(value) -> bool:
+    return bool(str(value or "").strip()) and not is_placeholder(value)
+
+
+def field_sources(config: Config, layers: list[tuple[str, dict] | None],
+                  base: dict[str, str] | None = None) -> dict[str, str]:
+    """Per flat key, where its value comes from: the first layer (highest
+    precedence first) stating it — blank and ``<<...>>`` placeholders state
+    nothing — else ``unset — QUESTION run.environment.<key>`` (a required
+    key) / ``unset — INPUT_NEEDED run.environment.<key>``. ``base`` = sources
+    already known (a later layer laid over them)."""
+    keys = dict.fromkeys(expected_keys(config))
+    for layer in layers:
+        if layer is not None:
+            keys.update(dict.fromkeys(layer[1]))
+    required = set(required_keys(config))
+    out: dict[str, str] = {}
+    for key in keys:
+        source = next((label for layer in layers if layer is not None
+                       for label, values in [layer] if _stated(values.get(key))), None)
+        if source is None and base and not base.get(key, "").startswith("unset"):
+            source = base.get(key)
+        out[key] = source or (f"unset — {'QUESTION' if key in required else 'INPUT_NEEDED'} "
+                              f"{INPUT_KEY}.{key}")
+    return out
+
+
+def with_values(config: Config, env: RunEnvironment, values: dict, label: str) -> RunEnvironment:
+    """``env`` with ``values`` laid over it (the App's edited fields, the
+    answers file's ``inputs.run: environment.<key>``) — origin and per-field
+    sources say so."""
+    given = {k: v for k, v in values.items() if str(v or "").strip()}
+    if not given:
+        return env
+    return env.model_copy(update={
+        "entry": overlay_values(env.entry, given),
+        "origin": f"{env.origin} + {label}",
+        "sources": field_sources(config, [(label, given)], base=dict(env.sources))})
+
+
+def resolve(config: Config, *, name: str | None = None,
+            file: Path | None = None, custom: dict | None = None,
+            custom_name: str | None = None, overrides: dict | None = None,
+            live: bool | None = None) -> RunEnvironment | None:
+    """THE environment resolver — the CLI and the App both call it (post56).
+    Precedence: an explicit file (``--environment-file`` / the App's "Other"
+    values: custom, nothing inherited) > ``<state root>/environments/
+    <name>.yaml`` (the named profile, ``name`` else the default) > the
+    overlay's ``environments.<NAME>`` block > unset (INPUT_NEEDED, a required
+    key a QUESTION). The App's edited fields (``overrides``) lie on top of a
+    named profile. ``RunEnvironment.sources`` says, per field, which won. None
+    when no environment is defined and nothing custom is given."""
     if file is not None:
         file_name, entry = load_environment_file(file)
+        origin = f"--environment-file {display_path(Path(file))}"
         return RunEnvironment(name=custom_name or file_name, source="custom", entry=entry,
-                              origin=f"--environment-file {display_path(Path(file))}")
+                              origin=origin, sources=field_sources(
+                                  config, [(origin, flat_values(entry))]))
     if custom is not None:
-        return RunEnvironment(name=custom_name or "custom", source="custom",
-                              entry=entry_from_values(custom), origin="the App form (Other)")
+        entry = entry_from_values(custom)
+        origin = "the App form (Other)"
+        return RunEnvironment(name=custom_name or "custom", source="custom", entry=entry,
+                              origin=origin, sources=field_sources(
+                                  config, [(origin, flat_values(entry))]))
     if name:
         env = _named(config, name, "selected")
     else:
@@ -216,9 +286,12 @@ def select_environment(config: Config, *, name: str | None = None,
             return None
         env = _named(config, default, "default")
     if overrides:
-        env = env.model_copy(update={"entry": overlay_values(env.entry, overrides),
-                                     "origin": f"{env.origin} + the App form"})
+        env = with_values(config, env, overrides, "the App form")
     return _complete(config, env, live)
+
+
+# the pre-post56 name; every caller in this repo uses resolve
+select_environment = resolve
 
 
 def required_keys(config: Config) -> list[str]:
@@ -299,7 +372,7 @@ def run_environment(config: Config) -> RunEnvironment | None:
     """The environment a run uses: the one chosen, else the default."""
     if config.run_environment is not None:
         return config.run_environment
-    return select_environment(config)
+    return resolve(config)
 
 
 def env_value(env: RunEnvironment, ref: str) -> str:
@@ -506,8 +579,9 @@ __all__ = ["ASSUMED_FLAG", "FLAG", "INPUT_KEY", "PROFILES_DIR_ENV", "REQUIRED_FL
            "EnvironmentSelectionError", "apply_environment", "assumed_question", "banner",
            "catalog_map", "catalog_unset_reason", "default_catalog", "default_catalog_unset",
            "default_name", "display_path", "entry_from_values", "env_note", "env_value",
-           "environment_flags", "expected_keys", "flat_values", "header_label", "header_line",
-           "label", "load_environment_file", "missing_required", "overlay_values",
-           "profile_file", "profiles_dir", "required_items", "required_keys",
-           "required_question", "run_environment", "select_environment", "unset_items",
-           "unset_keys", "unset_question", "with_environment"]
+           "environment_flags", "expected_keys", "field_sources", "flat_values",
+           "header_label", "header_line", "label", "load_environment_file",
+           "missing_required", "overlay_values", "profile_file", "profiles_dir",
+           "required_items", "required_keys", "required_question", "resolve",
+           "run_environment", "select_environment", "state_dirs_line", "unset_items",
+           "unset_keys", "unset_question", "with_environment", "with_values"]

@@ -97,6 +97,42 @@ describe("EnvironmentSelector", () => {
     ]);
   });
 
+  it("shows where each field's value comes from (post56)", () => {
+    const resolved: EnvironmentOptions = {
+      ...OPTIONS,
+      options: [
+        {
+          name: "D1",
+          default: true,
+          description: "",
+          values: { "containers.stage": "syn-stage", storage_account: "synacct01" },
+          origin: "codegen-state/environments/d1.yaml",
+          sources: {
+            "containers.stage": "overlay environments.D1",
+            storage_account: "profile codegen-state/environments/d1.yaml",
+          },
+          missing_required: [],
+        },
+      ],
+      required: ["containers.stage", "storage_account"],
+      selected: "D1",
+      source: "default",
+      sources: {
+        "containers.stage": "overlay environments.D1",
+        storage_account: "profile codegen-state/environments/d1.yaml",
+      },
+      profiles_dir: "codegen-state/environments",
+      banner: "D1 (complete, from codegen-state/environments/d1.yaml; default)",
+    };
+    act(() => root.render(<EnvironmentSelector options={resolved} onChoose={() => undefined} />));
+    const source = (key: string) =>
+      host.querySelector(`td[aria-label="environment ${key} source"]`)!.textContent;
+    expect(source("storage_account")).toBe("from profile codegen-state/environments/d1.yaml");
+    expect(source("containers.stage")).toBe("from overlay environments.D1");
+    expect(host.textContent).toContain("profiles read from codegen-state/environments");
+    expect(host.textContent).not.toContain("required — missing");
+  });
+
   it("Other opens a free-text box whose values become the run's environment", () => {
     const chosen: EnvironmentChoice[] = [];
     act(() => root.render(<EnvironmentSelector options={OPTIONS} onChoose={(c) => chosen.push(c)} />));

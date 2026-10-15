@@ -10,7 +10,10 @@ import type { EnvironmentChoice, EnvironmentOption, EnvironmentOptions } from ".
    codegen-state profile file over the overlay block), every field editable;
    a required field left empty is marked (the CLI asks it as a QUESTION, exit
    3). The line under the selector is the run banner (name, completeness,
-   where the values came from, how it was chosen). */
+   where the values came from, how it was chosen).
+   post56: under each field, where ITS value comes from — an explicit file >
+   the codegen-state profile > the overlay block > unset (INPUT_NEEDED /
+   QUESTION), the CLI's order (codegen.environments.resolve). */
 
 export const OTHER = "__other__";
 
@@ -68,6 +71,12 @@ export function EnvironmentSelector({
   const required = new Set(options.required ?? []);
   const keys = options.fields.length ? options.fields : Object.keys(option?.values ?? {});
   const original = prefill(option, null);
+  // the run's own sources when this profile is the one in effect (App edits
+  // included), else the profile's as resolved
+  const sources =
+    options.source && options.source !== "custom" && current === (options.selected ?? options.default)
+      ? options.sources ?? option?.sources ?? {}
+      : option?.sources ?? {};
   const edits = Object.fromEntries(
     Object.entries(fields).filter(([k, v]) => v.trim() && v.trim() !== (original[k] ?? "")),
   );
@@ -124,11 +133,17 @@ export function EnvironmentSelector({
                     />
                     {missing ? <span className="flag-hitl"> required — missing</span> : null}
                   </td>
+                  <td aria-label={`environment ${key} source`} style={{ paddingLeft: 6, opacity: 0.75 }}>
+                    {sources[key] ? `from ${sources[key]}` : null}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      ) : null}
+      {!other && keys.length && options.profiles_dir ? (
+        <div style={{ opacity: 0.75 }}>profiles read from {options.profiles_dir}</div>
       ) : null}
       {!other && keys.length ? (
         <button

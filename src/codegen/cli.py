@@ -709,15 +709,14 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
             and tpl is not None and tpl.environment_cells:
         chosen = config.run_environment
         if inputs.get(envs.INPUT_KEY) and (chosen is None or chosen.source == "default"):
-            config = envs.with_environment(config, envs.select_environment(
+            config = envs.with_environment(config, envs.resolve(
                 config, name=inputs[envs.INPUT_KEY], live=_live_run(config, dry_run)))
         env = envs.run_environment(config)
         given = {key[len(envs.INPUT_KEY) + 1:]: value for key, value in inputs.items()
                  if key.startswith(f"{envs.INPUT_KEY}.") and str(value).strip()}
         if env is not None and given:
-            config = envs.with_environment(config, env.model_copy(update={
-                "entry": envs.overlay_values(env.entry, given),
-                "origin": f"{env.origin} + the answers file"}))
+            config = envs.with_environment(
+                config, envs.with_values(config, env, given, "the answers file"))
     env = envs.run_environment(config) if tpl is not None and tpl.environment_cells else None
     questions = envs.required_items(config) if env is not None else []
     if env is not None:
@@ -2321,13 +2320,13 @@ def _main(argv: list[str] | None = None) -> int:
     # the default, recorded by an INPUT_NEEDED line in _run_pairs)
     from codegen.environments import (
         EnvironmentSelectionError,
-        select_environment,
+        resolve,
         with_environment,
     )
 
     try:
         env_file = getattr(args, "environment_file", None)
-        config = with_environment(config, select_environment(
+        config = with_environment(config, resolve(
             config, name=getattr(args, "environment", None),
             file=Path(env_file) if env_file else None,
             live=_live_run(config, getattr(args, "dry_run", False))))

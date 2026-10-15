@@ -5,6 +5,17 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
+**post50 (2026-10-14) — four follow-ups** (marker **0.5.8.post50**): rule 4 (SRC_COLUMNS)
+REVERTED pending the D1 golden cells (0132080; kept on local branch `wip/src-columns-rule4`);
+2b01346 the handler two-notebook forms only for EDI 834 feeds (`edi_feed_patterns`: 834 / EDI
+tokens in source / file patterns / name; else the single notebook, `_TPL` for TPL; NOTE names
+the rule, `_notebook_rule`); 46272ce `gate.derivations.list_columns` (notebook NAME / PATH:
+comma list OK when every segment passes); 12605b8 NullCheck / DeDup INPUT_PARAM = the stage
+table FQN (`_target_fqn_cell`; owed items + FAQ companions dropped; open + NOTE only when the
+catalog is unset — the environment's INPUT_NEEDED asks); bf1b6dc `email_status_input`
+(run-level `INPUT_NEEDED run.email_statuses`, default all four; an answer trims the rows) +
+iig_diff `status_columns` → `status-not-in-golden`. Home CAQH 78.4 (email 11.5 → 21.4).
+
 **post49 (2026-10-14) — the client framework owner's rules 1–5**, one commit each
 (8a2108d, 86bcc16, 8e4c65c, 49d3e73, 7d59a3f), marker **0.5.8.post49**; tests in
 `tests/test_framework_owner_rules.py` + the touched files.

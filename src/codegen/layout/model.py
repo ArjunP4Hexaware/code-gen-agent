@@ -28,6 +28,7 @@ from typing import Protocol
 
 from codegen.config import Config
 from codegen.layout.profile import ROLE_DEFINITIONS, LayoutProfile, UnresolvedRole
+from codegen.reasoning.usage import timed
 
 
 class LayoutProviderError(RuntimeError):
@@ -359,6 +360,7 @@ class FmapiLayoutProvider:
         self.endpoint = self._endpoint
         self.model = config.reasoning.model
         self.calls = 0
+        self.seconds = 0.0
 
     def _chat(self, system: str):
         from codegen.databricks import chat
@@ -367,7 +369,7 @@ class FmapiLayoutProvider:
             return chat(self._cfg, messages=[{"role": "system", "content": system},
                                              {"role": "user", "content": prompt}],
                         endpoint=self._endpoint, max_tokens=self._max_tokens)
-        return send
+        return timed(self, send)
 
     def _count(self) -> None:
         self.calls += 1
@@ -396,6 +398,7 @@ class AnthropicLayoutProvider:
         self.model = self._model
         self.endpoint: str | None = None
         self.calls = 0
+        self.seconds = 0.0
 
     def _messages(self, system: str):
         import anthropic
@@ -411,7 +414,7 @@ class AnthropicLayoutProvider:
                 messages=[{"role": "user", "content": prompt}])
             return "".join(block.text for block in message.content
                            if getattr(block, "type", "") == "text")
-        return send
+        return timed(self, send)
 
     def _count(self) -> None:
         self.calls += 1

@@ -22,6 +22,7 @@ from codegen.config import Config
 from codegen.reasoning.providers.anthropic_provider import _SYSTEM_PROMPT
 from codegen.reasoning.providers.ask import AttemptFailure, ask_candidate
 from codegen.reasoning.schema import CandidateResponse, ContextPack
+from codegen.reasoning.usage import timed
 
 
 class DatabricksFmapiProvider:
@@ -47,6 +48,7 @@ class DatabricksFmapiProvider:
         self.endpoint = self._endpoint
         self.model = config.reasoning.model
         self.calls = 0
+        self.seconds = 0.0
         self.requests = 0
         self.failures: list[AttemptFailure] = []
 
@@ -72,7 +74,7 @@ class DatabricksFmapiProvider:
                 max_tokens=max_tokens,
             )
 
-        return ask_candidate(send, user_prompt, max_attempts=self._max_attempts,
+        return ask_candidate(timed(self, send), user_prompt, max_attempts=self._max_attempts,
                              max_tokens=self._max_tokens,
                              truncation_max_tokens=self._truncation_max_tokens,
                              failures=self.failures, request=self.requests)

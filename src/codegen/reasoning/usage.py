@@ -20,6 +20,7 @@ reads ``"test"``.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass, fields
 
 NO_CALL_NEEDED = "Resolved from the documents (no model call needed)"
@@ -54,6 +55,9 @@ class StageUsage:
     recovered: int = 0               # requests answered after a failed attempt
     mock_reason: str | None = None   # why a mock answered (set iff provider == mock)
     recorded_provider: str | None = None   # replay: who produced the recorded set
+    # D1 post51 pair_03 (109 s vs ~10 s): wall-clock seconds the live calls
+    # took, retries included — which stage the time went to.
+    seconds: float = 0.0
 
     @property
     def forced_mock(self) -> bool:
@@ -71,6 +75,8 @@ class StageUsage:
             return f"Mock provider (reason: {self.mock_reason or MOCK_REASON_DEFAULT})"
         label = (f"{model_display_name(self.model)} ({self.endpoint or self.model}) · "
                  f"{self.calls} call(s)")
+        if self.seconds:
+            label += f" in {self.seconds:.1f}s"
         if self.failed:
             label += f", {self.failed} failed"
         if self.recovered:
@@ -113,6 +119,7 @@ def usage_from_provider(stage: str, provider, *, requests: int, failed: int = 0,
         recovered=0 if is_mock else recovered,
         mock_reason=(getattr(provider, "mock_reason", None) or MOCK_REASON_DEFAULT)
         if is_mock and provider is not None else None,
+        seconds=0.0 if is_mock else round(float(getattr(provider, "seconds", 0.0) or 0.0), 1),
     )
 
 
@@ -136,7 +143,20 @@ def merge(stage: str, usages: list[StageUsage]) -> StageUsage:
         recovered=sum(u.recovered for u in usages),
         mock_reason="; ".join(reasons) or None,
         recorded_provider=first.recorded_provider,
+        seconds=round(sum(u.seconds for u in usages), 1),
     )
+
+
+def timed(owner, send):
+    """``send`` with its wall-clock time added to ``owner.seconds`` (every
+    live provider's round-trip; what StageUsage.seconds reads)."""
+    def wrapped(*args, **kwargs):
+        start = time.perf_counter()
+        try:
+            return send(*args, **kwargs)
+        finally:
+            owner.seconds = getattr(owner, "seconds", 0.0) + time.perf_counter() - start
+    return wrapped
 
 
 def layer2_usage(provider, candidates) -> StageUsage:
@@ -197,5 +217,6 @@ __all__ = [
     "model_display_name",
     "replay_usage",
     "run_usage",
+    "timed",
     "usage_from_provider",
 ]

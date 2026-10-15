@@ -38,7 +38,9 @@ os.environ.pop("CODEGEN_CONFIG_OVERLAYS", None)
 # provider switch starts at its default (mock) whatever the operator's shell
 # says: fixtures and the real SD documents at home stay mock-only.
 os.environ["CODEGEN_BLOCK_LIVE_MODEL"] = "1"
-os.environ.pop("CODEGEN_PROVIDER", None)
+# post47b: what the operator asked for is remembered (never acted on) — the
+# live-only D1 placeholder check (tests/test_d1_placeholders.py) reads it.
+os.environ["CODEGEN_PROVIDER_REQUESTED"] = os.environ.pop("CODEGEN_PROVIDER", "") or ""
 
 # Importing ui.backend.main (test_demo_ui and friends) runs load_dotenv as an
 # import side effect, which can put the OPERATOR'S machine-local env overrides

@@ -2302,6 +2302,9 @@ class DemoRunner:
 
     def _execute(self) -> None:
         config = self._store.config
+        # post47b: under provider=live a named environment with a key unset fails
+        # HERE, naming the keys — before anything is written (mock: INPUT_NEEDED)
+        self.run_environment(config)
         label = f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         from ui.backend import stores as ui_stores
 

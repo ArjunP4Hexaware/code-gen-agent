@@ -156,7 +156,7 @@ def test_cold_pair_completes_after_the_answers(pair, cold_env, capsys):
     owed = (".active_start_date — ", ".application_name — ", ".email_to — ",
             ".dq_null_check_input_param — ", ".dq_dedup_input_param — ")
     assert inputs and all(any(k in ln for k in owed) or
-                          ln.startswith("INPUT_NEEDED   run.environment — ") for ln in inputs), out
+                          ln.startswith("INPUT_NEEDED   run.environment") for ln in inputs), out
     verdicts = re.findall(r"^(PASS_WITH_FLAGS|PASS|FAIL)\s", out, re.MULTILINE)
     assert verdicts and set(verdicts) <= {"PASS", "PASS_WITH_FLAGS"}, out
 

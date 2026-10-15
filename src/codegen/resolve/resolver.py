@@ -439,10 +439,11 @@ def map_catalog(catalog: str | None, layer: str, config: Config,
     never the logical name written, never another environment's map."""
     from codegen import environments as envs
 
-    if catalog is not None and envs.catalogs_unset(config):
-        flag = (f"catalog_unset:{layer} — {catalog!r}: the custom environment states no "
-                "catalog_map; the catalog is left unset (INPUT_NEEDED "
-                f"run.environment.catalog_map.{catalog})")
+    # post47b: also a named environment's placeholder (provider=mock)
+    reason = envs.catalog_unset_reason(config, catalog)
+    if reason is not None:
+        flag = (f"catalog_unset:{layer} — {catalog!r}: {reason}; the catalog is left unset "
+                f"(INPUT_NEEDED run.environment.catalog_map.{catalog})")
         if flag not in flags:
             flags.append(flag)
         return None, catalog

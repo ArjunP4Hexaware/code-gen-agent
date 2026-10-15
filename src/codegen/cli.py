@@ -498,7 +498,8 @@ def _run_pairs(
     from codegen.environments import EnvironmentSelectionError
 
     try:
-        config, run_items = _run_environment(config, inputs, output_mode, iig_template)
+        config, run_items = _run_environment(config, inputs, output_mode, iig_template,
+                                             dry_run=dry_run)
     except EnvironmentSelectionError as exc:
         print(f"{'FAIL':<15} environment — {exc}")
         return 1
@@ -563,7 +564,8 @@ def _run_pairs(
     return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
 
 
-def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_template):
+def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_template,
+                     *, dry_run: bool = False):
     """2026-10-14: the run's environment. An answers-file ``inputs:
     run.environment`` selects one when no flag did; a run on the default
     prints ONE INPUT_NEEDED line naming the environment it assumed (and returns
@@ -587,7 +589,7 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
         chosen = config.run_environment
         if inputs.get(envs.INPUT_KEY) and (chosen is None or chosen.source == "default"):
             config = envs.with_environment(config, envs.select_environment(
-                config, name=inputs[envs.INPUT_KEY]))
+                config, name=inputs[envs.INPUT_KEY], live=_live_run(config, dry_run)))
         env = envs.run_environment(config)
         given = {key[len(envs.INPUT_KEY) + 1:]: value for key, value in inputs.items()
                  if key.startswith(f"{envs.INPUT_KEY}.") and str(value).strip()}
@@ -604,6 +606,14 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
     return config, [TemplateItem(i.key, i.question,
                                  list(config.environments) if i.key == envs.INPUT_KEY else [],
                                  owed_mod.INPUTS_SECTION) for i in items]
+
+
+def _live_run(config: Config, dry_run: bool) -> bool:
+    """post47b: the run is live — provider=live and no --dry-run (which asks
+    for the mock): a named environment with a key unset is then fatal."""
+    from codegen.reasoning.mode import provider_mode
+
+    return provider_mode(config).live and not dry_run
 
 
 def _lob_question(spec):
@@ -2136,7 +2146,8 @@ def _main(argv: list[str] | None = None) -> int:
         env_file = getattr(args, "environment_file", None)
         config = with_environment(config, select_environment(
             config, name=getattr(args, "environment", None),
-            file=Path(env_file) if env_file else None))
+            file=Path(env_file) if env_file else None,
+            live=_live_run(config, getattr(args, "dry_run", False))))
     except EnvironmentSelectionError as exc:
         print(f"{'FAIL':<15} environment — {exc}")
         return 1

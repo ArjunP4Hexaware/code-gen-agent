@@ -575,8 +575,8 @@ def catalog_mapping_note(table) -> str:
     if getattr(table, "catalog_logical", None) is None:
         return ""
     if table.catalog is None:
-        return (f"; {_CATALOG_UNSET} — the custom environment states no "
-                f"catalog_map.{table.catalog_logical}")
+        return (f"; {_CATALOG_UNSET} — the run's environment leaves "
+                f"catalog_map.{table.catalog_logical} unset")
     return (f"; catalog_map {table.catalog_logical} → {table.catalog} (the run's environment "
             "catalog_map)")
 

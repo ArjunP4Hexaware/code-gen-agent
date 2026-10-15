@@ -27,9 +27,10 @@
 # this environment's; default_catalog: the fallback per layer) and the
 # framework's connection ids moved here too (were conventions.catalog_map, the
 # acfc_prx profile's default_catalog and ADLS constants). A NAMED environment
-# must state every key - choosing QA / PROD while they are placeholders fails the
-# run naming the unset keys (D1's own <<D1:...>> stand-ins excepted, see
-# tests/test_d1_placeholders.py). A custom environment (--environment-file / the
+# with a key unset (blank / a placeholder): under provider=live the run fails
+# naming the unset keys, nothing written; under provider=mock each is an
+# INPUT_NEEDED run.environment.<key> line and its cells stay empty
+# (tests/test_d1_placeholders.py is the live-only check). A custom environment (--environment-file / the
 # App's "Other") inherits nothing: each key it leaves out is an INPUT_NEEDED line
 # and its cells stay empty.
 environments:

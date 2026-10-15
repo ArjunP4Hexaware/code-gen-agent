@@ -16,9 +16,11 @@ fails with a clear message otherwise). A run picks one:
 2026-10-14 (post47): the catalogs (``catalog_map``, ``default_catalog``) and the
 framework's connection ids (``connection_ids``) are environment keys too. A
 NAMED environment (D1 / QA / PROD, chosen or the default) is a claim that it is
-complete: one with a key unset (blank, or a ``<<ENV:...>>`` placeholder) fails
-the run naming every unset key — except the D1 overlay's own ``<<D1:...>>``
-stand-ins (tests/test_d1_placeholders.py fails on D1 while one survives). A
+complete: under provider=live one with a key unset (blank, or a
+``<<ENV:...>>`` placeholder) fails the run naming every unset key, nothing
+written; under provider=mock each unset key prints ``INPUT_NEEDED
+run.environment.<key>`` and the cells that use it stay empty (post47b;
+tests/test_d1_placeholders.py is the live-only check of the D1 overlay). A
 CUSTOM environment inherits nothing: a key it leaves out stays unset, the cells
 that would use it stay empty, each one prints ``INPUT_NEEDED
 run.environment.<key>`` and the header reads ``environment: custom (N keys
@@ -44,7 +46,6 @@ from codegen.config import (
     EnvironmentConfig,
     MetadataTemplateConfig,
     RunEnvironment,
-    is_d1_placeholder,
     is_placeholder,
 )
 
@@ -117,7 +118,8 @@ def load_environment_file(path: Path) -> tuple[str, EnvironmentConfig]:
 
 def select_environment(config: Config, *, name: str | None = None,
                        file: Path | None = None, custom: dict | None = None,
-                       custom_name: str | None = None) -> RunEnvironment | None:
+                       custom_name: str | None = None,
+                       live: bool | None = None) -> RunEnvironment | None:
     """The run's environment: a custom block (``file`` / ``custom``), a named
     choice, else the default. None when the config defines no environments
     and nothing custom is given."""
@@ -134,12 +136,12 @@ def select_environment(config: Config, *, name: str | None = None,
                 f"unknown environment {name!r}; choices: "
                 f"{', '.join(config.environments) or 'none defined'} (or --environment-file)")
         return _complete(config, RunEnvironment(name=found, source="selected",
-                                                entry=config.environments[found]))
+                                                entry=config.environments[found]), live)
     default = default_name(config)
     if default is None:
         return None
     return _complete(config, RunEnvironment(name=default, source="default",
-                                            entry=config.environments[default]))
+                                            entry=config.environments[default]), live)
 
 
 def expected_keys(config: Config) -> list[str]:
@@ -159,17 +161,22 @@ def unset_keys(config: Config, entry: EnvironmentConfig) -> list[str]:
             if not str(flat.get(key) or "").strip() or is_placeholder(flat.get(key))]
 
 
-def _complete(config: Config, env: RunEnvironment) -> RunEnvironment:
-    """A NAMED environment must state every key: one unset (the D1 overlay's
-    own ``<<D1:...>>`` stand-ins excepted) fails the run, naming them all."""
-    flat = flat_values(env.entry)
-    unset = [key for key in unset_keys(config, env.entry) if not is_d1_placeholder(flat.get(key))]
-    if unset:
+def _complete(config: Config, env: RunEnvironment, live: bool | None) -> RunEnvironment:
+    """post47b: a NAMED environment with a key unset (blank or a placeholder) is
+    FATAL under provider=live, naming every unset key — nothing is written. Under
+    provider=mock the run goes on: each unset key is an INPUT_NEEDED
+    run.environment.<key> line and the cells that use it stay empty."""
+    if live is None:
+        from codegen.reasoning.mode import provider_mode
+
+        live = provider_mode(config).live
+    unset = unset_keys(config, env.entry)
+    if unset and live:
         raise EnvironmentSelectionError(
             f"environment {env.name} is not complete — {len(unset)} key(s) unset: "
-            f"{', '.join(unset)}. A named environment must state every key: set them under "
-            f"environments.{env.name} in the overlay, or pass --environment-file with the "
-            "values you have (a custom environment's missing keys stay open, each an "
+            f"{', '.join(unset)}. provider=live needs every key of a named environment: set "
+            f"them under environments.{env.name} in the overlay, or pass --environment-file "
+            "with the values you have (a custom environment's missing keys stay open, each an "
             "INPUT_NEEDED line)")
     return env
 
@@ -211,19 +218,43 @@ def catalog_map(config: Config | None) -> dict[str, str]:
     return config.conventions.catalog_map
 
 
-def catalogs_unset(config: Config | None) -> bool:
-    """A custom environment that states no catalog_map: a stated logical
-    catalog is left unset (its cells open), never written as the logical name."""
+def catalog_unset_reason(config: Config | None, logical: str | None) -> str | None:
+    """Why the run's environment leaves the logical catalog ``logical`` unset
+    (None: it maps it, or no environment applies): a custom environment that
+    states no catalog_map, or a placeholder value (a named environment under
+    provider=mock). The catalog is then left unset — its cells open — never
+    written as the logical name or the placeholder."""
     env = run_environment(config) if config is not None else None
-    return env is not None and env.source == "custom" and not env.entry.catalog_map
+    if env is None or logical is None:
+        return None
+    if env.source == "custom" and not env.entry.catalog_map:
+        return f"the custom environment {env.name!r} states no catalog_map.{logical}"
+    mapped = next((v for k, v in env.entry.catalog_map.items()
+                   if k.lower() == logical.lower()), None)
+    if is_placeholder(mapped):
+        return (f"environment {env.name} ({env.source}) leaves catalog_map.{logical} unset "
+                f"({mapped})")
+    return None
 
 
 def default_catalog(config: Config | None, layer: str) -> str | None:
-    """The run's environment's fallback catalog for ``layer`` (None: not stated)."""
+    """The run's environment's fallback catalog for ``layer`` (None: not stated,
+    or a placeholder)."""
     env = run_environment(config) if config is not None else None
     if env is None:
         return None
-    return env.entry.default_catalog.get(layer) or None
+    value = env.entry.default_catalog.get(layer) or None
+    return None if is_placeholder(value) else value
+
+
+def default_catalog_unset(config: Config | None, layer: str) -> bool:
+    """The environment owes the ``layer`` fallback catalog: a custom one that
+    states none, or a placeholder — an INPUT_NEEDED, never a FAIL."""
+    env = run_environment(config) if config is not None else None
+    if env is None:
+        return False
+    raw = env.entry.default_catalog.get(layer)
+    return (env.source == "custom" and not raw) or is_placeholder(raw)
 
 
 def label(config: Config | None) -> str | None:
@@ -272,7 +303,7 @@ def environment_flags(config: Config) -> list[str]:
     env = run_environment(config)
     if env is None:
         return []
-    unset = unset_keys(config, env.entry) if env.source == "custom" else []
+    unset = unset_keys(config, env.entry)
     flags = [f"{FLAG}:{header_label(env, unset)} — the environment-scoped IIG cells "
              "(containers, storage account, catalogs, connection ids) come from it"]
     if env.source == "default":
@@ -291,15 +322,22 @@ def header_label(env: RunEnvironment, unset: list[str]) -> str:
 
 
 def unset_question(env: RunEnvironment, key: str) -> str:
+    if env.source != "custom":
+        value = flat_values(env.entry).get(key) or "blank"
+        return (f"environment {env.name} ({env.source}) leaves {key} unset ({value}): the "
+                f"cells that use it are left empty — set it under environments.{env.name} in "
+                "the overlay (provider=live fails on it)")
     return (f"the custom environment {env.name!r} states no {key} (never taken from a named "
             "environment): the cells that use it are left empty — give it in the environment "
             f"file / the App's Other box, or under inputs.run: environment.{key}")
 
 
 def unset_items(config: Config) -> list[tuple[str, str]]:
-    """(input key, question) per key a custom run environment leaves unset."""
+    """(input key, question) per key the run environment leaves unset: a custom
+    one's missing keys; a named one's blanks / placeholders (provider=mock —
+    under live the selection already failed)."""
     env = run_environment(config)
-    if env is None or env.source != "custom":
+    if env is None:
         return []
     return [(f"{INPUT_KEY}.{key}", unset_question(env, key))
             for key in unset_keys(config, env.entry)]
@@ -331,8 +369,9 @@ def flat_values(entry: EnvironmentConfig) -> dict[str, str]:
 
 
 __all__ = ["ASSUMED_FLAG", "FLAG", "INPUT_KEY", "UNSET_FLAG", "EnvironmentSelectionError",
-           "apply_environment", "assumed_question", "catalog_map", "catalogs_unset",
-           "default_catalog", "default_name", "entry_from_values", "env_note", "env_value",
+           "apply_environment", "assumed_question", "catalog_map", "catalog_unset_reason",
+           "default_catalog", "default_catalog_unset", "default_name", "entry_from_values",
+           "env_note", "env_value",
            "environment_flags", "expected_keys", "flat_values", "header_label", "header_line",
            "label", "load_environment_file", "run_environment", "select_environment",
            "unset_items", "unset_keys", "unset_question", "with_environment"]

@@ -130,8 +130,9 @@ def run_owed_inputs(config, inputs: dict[str, str] | None, *, output_mode=None,
 def environment_inputs(config, *, output_mode=None,
                        iig_template: str | None = None) -> list[OwedInput]:
     """The run's environment inputs: ``run.environment`` when the default was
-    assumed, ``run.environment.<key>`` per key a custom environment leaves
-    unset. Only framework runs whose IIG template has environment cells."""
+    assumed, ``run.environment.<key>`` per key the environment leaves unset (a
+    custom one: missing; a named one under provider=mock: blank / placeholder).
+    Only framework runs whose IIG template has environment cells."""
     from codegen import environments as envs
 
     tpl = _template(config, output_mode, iig_template)
@@ -140,9 +141,11 @@ def environment_inputs(config, *, output_mode=None,
     env = envs.run_environment(config)
     if env is None:
         return []
-    if env.source == "default":
-        return [OwedInput(envs.INPUT_KEY, envs.assumed_question(config, env), "", RUN)]
-    return [OwedInput(key, question, "", RUN) for key, question in envs.unset_items(config)]
+    # post47b: a named environment's unset keys too (provider=mock; live failed)
+    assumed = ([OwedInput(envs.INPUT_KEY, envs.assumed_question(config, env), "", RUN)]
+               if env.source == "default" else [])
+    return [*assumed, *(OwedInput(key, question, "", RUN)
+                        for key, question in envs.unset_items(config))]
 
 
 def _default_tokens(spec) -> dict:

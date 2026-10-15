@@ -5,6 +5,18 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
+**post48 (2026-10-14) — the D1 exemption replaced by the provider.** A NAMED
+environment with a key unset (blank / any `<<ENV:...>>`, D1's included) is FATAL
+only under provider=live and no `--dry-run` (`environments._complete(live=)`; CLI
+`cli._live_run`; App `_execute` checks it before the run folder exists) — the
+message names every key, nothing written. Under mock: one `INPUT_NEEDED
+run.environment.<key>` each (`unset_items` now covers named environments), cells
+empty; a placeholder catalog is left unset (`catalog_unset_reason`,
+`default_catalog_unset`), never written. At home every run now lists
+`run.environment.storage_account` (D1's placeholder). `tests/test_d1_placeholders.py`
+is the live-only check: conftest keeps the operator's `CODEGEN_PROVIDER` as
+`CODEGEN_PROVIDER_REQUESTED`; started live it FAILS on any `<<D1:...>>` (10 at home).
+
 **Restart here (2026-10-14, post47).** Three small items, marker **0.5.8.post47**:
 - **Catalogs + connection ids per environment.** `EnvironmentConfig` gains
   `catalog_map`, `default_catalog`, `connection_ids` (acfc_env.yaml: D1 real, QA /
@@ -14,8 +26,8 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   `emit.framework._config_default_catalog`); ADLS connection ids are
   `environment_cells` (`connection_ids.<name>`). Catalog cells get an `iig_env:`
   NOTE (`metadata_template._catalog_env_notes`). A NAMED environment (selected or
-  default) with any key unset FAILS naming every key (`_complete`; D1's own
-  `<<D1:...>>` exempt). A CUSTOM one inherits nothing: missing keys stay unset,
+  default) with any key unset FAILS naming every key (`_complete`; superseded by
+  post48 above: fatal only under provider=live). A CUSTOM one inherits nothing: missing keys stay unset,
   their cells empty (an unset catalog: `catalog_env_unset:<layer>` flag, DDL for
   that layer not written, never FAIL), one `INPUT_NEEDED run.environment.<key>`
   each, header `environment: SANDBOX (custom, N keys unset)`; `inputs.run:

@@ -102,8 +102,10 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     assert (f"iig_env:{STG}.SRC_CATALOG_NAME — the catalog from environment D1 (default): "
             "catalog_map PR_DLK → d1_dlk, PR_STD → d1_std") in report
     # post47: the run-level inputs in ONE block at the top; the feed's own below it
-    assert report.index("**Run inputs needed: 3**") < report.index("**Answers owed**")
-    for key in ("run.environment", "run.application_name", "run.email_to"):
+    # (+ post47b: D1's own storage-account placeholder, provider=mock)
+    assert report.index("**Run inputs needed: 4**") < report.index("**Answers owed**")
+    for key in ("run.environment", "run.environment.storage_account", "run.application_name",
+                "run.email_to"):
         assert f"- `{key}`" in report
     assert "**Answers owed** — questions: 0, inputs needed: 3" in report
     assert (f"iig_env:{ADLS}.TGT_CONTAINER_NAME — '{d1.containers['stage']}' from environment "
@@ -115,7 +117,8 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
 
     path = tmp_path / "out" / "answers_template.yaml"
     inputs = yaml.safe_load(path.read_text(encoding="utf-8"))["inputs"]
-    assert list(inputs["run"]) == ["environment", "application_name", "email_to"]
+    assert list(inputs["run"]) == ["environment", "environment.storage_account",
+                                   "application_name", "email_to"]
     assert list(inputs["feeds"]) == [spec.feed_id]
     assert list(inputs["feeds"][spec.feed_id]) == [
         "active_start_date", "dq_null_check_input_param", "dq_dedup_input_param"]
@@ -205,24 +208,66 @@ def test_an_answers_file_input_selects_the_environment(tmp_path, capsys):
     assert "environment: QA (selected)" in _report(tmp_path, spec)
 
 
-def test_a_named_environment_with_placeholders_fails_naming_the_unset_keys(tmp_path, capsys):
-    """post47: choosing a NAMED environment is a claim that it is complete —
-    the shipped QA (placeholders) fails, naming every unset key; nothing written."""
+QA_UNSET = ["containers.landing", "containers.stage", "containers.standard", "storage_account",
+            "catalog_map.PR_DLK", "catalog_map.PR_STD", "default_catalog.stage",
+            "default_catalog.standard", "connection_ids.src_adls", "connection_ids.metadata",
+            "connection_ids.target"]
+
+
+def test_a_named_environment_with_placeholders_is_fatal_under_live(tmp_path, capsys,
+                                                                    monkeypatch):
+    """post47b: under provider=live the shipped QA (placeholders) fails, naming
+    every unset key; nothing is written. (--dry-run asks for the mock: not live.)"""
     config, spec, pair = _setup(tmp_path)
     with pytest.raises(EnvironmentSelectionError) as caught:
-        select_environment(config, name="QA")
+        select_environment(config, name="QA", live=True)
     message = str(caught.value)
-    assert message.startswith("environment QA is not complete — 11 key(s) unset: ")
-    for key in ("containers.stage", "storage_account", "catalog_map.PR_DLK",
-                "default_catalog.standard", "connection_ids.src_adls", "connection_ids.target"):
-        assert key in message
-    # the answers-file route: the same failure, a FAIL line, exit 1, no workbook
+    assert message.startswith("environment QA is not complete — 11 key(s) unset: "
+                              + ", ".join(QA_UNSET))
+    assert "provider=live needs every key" in message
+    # the run: provider=live, no --dry-run — FAIL before anything is resolved or
+    # written (the environment is chosen first; no model is reached)
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
     answers = tmp_path / "answers.yaml"
     answers.write_text("inputs:\n  run:\n    environment: {value: QA}\n", encoding="utf-8")
-    assert _generate(config, pair, spec.feed_id, answers_path=answers) == 1
+    code = cli._run_pairs([pair], config, dry_run=False, skip_tests=True,
+                          output_mode=["framework"], conventions_profile="acfc_prx",
+                          iig_template="iig_v2", only_feed=spec.feed_id, answers_path=answers)
     out = capsys.readouterr().out
+    assert code == 1
     assert "FAIL            environment — environment QA is not complete" in out
-    assert not _xlsx(tmp_path, spec).exists()
+    assert not (tmp_path / "out").exists() or not any((tmp_path / "out").rglob("*.xlsx"))
+
+
+def test_a_named_environment_with_placeholders_is_input_needed_under_mock(tmp_path, capsys):
+    """post47b: under provider=mock the same QA runs: one INPUT_NEEDED
+    run.environment.<key> per unset key, the cells that use them empty — never
+    a placeholder, never D1's value; the workbook is written."""
+    config, spec, pair = _setup(tmp_path)
+    env = select_environment(config, name="QA")                  # mock: no failure
+    assert env.name == "QA" and env.source == "selected"
+    config = with_environment(config, env)
+    assert _generate(config, pair, spec.feed_id) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED   run.environment.")]
+    assert [ln.split()[1] for ln in lines] == [f"run.environment.{k}" for k in QA_UNSET]
+    assert all("environment QA (selected) leaves" in ln and "provider=live fails on it" in ln
+               for ln in lines)
+    (adls,) = _rows(_xlsx(tmp_path, spec), ADLS)
+    (stg,) = _rows(_xlsx(tmp_path, spec), STG)
+    for row, headers in ((adls, ("SRC_CONTAINER_NAME", "TGT_CONTAINER_NAME",
+                                 "SRC_ADLS_CONNECTION_ID", "TGT_CONNECTION_ID")),
+                         (stg, ("SRC_CATALOG_NAME", "TGT_CATALOG_NAME", "TGT_CONTAINER_NAME"))):
+        for header in headers:
+            assert row[header][0] in (None, ""), header
+    values = [cell[0] for row in (adls, stg) for cell in row.values()]
+    assert not any("<<QA:" in str(v) or "d1_" in str(v) for v in values)   # tooltips name it
+    ddl = "".join(p.read_text(encoding="utf-8")
+                  for p in (tmp_path / "out" / spec.feed_slug).rglob("*DDL*.txt"))
+    assert "<<QA:" not in ddl and "d1_dlk" not in ddl
+    report = _report(tmp_path, spec)
+    assert "environment: QA (selected)" in report
+    assert "catalog_env_unset:stage" in report and "FAIL" not in report.split("\n", 3)[2]
 
 
 def test_a_custom_unset_key_given_under_inputs_run_fills_its_cells(tmp_path, capsys):
@@ -251,7 +296,7 @@ def test_no_default_marked_fails_with_a_clear_message(tmp_path):
         load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY, overlay])
 
 
-def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values():
+def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monkeypatch):
     """The App's run form: the overlay's environments, the default preselected
     (source default, a non-blocking banner item); a named choice (selected);
     "Other" values (custom); an unknown name refused."""
@@ -280,12 +325,20 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values():
                                  "connection_ids.target"]
     # post47: the run-level items, scope "run", once (environment + the run-scoped cells)
     items = runner._run_level_inputs(with_environment(config, runner.run_environment()))
-    assert [i["key"] for i in items] == ["run.environment", "run.application_name",
-                                         "run.email_to"]
+    assert [i["key"] for i in items] == ["run.environment", "run.environment.storage_account",
+                                         "run.application_name", "run.email_to"]
     assert {i["scope"] for i in items} == {"run"} and "assumed D1" in items[0]["question"]
-    # the shipped QA is placeholders: refused, naming the unset keys
+    # post47b: the shipped QA is placeholders — accepted under provider=mock (its
+    # keys are banner items), refused under provider=live naming the unset keys
+    runner.select_environment(name="QA")
+    keys = [i["key"] for i in runner._run_level_inputs(
+        with_environment(config, runner.run_environment()))]
+    assert "run.environment.catalog_map.PR_DLK" in keys and "run.environment" not in keys
+    runner.select_environment()
+    monkeypatch.setenv("CODEGEN_PROVIDER", "live")
     with pytest.raises(EnvironmentSelectionError, match="QA is not complete"):
         runner.select_environment(name="QA")
+    monkeypatch.delenv("CODEGEN_PROVIDER")
     runner.select_environment(custom={"containers.stage": "syn-other-stage"},
                               custom_name="SANDBOX")
     options = runner.environment_options()

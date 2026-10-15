@@ -135,12 +135,19 @@ the DQ split rule's location takes `{storage_account}`.
   `conventions.catalog_map`, the acfc_prx profile's `default_catalog` and ADLS
   constants; a D1 overlay that still sets those must move them under
   `environments.D1`.
-- **A NAMED environment must be complete.** Choosing D1 / QA / PROD (a flag, the
-  App selector, `inputs.run.environment`, or the default) with a key unset (blank
-  or a `<<ENV:…>>` placeholder) FAILS the run — `FAIL environment — environment QA
-  is not complete — 11 key(s) unset: containers.landing, …`. Only the D1 overlay's
-  own `<<D1:…>>` stand-ins are exempt (`tests/test_d1_placeholders.py` fails on D1
-  while one survives).
+- **A NAMED environment with a key unset** (D1 / QA / PROD — a flag, the App
+  selector, `inputs.run.environment`, or the default; a key blank or a `<<ENV:…>>`
+  placeholder) depends on the provider (post47b):
+  - **provider=live** (and no `--dry-run`): FATAL — `FAIL environment —
+    environment QA is not complete — 11 key(s) unset: containers.landing, …`;
+    nothing is written (the App fails the run before its folder is created).
+  - **provider=mock**: the run proceeds; each unset key prints `INPUT_NEEDED
+    run.environment.<key>` in the run-level block and the cells that use it stay
+    empty (a placeholder catalog is left unset — never written — and that layer's
+    DDL waits, flag `catalog_env_unset:<layer>`).
+  `tests/test_d1_placeholders.py` is the live-only check: it FAILS while a
+  `<<D1:…>>` survives when the suite is started with `CODEGEN_PROVIDER=live` (or
+  the config says `reasoning.mode: live`), and skips otherwise.
 - **A CUSTOM environment inherits nothing** (`--environment-file`, the App's
   Other…): a key it leaves out stays unset — never taken from D1 or another named
   environment. The cells that use it stay empty (a catalog left unset: the DDL for

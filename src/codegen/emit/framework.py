@@ -164,22 +164,22 @@ def _config_default_catalog(config: Config | None, profile, layer: str) -> str |
 
 
 def _custom_env_without_catalog(config: Config | None, layer: str) -> bool:
-    """2026-10-14 (post47): the run's environment is custom and states no
-    catalog for ``layer`` — an INPUT_NEEDED (run.environment.<key>), never a
+    """2026-10-14 (post47): the run's environment owes the catalog for
+    ``layer`` — a custom one states none, or (post47b, provider=mock) a named
+    one's is a placeholder — an INPUT_NEEDED (run.environment.<key>), never a
     FAIL: the DDL waits for the value, the run proceeds."""
-    from codegen.environments import run_environment
+    from codegen.environments import default_catalog_unset
 
-    env = run_environment(config) if config is not None else None
-    return env is not None and env.source == "custom" and not env.entry.default_catalog.get(layer)
+    return default_catalog_unset(config, layer)
 
 
 def _env_catalog_unset_flag(config: Config, layer: str, name: str) -> str:
     from codegen.environments import run_environment
 
     env = run_environment(config)
-    return (f"catalog_env_unset:{layer} — {name}: the custom environment {env.name!r} states no "
-            f"catalog for the {layer} layer (catalog_map / default_catalog.{layer}, never taken "
-            f"from a named environment); the {layer} DDL is not written until it is given "
+    return (f"catalog_env_unset:{layer} — {name}: environment {env.name} ({env.source}) leaves "
+            f"the {layer} catalog unset (catalog_map / default_catalog.{layer}; never taken "
+            f"from another environment); the {layer} DDL is not written until it is given "
             "(INPUT_NEEDED run.environment.*)")
 
 

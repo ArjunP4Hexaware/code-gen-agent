@@ -24,7 +24,10 @@ block is skipped (:func:`without_warnings`).
 
 The CLI makes the coordinates: every ``FAIL`` line it prints is paired with one
 ``CODEGEN-ERROR {json}`` marker line on stderr (:func:`report_error`) naming
-the stage, a reason code from :data:`REASONS` and a :class:`Coord`. A raise
+the stage, a reason code from :data:`REASONS` and a :class:`Coord` (post55
+adds counts, each validated on the way in and out: ``tables`` — an unreadable
+FRD's table count + header-row fingerprints; ``flags`` / ``violations`` — a
+gate FAIL's flags per type and failed-check findings per rule). A raise
 site that interpolates document content attaches its coordinates with
 :func:`located` (``raise located(WorkbookParseError(f"... {cell!r}"),
 Coord.in_sheet("STTM", ws, row=r, col=c), "sttm.type")``); the message keeps
@@ -338,9 +341,29 @@ def _exc_name(name: object) -> str | None:
     return name if isinstance(name, str) and _EXC_NAME.match(name) else None
 
 
+_KIND = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
+MAX_KINDS = 12
+
+
+def kind_counts(counts: object) -> dict[str, int]:
+    """``{kind: n}`` kept only where the kind is a vocabulary token and n a
+    positive int — the largest :data:`MAX_KINDS`, ties by name (D1 post51
+    pair_01: gate flags by type, a failed check's violations by rule)."""
+    if not isinstance(counts, dict):
+        return {}
+    valid = [(k, v) for k, v in counts.items() if isinstance(k, str) and _KIND.match(k)
+             and isinstance(v, int) and not isinstance(v, bool) and v > 0]
+    return dict(sorted(valid, key=lambda kv: (-kv[1], kv[0]))[:MAX_KINDS])
+
+
+def _kinds_text(counts: object) -> str:
+    return ", ".join(f"{k} {n}" for k, n in kind_counts(counts).items())
+
+
 def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
                  exc: BaseException | None = None, checks: tuple[str, ...] | list[str] = (),
-                 path: object = None) -> str:
+                 path: object = None, flags: dict | None = None,
+                 violations: dict | None = None) -> str:
     """One ``CODEGEN-ERROR {json}`` line. An exception's own coordinates and
     reason (:func:`located`) win over the catch site's; every field is checked
     against this module's vocabulary on the way in AND on the way out."""
@@ -357,14 +380,21 @@ def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
     tables = error_tables(exc)
     if tables is not None:
         payload["tables"] = tables
+    # a gate FAIL (pair_01): flags by type, the failed checks' violations by rule
+    if kind_counts(flags):
+        payload["flags"] = kind_counts(flags)
+    if kind_counts(violations):
+        payload["violations"] = kind_counts(violations)
     return MARKER + json.dumps(payload, sort_keys=True)
 
 
 def report_error(stage: str, reason: str, coord: Coord | None = None, *,
                  exc: BaseException | None = None, checks: tuple[str, ...] | list[str] = (),
-                 path: object = None, stream=None) -> None:
+                 path: object = None, stream=None, flags: dict | None = None,
+                 violations: dict | None = None) -> None:
     """Print the marker for one FAIL line (stderr by default)."""
-    print(error_marker(stage, reason, coord, exc=exc, checks=checks, path=path),
+    print(error_marker(stage, reason, coord, exc=exc, checks=checks, path=path, flags=flags,
+                       violations=violations),
           file=stream or sys.stderr, flush=True)
 
 
@@ -392,8 +422,16 @@ def coordinate_line(payload: object) -> str:
         line += f" {where}"
     checks = [c for c in (data.get("checks") or []) if isinstance(c, str)
               and _CHECK_NAME.match(c)][:12] if isinstance(data.get("checks"), list) else []
+    detail = []
     if checks:
-        line += f" (failed checks: {', '.join(checks)})"
+        violations = _kinds_text(data.get("violations"))
+        detail.append(f"failed checks: {', '.join(checks)}"
+                      + (f" [{violations}]" if violations else ""))
+    flags = _kinds_text(data.get("flags"))
+    if flags:
+        detail.append(f"flags by type: {flags}")
+    if detail:
+        line += f" ({'; '.join(detail)})"
     name = _exc_name(data.get("exception"))
     if name:
         line += f" [{name}]"
@@ -564,7 +602,7 @@ def silence_pydantic_deprecations() -> None:
 
 __all__ = ["DOCS", "MARKER", "MISMATCH_LABELS", "REASONS", "STAGES", "Coord", "column_number",
            "coordinate_line", "error_coord", "error_counts", "error_marker", "error_reason",
-           "error_tables", "tables_summary",
+           "error_tables", "kind_counts", "tables_summary",
            "first_error_line", "first_error_line_full", "is_warning_line", "located",
            "mismatch_summary", "path_hint", "report_error", "sheet_number",
            "silence_pydantic_deprecations", "without_warnings"]

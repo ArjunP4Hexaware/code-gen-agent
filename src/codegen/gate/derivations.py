@@ -240,25 +240,46 @@ def _is_path_column(header: str, cfg: DerivationsConfig) -> bool:
     return any(upper.endswith(s.upper()) for s in cfg.path_column_suffixes)
 
 
-def _check_cell(header: str, value: str, where: str, cfg, pattern, problems: list[str]) -> int:
+def violation_kind(problem: str) -> str:
+    """A path / URI / name problem phrase as its rule KIND (D1 post51 pair_01:
+    counted per kind for the coordinates tier) — never the value it quotes."""
+    if problem.startswith("length "):
+        return "length"
+    if problem.startswith("segment ") and problem.endswith("ends in punctuation"):
+        return "segment_punctuation"
+    if problem.startswith("authority ") and problem.endswith("ends in punctuation"):
+        return "authority_punctuation"
+    if problem.startswith("no authority"):
+        return "no_authority"
+    kind = re.sub(r"[^a-z0-9]+", "_", problem.lower()).strip("_")
+    return kind if re.fullmatch(r"[a-z][a-z0-9_]{0,40}", kind or "") else "other"
+
+
+def _check_cell(header: str, value: str, where: str, cfg, pattern, problems: list[str],
+                kinds: Counter | None = None) -> int:
     """One value (or one segment of a list column) against its column's rule;
     returns 1 when it was a location URI (counted in the details)."""
+    kinds = kinds if kinds is not None else Counter()
     if header in cfg.name_columns:
         cap = cfg.name_max_length.get(header, cfg.name_max_length.get("default", 128))
         charset = cfg.name_patterns.get(header, cfg.name_pattern)
         if not (pattern if charset == cfg.name_pattern else re.compile(charset)).match(value):
             problems.append(f"{where}: {_truncate(value)!r} is not an identifier ({charset})")
+            kinds["not_identifier"] += 1
         if len(value) > cap:
             problems.append(f"{where}: length {len(value)} > {cap}")
+            kinds["name_length"] += 1
     elif _is_path_column(header, cfg):
         # M10.2: which rule applied is part of the finding.
         if location_scheme(value):
             for problem in uri_violations(value, cfg.path_max_length):
                 problems.append(f"{where}: {problem} in {_truncate(value)!r} "
                                 "(location URI rule)")
+                kinds["uri_" + violation_kind(problem)] += 1
             return 1
         for problem in path_violations(value, cfg.path_max_length):
             problems.append(f"{where}: {problem} in {_truncate(value)!r}")
+            kinds["path_" + violation_kind(problem)] += 1
     return 0
 
 
@@ -268,6 +289,7 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
     cfg = config.gate.derivations
     pattern = re.compile(cfg.name_pattern)
     problems: list[str] = []
+    kinds: Counter = Counter()
     uris = 0
     for tab_name, tab in payload.get("tabs", {}).items():
         for row_index, row in enumerate(tab.get("rows", []), start=2):
@@ -284,6 +306,7 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                     problems.append(f"{where}: line break"
                                     + (f" at {tab_name}!{address}" if address else "")
                                     + f" in {_truncate(value)!r}")
+                    kinds["line_break"] += 1
                     continue
                 # 2026-10-14: a list column's comma-separated value (the corpus's
                 # two-notebook form) is checked segment by segment
@@ -292,11 +315,13 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                 if len(segments) > 1 and not all(segments):
                     problems.append(f"{where}: an empty segment in the list "
                                     f"{_truncate(value)!r}")
+                    kinds["list_empty_segment"] += 1
                     continue
                 for segment in segments:
-                    uris += _check_cell(header, segment, where, cfg, pattern, problems)
+                    uris += _check_cell(header, segment, where, cfg, pattern, problems, kinds)
     if problems:
-        return GateCheck(name="derivations", passed=False, details="; ".join(problems))
+        return GateCheck(name="derivations", passed=False, details="; ".join(problems),
+                         violations=dict(sorted(kinds.items())))
     details = "every derived name and path is single-line and within its cap"
     if uris:
         details += f"; {uris} location URI cell(s) checked by the location URI rule"

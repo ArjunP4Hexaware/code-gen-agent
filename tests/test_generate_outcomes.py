@@ -83,9 +83,11 @@ def test_gate_fail_keeps_every_artefact_in_quarantine(contracts, tmp_path, capsy
 
     assert "SKIPPED" not in captured.out
     assert f"{'GATE_FAIL':<15} {FEED}" in captured.out
-    assert first_error_line(code, captured.err, captured.out) == (
-        f"{'FAIL':<15} generate — gate verdict FAIL (complete, review only: quarantined) "
-        "at feed 1 of 1")
+    # post55: the coordinates tier adds the flag counts per type (vocabulary only)
+    line = first_error_line(code, captured.err, captured.out)
+    assert line.startswith(
+        f"{'FAIL':<15} generate — gate verdict FAIL (complete, review only: quarantined) "
+        "at feed 1 of 1 (flags by type: iig_blank ")
 
 
 def test_the_iig_diff_tool_still_finds_the_quarantined_build(contracts, tmp_path,  # noqa: F811

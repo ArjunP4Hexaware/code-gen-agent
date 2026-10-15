@@ -186,7 +186,21 @@ def _gate_section(gate: GateResult) -> list[str]:
         result = "NOT RUN" if check.not_run else "pass" if check.passed else "**FAIL**"
         lines.append(f"| {check.name} | {result} | {_cell(check.details)} |")
     lines.append("")
-    if gate.flags:
+    if gate.flags and gate.verdict == "FAIL":
+        # D1 post51 pair_01 (139 flags): grouped by type, the largest first —
+        # this report stays inside ACFC; the pushed tier carries the counts.
+        from codegen.run_stages import flag_type
+
+        groups: dict[str, list[str]] = {}
+        for flag in gate.flags:
+            groups.setdefault(flag_type(flag), []).append(flag)
+        lines.append(f"Flags by type ({len(gate.flags)}):")
+        lines.append("")
+        for kind, items in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            lines += [f"### `{kind}` \u2014 {len(items)}", ""]
+            lines += [f"- {flag}" for flag in items]
+            lines.append("")
+    elif gate.flags:
         lines.append("Flags:")
         lines += [f"- {flag}" for flag in gate.flags]
         lines.append("")

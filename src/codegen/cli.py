@@ -604,8 +604,20 @@ def _run_pairs(
             if gate.verdict == "FAIL":
                 # GATE_FAIL: complete artefacts, the gate said no — kept for review
                 failed = gate_failed = True
-                report_error(command, "gate.verdict_fail", where, checks=[
-                    c.name for c in gate.checks if not c.passed and not c.not_run])
+                failing = [c for c in gate.checks if not c.passed and not c.not_run]
+                # D1 post51 pair_01: counts per flag type and per violated rule
+                # (vocabulary only) for the coordinates tier; the flags' text is
+                # grouped by type in the full report (reports/<feed>.md).
+                flag_counts = run_stages.flag_counts(gate.flags)
+                violations: dict[str, int] = {}
+                for check in failing:
+                    for kind, n in check.violations.items():
+                        violations[kind] = violations.get(kind, 0) + n
+                report_error(command, "gate.verdict_fail", where,
+                             checks=[c.name for c in failing], flags=flag_counts,
+                             violations=violations)
+                for kind, n in sorted(flag_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+                    print(f"{'GATE_FLAGS':<15} {kind} \u2014 {n}")
                 moved = run_stages.quarantine(feed_dir, before)
                 q_dir = feed_dir / run_stages.QUARANTINE_DIR
                 q_dir.mkdir(parents=True, exist_ok=True)

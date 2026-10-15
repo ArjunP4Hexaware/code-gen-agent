@@ -130,12 +130,20 @@ def flag_type(flag: str) -> str:
     return match.group(1) if match else "other"
 
 
-def gate_fail_note(gate, n: int, of: int, moved: int) -> str:
-    """``GATE_FAIL.md``: what failed, as counts and check names only."""
+def flag_counts(flags) -> dict[str, int]:
+    """Gate flags counted per :func:`flag_type`."""
     from collections import Counter
 
-    failed = [c.name for c in gate.checks if not c.passed and not c.not_run]
-    counts = Counter(flag_type(f) for f in gate.flags)
+    return dict(Counter(flag_type(f) for f in flags))
+
+
+def gate_fail_note(gate, n: int, of: int, moved: int) -> str:
+    """``GATE_FAIL.md``: what failed, as counts and check names only."""
+    failing = [c for c in gate.checks if not c.passed and not c.not_run]
+    failed = [c.name for c in failing]
+    counts = flag_counts(gate.flags)
+    violations = [f"| `{c.name}` | `{kind}` | {count} |" for c in failing
+                  for kind, count in sorted(c.violations.items())]
     lines = [
         "# GATE_FAIL — complete, gate failed, review only",
         "",
@@ -147,6 +155,8 @@ def gate_fail_note(gate, n: int, of: int, moved: int) -> str:
         "",
         *([f"- `{name}`" for name in failed] or ["- none (the verdict failed on flags)"]),
         "",
+        *(["## Failed-check findings by rule", "", "| Check | Rule | Count |",
+           "| --- | --- | --- |", *violations, ""] if violations else []),
         "## Flags by type",
         "",
         "| Flag type | Count |",
@@ -154,7 +164,20 @@ def gate_fail_note(gate, n: int, of: int, moved: int) -> str:
         *[f"| `{kind}` | {count} |" for kind, count in sorted(counts.items())],
         "",
         "Names and values are in the full generation report (the run's reports folder, "
-        "inside ACFC only); this file carries counts and check names only.",
+        "inside ACFC only; its Gate section lists the flags grouped by type); this file "
+        "carries counts and check names only.",
+        "",
+        "## Score against the golden (D1 only)",
+        "",
+        "Before deciding whether the gate or the golden is wrong, diff this folder's IIG "
+        "workbook against the pair's golden — per-sheet cell counts on the console, "
+        "a scrubbed copy safe to bring home:",
+        "",
+        "```",
+        "python tools/iig_diff.py --golden <the pair's golden IIG .xlsx> "
+        "--agent <this folder>/*_IIG.xlsx --out <scratch dir> "
+        "--export-scrubbed <scratch dir>/scrubbed",
+        "```",
         "",
     ]
     return "\n".join(lines)
@@ -234,6 +257,7 @@ def read_stage_manifest(out_root: str | Path) -> dict | None:
 
 __all__ = ["EMIT_STAGES", "GATE_FAIL_FILE", "OUTCOMES", "QUARANTINE_DIR", "REVIEW_ONLY",
            "SKIPPED_NOT_WRITTEN", "SKIPPED_UPSTREAM", "STAGES_FILE", "by_stage",
-           "clear_quarantine", "emit_stage", "feed_entry", "flag_type", "gate_fail_note",
+           "clear_quarantine", "emit_stage", "feed_entry", "flag_counts", "flag_type",
+           "gate_fail_note",
            "quarantine", "read_stage_manifest", "remove_partial", "snapshot", "stage_statuses",
            "write_stage_manifest", "written_since"]

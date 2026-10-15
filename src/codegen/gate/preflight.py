@@ -48,6 +48,10 @@ class GateCheck(BaseModel):
     # The flag kind a not-run check raises (default ``check_not_run:<name>``);
     # e.g. ``ruff_unavailable`` when the ruff module is not installed.
     flag: str | None = None
+    # D1 post51 pair_01: a FAILED check's findings counted by rule kind
+    # (``whitespace``, ``empty_segment`` ... vocabulary only, never a value) —
+    # what the coordinates tier and GATE_FAIL.md may carry.
+    violations: dict[str, int] = {}
     # First real-row scorecard: the emitted .py files `ruff format` rewrote
     # before the lint (E501 never fails a feed) — the ruff_formatted flag.
     formatted: list[str] = []

@@ -240,6 +240,28 @@ def _is_path_column(header: str, cfg: DerivationsConfig) -> bool:
     return any(upper.endswith(s.upper()) for s in cfg.path_column_suffixes)
 
 
+def _check_cell(header: str, value: str, where: str, cfg, pattern, problems: list[str]) -> int:
+    """One value (or one segment of a list column) against its column's rule;
+    returns 1 when it was a location URI (counted in the details)."""
+    if header in cfg.name_columns:
+        cap = cfg.name_max_length.get(header, cfg.name_max_length.get("default", 128))
+        charset = cfg.name_patterns.get(header, cfg.name_pattern)
+        if not (pattern if charset == cfg.name_pattern else re.compile(charset)).match(value):
+            problems.append(f"{where}: {_truncate(value)!r} is not an identifier ({charset})")
+        if len(value) > cap:
+            problems.append(f"{where}: length {len(value)} > {cap}")
+    elif _is_path_column(header, cfg):
+        # M10.2: which rule applied is part of the finding.
+        if location_scheme(value):
+            for problem in uri_violations(value, cfg.path_max_length):
+                problems.append(f"{where}: {problem} in {_truncate(value)!r} "
+                                "(location URI rule)")
+            return 1
+        for problem in path_violations(value, cfg.path_max_length):
+            problems.append(f"{where}: {problem} in {_truncate(value)!r}")
+    return 0
+
+
 def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
     """Every cell of the framework config rows: single line; identifier
     columns match the charset + cap; path columns follow the path rules."""
@@ -263,25 +285,16 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                                     + (f" at {tab_name}!{address}" if address else "")
                                     + f" in {_truncate(value)!r}")
                     continue
-                if header in cfg.name_columns:
-                    cap = cfg.name_max_length.get(header, cfg.name_max_length.get("default", 128))
-                    charset = cfg.name_patterns.get(header, cfg.name_pattern)
-                    if not (pattern if charset == cfg.name_pattern
-                            else re.compile(charset)).match(value):
-                        problems.append(f"{where}: {_truncate(value)!r} is not an identifier "
-                                        f"({charset})")
-                    if len(value) > cap:
-                        problems.append(f"{where}: length {len(value)} > {cap}")
-                elif _is_path_column(header, cfg):
-                    # M10.2: which rule applied is part of the finding.
-                    if location_scheme(value):
-                        uris += 1
-                        for problem in uri_violations(value, cfg.path_max_length):
-                            problems.append(f"{where}: {problem} in {_truncate(value)!r} "
-                                            "(location URI rule)")
-                    else:
-                        for problem in path_violations(value, cfg.path_max_length):
-                            problems.append(f"{where}: {problem} in {_truncate(value)!r}")
+                # 2026-10-14: a list column's comma-separated value (the corpus's
+                # two-notebook form) is checked segment by segment
+                segments = ([s.strip() for s in value.split(",")]
+                            if header in cfg.list_columns and "," in value else [value])
+                if len(segments) > 1 and not all(segments):
+                    problems.append(f"{where}: an empty segment in the list "
+                                    f"{_truncate(value)!r}")
+                    continue
+                for segment in segments:
+                    uris += _check_cell(header, segment, where, cfg, pattern, problems)
     if problems:
         return GateCheck(name="derivations", passed=False, details="; ".join(problems))
     details = "every derived name and path is single-line and within its cap"

@@ -837,6 +837,12 @@ class DerivationsConfig(BaseModel):
     # "default" + per-column caps (conservative; framework limits unknown).
     name_max_length: dict[str, int] = Field(default_factory=lambda: {"default": 128})
     path_column_suffixes: list[str] = Field(default_factory=lambda: ["_PATH", "_DIR", "_ROOT_DIR"])
+    # 2026-10-14 (framework owner): columns whose value may be a comma-separated
+    # LIST — the corpus's two-notebook form (handler + DQ notebook) in
+    # DATABRICKS_NOTEBOOK_NAME / _PATH; it passes when EVERY segment passes the
+    # column's own rule (an identifier for a name, the path rules for a path).
+    list_columns: list[str] = Field(default_factory=lambda: [
+        "DATABRICKS_NOTEBOOK_NAME", "DATABRICKS_NOTEBOOK_PATH"])
     path_max_length: int = Field(default=1024, gt=0)
     # A WF_/NB_ name component longer than this after sanitizing is prose,
     # not a token: the component stays blank (and the name is flagged blank).

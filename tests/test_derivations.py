@@ -139,6 +139,17 @@ def test_a_notebook_name_may_carry_a_version_dot_and_nothing_else_may(config):
     assert not check("DATABRICKS_NOTEBOOK_NAME", "File Invoke").passed
     failed = check("PIPELINE_NAME", "PL_File_X_V0.1")
     assert not failed.passed and "^[A-Za-z0-9_]+$" in failed.details
+    # 2026-10-14 (framework owner): the corpus's two-notebook form — a comma-separated
+    # list in the name / path columns passes when EVERY segment passes on its own
+    assert check("DATABRICKS_NOTEBOOK_NAME",
+                 "SYN_FixedWidthHandler,FileInvokeDQDeltaTable").passed
+    assert check("DATABRICKS_NOTEBOOK_PATH", "/Workspace/syn/SYN_FixedWidthHandler,"
+                                             "/Workspace/syn/FileInvokeDQDeltaTable").passed
+    bad = check("DATABRICKS_NOTEBOOK_NAME", "SYN_FixedWidthHandler,File Invoke")
+    assert not bad.passed and "'File Invoke' is not an identifier" in bad.details
+    assert not check("DATABRICKS_NOTEBOOK_NAME", "SYN_FixedWidthHandler,").passed
+    # a list only where list_columns allows one
+    assert not check("PIPELINE_NAME", "PL_A,PL_B").passed
 
 
 def test_the_acfc_overlay_names_one_framework_notebook_per_leg():

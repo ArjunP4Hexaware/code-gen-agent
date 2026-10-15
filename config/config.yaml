@@ -749,6 +749,9 @@ gate:
     name_patterns: {DATABRICKS_NOTEBOOK_NAME: "^[A-Za-z0-9_.]+$"}
     name_max_length: {default: 128, PIPELINE_NAME: 128, DATABRICKS_NOTEBOOK_NAME: 128}
     path_column_suffixes: [_PATH, _DIR, _ROOT_DIR]
+    # A comma-separated list is a corpus pattern here (the two-notebook form: the
+    # handler + the DQ notebook), not an error - every segment checked on its own.
+    list_columns: [DATABRICKS_NOTEBOOK_NAME, DATABRICKS_NOTEBOOK_PATH]
     path_max_length: 1024
     max_name_token_length: 32
     # Sibling-type check: suffix groups whose standard-band types must agree

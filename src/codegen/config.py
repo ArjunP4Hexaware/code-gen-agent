@@ -18,6 +18,10 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+# D1 post50: a field named after a BaseModel attribute ("validate", "schema")
+# made pydantic print a UserWarning on every import - read by a harness as the
+# run's error. Those fields take another Python name, the YAML key as alias.
+_ALIASED_MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
 
 def load_dotenv(path: str | Path = ".env") -> None:
@@ -326,7 +330,7 @@ class DiscoveryConfig(BaseModel):
     tables resolves nothing and discovery says so loudly, rather than
     carrying a second copy of the vocabulary in code."""
 
-    model_config = _MODEL_CONFIG
+    model_config = _ALIASED_MODEL_CONFIG
 
     # How many leading rows are scanned for band / header / meta rows.
     scan_rows: int = Field(default=40, gt=0)
@@ -352,8 +356,8 @@ class DiscoveryConfig(BaseModel):
     metadata_sheet_names: list[str] = Field(default_factory=list)
     yes_values: list[str] = Field(default_factory=list)
     no_values: list[str] = Field(default_factory=list)
-    # Validator thresholds (M2.5 §4).
-    validate: ValidateConfig = ValidateConfig()
+    # Validator thresholds (M2.5 §4); YAML key ``validate``.
+    thresholds: ValidateConfig = Field(default=ValidateConfig(), alias="validate")
     # Chunk A (2026-10-09): band location by label group + layer evidence.
     layer_evidence: LayerEvidenceConfig = LayerEvidenceConfig()
 
@@ -1694,12 +1698,13 @@ class DmlConfig(BaseModel):
     columns, the described tables and the connection table
     (docs/acfc/METADATA_DB_SEMANTICS.md)."""
 
-    model_config = _MODEL_CONFIG
+    model_config = _ALIASED_MODEL_CONFIG
 
     enabled: bool = True
     environments: list[str] = Field(default_factory=lambda: ["q1", "a2", "prod"])
     notebook_file_name_pattern: str = "Insert_scripts_config_table_{env}.py"
-    schema: str = "dbo"
+    # the metadata DB schema; YAML key ``schema``
+    db_schema: str = Field(default="dbo", alias="schema")
     # §9 dependency order of the INSERT blocks in metadata_inserts.sql (tables
     # absent from the IIG payload are skipped).
     table_order: list[str] = Field(default_factory=lambda: [

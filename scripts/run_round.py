@@ -85,6 +85,7 @@ def _load(name: str, path: Path):
 
 fingerprint_mod = _load("doc_fingerprint", ROOT / "scripts" / "doc_fingerprint.py")
 scrub_mod = _load("scrub_check", ROOT / "scripts" / "scrub_check.py")
+run_errors = _load("run_errors", ROOT / "src" / "codegen" / "run_errors.py")
 
 
 class Redactor:
@@ -278,8 +279,9 @@ class Round:
                 self.section(CLI_TITLE, lines)
                 return 3
             if done.returncode:
-                fail = next((ln for ln in text.splitlines()
-                             if ln.startswith(("FAIL", "ERROR", "Traceback"))), "")
+                # D1 post50: warnings (a Pydantic deprecation) are never the error
+                fail = run_errors.first_error_line(done.returncode, done.stderr,
+                                                   done.stdout) or ""
                 # the detail quotes sheet / table names: the label only, never the text
                 lines.append(f"  STOP — {name} failed; first error: "
                              f"`{fail.split(' ', 1)[0] or 'none printed'}` (detail withheld, "

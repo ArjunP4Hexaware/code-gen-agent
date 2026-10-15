@@ -190,7 +190,7 @@ def _table_name_lines(sheet: str, config: Config) -> list[str]:
     ``framework.tables`` override (which is config, not a confirmation)."""
     name, citation = table_name(sheet, config)
     if citation is None:
-        target = _table(config.dml.schema, name)
+        target = _table(config.dml.db_schema, name)
         if sheet in config.framework.tables:
             return [f"-- unconfirmed: target table {target} = framework.tables[{sheet}] "
                     f"(config); not confirmed as the framework's table name "
@@ -200,7 +200,7 @@ def _table_name_lines(sheet: str, config: Config) -> list[str]:
                 f"framework's table name until confirmed ({FRIDAY_TABLE_NAMES}; "
                 f"dml.table_names)"]
     if name != sheet:
-        return [f"-- target table {_table(config.dml.schema, name)}, not the IIG sheet name "
+        return [f"-- target table {_table(config.dml.db_schema, name)}, not the IIG sheet name "
                 f"(a tab name is cut at 31 characters) — confirmed: {citation} "
                 f"(dml.table_names)"]
     return []
@@ -304,7 +304,7 @@ def _guards(config: Config, rendered: dict[str, list[tuple[int, dict[str, str]]]
             rfc: bool) -> list[str]:
     """EXISTS guards before the first INSERT (module docstring, rule 5), each
     against the sheet's metadata-DB table (``table_name``)."""
-    schema = config.dml.schema
+    schema = config.dml.db_schema
     lines = [f"-- GUARDS — checked before the first INSERT; any failure aborts the whole "
              f"script and rolls it back ({_SEMANTICS} §1, §2, §5)"]
     if rfc:
@@ -352,7 +352,7 @@ def _guards(config: Config, rendered: dict[str, list[tuple[int, dict[str, str]]]
 def _connection_lines(config: Config) -> list[str]:
     """The source connection's reuse-or-insert lookup (§3) — the retired
     script's block, verbatim in shape."""
-    schema, conn = config.dml.schema, config.dml.connection_table
+    schema, conn = config.dml.db_schema, config.dml.connection_table
     return [
         "-- CONNECTION LOOKUP (§3; table / column identifiers as spoken in the walkthrough — "
         "confirm: dml_unconfirmed:connection_table): 0 rows = insert and take its identity, "
@@ -395,7 +395,7 @@ def render_metadata_inserts(spec: ResolvedFeedSpec, payload: dict,
     """The script text and the INSERT count per sheet (``flags`` collects the
     dml_* flags)."""
     flags = flags if flags is not None else []
-    schema = config.dml.schema
+    schema = config.dml.db_schema
     rules = DbRules.from_config(config)
     tabs = payload.get("tabs", {})
     order = _sheet_order(payload, config)

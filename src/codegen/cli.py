@@ -1673,7 +1673,10 @@ def _take_provider_flag(argv: list[str]) -> tuple[list[str], str | None]:
 def main(argv: list[str] | None = None) -> int:
     """The CLI. A ``--provider`` flag holds for THIS command only (reset on return)."""
     from codegen.reasoning.mode import set_flag
+    from codegen.run_errors import silence_pydantic_deprecations
 
+    # D1 post50: a Pydantic deprecation on stderr was read as the run's error
+    silence_pydantic_deprecations()
     try:
         return _main(argv)
     finally:

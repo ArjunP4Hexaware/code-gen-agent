@@ -93,7 +93,7 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
                      document: str = "sttm") -> tuple[LayoutProfile, list[Rejection]]:
     """Return (profile with rejected claims dropped, rejections)."""
     disc = config.discovery
-    thresholds = disc.validate
+    thresholds = disc.thresholds
     type_re = re.compile(thresholds.type_token_regex, re.IGNORECASE)
     sources = check_sources or {"model", "user"}
     rejections: list[Rejection] = []

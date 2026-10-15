@@ -145,8 +145,10 @@ for name in documents:
 
 # DBTITLE 1,Pair by content, resolve the layout, extract, generate
 from codegen.cli import EXIT_FAILED, EXIT_NEEDS_ANSWERS, EXIT_OK  # noqa: E402
+from codegen.run_errors import first_error_line  # noqa: E402
 
 STEPS: dict[str, int] = {}             # step -> codegen exit code (the summary below)
+ERRORS: dict[str, str] = {}            # step -> its first error line (exit != 0)
 NEEDS_ANSWERS: list[str] = []          # the CLI's QUESTION / UNRESOLVED lines (answer keys)
 
 
@@ -155,6 +157,10 @@ def run(label: str, *args: str) -> int:
     done = launch_codegen(REPO, *args)
     print(done.stdout + (("\nSTDERR:\n" + done.stderr) if done.stderr.strip() else ""))
     STEPS[label] = done.returncode
+    # D1 post50: the exit code decides; a warning on stderr is never the error
+    error = first_error_line(done.returncode, done.stderr, done.stdout)
+    if error is not None:
+        ERRORS[label] = error
     NEEDS_ANSWERS.extend(line for line in done.stdout.splitlines()
                          if line.startswith(("QUESTION", "UNRESOLVED")) and line not in NEEDS_ANSWERS)
     return done.returncode
@@ -271,7 +277,8 @@ print(f"{len(sent)} file(s) stored under {stores.outputs.uri()}" if sent
 # DBTITLE 1,Summary — 0 ok, 1 failed, 3 needs answers (codegen --help)
 MEANING = {EXIT_OK: "ok", EXIT_FAILED: "FAILED", EXIT_NEEDS_ANSWERS: "needs answers"}
 for step, code in STEPS.items():
-    print(f"{step:<14} {MEANING.get(code, f'exit {code}')}")
+    print(f"{step:<14} {MEANING.get(code, f'exit {code}')}"
+          + (f" — first error: {ERRORS[step]}" if ERRORS.get(step) else ""))
 if NEEDS_ANSWERS:
     print("\nNEEDS ANSWERS — the outputs above were written for every feed that could "
           "proceed; answer these keys under `gaps:` in the pair folder's answers.yaml and "

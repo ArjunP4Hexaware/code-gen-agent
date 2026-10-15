@@ -273,6 +273,14 @@ metadata:
       # A TPL subdomain selects the TPL_FileInvokeDQDeltaTable notebook (CAQH: "Third
       # Party Liability").
       tpl_subdomains: ["TPL", "Third Party Liability"]
+      # 2026-10-14 (framework owner): the two-notebook handler forms (FixedWidthHandler /
+      # PIPE_DELIMITED_SEGMENT_HNDLR + FileInvokeDQDeltaTable) are the EDI 834 feeds' -
+      # the corpus's handler prefixes are EDI_834Prop / 834PROP only. Applied only when
+      # the feed's source, a file pattern or its name names 834 / EDI; every other
+      # file_to_stg feed runs the single notebook (FileInvokeDQDeltaTable_V0.1, or
+      # TPL_FileInvokeDQDeltaTable for a TPL subdomain). The notebook NOTE says which
+      # rule fired.
+      edi_feed_patterns: ["(?<![0-9])834(?![0-9])", "(?<![A-Za-z])EDI(?![A-Za-z])"]
       corpus_cells:
         EMAIL_TEMPLATE_CONFIG:
           SUBJECT:
@@ -320,8 +328,8 @@ metadata:
               fixed_width_tpl: "file_to_stg: G16_G17_FixedWidthHandler,TPL_FileInvokeDQDeltaTable 9.7% of 248 rows (the TPL variant)"
               pipe_segmented: "file_to_stg: G17_PIPE_DELIMITED_SEGMENT_HNDLR,FileInvokeDQDeltaTable 13.7% of 248 rows (the pipe-delimited segment form)"
               pipe_segmented_tpl: "file_to_stg: the pipe-delimited segment form (13.7%) with the TPL notebook of the TPL variant (9.7%) — the corpus has the TPL variant only with the fixed-width handler: confirm on D1"
-              delimited: "file_to_stg: FileInvokeDQDeltaTable_V0.1 7.3% of 248 rows; FileInvokeDQDeltaTable_V0.2 4.0% — V0.1 picked, which version is current: flag for Nikshit"
-              delimited_tpl: "file_to_stg: the TPL notebook of the TPL variant (9.7%, there with the fixed-width handler); no plain-delimited TPL row in the corpus: confirm on D1"
+              delimited: "file_to_stg: the single-notebook form FileInvokeDQDeltaTable_V0.1 7.3% of 248 rows (V0.2 4.0% — V0.1 picked, which version is current: flag for Nikshit); every non-EDI file_to_stg feed"
+              delimited_tpl: "file_to_stg: the single-notebook form's TPL variant TPL_FileInvokeDQDeltaTable (9.7%, there with the EDI fixed-width handler) for a non-EDI TPL feed: confirm on D1"
             todo: "the handler-name prefix (corpus_tokens.handler_prefix / pipe_handler_prefix; patterns.json slots it as {domain} / {source})"
           DATABRICKS_NOTEBOOK_PATH:
             by: notebook_kind

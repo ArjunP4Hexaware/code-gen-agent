@@ -1431,6 +1431,13 @@ class MetadataTemplateConfig(BaseModel):
     # the subdomains that select a notebook kind's TPL variant.
     corpus_tokens: dict[str, str] = Field(default_factory=dict)
     tpl_subdomains: list[str] = Field(default_factory=list)
+    # 2026-10-14 (framework owner): the two-notebook handler forms
+    # (FixedWidthHandler / PIPE_DELIMITED_SEGMENT_HNDLR + FileInvokeDQDeltaTable)
+    # belong to the EDI 834 feeds (corpus prefixes EDI_834Prop / 834PROP only):
+    # applied only when the feed's source, file patterns or name match one of
+    # these regexes (case-insensitive); every other file_to_stg feed runs the
+    # single notebook. None configured = the format alone decides (as before).
+    edi_feed_patterns: list[str] = Field(default_factory=list)
     owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
     # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
     # refs containers.<layer> / storage_account / values.<name>) — each with an

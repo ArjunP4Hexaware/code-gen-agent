@@ -102,26 +102,52 @@ def test_notebook_names_paths_and_process_names_by_flow_and_format(tmp_path):
 
 
 def test_the_notebook_kind_follows_the_file_format_and_a_tpl_subdomain():
+    """2026-10-14 (framework owner): the two-notebook handler forms are the EDI 834
+    feeds' only (source / file pattern / name names 834 or EDI); every other
+    file_to_stg feed runs the single notebook (its TPL_ variant for a TPL
+    subdomain). The NOTE says which rule fired."""
     from types import SimpleNamespace
 
-    from codegen.metadata_template import _notebook_kind
+    from codegen.metadata_template import _notebook_kind, _notebook_rule
 
     config = _acfc()
     tpl = config.metadata.templates["iig_v2"]
 
-    def kind(fmt, delim, segmented, sub, flow="file_to_stg"):
+    def feed_spec(fmt, delim, segmented, sub, source="SYN Vendor", files=("syn_*.txt",)):
         feed = SimpleNamespace(file_format=fmt, delimiter=delim, record_segments=[],
-                               sub_domain=sub)
-        spec = SimpleNamespace(file_format=fmt, delimiter=delim, is_segmented=segmented)
+                               sub_domain=sub, source_system=source, vendor=None,
+                               feed_name="syn feed", file_name_patterns=list(files))
+        spec = SimpleNamespace(file_format=fmt, delimiter=delim, is_segmented=segmented,
+                               file_name_patterns=list(files))
+        return feed, spec
+
+    def kind(fmt, delim, segmented, sub, flow="file_to_stg", **kw):
+        feed, spec = feed_spec(fmt, delim, segmented, sub, **kw)
         return _notebook_kind(flow, feed, spec, tpl, config)
 
     assert kind("csv", ",", False, "Public") == "delimited"
-    assert kind("Fixed Width", None, True, "Claims") == "fixed_width"
+    # not EDI: the single notebook, whatever the format
+    assert kind("Fixed Width", None, True, "Claims") == "delimited"
     assert kind("Pipe Delimited (|) Text format (.txt)", "|", True,
-                "Third Party Liability") == "pipe_segmented_tpl"      # the CAQH shape
-    assert kind("Fixed Width", None, True, "TPL") == "fixed_width_tpl"
+                "Third Party Liability") == "delimited_tpl"            # the CAQH shape
+    assert kind("Fixed Width", None, True, "TPL") == "delimited_tpl"
+    # EDI 834 / proprietary (the source, or a file pattern, says so): the handler pair
+    assert kind("Fixed Width", None, True, "Enrollment", source="EDI 834 Proprietary") == \
+        "fixed_width"
+    assert kind("Fixed Width", None, True, "TPL", files=("SYN_834PROP_*.txt",)) == \
+        "fixed_width_tpl"
+    assert kind("Pipe Delimited", "|", True, "x", files=("EDI_834Prop_syn_*.txt",)) == \
+        "pipe_segmented"
     assert kind("psv", "|", False, "Domain Alpha") == "delimited"      # not segmented
     assert kind("csv", ",", False, "x", flow="stg_to_std") == "stg_to_std"
+    # which rule fired
+    feed, spec = feed_spec("Fixed Width", None, True, "Claims")
+    assert "the single notebook — not an EDI 834" in _notebook_rule(
+        "file_to_stg", "delimited", feed, spec, tpl, config)
+    feed, spec = feed_spec("Fixed Width", None, True, "x", source="EDI 834 Proprietary")
+    assert "the two-notebook handler form — an EDI 834 / proprietary feed ('EDI 834 " \
+        "Proprietary' matches" in _notebook_rule("file_to_stg", "fixed_width", feed, spec,
+                                                 tpl, config)
 
 
 def test_a_scrubbed_handler_prefix_leaves_the_name_open_naming_the_variant():

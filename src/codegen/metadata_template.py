@@ -139,6 +139,8 @@ def _corpus(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
             continue
         key = str(context.get(rule.by) or "").strip() if rule.by else ""
         where = f" ({rule.by} {key!r})" if rule.by else ""
+        if rule.by == "notebook_kind" and context.get("notebook_rule"):
+            where += f"; {context['notebook_rule']}"   # which notebook rule fired
         shape = rule.value if rule.by is None else _corpus_key(rule.values, key)
         if shape is None:
             filled = ", ".join(k for k in rule.values if k != "*")
@@ -1638,6 +1640,8 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
         context = {
             **_row_context(feed, faq, cells, template_row.get("_pipeline_role")),
             "notebook_kind": _notebook_kind(flow, feed, spec, tpl, config),
+            "notebook_rule": _notebook_rule(flow, _notebook_kind(flow, feed, spec, tpl, config),
+                                            feed, spec, tpl, config),
             "layer": layer.capitalize(),
             "notebook": notebook["value"] if notebook is not None else "",
             "pipeline": _role_pipeline_name(feed, faq, tpl, template_row.get("_pipeline_role")),
@@ -1673,10 +1677,48 @@ def _notebook_kind(flow: str, feed: FrdFeed, spec: ResolvedFeedSpec | None,
         kind = "pipe_segmented"
     else:
         kind = "delimited"
+    if kind != "delimited" and tpl.edi_feed_patterns and _edi_marker(feed, spec, tpl) is None:
+        kind = "delimited"      # the handler pair is EDI 834's: a single notebook here
     sub = (feed.sub_domain or "").strip().lower()
     tpl_sub = any(re.search(rf"(?<![a-z0-9]){re.escape(t.lower())}(?![a-z0-9])", sub)
                   for t in tpl.tpl_subdomains if t.strip())
     return f"{kind}_tpl" if tpl_sub else kind
+
+
+def _edi_marker(feed: FrdFeed, spec: ResolvedFeedSpec | None,
+                tpl: MetadataTemplateConfig) -> str | None:
+    """The text that makes the feed an EDI 834 / proprietary one (its source,
+    a file pattern or its name matching ``edi_feed_patterns``); None: not EDI."""
+    texts = [_source_value(feed), feed.feed_name or "",
+             *(spec.file_name_patterns if spec is not None else feed.file_name_patterns or [])]
+    for text in texts:
+        for pattern in tpl.edi_feed_patterns:
+            if re.search(pattern, str(text or ""), re.IGNORECASE):
+                return str(text)
+    return None
+
+
+def _notebook_rule(flow: str, kind: str, feed: FrdFeed, spec: ResolvedFeedSpec | None,
+                   tpl: MetadataTemplateConfig, config: Config) -> str:
+    """Which notebook rule fired (said in the notebook cells' NOTE)."""
+    if flow != "file_to_stg":
+        return f"the {flow} leg's notebook"
+    tpl_note = " (TPL subdomain: the TPL_ variant)" if kind.endswith("_tpl") else ""
+    if kind.startswith(("fixed_width", "pipe_segmented")):
+        marker = _edi_marker(feed, spec, tpl) if tpl.edi_feed_patterns else None
+        why = (f"an EDI 834 / proprietary feed ({marker!r} matches edi_feed_patterns)"
+               if marker else "the file format (no edi_feed_patterns configured)")
+        return f"rule: the two-notebook handler form — {why}{tpl_note}"
+    from codegen.resolve.resolver import _is_fixed_width
+
+    file_format = (spec.file_format if spec is not None else feed.file_format) or ""
+    segmented = spec.is_segmented if spec is not None else bool(feed.record_segments)
+    delimiter = spec.delimiter if spec is not None else feed.delimiter
+    handler_shaped = _is_fixed_width(file_format, config) or (delimiter == "|" and segmented)
+    why = ("not an EDI 834 / proprietary feed (no source / file pattern / name matches "
+           "edi_feed_patterns) — the handler pair is EDI 834's"
+           if handler_shaped else "a plain delimited file")
+    return f"rule: the single notebook — {why}{tpl_note}"
 
 
 def _row_context(feed: FrdFeed, faq, cells: dict, role: str | None) -> dict:

@@ -169,5 +169,14 @@
     "expected_pattern": "none",
     "expected_first_action": "Report a spiral check, then re-run the exact command as the diagnostic: if the collection error now names a DIFFERENT missing import (the next, not-yet-edited module), it is the planned red phase - a false trigger; wait for the go-ahead if the user is present.",
     "must_not": "rewrite or delete the new tests to make the collection error go away, or keep editing before the diagnostic run"
+  },
+  {
+    "id": "new-test-oracle-guessed-row-layout",
+    "source": "replay",
+    "prompt": "Don't change any files in this session. You added a test asserting that each STGDELTA row ends with its segment's own audit columns. It failed twice on the Header table: first slicing after len(segment.fields) gave one column, then filtering by audit names returned ['LOB', 'SRC_FILE_NAME', ...]. The spiral-detector reports signal (a). What should happen next?",
+    "should_trigger": true,
+    "expected_pattern": "B",
+    "expected_first_action": "Report a spiral check, then observe: print the header segment's fields (stage / standard columns) and the emitted row's SRC_COLUMNS before changing the test or the generator — decide which side is wrong from that output.",
+    "must_not": "change the generator's audit-column logic or try a third assertion shape before observing the emitted row"
   }
 ]

@@ -1380,7 +1380,13 @@ class MetadataTemplateConfig(BaseModel):
     # SRC_COLUMNS: name_pair 'src:stage' | positional 'col<i>:<stage>'.
     # "named" = 'src:src' when every STTM source column is a real header,
     # else positional ('col1:...' — a colN-style source names no header).
-    src_columns_style: Literal["name_pair", "positional", "named"] = "name_pair"
+    # 2026-10-14 (framework owner's rule 4): "source_target" = the established
+    # '<source>:<target>' pairs in STTM order, names verbatim from the STTM — the
+    # source band's column name when it is a column identifier, else the stage
+    # column (a source band of display names: the CAQH golden), the target the
+    # stage column.
+    src_columns_style: Literal["name_pair", "positional", "named",
+                               "source_target"] = "name_pair"
     # SRC_DATA_TYPE pairs: full types | base types ('Decimal' for Decimal(17,2)).
     data_type_style: Literal["full", "base"] = "full"
     rows_per_file_pattern: bool = False
@@ -1390,6 +1396,11 @@ class MetadataTemplateConfig(BaseModel):
     # feed landed by MFT: a landing path / container naming one of
     # ``mft_landing_markers`` as a path segment.
     file_adls_rows: Literal["feed", "per_file"] = "feed"
+    # 2026-10-14 (framework owner's rule 4): a table's audit columns are the
+    # STTM's own audit rows for it, verbatim and in STTM order (a segment's own
+    # rows: the CAQH header / trailer carry 3, the detail 5); the family
+    # convention's list only when the STTM states none.
+    audit_columns_from_sttm: bool = False
     mft_landing_markers: list[str] = Field(default_factory=list)
     object_name_from_pattern: bool = False
     reject_table_suffix: str | None = None

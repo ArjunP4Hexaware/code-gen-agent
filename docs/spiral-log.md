@@ -133,3 +133,12 @@
 - Earliest signal: n/a
 - Approx. time lost: ~3 minutes
 - Proposed refinement (for a retro, not now): as 2026-10-11 - count (b) edits only after the command has failed on lines those edits did not just write.
+
+## 2026-10-14: hook signal (a) — a new rule-4 test failed twice on the Header table
+- Actual cause: my TEST ORACLE guessed the emitted row's layout. Attempt 1 sliced the STGDELTA header row after len(segment.fields) (the row drops fields without a standard column); attempt 2 filtered by audit names and caught the pair-4 header's DATA column named LOB. The generator was right all along: observed (scratch dbg_audit.py) the row is the data columns, then exactly the segment's own audit rows (one already a data column is not repeated).
+- Pattern: B (no oracle — the expected shape was assumed, not observed)
+- Caught by skill: yes (hook signal (a); the diagnostic printed the segment's fields and the emitted row before any further change)
+- Hook signal: a, a true signal (two guesses at one test), though the two failures differed
+- Earliest signal that would have revealed it: printing the emitted row once before writing the assertion
+- Approx. time lost: ~4 minutes
+- Permanent fix: the test now asserts on the observed shape (tail = the segment's own audit rows minus data columns; nothing else added)

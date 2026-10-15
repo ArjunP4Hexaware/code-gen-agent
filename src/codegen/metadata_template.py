@@ -371,6 +371,19 @@ def _named_sources(fields: list[SttmField]) -> bool:
         for f in fields)
 
 
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _source_identifier(field: SttmField) -> str | None:
+    """Rule 4: the STTM source band's column name, verbatim, when it is a
+    column identifier (no spaces / punctuation, not a 'col<N>' placeholder);
+    None for a display name ('Last Name', 'NPI / Tax Id')."""
+    name = (field.source_column or "").strip()
+    if not _IDENTIFIER_RE.fullmatch(name) or re.fullmatch(r"col_?\d+", name, re.IGNORECASE):
+        return None
+    return name
+
+
 def _recase(value: str, like: str | None) -> str:
     """``value`` in the casing style of ``like`` ('String' -> 'Timestamp',
     'STRING' -> 'TIMESTAMP', 'string' -> 'timestamp')."""
@@ -391,7 +404,11 @@ def _family_audit(tpl: MetadataTemplateConfig, stated: list[tuple[str, str]],
     other is String, a column already a data column of the table is not
     repeated. Casing: the template's audit_type_casing, or the data columns'."""
     convention = tpl.family_conventions
-    if convention.audit_columns:
+    if tpl.audit_columns_from_sttm and stated:
+        # rule 4: the STTM's own audit rows, verbatim and in its order
+        data_columns = {f.stage_column.upper() for f in data}
+        columns = [(c, t or "String") for c, t in stated if c.upper() not in data_columns]
+    elif convention.audit_columns:
         types = {c.upper(): t for c, t in stated}
         data_columns = {f.stage_column.upper() for f in data}
         columns = [(c, types.get(c.upper(), "String")) for c in convention.audit_columns
@@ -1221,7 +1238,16 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
     # One row per file pattern ALWAYS (first real-row scorecard): several
     # patterns are never joined with ';' into one cell.
     files = _feed_files(spec, config)
-    if tpl.src_columns_style == "named" and _named_sources(fields):
+    if tpl.src_columns_style == "source_target":
+        # rule 4: '<source>:<target>' in STTM order, verbatim — the source band's
+        # names when the band is column identifiers (every field), else the stage
+        # columns throughout (a band of display names: the CAQH golden — its one-word
+        # display names are not identifiers of the file either)
+        named = all(_source_identifier(f) for f in fields)
+        src_columns = ",".join(
+            f"{f.source_column.strip() if named else f.stage_column}:{f.stage_column}"
+            for f in fields)
+    elif tpl.src_columns_style == "named" and _named_sources(fields):
         src_columns = ",".join(f"{f.source_column}:{f.source_column}" for f in fields)
     elif tpl.src_columns_style in ("positional", "named"):
         src_columns = ",".join(f"col{i}:{f.stage_column}" for i, f in enumerate(fields, start=1))

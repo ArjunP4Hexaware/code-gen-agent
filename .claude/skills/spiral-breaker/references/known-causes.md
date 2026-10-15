@@ -104,7 +104,8 @@ Entry format:
 - Check: compare the first `E ` lines / failing line numbers of the two runs. Different = new
   information each run, not a spiral; diagnose the current failure before changing anything.
 - Pattern: none (not a spiral)
-- Seen: 2026-10-09
+- Seen: 2026-10-09; 2026-10-14 (related, a TRUE signal: the two different failures were two
+  guesses at a new test's expected row layout — observe the emitted value before asserting)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
 
 ## A patch script that aborted before writing, so the "fix" changed nothing

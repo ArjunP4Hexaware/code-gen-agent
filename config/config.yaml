@@ -243,6 +243,9 @@ extractor:
       Header: ["header", "hdr", "hddr", "hr", "header record", "h"]
       Detail: ["detail", "details", "dtl", "det", "dr", "detail record", "d", "data"]
       Trailer: ["trailer", "trl", "trlr", "tr", "trailer record", "t"]
+    # A Segment cell that says "no segment" (D1 post51 pair_05). Only these (or
+    # blank) in a sheet = unsegmented; never a banner / sheet-name spelling.
+    unsegmented_markers: ["na", "n/a", "-", "none", "null"]
     auxiliary_sheets:
       file_details: [["vendor", "filename"], ["vendor", "file name"], ["inbound file name"]]
       table_details: [["table name", "table description"], ["name", "table description", "load strategy"]]

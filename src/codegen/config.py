@@ -347,6 +347,12 @@ class DiscoveryConfig(BaseModel):
     # canonical segment (Header/Detail/Trailer) -> spellings seen in Segment
     # columns, sheet names and in-sheet banner rows.
     segment_synonyms: dict[str, list[str]] = Field(default_factory=dict)
+    # 2026-10-15 (D1 post51 pair_05): Segment-cell spellings that say "no
+    # segment" ('NA', '-'). A sheet whose Segment cells are only these (or
+    # blank) is UNSEGMENTED; the segmented path needs one real segment word.
+    # Kept out of segment_synonyms: those spellings also mark banner rows and
+    # segment-named sheets, which 'NA' must never do.
+    unsegmented_markers: list[str] = Field(default_factory=list)
     # sheet kind -> alternatives, each a list of header tokens that must ALL
     # appear (normalized substring) on one of the first rows.
     auxiliary_sheets: dict[str, list[list[str]]] = Field(default_factory=dict)

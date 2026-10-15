@@ -871,7 +871,17 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     if pending:
         raise NeedsAnswers(pending)
 
-    segmented = any(r.segment_raw is not None for r in sheet.fields)
+    # D1 post51 pair_05: a Segment cell reading 'NA' / '-' (unsegmented_markers)
+    # or blank says "no segment" — the segmented path needs one real segment
+    # word; a marker beside one stays outside the vocabulary (FAIL below).
+    no_segment = {normalize(m) for m in config.extractor.discovery.unsegmented_markers}
+    segmented = any(r.segment is not None for r in sheet.fields) or any(
+        r.segment_raw is not None and normalize(r.segment_raw) not in no_segment
+        for r in sheet.fields)
+    if not segmented and any(r.segment_raw is not None for r in sheet.fields):
+        notes.append(f"sheet {name!r}: Segment cells read only "
+                     f"{sorted({r.segment_raw for r in sheet.fields} - {None})} "
+                     "(extractor.discovery.unsegmented_markers); read as unsegmented")
     if segmented:
         unknown = sorted({r.segment_raw for r in sheet.fields if r.segment is None} - {None})
         if unknown:

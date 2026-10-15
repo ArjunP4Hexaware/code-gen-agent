@@ -900,9 +900,16 @@ class JobConfig(BaseModel):
 class LayoutConfig(BaseModel):
     """Layout recognition (M2.5): profile caches, the mock answer directory,
     the provider posture and the confidence a model-placed role starts with.
-    Paths are repo-relative. A config without the section still loads."""
+    Paths are repo-relative. A config without the section still loads.
 
-    model_config = _MODEL_CONFIG
+    D1 post51: pydantic < 2.10 reserves the ``model_`` prefix, and a field named
+    ``model_confidence`` printed a ``protected_namespaces`` UserWarning on every
+    import (read by the harness as pair_07's error). The field is
+    ``placed_confidence`` in Python, YAML key ``model_confidence`` kept as alias;
+    ``protected_namespaces=()`` keeps any future ``model_*`` field quiet too."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True,
+                              protected_namespaces=())
 
     # Repo cache(s) of completed profiles, searched in order, keyed by the
     # ``fingerprint`` field inside each JSON file.
@@ -922,7 +929,8 @@ class LayoutConfig(BaseModel):
     max_tokens: int = Field(default=8192, gt=0)
     max_attempts: int = Field(default=2, gt=0)
     # Confidence a model-placed role starts with (validated, not trusted).
-    model_confidence: float = Field(default=0.8, ge=0, le=1)
+    # YAML key ``model_confidence`` (alias; see the class docstring).
+    placed_confidence: float = Field(default=0.8, ge=0, le=1, alias="model_confidence")
     # Confidence bump a cross-document agreement adds (capped at 1.0).
     crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
 

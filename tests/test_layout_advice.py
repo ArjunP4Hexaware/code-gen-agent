@@ -104,6 +104,7 @@ def test_runner_advises_only_while_waiting(monkeypatch):
 @pytest.fixture()
 def client(monkeypatch):
     httpx = pytest.importorskip("httpx")
+    pytest.importorskip("fastapi")   # the ui extra (absent in the D1 venv)
     del httpx
     from fastapi.testclient import TestClient
 

@@ -97,6 +97,7 @@ def _feed_with_unmapped_rules(config):
 
 def _api_usage(store, monkeypatch) -> list[dict]:
     pytest.importorskip("httpx")
+    pytest.importorskip("fastapi")   # the ui extra (absent in the D1 venv)
     from fastapi.testclient import TestClient
     from ui.backend import main
 
@@ -108,6 +109,7 @@ def _run_both_paths(tmp_path, monkeypatch, capsys, provider_factory):
     """One feed through the UI store (-> API + report) and through the CLI
     (-> console + report); returns the labels each surface shows."""
     pytest.importorskip("httpx")
+    pytest.importorskip("fastapi")   # the ui extra (absent in the D1 venv)
     from ui.backend import service
     from ui.backend.service import GenerationStore
 
@@ -165,6 +167,7 @@ def test_a_locked_run_labels_every_surface_mock_with_the_lock(tmp_path, monkeypa
     assert f"MODEL USAGE     layer2: {LOCKED_LABEL}" in console
     # The pre-run transport label says the same thing (never hidden).
     pytest.importorskip("httpx")
+    pytest.importorskip("fastapi")   # the ui extra (absent in the D1 venv)
     from fastapi.testclient import TestClient
     from ui.backend import main
     from ui.backend.service import GenerationStore
@@ -196,6 +199,7 @@ def test_a_layout_the_mock_answers_says_mock_and_why(config):
 
 def test_output_options_endpoint_returns_exactly_notebook_and_framework(monkeypatch):
     pytest.importorskip("httpx")
+    pytest.importorskip("fastapi")   # the ui extra (absent in the D1 venv)
     from fastapi.testclient import TestClient
     from ui.backend import main
 

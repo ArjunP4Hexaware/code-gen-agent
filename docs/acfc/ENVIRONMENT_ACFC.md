@@ -13,6 +13,59 @@ to what matters. Where a command could not run, the section says so.
 
 ---
 
+## 0. The D1 run pin set — the reference (2026-10-15, post52)
+
+The versions the ACFC D1 harness runs `codegen` under, as its run report's
+Environment section records them (post51 12-pair run, 2026-10-15). Home runs
+newer libraries; a behaviour that only an older one shows (pydantic 2.8.2's
+`protected_namespaces` warning on any `model_*` field — pair_07's reported error)
+is invisible at home unless the suite also runs under these pins.
+
+| Package | D1 version |
+| --- | --- |
+| Python | 3.12.3 (home: any 3.12) |
+| pydantic | 2.8.2 |
+| openpyxl | 3.1.2 |
+| jinja2 | 3.1.6 |
+| pyyaml | 6.0.1 |
+| ruff | 0.17.0 |
+| databricks-sdk | 0.30.0 |
+
+The same pins, machine-readable: `constraints/acfc_d1.txt` (a pip / uv
+constraints file; `tests/test_d1_environment.py` keeps it and this table equal).
+Libraries the report does not list (pytest, …) float.
+
+### The second test environment
+
+```bash
+uv venv --python 3.12 .venv-d1                 # gitignored
+uv pip install --python .venv-d1 -e ".[dev,databricks]" -c constraints/acfc_d1.txt
+PYTHONUTF8=1 .venv-d1/Scripts/python -m pytest -q -rf   # (bin/python on Linux / macOS)
+```
+
+**Before every push the suite runs in BOTH environments** — the dev `.venv`
+(current libraries) and `.venv-d1` (these pins).
+
+No `ui` extra: the D1 harness runs the CLI, never the App, and the report pins
+no web-stack version. With fastapi absent the demo-UI tests skip there (they
+skip without the `ui` extra by design). A floated fastapi / starlette (1.8.0)
+also made two of them fail on Windows: an uploaded file still held open at the
+test's cleanup unlink. That is a property of the floated web stack, not of a D1 pin.
+
+### Known differences under the pins
+
+- `tests/test_acfc_shapes_fixtures.py::test_every_registered_fixture_is_tracked_and_byte_stable`:
+  the synthetic `.xlsx` fixtures are byte-pinned as the home openpyxl (3.1.5) writes
+  them; 3.1.2 writes other zip bytes for the same cells. Under another openpyxl
+  version the test compares every sheet's cell values instead (`FIXTURES_OPENPYXL`
+  in the test); `.docx` fixtures stay byte-compared.
+
+### When D1 changes
+
+Update the table, `constraints/acfc_d1.txt`, rebuild `.venv-d1`, run the suite.
+
+---
+
 ## a. Runtimes
 
 ### (i) Genie Code serverless shell

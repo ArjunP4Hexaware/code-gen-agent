@@ -763,7 +763,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                    if prior.profile.role_sources.get(confidence_key(s.name, b.layer, r))
                    == "model"}
         if carried:
-            profile = _merge_columns(profile, carried, "model", config.layout.model_confidence)
+            profile = _merge_columns(profile, carried, "model", config.layout.placed_confidence)
         rejections = list(prior.rejections)
         calls = prior.provider_calls
         model_allowed = False
@@ -830,7 +830,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                 document=document)
             rejections += answer_rejections
             profile = _merge_columns(profile, _claims_from_model(checked), "model",
-                                     config.layout.model_confidence)
+                                     config.layout.placed_confidence)
             profile = profile.model_copy(update={"source": "model"})
             profile, model_rejections = validate_profile(
                 profile, workbook, config.extractor, check_sources={"model"}, document=document)
@@ -1061,7 +1061,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
                                [json.dumps(answer, ensure_ascii=False)[:RAW_LOG_CHARS]])
         else:
             claims = {k: v.model_dump(mode="json") for k, v in model_profile.fields.items()}
-            profile = _merge_frd(profile, claims, "model", config.layout.model_confidence)
+            profile = _merge_frd(profile, claims, "model", config.layout.placed_confidence)
             profile = profile.model_copy(update={"source": "model"})
             profile, model_rejections = _validate_frd(profile, content, config, {"model"})
             rejections += model_rejections

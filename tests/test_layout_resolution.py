@@ -114,7 +114,7 @@ def test_mock_model_resolves_the_remainder_and_extraction_matches_the_truth(
     # Model-placed roles start at the configured confidence, synonyms at 1.0.
     for key, source in doc.profile.role_sources.items():
         assert doc.profile.confidence[key] == (
-            config.layout.model_confidence if source == "model" else 1.0)
+            config.layout.placed_confidence if source == "model" else 1.0)
     # Reading through the completed profile matches the M1 truth tables:
     # rows per band are non-zero on every mapping sheet (pairs 8 and 10
     # included — the band detection holds once field_name is placed).
@@ -340,7 +340,7 @@ def test_pair1_cross_checks_agree_and_raise_confidence(pre_m9, no_cache, tmp_pat
     # The model-placed schema roles gained the agreement bonus.
     profile = pair.sttm.profile
     assert profile.confidence["FEED_1_MAPPING/stage/schema"] == pytest.approx(
-        config.layout.model_confidence + config.layout.crosscheck_bonus)
+        config.layout.placed_confidence + config.layout.crosscheck_bonus)
     fmt = next(c for c in pair.cross_checks if c.name == "file_format")
     assert "Object/data Format" in fmt.frd_citation
     # The real sheet's format cell reads ".dat" (an extension): the agreeing

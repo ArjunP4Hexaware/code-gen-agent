@@ -1,0 +1,11 @@
+# The ACFC D1 run environment (the post51 run report's Environment section,
+# 2026-10-15). Install a second test venv with these as constraints:
+#   uv venv --python 3.12 .venv-d1
+#   uv pip install --python .venv-d1 -e ".[dev,databricks]" -c constraints/acfc_d1.txt
+# Reference: docs/acfc/ENVIRONMENT_ACFC.md
+pydantic==2.8.2
+openpyxl==3.1.2
+jinja2==3.1.6
+pyyaml==6.0.1
+ruff==0.17.0
+databricks-sdk==0.30.0

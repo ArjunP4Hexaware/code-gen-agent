@@ -50,9 +50,13 @@ RunMode = Literal["mock", "live", "replay"]
 
 
 class FeedRun(BaseModel):
-    """Everything one generation run produced for one feed."""
+    """Everything one generation run produced for one feed.
 
-    model_config = _MODEL_CONFIG
+    D1 post51: under pydantic < 2.10 the ``model_usage`` field (an API key the
+    frontend reads, so not renamed) printed a protected-namespace UserWarning on
+    import; ``protected_namespaces=()`` silences it for this model only."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
 
     spec: ResolvedFeedSpec
     outcomes: list[RuleOutcome]

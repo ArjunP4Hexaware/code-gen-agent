@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import openpyxl
 import pytest
 from openpyxl import load_workbook
 
@@ -25,6 +26,10 @@ from acfc_shapes.frd import DATA_QUALITY, SECTION_TITLES, STRUCTURAL_P1, STRUCTU
 from acfc_shapes.vdd import FILES_HEADER, V1_HEADER, V2_HEADER, V3_HEADER
 
 REPO = Path(__file__).resolve().parents[1]
+# The tracked .xlsx fixtures are byte-pinned as THIS openpyxl writes them; another
+# version (D1 runs 3.1.2 — docs/acfc/ENVIRONMENT_ACFC.md) writes other zip bytes
+# for the same cells, so there the workbooks are compared cell by cell instead.
+FIXTURES_OPENPYXL = "3.1.5"
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -53,7 +58,18 @@ def test_every_registered_fixture_is_tracked_and_byte_stable(built):
     for rel, data in built.items():
         path = FIXTURE_ROOT / rel
         assert path.is_file(), f"missing fixture {rel} — run scripts/build_acfc_shapes.py"
+        if rel.endswith(".xlsx") and openpyxl.__version__ != FIXTURES_OPENPYXL:
+            assert _cells(path.read_bytes()) == _cells(data), f"{rel} drifted from its builder"
+            continue
         assert path.read_bytes() == data, f"{rel} drifted from its builder"
+
+
+def _cells(data: bytes) -> dict[str, list[tuple]]:
+    import io
+
+    book = load_workbook(io.BytesIO(data))
+    return {ws.title: [tuple(row) for row in ws.iter_rows(values_only=True)]
+            for ws in book.worksheets}
 
 
 def test_gitignore_re_includes_every_binary_fixture():

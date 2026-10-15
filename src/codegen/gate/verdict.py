@@ -36,6 +36,9 @@ class GateResult(BaseModel):
     verdict: Verdict
     checks: list[GateCheck]
     flags: list[str]
+    # 2026-10-15 (post56): the feed's IIG cell counts (iig_review.iig_cell_counts),
+    # carried to CODEGEN_STAGES.json; empty when no IIG clean copy was written.
+    iig_cells: dict = {}
 
 
 def compute_verdict(

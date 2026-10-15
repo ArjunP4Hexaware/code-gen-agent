@@ -19,6 +19,7 @@ reason's default), so the client reassigns columns without a code change.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -225,6 +226,85 @@ def write_iig_workbooks(payload: dict, always_blank: list[str], config: Config,
     return review_path, clean_path, cells
 
 
-__all__ = ["OpenCell", "clean_workbook", "dq_review_entries", "open_cells", "review_groups",
-           "review_workbook",
-           "write_iig_workbooks"]
+# --------------------------------------------------------- cell counts ---
+# 2026-10-15 (D1 post55): the harness's "unpopulated IIG cells" read one number
+# per sheet from a workbook it globbed out of a shared folder — two pairs (4
+# feeds / 11 columns and 1 feed / 115 columns) printed the same nine numbers.
+# Each feed now records its own counts in CODEGEN_STAGES.json, from the payload
+# its clean workbook was written from.
+
+# An open cell the inputs panel asks about: its NOTE is an owed-cell /
+# environment NOTE (each names an INPUT_NEEDED key; codegen.owed_inputs).
+ASKED_NOTE_KINDS = ("iig_owed", "iig_owed_run", "iig_env", "iig_env_placeholder")
+_INPUT_RE = re.compile(r"INPUT_NEEDED ((?:run|feeds)\.[\w.<>]+?)(?=[:\s]|$)")
+_ENV_REF_RE = re.compile(r"states no ([\w.]+)")
+
+
+def asked_input(note: str | None, feed_id: str) -> str | None:
+    """The inputs-panel key an open cell's NOTE asks for, or None when the
+    NOTE is no owed / environment NOTE (``run.email_to``,
+    ``feeds.<feed>.active_start_date``, ``run.environment.storage_account``)."""
+    text = note or ""
+    if text.split(":", 1)[0] not in ASKED_NOTE_KINDS:
+        return None
+    match = _INPUT_RE.search(text)
+    if match:
+        return match.group(1).replace("<feed>", feed_id)
+    ref = _ENV_REF_RE.search(text)
+    return f"run.environment.{ref.group(1)}" if ref else "run.environment"
+
+
+def used_range_blanks(path: Path) -> dict[str, int]:
+    """Per sheet: the empty cells of the sheet's used range (rows 1..max_row x
+    columns 1..max_column) — the harness's pre-post56 "unpopulated" number,
+    kept as ``template_blanks`` for one release."""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path)
+    try:
+        return {ws.title: sum(1 for row in ws.iter_rows(min_row=1, max_row=ws.max_row,
+                                                           max_col=ws.max_column)
+                              for cell in row if _blank(cell.value))
+                for ws in workbook.worksheets}
+    finally:
+        workbook.close()
+
+
+def iig_cell_counts(payload: dict, feed_id: str, clean_path: Path | None = None) -> dict:
+    """One feed's IIG cell counts, per sheet, over the data rows the generator
+    WROTE (the payload rows, up to the last row with a filled cell): an empty
+    cell is ``open_for_bsa`` when its NOTE asks the inputs panel for it
+    (:func:`asked_input`), else ``empty_other``; ``template_blanks`` is the
+    old used-range count of the written clean workbook. ``open_inputs`` lists
+    the inputs behind the open_for_bsa cells (one input may open several: a
+    status row each, a flow's schedule + notebook rows)."""
+    old = used_range_blanks(clean_path) if clean_path is not None and clean_path.is_file() \
+        else {}
+    sheets: dict[str, dict[str, int]] = {}
+    inputs: set[str] = set()
+    for sheet, tab in payload.get("tabs", {}).items():
+        headers = tab["headers"]
+        rows = list(tab["rows"])
+        while rows and all(_blank(rows[-1]["values"].get(h)) for h in headers):
+            rows.pop()
+        asked = other = 0
+        for row in rows:
+            for header in headers:
+                if not _blank(row["values"].get(header)):
+                    continue
+                key = asked_input((row["badges"].get(header) or {}).get("note"), feed_id)
+                if key is None:
+                    other += 1
+                else:
+                    asked += 1
+                    inputs.add(key)
+        sheets[sheet] = {"rows": len(rows), "open_for_bsa": asked, "empty_other": other,
+                         "template_blanks": old.get(sheet, 0)}
+    return {"sheets": sheets, "open_inputs": sorted(inputs),
+            "totals": {k: sum(s[k] for s in sheets.values())
+                       for k in ("open_for_bsa", "empty_other", "template_blanks")}}
+
+
+__all__ = ["ASKED_NOTE_KINDS", "OpenCell", "asked_input", "clean_workbook",
+           "dq_review_entries", "iig_cell_counts", "open_cells", "review_groups",
+           "review_workbook", "used_range_blanks", "write_iig_workbooks"]

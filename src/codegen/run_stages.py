@@ -235,16 +235,29 @@ def write_stage_manifest(out_root: Path, *, command: str, exit_code: int,
 
 def feed_entry(out_root: Path, n: int, of: int, status: str,
                written: dict[str, list[Path]], removed: int = 0,
-               quarantine_dir: Path | None = None) -> dict:
+               quarantine_dir: Path | None = None, iig_cells: dict | None = None) -> dict:
     """One feed's manifest entry (position, outcome, the artefacts it kept —
-    under ``quarantine/`` for a GATE_FAIL feed)."""
+    under ``quarantine/`` for a GATE_FAIL feed; post56: ``iig_cells``, the
+    feed's IIG cell counts per sheet — open_for_bsa / empty_other /
+    template_blanks — from codegen.iig_review.iig_cell_counts)."""
     entry = {"n": n, "of": of, "status": status, "removed": removed,
              "artefacts": {stage: [p.relative_to(out_root).as_posix() for p in paths]
                            for stage, paths in written.items()}}
     if quarantine_dir is not None:
         entry["quarantine"] = quarantine_dir.relative_to(out_root).as_posix()
         entry["label"] = REVIEW_ONLY
+    if iig_cells:
+        entry["iig_cells"] = iig_cells
     return entry
+
+
+def iig_unpopulated(out_root: str | Path) -> list[dict]:
+    """STABLE (the harness reads it in place of its own workbook scan, post56):
+    per feed of the last generate run, ``{"n", "of", "status", "iig_cells"}``
+    from CODEGEN_STAGES.json — counts only, never names; [] without a manifest."""
+    manifest = read_stage_manifest(out_root) or {}
+    return [{"n": f.get("n"), "of": f.get("of"), "status": f.get("status"),
+             "iig_cells": f.get("iig_cells") or {}} for f in manifest.get("feeds") or []]
 
 
 def read_stage_manifest(out_root: str | Path) -> dict | None:
@@ -258,6 +271,6 @@ def read_stage_manifest(out_root: str | Path) -> dict | None:
 __all__ = ["EMIT_STAGES", "GATE_FAIL_FILE", "OUTCOMES", "QUARANTINE_DIR", "REVIEW_ONLY",
            "SKIPPED_NOT_WRITTEN", "SKIPPED_UPSTREAM", "STAGES_FILE", "by_stage",
            "clear_quarantine", "emit_stage", "feed_entry", "flag_counts", "flag_type",
-           "gate_fail_note",
+           "gate_fail_note", "iig_unpopulated",
            "quarantine", "read_stage_manifest", "remove_partial", "snapshot", "stage_statuses",
            "write_stage_manifest", "written_since"]

@@ -185,6 +185,7 @@ def _generate_feed(
         checks = [*checks, vdd_check]
     if framework_artefacts is not None:
         checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
+    iig_cells = _iig_cells(spec, config, framework_artefacts)
 
     gate = compute_verdict(
         spec.feed_id,
@@ -196,6 +197,8 @@ def _generate_feed(
         standards=config.engineering_standards,
         extra_flags=extra_flags,
     )
+    if iig_cells:
+        gate = gate.model_copy(update={"iig_cells": iig_cells})
     write_generation_report(
         spec,
         written,
@@ -227,6 +230,20 @@ def _generate_feed(
         if usage.all_failed:
             print(f"{'WARNING':<15} {all_failed_line(usage)}")
     return gate
+
+
+def _iig_cells(spec, config, artefacts) -> dict:
+    """post56: the feed's IIG cell counts from the payload its clean copy was
+    written from (codegen.iig_review.iig_cell_counts); {} without a clean copy."""
+    if artefacts is None or artefacts.payload is None:
+        return {}
+    from codegen.iig_review import iig_cell_counts
+
+    clean_name = config.iig_review.clean_file_pattern.format(feed=spec.feed_slug)
+    clean = next((p for p in artefacts.files if p.name == clean_name), None)
+    if clean is None:
+        return {}
+    return iig_cell_counts(artefacts.payload, spec.feed_id, clean)
 
 
 def _read_ddl_sources(feed_dir: Path) -> list[tuple[str, str]]:
@@ -630,7 +647,7 @@ def _run_pairs(
                 quarantined.append(q_dir.relative_to(out_root).as_posix())
                 feed_entries.append(run_stages.feed_entry(
                     out_root, feed_no, len(specs), "GATE_FAIL", written,
-                    quarantine_dir=q_dir))
+                    quarantine_dir=q_dir, iig_cells=gate.iig_cells))
                 print(f"{'GATE_FAIL':<15} {spec.feed_id} \u2014 {run_stages.REVIEW_ONLY}: "
                       f"{len(moved)} file(s) moved to {q_dir} ({run_stages.GATE_FAIL_FILE})")
                 continue
@@ -638,7 +655,8 @@ def _run_pairs(
             for stage, paths in written.items():
                 kept[stage] += paths
             feed_entries.append(run_stages.feed_entry(
-                out_root, feed_no, len(specs), gate.verdict, written))
+                out_root, feed_no, len(specs), gate.verdict, written,
+                iig_cells=gate.iig_cells))
     if only_feed is not None and not matched_feed:
         _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
         failed = hard_failed = True

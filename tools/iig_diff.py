@@ -2134,6 +2134,139 @@ def agent_build(agents: list[Path]) -> tuple[dict | None, str | None]:
     return builds[0], None
 
 
+# ------------------------------------------------------------ header check
+
+DEFAULT_TEMPLATE_CONFIG = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+
+
+def template_headers(config_path: Path = DEFAULT_TEMPLATE_CONFIG) -> dict[str, dict[str, list]]:
+    """2026-10-14 (framework owner's rule 5): every IIG template's sheets and
+    headers as the run's config states them — config.yaml with the committed
+    environment overlay (codegen.config.load_config; CODEGEN_SKIP_ENV_OVERLAY
+    opts out), else the raw yaml."""
+    src = Path(config_path).resolve().parent.parent / "src"
+    try:
+        if str(src) not in sys.path:
+            sys.path.insert(0, str(src))
+        from codegen.config import load_config
+
+        config = load_config(config_path)
+        out = {name: {tab: list(cfg.headers) for tab, cfg in tpl.tabs.items()}
+               for name, tpl in config.metadata.templates.items()}
+        out.setdefault("iig_v1", {tab: list(cfg.headers)
+                                  for tab, cfg in config.demo.metadata_sheet.tabs.items()})
+        return out
+    except Exception:  # noqa: BLE001 — the raw yaml (no codegen importable)
+        raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+        out = {name: {tab: list((cfg or {}).get("headers") or [])
+                      for tab, cfg in ((tpl or {}).get("tabs") or {}).items()}
+               for name, tpl in (((raw.get("metadata") or {}).get("templates")) or {}).items()}
+        tabs = (((raw.get("demo") or {}).get("metadata_sheet") or {}).get("tabs")) or {}
+        out.setdefault("iig_v1", {tab: list((cfg or {}).get("headers") or [])
+                                  for tab, cfg in tabs.items()})
+        return out
+
+
+def compare_headers(expected: list[str], actual: list[str]) -> dict:
+    """One sheet's header row against the expected one: SPELLING (the same
+    header by case / separators, written differently), MISSING, EXTRA, and
+    ORDER (the shared headers in another order: the first position that
+    differs). ``ok`` when there is none."""
+    exp = {header_id(h): h for h in expected}
+    act = {header_id(h): h for h in actual}
+    spelling = [{"expected": exp[i], "actual": act[i]} for i in exp if i in act
+                and exp[i] != act[i]]
+    missing = [h for i, h in exp.items() if i not in act]
+    extra = [h for i, h in act.items() if i not in exp]
+    shared_e = [header_id(h) for h in expected if header_id(h) in act]
+    shared_a = [header_id(h) for h in actual if header_id(h) in exp]
+    order = None
+    if shared_e != shared_a:
+        # (a header repeated on one side makes the lists differ in length)
+        at = next((n for n, (e, a) in enumerate(zip(shared_e, shared_a, strict=False))
+                   if e != a), min(len(shared_e), len(shared_a)) - 1)
+        order = {"position": at + 1, "expected": exp[shared_e[at]], "actual": exp[shared_a[at]]}
+    return {"ok": not (spelling or missing or extra or order), "spelling": spelling,
+            "missing": missing, "extra": extra, "order": order}
+
+
+def _header_rows(path: Path) -> dict[str, list[str]]:
+    """Every sheet's header row as written (blank headers dropped)."""
+    wb = openpyxl.load_workbook(path, read_only=True)
+    try:
+        out = {}
+        for ws in wb.worksheets:
+            first = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+            out[ws.title] = [str(v).strip() for v in first if v is not None and str(v).strip()]
+        return out
+    finally:
+        wb.close()
+
+
+def header_report(golden: Path, agents: list[Path], keys: KeyConfig,
+                  config_path: Path = DEFAULT_TEMPLATE_CONFIG) -> dict:
+    """Rule 5: every sheet's column names and order in the agent workbook vs
+    the golden and vs the config template (agent sheets the template names);
+    a sheet the template has and the agent lacks is reported too. Internal
+    sheets (``_``-prefixed) and the golden's provenance column are skipped."""
+    agent_rows = [_header_rows(p) for p in agents]
+    agent = agent_rows[0] if agent_rows else {}
+    golden_rows = _header_rows(golden)
+    template_name = detect_template(list(agent))
+    template = template_headers(config_path).get(template_name or "", {})
+    t_by_id = {sheet_id(n): n for n in template}
+    g_by_id = {sheet_id(n): n for n in golden_rows}
+    vs_template, vs_golden = {}, {}
+    for name, headers in agent.items():
+        if name.startswith("_") or sheet_id(name) not in t_by_id:
+            continue
+        vs_template[name] = compare_headers(template[t_by_id[sheet_id(name)]], headers)
+        if sheet_id(name) in g_by_id:
+            golden_heads = [h for h in golden_rows[g_by_id[sheet_id(name)]]
+                            if h != SOURCE_COLUMN]
+            vs_golden[name] = compare_headers(golden_heads, headers)
+    absent = [n for n in template if sheet_id(n) not in {sheet_id(a) for a in agent}]
+    differing = [i for i, rows in enumerate(agent_rows[1:], start=2) if rows != agent]
+    issues = (sum(not r["ok"] for r in vs_template.values())
+              + sum(not r["ok"] for r in vs_golden.values()) + len(absent))
+    return {"template": template_name, "config": str(config_path),
+            "agent_vs_template": vs_template, "agent_vs_golden": vs_golden,
+            "template_sheets_absent_in_agent": absent,
+            "agent_workbooks_with_other_headers": differing, "issues": issues}
+
+
+def header_lines(report: dict) -> list[str]:
+    """The HEADERS section (console / sheets.md): one line per sheet with an
+    issue, or one 'all match' line."""
+    lines = [f"HEADERS (agent vs template {report.get('template')} and vs the golden): "
+             f"{report.get('issues', 0)} issue(s)"]
+    for side, label in (("agent_vs_template", "template"), ("agent_vs_golden", "golden")):
+        for sheet, r in (report.get(side) or {}).items():
+            if r["ok"]:
+                continue
+            parts = []
+            if r["spelling"]:
+                parts.append("spelling " + ", ".join(f"{s['actual']} (expected {s['expected']})"
+                                                     for s in r["spelling"]))
+            if r["missing"]:
+                parts.append("missing " + ", ".join(r["missing"]))
+            if r["extra"]:
+                parts.append("extra " + ", ".join(r["extra"]))
+            if r["order"]:
+                o = r["order"]
+                parts.append(f"order: position {o['position']} is {o['actual']}, expected "
+                             f"{o['expected']}")
+            lines.append(f"  {sheet} vs {label}: " + "; ".join(parts))
+    for sheet in report.get("template_sheets_absent_in_agent") or []:
+        lines.append(f"  {sheet}: in the template, absent in the agent workbook")
+    if report.get("agent_workbooks_with_other_headers"):
+        lines.append(f"  agent workbooks {report['agent_workbooks_with_other_headers']} have "
+                     "other headers than the first")
+    if len(lines) == 1:
+        lines.append("  every sheet's headers match (names, spelling, order)")
+    return lines
+
+
 def run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path,
              pair_mode: str = "identity", build: dict | None = None,
              scope_mode: str = "feeds", group_index: list[Path] | None = None) -> dict:
@@ -2150,6 +2283,9 @@ def _run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path
                            group_index=group_index)
     payload = score_payload(golden, agent, keys_path, diffs,
                             header_facts(keys, pair_mode, build))
+    # 2026-10-14 (framework owner's rule 5): the header check, its own section
+    payload = {"headers": header_report(golden, agent if isinstance(agent, list) else [agent],
+                                        keys), **payload}
     out.mkdir(parents=True, exist_ok=True)
     (out / "score.json").write_text(
         json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8"
@@ -2532,19 +2668,46 @@ def _template_text(value: str, vocabulary: frozenset[str], scr: Scrubber) -> str
     return scr.scrub(value)
 
 
+def _scrubbed_headers(report: dict, vocabulary: frozenset[str], scr: Scrubber) -> dict:
+    """The header report with every sheet / header name that is not a template
+    name scrubbed (template names are written as they are)."""
+    def name(value: str) -> str:
+        return _template_text(str(value), vocabulary, scr)
+
+    def one(r: dict) -> dict:
+        order = r.get("order")
+        return {**r, "spelling": [{k: name(v) for k, v in s.items()} for s in r["spelling"]],
+                "missing": [name(h) for h in r["missing"]],
+                "extra": [name(h) for h in r["extra"]],
+                "order": {**order, "expected": name(order["expected"]),
+                          "actual": name(order["actual"])} if order else None}
+
+    out = dict(report)
+    for side in ("agent_vs_template", "agent_vs_golden"):
+        out[side] = {name(s): one(r) for s, r in (report.get(side) or {}).items()}
+    out["template_sheets_absent_in_agent"] = [
+        name(s) for s in report.get("template_sheets_absent_in_agent") or []]
+    return out
+
+
 def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
-                  vocabulary: frozenset[str]) -> int:
+                  vocabulary: frozenset[str], headers: dict | None = None) -> int:
     """sheets.md (2026-10-13): the per-sheet table WITH missing / extra, then
     each sheet's per-column breakdown — the score made interpretable. Sheet
     and column names are template fields (written as they are); anything that
     is not one is scrubbed like every value."""
     lines = ["# IIG diff per sheet - scrubbed export", "", EXPORT_INTRO, "",
              "Template sheet and column names are written as they are; every other name "
-             "is scrubbed.", "",
-             "| sheet | paired (identity / position / key) | unpaired (golden / agent) | score "
-             "| comparable | exact | normalized | mismatch | missing | extra | out of scope "
-             "| convention | bsa-owned |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "is scrubbed.", ""]
+    if headers is not None:
+        # rule 5: the header check first — a header that is not a template name
+        # is scrubbed like any other name
+        lines += ["## Headers", "",
+                  *header_lines(_scrubbed_headers(headers, vocabulary, scr)), ""]
+    lines += ["| sheet | paired (identity / position / key) | unpaired (golden / agent) | score "
+              "| comparable | exact | normalized | mismatch | missing | extra | out of scope "
+              "| convention | bsa-owned |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     columns_listed = 0
     detail: list[str] = []
     for d in diffs:
@@ -2663,7 +2826,8 @@ def _class_counts(counts: Counter[str] | dict[str, int]) -> str:
 
 def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Path = REPO_ROOT,
                     local_denylist: Path | None = None,
-                    harvest: dict[str, str] | None = None) -> dict:
+                    harvest: dict[str, str] | None = None,
+                    headers: dict | None = None) -> dict:
     """Write mismatches.md + row_keys.md + SELF_CHECK.md under ``out``. The
     result's ``rescan`` is empty when the written files are clean; otherwise
     the two evidence files are deleted (SELF_CHECK.md names the classes)."""
@@ -2685,7 +2849,8 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
     out.mkdir(parents=True, exist_ok=True)
     counts = _write_mismatches(out / EXPORT_FILES[0], diffs, keys, scr)
     listed = _write_row_keys(out / EXPORT_FILES[1], diffs, keys, scr)
-    columns_listed = _write_sheets(out / EXPORT_FILES[2], diffs, scr, template_vocabulary(root))
+    columns_listed = _write_sheets(out / EXPORT_FILES[2], diffs, scr, template_vocabulary(root),
+                                   headers=headers)
     cells = sum(counts.values())
     by_status = ", ".join(f"{s} {counts[s]}" for s in EXPORT_STATUSES)
     placeholders = (f"G {len(scr.maps['G'])} ({scr.uses['G']} uses), "
@@ -2948,6 +3113,8 @@ def _print_header(payload: dict) -> None:
 
 def _print_pair(payload: dict, out: Path) -> None:
     _print_header(payload)
+    for line in header_lines(payload.get("headers") or {}):    # rule 5: at the top
+        print(line)
     for name, s in payload["sheets"].items():
         c = s["counts"]
         line = ", ".join(f"{k} {c[k]}" for k in STATUSES)
@@ -3152,7 +3319,8 @@ def main(argv: list[str] | None = None) -> int:
     _print_pair(payload, args.out)
     for line in dump_rows(diffs, keys, args.dump_row) if args.dump_row is not None else []:
         print(line)
-    check =export_scrubbed(diffs, keys, args.export_scrubbed)
+    check = export_scrubbed(diffs, keys, args.export_scrubbed,
+                            headers=payload.get("headers"))
     print(check["line"])
     written = EXPORT_FILES + (SELF_CHECK_FILE,) if not check["rescan"] else (SELF_CHECK_FILE,)
     print(f"wrote {', '.join(str(args.export_scrubbed / f) for f in written)}")

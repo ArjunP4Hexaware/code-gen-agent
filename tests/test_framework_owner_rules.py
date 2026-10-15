@@ -122,3 +122,75 @@ def test_each_table_takes_the_sttm_audit_rows_of_its_own_segment(pair4_spec, pai
         expected = [c for c in own[segment.segment.title()] if c not in data]
         assert left[-len(expected):] == expected, segment.segment
         assert not [c for c in left[:-len(expected)] if c not in data]   # nothing else added
+
+
+# -- rule 5: header check -------------------------------------------------------------
+
+
+def test_the_iig_v2_emitter_writes_the_template_headers_exactly(tmp_path):
+    """Every sheet of the IIG workbook (and config_rows.xlsx) carries the
+    template's headers — the same names, spelling and order, nothing extra."""
+    config = _acfc()
+    _spec, _gate, xlsx = _run(FRD, config, tmp_path)
+    tpl = config.metadata.templates["iig_v2"]
+    (iig,) = [p for p in xlsx.parent.glob("*_IIG.xlsx")]
+    for path in (iig, xlsx):
+        workbook = load_workbook(path, read_only=True)
+        sheets = [s for s in workbook.sheetnames if not s.startswith("_")]
+        assert sheets == list(tpl.tabs), path.name
+        for sheet in sheets:
+            first = next(workbook[sheet].iter_rows(min_row=1, max_row=1, values_only=True))
+            assert [h for h in first if h is not None] == list(tpl.tabs[sheet].headers), (
+                path.name, sheet)
+        workbook.close()
+
+
+def test_compare_headers_names_spelling_order_missing_and_extra():
+    from test_iig_diff_sheet_alias import iig_diff
+
+    expected = ["GROUP_ID", "OBJECT_ID", "DOMAIN", "SUBDOMAIN", "SOURCE"]
+    assert iig_diff.compare_headers(expected, list(expected))["ok"]
+    r = iig_diff.compare_headers(expected, ["GROUP_ID", "Object_Id", "SUBDOMAIN", "DOMAIN",
+                                            "NEW_COL"])
+    assert r["spelling"] == [{"expected": "OBJECT_ID", "actual": "Object_Id"}]
+    assert r["missing"] == ["SOURCE"] and r["extra"] == ["NEW_COL"]
+    assert r["order"] == {"position": 3, "expected": "DOMAIN", "actual": "SUBDOMAIN"}
+    assert not r["ok"]
+
+
+def test_the_diff_reports_header_issues_first_and_in_the_scrubbed_export(tmp_path, capsys):
+    """An agent workbook with a misspelled, a moved and a missing header against
+    the template and the golden: a HEADERS section at the top of the console,
+    score.json ``headers``, and a ``## Headers`` section first in sheets.md."""
+    import json
+
+    from test_iig_diff_sheet_alias import _book, iig_diff
+
+    heads = iig_diff.template_headers()["iig_v2"]
+    adls = list(heads[ADLS])
+    bad = [("Src_File_Name" if h == "SRC_FILE_NAME" else h) for h in adls if h != "LOB"]
+    bad[3], bad[4] = bad[4], bad[3]
+    golden = _book(tmp_path / "golden.xlsx", {ADLS: [adls, [1] * len(adls)]})
+    sheets = {name: [list(h)] for name, h in heads.items()}
+    sheets[ADLS] = [bad, [1] * len(bad)]
+    agent = _book(tmp_path / "run" / "f" / "f_IIG.xlsx", sheets)
+    (tmp_path / "run" / "CODEGEN_BUILD.json").write_text(json.dumps(
+        {"sha": "abc1234", "line": "codegen 0.0.test"}), encoding="utf-8")
+    out = tmp_path / "out"
+    assert iig_diff.main(["--golden", str(golden), "--agent", str(agent), "--out", str(out),
+                          "--export-scrubbed", str(tmp_path / "export")]) in (0, 2)
+    printed = capsys.readouterr().out
+    report = json.loads((out / "score.json").read_text(encoding="utf-8"))["headers"]
+    assert report["template"] == "iig_v2"
+    for side in ("agent_vs_template", "agent_vs_golden"):
+        r = report[side][ADLS]
+        assert r["spelling"] == [{"expected": "SRC_FILE_NAME", "actual": "Src_File_Name"}]
+        assert r["missing"] == ["LOB"] and r["order"]["position"] == 4
+    assert all(r["ok"] for s, r in report["agent_vs_template"].items() if s != ADLS)
+    lines = printed.splitlines()
+    first = next(i for i, ln in enumerate(lines) if ln.startswith("HEADERS"))
+    assert first < next(i for i, ln in enumerate(lines) if ln.startswith(f"{ADLS}:"))
+    assert f"  {ADLS} vs template: spelling Src_File_Name (expected SRC_FILE_NAME)" in printed
+    text = (tmp_path / "export" / "sheets.md").read_text(encoding="utf-8")
+    assert text.index("## Headers") < text.index("| sheet |")
+    assert "missing LOB" in text

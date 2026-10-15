@@ -498,15 +498,16 @@ def _run_pairs(
     from codegen.environments import EnvironmentSelectionError
 
     try:
-        config, run_items = _run_environment(config, inputs, output_mode, iig_template,
-                                             dry_run=dry_run)
+        config, run_items, env_questions = _run_environment(config, inputs, output_mode,
+                                                            iig_template, dry_run=dry_run)
     except EnvironmentSelectionError as exc:
         print(f"{'FAIL':<15} environment — {exc}")
         return 1
     owed_items += run_items
     failed = False
     matched_feed = False
-    needs_answers = False
+    # 2026-10-15: a required environment value unset is a QUESTION (exit 3)
+    needs_answers = env_questions
     for frd_path, sttm_path in pairs:
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
@@ -560,7 +561,8 @@ def _run_pairs(
     _write_template(template_path or Path(config.output.dir) / "answers_template.yaml",
                     owed_items, "generate", merge=True)
     # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
-    # asked for (a QUESTION / UNRESOLVED line) exits 3
+    # asked for (a QUESTION / UNRESOLVED line) or a required environment value
+    # (2026-10-15) exits 3
     return 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
 
 
@@ -577,7 +579,13 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
     a custom environment's unset keys, the run-scoped owed cells) is printed
     ONCE, in one block, before any feed — and returned as answers-template
     items (``inputs.run``). A named environment left incomplete raises
-    EnvironmentSelectionError (the caller prints FAIL)."""
+    EnvironmentSelectionError (the caller prints FAIL).
+
+    2026-10-15 (D1 post50 item 2): ``inputs.run: environment.<key>`` fills any
+    environment's key (a named profile's too); the run banner line ``NOTE
+    run.environment — environment: <name> (complete, from <origin>; <source>)``
+    is printed first; a REQUIRED key still unset is a QUESTION line (the third
+    return value True = exit 3)."""
     from codegen import environments as envs
     from codegen import owed_inputs as owed_mod
     from codegen.layout.answers_template import TemplateItem
@@ -593,19 +601,27 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
         env = envs.run_environment(config)
         given = {key[len(envs.INPUT_KEY) + 1:]: value for key, value in inputs.items()
                  if key.startswith(f"{envs.INPUT_KEY}.") and str(value).strip()}
-        if env is not None and env.source == "custom" and given:
-            values = {**envs.flat_values(env.entry), **given}
-            config = envs.with_environment(config, envs.select_environment(
-                config, custom={k: v for k, v in values.items() if v}, custom_name=env.name))
+        if env is not None and given:
+            config = envs.with_environment(config, env.model_copy(update={
+                "entry": envs.overlay_values(env.entry, given),
+                "origin": f"{env.origin} + the answers file"}))
+    env = envs.run_environment(config) if tpl is not None and tpl.environment_cells else None
+    questions = envs.required_items(config) if env is not None else []
+    if env is not None:
+        print(answer_line("NOTE", envs.INPUT_KEY, f"environment: {envs.banner(config, env)}"))
+    for key, reason in questions:
+        print(answer_line("QUESTION", key, reason))
     items = [*owed_mod.environment_inputs(config, output_mode=output_mode,
                                           iig_template=iig_template),
              *owed_mod.run_owed_inputs(config, inputs, output_mode=output_mode,
                                        iig_template=iig_template)]
     for line in owed_mod.run_block_lines(items):
         print(line)
-    return config, [TemplateItem(i.key, i.question,
-                                 list(config.environments) if i.key == envs.INPUT_KEY else [],
-                                 owed_mod.INPUTS_SECTION) for i in items]
+    return config, [*(TemplateItem(key, reason, [], owed_mod.INPUTS_SECTION)
+                      for key, reason in questions),
+                    *(TemplateItem(i.key, i.question,
+                                   list(config.environments) if i.key == envs.INPUT_KEY else [],
+                                   owed_mod.INPUTS_SECTION) for i in items)], bool(questions)
 
 
 def _live_run(config: Config, dry_run: bool) -> bool:
@@ -1740,12 +1756,15 @@ def _parser() -> argparse.ArgumentParser:
     # 2026-10-14: the run's environment (containers, storage account ...) is an input
     environment = generate.add_mutually_exclusive_group()
     environment.add_argument("--environment", default=None,
-                             help="the deployment environment (a name of the overlay's "
-                                  "environments block: D1, QA, PROD ...); default: the one "
-                                  "marked default (an INPUT_NEEDED line records it)")
+                             help="the deployment environment profile: D1, A2, PR ... — "
+                                  "codegen-state/environments/<name>.yaml over the overlay's "
+                                  "environments.<NAME> block; default: the one marked default "
+                                  "(an INPUT_NEEDED line records it). A required value left "
+                                  "unset is a QUESTION (exit 3)")
     environment.add_argument("--environment-file", dest="environment_file", default=None,
-                             help="a YAML block of this run's environment values "
-                                  "(containers.<layer>, storage_account, values.<name>)")
+                             help="a YAML block of this run's environment values, taken "
+                                  "alone (containers.<layer>, storage_account, catalog_map.*, "
+                                  "connection_ids.*, values.<name>); wins over --environment")
 
     subparsers.add_parser("generate-all", parents=[common], help="generate every configured pair")
 

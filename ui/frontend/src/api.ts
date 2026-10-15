@@ -86,11 +86,16 @@ export interface GenerationOptions {
 // The run's environment (2026-10-14, GET/POST /api/demo/environment): the
 // overlay's environments block, one marked default; "custom" = the values the
 // person typed under "Other".
+// 2026-10-15: each option is a PROFILE — its values prefilled (the
+// codegen-state profile file over the overlay block, `origin` says which), the
+// required keys and the ones it leaves missing; `banner` is the run banner.
 export interface EnvironmentOption {
   name: string;
   default: boolean;
   description: string;
   values: Record<string, string>;
+  origin?: string;
+  missing_required?: string[];
 }
 
 export interface EnvironmentOptions {
@@ -100,12 +105,19 @@ export interface EnvironmentOptions {
   source: "default" | "selected" | "custom" | null;
   custom: Record<string, string> | null;
   fields: string[];
+  required?: string[];
+  missing_required?: string[];
+  origin?: string | null;
+  banner?: string | null;
+  edited?: Record<string, string> | null;
 }
 
 export interface EnvironmentChoice {
   name: string | null;
   custom: Record<string, string> | null;
   custom_name: string | null;
+  // 2026-10-15: the named profile's fields as edited on the form
+  overrides?: Record<string, string> | null;
 }
 
 export type RunMode = "mock" | "live" | "replay";
@@ -787,6 +799,8 @@ export interface InputNeededItem {
   feed: string;
   // post47: "run" = once for the whole run (inputs.run), "feed" = inputs.feeds.<feed>
   scope: "run" | "feed";
+  // 2026-10-15: a required environment value — blocking (exit 3 on the CLI)
+  required?: boolean;
 }
 
 export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
@@ -798,6 +812,7 @@ export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
       question: typeof item.question === "string" ? item.question : "",
       feed: typeof item.feed === "string" ? item.feed : "",
       scope: (item.scope === "run" ? "run" : "feed") as "run" | "feed",
+      required: item.required === true,
     }));
 }
 

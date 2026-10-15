@@ -189,3 +189,12 @@ docs/acfc/iig_goldens_round2/email_template_config_by_pipeline.csv
 # iig_diff's prod environment-token values (2026-10-13): prod catalog names the
 # golden carries; the owner places them on D1, never committed (tools/iig_keys.yaml).
 /codegen-state/env_tokens.yaml
+# environment profiles + the ACFC-side overlay (2026-10-15): per-workspace values
+# (storage account, containers, notebook names, status sets) that never enter git
+# (codegen.environments, codegen.config.load_config; docs/acfc/OVERLAY_FIELDS.md).
+/codegen-state/environments/
+/codegen-state/overlays/
+# the local scrub term file (scripts/scrub_check.py, CODEGEN_SCRUB_DENYLIST) and the
+# hit-lookup candidates (tools/hit_lookup.py, CODEGEN_HIT_CANDIDATES), if kept here
+/codegen-state/scrub_terms.txt
+/codegen-state/hit_candidates.txt

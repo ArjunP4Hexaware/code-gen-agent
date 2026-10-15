@@ -21,7 +21,7 @@
 # "Other"). With neither, the default is used and INPUT_NEEDED run.environment
 # records it. Every cell filled from here carries an iig_env NOTE naming the
 # environment; the report header prints "environment: D1 (default)". Exactly one
-# entry is marked default. D1 is the only populated one; QA / PROD are
+# entry is marked default. D1 is the only populated one; A2 / PR are
 # placeholders until their values are known.
 # 2026-10-14 (post47): the catalogs (catalog_map: the STTM's logical catalog ->
 # this environment's; default_catalog: the fallback per layer) and the
@@ -33,6 +33,29 @@
 # (tests/test_d1_placeholders.py is the live-only check). A custom environment (--environment-file / the
 # App's "Other") inherits nothing: each key it leaves out is an INPUT_NEEDED line
 # and its cells stay empty.
+# 2026-10-15 (D1 post50 item 2): environment PROFILES (d1 / a2 / pr). The blocks
+# below are each profile's per-field defaults; the per-workspace values live in
+# codegen-state/environments/<name>.yaml (outside the tracked tree, gitignored),
+# laid over the block. Resolution: --environment-file > --environment <name> (else
+# the default name) > INPUT_NEEDED. A REQUIRED key (environment_schema.required:
+# the storage account and the containers — the Oct 14 rule: never a silent
+# default, never from the STTM) still blank or a placeholder is a QUESTION
+# run.environment.<key>: exit 3 (NEEDS_ANSWERS), its cells written open.
+# Synthetic example profile: config/environments/example.yaml.
+environment_schema:
+  required: [storage_account, containers.landing, containers.stage, containers.standard]
+  fields:
+    containers.landing: "the ADLS container files land in (the ADLS leg's source)"
+    containers.stage: "the stage container (the ADLS leg's target, the stage -> standard leg's source)"
+    containers.standard: "the standard container (the stage -> standard leg's target)"
+    storage_account: "the ADLS storage account (abfss://<container>@<account>...)"
+    catalog_map.PR_DLK: "the STTM's logical stage catalog -> this environment's"
+    catalog_map.PR_STD: "the STTM's logical standard catalog -> this environment's"
+    default_catalog.stage: "the stage catalog for a band whose Catalog is blank"
+    default_catalog.standard: "the standard catalog for a band whose Catalog is blank"
+    connection_ids.src_adls: "the framework's ADLS source connection id"
+    connection_ids.metadata: "the framework's metadata DB connection id"
+    connection_ids.target: "the framework's target connection id"
 environments:
   D1:
     default: true
@@ -55,20 +78,20 @@ environments:
     # the framework's connection ids as the real ADLS_DELTA_INGESTION_DETAILS rows
     # carry them (SRC_ADLS / METADATA / TGT_CONNECTION_ID)
     connection_ids: {src_adls: "7", metadata: "4", target: "2"}
-  QA:
-    description: "QA — values not known yet"
-    containers: {landing: "<<QA:CONTAINER.landing>>", stage: "<<QA:CONTAINER.stage>>", standard: "<<QA:CONTAINER.standard>>"}
-    storage_account: "<<QA:STORAGE_ACCOUNT>>"
-    catalog_map: {PR_DLK: "<<QA:CATALOG.PR_DLK>>", PR_STD: "<<QA:CATALOG.PR_STD>>"}
-    default_catalog: {stage: "<<QA:CATALOG.stage>>", standard: "<<QA:CATALOG.standard>>"}
-    connection_ids: {src_adls: "<<QA:CONNECTION_ID.src_adls>>", metadata: "<<QA:CONNECTION_ID.metadata>>", target: "<<QA:CONNECTION_ID.target>>"}
-  PROD:
-    description: "PROD — values not known yet"
-    containers: {landing: "<<PROD:CONTAINER.landing>>", stage: "<<PROD:CONTAINER.stage>>", standard: "<<PROD:CONTAINER.standard>>"}
-    storage_account: "<<PROD:STORAGE_ACCOUNT>>"
-    catalog_map: {PR_DLK: "<<PROD:CATALOG.PR_DLK>>", PR_STD: "<<PROD:CATALOG.PR_STD>>"}
-    default_catalog: {stage: "<<PROD:CATALOG.stage>>", standard: "<<PROD:CATALOG.standard>>"}
-    connection_ids: {src_adls: "<<PROD:CONNECTION_ID.src_adls>>", metadata: "<<PROD:CONNECTION_ID.metadata>>", target: "<<PROD:CONNECTION_ID.target>>"}
+  A2:
+    description: "A2 — values not known yet"
+    containers: {landing: "<<A2:CONTAINER.landing>>", stage: "<<A2:CONTAINER.stage>>", standard: "<<A2:CONTAINER.standard>>"}
+    storage_account: "<<A2:STORAGE_ACCOUNT>>"
+    catalog_map: {PR_DLK: "<<A2:CATALOG.PR_DLK>>", PR_STD: "<<A2:CATALOG.PR_STD>>"}
+    default_catalog: {stage: "<<A2:CATALOG.stage>>", standard: "<<A2:CATALOG.standard>>"}
+    connection_ids: {src_adls: "<<A2:CONNECTION_ID.src_adls>>", metadata: "<<A2:CONNECTION_ID.metadata>>", target: "<<A2:CONNECTION_ID.target>>"}
+  PR:
+    description: "PR (production) — values not known yet"
+    containers: {landing: "<<PR:CONTAINER.landing>>", stage: "<<PR:CONTAINER.stage>>", standard: "<<PR:CONTAINER.standard>>"}
+    storage_account: "<<PR:STORAGE_ACCOUNT>>"
+    catalog_map: {PR_DLK: "<<PR:CATALOG.PR_DLK>>", PR_STD: "<<PR:CATALOG.PR_STD>>"}
+    default_catalog: {stage: "<<PR:CATALOG.stage>>", standard: "<<PR:CATALOG.standard>>"}
+    connection_ids: {src_adls: "<<PR:CONNECTION_ID.src_adls>>", metadata: "<<PR:CONNECTION_ID.metadata>>", target: "<<PR:CONNECTION_ID.target>>"}
 conventions:
   profile: acfc_prx
   # catalog_map / the acfc_prx default_catalog: per environment (environments: above)

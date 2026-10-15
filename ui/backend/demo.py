@@ -1094,41 +1094,70 @@ class DemoRunner:
         config = config or self._store.config
         choice = self.environment_choice or {}
         return select_environment(config, name=choice.get("name"), custom=choice.get("custom"),
-                                  custom_name=choice.get("custom_name"))
+                                  custom_name=choice.get("custom_name"),
+                                  overrides=choice.get("overrides"))
 
     def select_environment(self, *, name: str | None = None, custom: dict | None = None,
-                           custom_name: str | None = None) -> None:
+                           custom_name: str | None = None,
+                           overrides: dict | None = None) -> None:
         """Record the run form's environment (a name, "Other" values, or None =
-        the default); raises ValueError (EnvironmentSelectionError) when unusable."""
+        the default); raises ValueError (EnvironmentSelectionError) when unusable.
+        2026-10-15: ``overrides`` = the profile's fields as edited on the form
+        (a named profile, or the default when ``name`` is None)."""
         with self._lock:
             if self.state == "running":
                 raise LiveRunInProgress(
                     "cannot change the environment while a live run is in progress")
         from codegen.environments import select_environment
 
+        edited = {k: str(v) for k, v in (overrides or {}).items() if str(v or "").strip()}
         if custom is not None:
             choice = {"custom": dict(custom), "custom_name": custom_name or "custom"}
+        elif name or edited:
+            choice = {"name": name, "overrides": edited or None}
         else:
-            choice = {"name": name} if name else None
+            choice = None
         if choice is not None:
             select_environment(self._store.config, name=choice.get("name"),
                                custom=choice.get("custom"),
-                               custom_name=choice.get("custom_name"))   # validates
+                               custom_name=choice.get("custom_name"),
+                               overrides=choice.get("overrides"))   # validates
         self.environment_choice = choice
 
     def environment_options(self) -> dict:
-        """The run form's selector: the overlay's environments (one default),
-        the choice in effect and its source, the "Other" box's field names."""
-        from codegen.environments import default_name, flat_values
+        """The run form's selector: the environment profiles (one default),
+        each with its values prefilled (its codegen-state profile file over its
+        overlay block), the required keys and which are missing; the choice in
+        effect, its source and origin (the banner); the "Other" box's fields."""
+        from codegen.environments import (
+            banner,
+            default_name,
+            expected_keys,
+            flat_values,
+            missing_required,
+            required_keys,
+            select_environment,
+        )
 
         config = self._store.config
         env = self.run_environment(config)
         default = default_name(config)
-        fields = list(flat_values(config.environments[default])) if default else []
+        fields = expected_keys(config) if default else []
+        profiles = []
+        for name, entry in config.environments.items():
+            resolved = select_environment(config, name=name, live=False)
+            profiles.append({"name": name, "default": entry.default,
+                             "description": entry.description,
+                             "values": flat_values(resolved.entry),
+                             "origin": resolved.origin,
+                             "missing_required": missing_required(config, resolved.entry)})
         return {
-            "options": [{"name": name, "default": entry.default,
-                         "description": entry.description, "values": flat_values(entry)}
-                        for name, entry in config.environments.items()],
+            "options": profiles,
+            "required": required_keys(config),
+            "missing_required": missing_required(config, env.entry) if env is not None else [],
+            "origin": env.origin if env is not None else None,
+            "banner": banner(config, env) if env is not None else None,
+            "edited": (self.environment_choice or {}).get("overrides") or None,
             "default": default,
             "selected": env.name if env is not None else None,
             "source": env.source if env is not None else None,
@@ -2113,8 +2142,16 @@ class DemoRunner:
         run-scoped owed cells (APPLICATION_NAME, EMAIL_TO)."""
         from codegen.owed_inputs import environment_inputs, run_owed_inputs
 
+        from codegen.environments import required_items
+
         parts = self.effective_output_parts()
-        return [item.as_dict() for item in (
+        tpl = config.metadata.templates.get(self.iig_template or config.metadata.template)
+        # 2026-10-15: a required environment value unset — blocking (exit 3 on the CLI)
+        required = ([{"key": key, "question": reason, "feed": "", "scope": "run",
+                      "required": True} for key, reason in required_items(config)]
+                    if "framework" in parts and tpl is not None and tpl.environment_cells
+                    else [])
+        return required + [item.as_dict() for item in (
             *environment_inputs(config, output_mode=parts, iig_template=self.iig_template),
             *run_owed_inputs(config, {}, output_mode=parts, iig_template=self.iig_template))]
 

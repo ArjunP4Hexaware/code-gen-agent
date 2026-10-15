@@ -262,6 +262,12 @@ class Round:
                       f"  first line: `{_first_line(done.stdout)}`"]
             lines += [f"  {label} `{key}`" for label, key in keys]
             if name == "generate":
+                # 2026-10-15: the run banner's environment line (name, completeness,
+                # where its values came from) — the report header's "Environment:"
+                banner = next((ln.split(" — ", 1)[1] for ln in done.stdout.splitlines()
+                               if ln.startswith(f"{'NOTE':<{LABEL_WIDTH}}run.environment — ")),
+                              "environment: none")
+                lines.append(f"  {banner[:1].upper()}{banner[1:]}")
                 verdicts: dict[str, int] = {}
                 for ln in done.stdout.splitlines():
                     word = ln.split(" ", 1)[0]

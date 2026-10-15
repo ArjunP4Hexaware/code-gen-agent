@@ -1,0 +1,30 @@
+# A SYNTHETIC environment profile (2026-10-15) — the shape of
+# codegen-state/environments/<name>.yaml, the per-workspace file that lives
+# OUTSIDE the tracked tree (gitignored; CODEGEN_ENVIRONMENTS_DIR moves it).
+#
+#   codegen generate ... --environment d1        # reads codegen-state/environments/d1.yaml
+#   codegen generate ... --environment-file config/environments/example.yaml
+#
+# A profile file is laid over the overlay's environments.<NAME> block (the
+# profile's per-field defaults); an --environment-file is taken alone (custom:
+# nothing inherited). Keys: environment_schema.fields in the ACFC overlay.
+# Required (never a default, never from the STTM): storage_account and the
+# containers — one left blank or as a <<ENV:...>> placeholder is a QUESTION
+# run.environment.<key> (exit 3, NEEDS_ANSWERS).
+# Every value below is synthetic (SYN-*); real values never enter git.
+name: SYN-EXAMPLE
+containers:
+  landing: syn-landing
+  stage: syn-stage-01
+  standard: syn-std-01
+storage_account: synexamplestorage01
+catalog_map:
+  PR_DLK: syn_dlk
+  PR_STD: syn_std
+default_catalog:
+  stage: syn_dlk
+  standard: syn_std
+connection_ids:
+  src_adls: "91"
+  metadata: "92"
+  target: "93"

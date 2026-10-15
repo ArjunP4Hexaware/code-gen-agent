@@ -239,15 +239,29 @@ def run_inputs_owed(flags: list[str]) -> list[str]:
     return list(dict.fromkeys(keys))
 
 
+def run_questions_owed(flags: list[str]) -> list[str]:
+    """The RUN-level QUESTION keys (2026-10-15): a required environment value
+    the run's environment leaves unset (``run.environment.<key>``; exit 3)."""
+    return list(dict.fromkeys(flag.split(":", 1)[1].split(" — ", 1)[0] for flag in flags
+                              if flag.startswith("environment_required:")))
+
+
 def run_block(flags: list[str]) -> list[str]:
     """The report's run-level block (top of every feed report of the run):
-    nothing when the run owes no run-level input."""
-    keys = run_inputs_owed(flags)
-    if not keys:
-        return []
-    return [f"**Run inputs needed: {len(keys)}** — once for the whole run, shared by every "
-            "feed (not blocking; answers file `inputs.run`):",
-            *(f"- `{key}`" for key in keys), ""]
+    the run's blocking questions, then its inputs needed; nothing when the run
+    owes neither."""
+    questions, keys = run_questions_owed(flags), run_inputs_owed(flags)
+    lines = []
+    if questions:
+        lines += [f"**Run questions: {len(questions)}** — required environment values, once "
+                  "for the whole run (BLOCKING: exit 3, NEEDS_ANSWERS; answers file "
+                  "`inputs.run`, or the environment profile):",
+                  *(f"- `{key}`" for key in questions), ""]
+    if keys:
+        lines += [f"**Run inputs needed: {len(keys)}** — once for the whole run, shared by every "
+                  "feed (not blocking; answers file `inputs.run`):",
+                  *(f"- `{key}`" for key in keys), ""]
+    return lines
 
 
 def owed_header(flags: list[str]) -> str:

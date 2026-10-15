@@ -332,8 +332,10 @@ def _generate(config, pair, **kw) -> int:
 
 
 # post47: run-level inputs (once per run, inputs.run) and feed-level (inputs.feeds.<feed>)
-# post47b: + D1's storage-account placeholder (provider=mock: an INPUT_NEEDED, not exempt)
-RUN_KEYS = ["run.environment", "run.environment.storage_account", "run.application_name",
+# post47b: + D1's storage-account placeholder — 2026-10-15: a REQUIRED value, a
+# QUESTION when unset; the suite's D1 profile (tests/environment_profiles/d1.yaml)
+# states it, so it is not owed here
+RUN_KEYS = ["run.environment", "run.application_name",
             "run.email_to", "run.email_statuses"]     # + the email status set (all four)
 # + framework owner's rule 1: PIPELINE_NAME, BSA-assigned, one per flow row
 FLOWS = ["grand_master", "master", "file_to_stg", "stg_to_std"]
@@ -355,7 +357,7 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     every = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED")]
     run = [ln[15:].split(" — ", 1)[0] for ln in every if ln[15:].startswith("run.")]
     assert run == RUN_KEYS
-    assert every[:5] == [ln for ln in every if ln[15:].startswith("run.")]   # the block first
+    assert every[:4] == [ln for ln in every if ln[15:].startswith("run.")]   # the block first
     lines = [ln for ln in every if ln.startswith(f"INPUT_NEEDED   feeds.{feed}.")]
     keys = [ln[15:].split(" — ", 1)[0] for ln in lines]
     assert [k[len(f"feeds.{feed}."):] for k in keys] == OWED_KEYS
@@ -365,14 +367,14 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     assert xlsx.is_file()
     assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")
-    assert "0 open question(s), 10 input(s) needed" in template
+    assert "0 open question(s), 9 input(s) needed" in template
     assert "gaps: {}" in template
     assert '\n  run:\n    "environment":' in template
     assert f'\n  feeds:\n    "{feed}":\n      "pipeline_name.grand_master":' in template
     assert '\n      "active_start_date":' in template
     # the report: the run-level block at the top, the feed's own counted apart
     report = (tmp_path / "reports" / f"{specs[0].feed_slug}.md").read_text(encoding="utf-8")
-    assert "**Run inputs needed: 5**" in report
+    assert "**Run inputs needed: 4**" in report
     assert "**Answers owed** — questions: 0, inputs needed: 5" in report
     answers = tmp_path / "answers.yaml"
     answers.write_text(
@@ -387,10 +389,9 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     code = _generate(config, pair, only_feed=feed, answers_path=answers)
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK and "QUESTION" not in out
-    # every input answered — but D1 (a NAMED environment) still owes its storage
-    # account: only the overlay sets it (inputs.run never patches a named one)
+    # every input answered (D1's storage account from the suite's profile file)
     assert [ln[15:].split(" — ")[0] for ln in out.splitlines()
-            if ln.startswith("INPUT_NEEDED")] == ["run.environment.storage_account"]
+            if ln.startswith("INPUT_NEEDED")] == []
     for row in _rows(xlsx, SCHED):
         assert row["ACTIVE_START_DATE"][:2] == ("2026-11-01 00:00:00", FAQ)
         assert row["APPLICATION_NAME"][:2] == ("v-application_name", FAQ)

@@ -33,10 +33,26 @@ from the chosen environment, each cell with an ``iig_env:`` NOTE naming it; a
 ``{storage_account}`` token in ``dq_split_location`` takes its storage account.
 A placeholder value (``<<QA:...>>``) leaves the cell open. The report header
 prints ``environment: D1 (default)`` / ``(selected)`` / ``(custom)``.
+
+2026-10-15 (D1 post50 item 2) — environment PROFILES. ``environment_schema``
+(overlay) names every key with a description and the REQUIRED ones (storage
+account, containers: the Oct 14 rule — never a silent default, never from the
+STTM). Resolution: ``--environment-file`` > ``--environment <name>`` (else the
+default name) resolving to ``codegen-state/environments/<name>.yaml`` (outside
+the tracked tree, gitignored; ``CODEGEN_ENVIRONMENTS_DIR`` moves it) laid over
+the overlay's ``environments.<NAME>`` block (the profile's per-field
+defaults) > INPUT_NEEDED. A required key still blank or a placeholder after
+that is a QUESTION ``run.environment.<key>`` (exit 3, NEEDS_ANSWERS; answer
+under ``inputs.run: environment.<key>``), its cells written open — never the
+placeholder text. The run banner and the report header read ``environment: D1
+(complete, from codegen-state/environments/d1.yaml; selected)``
+(:func:`banner`, ``RunEnvironment.origin``). A synthetic example profile:
+``config/environments/example.yaml``.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -53,8 +69,13 @@ INPUT_KEY = "run.environment"
 FLAG = "environment"
 ASSUMED_FLAG = "environment_assumed"
 UNSET_FLAG = "environment_unset"
+REQUIRED_FLAG = "environment_required"     # 2026-10-15: a QUESTION, exit 3
 # the flat-key prefixes of the nested blocks (containers.stage, catalog_map.PR_DLK ...)
 _BLOCKS = ("containers", "catalog_map", "default_catalog", "connection_ids", "values")
+# 2026-10-15: the per-workspace profile files (gitignored), one <name>.yaml each
+PROFILES_DIR_ENV = "CODEGEN_ENVIRONMENTS_DIR"
+_REPO = Path(__file__).resolve().parents[2]
+PROFILES_DIR = _REPO / "codegen-state" / "environments"
 
 
 class EnvironmentSelectionError(ValueError):
@@ -116,39 +137,125 @@ def load_environment_file(path: Path) -> tuple[str, EnvironmentConfig]:
     return str(raw.get("name") or "custom"), entry_from_values(raw)
 
 
+def profiles_dir() -> Path:
+    """Where the per-workspace profile files live: ``CODEGEN_ENVIRONMENTS_DIR``,
+    else ``<repo>/codegen-state/environments`` (gitignored)."""
+    return Path(os.environ.get(PROFILES_DIR_ENV) or PROFILES_DIR)
+
+
+def profile_file(name: str) -> Path | None:
+    """``<profiles dir>/<name>.yaml`` (any case of the name), when it exists."""
+    folder = profiles_dir()
+    if not folder.is_dir():
+        return None
+    wanted = name.strip().lower()
+    return next((p for p in sorted(folder.iterdir()) if p.is_file()
+                 and p.suffix.lower() in (".yaml", ".yml") and p.stem.lower() == wanted), None)
+
+
+def display_path(path: Path) -> str:
+    """A path as the banner prints it: repo-relative when inside the checkout."""
+    try:
+        return Path(path).resolve().relative_to(_REPO).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
+
+
+def overlay_values(base: EnvironmentConfig, values: dict) -> EnvironmentConfig:
+    """``base`` with the non-blank flat ``values`` laid over it (a profile file
+    over the overlay block, the App's edits, answers-file values)."""
+    flat = {k: v for k, v in flat_values(base).items() if str(v or "").strip()}
+    flat.update({k: v for k, v in flat_values(entry_from_values(values)).items()
+                 if str(v or "").strip()})
+    merged = entry_from_values(flat)
+    return merged.model_copy(update={"default": base.default, "description": base.description})
+
+
+def _named(config: Config, name: str, source: str) -> RunEnvironment:
+    """A named profile: ``codegen-state/environments/<name>.yaml`` over the
+    overlay's ``environments.<NAME>`` block (either may be absent, not both)."""
+    found = _lookup(config, name)
+    path = profile_file(found or name)
+    if found is None and path is None:
+        raise EnvironmentSelectionError(
+            f"unknown environment {name!r}; choices: "
+            f"{', '.join(config.environments) or 'none defined'} (or a profile file "
+            f"{display_path(profiles_dir())}/<name>.yaml, or --environment-file)")
+    base = config.environments.get(found) if found else None
+    if path is None:
+        return RunEnvironment(name=found, source=source, entry=base,
+                              origin=f"overlay environments.{found}")
+    _file_name, entry = load_environment_file(path)
+    if base is not None:
+        entry = overlay_values(base, flat_values(entry))
+    return RunEnvironment(name=found or name.strip().upper(), source=source, entry=entry,
+                          origin=display_path(path))
+
+
 def select_environment(config: Config, *, name: str | None = None,
                        file: Path | None = None, custom: dict | None = None,
-                       custom_name: str | None = None,
+                       custom_name: str | None = None, overrides: dict | None = None,
                        live: bool | None = None) -> RunEnvironment | None:
-    """The run's environment: a custom block (``file`` / ``custom``), a named
-    choice, else the default. None when the config defines no environments
-    and nothing custom is given."""
+    """The run's environment: ``--environment-file`` (``file``) or the App's
+    "Other" values (``custom``) — custom, nothing inherited; else a named
+    profile (``name``, else the default name) = its profile file over its
+    overlay block, the App's edited fields (``overrides``) on top. None when
+    no environment is defined and nothing custom is given."""
     if file is not None:
         file_name, entry = load_environment_file(file)
-        return RunEnvironment(name=custom_name or file_name, source="custom", entry=entry)
+        return RunEnvironment(name=custom_name or file_name, source="custom", entry=entry,
+                              origin=f"--environment-file {display_path(Path(file))}")
     if custom is not None:
         return RunEnvironment(name=custom_name or "custom", source="custom",
-                              entry=entry_from_values(custom))
+                              entry=entry_from_values(custom), origin="the App form (Other)")
     if name:
-        found = _lookup(config, name)
-        if found is None:
-            raise EnvironmentSelectionError(
-                f"unknown environment {name!r}; choices: "
-                f"{', '.join(config.environments) or 'none defined'} (or --environment-file)")
-        return _complete(config, RunEnvironment(name=found, source="selected",
-                                                entry=config.environments[found]), live)
-    default = default_name(config)
-    if default is None:
-        return None
-    return _complete(config, RunEnvironment(name=default, source="default",
-                                            entry=config.environments[default]), live)
+        env = _named(config, name, "selected")
+    else:
+        default = default_name(config)
+        if default is None:
+            return None
+        env = _named(config, default, "default")
+    if overrides:
+        env = env.model_copy(update={"entry": overlay_values(env.entry, overrides),
+                                     "origin": f"{env.origin} + the App form"})
+    return _complete(config, env, live)
+
+
+def required_keys(config: Config) -> list[str]:
+    """The profile schema's required keys (``environment_schema.required``)."""
+    return list(config.environment_schema.required)
+
+
+def missing_required(config: Config, entry: EnvironmentConfig) -> list[str]:
+    """The required keys ``entry`` leaves blank or as a placeholder."""
+    flat = flat_values(entry)
+    return [key for key in required_keys(config)
+            if not str(flat.get(key) or "").strip() or is_placeholder(flat.get(key))]
+
+
+def required_question(env: RunEnvironment, key: str) -> str:
+    value = flat_values(env.entry).get(key) or "blank"
+    return (f"environment {env.name} ({env.source}, from {env.origin or 'nowhere'}) states no "
+            f"{key} ({value}) — a required environment value (never a default, never from "
+            "the STTM): the cells that use it are written open; put it in "
+            f"{display_path(profiles_dir())}/{env.name.lower()}.yaml, the --environment-file "
+            f"or under inputs.run: environment.{key} and rerun")
+
+
+def required_items(config: Config) -> list[tuple[str, str]]:
+    """(QUESTION key, reason) per required key the run's environment leaves unset."""
+    env = run_environment(config)
+    if env is None:
+        return []
+    return [(f"{INPUT_KEY}.{key}", required_question(env, key))
+            for key in missing_required(config, env.entry)]
 
 
 def expected_keys(config: Config) -> list[str]:
-    """Every flat key an environment states: the union of the named
-    environments' keys, the default's first."""
+    """Every flat key an environment states: the schema's fields, then the
+    union of the named environments' keys, the default's first."""
     names = sorted(config.environments, key=lambda n: not config.environments[n].default)
-    keys: dict[str, None] = {}
+    keys: dict[str, None] = dict.fromkeys(config.environment_schema.fields)
     for name in names:
         keys.update(dict.fromkeys(flat_values(config.environments[name])))
     return list(keys)
@@ -170,7 +277,9 @@ def _complete(config: Config, env: RunEnvironment, live: bool | None) -> RunEnvi
         from codegen.reasoning.mode import provider_mode
 
         live = provider_mode(config).live
-    unset = unset_keys(config, env.entry)
+    # the required keys are QUESTIONs (exit 3) in every mode, never this FAIL
+    required = set(required_keys(config))
+    unset = [k for k in unset_keys(config, env.entry) if k not in required]
     if unset and live:
         raise EnvironmentSelectionError(
             f"environment {env.name} is not complete — {len(unset)} key(s) unset: "
@@ -304,12 +413,34 @@ def environment_flags(config: Config) -> list[str]:
     if env is None:
         return []
     unset = unset_keys(config, env.entry)
-    flags = [f"{FLAG}:{header_label(env, unset)} — the environment-scoped IIG cells "
+    flags = [f"{FLAG}:{banner(config, env)} — the environment-scoped IIG cells "
              "(containers, storage account, catalogs, connection ids) come from it"]
     if env.source == "default":
         flags.append(f"{ASSUMED_FLAG}:{INPUT_KEY} — {assumed_question(config, env)}")
-    flags += [f"{UNSET_FLAG}:{INPUT_KEY}.{key} — {unset_question(env, key)}" for key in unset]
+    required = set(required_keys(config))
+    flags += [f"{REQUIRED_FLAG}:{INPUT_KEY}.{key} — {required_question(env, key)}"
+              if key in required else f"{UNSET_FLAG}:{INPUT_KEY}.{key} — "
+              f"{unset_question(env, key)}" for key in unset]
     return flags
+
+
+def banner(config: Config, env: RunEnvironment | None = None) -> str:
+    """``D1 (complete, from codegen-state/environments/d1.yaml; selected)`` /
+    ``D1 (1 required missing: storage_account, from overlay environments.D1;
+    default)`` / ``SANDBOX (3 keys unset, from --environment-file env.yaml;
+    custom)`` — the run banner, the report header, run_round's RUN.md."""
+    env = env if env is not None else run_environment(config)
+    if env is None:
+        return "none (no environments defined)"
+    missing = missing_required(config, env.entry)
+    unset = unset_keys(config, env.entry)
+    if missing:
+        state = f"{len(missing)} required missing: {', '.join(missing)}"
+    elif unset:
+        state = f"{len(unset)} key{'s' if len(unset) != 1 else ''} unset"
+    else:
+        state = "complete"
+    return f"{env.name} ({state}, from {env.origin or 'the overlay'}; {env.source})"
 
 
 def header_label(env: RunEnvironment, unset: list[str]) -> str:
@@ -333,14 +464,16 @@ def unset_question(env: RunEnvironment, key: str) -> str:
 
 
 def unset_items(config: Config) -> list[tuple[str, str]]:
-    """(input key, question) per key the run environment leaves unset: a custom
-    one's missing keys; a named one's blanks / placeholders (provider=mock —
-    under live the selection already failed)."""
+    """(input key, question) per NON-required key the run environment leaves
+    unset: a custom one's missing keys; a named one's blanks / placeholders
+    (provider=mock — under live the selection already failed). The required
+    ones are QUESTIONs (:func:`required_items`)."""
     env = run_environment(config)
     if env is None:
         return []
+    required = set(required_keys(config))
     return [(f"{INPUT_KEY}.{key}", unset_question(env, key))
-            for key in unset_keys(config, env.entry)]
+            for key in unset_keys(config, env.entry) if key not in required]
 
 
 def assumed_question(config: Config, env: RunEnvironment) -> str:
@@ -368,10 +501,13 @@ def flat_values(entry: EnvironmentConfig) -> dict[str, str]:
     return out
 
 
-__all__ = ["ASSUMED_FLAG", "FLAG", "INPUT_KEY", "UNSET_FLAG", "EnvironmentSelectionError",
-           "apply_environment", "assumed_question", "catalog_map", "catalog_unset_reason",
-           "default_catalog", "default_catalog_unset", "default_name", "entry_from_values",
-           "env_note", "env_value",
+__all__ = ["ASSUMED_FLAG", "FLAG", "INPUT_KEY", "PROFILES_DIR_ENV", "REQUIRED_FLAG",
+           "UNSET_FLAG",
+           "EnvironmentSelectionError", "apply_environment", "assumed_question", "banner",
+           "catalog_map", "catalog_unset_reason", "default_catalog", "default_catalog_unset",
+           "default_name", "display_path", "entry_from_values", "env_note", "env_value",
            "environment_flags", "expected_keys", "flat_values", "header_label", "header_line",
-           "label", "load_environment_file", "run_environment", "select_environment",
-           "unset_items", "unset_keys", "unset_question", "with_environment"]
+           "label", "load_environment_file", "missing_required", "overlay_values",
+           "profile_file", "profiles_dir", "required_items", "required_keys",
+           "required_question", "run_environment", "select_environment", "unset_items",
+           "unset_keys", "unset_question", "with_environment"]

@@ -41,6 +41,11 @@ CUSTOM_UNSET = ["catalog_map.PR_DLK", "catalog_map.PR_STD", "default_catalog.sta
                 "connection_ids.metadata", "connection_ids.target"]
 
 
+@pytest.fixture(autouse=True)
+def _overlay_blocks_only(no_environment_profiles):
+    """These tests pin the overlay blocks alone (no profile file)."""
+
+
 def _generate(config, pair, feed, **kw) -> int:
     return cli._run_pairs([pair], config, dry_run=True, skip_tests=True,
                           output_mode=["framework"], conventions_profile="acfc_prx",
@@ -67,7 +72,10 @@ def _xlsx(tmp_path, spec) -> Path:
 def test_the_overlay_moves_the_containers_into_d1_the_default():
     config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY])
     assert [n for n, e in config.environments.items() if e.default] == ["D1"]
-    assert {"QA", "PROD"} <= set(config.environments)
+    assert {"A2", "PR"} <= set(config.environments)
+    # 2026-10-15: the profile schema — the Oct 14 rule's required keys
+    assert config.environment_schema.required == [
+        "storage_account", "containers.landing", "containers.stage", "containers.standard"]
     tpl = config.metadata.templates["iig_v2"]
     # no container is a silent constant any more: they are environment cells
     for tab in (ADLS, STG):
@@ -81,7 +89,16 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     config, spec, pair = _setup(tmp_path)
     code = _generate(config, pair, spec.feed_id)
     out = capsys.readouterr().out
-    assert code == cli.EXIT_OK
+    # 2026-10-15: D1's storage account is a placeholder — a REQUIRED value: one
+    # QUESTION, exit 3 (NEEDS_ANSWERS); the workbook is still written, the cells open
+    assert code == cli.EXIT_NEEDS_ANSWERS
+    banner = ("NOTE           run.environment — environment: D1 (1 required missing: "
+              "storage_account, from overlay environments.D1; default)")
+    assert banner in out.splitlines()
+    (question,) = [ln for ln in out.splitlines() if ln.startswith("QUESTION")]
+    assert question.startswith("QUESTION       run.environment.storage_account — environment "
+                               "D1 (default, from overlay environments.D1) states no "
+                               "storage_account (<<D1:STORAGE_ACCOUNT>>)")
     line = next(ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED   run.environment"))
     assert "assumed D1 (the default" in line
     d1 = config.environments["D1"]
@@ -96,16 +113,19 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
             adls["TGT_CONNECTION_ID"][0]) == ("7", "4", "2")
     assert (stg["SRC_CATALOG_NAME"][0], stg["TGT_CATALOG_NAME"][0]) == ("d1_dlk", "d1_std")
     report = _report(tmp_path, spec)
-    assert "environment: D1 (default)" in report
+    assert ("environment: D1 (1 required missing: storage_account, from overlay "
+            "environments.D1; default)") in report
     assert (f"iig_env:{ADLS}.SRC_ADLS_CONNECTION_ID — '7' from environment D1 (default): "
             "connection_ids.src_adls") in report
     assert (f"iig_env:{STG}.SRC_CATALOG_NAME — the catalog from environment D1 (default): "
             "catalog_map PR_DLK → d1_dlk, PR_STD → d1_std") in report
-    # post47: the run-level inputs in ONE block at the top; the feed's own below it
-    # (+ post47b: D1's own storage-account placeholder, provider=mock)
-    assert report.index("**Run inputs needed: 5**") < report.index("**Answers owed**")
-    for key in ("run.environment", "run.environment.storage_account", "run.email_statuses",
-                "run.application_name",
+    # post47: the run-level block at the top; the feed's own below it. 2026-10-15:
+    # the required storage account is a run QUESTION (blocking), not an input
+    assert (report.index("**Run questions: 1**") < report.index("**Run inputs needed: 4**")
+            < report.index("**Answers owed**"))
+    assert report.index("- `run.environment.storage_account`") < report.index(
+        "**Run inputs needed: 4**")
+    for key in ("run.environment", "run.email_statuses", "run.application_name",
                 "run.email_to"):
         assert f"- `{key}`" in report
     assert "**Answers owed** — questions: 0, inputs needed: 5" in report   # 4 pipeline names
@@ -118,14 +138,14 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
 
     path = tmp_path / "out" / "answers_template.yaml"
     inputs = yaml.safe_load(path.read_text(encoding="utf-8"))["inputs"]
-    assert list(inputs["run"]) == ["environment", "environment.storage_account",
+    assert list(inputs["run"]) == ["environment.storage_account", "environment",
                                    "application_name", "email_to", "email_statuses"]
     assert list(inputs["feeds"]) == [spec.feed_id]
     assert list(inputs["feeds"][spec.feed_id]) == [
         *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
                                                "stg_to_std")),
         "active_start_date"]
-    assert inputs["run"]["environment"]["candidates"] == ["D1", "QA", "PROD"]
+    assert inputs["run"]["environment"]["candidates"] == ["D1", "A2", "PR"]
     assert load_answers(path).inputs == {}            # every value empty: nothing answered
 
 
@@ -148,7 +168,7 @@ def test_environment_qa_takes_the_qa_values(tmp_path, capsys):
                   for p in (tmp_path / "out" / spec.feed_slug).rglob("*DDL*.txt"))
     assert "syn_qa_dlk." in ddl and "d1_dlk" not in ddl
     report = _report(tmp_path, spec)
-    assert "environment: QA (selected)" in report
+    assert "environment: QA (complete, from overlay environments.QA; selected)" in report
     assert "'syn-qa-stage' from environment QA (selected): containers.stage" in report
 
 
@@ -161,7 +181,8 @@ def test_the_cli_flags_select_and_load_a_custom_file(tmp_path):
     env = select_environment(config, file=env_file)
     assert (env.name, env.source, env.entry.containers["stage"]) == ("SANDBOX", "custom",
                                                                       "syn-sb-stage")
-    with pytest.raises(EnvironmentSelectionError, match="choices: D1, QA, PROD"):
+    assert env.origin == f"--environment-file {env_file.as_posix()}"
+    with pytest.raises(EnvironmentSelectionError, match="choices: D1, A2, PR"):
         select_environment(config, name="nowhere")
     parsed = cli._parser().parse_args(["generate", "--frd", "a", "--sttm", "b",
                                        "--environment", "QA"])
@@ -195,7 +216,8 @@ def test_a_custom_environment_file_fills_the_custom_values(tmp_path, capsys):
         if row["RULE_CLASS"][0] in ("NullCheckRule", "DeDuplicationRule"):
             assert row["INPUT_PARAM"][0] in (None, "")
     report = _report(tmp_path, spec)
-    assert "environment: SANDBOX (custom, 7 keys unset)" in report
+    assert (f"environment: SANDBOX (7 keys unset, from --environment-file "
+            f"{(tmp_path / 'env.yaml').as_posix()}; custom)") in report
     out = capsys.readouterr().out
     assert "INPUT_NEEDED   run.environment — " not in out           # nothing assumed
     lines = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED   run.environment.")]
@@ -213,53 +235,59 @@ def test_an_answers_file_input_selects_the_environment(tmp_path, capsys):
     answers.write_text('inputs:\n  "run.environment": {value: QA}\n', encoding="utf-8")
     assert _generate(config, pair, spec.feed_id, answers_path=answers) == cli.EXIT_OK
     assert "INPUT_NEEDED   run.environment" not in capsys.readouterr().out
-    assert "environment: QA (selected)" in _report(tmp_path, spec)
+    assert "environment: QA (complete, from overlay environments.QA; selected)" in _report(
+        tmp_path, spec)
 
 
-QA_UNSET = ["containers.landing", "containers.stage", "containers.standard", "storage_account",
-            "catalog_map.PR_DLK", "catalog_map.PR_STD", "default_catalog.stage",
+A2_REQUIRED = ["storage_account", "containers.landing", "containers.stage",
+               "containers.standard"]
+A2_UNSET = ["catalog_map.PR_DLK", "catalog_map.PR_STD", "default_catalog.stage",
             "default_catalog.standard", "connection_ids.src_adls", "connection_ids.metadata",
             "connection_ids.target"]
 
 
 def test_a_named_environment_with_placeholders_is_fatal_under_live(tmp_path, capsys,
                                                                     monkeypatch):
-    """post47b: under provider=live the shipped QA (placeholders) fails, naming
-    every unset key; nothing is written. (--dry-run asks for the mock: not live.)"""
+    """post47b: under provider=live the shipped A2 (placeholders) fails, naming
+    every NON-required unset key (2026-10-15: the required ones are QUESTIONs in
+    every mode); nothing is written. (--dry-run asks for the mock: not live.)"""
     config, spec, pair = _setup(tmp_path)
     with pytest.raises(EnvironmentSelectionError) as caught:
-        select_environment(config, name="QA", live=True)
+        select_environment(config, name="A2", live=True)
     message = str(caught.value)
-    assert message.startswith("environment QA is not complete — 11 key(s) unset: "
-                              + ", ".join(QA_UNSET))
+    assert message.startswith("environment A2 is not complete — 7 key(s) unset: "
+                              + ", ".join(A2_UNSET))
     assert "provider=live needs every key" in message
     # the run: provider=live, no --dry-run — FAIL before anything is resolved or
     # written (the environment is chosen first; no model is reached)
     monkeypatch.setenv("CODEGEN_PROVIDER", "live")
     answers = tmp_path / "answers.yaml"
-    answers.write_text("inputs:\n  run:\n    environment: {value: QA}\n", encoding="utf-8")
+    answers.write_text("inputs:\n  run:\n    environment: {value: A2}\n", encoding="utf-8")
     code = cli._run_pairs([pair], config, dry_run=False, skip_tests=True,
                           output_mode=["framework"], conventions_profile="acfc_prx",
                           iig_template="iig_v2", only_feed=spec.feed_id, answers_path=answers)
     out = capsys.readouterr().out
     assert code == 1
-    assert "FAIL            environment — environment QA is not complete" in out
+    assert "FAIL            environment — environment A2 is not complete" in out
     assert not (tmp_path / "out").exists() or not any((tmp_path / "out").rglob("*.xlsx"))
 
 
 def test_a_named_environment_with_placeholders_is_input_needed_under_mock(tmp_path, capsys):
-    """post47b: under provider=mock the same QA runs: one INPUT_NEEDED
+    """post47b: under provider=mock the same A2 runs: one INPUT_NEEDED
     run.environment.<key> per unset key, the cells that use them empty — never
-    a placeholder, never D1's value; the workbook is written."""
+    a placeholder, never D1's value; the workbook is written. 2026-10-15: its
+    required keys are QUESTIONs (exit 3)."""
     config, spec, pair = _setup(tmp_path)
-    env = select_environment(config, name="QA")                  # mock: no failure
-    assert env.name == "QA" and env.source == "selected"
+    env = select_environment(config, name="A2")                  # mock: no failure
+    assert env.name == "A2" and env.source == "selected"
     config = with_environment(config, env)
-    assert _generate(config, pair, spec.feed_id) == cli.EXIT_OK
+    assert _generate(config, pair, spec.feed_id) == cli.EXIT_NEEDS_ANSWERS
     out = capsys.readouterr().out
+    questions = [ln.split()[1] for ln in out.splitlines() if ln.startswith("QUESTION")]
+    assert questions == [f"run.environment.{k}" for k in A2_REQUIRED]
     lines = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED   run.environment.")]
-    assert [ln.split()[1] for ln in lines] == [f"run.environment.{k}" for k in QA_UNSET]
-    assert all("environment QA (selected) leaves" in ln and "provider=live fails on it" in ln
+    assert [ln.split()[1] for ln in lines] == [f"run.environment.{k}" for k in A2_UNSET]
+    assert all("environment A2 (selected) leaves" in ln and "provider=live fails on it" in ln
                for ln in lines)
     (adls,) = _rows(_xlsx(tmp_path, spec), ADLS)
     (stg,) = _rows(_xlsx(tmp_path, spec), STG)
@@ -269,12 +297,12 @@ def test_a_named_environment_with_placeholders_is_input_needed_under_mock(tmp_pa
         for header in headers:
             assert row[header][0] in (None, ""), header
     values = [cell[0] for row in (adls, stg) for cell in row.values()]
-    assert not any("<<QA:" in str(v) or "d1_" in str(v) for v in values)   # tooltips name it
+    assert not any("<<A2:" in str(v) or "d1_" in str(v) for v in values)   # tooltips name it
     ddl = "".join(p.read_text(encoding="utf-8")
                   for p in (tmp_path / "out" / spec.feed_slug).rglob("*DDL*.txt"))
-    assert "<<QA:" not in ddl and "d1_dlk" not in ddl
+    assert "<<A2:" not in ddl and "d1_dlk" not in ddl
     report = _report(tmp_path, spec)
-    assert "environment: QA (selected)" in report
+    assert "environment: A2 (4 required missing: " in report
     assert "catalog_env_unset:stage" in report and "FAIL" not in report.split("\n", 3)[2]
 
 
@@ -294,7 +322,8 @@ def test_a_custom_unset_key_given_under_inputs_run_fills_its_cells(tmp_path, cap
     out = capsys.readouterr().out
     assert "run.environment.connection_ids.target" not in out
     assert "INPUT_NEEDED   run.environment.connection_ids.src_adls" in out
-    assert "environment: SANDBOX (custom, 6 keys unset)" in _report(tmp_path, spec)
+    assert (f"environment: SANDBOX (6 keys unset, from --environment-file "
+            f"{env_file.as_posix()} + the answers file; custom)") in _report(tmp_path, spec)
 
 
 def test_no_default_marked_fails_with_a_clear_message(tmp_path):
@@ -322,9 +351,16 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monk
                  "_run_level_inputs"):
         setattr(runner, name, MethodType(getattr(DemoRunner, name), runner))
     options = runner.environment_options()
-    assert [o["name"] for o in options["options"]] == ["D1", "QA", "PROD"]
+    assert [o["name"] for o in options["options"]] == ["D1", "A2", "PR"]
     assert (options["default"], options["selected"], options["source"]) == ("D1", "D1",
                                                                           "default")
+    # 2026-10-15: profiles — values prefilled with their origin, required keys
+    assert options["required"] == ["storage_account", "containers.landing",
+                                   "containers.stage", "containers.standard"]
+    assert options["options"][0]["origin"] == "overlay environments.D1"
+    assert options["options"][0]["missing_required"] == ["storage_account"]
+    assert options["banner"] == ("D1 (1 required missing: storage_account, from overlay "
+                                 "environments.D1; default)")
     assert options["fields"] == ["containers.landing", "containers.stage",
                                  "containers.standard", "storage_account",
                                  "catalog_map.PR_DLK", "catalog_map.PR_STD",
@@ -333,20 +369,30 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monk
                                  "connection_ids.target"]
     # post47: the run-level items, scope "run", once (environment + the run-scoped cells)
     items = runner._run_level_inputs(with_environment(config, runner.run_environment()))
-    assert [i["key"] for i in items] == ["run.environment", "run.environment.storage_account",
+    assert [i["key"] for i in items] == ["run.environment.storage_account", "run.environment",
                                          "run.application_name", "run.email_to",
                                          "run.email_statuses"]
-    assert {i["scope"] for i in items} == {"run"} and "assumed D1" in items[0]["question"]
-    # post47b: the shipped QA is placeholders — accepted under provider=mock (its
+    assert items[0]["required"] is True and "required" not in items[1]
+    assert {i["scope"] for i in items} == {"run"} and "assumed D1" in items[1]["question"]
+    # 2026-10-15: the form's edits of the default profile fill the required key
+    runner.select_environment(overrides={"storage_account": "synacct01"})
+    options = runner.environment_options()
+    assert options["banner"] == ("D1 (complete, from overlay environments.D1 + the App form; "
+                                 "default)")
+    assert options["edited"] == {"storage_account": "synacct01"}
+    assert not [i for i in runner._run_level_inputs(
+        with_environment(config, runner.run_environment())) if i.get("required")]
+    runner.select_environment()
+    # post47b: the shipped A2 is placeholders — accepted under provider=mock (its
     # keys are banner items), refused under provider=live naming the unset keys
-    runner.select_environment(name="QA")
+    runner.select_environment(name="A2")
     keys = [i["key"] for i in runner._run_level_inputs(
         with_environment(config, runner.run_environment()))]
     assert "run.environment.catalog_map.PR_DLK" in keys and "run.environment" not in keys
     runner.select_environment()
     monkeypatch.setenv("CODEGEN_PROVIDER", "live")
-    with pytest.raises(EnvironmentSelectionError, match="QA is not complete"):
-        runner.select_environment(name="QA")
+    with pytest.raises(EnvironmentSelectionError, match="A2 is not complete"):
+        runner.select_environment(name="A2")
     monkeypatch.delenv("CODEGEN_PROVIDER")
     runner.select_environment(custom={"containers.stage": "syn-other-stage"},
                               custom_name="SANDBOX")

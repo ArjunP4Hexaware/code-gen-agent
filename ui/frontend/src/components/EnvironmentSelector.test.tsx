@@ -52,7 +52,49 @@ describe("EnvironmentSelector", () => {
     expect(select.textContent).toContain("D1 (default)");
     expect(host.textContent).toContain("this run: D1 (default)");
     act(() => change(select, "QA"));
-    expect(chosen).toEqual([{ name: "QA", custom: null, custom_name: null }]);
+    expect(chosen).toEqual([{ name: "QA", custom: null, custom_name: null, overrides: null }]);
+  });
+
+  it("prefills the profile's fields, marks a missing required one and posts edits", () => {
+    const chosen: EnvironmentChoice[] = [];
+    const profiles: EnvironmentOptions = {
+      ...OPTIONS,
+      options: [
+        {
+          name: "D1",
+          default: true,
+          description: "",
+          values: { "containers.stage": "syn-stage", storage_account: "<<D1:STORAGE_ACCOUNT>>" },
+          origin: "overlay environments.D1",
+          missing_required: ["storage_account"],
+        },
+      ],
+      required: ["containers.stage", "storage_account"],
+      banner: "D1 (1 required missing: storage_account, from overlay environments.D1; default)",
+    };
+    act(() => root.render(<EnvironmentSelector options={profiles} onChoose={(c) => chosen.push(c)} />));
+    expect(host.textContent).toContain(
+      "this run: D1 (1 required missing: storage_account, from overlay environments.D1; default)",
+    );
+    const stage = host.querySelector<HTMLInputElement>('input[aria-label="environment containers.stage"]')!;
+    const account = host.querySelector<HTMLInputElement>('input[aria-label="environment storage_account"]')!;
+    expect(stage.value).toBe("syn-stage");
+    expect(account.value).toBe("");                     // a placeholder is not a value
+    expect(host.textContent).toContain("required — missing");
+    const apply = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "Use edited values",
+    )!;
+    expect(apply.disabled).toBe(true);                  // nothing edited yet
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(account, "synacct01");
+      account.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.textContent).not.toContain("required — missing");
+    act(() => apply.click());
+    expect(chosen).toEqual([
+      { name: "D1", custom: null, custom_name: null, overrides: { storage_account: "synacct01" } },
+    ]);
   });
 
   it("Other opens a free-text box whose values become the run's environment", () => {

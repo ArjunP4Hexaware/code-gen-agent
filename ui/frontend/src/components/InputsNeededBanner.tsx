@@ -12,6 +12,7 @@ import type { InputNeededItem } from "../api";
 function Item({ item }: { item: InputNeededItem }) {
   return (
     <li>
+      {item.required ? <strong>required (blocking) </strong> : null}
       <code>{item.key}</code>: {item.question}
     </li>
   );

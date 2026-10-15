@@ -953,6 +953,8 @@ class EnvironmentRequest(BaseModel):
     name: str | None = None
     custom: dict[str, str] | None = None
     custom_name: str | None = None
+    # 2026-10-15: the named profile's fields as edited on the form
+    overrides: dict[str, str] | None = None
 
 
 @app.get("/api/demo/environment")
@@ -966,7 +968,8 @@ def environment_options() -> dict:
 def select_environment(req: EnvironmentRequest) -> dict:
     try:
         _require_runner().select_environment(name=req.name, custom=req.custom,
-                                             custom_name=req.custom_name)
+                                             custom_name=req.custom_name,
+                                             overrides=req.overrides)
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:

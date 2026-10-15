@@ -1835,6 +1835,8 @@ def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_Table
             location = None
             account = (tpl.environment.entry.storage_account
                        if tpl.environment is not None else "")
+            if is_placeholder(account):
+                account = ""        # 2026-10-15: never formatted into a location
             if tpl.dq_split_location and landing is not None and container and (
                     account or "{storage_account}" not in tpl.dq_split_location):
                 rel = _landing_rel(tpl, "ADLS_DELTA_INGESTION_DETAILS", landing)
@@ -1858,7 +1860,8 @@ def _split_rule(tpl: MetadataTemplateConfig, config: Config, groups: list[_Table
             needs_account = "{storage_account}" in (tpl.dq_split_location or "")
             if needs_account and not account:
                 where = (f"environment {tpl.environment.name} ({tpl.environment.source}) states "
-                         "no storage_account" if tpl.environment is not None else
+                         "no storage_account (a required environment value: QUESTION "
+                         "run.environment.storage_account)" if tpl.environment is not None else
                          "no environment is defined (environments:)")
                 target["badge_entry"]["note"] = (
                     f"iig_env:DATA_QUALITY_RULES.TARGET_COLUMN — the tables' locations need the "

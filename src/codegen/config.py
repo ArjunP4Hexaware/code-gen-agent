@@ -1362,16 +1362,44 @@ class EnvironmentConfig(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
 
+class EnvironmentSchemaConfig(BaseModel):
+    """The environment profile's schema (2026-10-15, D1 post50 item 2): the
+    flat keys an environment states (``containers.<layer>``, ``storage_account``,
+    ``catalog_map.<logical>`` ...) with a description each, and the REQUIRED
+    ones — storage account, containers, workspace-specific paths (the Oct 14
+    rule): never a silent default, never from the STTM. A required key a run's
+    environment leaves blank or as a ``<<ENV:...>>`` placeholder is a QUESTION
+    (exit 3, NEEDS_ANSWERS), its cells written open. The per-field defaults of
+    a profile are its ``environments.<NAME>`` block; a required key takes none
+    from there that is a placeholder."""
+
+    model_config = _MODEL_CONFIG
+
+    required: list[str] = Field(default_factory=list)
+    fields: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _required_are_fields(self) -> EnvironmentSchemaConfig:
+        unknown = [k for k in self.required if self.fields and k not in self.fields]
+        if unknown:
+            raise ValueError(f"environment_schema.required names keys absent from "
+                             f"environment_schema.fields: {', '.join(unknown)}")
+        return self
+
+
 class RunEnvironment(BaseModel):
     """The environment one run uses (set at run time, never in YAML):
     ``source`` default (nothing chosen), selected (a named choice) or custom
-    (values given for the run)."""
+    (values given for the run); ``origin`` where its values came from (the
+    overlay block, ``codegen-state/environments/<name>.yaml``, the
+    ``--environment-file``, the App form, the answers file)."""
 
     model_config = _MODEL_CONFIG
 
     name: str
     source: Literal["default", "selected", "custom"]
     entry: EnvironmentConfig
+    origin: str = ""
 
 
 class MetadataTemplateConfig(BaseModel):
@@ -1887,6 +1915,8 @@ class Config(BaseModel):
     # block; exactly one marked default) and the one THIS run uses (set at run
     # time by codegen.environments.with_environment, never in YAML).
     environments: dict[str, EnvironmentConfig] = Field(default_factory=dict)
+    # 2026-10-15: the profile schema (required keys + field descriptions)
+    environment_schema: EnvironmentSchemaConfig = EnvironmentSchemaConfig()
     run_environment: RunEnvironment | None = None
 
     @model_validator(mode="after")

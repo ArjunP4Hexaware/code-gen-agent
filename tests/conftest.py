@@ -30,6 +30,13 @@ REPO = Path(__file__).resolve().parents[1]
 # pass overlays= or monkeypatch the env.
 os.environ["CODEGEN_SKIP_ENV_OVERLAY"] = "1"
 os.environ.pop("CODEGEN_CONFIG_OVERLAYS", None)
+# 2026-10-15: the out-of-tree, per-workspace files (codegen-state/environments/
+# <name>.yaml, codegen-state/overlays/<profile>.yaml) never reach the suite.
+# The environment profiles are the suite's own synthetic ones (a complete D1:
+# tests/environment_profiles/d1.yaml); a test of the missing-value QUESTION
+# points CODEGEN_ENVIRONMENTS_DIR at an empty folder (no_environment_profiles).
+os.environ["CODEGEN_ENVIRONMENTS_DIR"] = str(REPO / "tests" / "environment_profiles")
+os.environ["CODEGEN_STATE_OVERLAYS_DIR"] = str(REPO / "tests" / "_no_state_overlays")
 
 # 2026-10-13: the suite NEVER opens a live model connection. Every live call
 # site (codegen.reasoning.mode.guard_live_call) raises LiveModelBlocked while
@@ -38,6 +45,15 @@ os.environ.pop("CODEGEN_CONFIG_OVERLAYS", None)
 # provider switch starts at its default (mock) whatever the operator's shell
 # says: fixtures and the real SD documents at home stay mock-only.
 os.environ["CODEGEN_BLOCK_LIVE_MODEL"] = "1"
+
+
+@pytest.fixture
+def no_environment_profiles(tmp_path, monkeypatch):
+    """No profile file: the overlay blocks alone (D1's storage account a placeholder)."""
+    folder = tmp_path / "no_environment_profiles"
+    folder.mkdir()
+    monkeypatch.setenv("CODEGEN_ENVIRONMENTS_DIR", str(folder))
+    return folder
 # post47b: what the operator asked for is remembered (never acted on) — the
 # live-only D1 placeholder check (tests/test_d1_placeholders.py) reads it.
 os.environ["CODEGEN_PROVIDER_REQUESTED"] = os.environ.pop("CODEGEN_PROVIDER", "") or ""

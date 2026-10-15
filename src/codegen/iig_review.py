@@ -258,9 +258,13 @@ def used_range_blanks(path: Path) -> dict[str, int]:
     """Per sheet: the empty cells of the sheet's used range (rows 1..max_row x
     columns 1..max_column) — the harness's pre-post56 "unpopulated" number,
     kept as ``template_blanks`` for one release."""
+    from io import BytesIO
+
     from openpyxl import load_workbook
 
-    workbook = load_workbook(path)
+    # read from memory: openpyxl 3.1.2 (the D1 pin) keeps the file open
+    # otherwise, and the GATE_FAIL quarantine move then fails on Windows
+    workbook = load_workbook(BytesIO(Path(path).read_bytes()))
     try:
         return {ws.title: sum(1 for row in ws.iter_rows(min_row=1, max_row=ws.max_row,
                                                            max_col=ws.max_column)

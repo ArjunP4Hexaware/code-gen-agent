@@ -1,0 +1,32 @@
+{
+  "run_id": "run_20261015T193331Z_3e09149",
+  "timestamp": "20261015T193331Z",
+  "branch": "feature/multi-table",
+  "sha": "3e09149",
+  "version": "0.5.8.post55",
+  "environment": "d1",
+  "provider": "live (databricks_fmapi, databricks-claude-opus-5-5)",
+  "pairs": 12,
+  "outcomes": {
+    "PASS": [
+      "pair_11"
+    ],
+    "GATE_FAIL": [
+      "pair_01"
+    ],
+    "NEEDS_ANSWERS": [
+      "pair_02",
+      "pair_04",
+      "pair_05",
+      "pair_07",
+      "pair_08",
+      "pair_09",
+      "pair_10",
+      "pair_12"
+    ],
+    "FAIL": [
+      "pair_03",
+      "pair_06"
+    ]
+  }
+}

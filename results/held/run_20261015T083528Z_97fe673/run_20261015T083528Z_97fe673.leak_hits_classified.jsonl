@@ -1,0 +1,6 @@
+{"term_sha256": "292b85bb2c10896baed3d18a914225290a2a401aa018045197c7db2926939f0f", "pattern_class": "file_name", "category": "document_identifier", "pair": "pair_11", "report_field": "pairs[10]"}
+{"term_sha256": "77731bee4dd28d35d99d717b7b8bd0ed6de383d9149af334fefee4a21efbaaa4", "pattern_class": "local_denylist", "category": "document_identifier", "pair": "pair_11", "report_field": "pairs[10]"}
+{"term_sha256": "6287b5cda70f054240a2fa99d82bfeb7ed861767c6bc40dd0b5f4ed2fe0eac81", "pattern_class": "local_denylist", "category": "document_identifier", "pair": "pair_11", "report_field": "pairs[10]"}
+{"term_sha256": "8d46dfcacab26a5bc0a9a2e932677cd4b835c2278c5ad938e9e7e03c1dce3480", "pattern_class": "local_denylist", "category": "document_identifier", "pair": "pair_11", "report_field": "pairs[10]"}
+{"term_sha256": "d905b1f088fc5b692fbb2131856f7a2528f7e1f1ec42f53874d2feec2604ca49", "pattern_class": "local_denylist", "category": "document_identifier", "pair": "pair_11", "report_field": "pairs[10]"}
+{"term_sha256": "77dae9d1c2d4d31f6b8c274b86f7a03ca57b0b59985313d7710ed431ff1f4665", "pattern_class": "local_denylist", "category": "document_identifier", "pair": "pair_11", "report_field": "pairs[10]"}

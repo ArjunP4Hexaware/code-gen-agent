@@ -1,0 +1,716 @@
+{
+  "status": "FAILED",
+  "branch": "feature/multi-table",
+  "sha": "95c0be6abf54f77b020a8546753cd0f20f600782",
+  "timestamp": "20261015T182056Z",
+  "environment": {
+    "python_version": "3.12.3",
+    "packages": {
+      "codegen-data-engineer-agent": "0.5.8.post56",
+      "openpyxl": "3.1.5",
+      "pydantic": "2.13.3",
+      "jinja2": "3.1.6",
+      "pyyaml": "6.0.3",
+      "ruff": "0.17.1",
+      "databricks-sdk": "0.122.0"
+    },
+    "endpoint": "databricks-claude-opus-5 (EndpointStateReady.READY)"
+  },
+  "pairs": [
+    {
+      "pair": "pair_01",
+      "status": "FAILED",
+      "runtime_sec": 13.8,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 gate verdict FAIL (complete, review only: quarantined) at feed 1 of 1 (failed checks: derivations [path_whitespace 19]; flags by type: iig_corpus 25, iig_env 11, iig_blank 7, iig_owed 7, other 7, faq_unanswered 6, field_unmapped 6, frd_unstated 6, length_is_precision 6, sibling_type_mismatch 6, vdd_missing_in_sttm 6, width_from_sttm_span 6)"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "user",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 70,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_2": 45,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_5": 26,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_1": 39,
+          "sheet_8": 151
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_2": 45,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_5": 26,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_1": 39,
+        "sheet_8": 151
+      }
+    },
+    {
+      "pair": "pair_02",
+      "status": "OK",
+      "runtime_sec": 14.3,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 86,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      }
+    },
+    {
+      "pair": "pair_03",
+      "status": "FAILED",
+      "runtime_sec": 209.8,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 contract mismatch, feed 1 of 1: 1 value stated in no document [ContractMismatchError]"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 331,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      }
+    },
+    {
+      "pair": "pair_04",
+      "status": "FAILED",
+      "runtime_sec": 11.1,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 contract mismatch, feed 1 of 1: 1 value stated in no document [ContractMismatchError]"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 135,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      }
+    },
+    {
+      "pair": "pair_05",
+      "status": "FAILED",
+      "runtime_sec": 5.2,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            extract-sttm \u2014 STTM required element missing at STTM sheet 4 row 59 col 15 [ExtractionError]"
+        }
+      },
+      "layout_family": null,
+      "frd_type": null,
+      "counts": {},
+      "error": null
+    },
+    {
+      "pair": "pair_06",
+      "status": "FAILED",
+      "runtime_sec": 4.9,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            extract-sttm \u2014 STTM audit column invalid at STTM sheet 3 row 30 [ExtractionError]"
+        }
+      },
+      "layout_family": null,
+      "frd_type": null,
+      "counts": {},
+      "error": null
+    },
+    {
+      "pair": "pair_07",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 11.8,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 contract not found: STTM <workdir>/pair_07/\u2026 [FileNotFoundError]"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 459,
+        "unresolved_roles": 2,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      },
+      "needed_answer_keys": [
+        "[H:5148b8e511]/band[1]/layer",
+        "[H:5148b8e511]/band[1]/layer"
+      ]
+    },
+    {
+      "pair": "pair_08",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 11.7,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 contract not found: STTM <workdir>/pair_08/\u2026 [FileNotFoundError]"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 386,
+        "unresolved_roles": 2,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      },
+      "needed_answer_keys": [
+        "Unified Layout/source/field_name",
+        "feeds[0].stage_target.load_strategy",
+        "Unified Layout/source/field_name"
+      ]
+    },
+    {
+      "pair": "pair_09",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 13.8,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 contract not found: STTM <workdir>/pair_09/\u2026 [FileNotFoundError]"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 1398,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      },
+      "needed_answer_keys": [
+        "feeds[0].lobs",
+        "feeds[0].stage_target.load_strategy",
+        "feeds[0].audit_columns"
+      ]
+    },
+    {
+      "pair": "pair_10",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 12.1,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 contract not found: STTM <workdir>/pair_10/\u2026 [FileNotFoundError]"
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 501,
+        "unresolved_roles": 8,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_1": 39,
+          "sheet_3": 11,
+          "sheet_4": 39,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151,
+          "sheet_2": 45,
+          "sheet_5": 26
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_1": 39,
+        "sheet_3": 11,
+        "sheet_4": 39,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151,
+        "sheet_2": 45,
+        "sheet_5": 26
+      },
+      "needed_answer_keys": [
+        "[H:2b126e471a]/source/field_name",
+        "[H:a887301b74]/source/field_name",
+        "[H:d979805040]/source/field_name",
+        "[H:75379980a8]/source/field_name",
+        "feeds[0].file_format",
+        "feeds[0].lobs",
+        "feeds[0].stage_target.load_strategy",
+        "[H:2b126e471a]/source/field_name",
+        "[H:a887301b74]/source/field_name",
+        "[H:d979805040]/source/field_name",
+        "[H:75379980a8]/source/field_name"
+      ]
+    },
+    {
+      "pair": "pair_11",
+      "status": "OK",
+      "runtime_sec": 13.1,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 11,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_2": 45,
+          "sheet_3": 11,
+          "sheet_5": 26,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_1": 39,
+          "sheet_4": 39,
+          "sheet_8": 151
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_2": 45,
+        "sheet_3": 11,
+        "sheet_5": 26,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_1": 39,
+        "sheet_4": 39,
+        "sheet_8": 151
+      }
+    },
+    {
+      "pair": "pair_12",
+      "status": "OK",
+      "runtime_sec": 11.8,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 115,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 85,
+          "sheet_2": 45,
+          "sheet_3": 11,
+          "sheet_5": 26,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_1": 39,
+          "sheet_4": 39,
+          "sheet_8": 151
+        }
+      },
+      "error": null,
+      "iig_unpopulated": {
+        "sheet_0": 85,
+        "sheet_2": 45,
+        "sheet_3": 11,
+        "sheet_5": 26,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_1": 39,
+        "sheet_4": 39,
+        "sheet_8": 151
+      }
+    }
+  ],
+  "leak_gate": {
+    "terms_checked": 3044,
+    "real_hits": 10,
+    "self_match_hits": 0,
+    "static_denylist_sha256": "f287e089e6c3bd7c6a31b2257269713d6c9ba358d1f4a3e884a8b206b5c0b517",
+    "harvested_terms_sha256": "0cfaf7ba1359acc733d27e74a7f6caeadad597e64e3d9aed1b848b25963af34c",
+    "verdict": "BLOCKED"
+  }
+}

@@ -5,7 +5,18 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-15, after post58).** post58 = one item: generate outcome
+**RESTART HERE (2026-10-16, after post59).** post59 = PIPELINE_NAME (+ APPLICATION_NAME,
+EMAIL_TO, email statuses where a default exists) as a three-way choice (`codegen.input_choices`):
+use_default / naming_standard / leave_blank. PROPOSED IS NOT APPLIED — unanswered = blank cell
++ INPUT_NEEDED with the proposal and its template; only an explicit choice (answers file
+`choice:` / `standard:`, App Confirm `POST /api/demo/input-choices`) fills a cell, with an
+`frd_unstated:` flag; manifest `feeds[].inputs.<key>.source`. Shipped templates are
+`SYN_PL_…` placeholders; real ones in `codegen-state/overlays/acfc_prx.yaml`. Collision
+check: `pipeline_name_corpus`. File tie-break: `file_tie_source_priority` / `file_tie_shape`,
+the BSA's answer cached as `LayoutProfile.file_choices`. Tests: `test_pipeline_name_choice.py`,
+`test_file_tie_break.py`.
+
+**After post58 (kept for reference).** post58 = one item: generate outcome
 `PASS_WITH_OPEN_INPUTS` (exit 0) = workbook written, every open line non-blocking.
 `CODEGEN_STAGES.json` `questions: [{line, key, scope, blocking}]`: QUESTION / UNRESOLVED
 are blocking, INPUT_NEEDED is not; feeds carry `written` + `open: {blocking,

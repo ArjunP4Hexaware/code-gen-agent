@@ -4,6 +4,55 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post59 — 2026-10-16 (PIPELINE_NAME three-way choice; file-name tie-break)
+
+- **A defaulted input is a three-way choice** (`codegen.input_choices`): every
+  `pipeline_name.<flow>` (grand_master / master / file_to_stg / stg_to_std, per
+  feed) and APPLICATION_NAME, EMAIL_TO and the email status set where a default
+  exists (ACTIVE_START_DATE has none).
+  - `use_default`: the proposal. For PIPELINE_NAME this is the conventions
+    profile's per-flow `pipeline_name_templates` over {domain} {subdomain}
+    {source} {frequency} {layer} {load_mode}, shown with its template.
+  - `naming_standard`: the BSA's template in the same syntax. One template for
+    the feed renders all four names.
+  - `leave_blank`.
+- **Proposed is not applied** (Aruna's rule holds for every unattended run:
+  CLI, harness, an App run with no confirmation).
+  - An unanswered run writes the cell BLANK. Its non-blocking INPUT_NEEDED line
+    shows the proposal and its template.
+  - A cell is filled only on an explicit choice: the answers file's `choice:` /
+    `standard:`, or Confirm in the App. A chosen default / standard raises the
+    "taken from other documents" flag (`frd_unstated:<TAB>.<HEADER>[<flow>]
+    source_used:…`).
+  - Behaviour change: an unanswered APPLICATION_NAME is now blank (it was
+    written with the feed's SOURCE), and an unanswered email status set writes
+    every template row (`email_status_default` is a proposal).
+  - `CODEGEN_STAGES.json` records each input's `source` per feed entry
+    (`inputs`): default | standard | blank | answer, with `chosen`, `proposed`
+    and `template`.
+- **Templates.** The repo ships SYNTHETIC placeholders (`SYN_PL_…`, labelled
+  "no naming standard loaded — placeholder" in the CLI line and the App). The
+  real templates come from `codegen-state/overlays/acfc_prx.yaml`, overriding
+  per flow (`docs/acfc/OVERLAY_FIELDS.md`).
+- **Collisions.** A proposal that collides with a PIPELINE_NAME of the loaded
+  goldens / corpus (`pipeline_name_corpus`; the committed overlay lists
+  `docs/acfc/iig_goldens`) is never offered — the line asks instead, without
+  printing the colliding name.
+- **App.** The inputs panel shows radios (resting on use_default), the
+  proposal beside its template, one naming-standard box per feed with a live
+  preview of all four names, and Confirm (`POST /api/demo/input-choices`). Only
+  confirmed choices reach the next Generate.
+- **File-name recognizer.** A tie between files is broken by source priority
+  (`file_tie_source_priority`: the FRD's landed pattern over an STTM
+  FILE_DETAILS label …), then by shape (`file_tie_shape`: a vendor prefix + an
+  extension). The BSA's answer is cached in the STTM layout profile
+  (`file_choices`), so the next run of the same workbook takes it.
+- `docs/acfc/OPEN_QUESTIONS.md` §3: Aruna's "blank" vs Venu's "default +
+  standard", resolved as BSA-chooses-with-default-shown. Attach-a-document
+  path deferred.
+- Tests: `test_pipeline_name_choice.py`, `test_file_tie_break.py`,
+  `InputsNeededBanner.test.tsx`.
+
 ## 0.5.8.post58 — 2026-10-15 (outcome PASS_WITH_OPEN_INPUTS; blocking per question)
 
 - **New generate outcome `PASS_WITH_OPEN_INPUTS`** (exit 0): the workbook was

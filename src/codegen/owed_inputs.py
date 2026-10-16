@@ -56,10 +56,22 @@ class OwedInput:
     proposed: str = ""
     template: str = ""
     tokens: tuple[tuple[str, str], ...] = ()
+    # post61: ``profile_default`` = the profile's value was written (``applied``):
+    # shown as changeable, NOT an open input (a NOTE line, not INPUT_NEEDED)
+    kind: str = ""
+    applied: str = ""
+
+    @property
+    def is_open(self) -> bool:
+        return not self.applied
 
     def as_dict(self) -> dict:
         out = {"key": self.key, "question": self.question, "feed": self.feed,
                "scope": self.scope}
+        if self.kind:
+            out["kind"] = self.kind
+        if self.applied:
+            out["applied"] = self.applied
         if self.options:
             from codegen.input_choices import PLACEHOLDER_LABEL, is_placeholder_template
 
@@ -137,7 +149,26 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
         item = by_key.get(name)
         out.append(_with_choice(OwedInput(feed_key(spec.feed_id, name), question,
                                           spec.feed_id), item, spec, profile, tpl, faq))
+    # post61: the feed's profile defaults written (notebook names, the
+    # SRC_FILE_NAME style) — shown as changeable, not open
+    out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), _PROFILE_QUESTIONS.get(
+        r.key.split(".", 1)[0], r.key), spec.feed_id), r, spec, profile, tpl, faq)
+        for r in resolved or [] if r.applied and not _is_run_key(r.key, tpl)]
     return out
+
+
+# post61: what a feed-level profile default is (its NOTE line / the panel)
+_PROFILE_QUESTIONS = {
+    "notebook_name": "the notebook name (DATABRICKS_NOTEBOOK_NAME) of this leg",
+    "src_file_name_style": "the ADLS SRC_FILE_NAME style (pattern | prefix_star | "
+                           "prefix_middle)",
+}
+
+
+def _is_run_key(key: str, tpl) -> bool:
+    from codegen import input_choices as ic
+
+    return any(d.key == key and d.scope == RUN for d in ic.defaulted_inputs(tpl))
 
 
 def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq) -> OwedInput:
@@ -149,16 +180,18 @@ def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq) -> OwedInput:
     from codegen import input_choices as choices
 
     options = tuple(o for o in choices.CHOICES
-                    if not (o == "leave_blank" and item.key == "email_statuses"))
+                    if not (o == "leave_blank" and item.key in ("email_statuses",
+                                                                choices.SRC_FILE_NAME_STYLE)))
     tokens: dict[str, str] = {}
     if spec is not None and profile is not None:
         tokens = choices.feed_tokens(spec, tpl, faq)
-        flow = item.key.split(".", 1)[1] if "." in item.key else ""
+        flow = item.key.split(".", 1)[1] if item.key.startswith(choices.PIPELINE) else ""
         if flow:
             tokens = choices.flow_tokens(tokens, spec, profile, flow)
     return replace(owed, question=f"{owed.question} — {choices.proposal_text(item)}",
                    options=options, proposed=item.proposal.value,
-                   template=item.proposal.template, tokens=tuple(sorted(tokens.items())))
+                   template=item.proposal.template, tokens=tuple(sorted(tokens.items())),
+                   kind=item.kind, applied=item.value if item.applied else "")
 
 
 def run_owed_inputs(config, inputs: dict[str, str] | None, *, output_mode=None,
@@ -180,17 +213,46 @@ def run_owed_inputs(config, inputs: dict[str, str] | None, *, output_mode=None,
     def offered(name: str, question: str) -> OwedInput:
         item = defaulted.get(name)
         if item is None or (item.rule.default and is_placeholder(str(item.rule.default))):
-            return OwedInput(run_key(name), question, "", RUN)
+            return OwedInput(run_key(name), question, "", RUN, kind=item.kind if item else "")
         options = tuple(o for o in ic.CHOICES if not (item.statuses and o == "leave_blank"))
         template = str(getattr(item.rule, "default", "") or "")
         return OwedInput(run_key(name), f"{question} — {ic.HOW}", "", RUN, options=options,
-                         template=template)
+                         template=template, kind=item.kind)
 
-    items = [offered(name, question)
-             for name, question in owed_questions(tpl, None, scope=RUN)
+    owed = owed_questions(tpl, None, scope=RUN)
+    items = [offered(name, question) for name, question in owed
              if run_key(name) not in answered]
+    # post61: a run-level profile default (EMAIL_TO from the overlay) is written —
+    # shown as changeable, not open
+    owed_names = {name for name, _q in owed}
+    for item in defaulted.values():
+        if (item.kind != ic.PROFILE_DEFAULT or item.statuses or item.name in owed_names
+                or run_key(item.key) in answered or not item.rule.default):
+            continue
+        value = str(item.rule.default)
+        items.append(OwedInput(
+            run_key(item.key), f"{item.rule.question} — profile default applied: {value!r} "
+            f"({item.rule.default_share or 'the conventions profile'}) — {ic.HOW_PROFILE}",
+            "", RUN, options=ic.CHOICES, proposed=value, template=value,
+            kind=ic.PROFILE_DEFAULT, applied=value))
     rule = tpl.email_status_input
-    if rule is not None and run_key(rule.faq) not in answered:
+    status_item = defaulted.get(rule.faq) if rule is not None else None
+    if (rule is not None and run_key(rule.faq) not in answered and status_item is not None
+            and status_item.kind == ic.PROFILE_DEFAULT):
+        # post61: the profile's status set (email_status_default, else every
+        # template row) is written — shown as changeable, not open
+        from codegen.metadata_template import _pick_statuses, email_status_default_label
+
+        statuses = [str(r.get("STATUS") or "") for r in
+                    tpl.template_rows.get("EMAIL_TEMPLATE_CONFIG") or []]
+        written = _pick_statuses(statuses, tpl.email_status_default) or statuses
+        label = email_status_default_label(tpl)
+        items.append(OwedInput(
+            run_key(rule.faq), f"{rule.question} — profile default applied: "
+            f"{', '.join(written)} ({label}) — {ic.HOW_PROFILE}", "", RUN,
+            options=("use_default", "naming_standard"), proposed=", ".join(written),
+            template=label, kind=ic.PROFILE_DEFAULT, applied=", ".join(written)))
+    elif rule is not None and run_key(rule.faq) not in answered:
         # 2026-10-14 (framework owner): the email status set, default all four;
         # 2026-10-15: or the overlay's email_status_default. post59: proposed —
         # unanswered, every template status row is written
@@ -241,6 +303,11 @@ def _default_tokens(spec) -> dict:
 def input_line(item: OwedInput) -> str:
     from codegen.cli import answer_line
 
+    if not item.is_open:
+        # post61: a profile default written — informational, still changeable
+        where = "inputs.run" if item.scope == RUN else f"inputs.feeds.{item.feed}"
+        return answer_line("NOTE", item.key, f"{item.question} (profile default, not an open "
+                                             f"input; to change it: {where})")
     if item.scope == RUN:
         return answer_line(INPUT_LABEL, item.key,
                            f"{item.question} (run-level, once for every feed; not blocking — "
@@ -256,8 +323,12 @@ def run_block_lines(items: list[OwedInput]) -> list[str]:
     line per run-level input (nothing when there is none)."""
     if not items:
         return []
-    return [f"{'NOTE':<15}run inputs — {len(items)} run-level input(s) needed, once for the "
-            "whole run (answers file inputs.run):", *(input_line(i) for i in items)]
+    needed = sum(1 for i in items if i.is_open)
+    applied = len(items) - needed
+    return [f"{'NOTE':<15}run inputs — {needed} run-level input(s) needed, once for the "
+            "whole run (answers file inputs.run)"
+            + (f"; {applied} profile default(s) applied, changeable" if applied else "") + ":",
+            *(input_line(i) for i in items)]
 
 
 def template_items(items: list[OwedInput]) -> list:
@@ -265,7 +336,7 @@ def template_items(items: list[OwedInput]) -> list:
 
     return [TemplateItem(i.key, i.question if i.scope == RUN else f"{i.question} (feed {i.feed})",
                          [], INPUTS_SECTION, options=list(i.options), proposed=i.proposed,
-                         proposed_template=i.template) for i in items]
+                         proposed_template=i.template, applied=i.applied) for i in items]
 
 
 def answers_owed(flags: list[str]) -> tuple[list[str], list[str]]:

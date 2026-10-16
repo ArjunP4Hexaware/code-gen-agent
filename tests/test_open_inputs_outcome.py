@@ -55,7 +55,8 @@ def test_only_non_blocking_inputs_is_pass_with_open_inputs_and_exit_0(tmp_path, 
     questions = manifest["questions"]
     assert {q["line"] for q in questions} == {"INPUT_NEEDED"}
     assert not any(q["blocking"] for q in questions)
-    assert [q["scope"] for q in questions].count("run") == 4        # the run-level block
+    # the run-level block (post61: the email status set is a profile default, not open)
+    assert [q["scope"] for q in questions].count("run") == 3
     assert [q["scope"] for q in questions].count("feed") == len(FLOWS) + 1
     assert all(set(q) == {"line", "key", "scope", "blocking"} for q in questions)
     (feed,) = manifest["feeds"]
@@ -65,7 +66,7 @@ def test_only_non_blocking_inputs_is_pass_with_open_inputs_and_exit_0(tmp_path, 
     assert manifest["stages"]["iig_emit"] == {"status": "PASS"}
     outcome = [ln for ln in out.splitlines() if ln.startswith("OUTCOME")]
     assert outcome == ["OUTCOME         generate — PASS_WITH_OPEN_INPUTS: 1 feed(s) written; "
-                       "9 input(s) still open, none blocking (answers_template.yaml); exit 0"]
+                       "8 input(s) still open, none blocking (answers_template.yaml); exit 0"]
     steps = {"layout": 0, "extract-sttm": 0, "generate": code}
     assert run_stages.pair_outcome(steps, tmp_path / "out") == "PASS_WITH_OPEN_INPUTS"
 

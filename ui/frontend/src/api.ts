@@ -817,6 +817,11 @@ export interface InputNeededItem {
   template?: string;
   tokens?: Record<string, string>;
   placeholder?: string;
+  // post61: "profile_default" = the profile's / overlay's value, written when
+  // unanswered (`applied`) — shown as changeable, not an open input;
+  // "agent_proposal" = rendered by the agent, never applied until confirmed
+  kind?: "profile_default" | "agent_proposal";
+  applied?: string;
 }
 
 export type InputChoice = "use_default" | "naming_standard" | "leave_blank";
@@ -857,6 +862,9 @@ export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
         tokens: item.tokens && typeof item.tokens === "object" ? item.tokens : {},
         placeholder: typeof item.placeholder === "string" ? item.placeholder : "",
       } : {}),
+      ...(item.kind === "profile_default" || item.kind === "agent_proposal"
+        ? { kind: item.kind } : {}),
+      ...(typeof item.applied === "string" && item.applied ? { applied: item.applied } : {}),
     }));
 }
 

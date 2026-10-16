@@ -252,6 +252,9 @@ metadata:
         faq: email_statuses
         scope: run
         default: "all four"
+        # post61: the profile's set (or the overlay's email_status_default) is
+        # written when unanswered - a profile default, still changeable
+        default_kind: profile_default
         question: "the EMAIL_TEMPLATE_CONFIG status set (comma-separated: FilesNotReceived, New Files to Process, Success, Failed): the corpus writes 4 statuses on 293 pipelines, 2 on 56, 1 on 256"
       template_rows:
         DATABRICKS_NOTEBOOK_DETAILS:
@@ -483,12 +486,17 @@ metadata:
             question: "the application name (APPLICATION_NAME, the {application} of every PIPELINE_DESCRIPTION / PROCESS_NAME): the corpus's G1, 27 values, the dominant 38.8%"
             default: "{source}"
             default_share: "the feed's SOURCE, the vendor / source system the FRD states"
+            # post61: derived by the agent - shown, never written until chosen
+            default_kind: agent_proposal
         EMAIL_TEMPLATE_CONFIG:
           EMAIL_TO:
             faq: email_to
             scope: run
             question: "the alert recipients (EMAIL_TO): the corpus's dominant recipient is 47.6% of filled rows (24 values) — not a majority, confirm per feed"
             default: "<<D1:EMAIL.EMAIL_TO>>"
+            # post61: the overlay's value - written when unanswered (open while a
+            # placeholder), still changeable
+            default_kind: profile_default
             default_share: "the corpus's dominant recipient, 47.6% (scrubbed G576@<LOCAL_DENYLIST>.G572)"
         # 2026-10-14 (framework owner): the NullCheckRule / DeDuplicationRule INPUT_PARAM
         # is the target table's FQN <catalog>.<schema>.<table> (the pair_9 goldens) -

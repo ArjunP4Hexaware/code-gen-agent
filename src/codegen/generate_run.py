@@ -74,7 +74,9 @@ class GenerateRun:
         from codegen.owed_inputs import INPUTS_SECTION
 
         self.open_items += [run_stages.open_item("QUESTION", key) for key, _r in questions]
-        self.open_items += [run_stages.open_item("INPUT_NEEDED", i.key) for i in items]
+        # post61: an applied profile default is shown, never open
+        self.open_items += [run_stages.open_item("INPUT_NEEDED", i.key) for i in items
+                            if i.is_open]
         self.owed += items
         self.template_items += [TemplateItem(key, reason, [], INPUTS_SECTION)
                                 for key, reason in questions]
@@ -82,7 +84,7 @@ class GenerateRun:
             i.key, i.question,
             list(self.config.environments) if i.key == "run.environment" else [],
             INPUTS_SECTION, options=list(i.options), proposed=i.proposed,
-            proposed_template=i.template) for i in items]
+            proposed_template=i.template, applied=i.applied) for i in items]
 
     def unstated(self, questions: list) -> None:
         """post57: each value NO document states — a QUESTION (blocking)."""
@@ -155,7 +157,7 @@ class GenerateRun:
             self.template_items += owed_mod.template_items(owed)
             self.template_items += choices_mod.shared_template_items(spec.feed_id, owed)
             self.open_items += [run_stages.open_item("INPUT_NEEDED", item.key, feed=spec.feed_id)
-                                for item in owed]
+                                for item in owed if item.is_open]
             # 2026-10-14 (D1 pair_12): ONE blocking question for the feed whose
             # files the LOB lookup keyed to no single LOB (its LOB cells open)
             lob_item = _lob_question(spec, say=self.say)

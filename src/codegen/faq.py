@@ -135,6 +135,12 @@ class LoadPatternFaq(BaseModel):
     pipeline_name_master: FaqAnswer = FaqAnswer(value="unknown")
     pipeline_name_file_to_stg: FaqAnswer = FaqAnswer(value="unknown")
     pipeline_name_stg_to_std: FaqAnswer = FaqAnswer(value="unknown")
+    # post61: profile defaults the BSA may change (codegen.input_choices,
+    # inputs.feeds.<feed>): the notebook NAME per leg and the ADLS SRC_FILE_NAME
+    # style (pattern | prefix_star | prefix_middle) — unanswered = the profile's
+    notebook_name_file_to_stg: FaqAnswer = FaqAnswer(value="unknown")
+    notebook_name_stg_to_std: FaqAnswer = FaqAnswer(value="unknown")
+    src_file_name_style: FaqAnswer = FaqAnswer(value="unknown")
     # M7 companions (NOT questions): the engineer-assigned framework ids the
     # DML variables block carries (METADATA_DB_SEMANTICS §2, §5) and the
     # source connection's host. (They fed the retired config_inserts_<env>.sql

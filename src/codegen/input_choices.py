@@ -23,6 +23,23 @@ gate flag (``frd_unstated:<TAB>.<HEADER> source_used:...``). CODEGEN_STAGES.json
 records each input's ``source``: default | standard | blank | answer (a value
 typed into the answers file).
 
+post61 — two kinds of default (``Defaulted.kind``):
+
+- ``profile_default``: the value comes from the conventions profile or the
+  ACFC overlay — the email status set (``email_status_default`` / the rule's
+  ``default``), EMAIL_TO, the notebook NAME per leg (``corpus_cells``
+  DATABRICKS_NOTEBOOK_NAME by notebook kind) and the ADLS SRC_FILE_NAME style
+  (``feed_overrides.<feed>.src_file_name`` / ``family_conventions``). Applied
+  when unanswered — ``source`` profile, no gate flag, no open line — and still
+  shown (CLI NOTE line, answers template, the App's panel) as changeable.
+- ``agent_proposal``: the value is rendered or derived by the agent —
+  PIPELINE_NAME from its template, APPLICATION_NAME from {source} (and
+  ACTIVE_START_DATE, which has none): shown, never applied without the BSA's
+  confirmation (Aruna's rule above).
+
+An owed rule's kind is its ``default_kind``; unset, a default with a {token}
+is an agent_proposal, a literal one a profile_default.
+
 Used by the CLI (``codegen generate``) and the App."""
 
 from __future__ import annotations
@@ -36,6 +53,14 @@ SOURCE_OF = {"use_default": "default", "naming_standard": "standard", "leave_bla
 PLACEHOLDERS = ("domain", "subdomain", "source", "frequency", "layer", "load_mode")
 FLOWS = ("grand_master", "master", "file_to_stg", "stg_to_std")
 PIPELINE = "pipeline_name"
+PROFILE_DEFAULT = "profile_default"
+AGENT_PROPOSAL = "agent_proposal"
+# post61: the profile defaults that are not owed cells
+NOTEBOOK = "notebook_name"
+NOTEBOOK_TAB = "DATABRICKS_NOTEBOOK_DETAILS"
+NOTEBOOK_HEADER = "DATABRICKS_NOTEBOOK_NAME"
+SRC_FILE_NAME_STYLE = "src_file_name_style"
+STYLES = ("pattern", "prefix_star", "prefix_middle")
 # the evidence prefix a chosen FAQ answer carries (metadata_template._owed reads it)
 EVIDENCE = "choice:"
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
@@ -66,6 +91,16 @@ class Proposal:
         return is_placeholder_template(self.template)
 
 
+def default_kind(rule) -> str:
+    """An owed rule's kind of default (post61): its ``default_kind``, else a
+    default with a {token} = agent_proposal, a literal one = profile_default."""
+    kind = getattr(rule, "default_kind", None)
+    if kind:
+        return kind
+    default = str(getattr(rule, "default", "") or "")
+    return AGENT_PROPOSAL if _PLACEHOLDER_RE.search(default) else PROFILE_DEFAULT
+
+
 SYNTHETIC_PREFIX = "SYN_"
 PLACEHOLDER_LABEL = "no naming standard loaded — placeholder"
 
@@ -90,6 +125,12 @@ class Resolved:
     template: str = ""
     proposal: Proposal = field(default_factory=Proposal)
     note: str = ""
+    kind: str = AGENT_PROPOSAL
+
+    @property
+    def applied(self) -> bool:
+        """A profile default written unanswered (post61): not an open input."""
+        return self.source == "profile" and bool(self.value)
 
 
 def parse_choice(key: str, entry) -> Choice | None:
@@ -111,6 +152,13 @@ def validate_choice(key: str, choice: Choice) -> str | None:
     """The problem with ``choice`` (None: valid)."""
     if choice.choice not in CHOICES:
         return f"inputs[{key!r}].choice must be one of {', '.join(CHOICES)}"
+    if key.endswith(SRC_FILE_NAME_STYLE):
+        # post61: a style, never blank
+        if choice.choice == "leave_blank":
+            return f"inputs[{key!r}]: the SRC_FILE_NAME style cannot be left blank"
+        if choice.standard and choice.standard not in STYLES:
+            return f"inputs[{key!r}].standard must be one of {', '.join(STYLES)}"
+        return None
     if choice.standard:
         unknown = [p for p in _PLACEHOLDER_RE.findall(choice.standard) if p not in PLACEHOLDERS]
         if unknown:
@@ -249,11 +297,29 @@ class Defaulted:
     rule: object       # the owed rule (OwedCellConfig) / the email status rule
     flow: str = ""     # a PIPELINE_NAME flow
     statuses: bool = False
+    kind: str = AGENT_PROPOSAL     # post61: profile_default | agent_proposal
+    leg: str = ""      # a notebook NAME's flow (file_to_stg / stg_to_std)
+    style: bool = False            # the ADLS SRC_FILE_NAME style
+
+
+def _notebook_legs(tpl) -> list[str]:
+    """The flows of the template's notebook rows (post61)."""
+    from codegen.metadata_template import _ROLE_FLOWS
+
+    rows = tpl.template_rows.get(NOTEBOOK_TAB) or []
+    return list(dict.fromkeys(_ROLE_FLOWS.get(str(r.get("_pipeline_role") or ""), "")
+                              for r in rows if r.get("_pipeline_role")))
+
+
+def _has_header(tpl, header: str) -> bool:
+    return any(header in tab.headers for tab in tpl.tabs.values())
 
 
 def defaulted_inputs(tpl) -> list[Defaulted]:
     """The template's inputs that offer the three-way choice: every per-flow
-    PIPELINE_NAME, every owed cell with a ``default`` and the email status set."""
+    PIPELINE_NAME, every owed cell with a ``default`` and the email status set;
+    post61: the profile defaults — the notebook NAME per leg (when
+    ``corpus_cells`` names one) and the SRC_FILE_NAME style."""
     out: dict[str, Defaulted] = {}
     for rules in tpl.owed_cells.values():
         for rule in rules.values():
@@ -263,15 +329,63 @@ def defaulted_inputs(tpl) -> list[Defaulted]:
                     out.setdefault(name, Defaulted(name, f"{rule.faq}.{flow}", rule.scope,
                                                    rule, flow))
             elif rule.default:
-                out.setdefault(rule.faq, Defaulted(rule.faq, rule.faq, rule.scope, rule))
+                out.setdefault(rule.faq, Defaulted(rule.faq, rule.faq, rule.scope, rule,
+                                                   kind=default_kind(rule)))
     if tpl.email_status_input is not None:
         rule = tpl.email_status_input
-        out.setdefault(rule.faq, Defaulted(rule.faq, rule.faq, "run", rule, statuses=True))
+        kind = rule.default_kind or PROFILE_DEFAULT
+        out.setdefault(rule.faq, Defaulted(rule.faq, rule.faq, "run", rule, statuses=True,
+                                           kind=kind))
+    notebook = (tpl.corpus_cells.get(NOTEBOOK_TAB) or {}).get(NOTEBOOK_HEADER)
+    if notebook is not None:
+        for leg in _notebook_legs(tpl):
+            name = f"{NOTEBOOK}_{leg}"
+            out.setdefault(name, Defaulted(name, f"{NOTEBOOK}.{leg}", "feed", notebook,
+                                           kind=PROFILE_DEFAULT, leg=leg))
+    if _has_header(tpl, "SRC_FILE_NAME"):
+        out.setdefault(SRC_FILE_NAME_STYLE, Defaulted(
+            SRC_FILE_NAME_STYLE, SRC_FILE_NAME_STYLE, "feed", tpl.family_conventions,
+            kind=PROFILE_DEFAULT, style=True))
     return list(out.values())
 
 
+def _notebook_proposal(item: Defaulted, spec, tpl, config) -> Proposal:
+    """The notebook NAME the profile writes for ``item.leg`` of ``spec``: the
+    ``corpus_cells`` value for the feed's notebook kind (post61)."""
+    from codegen.config import is_placeholder
+    from codegen.metadata_sheet import _feed_from_spec
+    from codegen.metadata_template import _corpus_key, _notebook_kind
+
+    rule = item.rule
+    if config is None:
+        return Proposal(refused="the notebook kind needs the run's config")
+    kind = _notebook_kind(item.leg, _feed_from_spec(spec), spec, tpl, config)
+    shape = rule.value if rule.by is None else _corpus_key(rule.values, kind)
+    template = f"corpus_cells {NOTEBOOK_HEADER} ({rule.by or 'value'} {kind})"
+    if not shape:
+        return Proposal(template=template, refused=f"the profile names no notebook for {kind}")
+    unset = [t for t in _PLACEHOLDER_RE.findall(shape)
+             if not str(tpl.corpus_tokens.get(t) or "").strip()]
+    value = _PLACEHOLDER_RE.sub(lambda m: str(tpl.corpus_tokens.get(m.group(1)) or "")
+                                .strip(), shape)
+    if unset or is_placeholder(shape) or is_placeholder(value):
+        return Proposal(template=template, refused="a value the D1 overlay sets")
+    return Proposal(value, template)
+
+
+def _style_proposal(spec, tpl) -> Proposal:
+    """The SRC_FILE_NAME style the profile applies to ``spec`` (post61)."""
+    from codegen.metadata_template import _feed_override
+
+    override = _feed_override(tpl, spec.feed_id)
+    if override is not None and override.src_file_name:
+        return Proposal(override.src_file_name,
+                        f"feed_overrides.{spec.feed_id}.src_file_name")
+    return Proposal(tpl.family_conventions.src_file_name, "family_conventions.src_file_name")
+
+
 def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
-             taken: frozenset[str]) -> Proposal:
+             taken: frozenset[str], config=None) -> Proposal:
     """What use_default would write for ``item`` of ``spec``."""
     from codegen.config import is_placeholder
     from codegen.metadata_template import (
@@ -280,6 +394,10 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
         email_status_default_label,
     )
 
+    if item.leg:
+        return _notebook_proposal(item, spec, tpl, config)
+    if item.style:
+        return _style_proposal(spec, tpl)
     if item.statuses:
         statuses = [str(r.get("STATUS") or "") for r in
                     tpl.template_rows.get("EMAIL_TEMPLATE_CONFIG") or []]
@@ -313,9 +431,10 @@ def _first(mapping: dict, keys: list[str]):
 
 def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
                  choices: dict[str, Choice], index: int | str = "", faq=None,
-                 base: Path | None = None) -> list[Resolved]:
-    """Every defaulted input of ``spec``: the value it gets (only an explicit
-    choice or a typed value fills a cell) and its proposal."""
+                 base: Path | None = None, config=None) -> list[Resolved]:
+    """Every defaulted input of ``spec``: the value it gets (an agent proposal
+    only on an explicit choice or a typed value; a profile default also when
+    unanswered — post61) and its proposal."""
     items = defaulted_inputs(tpl)
     if not items:
         return []
@@ -326,21 +445,30 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
     for item in items:
         prefixes = (["run."] if item.scope == "run"
                     else [f"feeds.{spec.feed_id}.", f"feeds[{index}]."])
-        offer = proposal(item, spec, profile, tpl, tokens, taken)
+        offer = proposal(item, spec, profile, tpl, tokens, taken, config)
         typed = _first(inputs, [p + item.key for p in prefixes])
         if typed is not None and str(typed).strip():
             out.append(Resolved(item.name, item.key, "answer", True, str(typed).strip(),
-                                proposal=offer))
+                                proposal=offer, kind=item.kind))
             continue
         own = _first(choices, [p + item.key for p in prefixes])
         shared = (_first(choices, [p + item.rule.faq for p in prefixes]) if item.flow
                   else None)
         choice = own or shared
-        if choice is None:
+        if item.kind == PROFILE_DEFAULT and (choice is None or choice.choice == "use_default"):
+            # post61: a profile default — written unanswered, no gate flag (the
+            # writer applies the profile's own value), still changeable
+            if offer.value:
+                out.append(Resolved(item.name, item.key, "profile", choice is not None,
+                                    offer.value, offer.template, offer, kind=item.kind))
+            else:
+                out.append(Resolved(item.name, item.key, "blank", False, proposal=offer,
+                                    kind=item.kind))
+        elif choice is None:
             out.append(Resolved(item.name, item.key, "blank", False, proposal=offer))
         elif choice.choice == "leave_blank":
             out.append(Resolved(item.name, item.key, "blank", True, proposal=offer,
-                                note="left blank by choice (leave_blank)"))
+                                note="left blank by choice (leave_blank)", kind=item.kind))
         elif choice.choice == "use_default":
             if offer.value:
                 out.append(Resolved(item.name, item.key, "default", True, offer.value,
@@ -359,11 +487,11 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
                 out.append(Resolved(item.name, item.key, "standard", True, value, template,
                                     offer, "the naming standard's name collides with a "
                                            "PIPELINE_NAME of the loaded goldens / corpus"
-                                    if clash else ""))
+                                    if clash else "", kind=item.kind))
             else:
                 out.append(Resolved(item.name, item.key, "blank", False, proposal=offer,
                                     note="naming_standard chosen without a template that "
-                                         "renders a value"))
+                                         "renders a value", kind=item.kind))
     return out
 
 
@@ -374,15 +502,16 @@ def faq_answers(resolved: list[Resolved]) -> dict:
 
     return {r.name: FaqAnswer(value=r.value, source="engineer",
                               evidence=evidence(r.source, r.template))
-            for r in resolved if r.chosen and r.source != "answer"}
+            for r in resolved if r.chosen and r.source not in ("answer", "profile")}
 
 
 def records(resolved: list[Resolved]) -> dict[str, dict]:
-    """CODEGEN_STAGES.json: per input key, ``{source, chosen, proposed,
-    template}`` (+ ``refused`` / ``note`` when one applies)."""
+    """CODEGEN_STAGES.json: per input key, ``{kind, source, chosen, proposed,
+    template}`` (+ ``refused`` / ``note`` when one applies). post61: source
+    ``profile`` = a profile default written (unanswered or use_default)."""
     out: dict[str, dict] = {}
     for r in resolved:
-        entry = {"source": r.source, "chosen": r.chosen,
+        entry = {"kind": r.kind, "source": r.source, "chosen": r.chosen,
                  "proposed": r.proposal.value, "template": r.template or r.proposal.template}
         if is_placeholder_template(entry["template"]):
             entry["placeholder"] = True
@@ -419,8 +548,16 @@ def shared_template_items(feed_id: str, owed: list) -> list:
                                                    if o.template)))]
 
 
+HOW_PROFILE = ("change it: answers file `choice: naming_standard` + `standard:` (your "
+               "value), or in the App")
+
+
 def proposal_text(r: Resolved) -> str:
-    """The INPUT_NEEDED line's addition for an open defaulted input."""
+    """The INPUT_NEEDED line's addition for an open defaulted input (post61:
+    the NOTE line's for an applied profile default)."""
+    if r.applied:
+        return (f"profile default applied: {r.value!r} ({r.template or r.proposal.template}) "
+                f"— {HOW_PROFILE}")
     if r.proposal.value:
         label = f"; {PLACEHOLDER_LABEL}" if r.proposal.placeholder else ""
         return (f"proposed {r.proposal.value!r} (template {r.proposal.template!r}{label}) — "

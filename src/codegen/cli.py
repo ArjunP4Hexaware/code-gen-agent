@@ -552,7 +552,11 @@ def _write_template(target: Path | None, items: list, stage: str, *, merge: bool
 
     written = write_answers_template(target, items, stage=stage, merge=merge)
     inputs = sum(1 for i in items if i.section == "inputs")
-    print(f"{'ANSWERS FILE':<15} {written} — {len(items) - inputs} question(s), {inputs} "
+    # post61: a profile default written (and a shared convenience entry) is
+    # listed, never counted as needed
+    needed = sum(1 for i in items if i.section == "inputs" and not getattr(i, "shared", False)
+                 and not getattr(i, "applied", ""))
+    print(f"{'ANSWERS FILE':<15} {written} — {len(items) - inputs} question(s), {needed} "
           "input(s) needed, with their "
           "candidates and an empty value; fill it and rerun with --answers "
           f"{written}")
@@ -717,7 +721,7 @@ def _input_choices(spec, config: Config, inputs: dict[str, str], choices: dict, 
     return choices_mod.resolve_feed(
         spec, profile=config.conventions.get(conventions_profile), tpl=tpl, inputs=inputs,
         choices=choices, index=index, faq=faq_for_spec(spec, config, base_dir=base),
-        base=base if base is not None else Path("."))
+        base=base if base is not None else Path("."), config=config)
 
 
 def _answers_choices(path: Path | None) -> dict:

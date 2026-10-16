@@ -26,7 +26,7 @@ under `metadata.templates.iig_v2.`
 | `corpus_cells.DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_PATH.values.<kind>` | The notebook PATH of that leg (a comma list for a two-notebook form). |
 | `notebook_path_prefix` | The workspace root every notebook path segment starts with; a segment without it gets it prepended (cited in the cell NOTE). Blank = paths as written. |
 | `corpus_tokens.<name>` | The `{name}` tokens the notebook values use (`workspace_folder`, `handler_prefix`, `pipe_handler_prefix`). |
-| `email_status_default` | The `EMAIL_TEMPLATE_CONFIG` status set PROPOSED for `run.email_statuses` (a subset of `template_rows.EMAIL_TEMPLATE_CONFIG`, in that order). post59: proposed, not applied — an unanswered run writes every template row; the set is written once the BSA chooses `use_default`. Blank = every template row. |
+| `email_status_default` | The `EMAIL_TEMPLATE_CONFIG` status set written for `run.email_statuses` when the run gives no answer (a subset of `template_rows.EMAIL_TEMPLATE_CONFIG`, in that order). post61: a profile default — written unanswered (no gate flag), listed as changeable (`choice: naming_standard` + `standard:`, or the App). Blank = every template row. |
 | `feed_overrides.<feed_id>.email_statuses` | That feed's status set; wins over the default and the run's answer for that feed. |
 | `feed_overrides.<feed_id>.src_file_name` | That feed's ADLS `SRC_FILE_NAME` style (below); wins over `family_conventions.src_file_name`. |
 | `family_conventions.src_file_name` | The profile's `SRC_FILE_NAME` style: `pattern` (the file pattern as stated), `prefix_star` (the suffix wildcard: name prefix + `*`), `prefix_middle` (leading and middle wildcards: `*` + the name core + `*` + the extension — the leading date-token segments and everything from the first wildcard on dropped). |
@@ -54,6 +54,7 @@ flow left out keeps its placeholder:
 
 | Field | Meaning |
 | --- | --- |
+| `owed_cells.<TAB>.<HEADER>.default_kind` | post61: `profile_default` (the overlay's value — written when unanswered, no gate flag, changeable) or `agent_proposal` (shown, written only once the BSA chooses it). Unset: a `default` with a `{token}` is an agent proposal, a literal one a profile default. The committed overlay: EMAIL_TO `profile_default`, APPLICATION_NAME `agent_proposal`. |
 | `pipeline_name_templates.<flow>` | The `use_default` proposal for `grand_master` / `master` / `file_to_stg` / `stg_to_std`, over `{domain}` `{subdomain}` `{source}` `{frequency}` `{layer}` `{load_mode}`. Shown, never applied until the BSA chooses it. A template starting `SYN_` is labelled "no naming standard loaded — placeholder". |
 | `pipeline_flow_layers.<flow>` | `{layer}` per flow (default `GRANDMASTER` / `MASTER` / `STG` / `STD`). |
 | `pipeline_name_case` | `upper` (default) or `keep`, for the rendered name. |

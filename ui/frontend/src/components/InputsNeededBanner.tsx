@@ -19,7 +19,12 @@ import {
    shown with its template), naming_standard (the BSA's template; one box per
    feed re-renders all four pipeline names live) or leave_blank. The radio
    rests on use_default, but nothing is applied until Confirm: proposed is not
-   applied (the next Generate applies only confirmed choices). */
+   applied (the next Generate applies only confirmed choices).
+   post61: two kinds of default. A profile default (the email status set,
+   EMAIL_TO, the notebook names, the SRC_FILE_NAME style — values the
+   conventions profile / the ACFC overlay sets) was WRITTEN (`applied`): it is
+   listed as changeable, never counted as an input needed. An agent proposal
+   (PIPELINE_NAME, APPLICATION_NAME) is shown and applied only once confirmed. */
 
 const LABELS: Record<InputChoice, string> = {
   use_default: "Use the default",
@@ -28,6 +33,7 @@ const LABELS: Record<InputChoice, string> = {
 };
 
 const isPipeline = (item: InputNeededItem) => item.key.includes(".pipeline_name.");
+const isApplied = (item: InputNeededItem) => Boolean(item.applied);
 
 function Item({ item }: { item: InputNeededItem }) {
   return (
@@ -39,6 +45,16 @@ function Item({ item }: { item: InputNeededItem }) {
 }
 
 function Proposal({ item }: { item: InputNeededItem }) {
+  if (isApplied(item)) {
+    return (
+      <span className="hint" aria-label={`profile default for ${item.key}`}>
+        {" "}profile default applied <code>{item.applied}</code>
+        {item.template && item.template !== item.applied
+          ? <> from <code>{item.template}</code></> : null}
+        {" "}— changeable
+      </span>
+    );
+  }
   if (!item.proposed && !item.template) return null;
   return (
     <span className="hint" aria-label={`proposal for ${item.key}`}>
@@ -72,6 +88,7 @@ function ChoiceGroup({
   const [feedStandard, setFeedStandard] = useState<string>(shared);
   const anyStandard = pipelines.some((p) => choice[p.key] === "naming_standard");
   const done = items.every((item) => confirmed[item.key]);
+  const proposals = items.some((item) => !isApplied(item));
 
   const confirm = () => {
     const out: Record<string, ConfirmedChoice> = {};
@@ -109,7 +126,8 @@ function ChoiceGroup({
               <input
                 aria-label={`standard for ${item.key}`}
                 value={standard[item.key] ?? ""}
-                placeholder="a value or a template: {domain} {subdomain} {source} {frequency}"
+                placeholder={isApplied(item) ? "your value"
+                  : "a value or a template: {domain} {subdomain} {source} {frequency}"}
                 onChange={(e) => setStandard({ ...standard, [item.key]: e.target.value })}
               />
             ) : null}
@@ -142,8 +160,15 @@ function ChoiceGroup({
       ) : null}
       {done ? (
         <span className="hint" role="note"> Confirmed — applied by the next Generate.</span>
-      ) : (
+      ) : proposals && items.some(isApplied) ? (
+        <span className="hint">
+          {" "}Proposals are applied only once you confirm; profile defaults are already
+          written.
+        </span>
+      ) : proposals ? (
         <span className="hint"> Nothing is applied until you confirm.</span>
+      ) : (
+        <span className="hint"> Profile defaults are applied; change one and confirm.</span>
       )}
     </div>
   );
@@ -188,7 +213,14 @@ export function InputsNeededBanner({
   onConfirm?: (choices: Record<string, ConfirmedChoice>) => void;
 }) {
   if (!items.length) return null;
-  const n = `${items.length} input${items.length === 1 ? "" : "s"} needed`;
+  // post61: an applied profile default is listed, never counted as needed
+  const open = items.filter((item) => !isApplied(item)).length;
+  const applied = items.length - open;
+  const n = open
+    ? `${open} input${open === 1 ? "" : "s"} needed`
+    : "No inputs needed";
+  const shown = applied
+    ? ` · ${applied} profile default${applied === 1 ? "" : "s"} applied (changeable)` : "";
   const run = items.filter((item) => item.scope === "run");
   const feeds = new Map<string, InputNeededItem[]>();
   for (const item of items) {
@@ -205,10 +237,12 @@ export function InputsNeededBanner({
       style={{ padding: "8px 12px", marginTop: 8 }}
     >
       <strong>{n}</strong>
+      {shown ? <span className="hint">{shown}</span> : null}
       <span className="hint">
-        {" "}— not blocking: the workbook was written with these cells empty. A proposal is
-        shown, never applied until confirmed. Give the values under <code>inputs:</code> in
-        the answers file and rerun generate.
+        {" "}— not blocking: the workbook was written with the open cells empty. A proposal is
+        shown, never applied until confirmed; a profile default is written and can be
+        changed. Give the values under <code>inputs:</code> in the answers file and rerun
+        generate.
       </span>
       {run.length ? (
         <section aria-label="run inputs">

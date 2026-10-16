@@ -127,12 +127,13 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
             "catalog_map PR_DLK → d1_dlk, PR_STD → d1_std") in report
     # post47: the run-level block at the top; the feed's own below it. 2026-10-15:
     # the required storage account is a run QUESTION (blocking), not an input
-    assert (report.index("**Run questions: 1**") < report.index("**Run inputs needed: 4**")
+    # post61: the email status set is a profile default (written), not an input needed
+    assert (report.index("**Run questions: 1**") < report.index("**Run inputs needed: 3**")
             < report.index("**Answers owed**"))
     assert report.index("- `run.environment.storage_account`") < report.index(
-        "**Run inputs needed: 4**")
-    for key in ("run.environment", "run.email_statuses", "run.application_name",
-                "run.email_to"):
+        "**Run inputs needed: 3**")
+    assert "- `run.email_statuses`" not in report
+    for key in ("run.environment", "run.application_name", "run.email_to"):
         assert f"- `{key}`" in report
     assert "**Answers owed** — questions: 0, inputs needed: 5" in report   # 4 pipeline names
     assert (f"iig_env:{ADLS}.TGT_CONTAINER_NAME — '{d1.containers['stage']}' from environment "
@@ -151,6 +152,8 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
         *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
                                                "stg_to_std")),
         "active_start_date",
+        # post61: the profile defaults written (listed so the BSA can change them)
+        "notebook_name.file_to_stg", "notebook_name.stg_to_std", "src_file_name_style",
         "pipeline_name"]            # post59: one choice / standard for all four flows
     assert inputs["run"]["environment"]["candidates"] == ["D1", "A2", "PR"]
     assert load_answers(path).inputs == {}            # every value empty: nothing answered

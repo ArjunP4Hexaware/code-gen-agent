@@ -76,5 +76,14 @@ with `tools/iig_diff.py --golden-structure`.
   (`docs/acfc/OVERLAY_FIELDS.md`).
 - The same control applies to APPLICATION_NAME, EMAIL_TO and the email status
   set wherever a default exists (ACTIVE_START_DATE has none).
+- **post61: two kinds of default.** Aruna's rule covers what the AGENT renders or
+  derives (`agent_proposal`: the PIPELINE_NAME template, APPLICATION_NAME from
+  SOURCE, ACTIVE_START_DATE) — shown, never applied without confirmation. A value
+  the conventions profile or the ACFC overlay sets (`profile_default`: the email
+  status set, EMAIL_TO, the notebook names, the SRC_FILE_NAME wildcard style) is
+  written when unanswered — source `profile`, no gate flag, no open input — and
+  still listed (a NOTE line, the answers template, the App's panel) so the BSA
+  can change it. An owed cell's kind is its `default_kind` (unset: a default with
+  a `{token}` is an agent proposal, a literal one a profile default).
 - Still open: the team's naming standard itself (the attach-a-document path
   is deferred).

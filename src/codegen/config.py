@@ -1435,6 +1435,14 @@ class OwedCellConfig(BaseModel):
     when: dict[str, str] = Field(default_factory=dict)
     default: str | None = None
     default_share: str | None = None
+    # post61 (codegen.input_choices): what ``default`` is. ``profile_default`` = a
+    # value the conventions profile / the ACFC overlay sets (EMAIL_TO, the email
+    # status set): written when unanswered, source profile, no gate flag, still
+    # changeable. ``agent_proposal`` = a value the agent renders / derives
+    # (APPLICATION_NAME from {source}): shown, never written until chosen.
+    # None = by the default's shape: a {token} in it = agent_proposal, else
+    # profile_default.
+    default_kind: Literal["profile_default", "agent_proposal"] | None = None
     # 2026-10-14 (post47): ``run`` = one value for the whole run (APPLICATION_NAME,
     # EMAIL_TO): ONE INPUT_NEEDED run.<faq> line in the run-level block, answered
     # under inputs.run; ``feed`` = per feed (inputs.feeds.<feed>.<faq>).

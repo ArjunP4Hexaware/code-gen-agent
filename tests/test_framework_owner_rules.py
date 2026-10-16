@@ -137,10 +137,9 @@ def test_the_email_status_set_defaults_to_all_four_and_an_answer_trims_it(tmp_pa
     rows = _rows(xlsx, "EMAIL_TEMPLATE_CONFIG")
     assert [r["STATUS"][0] for r in rows] == ["FilesNotReceived", "New Files to Process",
                                               "Success", "Failed"]
-    note = next(f for f in _notes(gate) if f.startswith("iig_owed_run:EMAIL_TEMPLATE_CONFIG"))
-    # post59: proposed, not applied — unanswered, every template status is written
-    assert "proposed 'all four'" in note and "not applied until chosen" in note
-    assert "INPUT_NEEDED run.email_statuses" in note
+    # post61: 'all four' is a profile default — written, no NOTE (no gate flag)
+    assert not [f for f in _notes(gate)
+                if f.startswith("iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS")]
     config = _scoped(_acfc(), tmp_path)
     gate = cli._generate_feed(spec, config, dry_run=True, skip_tests=True,
                               output_mode="framework", conventions_profile="acfc_prx",

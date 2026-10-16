@@ -2232,7 +2232,8 @@ class DemoRunner:
         return resolve_feed(spec, profile=config.conventions.get(self.conventions_profile),
                             tpl=tpl, inputs={}, choices=self.input_choices,
                             index=frd_feed_index(frd_path, spec.feed_id, config),
-                            faq=faq_for_spec(spec, config, base_dir=REPO_ROOT), base=REPO_ROOT)
+                            faq=faq_for_spec(spec, config, base_dir=REPO_ROOT), base=REPO_ROOT,
+                            config=config)
 
     def _owed_inputs(self, spec, config, frd_path, resolved=None) -> list[dict]:
         """The INPUT_NEEDED items of one generated feed (codegen.owed_inputs):

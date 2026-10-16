@@ -45,6 +45,9 @@ class TemplateItem:
     # post59: a convenience entry (the feed-level pipeline_name choice that
     # covers every flow) — not an input owed, not counted in the header
     shared: bool = False
+    # post61: a profile default the run WROTE (its value) — listed so the BSA
+    # can change it, not an input owed, not counted in the header
+    applied: str = ""
 
 
 def _q(value: str) -> str:
@@ -74,14 +77,16 @@ def _gaps_entry(item: TemplateItem) -> list[str]:
         from codegen.input_choices import PLACEHOLDERS
 
         placeholders = " ".join("{" + p + "}" for p in PLACEHOLDERS)
+        how = ("profile default, written when left empty" if item.applied
+               else f"proposed: {item.options[0]} (applied only when written here)")
         return [f"  {_q(item.key)}:",
-                f'    choice: ""                 # {" | ".join(item.options)} — proposed: '
-                f"{item.options[0]} (applied only when written here)",
+                f'    choice: ""                 # {" | ".join(item.options)} — {how}',
                 *(['    standard: ""               # naming_standard: a template over '
                    f"{placeholders}"] if "naming_standard" in item.options else []),
                 '    value: ""',
                 f"    proposed: {_q(item.proposed)}",
                 f"    template: {_q(item.proposed_template)}",
+                *([f"    applied: {_q(item.applied)}"] if item.applied else []),
                 *(["    shared: true               # covers every flow of the feed"]
                   if item.shared else []),
                 f"    question: {_q(item.reason)}",
@@ -126,7 +131,8 @@ def read_template(path: Path) -> list[TemplateItem]:
                                       options=options,
                                       proposed=str(entry.get("proposed") or ""),
                                       proposed_template=str(entry.get("template") or ""),
-                                      shared=bool(entry.get("shared"))))
+                                      shared=bool(entry.get("shared")),
+                                      applied=str(entry.get("applied") or "")))
     return items
 
 
@@ -166,7 +172,7 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
     answers = [i for i in ordered.values() if i.section == "answers"]
     inputs = [i for i in ordered.values() if i.section == "inputs"]
     gaps = [i for i in ordered.values() if i.section not in ("answers", "inputs")]
-    owed = [i for i in inputs if not i.shared]
+    owed = [i for i in inputs if not i.shared and not i.applied]
     lines = [f"{_HEADER} — {len(ordered) - len(inputs)} open question(s), "
              f"{len(owed)} input(s) needed, written by {stage}.",
              "# Fill each empty value / column, then rerun the run's stages with",
@@ -193,7 +199,7 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
                 lines += _indent(_gaps_entry(TemplateItem(
                     item.key[len("run."):], item.reason, item.candidates,
                     options=item.options, proposed=item.proposed,
-                    proposed_template=item.proposed_template)), 2)
+                    proposed_template=item.proposed_template, applied=item.applied)), 2)
         feeds: dict[str, list[TemplateItem]] = {}
         other = []
         for item in inputs:
@@ -202,7 +208,7 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
                 feeds.setdefault(feed, []).append(TemplateItem(
                     name, item.reason, item.candidates, options=item.options,
                     proposed=item.proposed, proposed_template=item.proposed_template,
-                    shared=item.shared))
+                    shared=item.shared, applied=item.applied))
             elif not item.key.startswith("run."):
                 other.append(item)
         if feeds:

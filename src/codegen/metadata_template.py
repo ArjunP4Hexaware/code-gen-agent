@@ -277,6 +277,17 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
                       f"inputs.feeds.<feed> with generate --answers, or the load-pattern FAQ "
                       f"{name}"))
         default = _owed_default(rule, {**tpl.corpus_tokens, **(context or {})})
+        if default and not is_placeholder(default) and _profile_default(rule):
+            # post61: a profile default (the overlay's value) — written, no
+            # NOTE (no gate flag); the CLI's NOTE line / the App say it is
+            # changeable (codegen.input_choices)
+            cells[header] = _cell(default, "synthetic",
+                                  f"profile default {rule.default!r} = {default!r} "
+                                  f"({rule.default_share or 'the conventions profile'}) — "
+                                  f"{rule.question}; change it under inputs "
+                                  f"({'run' if rule.scope == 'run' else 'feeds.<feed>'}."
+                                  f"{label})")
+            continue
         # post59: proposed is not applied — an unanswered cell stays blank, its
         # NOTE names the proposal (codegen.input_choices)
         if default and not is_placeholder(default):
@@ -288,6 +299,14 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
         cell = _cell("", "needs_template", f"owed: {rule.question}{shown}")
         cell["badge_entry"]["note"] = f"{kind}:{tab}.{key} — {rule.question}{shown} ({how})"
         cells[header] = cell
+
+
+def _profile_default(rule) -> bool:
+    """The owed rule's default is a profile default (post61:
+    codegen.input_choices.default_kind)."""
+    from codegen.input_choices import PROFILE_DEFAULT, default_kind
+
+    return bool(rule.default) and default_kind(rule) == PROFILE_DEFAULT
 
 
 def _owed_default(rule, tokens: dict) -> str:
@@ -334,6 +353,10 @@ def owed_questions(tpl: MetadataTemplateConfig, faq,
             answer = getattr(faq, rule.faq, None) if faq is not None else None
             if _answered(answer):
                 continue
+            if _profile_default(rule) and not is_placeholder(rule.default):
+                value = _owed_default(rule, {**tpl.corpus_tokens, **(tokens or {})})
+                if value and not is_placeholder(value):
+                    continue        # post61: written with the profile's value
             question = rule.question
             if rule.default:
                 # post59: a proposal, never written until chosen
@@ -876,17 +899,26 @@ def _prefix_middle(pattern: str, tokens: list[str] | None, bound: list[str] | No
 
 
 def _src_file_name_cell(tpl: MetadataTemplateConfig, pattern: str, stated: str,
-                        badge: str, feed_id: str | None = None) -> dict:
+                        badge: str, feed_id: str | None = None, faq=None) -> dict:
     """ADLS SRC_FILE_NAME by the family convention (or the feed's
-    ``feed_overrides.<feed_id>.src_file_name``): the pattern (date tokens as
-    '*'), the OBJECT_NAME prefix + '*' (prefix_star — the SD rows, the suffix
-    wildcard), or '*' + the name core + '*' + the extension (prefix_middle)."""
+    ``feed_overrides.<feed_id>.src_file_name``; post61: the BSA's
+    ``src_file_name_style`` first — a profile default they may change): the
+    pattern (date tokens as '*'), the OBJECT_NAME prefix + '*' (prefix_star —
+    the SD rows, the suffix wildcard), or '*' + the name core + '*' + the
+    extension (prefix_middle)."""
+    from codegen.input_choices import STYLES
+
     override = _feed_override(tpl, feed_id)
     style = (override.src_file_name if override is not None and override.src_file_name
              else tpl.family_conventions.src_file_name)
     why = (f"feed_overrides.{feed_id}.src_file_name: {style}"
            if override is not None and override.src_file_name
            else f"family convention src_file_name: {style}; {_family_citation(tpl)}")
+    answer = getattr(faq, "src_file_name_style", None) if faq is not None else None
+    chosen = str(answer.value).strip() if answer is not None and answer.source != "unknown" \
+        else ""
+    if chosen in STYLES:
+        style, why = chosen, f"the BSA's choice src_file_name_style: {chosen}"
     if style == "prefix_middle":
         value = _prefix_middle(pattern, tpl.object_name_strip_tokens,
                                tpl.object_name_bound_tokens)
@@ -1341,7 +1373,8 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl),
             "SRC_FILE_NAME": _src_file_name_cell(
                 tpl, pattern, file.template,
-                "from_frd" if feed.file_name_patterns else "from_sttm", _feed_key(feed, spec)),
+                "from_frd" if feed.file_name_patterns else "from_sttm", _feed_key(feed, spec),
+                faq),
             "SRC_COLUMNS": _cell(src_columns, "from_sttm"),
             "SRC_DATA_TYPE": src_type_cell,
             "TGT_DATABASE_NAME": _cell(stage.schema_name, "from_frd"),
@@ -1718,8 +1751,34 @@ def _notebook_details(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "pipeline": _role_pipeline_name(feed, faq, tpl, template_row.get("_pipeline_role")),
         }
         _derive(tpl, tab, cells, context)
-        out.append(_notebook_path_root(tpl, _with_constants(tpl, tab, cells, context, faq)))
+        row = _with_constants(tpl, tab, cells, context, faq)
+        out.append(_notebook_path_root(tpl, _notebook_name_choice(row, flow, faq)))
     return out
+
+
+def _notebook_name_choice(row: dict, flow: str, faq) -> dict:
+    """post61: the notebook NAME is a profile default (corpus_cells by notebook
+    kind); the BSA's ``notebook_name_<flow>`` (a value, or leave_blank) wins —
+    the PATH stays the profile's."""
+    from codegen.input_choices import chosen_of
+
+    answer = getattr(faq, f"notebook_name_{flow}", None) if faq is not None and flow else None
+    if answer is None or answer.source == "unknown" or "DATABRICKS_NOTEBOOK_NAME" not in row:
+        return row
+    chosen = chosen_of(answer)
+    value = str(answer.value).strip()
+    if chosen is not None and chosen[0] == "blank":
+        cell = _cell("", "needs_template", "left blank by choice — the notebook name")
+        cell["badge_entry"]["note"] = (
+            f"iig_owed_blank:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME[{flow}] — "
+            f"left blank: the BSA chose leave_blank for notebook_name.{flow}")
+        return {**row, "DATABRICKS_NOTEBOOK_NAME": cell}
+    if not value:
+        return row
+    return {**row, "DATABRICKS_NOTEBOOK_NAME": _cell(
+        value, "from_faq", f"the BSA's notebook name for {flow} (inputs.feeds.<feed>."
+                           f"notebook_name.{flow}); DATABRICKS_NOTEBOOK_PATH stays the "
+                           "profile's — check it names this notebook")}
 
 
 def _notebook_path_root(tpl: MetadataTemplateConfig, row: dict) -> dict:
@@ -2213,7 +2272,8 @@ def email_status_set(tpl: MetadataTemplateConfig, faq,
     feed's ``feed_overrides.<feed_id>.email_statuses`` (2026-10-15), else the
     run's answer to ``email_status_input`` (comma / semicolon separated,
     matched case-insensitively; 'all' / 'all four' = every one), else
-    ``email_status_default`` ([] = every one)."""
+    ``email_status_default`` ([] = every one) — post61: a profile default,
+    written when unanswered with no NOTE (no gate flag)."""
     rule = tpl.email_status_input
     statuses = [str(r.get("STATUS") or "") for r in tpl.template_rows.get(
         "EMAIL_TEMPLATE_CONFIG") or []]
@@ -2234,9 +2294,14 @@ def email_status_set(tpl: MetadataTemplateConfig, faq,
     if stated.lower() in ("all", "all four", "*"):
         return None, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; written "
                       f"with every status: {', '.join(statuses)} (answered 'all')")
+    if not stated and (rule.default_kind or "profile_default") == "profile_default":
+        # post61: the profile's set (email_status_default, else every row) is a
+        # profile default — written, no NOTE; the CLI's NOTE line / the App's
+        # panel say it is changeable
+        return default, ""
     if not stated:
-        # post59: the default set is a proposal — unanswered, every template
-        # status row is written (no default filter applied)
+        # post59: an agent proposal — unanswered, every template status row is
+        # written (no default filter applied)
         how = f"INPUT_NEEDED run.{rule.faq}: once for the run, under inputs.run"
         return None, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; every "
                       f"template status written ({', '.join(statuses)}); proposed "

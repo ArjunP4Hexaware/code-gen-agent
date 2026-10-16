@@ -5,7 +5,16 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post59).** post59 = PIPELINE_NAME (+ APPLICATION_NAME,
+**RESTART HERE (2026-10-16, after post60).** post60 = ONE generate entry point:
+`cli.generate_feed_result` (the feed pipeline; the App's `GenerationStore._generate_feed`
+wraps it — no more mirror) + `codegen.generate_run.GenerateRun` (open lines, choices,
+CRASHED / GATE_FAIL quarantine / written, outcome, CODEGEN_STAGES.json), driven by
+`cli._run_pairs` and the App's `DemoRunner._generate_specs`. App and CLI manifests are
+byte-identical for the same pair (`test_generate_entry_point.py`); the App's state reads
+`outcome` / `written` from the manifest (`status.outcome`). Tests that patch the pipeline
+patch `codegen.cli` names (`cli.compute_verdict`, `cli.build_provider`, …).
+
+**After post59 (kept for reference).** post59 = PIPELINE_NAME (+ APPLICATION_NAME,
 EMAIL_TO, email statuses where a default exists) as a three-way choice (`codegen.input_choices`):
 use_default / naming_standard / leave_blank. PROPOSED IS NOT APPLIED — unanswered = blank cell
 + INPUT_NEEDED with the proposal and its template; only an explicit choice (answers file
@@ -119,9 +128,7 @@ last `CHANGELOG_ACFC.md` entry + 1, never from the prompt. Open after post55:
 `CHANGELOG_ACFC.md`. Verified at head: dev `.venv` 1643 passed / 29 skipped, `.venv-d1`
 1354 passed / 69 skipped, ruff clean, scrub_check 68 hits / 18 rows / 13 files (unchanged).
 The post54 report was given. Nothing queued at home; open items:
-- **App path:** `ui/backend/service.py::GenerationStore._generate_feed` does not quarantine
-  a GATE_FAIL (nor write `CODEGEN_STAGES.json`) — mirror cli `_run_pairs` (`crashed` /
-  `gate_failed` / `hard_failed`) when asked.
+- **App path:** done in post60 (the App drives `GenerateRun`: quarantine + manifest).
 - **Harness (Genie's side):** read emit-stage statuses, the generate outcome and the
   workbook paths from `CODEGEN_STAGES.json` (`run_stages.read_stage_manifest(out_root)`),
   never a glob of the shared output folder (how pair_02's workbook got counted for
@@ -847,9 +854,10 @@ nothing merges anywhere without Soham's word. `main` is the deployment branch.
 - Layer-2 candidate **approval merge is deliberately v2**: the UI records
   approve/reject decisions (`ui/backend/state/decisions.json`, gitignored),
   but merging into generated code stays manual; decisions don't gate.
-- `ui/backend/service.py::GenerationStore._generate_feed` mirrors
-  `cli._generate_feed` step for step — keep them in sync if CLI
-  orchestration changes. UI runs are always dry-run + skip-tests.
+- `ui/backend/service.py::GenerationStore._generate_feed` wraps
+  `cli.generate_feed_result` (post60: one pipeline, no mirror to sync); the
+  run bookkeeping is `codegen.generate_run.GenerateRun` for both. UI runs are
+  always skip-tests.
 - Generated job JSON cluster shape/schedule is a config guess; only "Weekly
   Monday 8 PM" compiles to cron, MIDS ships unscheduled. The client's
   pipeline stack is unknown — output targets plain PySpark + Workflows,

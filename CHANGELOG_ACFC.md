@@ -4,6 +4,35 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post60 — 2026-10-16 (the App writes CODEGEN_STAGES.json; one generate entry point)
+
+- **One feed pipeline.** `codegen.cli.generate_feed_result` is the feed
+  pipeline of both the CLI and the App. `ui.backend.service.GenerationStore.
+  _generate_feed` wraps it in a FeedRun instead of mirroring the CLI step by
+  step. The App now gets the CLI's `iig_cells` and check order.
+- **One run bookkeeper.** `codegen.generate_run.GenerateRun` is driven by both
+  `codegen generate` (`cli._run_pairs`) and the App's live run
+  (`DemoRunner._generate_specs`). It records:
+  - the run-level lines (`run_level_lines`), held-back feeds and values no
+    document states;
+  - the BSA's choices and each feed's owed inputs / LOB question;
+  - CRASHED (partial files removed) / GATE_FAIL (files quarantined +
+    GATE_FAIL.md) / written;
+  - the outcome and `<out root>/CODEGEN_STAGES.json`.
+
+  The manifest (questions with `blocking`, `written`, `open`, `inputs`,
+  `iig_cells`, the outcome) is identical from both.
+- **App run states read the manifest.** The run's `outcome` (also on
+  `GET /api/demo/status`) and each feed's `written` decide the state; nothing
+  is inferred from which feeds returned. A run with no written feed is
+  needs_answers when the outcome is NEEDS_ANSWERS, else failed. A GATE_FAIL
+  feed is now quarantined in the App too, and its listed files point under
+  `quarantine/`.
+- Test: `tests/test_generate_entry_point.py`. It runs the App and the CLI on
+  the same synthetic pair and checks the manifests are byte-identical (the
+  manifest carries no timestamp), unanswered and with a confirmed choice, plus
+  a GATE_FAIL quarantined by the App.
+
 ## 0.5.8.post59 — 2026-10-16 (PIPELINE_NAME three-way choice; file-name tie-break)
 
 - **A defaulted input is a three-way choice** (`codegen.input_choices`): every

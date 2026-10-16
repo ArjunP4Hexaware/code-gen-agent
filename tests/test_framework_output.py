@@ -328,7 +328,34 @@ def test_both_mode_is_the_union(config, tmp_path):
         assert (feed_dir / "framework" / "config_rows.xlsx").is_file()
         report = (tmp_path / "reports" / f"{spec.feed_slug}.md").read_text(
             encoding="utf-8")
-        assert "## Framework output (Option B)" in report
+        assert "## Framework artefacts" in report
+
+
+def test_the_report_section_matches_the_artefacts_panel():
+    """2026-10-16 (post63): the report's framework section lists the files the
+    App presents (DDL, IIG, IIG review copy, ADDITION.md) under the panel's
+    heading and approval sentence — never inserts, config rows or Option B."""
+    from pathlib import Path
+
+    from codegen.emit.framework import FrameworkArtefacts, report_section
+
+    written = ["SYN_DDL.txt", "config_rows.xlsx", "config_inserts.xlsx",
+               "metadata_inserts.sql", "syn_IIG_REVIEW.xlsx", "syn_IIG.xlsx", "ADDITION.md"]
+    section = report_section(FrameworkArtefacts(
+        files=[Path("framework") / name for name in written],
+        row_counts={"ADLS_DELTA_INGESTION_DETAILS": 2},
+        coverage={"derived": 3, "synthetic": 0, "needs_template": 1, "total": 4},
+        dml_disabled_reason="conventions profile 'acfc_prx' has emit_dml: false"))
+    assert "## Framework artefacts" in section
+    assert ("The BSA-annotated IIG is the approval artefact; the CI/CD pipeline\n"
+            "applies the DDL after approval.") in section
+    listed = [line.split("`")[1] for line in section.splitlines()
+              if line.startswith("| `")]
+    assert listed == ["SYN_DDL.txt", "syn_IIG.xlsx", "syn_IIG_REVIEW.xlsx", "ADDITION.md"]
+    assert "| IIG rows: ADLS_DELTA_INGESTION_DETAILS | 2 |" in section
+    lowered = section.lower()
+    for word in ("insert", "config row", "config_rows", "option b"):
+        assert word not in lowered, word
 
 
 @needs_demo_pair

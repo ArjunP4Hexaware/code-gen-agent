@@ -1040,26 +1040,39 @@ def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> s
     return None
 
 
+def presented_files(files: list[Path]) -> list[Path]:
+    """The framework files the App and the report present, in that order: the
+    DDL, the IIG, its review copy and ADDITION.md (2026-10-16). The other
+    framework files are still written; they are not listed."""
+    tests = (
+        lambda name: name.endswith(("_DDL.txt", "_table_creation.txt")),
+        lambda name: name.endswith("_IIG.xlsx"),
+        lambda name: name.endswith("_IIG_REVIEW.xlsx"),
+        lambda name: name == "ADDITION.md",
+    )
+    return [path for test in tests for path in files if test(path.name)]
+
+
 def report_section(artefacts: FrameworkArtefacts) -> str:
-    """The "Framework output" section appended to the generation report."""
+    """The "Framework artefacts" section appended to the generation report;
+    2026-10-16 (post63): the same files and approval sentence as the App's
+    artefacts panel."""
     coverage = artefacts.coverage
     lines = [
         "",
-        "## Framework output (Option B)",
+        "## Framework artefacts",
         "",
-        "Artefacts under `framework/` — an addition to the existing ingestion",
-        "framework. The config rows workbook is the approval artefact; the DDL",
-        "and insert SQL are add-ons to ACFC's master notebook (the client's own",
-        "notebook — never generated or edited by the agent), applied only after",
-        "approval.",
+        "Under `framework/` — an addition to the existing ingestion framework.",
+        "The BSA-annotated IIG is the approval artefact; the CI/CD pipeline",
+        "applies the DDL after approval. The agent never applies anything itself.",
         "",
         "| Artefact | Detail |",
         "| --- | --- |",
     ]
-    for path in artefacts.files:
+    for path in presented_files(artefacts.files):
         lines.append(f"| `{path.name}` | framework/{path.name} |")
     for tab, count in artefacts.row_counts.items():
-        lines.append(f"| rows: {tab} | {count} |")
+        lines.append(f"| IIG rows: {tab} | {count} |")
     lines.append(
         f"| badge coverage | {coverage['derived']}/{coverage['total']} derived · "
         f"{coverage['synthetic']} synthetic · {coverage['needs_template']} "
@@ -1074,13 +1087,10 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         lines.append(f"| **PROVENANCE** | {note} |")
     for held in artefacts.held_back:
         lines.append(f"| **HELD BACK** | {held} |")
-    if artefacts.dml_disabled_reason is not None:
-        lines.append(f"| DML | runner notebooks not generated (disabled) — "
-                     f"{artefacts.dml_disabled_reason}; `metadata_inserts.sql` is written "
-                     "regardless |")
     return "\n".join(lines) + "\n"
 
 
 # Badge labels re-exported for the report/UI so the vocabulary stays single-
 # sourced from metadata_sheet.
-__all__ = ["FrameworkArtefacts", "emit_framework", "report_section", "BADGE_LABELS"]
+__all__ = ["FrameworkArtefacts", "emit_framework", "presented_files", "report_section",
+           "BADGE_LABELS"]

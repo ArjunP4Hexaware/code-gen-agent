@@ -261,7 +261,8 @@ def test_multi_file_frd_takes_the_sttm_frequency_and_no_pointer_text(tmp_path):
 def test_shipped_settings_write_metadata_inserts_and_no_notebook(pair1_config, pair1_spec,
                                                                  tmp_path):
     """emit_dml ships false: the runner notebooks are not written, the metadata
-    rows are (they are the client's "DDL"), and the run report says so."""
+    rows are (they are the client's "DDL"). 2026-10-16 (post63): the run report
+    no longer describes inserts — its framework section is the artefacts panel's."""
     assert pair1_config.conventions.profiles["acfc_prx"].emit_dml is False
     cli._generate_feed(pair1_spec, _scoped(pair1_config, tmp_path), dry_run=True,
                        skip_tests=True, output_mode="framework",
@@ -270,5 +271,5 @@ def test_shipped_settings_write_metadata_inserts_and_no_notebook(pair1_config, p
     assert (framework / FILE_NAME).is_file()
     assert not list(framework.glob("Insert_scripts_config_table_*.py"))
     report = (tmp_path / "reports" / f"{pair1_spec.feed_slug}.md").read_text(encoding="utf-8")
-    assert ("| DML | runner notebooks not generated (disabled) — conventions profile 'acfc_prx' "
-            "has emit_dml: false; `metadata_inserts.sql` is written regardless |") in report
+    assert "## Framework artefacts" in report
+    assert "insert" not in report.split("## Framework artefacts", 1)[1].lower()

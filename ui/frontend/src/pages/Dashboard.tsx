@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
-import { presentedArtefacts } from "../artefacts";
+import { APPROVAL_NOTE, presentedArtefacts } from "../artefacts";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { DatabricksPublishPanel } from "../components/DatabricksPublishPanel";
@@ -229,10 +229,7 @@ export function Dashboard({
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-head">
             <h2>Framework artefacts</h2>
-            <span className="hint">
-              The BSA-annotated IIG is the approval artefact; the CI/CD pipeline applies
-              the DDL after approval.
-            </span>
+            <span className="hint">{APPROVAL_NOTE}</span>
           </div>
           <div className="panel-body">
             {feeds

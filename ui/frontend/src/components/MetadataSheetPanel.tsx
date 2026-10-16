@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { api, type MetadataSheetResponse, type ProvenanceBadge } from "../api";
+import { APPROVAL_NOTE } from "../artefacts";
 
 /* Display-only preview of the ACFC metadata sheet — the output shape for
    their metadata-driven framework. Every cell carries exactly one
@@ -121,11 +122,7 @@ export function MetadataSheetPanel({ refreshKey }: { refreshKey?: string | numbe
         </a>
       </p>
       <p className="hint" style={{ marginTop: 4, fontSize: 11 }}>
-        Display only — the reviewed sheet is the approval artifact. On approval the
-        rows land in the ingestion framework database, and the generated DDL +
-        insert SQL are add-ons to ACFC's master notebook — the client's own
-        notebook, never generated or edited by the agent. The agent never inserts
-        unapproved rows.
+        Display only. {APPROVAL_NOTE} The agent never applies anything itself.
       </p>
     </div>
   );

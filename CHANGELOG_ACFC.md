@@ -4,6 +4,21 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post63 — 2026-10-16 (approval wording; text only, the same files are written)
+
+One commit per item.
+
+1. **Metadata-sheet preview footnote (App).** It no longer describes the config
+   rows and the insert SQL as the approval path. It now says the BSA-annotated
+   IIG is the approval artefact and the CI/CD pipeline applies the DDL after
+   approval: the artefacts panel's sentence (one constant, `artefacts.ts`
+   `APPROVAL_NOTE`).
+2. **Generation report.** "Framework output (Option B)" is now "Framework
+   artefacts", with the same sentence. Its file table lists the files the App
+   presents (`framework.presented_files`: the DDL, the IIG, its review copy,
+   ADDITION.md); the DML / `metadata_inserts.sql` line is gone. Row counts read
+   "IIG rows: <sheet>".
+
 ## 0.5.8.post62 — 2026-10-16 (App cleanup for the demo; no generator behaviour change)
 
 One commit per item.

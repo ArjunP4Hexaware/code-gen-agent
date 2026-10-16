@@ -5,7 +5,12 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post62).** post62 = App-only demo cleanup (one commit
+**RESTART HERE (2026-10-16, after post63).** post63 = wording only: the metadata-sheet
+preview footnote and the report's framework section ("Framework artefacts",
+`framework.presented_files`) say what the artefacts panel says (`artefacts.ts`
+`APPROVAL_NOTE`): the BSA-annotated IIG is the approval artefact, CI/CD applies the DDL.
+
+**After post62 (kept for reference).** post62 = App-only demo cleanup (one commit
 each): no source-files panel / `/api/demo/source-files` route; the artefacts panel shows only
 DDL / IIG / IIG_REVIEW / ADDITION.md (`ui/frontend/src/artefacts.ts`; the other files still
 written); ADDITION.md = file table + "Review flow" + blank IDs (no inserts / config rows);

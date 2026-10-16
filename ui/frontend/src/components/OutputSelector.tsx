@@ -6,7 +6,7 @@ export const OUTPUT_COPY: Record<OutputPart, { label: string; title: string }> =
   notebook: { label: "Notebook", title: "A fresh standalone PySpark pipeline" },
   framework: {
     label: "Framework artefacts",
-    title: "DDL scripts + config rows + inserts for the existing ingestion framework",
+    title: "DDL + BSA-annotated IIG for the existing ingestion framework",
   },
 };
 

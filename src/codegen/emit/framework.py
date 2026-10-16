@@ -47,6 +47,7 @@ from codegen.gate.derivations import (
     normalise_iig_line_breaks,
     normalise_path,
     path_normalised_flag,
+    path_whitespace_flags,
 )
 from codegen.gate.preflight import GateCheck
 from codegen.metadata_sheet import (
@@ -757,6 +758,12 @@ def emit_framework(
     # 2026-10-13 (pair_12): every IIG cell is ONE line before anything is written
     # from the payload (workbooks, metadata_inserts.sql); each change is a flag.
     flags.extend(normalise_iig_line_breaks(payload))
+    # post57 (D1 post55 pair_01): whitespace in a stated path is kept byte for
+    # byte; under path_whitespace: keep each path cell gets ONE flag (coordinates
+    # + kind), under fail the derivations check fails it
+    path_whitespace = getattr(profile, "path_whitespace", "keep")
+    if path_whitespace == "keep":
+        flags.extend(path_whitespace_flags(payload, config.gate.derivations))
     from codegen.metadata_template import blank_flags, shape_flags
 
     if template_cfg is not None:
@@ -873,8 +880,8 @@ def emit_framework(
         checks.append(GateCheck(name="qualified_names", passed=False,
                                 details="; ".join(unqualified)))
     ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files if p.suffix == ".txt"]
-    checks.append(check_sql_literals(ddl_texts, config))
-    checks.append(check_iig_derivations(payload, config))
+    checks.append(check_sql_literals(ddl_texts, config, path_whitespace))
+    checks.append(check_iig_derivations(payload, config, path_whitespace))
 
     rows_workbook = build_workbook(payload)
     inputs_sheet = rows_workbook.create_sheet(title="_inputs")

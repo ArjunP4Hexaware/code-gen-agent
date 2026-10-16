@@ -938,6 +938,10 @@ conventions:
       audit_datatypes: [string, timestamp]
       audit_flag_datatypes: [tinyint, int, smallint, boolean]
       audit_flag_suffixes: [_flag, _ind]
+      # post57: whitespace in a path the documents state - keep (written byte for
+      # byte, one iig_path_whitespace flag per cell for the BSA) | fail (the gate
+      # fails it). The PRX golden's own paths carry double spaces.
+      path_whitespace: keep
       # M7: three-part names or no DDL (catalog_unstated:<layer> FAILs).
       # default_catalog is the LAST fallback (FRD label -> STTM band -> here);
       # empty = none configured. Set per environment in an overlay.

@@ -8,7 +8,12 @@ band is flagged.
   whitespace, no empty segment, no segment ending in punctuation, exactly
   one separator between segments, and stay under the path cap. A
   violation is a FAILED gate check naming the field, the value (truncated)
-  and the provenance the cell was built from.
+  and the provenance the cell was built from. post57: whitespace is the
+  conventions profile's ``path_whitespace`` — ``keep`` (default): the path is
+  written as the document states it, byte for byte, and each path cell gets
+  ONE ``iig_path_whitespace`` flag naming its coordinates and the kind of
+  whitespace (double space / leading / trailing / tab); ``fail``: whitespace
+  fails the check as before.
 * SQL literals in the deployment DDL (``COMMENT '…'``, ``LOCATION '…'``,
   TBLPROPERTIES values): no newline / carriage return, balanced quotes
   after escaping, no leading / trailing whitespace; ``LOCATION`` literals
@@ -122,11 +127,36 @@ def path_segments(value: str) -> list[str]:
     return re.split(r"[\\/]", text.strip("\\/")) if text.strip("\\/") else []
 
 
-def path_violations(value: str, cap: int) -> list[str]:
+PATH_WHITESPACE_MODES = ("keep", "fail")
+
+
+def whitespace_kinds(value: str) -> list[str]:
+    """The kinds of whitespace a path carries that a folder name's single
+    inner space is not: ``double space`` (a run of spaces), ``leading`` /
+    ``trailing`` (at the value's ends or beside a separator), ``tab``, ``other``
+    (any other non-line-break whitespace). [] for a clean path."""
+    kinds: list[str] = []
+    if re.search(r" {2,}", value):
+        kinds.append("double space")
+    if value[:1].isspace() or re.search(r"[\\/][ \t]+\S", value):
+        kinds.append("leading")
+    if value[-1:].isspace() or re.search(r"\S[ \t]+[\\/]", value):
+        kinds.append("trailing")
+    if "\t" in value:
+        kinds.append("tab")
+    if re.search(r"[^\S \t\r\n]", value):
+        kinds.append("other")
+    return kinds
+
+
+def path_violations(value: str, cap: int, whitespace: str = "fail") -> list[str]:
+    """The folder-path rule. ``whitespace`` = the profile's ``path_whitespace``:
+    ``fail`` = any whitespace is a violation; ``keep`` = none is (the cell's
+    ``iig_path_whitespace`` flag names it instead)."""
     problems: list[str] = []
     if "\n" in value or "\r" in value:
         problems.append("line break")
-    if re.search(r"\s", value):
+    if whitespace != "keep" and re.search(r"\s", value):
         problems.append("whitespace")
     if len(value) > cap:
         problems.append(f"length {len(value)} > {cap}")
@@ -165,15 +195,16 @@ def normalise_path(value: str, *, lowercase: bool = False) -> tuple[str, list[st
 
     Input documents carry punctuation a path cannot (first ACFC run: an FRD
     ADLS Location ending ``…/accum.``, ``inbound//vendor``): every segment is
-    whitespace-trimmed and stripped of trailing ``.,;:``, a doubled or
-    backslash separator becomes one ``/``, a segment that was only
-    punctuation is dropped, and — when the convention says so — the segments
-    are lowercased. A location URI keeps its scheme and authority verbatim;
-    only its path is normalised. The leading / trailing separator is kept.
+    stripped of trailing ``.,;:``, a doubled or backslash separator becomes one
+    ``/``, a segment that was only punctuation (or blank) is dropped, and —
+    when the convention says so — the segments are lowercased. Whitespace is
+    never touched (post57): the path keeps it byte for byte and the profile's
+    ``path_whitespace`` decides (flag or fail). A location URI keeps its scheme
+    and authority verbatim; only its path is normalised. The leading / trailing separator is kept.
     Nothing changed → the value is returned exactly as given, with ``[]``,
     so a clean path is byte-identical. The caller flags ``path_normalised``
     with the before / after; the gate then checks the normalised value."""
-    text = value.strip()
+    text = value
     head, path = "", text
     if location_scheme(text):
         _scheme, _authority, path = split_location(text)
@@ -181,8 +212,6 @@ def normalise_path(value: str, *, lowercase: bool = False) -> tuple[str, list[st
         if not path:
             return value, []
     changes: list[str] = []
-    if text != value:
-        changes.append("surrounding whitespace trimmed")
     if "\\" in path:
         changes.append("backslash separator(s) made '/'")
     if re.search(r"[\\/]{2,}", path):
@@ -191,13 +220,13 @@ def normalise_path(value: str, *, lowercase: bool = False) -> tuple[str, list[st
     lead, trail = path[:1] in ("/", "\\"), path[-1:] in ("/", "\\") and bool(inner)
     segments: list[str] = []
     for raw in re.split(r"[\\/]", inner) if inner else []:
-        segment = raw.strip()
-        if segment != raw:
-            changes.append(f"whitespace around segment {raw!r} trimmed")
-        if segment == "":
+        segment = raw                  # post57: whitespace kept byte for byte
+        if segment.strip() == "":
+            if segment:
+                changes.append(f"blank segment {raw!r} dropped")
             continue                   # a doubled separator / blank segment (noted above)
-        stripped = segment.rstrip(_TRAILING_PUNCT).rstrip()
-        if stripped == "":
+        stripped = segment.rstrip(_TRAILING_PUNCT)
+        if stripped.strip() == "":
             changes.append(f"punctuation-only segment {segment!r} dropped")
             continue
         if stripped != segment:
@@ -256,7 +285,7 @@ def violation_kind(problem: str) -> str:
 
 
 def _check_cell(header: str, value: str, where: str, cfg, pattern, problems: list[str],
-                kinds: Counter | None = None) -> int:
+                kinds: Counter | None = None, whitespace: str = "fail") -> int:
     """One value (or one segment of a list column) against its column's rule;
     returns 1 when it was a location URI (counted in the details)."""
     kinds = kinds if kinds is not None else Counter()
@@ -277,15 +306,17 @@ def _check_cell(header: str, value: str, where: str, cfg, pattern, problems: lis
                                 "(location URI rule)")
                 kinds["uri_" + violation_kind(problem)] += 1
             return 1
-        for problem in path_violations(value, cfg.path_max_length):
+        for problem in path_violations(value, cfg.path_max_length, whitespace):
             problems.append(f"{where}: {problem} in {_truncate(value)!r}")
             kinds["path_" + violation_kind(problem)] += 1
     return 0
 
 
-def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
+def check_iig_derivations(payload: dict, config: Config,
+                          path_whitespace: str = "keep") -> GateCheck:
     """Every cell of the framework config rows: single line; identifier
-    columns match the charset + cap; path columns follow the path rules."""
+    columns match the charset + cap; path columns follow the path rules
+    (whitespace by ``path_whitespace``: keep = never a violation)."""
     cfg = config.gate.derivations
     pattern = re.compile(cfg.name_pattern)
     problems: list[str] = []
@@ -318,7 +349,8 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
                     kinds["list_empty_segment"] += 1
                     continue
                 for segment in segments:
-                    uris += _check_cell(header, segment, where, cfg, pattern, problems, kinds)
+                    uris += _check_cell(header, segment, where, cfg, pattern, problems, kinds,
+                                        path_whitespace)
     if problems:
         return GateCheck(name="derivations", passed=False, details="; ".join(problems),
                          violations=dict(sorted(kinds.items())))
@@ -326,6 +358,38 @@ def check_iig_derivations(payload: dict, config: Config) -> GateCheck:
     if uris:
         details += f"; {uris} location URI cell(s) checked by the location URI rule"
     return GateCheck(name="derivations", passed=True, details=details)
+
+
+# ------------------------------------------------ path whitespace (post57) ---
+
+
+def path_whitespace_flag(where: str, kinds: list[str]) -> str:
+    return (f"iig_path_whitespace:{where} — {', '.join(kinds)}; kept as the source "
+            "document states it (BSA to confirm)")
+
+
+def path_whitespace_flags(payload: dict, cfg: DerivationsConfig) -> list[str]:
+    """D1 post55 pair_01: ONE flag per path cell (``<SHEET>!<A1> (<COLUMN>)``)
+    whose value carries whitespace a folder name's single inner space is not —
+    the cell itself is never changed (``path_whitespace: keep``). A location
+    URI keeps its own rule; a list column is read segment by segment."""
+    flags: list[str] = []
+    for tab_name, tab in payload.get("tabs", {}).items():
+        for row_index, row in enumerate(tab.get("rows", []), start=2):
+            for header, value in row.get("values", {}).items():
+                if not isinstance(value, str) or not value or not _is_path_column(header, cfg):
+                    continue
+                parts = value.split(",") if header in cfg.list_columns else [value]
+                if len(parts) > 1:
+                    parts = [p[1:] if p.startswith(" ") and i else p
+                             for i, p in enumerate(parts)]   # the list's own ", "
+                kinds = list(dict.fromkeys(k for p in parts if not location_scheme(p)
+                                           for k in whitespace_kinds(p)))
+                if kinds:
+                    address = _cell_address(tab, header, row_index) or f"row {row_index}"
+                    flags.append(path_whitespace_flag(f"{tab_name}!{address} ({header})",
+                                                      kinds))
+    return flags
 
 
 # ------------------------------------------------- single-line IIG cells ---
@@ -486,7 +550,8 @@ def check_iig_workbooks_single_value(paths: list[Path], cfg: DerivationsConfig) 
 # ---------------------------------------------------------- SQL literals ---
 
 
-def literal_violations(literal: str, *, is_path: bool, cfg: DerivationsConfig) -> list[str]:
+def literal_violations(literal: str, *, is_path: bool, cfg: DerivationsConfig,
+                       path_whitespace: str = "fail") -> list[str]:
     problems: list[str] = []
     if "\n" in literal or "\r" in literal:
         problems.append("line break")
@@ -497,18 +562,21 @@ def literal_violations(literal: str, *, is_path: bool, cfg: DerivationsConfig) -
     if is_path:
         problems.extend(uri_violations(literal, cfg.path_max_length)
                         if location_scheme(literal)
-                        else path_violations(literal, cfg.path_max_length))
+                        else path_violations(literal, cfg.path_max_length, path_whitespace))
     return problems
 
 
-def check_sql_literals(ddl_texts: list[tuple[str, str]], config: Config) -> GateCheck:
-    """COMMENT / LOCATION / TBLPROPERTIES literals of every emitted DDL text."""
+def check_sql_literals(ddl_texts: list[tuple[str, str]], config: Config,
+                       path_whitespace: str = "keep") -> GateCheck:
+    """COMMENT / LOCATION / TBLPROPERTIES literals of every emitted DDL text
+    (a LOCATION's inner whitespace by ``path_whitespace``)."""
     cfg = config.gate.derivations
     problems: list[str] = []
     for name, text in ddl_texts:
         for match in _LITERAL_RE.finditer(text):
             kind, literal = match.group(1).upper(), match.group(2)
-            for problem in literal_violations(literal, is_path=kind == "LOCATION", cfg=cfg):
+            for problem in literal_violations(literal, is_path=kind == "LOCATION", cfg=cfg,
+                                              path_whitespace=path_whitespace):
                 problems.append(f"{name}: {kind} literal {_truncate(literal)!r}: {problem}")
         for match in _TBLPROP_RE.finditer(text):
             for literal in match.groups():
@@ -571,6 +639,9 @@ __all__ = [
     "join_path",
     "literal_violations",
     "normalise_iig_line_breaks",
+    "path_whitespace_flag",
+    "path_whitespace_flags",
+    "whitespace_kinds",
     "normalise_path",
     "path_normalised_flag",
     "path_segments",

@@ -4,7 +4,9 @@ ACFC) lists the flags grouped by type; the coordinates tier (pushed) carries
 counts only — flags per type and the failed check's findings per rule.
 
 Synthetic reproduction: a Family E pair whose FRD landing path has a space,
-so every derived ADLS path fails the derivations path rule."""
+so every derived ADLS path fails the derivations path rule — under the
+conventions profile's ``path_whitespace: fail`` (post57: the default ``keep``
+writes the path as stated and flags it, tests/test_path_whitespace_kept.py)."""
 
 from __future__ import annotations
 
@@ -45,7 +47,9 @@ def gate_fail_run(tmp_path_factory):
     assert extracted.returncode == 0, extracted.stdout + extracted.stderr
     overlay = root / "overlay.yaml"
     overlay.write_text(f"output:\n  dir: {(root / 'out').as_posix()}\n"
-                       f"  reports_dir: {(root / 'reports').as_posix()}\n", encoding="utf-8")
+                       f"  reports_dir: {(root / 'reports').as_posix()}\n"
+                       "conventions:\n  profiles:\n    acfc_prx:\n"
+                       "      path_whitespace: fail\n", encoding="utf-8")
     env["CODEGEN_CONFIG_OVERLAYS"] = str(overlay)
     done = subprocess.run(
         [sys.executable, "-m", "codegen.cli", "generate", "--config", config, "--frd", str(frd),

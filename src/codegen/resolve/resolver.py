@@ -942,6 +942,11 @@ def _resolve_one(
     # applies the same chain earlier (with the dialog for disagreements);
     # here it covers the CLI path and anything the dialog left blank.
     feed_index = next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0)
+    # post57 (D1 post55 pair_01): an FRD cell's own label taken off its value,
+    # and the landing's account / container from the run's environment
+    from codegen.resolve.stated import stated_values
+
+    frd_feed, stated_flags = stated_values(frd_feed, feed_index, frd, config)
     answered_flags: list[str] = []
     frd_feed = _answered_unstated(frd_feed, gaps, feed_index, answered_flags)
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd,
@@ -1223,7 +1228,8 @@ def _resolve_one(
         source_table=sttm_feed.source_table,
         provenance_flags=list(dict.fromkeys([
             *_frd_extraction_flags(frd, original_frd_feed), *sttm_feed.extraction_flags,
-            *width_flags, *gap_flags, *catalog_flags, *provenance_flags, *file_flags,
+            *stated_flags, *width_flags, *gap_flags, *catalog_flags, *provenance_flags,
+            *file_flags,
             *key_flags, *delimiter_flags])),
         files=files,
         frequency_mentions=list(frd_feed.frequency_mentions),

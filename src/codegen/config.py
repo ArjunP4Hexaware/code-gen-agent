@@ -1138,6 +1138,33 @@ class ConventionsProfileConfig(BaseModel):
     audit_flag_datatypes: list[str] = Field(
         default_factory=lambda: ["tinyint", "int", "smallint", "boolean"])
     audit_flag_suffixes: list[str] = Field(default_factory=lambda: ["_flag", "_ind"])
+    # post57 (D1 post55 pair_01, derivations [path_whitespace 19]): whitespace in
+    # a folder path the documents state. keep = the path is written byte for byte
+    # and each cell gets ONE flag naming its coordinates and the kind of
+    # whitespace (double space / leading / trailing / tab) for the BSA to
+    # confirm; fail = the old derivations check (any whitespace fails the gate).
+    path_whitespace: Literal["keep", "fail"] = "keep"
+    # post57 (pair_01: the FRD landing cell read "Path : <account>/<container>/
+    # <folder>"): an FRD cell "<Label> : <value>" whose label is a synonym of the
+    # field being read is read as <value> (flag label_stripped); a label that is
+    # not a synonym of THAT field is never stripped (codegen.resolve.stated).
+    field_label_synonyms: dict[str, list[str]] = Field(default_factory=lambda: {
+        "landing_location": ["path", "folder", "location", "folder path", "file path",
+                             "landing", "landing path", "landing location", "adls path",
+                             "adls location", "landing folder"],
+        "file_name_patterns": ["file name", "file names", "filename", "file name pattern",
+                               "file pattern", "file name example"],
+        "frequency": ["frequency", "file frequency", "load frequency"],
+        "delimiter": ["delimiter", "file delimiter", "field delimiter"],
+    })
+    # post57: a stated landing path that starts "<account>/<container>/…" — the
+    # first segment matching this pattern is a storage account (lowercase letters
+    # and digits, 3-24, at least one digit; or an Azure storage host); its account
+    # and container then come from the run's environment (environment_mismatch
+    # when the document's differ), the folder under the container stays the
+    # document's, byte for byte.
+    storage_account_pattern: str = (r"(?=[a-z0-9]*\d)[a-z0-9]{3,24}"
+                                    r"|[a-z0-9]{3,24}\.(?:dfs|blob)\.core\.windows\.net")
 
     @field_validator("audit_datatypes", "audit_flag_datatypes")
     @classmethod

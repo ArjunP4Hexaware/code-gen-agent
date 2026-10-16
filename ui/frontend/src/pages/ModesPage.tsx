@@ -450,6 +450,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.frdChoices().then(setFrdChoices).catch(() => {});
   }, [selectionJob]);
   const chosen = status?.selection ?? { sttm: null, frd: null, vdd: null };
+  // 2026-10-16: an STTM with no chosen / paired FRD (and no pairing to ask)
+  const noFrd = Boolean(chosen.sttm) && !status?.frd_name && !pairingPending.has("frd")
+    && !status?.pair_candidates?.frd;
 
   const chooseWorkbook = useCallback(async (name: string) => {
     setError(null);
@@ -628,20 +631,25 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </button>
               </span>
               <span>
-                FRD: <code>{status?.frd_name ?? "…"}</code>
+                FRD:{" "}
                 {pairingPending.has("frd") ? (
-                  <em className="hint" title="Choosing the FRD that belongs to this STTM"> Pairing…</em>
-                ) : status?.frd_chosen ? null : <span className="hint"> (config default)</span>}
+                  <em className="hint" title="Choosing the FRD that belongs to this STTM">Pairing…</em>
+                ) : status?.frd_name ? (
+                  <code>{status.frd_name}</code>
+                ) : (
+                  <em className="hint">none chosen</em>
+                )}
                 {status?.frd_auto_paired ? (
                   <span
-                    className="hint"
-                    title="Chosen automatically for this STTM; pick another in the chooser to override"
+                    className="pill req-filled"
+                    style={{ marginLeft: 6 }}
+                    title={`Paired with this STTM by ${pairRuleLabel(status.frd_auto_paired.rule)}; pick another in the chooser to override`}
                   >
-                    {" "}(auto-paired by {pairRuleLabel(status.frd_auto_paired.rule)})
+                    paired
                   </span>
                 ) : null}{" "}
                 <button className="btn" disabled={running || !status?.frd_chosen}
-                        onClick={resetFrd} title="Back to the config default">
+                        onClick={resetFrd} title="Back to none chosen">
                   Clear
                 </button>
               </span>
@@ -681,13 +689,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   Input folder <code>{root}</code> could not be listed: {message}
                 </span>
               ))}
-              {status?.frd_warning ? (
-                <span className="pill req-missing"
-                      title="Pick the companion FRD in the chooser">
-                  This STTM does not appear to belong to the selected FRD — expect a
-                  feed-match failure.
-                </span>
-              ) : null}
             </p>
             <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
             <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -760,6 +761,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 <button className="btn" onClick={openChooser}>Choose documents…</button>
               </div>
             ) : null}
+            {/* 2026-10-16: an STTM with no chosen / paired FRD cannot run (the
+                demo contract is never put beside it); an undecided pairing is
+                asked when the run starts, so it may */}
             {liveAvailable === false ? (
               <div className="empty">
                 Live is unavailable: {liveReason || "the backend cannot reach a Layer-2 provider"}
@@ -771,7 +775,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <button
                 className="btn primary"
                 disabled={
-                  liveAvailable !== true || running || selecting || !chosen.sttm
+                  liveAvailable !== true || running || selecting || !chosen.sttm || noFrd
                   || outputParts.size === 0
                 }
                 title={
@@ -779,6 +783,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     ? "The documents are still being selected"
                     : !chosen.sttm
                     ? "Choose an STTM workbook first"
+                    : noFrd
+                    ? "Choose the STTM's FRD first"
                     : outputParts.size === 0
                       ? "Choose at least one output"
                       : undefined
@@ -797,7 +803,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               Clear past runs…
             </button>
             {clearNote ? <span className="hint"> {clearNote}</span> : null}
-            {!running && liveAvailable !== false && (selecting || !chosen.sttm
+            {!running && liveAvailable !== false && (selecting || !chosen.sttm || noFrd
               || outputParts.size === 0) ? (
               // Say why the button is dead — a title attribute is invisible
               // until someone hovers it.
@@ -806,7 +812,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   ? `selecting ${selectionJob?.name ?? "the documents"}…`
                   : !chosen.sttm
                     ? "choose an STTM workbook first (Choose documents…)"
-                    : "choose at least one output"}
+                    : noFrd
+                      ? "no FRD is paired with this STTM — choose its FRD (Choose documents…)"
+                      : "choose at least one output"}
               </span>
             ) : null}
             {status && !running ? (
@@ -1394,8 +1402,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <>
                 <p className="hint" style={{ margin: "14px 0 4px" }}>
                   <strong>FRD for this run</strong> — currently{" "}
-                  <code>{frdChoices.current.label}</code>
-                  {frdChoices.current.chosen ? "" : " (demo golden — default)"}.
+                  {frdChoices.current.label ? (
+                    <>
+                      <code>{frdChoices.current.label}</code>
+                      {frdChoices.current.paired ? " (paired)" : ""}
+                    </>
+                  ) : (
+                    <em>none chosen</em>
+                  )}.
                   Contracts come from the FRD→STTM agent; a document without a
                   contract is not selectable.
                 </p>

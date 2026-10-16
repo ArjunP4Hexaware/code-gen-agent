@@ -297,8 +297,11 @@ export interface DemoStatus {
   conventions_profile?: string;
   iig_template?: string;
   playbook_template?: string;
-  frd_name?: string;
+  // 2026-10-16: null = none chosen (the demo contract is never preselected);
+  // frd_paired = chosen automatically for the STTM from the pair index
+  frd_name?: string | null;
   frd_chosen?: boolean;
+  frd_paired?: boolean;
   frd_auto_paired?: { frd: string; rule: PairRule } | null;
   vdd_auto_paired?: { vdd: string; rule: PairRule } | null;
   // M8.2: pairings the content scoring could not decide (asked in the layout
@@ -308,7 +311,6 @@ export interface DemoStatus {
     candidates: { name: string; score: number; signals: string }[];
   }>;
   input_errors?: Record<string, string>;
-  frd_warning?: boolean;
   error_hint?: {
     sttm: string;
     frd_used: string;
@@ -348,7 +350,8 @@ export interface SelectionJob {
 
 export interface FrdChoicesResponse {
   sttm: string;
-  current: { label: string; chosen: boolean };
+  // label null = none chosen; paired = chosen automatically for the STTM
+  current: { label: string | null; chosen: boolean; paired?: boolean };
   upstream: FrdChoice[];
   upstream_error: string | null;
   // upstream contract lookups are OFF by default; on, they refresh in the

@@ -678,20 +678,16 @@ def demo_status() -> dict:
                          or _require_store().config.metadata.template),
         "playbook_template": (_require_runner().playbook_template
                               or _require_store().config.playbook.template),
-        # The FRD side of the pair. frd_warning: the STTM is an explicit
-        # non-golden pick while the FRD is still the pinned demo golden —
-        # a feed-match failure is likely; the human decides, no auto-fix.
-        "frd_name": chosen["frd"] or _require_store().config.demo.frd,
+        # The FRD side of the pair (2026-10-16): only the one chosen or paired
+        # with the STTM — None = "none chosen"; the demo contract is never
+        # preselected. frd_paired: chosen automatically from the pair index.
+        "frd_name": chosen["frd"],
         "frd_chosen": chosen["frd"] is not None,
+        "frd_paired": _require_runner().frd_auto_paired is not None,
         # Set when choosing the STTM selected its associated FRD automatically
         # ({frd, rule: pairing_map | ticket | name_stem}); None for a manual pick.
         "frd_auto_paired": _require_runner().frd_auto_paired,
         "vdd_auto_paired": _require_runner().vdd_auto_paired,
-        "frd_warning": (
-            chosen["sttm"] is not None
-            and chosen["sttm"] != Path(_require_store().config.demo.workbook).name
-            and chosen["frd"] is None
-        ),
         "error_hint": _require_runner().error_hint,
     }
 
@@ -734,9 +730,11 @@ def frd_choices() -> dict:
 
     return {
         "sttm": sttm_name,
+        # 2026-10-16: none chosen unless chosen / paired — never the demo default
         "current": {
-            "label": runner.selected_frd_label or store.config.demo.frd,
+            "label": runner.selected_frd_label if runner.selected_frd is not None else None,
             "chosen": runner.selected_frd is not None,
+            "paired": runner.frd_auto_paired is not None,
         },
         "upstream": upstream_rows,
         "upstream_error": upstream_error,

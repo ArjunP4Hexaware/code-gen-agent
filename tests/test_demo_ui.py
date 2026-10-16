@@ -536,7 +536,7 @@ def test_upload_frd_docx_lands_and_selects(client):
         assert r.json() == {"stored": name, "kind": "frd", "selected": True}
         choices = client.get("/api/demo/frd-choices").json()
         assert name in choices["local"]
-        assert choices["current"] == {"label": name, "chosen": True}
+        assert choices["current"] == {"label": name, "chosen": True, "paired": False}
         assert choices["no_contract"] == []
         # Selecting a local docx by name works the same way as a contract.
         assert client.post("/api/demo/frd", json={"kind": "local", "id": name}).status_code == 200
@@ -572,7 +572,7 @@ def test_upload_frd_contract_lands_and_selects(client):
         assert r.json() == {"stored": stored, "kind": "frd", "selected": True}
         choices = client.get("/api/demo/frd-choices").json()
         assert stored in choices["local"]
-        assert choices["current"] == {"label": stored, "chosen": True}
+        assert choices["current"] == {"label": stored, "chosen": True, "paired": False}
     finally:
         client.delete("/api/demo/frd")
         _index_idle()
@@ -659,10 +659,10 @@ def test_choosing_an_sttm_auto_pairs_its_frd(client):
         assert status["frd_name"] == "FRD_demo_cv_golden.contract.json"
         assert status["frd_auto_paired"] == {"frd": "FRD_demo_cv_golden.contract.json",
                                              "rule": "name_key"}
-        assert status["frd_warning"] is False
+        assert status["frd_paired"] is True                   # 2026-10-16: labelled paired
         choices = client.get("/api/demo/frd-choices").json()
         assert choices["current"] == {"label": "FRD_demo_cv_golden.contract.json",
-                                      "chosen": True}
+                                      "chosen": True, "paired": True}
         # A manual pick of the same file is a manual pick.
         r = client.post("/api/demo/frd", json={"kind": "local",
                                                "id": "FRD_demo_cv_golden.contract.json"})

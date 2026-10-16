@@ -570,10 +570,32 @@ class DemoRunner:
             raise StorageError(f"downloading {doc.uri} left no file at {box['path']}")
         return box["path"]
 
-    def effective_frd(self) -> Path:
-        return self.selected_frd or (
-            REPO_ROOT / self._store.config.contracts.dir / self._store.config.demo.frd
-        )
+    def effective_frd(self) -> Path | None:
+        """The FRD a run reads (2026-10-16): the one chosen or paired with the
+        STTM. Only with NO STTM chosen does a run fall back to the configured
+        demo pair (demo.workbook + demo.frd); a chosen STTM without a chosen or
+        paired FRD has none — the demo contract is never put beside a real
+        STTM, and the agent never guesses a pair."""
+        if self.selected_frd is not None:
+            return self.selected_frd
+        if self.selected_workbook is None:
+            return REPO_ROOT / self._store.config.contracts.dir / self._store.config.demo.frd
+        return None
+
+    def _frd_question_pending(self) -> bool:
+        """The run may still get an FRD: its pairing is still landing (the run
+        waits for it, M15.2) or is ambiguous (the run asks)."""
+        job = self.selection_job
+        if (job is not None and not self._pairing_done.is_set()
+                and "frd" in job.get("pairing_pending", [])):
+            return True
+        decision = self.pair_decisions.get("frd")
+        return decision is not None and decision.ambiguous
+
+    def _no_frd_message(self) -> str:
+        return (f"no FRD chosen for {self.effective_workbook().name} — choose its FRD (or "
+                "contract) in Choose documents… and generate again; the agent never "
+                "guesses a pair")
 
     def select_frd(self, path: Path, label: str) -> None:
         with self._lock:
@@ -1925,7 +1947,7 @@ class DemoRunner:
     def _current_inputs(self) -> tuple:
         """(STTM, FRD) — what the held-back keys name. The VDD is left out: a
         dictionary paired after the run (the index reaching it) changes no key."""
-        return (str(self.effective_workbook()), str(self.effective_frd()))
+        return (str(self.effective_workbook()), str(self.effective_frd() or ""))
 
     def rerun_with_answers(self, answers: dict | None) -> None:
         """Start a run of the SAME documents with the answers the last run's
@@ -2066,6 +2088,9 @@ class DemoRunner:
             # Never the config default in place of a document that failed to load.
             raise ValueError(f"{self.selection_error['message']} — choose the STTM again (or "
                              "Clear it) before generating")
+        if self.effective_frd() is None and not self._frd_question_pending():
+            # 2026-10-16: a chosen STTM with no chosen / paired FRD — never the demo FRD
+            raise ValueError(self._no_frd_message())
         with self._lock:
             # needs_layout: a run is paused on its dialog — still in progress.
             if self.state in ("running", "needs_layout"):
@@ -2468,14 +2493,14 @@ class DemoRunner:
         reports_root = run_root / "reports"
         run_root.mkdir(parents=True, exist_ok=True)
 
-        frd_path = self.effective_frd()
-        frd_label = self.selected_frd_label or frd_path.name
         workbook_path = self.effective_workbook()
         contract_path = run_root / "extracted_sttm.contract.json"
 
         self.error_hint = None
         self._ask_pairing()
         frd_path = self.effective_frd()
+        if frd_path is None:
+            raise RuntimeError(self._no_frd_message())
         frd_label = self.selected_frd_label or frd_path.name
         # The documents this run reads: a re-run with answers must read the same.
         self._run_inputs = self._current_inputs()

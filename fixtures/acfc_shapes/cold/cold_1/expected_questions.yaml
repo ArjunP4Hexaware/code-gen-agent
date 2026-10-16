@@ -8,14 +8,14 @@
 layout:
   exit: 3
   lines:
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/schema"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/table"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/column"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/target_type"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/schema"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/table"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/column"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/target_type"]
+    - [UNRESOLVED, "sheets[1]/stage/schema"]
+    - [UNRESOLVED, "sheets[1]/stage/table"]
+    - [UNRESOLVED, "sheets[1]/stage/column"]
+    - [UNRESOLVED, "sheets[1]/stage/target_type"]
+    - [UNRESOLVED, "sheets[1]/standard/schema"]
+    - [UNRESOLVED, "sheets[1]/standard/table"]
+    - [UNRESOLVED, "sheets[1]/standard/column"]
+    - [UNRESOLVED, "sheets[1]/standard/target_type"]
     - [QUESTION, "feeds[0].delimiter"]
 extract_frd:
   exit: 0
@@ -23,12 +23,12 @@ extract_frd:
 extract_sttm:
   exit: 3
   lines:
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/schema"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/table"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/column"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/stage/target_type"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/schema"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/table"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/column"]
-    - [UNRESOLVED, "CH_CLAIMS_DAILY/standard/target_type"]
+    - [UNRESOLVED, "sheets[1]/stage/schema"]
+    - [UNRESOLVED, "sheets[1]/stage/table"]
+    - [UNRESOLVED, "sheets[1]/stage/column"]
+    - [UNRESOLVED, "sheets[1]/stage/target_type"]
+    - [UNRESOLVED, "sheets[1]/standard/schema"]
+    - [UNRESOLVED, "sheets[1]/standard/table"]
+    - [UNRESOLVED, "sheets[1]/standard/column"]
+    - [UNRESOLVED, "sheets[1]/standard/target_type"]
 generate: null

@@ -8,8 +8,8 @@
 layout:
   exit: 3
   lines:
-    - [UNRESOLVED, "FC_ELIG_LAYOUT/band[1]/layer"]
-    - [UNRESOLVED, "FC_ELIG_LAYOUT/band[2]/layer"]
+    - [UNRESOLVED, "sheets[1]/band[1]/layer"]
+    - [UNRESOLVED, "sheets[1]/band[2]/layer"]
     - [QUESTION, "feeds[0].file_format"]
     - [QUESTION, "feeds[0].stage_target.load_strategy"]
     - [QUESTION, "feeds[0].file_patterns"]
@@ -19,6 +19,6 @@ extract_frd:
 extract_sttm:
   exit: 3
   lines:
-    - [UNRESOLVED, "FC_ELIG_LAYOUT/band[1]/layer"]
-    - [UNRESOLVED, "FC_ELIG_LAYOUT/band[2]/layer"]
+    - [UNRESOLVED, "sheets[1]/band[1]/layer"]
+    - [UNRESOLVED, "sheets[1]/band[2]/layer"]
 generate: null

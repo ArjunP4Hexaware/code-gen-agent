@@ -8,11 +8,11 @@
 layout:
   exit: 3
   lines:
-    - [UNRESOLVED, "STTM/stage/table"]
-    - [UNRESOLVED, "STTM/stage/column"]
-    - [UNRESOLVED, "STTM/standard/schema"]
-    - [UNRESOLVED, "STTM/standard/table"]
-    - [UNRESOLVED, "STTM/standard/column"]
+    - [UNRESOLVED, "sheets[2]/stage/table"]
+    - [UNRESOLVED, "sheets[2]/stage/column"]
+    - [UNRESOLVED, "sheets[2]/standard/schema"]
+    - [UNRESOLVED, "sheets[2]/standard/table"]
+    - [UNRESOLVED, "sheets[2]/standard/column"]
     - [QUESTION, "feeds[0].file_format"]
     - [QUESTION, "feeds[0].lobs"]
     - [QUESTION, "feeds[0].file_patterns"]
@@ -22,9 +22,9 @@ extract_frd:
 extract_sttm:
   exit: 3
   lines:
-    - [UNRESOLVED, "STTM/stage/table"]
-    - [UNRESOLVED, "STTM/stage/column"]
-    - [UNRESOLVED, "STTM/standard/schema"]
-    - [UNRESOLVED, "STTM/standard/table"]
-    - [UNRESOLVED, "STTM/standard/column"]
+    - [UNRESOLVED, "sheets[2]/stage/table"]
+    - [UNRESOLVED, "sheets[2]/stage/column"]
+    - [UNRESOLVED, "sheets[2]/standard/schema"]
+    - [UNRESOLVED, "sheets[2]/standard/table"]
+    - [UNRESOLVED, "sheets[2]/standard/column"]
 generate: null

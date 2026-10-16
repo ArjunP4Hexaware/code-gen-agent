@@ -26,13 +26,16 @@ _ROLE_KEY_PARTS = 3
 
 @dataclass(frozen=True)
 class TemplateItem:
-    key: str                       # a gaps: key, or <sheet>/<layer>/<role>
+    key: str                       # a gaps: key, or sheets[<i>]/<layer>/<role>
     reason: str
     candidates: list[str] = field(default_factory=list)
     section: str = "gaps"          # gaps | answers | inputs (non-blocking, INPUT_NEEDED)
     # 2026-10-14 (D1 pair_12): one value PER FILE (the LOB lookup's question):
     # written as a ``files:`` block, every file a key with an empty value.
     files: list[str] = field(default_factory=list)
+    # post57: the sheet a ``sheets[<i>]/...`` key means, as written — a reading
+    # aid in this ACFC-side file only (never on stdout).
+    sheet_name: str = ""
 
 
 def _q(value: str) -> str:
@@ -46,6 +49,8 @@ def _answers_entry(item: TemplateItem) -> list[str]:
     sheet, layer, role = item.key.rsplit("/", 2) if item.key.count("/") >= 2 else (
         item.key, "", "")
     lines = [f"  - sheet: {_q(sheet)}", f"    layer: {_q(layer)}", f"    role: {_q(role)}"]
+    if item.sheet_name and item.sheet_name != sheet:
+        lines.append(f"    sheet_name: {_q(item.sheet_name)}")
     if role == BAND_LAYER_ROLE and BAND_REF_RE.match(layer):
         lines.append('    value: ""                    # source | stage | standard')
     else:
@@ -81,7 +86,8 @@ def read_template(path: Path) -> list[TemplateItem]:
     for entry in raw.get("answers") or []:
         key = f"{entry.get('sheet')}/{entry.get('layer')}/{entry.get('role')}"
         items.append(TemplateItem(key, str(entry.get("question") or ""),
-                                  [str(c) for c in entry.get("candidates") or []], "answers"))
+                                  [str(c) for c in entry.get("candidates") or []], "answers",
+                                  sheet_name=str(entry.get("sheet_name") or "")))
     for section in ("gaps", "inputs"):
         block = raw.get(section) or {}
         entries = flatten_inputs(block) if section == "inputs" else block
@@ -131,7 +137,7 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
              "# Fill each empty value / column, then rerun the run's stages with",
              "#   --answers <this file>   (layout, extract-sttm and generate read it).",
              "# An entry left empty is skipped: its question stays open.",
-             "# `question` and `candidates` are for reading only.",
+             "# `question`, `candidates` and `sheet_name` are for reading only.",
              ""]
     lines.append("answers:" if answers else "answers: []")
     for item in answers:
@@ -213,7 +219,8 @@ def _indent(lines: list[str], width: int) -> list[str]:
 
 
 def is_role_key(key: str) -> bool:
-    """``<sheet>/<layer>/<role>`` (an answers: entry), not a gaps: key."""
+    """``sheets[<i>]/<layer>/<role>`` (or ``<sheet>/…``; an answers: entry),
+    not a gaps: key."""
     return key.count("/") >= _ROLE_KEY_PARTS - 1 and not key.startswith("feeds[")
 
 

@@ -8,7 +8,7 @@
 layout:
   exit: 3
   lines:
-    - [UNRESOLVED, "Provider Directory/band[1]/layer"]
+    - [UNRESOLVED, "sheets[0]/band[1]/layer"]
     - [QUESTION, "feeds[0].lobs"]
     - [QUESTION, "feeds[0].stage_target.load_strategy"]
 extract_frd:
@@ -17,5 +17,5 @@ extract_frd:
 extract_sttm:
   exit: 3
   lines:
-    - [UNRESOLVED, "Provider Directory/band[1]/layer"]
+    - [UNRESOLVED, "sheets[0]/band[1]/layer"]
 generate: null

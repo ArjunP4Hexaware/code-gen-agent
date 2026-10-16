@@ -4,7 +4,7 @@
 # band has no title, its "... in DL" headers are no layer evidence (the user's
 # 2026-10-09 rule) and its schema has no stg_ prefix: the person names it.
 answers:
-  - {sheet: Provider Directory, layer: "band[1]", role: layer, value: stage}
+  - {sheet: "sheets[0]", layer: "band[1]", role: layer, value: stage}
 gaps:
   "feeds[0].lobs": {value: "ALL"}
   "feeds[0].stage_target.load_strategy": {value: "Truncate and Load"}

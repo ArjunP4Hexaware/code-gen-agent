@@ -8,28 +8,28 @@
 layout:
   exit: 3
   lines:
-    - [UNRESOLVED, "PROV_DEMOG/band[2]/layer"]
-    - [UNRESOLVED, "PROV_DEMOG/source/field_name"]
-    - [UNRESOLVED, "PROV_DEMOG/stage/table"]
-    - [UNRESOLVED, "PROV_DEMOG/stage/column"]
-    - [UNRESOLVED, "PROV_DEMOG/stage/target_type"]
-    - [UNRESOLVED, "PROV_LOC/band[2]/layer"]
-    - [UNRESOLVED, "PROV_LOC/source/field_name"]
-    - [UNRESOLVED, "PROV_LOC/stage/table"]
-    - [UNRESOLVED, "PROV_LOC/stage/column"]
-    - [UNRESOLVED, "PROV_LOC/stage/target_type"]
-    - [UNRESOLVED, "PROV_SPEC/band[2]/layer"]
-    - [UNRESOLVED, "PROV_SPEC/source/field_name"]
-    - [UNRESOLVED, "PROV_SPEC/stage/table"]
-    - [UNRESOLVED, "PROV_SPEC/stage/column"]
-    - [UNRESOLVED, "PROV_SPEC/stage/target_type"]
+    - [UNRESOLVED, "sheets[2]/band[2]/layer"]
+    - [UNRESOLVED, "sheets[2]/source/field_name"]
+    - [UNRESOLVED, "sheets[2]/stage/table"]
+    - [UNRESOLVED, "sheets[2]/stage/column"]
+    - [UNRESOLVED, "sheets[2]/stage/target_type"]
+    - [UNRESOLVED, "sheets[3]/band[2]/layer"]
+    - [UNRESOLVED, "sheets[3]/source/field_name"]
+    - [UNRESOLVED, "sheets[3]/stage/table"]
+    - [UNRESOLVED, "sheets[3]/stage/column"]
+    - [UNRESOLVED, "sheets[3]/stage/target_type"]
+    - [UNRESOLVED, "sheets[4]/band[2]/layer"]
+    - [UNRESOLVED, "sheets[4]/source/field_name"]
+    - [UNRESOLVED, "sheets[4]/stage/table"]
+    - [UNRESOLVED, "sheets[4]/stage/column"]
+    - [UNRESOLVED, "sheets[4]/stage/target_type"]
 extract_frd:
   exit: 0
   lines: []
 extract_sttm:
   exit: 3
   lines:
-    - [UNRESOLVED, "PROV_DEMOG/band[2]/layer"]
-    - [UNRESOLVED, "PROV_LOC/band[2]/layer"]
-    - [UNRESOLVED, "PROV_SPEC/band[2]/layer"]
+    - [UNRESOLVED, "sheets[2]/band[2]/layer"]
+    - [UNRESOLVED, "sheets[3]/band[2]/layer"]
+    - [UNRESOLVED, "sheets[4]/band[2]/layer"]
 generate: null

@@ -165,7 +165,7 @@ def test_the_band_question_applies_to_mapping_sheets(cli_env, capsys):  # noqa: 
     contract = bands.frd_contract(stage_schema="nb_land")
     frd.write_text(json.dumps(contract), encoding="utf-8")
     out_path = tmp_path / "sttm.contract.json"
-    wanted = [f"{SHEET}/band[1]/layer", f"{SHEET}/band[2]/layer"]
+    wanted = ["sheets[2]/band[1]/layer", "sheets[2]/band[2]/layer"]   # post57: by position
 
     capsys.readouterr()
     assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",

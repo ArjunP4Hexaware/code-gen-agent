@@ -28,9 +28,10 @@ from test_harness_answer_lines import _NEEDED_KEY_RE
 
 SHEET = "FEED_1_MAPPING"
 GAPS = sttm_fixtures.LAYOUT_GAP_HEADERS
-OPTIONAL_KEYS = [f"{SHEET}/source/comments|description",
-                 f"{SHEET}/source/ordinal|sample_value"]
-REQUIRED_KEY = f"{SHEET}/stage/target_type"
+# post57: printed keys name the sheet by position (the mapping sheet is the third)
+OPTIONAL_KEYS = ["sheets[2]/source/comments|description",
+                 "sheets[2]/source/ordinal|sample_value"]
+REQUIRED_KEY = "sheets[2]/stage/target_type"
 
 
 def _overlay(config, tmp: Path) -> Path:

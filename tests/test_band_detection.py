@@ -237,6 +237,8 @@ def test_a_reference_sheet_beside_mapping_sheets_stays_unread(config):
 
 ANSWERED = {f"{SHEET}/band[1]/layer": "source", f"{SHEET}/band[2]/layer": "stage",
             f"{SHEET}/band[3]/layer": "standard"}
+# post57: the console names the sheet by position (the one sheet: sheets[0])
+PRINTED = [k.replace(f"{SHEET}/", "sheets[0]/", 1) for k in ANSWERED]
 
 
 def test_band_answers_place_the_layers(config, tmp_path):
@@ -347,7 +349,7 @@ def test_cli_chain_asks_per_band_then_completes_after_answers(cli_env, capsys):
     contract["feeds"][0]["standard_target"]["catalog"] = "nb_std"
     frd.write_text(json.dumps(contract, indent=2), encoding="utf-8")
     sttm_out = tmp_path / "sttm.contract.json"
-    wanted = list(ANSWERED)
+    wanted = PRINTED
 
     # layout: one UNRESOLVED line per band, exit 3; the harness records them.
     capsys.readouterr()
@@ -394,7 +396,7 @@ def test_cli_missing_tablename_prints_the_table_question(cli_env, capsys):
     capsys.readouterr()
     assert cli.main(["layout", "--workbook", str(workbook), "--dry-run", "--no-cache",
                      "--require-complete"]) == cli.EXIT_NEEDS_ANSWERS
-    assert _keys(capsys.readouterr().out, "UNRESOLVED") == [f"{SHEET}/stage/table"]
+    assert _keys(capsys.readouterr().out, "UNRESOLVED") == ["sheets[0]/stage/table"]
 
 
 def test_unresolved_report_names_the_band_answer_form(config, tmp_path):
@@ -602,7 +604,7 @@ def test_elimination_note_line_in_the_layout_output(cli_env, capsys):
     notes = [ln for ln in out.splitlines()
              if ln.startswith("NOTE ") and "layer by elimination" in ln]
     assert len(notes) == 1
-    assert notes[0][cli.ANSWER_LABEL_WIDTH:].split(" — ", 1)[0] == f"{SHEET}/band[1]/layer"
+    assert notes[0][cli.ANSWER_LABEL_WIDTH:].split(" — ", 1)[0] == "sheets[0]/band[1]/layer"
     assert not _NEEDED_KEY_RE.match(notes[0])       # informational: the harness ignores it
 
 

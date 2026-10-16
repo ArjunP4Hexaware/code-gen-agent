@@ -419,17 +419,20 @@ def _frd_answer_hint(key: str, frd_contract=None, gap_fills: list[dict] | None =
     return " (frd; answer the value under gaps: in answers.yaml)"
 
 
-def _print_elimination_notes(profile) -> None:
+def _print_elimination_notes(profile, names=None) -> None:
     """One NOTE line per band whose layer is source by elimination (the one
-    band left of both evidenced target bands) — informational, never owed."""
+    band left of both evidenced target bands) — informational, never owed.
+    ``names``: the workbook's sheet names (post57: the key says sheets[<i>])."""
     from codegen.layout.discover import ELIMINATION_NOTE
+    from codegen.layout.sheet_refs import public_role_key
 
+    names = names if names is not None else [s.name for s in profile.sheets]
     for sheet in profile.mapping_sheets:
         for note in sheet.notes:
             if ELIMINATION_NOTE not in note:
                 continue
             ref, _sep, rest = note.partition(" ")
-            print(answer_line("NOTE", f"{sheet.name}/{ref}/layer",
+            print(answer_line("NOTE", public_role_key(f"{sheet.name}/{ref}/layer", names),
                               f"{ref} {rest} — informational, not required to run"))
 
 
@@ -483,12 +486,32 @@ def _write_template(target: Path | None, items: list, stage: str, *, merge: bool
           f"{written}")
 
 
+def _pending_key(p) -> str:
+    """A held-back answer's key as printed (post57: ``sheets[<i>]``, never the
+    sheet name)."""
+    from codegen.layout.sheet_refs import public_key
+
+    return public_key(p.key, {p.sheet: p.sheet_index})
+
+
+def _pending_where(p) -> str:
+    """``feed <name>, sheet sheets[<i>]`` — a feed named after its sheet (a
+    content-driven sheet held back on a role) is named by the reference too."""
+    from codegen.layout.sheet_refs import public_sheet
+
+    ref = public_sheet(p.sheet, {p.sheet: p.sheet_index})
+    feed = f"of {ref}" if p.feed_name == p.sheet else p.feed_name
+    return f"feed {feed}, sheet {ref}"
+
+
 def _pending_items(pending) -> list:
     from codegen.extract.generic import answers_section
     from codegen.layout.answers_template import TemplateItem
 
-    return [TemplateItem(p.key, f"{p.reason} (feed {p.feed_name}, sheet {p.sheet})",
-                         list(p.candidates), answers_section(p.key)) for p in pending]
+    return [TemplateItem(_pending_key(p), f"{p.reason} ({_pending_where(p)})",
+                         list(p.candidates), answers_section(p.key),
+                         sheet_name=p.sheet if answers_section(p.key) == "answers" else "")
+            for p in pending]
 
 
 def _print_needs_answers(pending) -> None:
@@ -497,14 +520,15 @@ def _print_needs_answers(pending) -> None:
     from codegen.extract.generic import answers_section
 
     if pending:
-        feeds = list(dict.fromkeys(p.feed_name for p in pending))
+        feeds = list(dict.fromkeys(_pending_where(p).split(", sheet ")[0][len("feed "):]
+                                   for p in pending))
         print(f"{'NEEDS_ANSWERS':<15} {len(pending)} answer(s) for {len(feeds)} held-back "
               f"feed(s): {', '.join(feeds)} — the QUESTION / UNRESOLVED lines below")
     for p in pending:
         section = answers_section(p.key)
         label = "UNRESOLVED" if section == "answers" else "QUESTION"
-        print(answer_line(label, p.key, f"{p.reason} (feed {p.feed_name}, sheet {p.sheet}; "
-                                        f"answer under {section}: in answers.yaml)"))
+        print(answer_line(label, _pending_key(p), f"{p.reason} ({_pending_where(p)}; "
+                                                  f"answer under {section}: in answers.yaml)"))
 
 
 def _run_pairs(
@@ -843,15 +867,20 @@ def _extract_sttm(args: argparse.Namespace, config: Config) -> int:
         from openpyxl.utils import get_column_letter
 
         from codegen.layout.answers_template import TemplateItem
+        from codegen.layout.sheet_refs import public_role_key
+
+        def key_of(role, names=exc.sheet_names) -> str:
+            return public_role_key(f"{role.sheet}/{role.layer}/{role.role}", names)
 
         for role in exc.unresolved:
-            print(answer_line("UNRESOLVED", f"{role.sheet}/{role.layer}/{role.role}",
+            print(answer_line("UNRESOLVED", key_of(role),
                               f"{role.reason} (place it under answers: in answers.yaml)"))
         print(f"{'NOT EXTRACTED':<15} {args.out} — {len(exc.unresolved)} layout role(s) open "
               "(--require-complete)")
         _write_template(_template_path(args, args.out), [
-            TemplateItem(f"{r.sheet}/{r.layer}/{r.role}", r.reason,
-                         [get_column_letter(c) for c in r.candidates], "answers")
+            TemplateItem(key_of(r), r.reason,
+                         [get_column_letter(c) for c in r.candidates], "answers",
+                         sheet_name=r.sheet)
             for r in exc.unresolved], "extract-sttm", merge=True)
         return EXIT_NEEDS_ANSWERS
     except (WorkbookParseError, ExtractionError, FileNotFoundError, ValueError) as exc:
@@ -978,18 +1007,22 @@ def _layout_from_answers(workbook: Path, answers_path: Path, config: Config):
         placed = merged
         doc, _wb = resolve_workbook(workbook, config, provider=None,
                                     runtime_cache_dir=runtime_cache, answers=placed, prior=doc)
+    from codegen.layout.sheet_refs import public_note, public_role_key
+
+    names = list(_wb.sheetnames)
     # gaps: answers are the layout stage's (applied to the FRD contract it wrote).
     for note in _answer_notes(notes, seen, gaps=False, profile=doc.profile):
-        print(f"{'NOTE':<15} {note}")
+        print(f"{'NOTE':<15} {public_note(note, names)}")
     if placed:
         print(f"{'ANSWERS':<15} {len(placed)} answer(s) applied from "
               f"{answers_path} (source=user)")
         push_cache()
     for question in doc.questions:
         owed = _owed_key("sttm", question.key)
-        print(answer_line("UNRESOLVED" if owed else "NOTE", question.key, question.reason
+        print(answer_line("UNRESOLVED" if owed else "NOTE",
+                          public_role_key(question.key, names), question.reason
                           + ("" if owed else " — optional role, not required to run")))
-    _print_elimination_notes(doc.profile)
+    _print_elimination_notes(doc.profile, names)
     return doc.profile
 
 
@@ -1194,6 +1227,17 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
               *_unreadable_where(exc), exc=exc)
         return 1
     names = {"sttm": workbook.name, "frd": frd.name if frd else "", "vdd": vdd.name if vdd else ""}
+    # post57: a printed key names a sheet by position (sheets[<i>]), never by name
+    from codegen.layout.sheet_refs import public_note, public_role_key, workbook_sheet_names
+
+    sheet_names = {"sttm": workbook_sheet_names(workbook),
+                   "vdd": workbook_sheet_names(vdd) if vdd is not None else []}
+
+    def shown(document: str, key: str, kind: str = "role") -> str:
+        if document not in sheet_names or kind != "role":
+            return key
+        return public_role_key(key, sheet_names[document])
+
     if args.refresh:
         print(f"{'REFRESH':<15} caches bypassed; runtime entries overwritten "
               f"({result.provider_calls} provider call(s))")
@@ -1243,7 +1287,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                       *_unreadable_where(exc), exc=exc)
                 return 1
         for note in _answer_notes(notes, seen, profile=result.sttm.profile):
-            print(f"{'NOTE':<15} {note}")
+            print(f"{'NOTE':<15} {public_note(note, sheet_names['sttm'])}")
         placed = sum(len(answers[k]) for k in ("sttm", "vdd", "gaps"))
         if placed:
             print(f"{'ANSWERS':<15} {placed} answer(s) applied from {args.answers} (source=user)")
@@ -1256,7 +1300,8 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
         layout_report = result.report()
         rejected = [line for document in ("sttm", "frd", "vdd")
                     for line in ((layout_report.get(document) or {}).get("rejections") or [])]
-        target.write_text(unresolved_report(result.questions, names, rejected),
+        target.write_text(unresolved_report(result.questions, names, rejected,
+                                            sheet_names=sheet_names),
                           encoding="utf-8", newline="\n")
         print(f"{'REPORT':<15} {target} — {len(result.questions)} unresolved item(s), "
               "structural labels only")
@@ -1282,11 +1327,11 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 label = "NOTE" if not owed else "QUESTION" if document == "frd" else "UNRESOLVED"
                 where = (_frd_answer_hint(key, result.frd_contract, result.gap_fills)
                          if document == "frd" else "")
-                print(answer_line(label, key, (reason or item) + where + (
+                print(answer_line(label, shown(document, key), (reason or item) + where + (
                     "" if owed else " — informational, not required to run")))
                 printed.add(key)
             if document == "sttm":
-                _print_elimination_notes(result.sttm.profile)
+                _print_elimination_notes(result.sttm.profile, sheet_names["sttm"])
             else:
                 # D1 post51 pairs 08-10: which signal found the F2 tables (a
                 # table count + signal name; no document text).
@@ -1296,7 +1341,7 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
                 _print_file_elimination_notes(result.flags)
         profile = result.sttm.profile
         for key in sorted(profile.confidence):
-            print(f"{'ROLE':<15} {key} conf={profile.confidence[key]:.2f} "
+            print(f"{'ROLE':<15} {shown('sttm', key)} conf={profile.confidence[key]:.2f} "
                   f"source={profile.role_sources.get(key, profile.source)}")
         for check in report["cross_checks"]:
             print(f"{'CROSSCHECK':<15} {check}")
@@ -1331,16 +1376,17 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             if question.key in printed:
                 continue
             printed.add(question.key)
+            key = shown(question.document, question.key, question.kind)
             if question not in owed:
-                print(answer_line("NOTE", question.key,
+                print(answer_line("NOTE", key,
                                   f"{question.reason} ({question.document}) — informational, "
                                   "not required to run"))
             elif question.kind == "role" and question.document == "frd":
-                print(answer_line("QUESTION", question.key,
+                print(answer_line("QUESTION", key,
                                   f"{question.reason} (frd; answer the value under gaps: in "
                                   "answers.yaml)"))
             elif question.kind == "role":
-                print(answer_line("UNRESOLVED", question.key,
+                print(answer_line("UNRESOLVED", key,
                                   f"{question.reason} ({question.document}; place it "
                                   "under answers: in answers.yaml)"))
             else:
@@ -1351,22 +1397,26 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             print(f"{'NEEDS_ANSWERS':<15} layout — {len(owed)} answer(s) owed "
                   "(--require-complete); nothing is wrong with the documents")
             _write_template(_template_path(args, args.frd_contract_out or args.profile_out),
-                            _question_items(owed), "layout", merge=False)
+                            _question_items(owed, sheet_names), "layout", merge=False)
             return EXIT_NEEDS_ANSWERS
     return 0
 
 
-def _question_items(questions) -> list:
+def _question_items(questions, sheet_names: dict | None = None) -> list:
     """Layout questions as answers-template items: a column placement under
-    answers: (its candidate headers), every other question under gaps: (its
+    answers: (its candidate headers; post57 keyed ``sheets[<i>]``, the name as
+    the ``sheet_name`` reading aid), every other question under gaps: (its
     candidate values)."""
     from codegen.layout.answers_template import TemplateItem
+    from codegen.layout.sheet_refs import public_role_key
 
     items = []
     for q in questions:
         if q.kind == "role" and q.document != "frd":
             candidates = [str(c.get("header") or c.get("col")) for c in q.candidates]
-            items.append(TemplateItem(q.key, q.reason, candidates, "answers"))
+            key = public_role_key(q.key, (sheet_names or {}).get(q.document, []))
+            items.append(TemplateItem(key, q.reason, candidates, "answers",
+                                      sheet_name=q.sheet or ""))
         else:
             candidates = [str(c.get("value") if "value" in c else c.get("layer"))
                           for c in q.candidates]

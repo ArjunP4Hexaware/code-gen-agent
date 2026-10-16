@@ -4,8 +4,8 @@
 # publishes fc_elig.fc_elig_dtl). The F2 FRD states format, file and stage
 # strategy only in prose sentences, which no label places.
 answers:
-  - {sheet: FC_ELIG_LAYOUT, layer: "band[1]", role: layer, value: stage}
-  - {sheet: FC_ELIG_LAYOUT, layer: "band[2]", role: layer, value: standard}
+  - {sheet: "sheets[1]", layer: "band[1]", role: layer, value: stage}
+  - {sheet: "sheets[1]", layer: "band[2]", role: layer, value: standard}
 gaps:
   "feeds[0].file_format": {value: "Fixed Width"}
   "feeds[0].stage_target.load_strategy": {value: "Append"}

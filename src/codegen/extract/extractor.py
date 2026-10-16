@@ -87,14 +87,45 @@ class NeedsAnswersError(ExtractionError):
 
 class UnresolvedLayoutError(ExtractionError):
     """--require-complete and the layout leaves roles open: nothing is
-    extracted; ``unresolved`` names each role the answers file must place."""
+    extracted; ``unresolved`` names each role the answers file must place;
+    ``sheet_names`` (post57) the workbook's sheets in order, for the printed keys."""
 
-    def __init__(self, message: str, unresolved) -> None:
+    def __init__(self, message: str, unresolved, sheet_names=()) -> None:
         self.unresolved = list(unresolved)
+        self.sheet_names = list(sheet_names)
         super().__init__(message)
 
 
-def extract_contract(
+def _indexed(pending, workbook) -> list:
+    """post57: each held-back answer with its sheet's workbook position."""
+    names = list(getattr(workbook, "sheetnames", None) or [])
+    return [p if p.sheet not in names or p.sheet_index is not None
+            else p.model_copy(update={"sheet_index": names.index(p.sheet)}) for p in pending]
+
+
+def extract_contract(workbook_path: Path, frd_path: Path, config: Config, **kwargs
+                     ) -> SttmContract:
+    """:func:`_extract_contract`, with every held-back answer carrying its
+    sheet's workbook position (post57: printed keys say ``sheets[<i>]``)."""
+    from codegen.layout.sheet_refs import workbook_sheet_names
+
+    try:
+        contract = _extract_contract(workbook_path, frd_path, config, **kwargs)
+    except NeedsAnswersError as exc:
+        exc.pending = _indexed(exc.pending, _Names(workbook_sheet_names(workbook_path)))
+        raise
+    if not contract.needs_answers:
+        return contract
+    return contract.model_copy(update={"needs_answers": _indexed(
+        contract.needs_answers, _Names(workbook_sheet_names(workbook_path)))})
+
+
+class _Names:
+    def __init__(self, names: list[str]) -> None:
+        self.sheetnames = names
+
+
+def _extract_contract(
     workbook_path: Path,
     frd_path: Path,
     config: Config,
@@ -149,7 +180,7 @@ def extract_contract(
             f"{workbook_path.name}: layout has {len(owed)} unresolved required role(s) "
             "and --require-complete is set: "
             + "; ".join(f"{u.sheet}/{u.layer}/{u.role} ({u.reason})" for u in owed),
-            owed,
+            owed, found.workbook.sheetnames,
         ), Coord("STTM", sheet=sheet_number(found.workbook, owed[0].sheet)),
             "layout.unresolved")
     if profile.strategy == "segmented_family":

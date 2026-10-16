@@ -8,7 +8,7 @@ dialog for a terminal / a notebook, where no UI can ask.
     answers:
       - document: sttm                 # sttm | vdd
         workbook: STTM_feed.xlsx       # optional: only for this file name
-        sheet: "Mapping - Daily File"  # as written in the workbook
+        sheet: "Mapping - Daily File"  # as written, or sheets[<i>] (0-based position)
         layer: stage                   # optional when (sheet, role) is unambiguous
         role: table
         column: "Target Table Name"    # header text | 3 | "C"
@@ -63,7 +63,7 @@ class AnswersFile:
 
 _ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value",
                # the answers template's reading aids (codegen.layout.answers_template)
-               "question", "candidates"}
+               "question", "candidates", "sheet_name"}
 
 
 def _blank(value) -> bool:
@@ -251,6 +251,19 @@ def band_layer_answers(answers: AnswersFile, names: dict[str, str] | None = None
     return out
 
 
+def _named_sheet(entry: dict, document: tuple | None) -> dict | None:
+    """post57: an entry may name its sheet by position (``sheet: sheets[2]``,
+    the form the printed keys use) — read as the workbook's sheet name; None
+    when the workbook has no such sheet (or is not at hand)."""
+    from codegen.layout.sheet_refs import SHEET_REF_RE, sheet_name
+
+    if not SHEET_REF_RE.match(str(entry.get("sheet") or "").strip()):
+        return entry
+    workbook = document[1] if document else None
+    name = sheet_name(entry["sheet"], workbook) if workbook is not None else None
+    return None if name is None else {**entry, "sheet": name}
+
+
 def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
                   documents: dict[str, tuple] | None = None) -> tuple[dict, list[str]]:
     """Map the file onto the resolution → (the resolver's ``answers`` dict,
@@ -265,6 +278,11 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
     for index, entry in enumerate(answers.entries):
         document = entry.get("document", "sttm")
         if entry.get("workbook") and entry["workbook"] != names.get(document):
+            continue
+        entry = _named_sheet(entry, (documents or {}).get(document))
+        if entry is None:
+            notes.append(f"answers[{index}] names a sheet position (sheets[<i>]) this "
+                         f"{document} workbook does not have - not applied")
             continue
         if _is_band_entry(entry):
             # Chunk A: a band LAYER always travels (re-discovery applies it); a
@@ -344,10 +362,15 @@ def apply_answers(answers: AnswersFile, questions: list, names: dict[str, str],
 
 
 def unresolved_report(questions: list, names: dict[str, str],
-                      rejections: list[str] | None = None) -> str:
+                      rejections: list[str] | None = None,
+                      sheet_names: dict[str, list[str]] | None = None) -> str:
     """``unresolved_headers.md`` — structural labels only (module docstring).
     ``rejections`` (2026-10-13): why a model layout answer was rejected, line
-    by line (schema locations and messages — never an input value)."""
+    by line (schema locations and messages — never an input value).
+    ``sheet_names`` (post57): per document, the workbook's sheets in order —
+    the question key then reads ``sheets[<i>]/…`` as on the console, the sheet
+    as written stays on its own line (this file is ACFC-side)."""
+    from codegen.layout.sheet_refs import public_role_key
     rejected = ["## Model answer rejected", "",
                 *(f"- {line}" for line in rejections or []), ""] if rejections else []
     lines = ["# Unresolved layout roles", "",
@@ -364,6 +387,8 @@ def unresolved_report(questions: list, names: dict[str, str],
         lines.append(f"## {question.document.upper()} · {document}")
         lines.append("")
         key = question.key
+        if sheet_names and question.kind == "role" and question.document in sheet_names:
+            key = public_role_key(key, sheet_names[question.document])
         by_field_name = question.kind == "text" and ".fields[" in key
         if by_field_name:
             # A width question is keyed by the FIELD NAME — a data cell, which

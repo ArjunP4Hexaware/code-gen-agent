@@ -183,6 +183,9 @@ class PendingAnswer(BaseModel):
     # map, a band's layers, the columns a role may sit in) — the answers
     # template lists them. Absent from the JSON when empty.
     candidates: list[str] = Field(default_factory=list)
+    # post57: the sheet's 0-based position in its workbook — a printed key
+    # names it ``sheets[<i>]``, never by name (codegen.layout.sheet_refs).
+    sheet_index: int | None = None
 
 
 class AuxiliarySheet(BaseModel):

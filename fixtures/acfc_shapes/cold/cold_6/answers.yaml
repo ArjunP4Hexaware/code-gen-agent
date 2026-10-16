@@ -5,11 +5,11 @@
 # the "... Nm" headers are no synonym of the shipped vocabulary: with the
 # layout model mocked, the person places them.
 answers:
-  - {sheet: STTM, layer: stage, role: table, column: "Landing Table"}
-  - {sheet: STTM, layer: stage, role: column, column: "Landing Col"}
-  - {sheet: STTM, layer: standard, role: schema, column: "Curated Schema Nm"}
-  - {sheet: STTM, layer: standard, role: table, column: "Curated Table Nm"}
-  - {sheet: STTM, layer: standard, role: column, column: "Curated Column Nm"}
+  - {sheet: "sheets[2]", layer: stage, role: table, column: "Landing Table"}
+  - {sheet: "sheets[2]", layer: stage, role: column, column: "Landing Col"}
+  - {sheet: "sheets[2]", layer: standard, role: schema, column: "Curated Schema Nm"}
+  - {sheet: "sheets[2]", layer: standard, role: table, column: "Curated Table Nm"}
+  - {sheet: "sheets[2]", layer: standard, role: column, column: "Curated Column Nm"}
 gaps:
   # The F2 FRD states format, file and LOBs in prose (SR1) / the crosswalk only.
   "feeds[0].file_format": {value: "Delimited"}

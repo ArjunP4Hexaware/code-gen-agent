@@ -213,12 +213,15 @@ def test_cli_layout_answers_and_report(tmp_path, answers_file, monkeypatch, caps
     assert cli.main(["layout", "--workbook", str(workbook), "--dry-run",
                      "--report-unresolved", str(report),
                      "--require-complete"]) == cli.EXIT_NEEDS_ANSWERS
-    assert "FEED_X_MAPPING" in report.read_text(encoding="utf-8")
+    assert "FEED_X_MAPPING" in report.read_text(encoding="utf-8")   # ACFC-side file
     from test_harness_answer_lines import _answer_lines
 
-    lines = _answer_lines(capsys.readouterr().out)
+    out = capsys.readouterr().out
+    lines = _answer_lines(out)
     unresolved = [m["key"] for m in lines if m["label"] == "UNRESOLVED"]
-    assert unresolved and all(k.startswith("FEED_X_MAPPING/") for k in unresolved)
+    # post57: the console keys name the sheet by position, never by name
+    assert unresolved and all(k.startswith("sheets[2]/") for k in unresolved)
+    assert "FEED_X_MAPPING" not in out
     assert len(unresolved) == len(set(unresolved))          # each column once
 
     assert cli.main(["layout", "--workbook", str(workbook), "--dry-run",

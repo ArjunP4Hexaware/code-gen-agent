@@ -503,12 +503,19 @@ D1 post44) is owed but NOT blocking, and `NOTE` is informational — neither eve
 makes a pair NEEDS_ANSWERS:
 
 ```
-QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet …; answer under gaps: in answers.yaml)
-UNRESOLVED     <sheet>/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
+QUESTION       feeds[2].stage_target.tables — <reason> (feed …, sheet sheets[<i>]; answer under gaps: in answers.yaml)
+UNRESOLVED     sheets[<i>]/<layer>/<role> — <reason> (place it under answers: in answers.yaml)
 INPUT_NEEDED   run.environment — <question> (run-level, once for every feed; not blocking — give it under inputs.run and rerun generate --answers)
 INPUT_NEEDED   feeds.<feed>.active_start_date — <question> (feed …; not blocking — the workbook is written without it, the cell empty or with the default named; give it under inputs.feeds.<feed> and rerun generate --answers)
-NOTE           <sheet>/source/pii — <reason> — informational, not required to run
+NOTE           sheets[<i>]/source/pii — <reason> — informational, not required to run
 ```
+
+**Sheets by position (post57).** A key never carries a sheet NAME (the D1 post55
+run's 10 leak hits were all sheet names in these keys): `sheets[<i>]` is the
+workbook's i-th sheet, 0-based like `feeds[<i>]` (the coordinates tier's
+`STTM sheet <i+1>`). The name stays ACFC-side — the answers template's
+`sheet_name:` reading aid and `unresolved_headers.md`. An answers-file entry may
+give `sheet: "sheets[<i>]"` or the name as written (`codegen.layout.sheet_refs`).
 
 **INPUT_NEEDED scopes (post47).** RUN-level inputs — the environment
 (`run.environment`, or `run.environment.<key>` per key a custom environment
@@ -535,7 +542,7 @@ inputs:
 | Label | Printed when | Answer |
 | --- | --- | --- |
 | `QUESTION` | the run cannot complete a feed without a VALUE: a held-back feed's target (`feeds[i].stage_target.*`, a catalog no source or profile default states: `feeds[i].<layer>_target.catalog`), a file pattern, a disagreement between documents (the FRD's format cell naming another delimiter than the STTM: `feeds[i].delimiter`), a byte width, an FRD field the reader could not place (`feeds[i].file_format` / `lobs` / `stage_target.load_strategy` — Chunk B: these printed `UNRESOLVED`, which pointed at the wrong section), a sheet whose STTM lists no audit row (`feeds[i].audit_columns`, value `NAME:Type; …`, Type String / Timestamp — the framework's set is never added silently), the FRD pairing (`pair.frd`) | under `gaps:` (`pairing:` for `pair.frd`) |
-| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`<sheet>/<layer>/<role>`) — or without a band's LAYER no evidence names (`<sheet>/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line). Chunk B: extract-sttm also holds a sheet back with its unplaced required columns (instead of failing) when its extraction stops on them | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
+| `UNRESOLVED` | the run cannot complete a feed without placing a REQUIRED column: the field name, the stage / standard schema, table, column, type (`sheets[<i>]/<layer>/<role>`) — or without a band's LAYER no evidence names (`sheets[<i>]/band[<n>]/layer`, Chunk A; answered `source` / `stage` / `standard`; extract-sttm holds the sheet's feed back with the same line). Chunk B: extract-sttm also holds a sheet back with its unplaced required columns (instead of failing) when its extraction stops on them | under `answers:` (`layer: band[<n>]`, `role: layer`, `value: …` for a band) |
 | `INPUT_NEEDED` | `generate` (exit `0`, the workbook WRITTEN, the cell left empty): an IIG cell no document states and no corpus value fills, the person owes it but nothing waits on it — `metadata.templates.<t>.owed_cells` (ACFC: ACTIVE_START_DATE, the per-RFC go-live date). Listed under `inputs:` in `answers_template.yaml` (the template header counts "N open question(s), M input(s) needed"); the feed report's header says "questions: N, inputs needed: M"; the App shows a non-blocking "inputs needed" banner (`status.inputs_needed`), never the Answers-needed pause | under `inputs.run` (run-level) / `inputs.feeds.<feed>` (feed-level), read by `generate --answers` — fills the cell on the rerun |
 | `NOTE` | informational — an OPTIONAL column the layout could not place (it reads as empty), an FRD field not read (the gap chain fills it or a QUESTION asks; `extract-frd` on its own always says NOTE), a VDD role (VDD gaps are gate flags), the VDD pairing (`pair.vdd` — a run proceeds without a VDD) | none needed; placing it improves the output |
 

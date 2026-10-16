@@ -4,6 +4,44 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post61 — 2026-10-16 (two kinds of default: profile_default / agent_proposal)
+
+- **profile_default** — the value comes from the conventions profile or the ACFC
+  overlay. It is written when the run gives no answer: source `profile` in
+  `CODEGEN_STAGES.json`, no gate flag and no open INPUT_NEEDED line (so it does
+  not count toward PASS_WITH_OPEN_INPUTS). It is still listed as changeable: a
+  `NOTE` line on the console, an `applied:` entry in `answers_template.yaml`
+  (`choice: naming_standard` + `standard:` changes it) and the App's panel.
+  - The email status set: back to the overlay's `email_status_default` (else every
+    template row) when unanswered. With the overlay saying [Success, Failed] and
+    no answer, the workbook gets two rows.
+  - EMAIL_TO: the overlay's literal default (open while it is a `<<D1:…>>`
+    placeholder, as before).
+  - The notebook NAME per leg (`notebook_name.file_to_stg` / `.stg_to_std`, the
+    `corpus_cells` value for the feed's notebook kind) and the ADLS SRC_FILE_NAME
+    style (`src_file_name_style`: pattern | prefix_star | prefix_middle). These
+    were already applied from the profile; they are now also listed and
+    changeable. A changed notebook name leaves DATABRICKS_NOTEBOOK_PATH as the
+    profile's (said in the cell's tooltip).
+- **agent_proposal** — the value is rendered or derived by the agent: the
+  PIPELINE_NAME template, APPLICATION_NAME from SOURCE, ACTIVE_START_DATE (no
+  default). Unchanged from post59: shown, never written until chosen.
+- An owed cell's kind is its new `default_kind`; unset, a default with a `{token}` is
+  an agent proposal, a literal one a profile default. The committed overlay sets
+  EMAIL_TO `profile_default`, APPLICATION_NAME `agent_proposal`; the email status
+  rule is `profile_default`.
+- Manifest: `feeds[].inputs.<key>.kind`. The App's `inputs_needed` items carry
+  `kind` / `applied`; the panel counts only open inputs and lists applied
+  profile defaults as "profile default applied … — changeable". The console's
+  `ANSWERS FILE` line and the template header no longer count them (nor the
+  shared pipeline_name entry) as needed.
+- Tests: `tests/test_default_kinds.py` (the two-row status set, the agent
+  proposals in the same run, EMAIL_TO, notebook names / style, changing each,
+  the kind rule) and an `InputsNeededBanner.test.tsx` case. Updated:
+  `test_overlay_fields.py`, `test_framework_owner_rules.py`,
+  `test_iig_corpus_cells.py`, `test_environments.py`,
+  `test_open_inputs_outcome.py` (the run-level open inputs are now 3, not 4).
+
 ## 0.5.8.post60 — 2026-10-16 (the App writes CODEGEN_STAGES.json; one generate entry point)
 
 - **One feed pipeline.** `codegen.cli.generate_feed_result` is the feed

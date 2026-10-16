@@ -5,7 +5,16 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post60).** post60 = ONE generate entry point:
+**RESTART HERE (2026-10-16, after post61).** post61 = two kinds of default
+(`codegen.input_choices`, `Defaulted.kind` / owed `default_kind`): `profile_default` (email
+status set, EMAIL_TO, notebook names `notebook_name.<leg>`, `src_file_name_style`) is WRITTEN
+unanswered — source `profile`, no NOTE / gate flag, not open (a NOTE line, `applied:` in the
+answers template, `OwedInput.applied` / `is_open` in the App) and changeable via
+`naming_standard`; `agent_proposal` (PIPELINE_NAME, APPLICATION_NAME, ACTIVE_START_DATE) stays
+proposed-not-applied. Unset `default_kind`: `{token}` default = proposal, literal = profile.
+Test: `test_default_kinds.py`.
+
+**After post60 (kept for reference).** post60 = ONE generate entry point:
 `cli.generate_feed_result` (the feed pipeline; the App's `GenerationStore._generate_feed`
 wraps it — no more mirror) + `codegen.generate_run.GenerateRun` (open lines, choices,
 CRASHED / GATE_FAIL quarantine / written, outcome, CODEGEN_STAGES.json), driven by

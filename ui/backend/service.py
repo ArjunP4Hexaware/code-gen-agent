@@ -255,6 +255,7 @@ class GenerationStore:
         # a recorded Layer-2 result instead of calling any provider.
         from codegen.cli import generate_feed_result
         from codegen.environments import with_environment
+        from codegen.metadata_template import EMPTY_BY_RULE_LABELS
 
         result = generate_feed_result(
             spec, with_environment(self.config, environment), dry_run=dry_run,
@@ -276,6 +277,11 @@ class GenerationStore:
                 "row_counts": artefacts.row_counts,
                 "coverage": artefacts.coverage,
                 "flagged_blank_columns": artefacts.flagged_blank_columns,
+                # post66: the review summary's "empty by rule" part
+                "empty_by_rule": [
+                    {"sheet": sheet, "label": EMPTY_BY_RULE_LABELS.get(sheet, sheet),
+                     "reason": reason}
+                    for sheet, reason in artefacts.empty_by_rule.items()],
             }
         return FeedRun(
             spec=spec,

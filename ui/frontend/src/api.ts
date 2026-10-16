@@ -50,6 +50,10 @@ export interface FrameworkSummary {
     total: number;
   };
   flagged_blank_columns: string[];
+  // post66: IIG sheets left empty by rule, with their reason (MFT / delimited)
+  empty_by_rule?: { sheet: string; label: string; reason: string }[];
+  // post66: the open lines this feed's IIG review faces (its own + run-level)
+  open?: { open: number; blocking: number };
 }
 
 // The outputs a run can produce — exactly these (GET /api/demo/output-options).

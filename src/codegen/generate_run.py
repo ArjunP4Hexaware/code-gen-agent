@@ -237,6 +237,15 @@ class GenerateRun:
 
     # -- the end -------------------------------------------------------------------
 
+    def review_open(self, feed_id: str) -> dict[str, int]:
+        """post66: the open lines a feed's IIG review faces — its own plus the
+        run-level ones (they leave cells open in every feed's IIG):
+        ``{"open": n, "blocking": n}``."""
+        counts = run_stages.open_counts(
+            [i for i in self.open_items if i.get("scope") == "run" or i.get("feed") == feed_id])
+        return {"open": counts["blocking"] + counts["non_blocking"],
+                "blocking": counts["blocking"]}
+
     def finish(self, *, template_path: Path | None = None) -> tuple[str, int]:
         """The outcome and the exit code; the manifest written (and the answers
         template, when ``template_path`` is given)."""

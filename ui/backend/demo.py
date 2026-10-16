@@ -2221,6 +2221,12 @@ class DemoRunner:
             runs[slug] = result
         self.inputs_needed += [o.as_dict() for o in gen.owed if o.scope == "feed"]
         self.outcome, _code = gen.finish()
+        # post66: the open lines each feed's IIG review faces (the artefacts
+        # panel's summary line)
+        for slug, run in list(runs.items()):
+            if run.framework is not None:
+                runs[slug] = run.model_copy(update={"framework": {
+                    **run.framework, "open": gen.review_open(run.spec.feed_id)}})
         manifest = run_stages.read_stage_manifest(run_root) or {}
         # a GATE_FAIL feed's files were moved under <feed>/quarantine/
         quarantined = {e["quarantine"].split("/", 1)[0] for e in manifest.get("feeds") or []

@@ -1673,11 +1673,31 @@ def _segment_positions(segment: SegmentSpec) -> tuple[list[str], list[str], list
     return cols, lens, starts
 
 
+def _is_fixed_width_file(spec: ResolvedFeedSpec, config: Config) -> bool:
+    """No delimiter, or a fixed-width token in the file format."""
+    return spec.delimiter == "" or any(
+        token.lower() in (spec.file_format or "").lower()
+        for token in config.extractor.vdd.fixed_width_tokens)
+
+
+# post66: the sheets a feed may leave empty BY RULE, with the short name the
+# App's review summary uses; the reason comes from empty_by_rule_reasons.
+EMPTY_BY_RULE_LABELS = {"FILE_ADLS_INGESTION_DETAILS": "FILE_ADLS",
+                        "ADLS_FIXED_WIDTH_HANDLER": "FIXED_WIDTH"}
+
+
+def fixed_width_handler_empty_reason(spec: ResolvedFeedSpec | None,
+                                     config: Config) -> str | None:
+    """Why ADLS_FIXED_WIDTH_HANDLER has no rows by rule: ``delimited`` for a
+    delimited file (None otherwise: a fixed-width feed's empty handler is not
+    a rule)."""
+    if spec is None or _is_fixed_width_file(spec, config):
+        return None
+    return "delimited"
+
+
 def _fixed_width_handler(tab, feed, config, spec, faq, tpl) -> list[dict]:
-    if spec is None or not spec.is_segmented or not (
-            spec.delimiter == "" or any(
-                token.lower() in (spec.file_format or "").lower()
-                for token in config.extractor.vdd.fixed_width_tokens)):
+    if spec is None or not spec.is_segmented or not _is_fixed_width_file(spec, config):
         return []
     audit = ",".join(c for c, _t in _audit(spec, tpl))
     declared = getattr(faq, "record_type_discriminators", None) if faq is not None else None

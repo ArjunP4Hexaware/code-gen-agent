@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { APPROVAL_NOTE, presentedArtefacts } from "./artefacts";
+import type { FrameworkSummary } from "./api";
+import { APPROVAL_NOTE, presentedArtefacts, reviewSummary } from "./artefacts";
 
 describe("presentedArtefacts", () => {
   it("shows exactly the DDL, the IIG, the IIG review copy and ADDITION.md", () => {
@@ -33,5 +34,62 @@ describe("APPROVAL_NOTE", () => {
 
   it("never mentions inserts, config rows or Option B", () => {
     expect(APPROVAL_NOTE).not.toMatch(/insert|config row|option b/i);
+  });
+});
+
+describe("reviewSummary", () => {
+  const framework = (over: Partial<FrameworkSummary> = {}): FrameworkSummary => ({
+    files: [],
+    row_counts: {
+      DATA_FACTORY_PIPELINE_SCHEDULE: 4,
+      FILE_ADLS_INGESTION_DETAILS: 0,
+      ADLS_DELTA_INGESTION_DETAILS: 2,
+      STGDELTA_STDDELTA_INGESTION_DET: 1,
+      ADLS_FIXED_WIDTH_HANDLER: 0,
+      DATABRICKS_NOTEBOOK_DETAILS: 2,
+      DATA_QUALITY_RULES: 4,
+      EMAIL_TEMPLATE_CONFIG: 4,
+    },
+    coverage: { derived: 68, synthetic: 0, needs_template: 0, total: 420 },
+    flagged_blank_columns: [],
+    empty_by_rule: [
+      { sheet: "FILE_ADLS_INGESTION_DETAILS", label: "FILE_ADLS", reason: "MFT" },
+      { sheet: "ADLS_FIXED_WIDTH_HANDLER", label: "FIXED_WIDTH", reason: "delimited" },
+    ],
+    open: { open: 9, blocking: 1 },
+    ...over,
+  });
+
+  it("is one line: sheets, rows, open inputs and the sheets empty by rule", () => {
+    expect(reviewSummary(framework())).toBe(
+      "8 sheets · 17 rows · 9 open inputs (1 blocking) · " +
+        "empty by rule: FILE_ADLS (MFT), FIXED_WIDTH (delimited)",
+    );
+  });
+
+  it("never shows the derived ratio", () => {
+    expect(reviewSummary(framework())).not.toMatch(/derived|68|420/);
+  });
+
+  it("lists only empty sheets, and only those with a reason", () => {
+    const summary = reviewSummary(
+      framework({
+        row_counts: { FILE_ADLS_INGESTION_DETAILS: 2, ADLS_FIXED_WIDTH_HANDLER: 0, DATA_QUALITY_RULES: 0 },
+        empty_by_rule: [
+          { sheet: "FILE_ADLS_INGESTION_DETAILS", label: "FILE_ADLS", reason: "MFT" },
+          { sheet: "ADLS_FIXED_WIDTH_HANDLER", label: "FIXED_WIDTH", reason: "delimited" },
+        ],
+        open: { open: 1, blocking: 0 },
+      }),
+    );
+    expect(summary).toBe(
+      "3 sheets · 2 rows · 1 open input (0 blocking) · empty by rule: FIXED_WIDTH (delimited)",
+    );
+  });
+
+  it("drops the empty-by-rule part when no sheet is empty by rule", () => {
+    expect(reviewSummary(framework({ empty_by_rule: [] }))).toBe(
+      "8 sheets · 17 rows · 9 open inputs (1 blocking)",
+    );
   });
 });

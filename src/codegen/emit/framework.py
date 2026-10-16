@@ -143,6 +143,9 @@ class FrameworkArtefacts:
     groups: dict[str, list[str]] = field(default_factory=dict)
     # IIG-first: why no DML was written (None = it was). Shown in the report.
     dml_disabled_reason: str | None = None
+    # post66: IIG sheets left empty BY RULE -> the reason (MFT / delimited),
+    # in sheet order — the App's review summary lists them.
+    empty_by_rule: dict[str, str] = field(default_factory=dict)
 
 
 def _sanitize_abbrev(slug: str) -> str:
@@ -772,6 +775,9 @@ def emit_framework(
     flags.extend(shape_flags(payload))
     # 2026-10-14 (framework owner's rule 3): an MFT-landed feed's FILE_ADLS sheet
     # is written with its headers only — said once
+    from codegen.metadata_template import fixed_width_handler_empty_reason
+
+    reasons: dict[str, str] = {}
     file_adls = payload["tabs"].get("FILE_ADLS_INGESTION_DETAILS")
     if template_cfg is not None and file_adls is not None and not file_adls["rows"]:
         from codegen.environments import apply_environment
@@ -782,6 +788,14 @@ def emit_framework(
                                   apply_environment(template_cfg, config))
         if note is not None:
             flags.append(note)
+            reasons["FILE_ADLS_INGESTION_DETAILS"] = "MFT"
+    # post66: a delimited file's fixed-width handler sheet is empty by rule too
+    handler = payload["tabs"].get("ADLS_FIXED_WIDTH_HANDLER")
+    if handler is not None and not handler["rows"]:
+        reason = fixed_width_handler_empty_reason(spec, config)
+        if reason is not None:
+            reasons["ADLS_FIXED_WIDTH_HANDLER"] = reason
+    empty_by_rule = {name: reasons[name] for name in payload["tabs"] if name in reasons}
     banner = _provenance_banner_rows(spec, faq, config,
                                      _faq_sha(spec, config, base_dir))
 
@@ -993,6 +1007,7 @@ def emit_framework(
         payload=payload,
         groups=artefact_groups(files),
         dml_disabled_reason=dml_disabled_reason,
+        empty_by_rule=empty_by_rule,
     )
 
 
@@ -1074,11 +1089,6 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
     for tab, count in artefacts.row_counts.items():
         lines.append(f"| IIG rows: {tab} | {count} |")
     lines.append(
-        f"| badge coverage | {coverage['derived']}/{coverage['total']} derived · "
-        f"{coverage['synthetic']} synthetic · {coverage['needs_template']} "
-        f"await the client template |"
-    )
-    lines.append(
         "| framework-assigned IDs | "
         + (", ".join(f"`{c}`" for c in artefacts.flagged_blank_columns) or "none")
         + " — left blank, never invented |"
@@ -1087,7 +1097,16 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
         lines.append(f"| **PROVENANCE** | {note} |")
     for held in artefacts.held_back:
         lines.append(f"| **HELD BACK** | {held} |")
+    # post66: the derived ratio lives here (the App's panel dropped it), labelled
+    lines += ["", derived_line(coverage)]
     return "\n".join(lines) + "\n"
+
+
+def derived_line(coverage: dict[str, int]) -> str:
+    """The labelled derived ratio of the report's framework section."""
+    return (f"cells derived from documents: {coverage['derived']:,} of "
+            f"{coverage['total']:,}; the rest are profile defaults, framework-assigned "
+            "blanks, or open inputs")
 
 
 # Badge labels re-exported for the report/UI so the vocabulary stays single-

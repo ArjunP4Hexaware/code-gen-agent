@@ -4,7 +4,6 @@ import { api, type Classification, type FeedsResponse, type FeedSummary } from "
 import { APPROVAL_NOTE, presentedArtefacts } from "../artefacts";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
-import { DatabricksPublishPanel } from "../components/DatabricksPublishPanel";
 import { StatTile } from "../components/StatTile";
 import { VerdictChip } from "../components/VerdictChip";
 
@@ -268,10 +267,6 @@ export function Dashboard({
               ))}
           </div>
         </div>
-      ) : null}
-
-      {feeds.length > 0 ? (
-        <DatabricksPublishPanel feedSlugs={feeds.map((f) => f.feed_slug)} />
       ) : null}
     </>
   );

@@ -641,60 +641,12 @@ def test_ensure_volume_generalizes_to_output_volume():
     assert client.created[0]["name"] == "generated"
 
 
-def test_publish_target_route_reports_defaults(client, volumes_env, monkeypatch):
-    payload = client.get("/api/databricks/publish-target").json()
-    assert payload["available"] is True
-    assert payload["writable_prefix"] == "soham_workspace.codegen_agent."
-    assert payload["volume"] == "generated"
-
-
-def test_publish_route_requires_confirm(client):
-    response = client.post("/api/databricks/publish",
-                           json={"feed_slug": "x", "confirm": False})
-    assert response.status_code == 400
-    assert "confirm" in response.json()["detail"]
-
-
-def test_publish_route_with_stubbed_transport(client, volumes_env, monkeypatch, tmp_path):
-    store = ui_main._require_store()
-    (tmp_path / "reports").mkdir()
-    (tmp_path / "cv_feed").mkdir()
-    (tmp_path / "reports" / "cv_feed.md").write_bytes(b"# r")
-    (tmp_path / "cv_feed" / "cv_feed.ipynb").write_bytes(b"{}")
-    monkeypatch.setattr(store, "out_root", tmp_path)
-    monkeypatch.setattr(store, "reports_root", tmp_path / "reports")
-    monkeypatch.setattr(store, "runs", {"cv_feed": object()})
-
-    import codegen.databricks as db_module
-
-    calls = {}
-    monkeypatch.setattr(
-        db_module, "ensure_volume",
-        lambda cfg, **kw: {"full_name": "soham_workspace.codegen_agent.generated",
-                           "created": False},
-    )
-
-    def fake_publish(cfg, slug, files, **kw):
-        calls["slug"] = slug
-        calls["names"] = [p.name for p in files]
-        return [{"name": p.name, "path": f"/Volumes/x/{p.name}",
-                 "size_bytes": 1} for p in files]
-
-    monkeypatch.setattr(db_module, "publish_artifacts", fake_publish)
-    response = client.post(
-        "/api/databricks/publish",
-        json={"feed_slug": "cv_feed", "confirm": True},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["published"] is True
-    assert calls["slug"] == "cv_feed"
-    assert calls["names"] == ["cv_feed.md", "cv_feed.ipynb"]
-
-
-def test_publish_route_unknown_feed_is_404(client, monkeypatch):
-    store = ui_main._require_store()
-    monkeypatch.setattr(store, "runs", {})
-    response = client.post("/api/databricks/publish",
-                           json={"feed_slug": "ghost", "confirm": True})
-    assert response.status_code == 404
+def test_the_publish_routes_are_gone(client):
+    """2026-10-16 (post65): the Dashboard's "Publish to Unity Catalog volume"
+    section was removed with the two routes that fed it. Publishing stays
+    reachable from the CLI (``codegen databricks-publish``), tested above."""
+    paths = {getattr(route, "path", "") for route in ui_main.app.routes}
+    assert "/api/databricks/publish-target" not in paths
+    assert "/api/databricks/publish" not in paths
+    response = client.post("/api/databricks/publish", json={"feed_slug": "x", "confirm": True})
+    assert response.status_code in (404, 405)

@@ -4,6 +4,35 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post58 — 2026-10-15 (outcome PASS_WITH_OPEN_INPUTS; blocking per question)
+
+- **New generate outcome `PASS_WITH_OPEN_INPUTS`** (exit 0): the workbook was
+  written and every open line is non-blocking (`INPUT_NEEDED` only). The console
+  prints an `OUTCOME` line with the counts (for NEEDS_ANSWERS too).
+  `run_stages.OUTCOMES`, most severe first: CRASHED, FAIL, GATE_FAIL,
+  NEEDS_ANSWERS, PASS_WITH_OPEN_INPUTS, PASS.
+- **`CODEGEN_STAGES.json` lists every open line.** `questions: [{line, key,
+  scope, blocking}]`:
+  - `QUESTION` / `UNRESOLVED` are `blocking: true`. In the App these are
+    "Answers needed" and the "required (blocking)" environment values.
+  - `INPUT_NEEDED` is `blocking: false` (the App's "not blocking").
+
+  Each generated feed's entry gains `written: true|false` and `open: {blocking,
+  non_blocking}`.
+- **NEEDS_ANSWERS (exit 3) = at least one blocking line open, whether or not a
+  workbook was written.** A workbook with an empty storage account is not
+  deployable, so the harness number never calls it a pass. Exit 3 as before for
+  the unset required environment value (mock and live) and pair_12's
+  `lob_by_file`; their workbooks are marked `written: true` so the App can still
+  show them. One change: without `--feed`, a held-back feed's QUESTION used to
+  leave the run at exit 0 (printed for information); it is now exit 3 too, with
+  the ready feeds' workbooks written.
+- **`run_stages.pair_outcome(steps, out_root)`** (STABLE; the post56 report
+  noted it was missing). It returns a pair's outcome as the worst of its steps'
+  exit codes. Generate's status comes from the manifest when the manifest's
+  `exit` matches that step. `acfc_run.py`'s summary prints it as `outcome`.
+  Test: `tests/test_open_inputs_outcome.py`.
+
 ## 0.5.8.post57 — 2026-10-15 (D1 post55 report: leak keys, unstated values, path whitespace, scorer)
 
 From acfc-results `run_20261015T172048Z_3e09149` and the pair_01 scrubbed diff

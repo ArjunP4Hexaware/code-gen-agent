@@ -1,11 +1,22 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-15, `feature/multi-table`, post57)
+## NEWEST — IIG validation (state as of 2026-10-15, `feature/multi-table`, post58)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-15, after post57).** post57 = five items from the post55 D1 report
+**RESTART HERE (2026-10-15, after post58).** post58 = one item: generate outcome
+`PASS_WITH_OPEN_INPUTS` (exit 0) = workbook written, every open line non-blocking.
+`CODEGEN_STAGES.json` `questions: [{line, key, scope, blocking}]`: QUESTION / UNRESOLVED
+are blocking, INPUT_NEEDED is not; feeds carry `written` + `open: {blocking,
+non_blocking}`. NEEDS_ANSWERS (exit 3) = ANY blocking line open, workbook written or not
+(Soham: an empty storage account is not deployable; the harness must not call it a pass)
+— env-required QUESTION (mock and live), `lob_by_file`, and now also an unasked held-back
+feed without `--feed`. STABLE `run_stages.pair_outcome(steps, out_root)` = the worst step
+(generate's status from the manifest when its `exit` matches); `acfc_run.py` prints it.
+Test: `test_open_inputs_outcome.py`. The App path still writes no manifest (open item below).
+
+**After post57 (kept for reference).** post57 = five items from the post55 D1 report
 (`CHANGELOG_ACFC.md`), one commit each:
 - Printed answer keys say `sheets[<i>]/<layer>/<role>` (0-based workbook position), never a
   sheet name; internal keys (profiles, caches, App) unchanged — translate only at the edge

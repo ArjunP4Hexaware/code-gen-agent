@@ -52,9 +52,10 @@ def test_framework_labels_groups_readme_and_addition_block(pair1_config, pair1_s
     assert len(framework.groups[TARGET_DML]) == 3          # one runner notebook per env
     assert "metadata_inserts.sql" in framework.groups[TARGET_DDL]
     framework_dir = tmp_path / pair1_spec.feed_slug / "framework"
+    # 2026-10-16: ADDITION.md no longer carries the by-target block (it named
+    # the insert script and the DML runners); the groups stay on the artefacts
     addition = (framework_dir / "ADDITION.md").read_text(encoding="utf-8")
-    assert "## By target system" in addition
-    assert f"**{TARGET_DML}**" in addition and f"**{TARGET_DDL}**" in addition
+    assert "## By target system" not in addition and "## Review flow" in addition
     wb = load_workbook(framework_dir / "config_inserts.xlsx")
     assert wb.sheetnames[0] == "README"
     assert wb["README"]["A1"].value.startswith(

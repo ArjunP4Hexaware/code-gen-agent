@@ -158,16 +158,29 @@ def test_the_owner_table_is_validated():
         == "bsa"
 
 
-def test_addition_lists_both_workbooks_and_both_switches(pair1_dirs, pair1_spec):
+def test_addition_describes_the_artefacts_and_the_review_flow(pair1_dirs, pair1_spec):
+    """2026-10-16: ADDITION.md describes the presented set (DDL, IIG, IIG
+    review copy, itself), the review flow IIG -> BSA review -> CI/CD applies
+    the DDL, and the framework-assigned IDs left blank — never inserts or
+    config rows (those files are still written)."""
     (framework,) = pair1_dirs
+    slug = pair1_spec.feed_slug
     addition = (framework / "ADDITION.md").read_text(encoding="utf-8")
-    assert f"| `{pair1_spec.feed_slug}_IIG_REVIEW.xlsx` | The BSA's review copy" in addition
-    assert f"| `{pair1_spec.feed_slug}_IIG.xlsx` | The clean copy of the IIG" in addition
-    assert "## Switches" in addition
-    assert "`conventions.profiles.acfc_prx.emit_iig_review`: on" in addition
-    assert ("`conventions.profiles.acfc_prx.emit_dml` (with `dml.enabled`): off — no runner "
-            "notebook (disabled)") in addition
-    assert "`metadata_inserts.sql` is written regardless" in addition
+    assert f"| `{slug}_IIG_REVIEW.xlsx` | The BSA's review copy" in addition
+    assert f"| `{slug}_IIG.xlsx` | The IIG: the template's sheets" in addition
+    assert "| `ADDITION.md` | This manifest. |" in addition
+    flow = addition.split("## Review flow", 1)[1].split("##", 1)[0]
+    steps = [line.split(" — ")[0] for line in flow.strip().splitlines()]
+    assert steps == ["1. **IIG**", "2. **BSA review**", "3. **CI/CD applies the DDL**"]
+    assert "The BSA-annotated IIG is the approval artefact." in flow
+    assert "## Framework-assigned IDs left blank" in addition
+    assert "- `PIPELINE_ID`" in addition
+    lowered = addition.lower()
+    for gone in ("insert", "config_rows", "config rows", "## switches", "## by target system"):
+        assert gone not in lowered, gone
+    # the files themselves are still written
+    assert (framework / "metadata_inserts.sql").is_file()
+    assert (framework / "config_rows.xlsx").is_file()
 
 
 def test_the_reference_profile_writes_no_iig_workbooks(pair1_config, pair1_spec, tmp_path):
@@ -180,7 +193,9 @@ def test_the_reference_profile_writes_no_iig_workbooks(pair1_config, pair1_spec,
     framework = tmp_path / "out" / pair1_spec.feed_slug / "framework"
     assert not [p for p in framework.iterdir() if p.name.endswith(("_IIG.xlsx",
                                                                     "_IIG_REVIEW.xlsx"))]
-    assert "## Switches" not in (framework / "ADDITION.md").read_text(encoding="utf-8")
+    addition = (framework / "ADDITION.md").read_text(encoding="utf-8")
+    assert "this profile writes no IIG workbook" in addition
+    assert "insert" not in addition.lower()
 
 
 def _assert_readable_xlsx(data: bytes) -> None:

@@ -62,28 +62,28 @@ _ADDITION_TEMPLATE = """\
 
 {banner}
 
-Option B output: an **addition to the existing ingestion framework** (the
-~90% case), not a standalone pipeline. The DDL scripts and the insert SQL
-are **add-ons to ACFC's master notebook** — the notebook the client
-already has and runs; the agent never generates or edits that notebook,
-it only produces the add-ons.
+An **addition to the existing ingestion framework**, not a standalone
+pipeline. The agent writes the files below; it never edits a notebook,
+never creates a table and never applies anything itself.
 
 | File | What it is |
 | --- | --- |
-{ddl_row}
-{rows_row}
-{inserts_row}
+{ddl_row}{iig_rows}
 | `ADDITION.md` | This manifest. |
 
-Columns awaiting framework-assigned IDs (rendered as `{id_placeholder}`,
-never invented): {blank_columns}.
-{segmented_block}{target_block}{switch_block}
+## Review flow
+
+{review_flow}
+
+## Framework-assigned IDs left blank
+
+The framework assigns these; the agent never invents them. Each is left as
+`{id_placeholder}`:
+
+{blank_columns}
+{segmented_block}
 Layout note: the tab names and column headers are the client IIG template
 (anonymized reference — `fixtures/reference/SFMC_IIG.xlsx`).
-
-On approval: the config rows land in the ingestion framework database, and
-the DDL + insert SQL are added on to ACFC's master notebook with the
-framework-assigned IDs. The agent never inserts unapproved rows.
 """
 
 
@@ -920,16 +920,15 @@ def emit_framework(
     # IIG-first M3: the BSA's review copy and the clean copy CI/CD loads —
     # behind the profile's emit_iig_review switch (off: output as before).
     iig_rows = ""
-    switch_block = ""
+    review_name = clean_name = ""
     if profile.emit_iig_review:
         from codegen.iig_review import write_iig_workbooks
 
         review_path, clean_path, _open = write_iig_workbooks(
             payload, blank_list, config, framework_dir, spec.feed_slug, template_name)
         files.extend([review_path, clean_path])
-        iig_rows, switch_block = _iig_addition_parts(
-            review_path.name, clean_path.name, config,
-            conventions_profile or config.conventions.profile, dml_disabled_reason)
+        review_name, clean_name = review_path.name, clean_path.name
+        iig_rows = _iig_addition_rows(review_name, clean_name, config)
     # A line break that slipped past the boundary FAILS with its cell address.
     checks.append(check_iig_workbooks_single_line(
         [rows_path] + ([clean_path] if profile.emit_iig_review else [])))
@@ -937,36 +936,17 @@ def emit_framework(
     checks.append(check_iig_workbooks_single_value(
         [rows_path] + ([clean_path] if profile.emit_iig_review else []),
         config.gate.derivations))
+    # 2026-10-16: ADDITION.md describes what is presented — the DDL, the IIG
+    # and its review copy — and the review flow (IIG -> BSA review -> CI/CD
+    # applies the DDL); the other framework files are written, not described.
+    ddl_list = " / ".join(f"`{name}`" for name in ddl_names) or "the DDL"
     ddl_row = (
-        f"| {' / '.join(f'`{name}`' for name in ddl_names)} | Deployment-team "
-        "DDL, conformant to the client's reference format (the `.sql` "
-        "sources sit in `../ddl/`). **Run in the data lake by the "
-        "deployment team** — the agent never creates target tables. |"
+        f"| {ddl_list} | The Databricks (Unity Catalog) table DDL, in the client's "
+        "reference format. **Applied by the CI/CD pipeline after the IIG is approved** — "
+        "the agent never creates target tables. |"
     )
-    ddl_row += (
-        f"\n| `{metadata_inserts.path.name}` | The client's \"DDL\": one INSERT per IIG "
-        "row, sheet by sheet, from the same cells as the IIG — the metadata rows that "
-        "define the tables in the SQL Server metadata DB (the framework creates the Unity "
-        "Catalog tables from them; the CREATE text above is the reference). A `TABLE "
-        "DEFINITIONS` index names every table by its mapped three-part name. Every open "
-        "cell is a `<<COLUMN#n>>` placeholder: the script does not run until each is "
-        "replaced. `config_inserts_<env>.sql` is retired (2026-10-08): this file replaces "
-        "it — one placeholder per row fixes the colliding `@OBJECT_ID` / `@PIPELINE_ID` the "
-        "per-environment script gave every row. |"
-    )
-    rows_row = (
-        "| `config_rows.xlsx` | The config rows for the framework DB — "
-        "**this is the approval artefact**. Every cell carries a provenance "
-        "badge; the `_provenance` sheet lists them all. |"
-    )
-    inserts_row = (
-        f"| `config_inserts.xlsx` | One sheet per populated IIG tab; value "
-        f"rows on the client layout plus the generated INSERT statement "
-        f"({config.framework.sql_dialect} dialect) as the final column. "
-        "**Run only after approval**, through the client's existing ADF "
-        "metadata path. Plain INSERTs — idempotency belongs to the "
-        "framework's load path. |"
-    )
+    review_flow = _review_flow(ddl_list, review_name, clean_name, profile.emit_iig_review,
+                               conventions_profile or config.conventions.profile)
     assumed_notes: list[str] = []
     held_back: list[str] = []
     seg = spec.segmented_extraction
@@ -985,42 +965,17 @@ def emit_framework(
     segmented_lines += [f"- **HELD BACK**: {held}" for held in held_back]
     segmented_block = ("\n" + "\n".join(segmented_lines) + "\n"
                        if segmented_lines else "")
-    groups = artefact_groups(files + [framework_dir / "ADDITION.md"])
-    target_block = ""
-    if TARGET_DML in groups:
-        target_lines = ["", "## By target system", ""]
-        notes = {
-            TARGET_DDL: "run in the Databricks SQL editor / a notebook by the deployment team",
-            TARGET_DML: "run from the Databricks notebook against the SQL Server metadata DB, "
-                        "in one transaction, after the review sheets are approved",
-            TARGET_REVIEW: "review copies — `config_inserts.xlsx` sheet 1 says so; the "
-                           f"executable script is `{metadata_inserts.path.name}`",
-            TARGET_NOTES: "this manifest",
-        }
-        notes[TARGET_DDL] += (
-            f" (the CREATE reference text); `{metadata_inserts.path.name}` holds the "
-            "metadata rows that define those tables — run against the SQL Server metadata "
-            "DB once every `<<COLUMN#n>>` placeholder is filled")
-        notes[TARGET_DML] = (f"the notebooks that run `{metadata_inserts.path.name}` against "
-                             "the SQL Server metadata DB, in one transaction, after the review "
-                             "sheets are approved")
-        for group, names in groups.items():
-            target_lines.append(f"- **{group}** — {notes[group]}: "
-                                + ", ".join(f"`{n}`" for n in names))
-        target_block = "\n".join(target_lines) + "\n"
     addition_path = framework_dir / "ADDITION.md"
     addition_path.write_text(
         _ADDITION_TEMPLATE.format(
             slug=spec.feed_slug,
             banner="\n".join(f"- {k}: {v}" for k, v in banner),
             ddl_row=ddl_row,
-            rows_row=rows_row,
-            inserts_row=inserts_row + iig_rows,
+            iig_rows=iig_rows,
+            review_flow=review_flow,
             id_placeholder=config.framework.id_placeholder,
-            blank_columns=", ".join(f"`{c}`" for c in flagged) or "none",
+            blank_columns="\n".join(f"- `{c}`" for c in flagged) or "- none",
             segmented_block=segmented_block,
-            target_block=target_block,
-            switch_block=switch_block,
         ),
         encoding="utf-8", newline="\n",
     )
@@ -1041,32 +996,37 @@ def emit_framework(
     )
 
 
-def _iig_addition_parts(review_name: str, clean_name: str, config: Config, profile_name: str,
-                        dml_disabled_reason: str | None) -> tuple[str, str]:
-    """IIG-first: the ADDITION.md rows for the two IIG workbooks and the
-    "Switches" block naming emit_iig_review and emit_dml (only written when
-    the profile emits the workbooks, so other profiles' manifests are as
-    before)."""
-    rows = (
+def _iig_addition_rows(review_name: str, clean_name: str, config: Config) -> str:
+    """IIG-first: the ADDITION.md rows for the two IIG workbooks (only when
+    the profile emits them)."""
+    return (
+        f"\n| `{clean_name}` | The IIG: the template's sheets and columns, values "
+        "only — the file the BSA certifies and the CI/CD pipeline loads. |"
         f"\n| `{review_name}` | The BSA's review copy of the IIG: sheet "
         f"`{config.iig_review.summary_sheet}` first (one row per sheet / column / "
         "reason / owner group), then the template sheets with every open cell "
         "highlighted by owner and commented with its reason, citation and owner. |"
-        f"\n| `{clean_name}` | The clean copy of the IIG: the template's sheets and "
-        "columns, values only — the file the BSA certifies and CI/CD loads. |"
     )
-    prefix = f"conventions.profiles.{profile_name}"
-    dml_state = ("off — no runner notebook (disabled): " + dml_disabled_reason
-                 + f"; `{METADATA_INSERTS_FILE}` is written regardless"
-                 if dml_disabled_reason is not None else
-                 f"on — the runner notebooks that execute `{METADATA_INSERTS_FILE}` are "
-                 "written")
-    switches = (
-        "\n## Switches\n\n"
-        f"- `{prefix}.emit_iig_review`: on — the two IIG workbooks above are written.\n"
-        f"- `{prefix}.emit_dml` (with `dml.enabled`): {dml_state}.\n"
-    )
-    return rows, switches
+
+
+def _review_flow(ddl_list: str, review_name: str, clean_name: str, emits_iig: bool,
+                 profile_name: str) -> str:
+    """ADDITION.md's review flow: IIG -> BSA review -> CI/CD applies the DDL."""
+    if emits_iig:
+        first = (f"1. **IIG** — the agent writes `{clean_name}` and the BSA's review copy "
+                 f"`{review_name}`: every cell it could not fill is open, highlighted and "
+                 "commented with its reason and owner.")
+        second = (f"2. **BSA review** — the BSA fills or corrects the open cells in "
+                  f"`{review_name}` and certifies `{clean_name}`. The BSA-annotated IIG is "
+                  "the approval artefact.")
+    else:
+        first = ("1. **IIG** — this profile writes no IIG workbook "
+                 f"(`conventions.profiles.{profile_name}.emit_iig_review` is off).")
+        second = ("2. **BSA review** — the BSA reviews and certifies the IIG; the "
+                  "BSA-annotated IIG is the approval artefact.")
+    third = (f"3. **CI/CD applies the DDL** — after approval, the CI/CD pipeline applies "
+             f"{ddl_list} and loads the approved IIG. Nothing is applied before approval.")
+    return "\n".join([first, second, third])
 
 
 def _dml_disabled_reason(config: Config, profile, profile_name: str | None) -> str | None:

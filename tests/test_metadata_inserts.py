@@ -569,11 +569,9 @@ def test_the_artefact_is_listed_grouped_and_checked(runs):
     (check,) = [c for c in gate.checks if c.name == "metadata_inserts"]
     assert check.passed and "one INSERT per IIG row (23)" in check.details
     assert artefact_group(FILE_NAME) == TARGET_DDL
+    # 2026-10-16: still written, no longer described in ADDITION.md
     addition = (framework_dir / "ADDITION.md").read_text(encoding="utf-8")
-    assert f"| `{FILE_NAME}` | The client's \"DDL\"" in addition
-    assert f"`NB_COB_REPORT_DDL.txt`, `{FILE_NAME}`" in addition         # By target system
-    # config_inserts_<env>.sql is retired (2026-10-08); the notebooks run this file
-    assert "config_inserts_<env>.sql` is retired (2026-10-08): this file replaces it" in addition
+    assert FILE_NAME not in addition and "| `NB_COB_REPORT_DDL.txt` |" in addition
     assert not list(framework_dir.glob("config_inserts_*.sql"))
     assert (framework_dir / "Insert_scripts_config_table_q1.py").is_file()
 

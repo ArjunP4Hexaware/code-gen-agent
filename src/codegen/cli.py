@@ -42,7 +42,12 @@ from codegen.reasoning import build_provider, run_reasoning
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import console_summary, write_generation_report
 from codegen.report.generation_report import all_failed_line
-from codegen.resolve.resolver import ContractMismatchError, normalize_feed_name, resolve_pair
+from codegen.resolve.resolver import (
+    ContractMismatchError,
+    ContractUnstatedError,
+    normalize_feed_name,
+    resolve_pair,
+)
 from codegen.rules.compiler import compile_rules
 from codegen.run_errors import Coord, report_error
 
@@ -581,6 +586,18 @@ def _run_pairs(
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
             pending = pending_answers(sttm_path)
+        except ContractUnstatedError as exc:
+            # post57 (D1 post55 pairs 03 / 04): a value NO document states is a
+            # QUESTION (exit 3), never a contract mismatch; the other feeds run.
+            from codegen.layout.answers_template import TemplateItem
+
+            specs, pending = exc.specs, pending_answers(sttm_path)
+            unstated = [q for q in exc.questions if only_feed is None or q.feed_id == only_feed]
+            for question in unstated:
+                print(answer_line("QUESTION", question.key, question.reason))
+            owed_items += [TemplateItem(q.key, q.reason, [], "gaps") for q in unstated]
+            if unstated:
+                needs_answers = matched_feed = True
         except (ContractMismatchError, ValueError) as exc:
             _fail(command, f"{frd_path.name} + {sttm_path.name} — {exc}",
                   "contract.mismatch" if isinstance(exc, ContractMismatchError)

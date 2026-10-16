@@ -263,9 +263,12 @@ def test_the_hard_stop_remains_only_at_generate_time(config, tmp_path, capsys, m
     monkeypatch.setenv("CODEGEN_STORAGE_OUTPUTS", f"local:{(tmp_path / 'out').as_posix()}")
     (tmp_path / "out").mkdir()
     monkeypatch.chdir(REPO)
+    # post57: a value NO document states is a QUESTION (exit 3), never a FAIL
     assert cli.main(["generate", "--frd-contract", str(frd_json), "--sttm-contract",
-                     str(sttm_json), "--skip-tests", "--dry-run"]) == 1
-    assert "no source names a file pattern" in capsys.readouterr().out
+                     str(sttm_json), "--skip-tests", "--dry-run"]) == cli.EXIT_NEEDS_ANSWERS
+    out = capsys.readouterr().out
+    assert "QUESTION       feeds[0].file_name_patterns — value stated in no document" in out
+    assert "FAIL" not in out
 
 
 # ------------------------------------------------------------ 3. --refresh never says cache

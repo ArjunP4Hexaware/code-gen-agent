@@ -2547,8 +2547,23 @@ class DemoRunner:
             from codegen.layout.answers_template import write_applied_answers
 
             write_applied_answers(run_root / "answers.yaml", gaps, stage="this App run")
-        specs = resolve_pair(frd_path, contract_path, with_environment(config, run_env),
-                             vdd_path=vdd_contract_path, gaps=gaps or None)
+        from codegen.resolve.resolver import ContractUnstatedError
+
+        try:
+            specs = resolve_pair(frd_path, contract_path, with_environment(config, run_env),
+                                 vdd_path=vdd_contract_path, gaps=gaps or None)
+        except ContractUnstatedError as exc:
+            # post57: a value no document states is a question (the CLI's
+            # QUESTION line); the feeds that resolved still run
+            specs = exc.specs
+            for unstated in exc.questions:
+                self._run_items.append(needs_answer_item(
+                    {"document": "frd", "key": unstated.key, "sheet": None, "layer": None,
+                     "role": unstated.key, "kind": "text", "reason": unstated.reason,
+                     "header": [], "candidates": [],
+                     "title": f"{unstated.field} of {unstated.feed_id}",
+                     "hint": "No document states this value; type it.", "suggested": None},
+                    feed_name=unstated.feed_id, reason=unstated.reason))
         # post47: a feed whose files no document keys to ONE LOB asks ONE question
         # (every file a key, the FRD's codes a dropdown) — its LOB cells stay open
         from codegen.resolve.resolver import lob_question_item

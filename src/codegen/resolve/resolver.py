@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from codegen.config import Config
@@ -64,15 +65,47 @@ class MismatchItem(str):
     kind: str
     count: int
     names: tuple[str, ...]
+    # post57: a value.unstated item names the FRD contract field it leaves
+    # empty (``file_format``, ``stage_target.load_strategy``) and the places
+    # searched (vocabulary labels, never a value) — its QUESTION line.
+    field: str | None
+    searched: tuple[str, ...]
 
 
 def mismatch_item(kind: str, text: str, count: int = 1,
-                  names: tuple | list = ()) -> MismatchItem:
+                  names: tuple | list = (), *, field: str | None = None,
+                  searched: tuple | list = ()) -> MismatchItem:
     item = MismatchItem(text)
     item.kind = kind
     item.names = tuple(str(n) for n in names)
     item.count = len(set(item.names)) if item.names else max(int(count), 1)
+    item.field = field
+    item.searched = tuple(str(s) for s in searched)
     return item
+
+
+UNSTATED = "value.unstated"
+
+
+@dataclass(frozen=True)
+class UnstatedValue:
+    """One value no document states (post57): a QUESTION, never a FAIL.
+    ``key`` = the answers-file key (``feeds[<i>].<field>``, under gaps:);
+    ``searched`` = where the run looked (vocabulary labels only)."""
+
+    key: str
+    field: str
+    searched: tuple[str, ...]
+    feed_id: str
+    position: int | None = None
+    of: int | None = None
+
+    @property
+    def reason(self) -> str:
+        where = f"feed {self.position} of {self.of}; " if self.position else ""
+        return (f"value stated in no document ({where}contract field {self.field}); searched: "
+                f"{', '.join(self.searched) or 'the FRD'} - answer the value under gaps: "
+                "in answers.yaml and rerun generate --answers")
 
 
 def _mismatch_counts(errors: list[str]) -> dict[str, int]:
@@ -108,6 +141,68 @@ class ContractMismatchError(ValueError):
         bullet_list = "\n  - ".join(errors)
         super().__init__(f"contract mismatch for feed '{feed}' ({mismatch_summary(self.counts)})"
                          f":\n  - {bullet_list}")
+
+
+class ContractUnstatedError(ContractMismatchError):
+    """post57 (D1 post55 pairs 03 / 04): every disagreement of a feed is a
+    value NO document states — NEEDS_ANSWERS (exit 3, one QUESTION per value),
+    not a contract mismatch. Raised by :func:`resolve_feeds` once every feed is
+    resolved: ``specs`` = the feeds that DID resolve (generated as usual),
+    ``questions`` = the :class:`UnstatedValue` items of the others. A feed with
+    a genuine conflict (two documents, two values) still raises
+    :class:`ContractMismatchError`."""
+
+    def __init__(self, feed: str, errors: list[str], questions: list[UnstatedValue],
+                 specs: list | None = None) -> None:
+        super().__init__(feed, errors)
+        self.questions = list(questions)
+        self.specs = list(specs or [])
+
+
+def _unstated_questions(errors: list[str], feed_id: str, feed_index: int,
+                        position: int | None, of: int | None) -> list[UnstatedValue]:
+    """One question per unstated FIELD (two checks of one field merge)."""
+    merged: dict[str, list[str]] = {}
+    for error in errors:
+        field = getattr(error, "field", None) or "value"
+        merged.setdefault(field, [])
+        for place in getattr(error, "searched", ()):
+            if place not in merged[field]:
+                merged[field].append(place)
+    return [UnstatedValue(f"feeds[{feed_index}].{field}", field, tuple(places), feed_id,
+                          position, of) for field, places in merged.items()]
+
+
+# post57: what an unstated value's answer sets on the FRD feed at generate time
+# (the layout stage takes the same gaps: keys).
+_UNSTATED_ANSWERS = {"file_format": "text", "delimiter": "text",
+                     "stage_target.load_strategy": "strategy", "lobs": "list",
+                     "file_name_patterns": "list", "file_patterns": "list"}
+
+
+def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_index: int,
+                       flags: list[str]) -> FrdFeed:
+    """A ``gaps:`` answer for a value the FRD leaves empty (the QUESTION of
+    :class:`UnstatedValue`) fills it, flagged ``frd_unstated:<field>
+    source_used:user``; a value the FRD states is never overwritten."""
+    from codegen.layout.resolve import _feed_get, _feed_set
+    from codegen.resolve.gapfill import Statement, canonical_strategy, fill_flag
+
+    for field, kind in _UNSTATED_ANSWERS.items():
+        answer = str((gaps or {}).get(f"feeds[{feed_index}].{field}") or "").strip()
+        target = "file_name_patterns" if field == "file_patterns" else field
+        if not answer or _feed_get(frd_feed, target) not in (None, "", []):
+            continue
+        if kind == "list":
+            value = [v.strip() for v in re.split(r"[,;\n]+", answer) if v.strip()]
+        elif kind == "strategy":
+            value = canonical_strategy(answer) or answer
+        else:
+            value = answer
+        frd_feed = _feed_set(frd_feed, target, value)
+        flags.append(fill_flag(target, Statement(answer, "user",
+                                                 f"answers gaps: feeds[{feed_index}].{field}")))
+    return frd_feed
 
 
 def normalize_feed_name(name: str) -> str:
@@ -285,8 +380,10 @@ def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str]
         errors.append(mismatch_item(
             "value.unstated",
             f"format '{frd_feed.file_format}' has no implied delimiter, neither contract "
-            "states one, and no file pattern carries a csv / psv / tsv extension"
-        ))
+            "states one, and no file pattern carries a csv / psv / tsv extension",
+            field="delimiter",
+            searched=("FRD Delimiter", "FRD Object/data Format", "STTM Delimiter meta row",
+                      "VDD FILES delimiter", "file pattern extension")))
         return ""
     return implied
 
@@ -466,7 +563,9 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
                 "value.unstated",
                 f"the STTM states one load strategy ({parsed['any']!r}, {cell}) "
                 "without a layer — say which layer it applies to in the layout "
-                "dialog, or answer the FAQ load_mode"))
+                "dialog, or answer the FAQ load_mode", field="stage_target.load_strategy",
+                searched=("FRD Load Strategy STG", "STTM Load Strategy meta row (no layer)",
+                          "FAQ load_mode")))
     if feed.standard_target.load_strategy is None:
         if parsed.get("standard"):
             statement = Statement(parsed["standard"], "STTM", cell)
@@ -775,13 +874,17 @@ def resolve_feeds(
     """Join every FRD feed to its STTM feed. Unmatched feeds on either side
     fail — except a feed the extractor held back as NEEDS_ANSWERS
     (``sttm.needs_answers``): it is reported by the caller
-    (:func:`pending_answers`), never resolved and never an error."""
+    (:func:`pending_answers`), never resolved and never an error. A feed whose
+    only problem is a value no document states (post57) does not stop the
+    others: once every feed is joined, :class:`ContractUnstatedError` carries
+    the resolved specs and the questions."""
     frd = apply_frd_split(frd, sttm)
     sttm_by_id = {f.feed_id: f for f in sttm.feeds}
     held_back = {p.feed_name for p in sttm.needs_answers}
     matched_sttm_ids: set[str] = set()
     specs: list[ResolvedFeedSpec] = []
     unmatched_frd: list[str] = []
+    unstated: list[ContractUnstatedError] = []
 
     for frd_feed in frd.feeds:
         feed_id = config.feed_aliases.get(frd_feed.feed_name) or normalize_feed_name(
@@ -794,8 +897,11 @@ def resolve_feeds(
             unmatched_frd.append(f"{frd_feed.feed_name!r} (looked for STTM feed_id '{feed_id}')")
             continue
         matched_sttm_ids.add(feed_id)
-        specs.append(_resolve_one(frd, frd_feed, sttm, sttm_feed, config, frd_sha256, sttm_sha256,
-                                  vdd=vdd, gaps=gaps))
+        try:
+            specs.append(_resolve_one(frd, frd_feed, sttm, sttm_feed, config, frd_sha256,
+                                      sttm_sha256, vdd=vdd, gaps=gaps))
+        except ContractUnstatedError as held:
+            unstated.append(held)
 
     errors = [mismatch_item("feed.frd_only", f"FRD feed has no STTM mapping: {name}")
               for name in unmatched_frd]
@@ -808,6 +914,10 @@ def resolve_feeds(
         # caller's coordinates stand)
         raise located(ContractMismatchError(frd.contract_name, errors), None,
                       "contract.mismatch")
+    if unstated:
+        raise ContractUnstatedError(
+            ", ".join(u.feed for u in unstated), [e for u in unstated for e in u.errors],
+            [q for u in unstated for q in u.questions], specs)
     return specs
 
 
@@ -832,8 +942,11 @@ def _resolve_one(
     # applies the same chain earlier (with the dialog for disagreements);
     # here it covers the CLI path and anything the dialog left blank.
     feed_index = next((i for i, f in enumerate(frd.feeds) if f is original_frd_feed), 0)
+    answered_flags: list[str] = []
+    frd_feed = _answered_unstated(frd_feed, gaps, feed_index, answered_flags)
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd,
                                                      feed_index=feed_index, frd=frd)
+    gap_flags = [*answered_flags, *gap_flags]
     errors.extend(e if isinstance(e, MismatchItem) else mismatch_item("value.conflict", e)
                   for e in gap_errors)
     catalog_flags: list[str] = []
@@ -891,7 +1004,11 @@ def _resolve_one(
                     "'File Names' / 'File Name Example' and its File Details sheet are blank, "
                     "and no VDD FILES sheet was given (or its File Name Pattern column is "
                     "empty) — answer `feeds[0].file_patterns` in the layout dialog or under "
-                    "`gaps:` in the answers file, or pass the VDD (`generate --vdd`)"))
+                    "`gaps:` in the answers file, or pass the VDD (`generate --vdd`)",
+                    field="file_name_patterns",
+                    searched=("FRD File Name Pattern", "STTM File Names meta row",
+                              "STTM File Name Example meta row", "STTM File Details sheet",
+                              "VDD FILES File Name Pattern")))
     # Hard stops that remain: fields every source is silent on and the
     # generator cannot proceed without (a reader needs the format; a writer
     # needs the stage strategy). Domain / standard strategy are blank-and-flag.
@@ -899,17 +1016,24 @@ def _resolve_one(
         errors.append(mismatch_item(
             "value.unstated",
             "no source states the file format: FRD 'Object/data Format', the STTM "
-            "'File Format' meta row and the VDD FILES sheet are all blank"))
+            "'File Format' meta row and the VDD FILES sheet are all blank",
+            field="file_format",
+            searched=("FRD Object/data Format", "STTM File Format meta row",
+                      "VDD FILES format", "file pattern extension")))
     if frd_feed.stage_target.load_strategy is None:
         errors.append(mismatch_item(
             "value.unstated",
             "no source states the stage load strategy: FRD 'Load Strategy STG' blank, "
             "the STTM 'Load Strategy' meta row states none per layer, and the FAQ "
-            "load_mode is unanswered — answer it in the layout dialog or the FAQ"))
+            "load_mode is unanswered — answer it in the layout dialog or the FAQ",
+            field="stage_target.load_strategy",
+            searched=("FRD Load Strategy STG", "STTM Load Strategy meta row",
+                      "FAQ load_mode")))
 
     if not frd_feed.lobs:
         errors.append(mismatch_item(
-            "value.unstated", "FRD feed declares no LOBs; the LOB audit column needs at least one"))
+            "value.unstated", "FRD feed declares no LOBs; the LOB audit column needs at least one",
+            field="lobs", searched=("FRD LOB", "FRD Region / LOB table")))
 
     # --- side tables, derived from the Detail stage table ------------------
     detail_table_name = next(
@@ -1030,6 +1154,11 @@ def _resolve_one(
         # the ORIGINAL feed object: the gap chain above may have replaced frd_feed
         position = next((i for i, f in enumerate(frd.feeds, 1) if f is original_frd_feed),
                         None)
+        if all(getattr(e, "kind", None) == UNSTATED for e in errors):
+            # post57: nothing disagrees — values no document states are
+            # questions (NEEDS_ANSWERS), collected by resolve_feeds
+            raise ContractUnstatedError(feed_id, errors, _unstated_questions(
+                errors, feed_id, feed_index, position, len(frd.feeds)))
         raise located(ContractMismatchError(feed_id, errors),
                       Coord("feed", n=position, of=len(frd.feeds)) if position else None,
                       "contract.mismatch")

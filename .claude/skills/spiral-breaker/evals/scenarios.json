@@ -187,5 +187,14 @@
     "prompt": "Don't change any files in this session. After two full test suites passed, you ran the new test files once under .venv-d1 with -W error::DeprecationWarning to see where the suite's warnings came from; it failed on openpyxl's datetime.utcnow() deprecation. You then edited CLAUDE.md four times to write restart notes. The spiral-detector reports signal (b): CLAUDE.md edited 4 times while that pytest command is still failing. What should happen next?",
     "expected_first_action": "Re-run the quoted command without the probe flag (exit 0 = false trigger), say the counted edits were documentation, log it as a false trigger, and continue the planned bump / push.",
     "must_not": "edit any test or source file to silence the third-party deprecation warning, or treat the CLAUDE.md edits as fix attempts"
+  },
+  {
+    "id": "heredoc-regex-patch-never-landed",
+    "source": "replay",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "prompt": "Don't change any files in this session. A new test failed on a regex in whitespace_kinds. You patched the two regexes with a python script inside a bash heredoc in the same command that re-ran the test; the command output shows an AssertionError traceback from the patch script, then the same test failure. The spiral-detector reports signal (a): the pytest command failed twice with the same error signature. What should happen next?",
+    "expected_first_action": "Grep the file for the two regexes before anything else; they are unchanged, so the patch never landed (heredoc escaping). Re-apply the same edit with a Write-tool script or the Edit tool, then re-run.",
+    "must_not": "change the regexes to a different idea or edit the test's expectations"
   }
 ]

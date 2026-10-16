@@ -4,6 +4,63 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post57 — 2026-10-15 (D1 post55 report: leak keys, unstated values, path whitespace, scorer)
+
+From acfc-results `run_20261015T172048Z_3e09149` and the pair_01 scrubbed diff
+(`run_20261015T193331Z_3e09149`). One commit each, synthetic fixtures only.
+
+- **Answer keys name sheets by position.** All 10 post55 leak hits were sheet
+  names inside `needed_answer_keys`. Every key on stdout is now
+  `sheets[<i>]/<layer>/<role>` (0-based workbook position, like `feeds[<i>]`;
+  the coordinates tier's `STTM sheet <i+1>`), band keys too:
+  `sheets[<i>]/band[<n>]/layer`. The name stays ACFC-side: the answers
+  template's `sheet_name:` reading aid and `unresolved_headers.md`. An answers
+  file may give `sheet: "sheets[2]"` or the name; an unknown position is a NOTE,
+  never applied elsewhere (`codegen.layout.sheet_refs`).
+- **A value no document states is NEEDS_ANSWERS, not a FAIL** (pairs 03 / 04).
+  A feed whose every mismatch is `value.unstated` exits 3 with one
+  `QUESTION feeds[<i>].<field>` per value, citing the contract field and the
+  places searched (vocabulary only); the other feeds of the pair still
+  generate. `generate --answers` (gaps:) fills the value
+  (`frd_unstated:<field> source_used:user`). Two documents stating different
+  values stay a FAIL.
+- **Stated paths** (pair_01's `derivations [path_whitespace 19]` all came from ONE
+  FRD landing cell copied with its label, `Path : <account>/<container>/<folder>`):
+  - *Label stripping.* An FRD cell `<Label> : <value>` whose label is a synonym of
+    the field being read (conventions profile `field_label_synonyms`: landing
+    path / folder / location, file name, frequency, delimiter) is read as
+    `<value>`, flag `label_stripped` with the FRD table / row. A label that is
+    not a synonym of that field is never stripped.
+  - *The environment's address.* A landing that starts `<account>/<container>/`
+    (the account matching the profile's `storage_account_pattern`) or an abfss
+    URI takes account and container from the run's environment profile; the
+    folder under the container stays the document's, byte for byte. A different
+    document account / container raises `environment_mismatch` naming the field
+    and "document states another environment" — never the document's value.
+  - *Whitespace* (switch `path_whitespace: keep | fail`, default `keep`): a
+    stated path keeps its whitespace byte for byte, and each path cell gets ONE
+    flag `iig_path_whitespace:<SHEET>!<A1> (<COLUMN>) — double space | leading |
+    trailing | tab` for the BSA to confirm; `fail` = the old check. On the
+    pair_01 shape: the D1 address, one `label_stripped`, one
+    `environment_mismatch`, zero whitespace flags.
+- **iig_diff, four rules** (re-scored: pair_01 export 3.2 → 28.3, see
+  `docs/acfc/iig_exports/pair_01_post55/RESCORE.md`):
+  (a) an identity carrying a NAME (TGT_TABLE_NAME / TGT_TABLE / @file) that
+  differs, both sides one feed and one flow: leftover rows pair by feed + flow +
+  row order — the name is one mismatch cell; (b) agent-template columns the
+  golden lacks are `template-only` (not scored, listed once under HEADERS);
+  (c) `9999-12-31` == `9999-12-31 00:00:00`; (d) segment codes through the
+  profile's new `segment_codes` (hddr / det / trlr == header / details /
+  trailer). `tools/iig_rescore_export.py` re-scores a scrubbed export at home
+  (the post56 scorer reproduces the export's 3.2 exactly on the rebuilt pair).
+- **Extraction error lines say what kind of thing.** "STTM required element
+  missing" / "STTM audit column invalid" now carry `(role <role>; type
+  <keyword>)` — the header role in the template vocabulary and the type keyword
+  in the framework type vocabulary, both allowlisted (`run_errors.ROLE_WORDS`,
+  `TYPE_KEYWORDS`; anything else is dropped or `other`).
+- **Not in this release:** pair_05 / pair_06's own fixes wait for Genie's answer
+  on the segment-code vocabulary (rule (d) above).
+
 ## 0.5.8.post56 — 2026-10-15 (IIG cell counts per feed; one environment resolver)
 
 - **IIG cell counts.** pair_11 (4 feeds) and pair_12 (1 feed) printed the same

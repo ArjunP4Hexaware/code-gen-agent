@@ -117,7 +117,7 @@ Entry format:
   script's match guard fails, nothing is written.
 - Check: grep the file for the text the patch was meant to remove BEFORE re-running the check.
 - Pattern: A (wrong layer - the edit never landed)
-- Seen: 2026-10-12
+- Seen: 2026-10-12; 2026-10-15 (post57: a heredoc regex patch; hook signal (a))
 - Permanent fix: patch with the Edit tool, or a script file written with the Write tool.
 ## Hook (a)/(b) false positive: a brand-new test file in its planned red phase
 - Signature: signal (b) counts edits to a module while a pytest command on a NEW (untracked)

@@ -157,3 +157,18 @@
 - Approx. time lost: ~3 minutes
 - Proposed refinement (for a retro, not now): a command run with `-W error::...` is a probe;
   and documentation-only files (CLAUDE.md, CHANGELOG) should not count as (b) edits.
+
+## 2026-10-15: hook signal (a) — test_path_whitespace_kept.py failed twice, same signature
+- Actual cause: the "fix" between the two runs never landed. The patch (two regexes in
+  `whitespace_kinds`, `src/codegen/gate/derivations.py`) went through a bash heredoc that
+  mangled `\\` / `\t`; the script's own match guard raised AssertionError and wrote nothing,
+  and the test ran again on the unchanged code.
+- Pattern: A (wrong layer - the edit, not the code)
+- Caught by skill: yes (hook signal (a); the diagnostic grepped the two regexes, saw them
+  unchanged, re-applied the same edit from a Write-tool script: 6 passed)
+- Hook signal: a, true signal (of a tooling miss, not a wrong hypothesis)
+- Earliest signal that would have revealed it: the patch command's own traceback, printed
+  above the test output in the same call
+- Approx. time lost: ~2 minutes
+- Permanent fix: none new - known cause "A patch script that aborted before writing"; the
+  rule (Write-tool scripts, never a heredoc, for anything with a backslash) stands.

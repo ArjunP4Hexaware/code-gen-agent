@@ -1,11 +1,40 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-15, `feature/multi-table`, post55)
+## NEWEST — IIG validation (state as of 2026-10-15, `feature/multi-table`, post57)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-15, after post56).** post56 = two items (`CHANGELOG_ACFC.md`):
+**RESTART HERE (2026-10-15, after post57).** post57 = five items from the post55 D1 report
+(`CHANGELOG_ACFC.md`), one commit each:
+- Printed answer keys say `sheets[<i>]/<layer>/<role>` (0-based workbook position), never a
+  sheet name; internal keys (profiles, caches, App) unchanged — translate only at the edge
+  (`codegen.layout.sheet_refs`; `PendingAnswer.sheet_index`). Answers files accept either form.
+  Test: `test_sheet_ref_keys.py`; cold-pair fixtures pinned in the new form.
+- `value.unstated` only = `ContractUnstatedError` (subclass of ContractMismatchError) raised by
+  `resolve_feeds` after every feed: CLI prints one `QUESTION feeds[<i>].<field>` each, exit 3,
+  generates the rest; `generate --answers` fills it. Conflicts still FAIL. Test:
+  `test_unstated_values.py`.
+- Stated paths (`codegen.resolve.stated`, first thing in `_resolve_one`): an FRD
+  `<Label> : <value>` cell with a label in the profile's `field_label_synonyms` for that
+  field -> `<value>` + `label_stripped`; a landing `<account>/<container>/<folder>`
+  (`storage_account_pattern`) or abfss URI -> the run environment's account / container,
+  folder byte for byte, `environment_mismatch` when the document's differ (never its value).
+  Conventions profile `path_whitespace: keep | fail` (default keep): `normalise_path` never
+  touches whitespace, ONE `iig_path_whitespace:<SHEET>!<A1> (<COL>)` flag per cell. Tests:
+  `test_stated_landing.py`, `test_path_whitespace_kept.py`; `test_gate_fail_breakdown.py`
+  runs under `fail`.
+- iig_diff: `order` pairing (`name_components`), `template-only` status, date == midnight
+  datetime, `segment_codes` (profile) via `segment_columns`. `tools/iig_rescore_export.py`
+  re-scores a scrubbed export at home; pair_01 3.2 -> 28.3
+  (`docs/acfc/iig_exports/pair_01_post55/RESCORE.md`). NOTE: the suite runs WITHOUT the ACFC
+  overlay, so the iig_v2 template in tests lacks the overlay's PROCESS_NAME..UDF5 columns.
+- Error lines: `located(..., role=, type_text=)` -> `(role X; type Y)` in the coordinates tier,
+  allowlists `run_errors.ROLE_WORDS` / `TYPE_KEYWORDS`. Test: `test_error_roles.py`.
+- Open: pair_05 / 06 fixes wait for Genie's answer on the segment vocabulary. RESCORE.md also
+  lists what is left (DQ rules pair nothing; agent SRC_ADLS_PATH starts `/Path : `).
+
+**After post56 (kept for reference).** post56 = two items (`CHANGELOG_ACFC.md`):
 - Per-feed IIG cell counts in `CODEGEN_STAGES.json` (`feeds[].iig_cells`: per sheet
   `open_for_bsa` / `empty_other` / `template_blanks` + `open_inputs`;
   `run_stages.iig_unpopulated(out_root)` is the harness reader). The old harness metric

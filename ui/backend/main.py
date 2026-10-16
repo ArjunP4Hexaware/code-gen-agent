@@ -31,11 +31,6 @@ from codegen.config import load_dotenv
 from codegen.demo_sources import scan_reference_documents
 from codegen.governance_checks import RunFacts, governance_checks_payload
 from codegen.input_requirements import input_requirements_payload
-from codegen.metadata_sheet import (
-    metadata_sheet_payload,
-    workbook_bytes,
-    workbook_filename,
-)
 from codegen.storage import StorageError
 from ui.backend import databricks_routes, sharepoint_routes
 from ui.backend import errors as ui_errors
@@ -1136,20 +1131,6 @@ def input_documents() -> dict:
     }
 
 
-def _metadata_sheet_inputs(store: GenerationStore):
-    """The current run's specs + unmapped rule texts, if any run is loaded."""
-    if not store.runs:
-        return None, None
-    specs = [run.spec for run in store.runs.values()]
-    unmapped = {
-        run.spec.feed_slug: {
-            o.rule_text for o in run.outcomes if o.classification == "unmapped"
-        }
-        for run in store.runs.values()
-    }
-    return specs, unmapped
-
-
 @app.get("/api/demo/governance-checks")
 def governance_checks() -> dict:
     """The two architecture decks' stated controls, read live and evaluated
@@ -1204,44 +1185,6 @@ def input_requirements() -> dict:
     config = _require_store().config
     return {"configured": _reference_documents_present(config),
             **input_requirements_payload(config, REPO_ROOT)}
-
-
-@app.get("/api/demo/metadata-sheet")
-def metadata_sheet() -> dict:
-    """Display-only preview of the ACFC metadata sheet (see codegen.metadata_sheet)."""
-    store = _require_store()
-    specs, unmapped = _metadata_sheet_inputs(store)
-    try:
-        return metadata_sheet_payload(
-            store.config, REPO_ROOT, specs=specs,
-            unmapped_by_slug=unmapped, run_label=store.label,
-            template=store.iig_template,   # the version the run used (M2)
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-
-
-@app.get("/api/demo/metadata-sheet.xlsx")
-def metadata_sheet_xlsx() -> Response:
-    """The same preview as a downloadable workbook — built in memory, never
-    written to disk on the serving path."""
-    store = _require_store()
-    specs, unmapped = _metadata_sheet_inputs(store)
-    try:
-        payload = metadata_sheet_payload(
-            store.config, REPO_ROOT, specs=specs,
-            unmapped_by_slug=unmapped, run_label=store.label,
-            template=store.iig_template,   # the version the run used (M2)
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    return Response(
-        content=workbook_bytes(payload),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="{workbook_filename(payload)}"'
-        },
-    )
 
 
 @app.get("/api/feeds/{slug}/file")

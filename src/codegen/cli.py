@@ -2275,7 +2275,7 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "demo-metadata-sheet":
-        # Same payload as GET /api/demo/metadata-sheet — display data only.
+        # The metadata-sheet payload (the App route is gone, post65) — display data only.
         # The STTM-derived cells resolve from the demo contract pair when its
         # fixture files exist; otherwise the columns tab is empty, honestly.
         from codegen.metadata_sheet import build_workbook, metadata_sheet_payload

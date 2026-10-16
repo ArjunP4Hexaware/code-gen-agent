@@ -340,33 +340,18 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 from ui.backend import main as ui_main  # noqa: E402
 
-needs_demo_frd = pytest.mark.skipif(
-    not _DEMO_FRD.is_file(), reason="demo FRD fixture not restored"
-)
-
 
 @pytest.fixture()
 def client():
     return TestClient(ui_main.app)
 
 
-@needs_demo_frd
-def test_metadata_sheet_endpoint_no_run_state(client):
-    payload = client.get("/api/demo/metadata-sheet").json()
-    assert {"layout_note", "tabs", "coverage"} <= set(payload)
-    assert "client IIG template" in payload["layout_note"]
-    # TestClient skips the startup generate, so no run is loaded and the
-    # STTM-derived tabs are empty.
-    assert payload["tabs"]["DATA_QUALITY_RULES"]["rows"] == []
-
-
-@needs_demo_frd
-def test_metadata_sheet_xlsx_endpoint(client):
-    response = client.get("/api/demo/metadata-sheet.xlsx")
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith(
-        "application/vnd.openxmlformats-officedocument.spreadsheetml"
-    )
-    assert "metadata_sheet_preview_" in response.headers["content-disposition"]
-    workbook = load_workbook(io.BytesIO(response.content))
-    assert "_provenance" in workbook.sheetnames
+def test_the_metadata_sheet_routes_are_gone(client):
+    """2026-10-16 (post65): the Dashboard's metadata-sheet preview was removed
+    with the two requests that fed it (an unknown path falls through to the
+    single-page app, so the route table is checked). The payload builder stays:
+    the generator and ``codegen demo-metadata-sheet`` use it."""
+    paths = {getattr(route, "path", "") for route in ui_main.app.routes}
+    for path in ("/api/demo/metadata-sheet", "/api/demo/metadata-sheet.xlsx"):
+        assert path not in paths
+        assert "application/json" not in client.get(path).headers.get("content-type", "")

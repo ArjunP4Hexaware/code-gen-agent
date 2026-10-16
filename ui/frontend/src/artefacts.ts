@@ -15,7 +15,6 @@ export function presentedArtefacts(files: string[]): string[] {
   return PRESENTED.flatMap((matches) => files.filter(matches));
 }
 
-/* The one approval sentence: the artefacts panel's subtitle and the footnote
-   under the metadata-sheet preview (2026-10-16, post63). */
+/* The one approval sentence: the artefacts panel's subtitle (2026-10-16, post63). */
 export const APPROVAL_NOTE =
   "The BSA-annotated IIG is the approval artefact; the CI/CD pipeline applies the DDL after approval.";

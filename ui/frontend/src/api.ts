@@ -497,39 +497,6 @@ export interface GovernanceChecksResponse {
   absent_decks: string[];
 }
 
-export type ProvenanceBadge =
-  | "from_sttm"
-  | "from_sttm_unmapped"
-  | "from_frd"
-  | "from_faq"
-  | "from_standards"
-  | "synthetic"
-  | "needs_template";
-
-export interface MetadataSheetRow {
-  values: Record<string, string | number>;
-  badges: Record<string, { badge: ProvenanceBadge; tooltip?: string }>;
-  feed_slug?: string;
-}
-
-export interface MetadataSheetTab {
-  headers: string[];
-  rows: MetadataSheetRow[];
-  state?: string;
-}
-
-export interface MetadataSheetResponse {
-  layout_note: string;
-  run_label: string | null;
-  tabs: Record<string, MetadataSheetTab>;
-  coverage: {
-    derived: number;
-    synthetic: number;
-    needs_template: number;
-    total: number;
-  };
-}
-
 export interface PastLiveRun {
   name: string;
   timestamp: string | null;
@@ -1029,7 +996,6 @@ export const api = {
   clearVdd: () => request<{ selected: null }>("/api/demo/vdd", { method: "DELETE" }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
-  metadataSheet: () => request<MetadataSheetResponse>("/api/demo/metadata-sheet"),
   inputRequirements: () =>
     request<InputRequirementsResponse>("/api/demo/input-requirements"),
   governanceChecks: () =>

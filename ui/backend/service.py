@@ -120,7 +120,7 @@ class GenerationStore:
         # contracts, no layout stage ran). Layer 2 is merged from the feeds.
         self.layout_usage = None
         # The IIG template version the served run used (None = the config
-        # default) — the metadata-sheet preview renders in it (IIG-first M2).
+        # default; IIG-first M2). The preview that read it was removed in post65.
         self.iig_template: str | None = None
 
     @property

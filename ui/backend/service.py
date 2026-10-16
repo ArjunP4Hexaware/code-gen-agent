@@ -24,16 +24,15 @@ from pydantic import BaseModel, ConfigDict
 
 from codegen.config import Config, load_config
 from codegen.contracts.resolved import ResolvedFeedSpec
-from codegen.emit.context import TemplateGapError, build_context
-from codegen.emit.emitter import emit_feed
-from codegen.faq import faq_for_spec
-from codegen.gate import compute_verdict, run_generated_tests, run_preflight
+from codegen.emit.context import TemplateGapError
 from codegen.gate.verdict import GateResult
-from codegen.reasoning import build_provider, run_reasoning
-from codegen.reasoning.engine import RuleCandidate, segmented_review_items
-from codegen.report import write_generation_report
+
+# post60: the feed pipeline is codegen.cli.generate_feed_result (the CLI's);
+# build_provider stays importable here for callers that patch it.
+from codegen.reasoning import build_provider  # noqa: F401
+from codegen.reasoning.engine import RuleCandidate
 from codegen.resolve.resolver import ContractMismatchError, resolve_pair
-from codegen.rules.compiler import RuleOutcome, compile_rules
+from codegen.rules.compiler import RuleOutcome
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -248,164 +247,44 @@ class GenerationStore:
         environment=None,
         faq_answers: dict | None = None,
     ) -> FeedRun:
-        # Mirrors codegen.cli._generate_feed step for step — keep in sync.
+        # post60: THE feed pipeline is codegen.cli.generate_feed_result — the
+        # CLI's own (no mirror to keep in sync); this wraps it in a FeedRun.
         # 2026-10-14: ``environment`` = the run's (codegen.environments; None =
         # the default) — the framework emit reads it from the config it is given.
-        from codegen.environments import with_environment
-
-        run_config = with_environment(self.config, environment)
-        from codegen.gate.derivations import sibling_type_flags
-        from codegen.gate.drag_fill import drag_fill_flags
-        from codegen.gate.vdd_check import vdd_cross_check
-
-        vdd_flags, vdd_check = vdd_cross_check(spec, self.config)
-        extra_flags = [*(extra_flags or []), *spec.provenance_flags, *drag_fill_flags(spec),
-                       *sibling_type_flags(spec, self.config), *vdd_flags]
         # out_root/reports_dir isolate demo runs; candidates_override replays
         # a recorded Layer-2 result instead of calling any provider.
-        stage = on_stage or (lambda _detail: None)
-        out_root = out_root if out_root is not None else REPO_ROOT / self.config.output.dir
-        reports_dir = (
-            reports_dir if reports_dir is not None else REPO_ROOT / self.config.output.reports_dir
-        )
-        feed_dir = out_root / spec.feed_slug
+        from codegen.cli import generate_feed_result
+        from codegen.environments import with_environment
 
-        stage("compiling rules")
-        outcomes = compile_rules(spec)
-        from codegen.reasoning.usage import layer2_usage, replay_usage
-
-        if candidates_override is not None:
-            candidates = candidates_override
-            layer2 = replay_usage(candidates)
-        else:
-            provider = build_provider(self.config, dry_run)
-            stage(f"Layer-2 reasoning ({provider.name})")
-            candidates = run_reasoning(spec, outcomes, provider)
-            from codegen.reasoning.raw_log import log_layer2_failures
-
-            log_layer2_failures(provider, spec.feed_slug, self.config, REPO_ROOT)
-            layer2 = layer2_usage(provider, candidates)
-            # Segmented-extraction review items join the same review flow;
-            # replayed candidate sets already carry them (they are written
-            # into candidates.json), so only the fresh path adds them.
-            candidates = [*segmented_review_items(spec), *candidates]
-        model_usage = [*([layout_usage] if layout_usage is not None else []), layer2]
-        stage("emitting code")
-        # Three-input model: mirrors cli._generate_feed — FAQ file answers
-        # plus contract prefills; missing file => defaults, flagged by gate.
-        # post59: the BSA's confirmed choices (codegen.input_choices) ride the
-        # FAQ answers exactly as the CLI's answers file does
-        from codegen.faq import with_faq_answers
-
-        faq = with_faq_answers(faq_for_spec(spec, self.config, base_dir=REPO_ROOT),
-                               faq_answers)
-
-        duplicate_outcome = next(
-            (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
-        )
-        context = build_context(
-            spec,
-            self.config,
-            allow_duplicate_file_name=True,
-            duplicate_rule_text=(
-                duplicate_outcome.rule_text if duplicate_outcome is not None else None
-            ),
-            notification_rule_texts=[
-                o.rule_text for o in outcomes if o.classification == "notification"
-            ],
-            faq=faq,
-        )
-        # Option A/B branch — MIRRORS cli._generate_feed (its helpers are
-        # reused directly so the two cannot drift).
-        from codegen.cli import _emit_framework_only, _read_ddl_sources, _run_emit_framework
-        from codegen.output_modes import output_parts
-
-        parts = output_parts(output_mode or self.config.output.mode, source="generate")
-        framework_artefacts = None
-        checks = None
-        tests_skipped = skip_tests or not self.config.gate.run_generated_tests
-        if parts == ["framework"]:
-            stage("framework artefacts")
-            written, checks, tests_skipped, ddl_sources = _emit_framework_only(
-                context, spec, self.config, feed_dir, skip_tests
-            )
-            framework_artefacts = _run_emit_framework(
-                spec, faq, ddl_sources, run_config, out_root, outcomes,
-                base_dir=REPO_ROOT, conventions_profile=conventions_profile,
-                iig_template=iig_template,
-            )
-            written = [*written, *framework_artefacts.files]
-        else:
-            written = emit_feed(context, out_root)
-            if "framework" in parts:
-                stage("framework artefacts")
-                ddl_sources = _read_ddl_sources(feed_dir)
-                framework_artefacts = _run_emit_framework(
-                    spec, faq, ddl_sources, run_config, out_root, outcomes,
-                    base_dir=REPO_ROOT, conventions_profile=conventions_profile,
-                    iig_template=iig_template,
-                )
-                written = [*written, *framework_artefacts.files]
-        if framework_artefacts is not None:
-            extra_flags = [*extra_flags, *framework_artefacts.flags]
-        self._write_candidates_artifact(candidates, feed_dir)
-
-        stage("gate")
-        if checks is None:
-            checks = run_preflight(feed_dir, self.config)
-        if vdd_check is not None:
-            checks = [*checks, vdd_check]
-        if framework_artefacts is not None:
-            checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
-        if not tests_skipped:
-            checks = [
-                *checks,
-                run_generated_tests(feed_dir, self.config.gate.pytest_tail_lines),
-            ]
-
-        gate = compute_verdict(
-            spec.feed_id,
-            outcomes,
-            candidates,
-            checks,
-            tests_skipped,
-            faq=faq,
-            standards=self.config.engineering_standards,
-            extra_flags=extra_flags,
-        )
-        write_generation_report(
-            spec,
-            written,
-            outcomes,
-            candidates,
-            gate,
-            reports_dir,
-            out_root,
-            inputs_summary=context["provenance"]["inputs"],
-            model_usage=model_usage,
-        )
+        result = generate_feed_result(
+            spec, with_environment(self.config, environment), dry_run=dry_run,
+            skip_tests=skip_tests, output_mode=output_mode, extra_flags=extra_flags,
+            conventions_profile=conventions_profile, iig_template=iig_template,
+            playbook_template=playbook_template, layout_usage=layout_usage,
+            faq_answers=faq_answers,
+            out_root=out_root if out_root is not None else REPO_ROOT / self.config.output.dir,
+            reports_dir=(reports_dir if reports_dir is not None
+                         else REPO_ROOT / self.config.output.reports_dir),
+            base_dir=REPO_ROOT, on_stage=on_stage, candidates_override=candidates_override,
+            console=False)
         framework_summary = None
-        if framework_artefacts is not None:
-            from codegen.emit.framework import report_section
-
-            with open(reports_dir / f"{spec.feed_slug}.md", "a",
-                      encoding="utf-8", newline="\n") as handle:
-                handle.write(report_section(framework_artefacts))
+        artefacts = result.framework_artefacts
+        if artefacts is not None:
             framework_summary = {
-                "files": [p.name for p in framework_artefacts.files],
-                "groups": framework_artefacts.groups,
-                "row_counts": framework_artefacts.row_counts,
-                "coverage": framework_artefacts.coverage,
-                "flagged_blank_columns": framework_artefacts.flagged_blank_columns,
+                "files": [p.name for p in artefacts.files],
+                "groups": artefacts.groups,
+                "row_counts": artefacts.row_counts,
+                "coverage": artefacts.coverage,
+                "flagged_blank_columns": artefacts.flagged_blank_columns,
             }
         return FeedRun(
             spec=spec,
-            outcomes=outcomes,
-            candidates=candidates,
-            gate=gate,
-            written_files=[display_path(p) for p in written],
+            outcomes=result.outcomes,
+            candidates=result.candidates,
+            gate=result.gate,
+            written_files=[display_path(p) for p in result.written],
             framework=framework_summary,
-            model_usage=[u.as_dict() for u in model_usage],
+            model_usage=[u.as_dict() for u in result.model_usage],
         )
 
     @staticmethod

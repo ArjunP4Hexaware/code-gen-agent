@@ -29,11 +29,12 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from codegen.config import Config, load_config, load_dotenv
 from codegen.contracts.resolved import ResolvedFeedSpec
-from codegen.emit.context import TemplateGapError, build_context
+from codegen.emit.context import build_context
 from codegen.emit.emitter import emit_feed
 from codegen.faq import faq_for_spec, with_faq_answers
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
@@ -73,7 +74,19 @@ def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) 
     return artifact_path
 
 
-def _generate_feed(
+@dataclass
+class FeedResult:
+    """One generated feed (post60: what the App's FeedRun is built from)."""
+
+    gate: GateResult
+    outcomes: list
+    candidates: list
+    written: list[Path]
+    framework_artefacts: object | None
+    model_usage: list
+
+
+def generate_feed_result(
     spec: ResolvedFeedSpec,
     config: Config,
     *,
@@ -85,28 +98,54 @@ def _generate_feed(
     iig_template: str | None = None,
     playbook_template: str | None = None,
     layout_usage=None,
-    faq_answers: dict[str, str] | None = None,
-) -> GateResult:
-    out_root = Path(config.output.dir)
-    reports_dir = Path(config.output.reports_dir)
+    faq_answers: dict | None = None,
+    out_root: Path | None = None,
+    reports_dir: Path | None = None,
+    base_dir: Path | None = None,
+    on_stage=None,
+    candidates_override: list[RuleCandidate] | None = None,
+    console: bool = True,
+) -> FeedResult:
+    """Generate one feed — post60: THE feed pipeline of both the CLI and the App
+    (``ui.backend.service.GenerationStore._generate_feed`` wraps it in its
+    FeedRun; the two no longer mirror each other). ``out_root`` /
+    ``reports_dir`` default to the config's; ``base_dir`` anchors the FAQ /
+    contract paths (the App: the repo root); ``on_stage`` receives the App's
+    stage labels; ``candidates_override`` replays a recorded Layer-2 result;
+    ``console`` prints the CLI's summary lines."""
+    out_root = Path(out_root) if out_root is not None else Path(config.output.dir)
+    reports_dir = (Path(reports_dir) if reports_dir is not None
+                   else Path(config.output.reports_dir))
     feed_dir = out_root / spec.feed_slug
+    stage = on_stage or (lambda _detail: None)
 
+    stage("compiling rules")
     outcomes = compile_rules(spec)
-    provider = build_provider(config, dry_run)
-    candidates = run_reasoning(spec, outcomes, provider)
-    from codegen.reasoning.raw_log import log_layer2_failures
+    from codegen.reasoning.usage import layer2_usage, replay_usage
 
-    # 2026-10-14: every failed Layer-2 attempt on the log (reason + RAW, D1-only)
-    log_layer2_failures(provider, spec.feed_slug, config, Path("."))
+    if candidates_override is not None:
+        candidates = list(candidates_override)
+        layer2 = replay_usage(candidates)
+    else:
+        provider = build_provider(config, dry_run)
+        stage(f"Layer-2 reasoning ({provider.name})")
+        candidates = run_reasoning(spec, outcomes, provider)
+        from codegen.reasoning.raw_log import log_layer2_failures
+
+        # 2026-10-14: every failed Layer-2 attempt on the log (reason + RAW, D1-only)
+        log_layer2_failures(provider, spec.feed_slug, config,
+                            base_dir if base_dir is not None else Path("."))
+        layer2 = layer2_usage(provider, candidates)
+        # Segmented-extraction review items (assumption/conflict cards) ride the
+        # same review artifact and decision flow as Layer-2 candidates; a
+        # replayed set already carries them.
+        candidates = [*segmented_review_items(spec), *candidates]
     from codegen.reasoning.mode import DRY_RUN_OVER_LIVE, provider_mode
 
     if dry_run and provider_mode(config).live:
         # The report says it too: never a dry run that reads like a live one.
         extra_flags = [f"provider_overridden: {DRY_RUN_OVER_LIVE}", *(extra_flags or [])]
-    from codegen.reasoning.usage import layer2_usage
-
-    model_usage = [*([layout_usage] if layout_usage is not None else []),
-                   layer2_usage(provider, candidates)]
+    model_usage = [*([layout_usage] if layout_usage is not None else []), layer2]
     # M3: STTM-vs-VDD cross-check — one flag per mismatch citing both cells;
     # a fixed-width FRD with no VDD positions is a failed gate check.
     # M4: resolver provenance flags (facts taken from the STTM because the
@@ -124,12 +163,11 @@ def _generate_feed(
     extra_flags = [*dict.fromkeys([*(extra_flags or []), *spec.provenance_flags]),
                    *drag_fill_flags(spec),
                    *sibling_type_flags(spec, config), *vdd_flags]
-    # Segmented-extraction review items (assumption/conflict cards) ride the
-    # same review artifact and decision flow as Layer-2 candidates.
-    candidates = [*segmented_review_items(spec), *candidates]
+    stage("emitting code")
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus
     # contract prefills; missing file => all defaults, flagged by the gate.
-    faq = with_faq_answers(faq_for_spec(spec, config), faq_answers)
+    # post59: the BSA's explicit choices ride faq_answers (codegen.input_choices).
+    faq = with_faq_answers(faq_for_spec(spec, config, base_dir=base_dir), faq_answers)
 
     duplicate_outcome = next(
         (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None
@@ -152,18 +190,19 @@ def _generate_feed(
     # Option A ("notebook") is today's path, byte for byte. Option B
     # ("framework") renders the SAME pipeline into a scratch tree so the
     # gate checks stay identical, but persists only ddl/ + framework/;
-    # Notebook + Framework persists everything. MIRRORED in
-    # service._generate_feed. (codegen.output_modes: the two outputs.)
+    # Notebook + Framework persists everything. (codegen.output_modes: the
+    # two outputs.)
     from codegen.output_modes import output_parts
 
     parts = output_parts(output_mode or config.output.mode, source="generate")
     framework_artefacts = None
     if parts == ["framework"]:
+        stage("framework artefacts")
         written, checks, tests_skipped, ddl_sources = _emit_framework_only(
             context, spec, config, feed_dir, skip_tests
         )
         framework_artefacts = _run_emit_framework(
-            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
+            spec, faq, ddl_sources, config, out_root, outcomes, base_dir=base_dir,
             conventions_profile=conventions_profile, iig_template=iig_template,
         )
         written = [*written, *framework_artefacts.files]
@@ -171,9 +210,10 @@ def _generate_feed(
         written = emit_feed(context, out_root)
         checks = None  # computed below, exactly as before
         if "framework" in parts:
+            stage("framework artefacts")
             ddl_sources = _read_ddl_sources(feed_dir)
             framework_artefacts = _run_emit_framework(
-                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=None,
+                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=base_dir,
                 conventions_profile=conventions_profile, iig_template=iig_template,
             )
             written = [*written, *framework_artefacts.files]
@@ -181,6 +221,7 @@ def _generate_feed(
         extra_flags = [*extra_flags, *framework_artefacts.flags]
     _write_candidates_artifact(candidates, feed_dir)
 
+    stage("gate")
     if checks is None:
         checks = run_preflight(feed_dir, config)
         tests_skipped = skip_tests or not config.gate.run_generated_tests
@@ -229,12 +270,35 @@ def _generate_feed(
         with open(reports_dir / f"{spec.feed_slug}.md", "a",
                   encoding="utf-8", newline="\n") as handle:
             handle.write(report_section(framework_artefacts))
-    print(console_summary(spec, gate))
-    for usage in model_usage:
-        print(f"{'MODEL USAGE':<15} {usage.stage}: {usage.label}")
-        if usage.all_failed:
-            print(f"{'WARNING':<15} {all_failed_line(usage)}")
-    return gate
+    if console:
+        print(console_summary(spec, gate))
+        for usage in model_usage:
+            print(f"{'MODEL USAGE':<15} {usage.stage}: {usage.label}")
+            if usage.all_failed:
+                print(f"{'WARNING':<15} {all_failed_line(usage)}")
+    return FeedResult(gate, outcomes, candidates, written, framework_artefacts, model_usage)
+
+
+def _generate_feed(
+    spec: ResolvedFeedSpec,
+    config: Config,
+    *,
+    dry_run: bool,
+    skip_tests: bool,
+    output_mode: str | list[str] | None = None,
+    extra_flags: list[str] | None = None,
+    conventions_profile: str | None = None,
+    iig_template: str | None = None,
+    playbook_template: str | None = None,
+    layout_usage=None,
+    faq_answers: dict | None = None,
+) -> GateResult:
+    """The CLI's feed: :func:`generate_feed_result`'s gate."""
+    return generate_feed_result(
+        spec, config, dry_run=dry_run, skip_tests=skip_tests, output_mode=output_mode,
+        extra_flags=extra_flags, conventions_profile=conventions_profile,
+        iig_template=iig_template, playbook_template=playbook_template,
+        layout_usage=layout_usage, faq_answers=faq_answers).gate
 
 
 def _iig_cells(spec, config, artefacts) -> dict:
@@ -567,8 +631,10 @@ def _run_pairs(
     template_path: Path | None = None,
     command: str = "generate",
 ) -> int:
-    from codegen import owed_inputs as owed_mod
-    from codegen import run_stages
+    # post60: the run's bookkeeping (open lines, choices, CRASHED / GATE_FAIL /
+    # written, the outcome, CODEGEN_STAGES.json) is codegen.generate_run's —
+    # the App's live run drives the same GenerateRun, so both manifests agree.
+    from codegen.generate_run import GenerateRun
     from codegen.resolve.resolver import pending_answers
 
     inputs = _answers_inputs(answers_path)
@@ -576,35 +642,20 @@ def _run_pairs(
     # post59: the BSA's explicit choices (use_default / naming_standard /
     # leave_blank) — proposed is never applied without one
     choices = _answers_choices(answers_path)
-    owed_items: list = []
     from codegen.environments import EnvironmentSelectionError
 
     try:
-        config, run_items, open_items = _run_environment(config, inputs, output_mode,
-                                                         iig_template, dry_run=dry_run,
-                                                         choices=choices)
+        config, questions, items = _run_environment(config, inputs, output_mode,
+                                                    iig_template, dry_run=dry_run,
+                                                    choices=choices)
     except EnvironmentSelectionError as exc:
         _fail(command, f"environment — {exc}", "environment", Coord("environment"), exc=exc)
         return 1
-    owed_items += run_items
-    failed = False
-    matched_feed = False
-    # post58: every open line (QUESTION / UNRESOLVED blocking, INPUT_NEEDED not)
-    # goes to the manifest; ANY blocking line open = NEEDS_ANSWERS (exit 3), a
-    # workbook written or not (run_stages.generate_outcome)
-    entry_of: dict[str, dict] = {}
-    feed_records: dict[str, dict] = {}
-    from codegen import input_choices as choices_mod
-    # D1 post51 (2026-10-15): CODEGEN_STAGES.json records the generate outcome.
-    # CRASHED (an exception mid-write): the feed's partial emit files are deleted,
-    # the emit stages SKIPPED. GATE_FAIL (complete, the gate said no): the files
-    # are kept under <feed>/quarantine/ + GATE_FAIL.md, the emit stages PASS.
-    # FAIL (nothing written: a mismatch, no --feed match): emit stages SKIPPED.
-    out_root = Path(config.output.dir)
-    kept: dict[str, list[Path]] = {stage: [] for stage in run_stages.EMIT_STAGES}
-    feed_entries: list[dict] = []
-    crashed = gate_failed = hard_failed = False
-    quarantined: list[str] = []
+    run = GenerateRun(config, out_root=Path(config.output.dir), command=command,
+                      output_mode=output_mode, iig_template=iig_template,
+                      conventions_profile=conventions_profile, inputs=inputs, choices=choices,
+                      say=print, fail=_fail, report=report_error)
+    run.run_level(questions, items)
     for pair_no, (frd_path, sttm_path) in enumerate(pairs, 1):
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
@@ -612,22 +663,14 @@ def _run_pairs(
         except ContractUnstatedError as exc:
             # post57 (D1 post55 pairs 03 / 04): a value NO document states is a
             # QUESTION (exit 3), never a contract mismatch; the other feeds run.
-            from codegen.layout.answers_template import TemplateItem
-
             specs, pending = exc.specs, pending_answers(sttm_path)
-            unstated = [q for q in exc.questions if only_feed is None or q.feed_id == only_feed]
-            for question in unstated:
-                print(answer_line("QUESTION", question.key, question.reason))
-            owed_items += [TemplateItem(q.key, q.reason, [], "gaps") for q in unstated]
-            open_items += [run_stages.open_item("QUESTION", q.key, feed=q.feed_id)
-                           for q in unstated]
-            if unstated:
-                matched_feed = True
+            run.unstated([q for q in exc.questions
+                          if only_feed is None or q.feed_id == only_feed])
         except (ContractMismatchError, ValueError) as exc:
             _fail(command, f"{frd_path.name} + {sttm_path.name} — {exc}",
                   "contract.mismatch" if isinstance(exc, ContractMismatchError)
                   else "contract.invalid", Coord("pair", n=pair_no, of=len(pairs)), exc=exc)
-            failed = hard_failed = True
+            run.hard_fail()
             continue
         # Every feed WITH a contract is generated; a held-back feed's answers are
         # printed (with --feed, only that feed's). post58: each is a blocking line,
@@ -636,150 +679,33 @@ def _run_pairs(
                  and _pending_feed(p, config) == only_feed]
         shown = asked if only_feed is not None else pending
         _print_needs_answers(shown)
-        open_items += [run_stages.open_item(_pending_label(p), _pending_key(p),
-                                            feed=_pending_feed(p, config)) for p in shown]
+        run.held_back(shown)
         if asked:
-            matched_feed = True
+            run.matched_feed = True
         for feed_no, spec in enumerate(specs, 1):
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
-            matched_feed = True
-            index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
-            resolved = _input_choices(spec, config, inputs, choices, index, output_mode,
-                                      iig_template, conventions_profile)
-            feed_records[spec.feed_id] = choices_mod.records(resolved)
-            faq_answers = {**owed_mod.answers_for(inputs, index, spec.feed_id),
-                           **choices_mod.faq_answers(resolved)}
-            feed_dir = out_root / spec.feed_slug
-            run_stages.clear_quarantine(feed_dir)
-            before = run_stages.snapshot(feed_dir)
-            where = Coord("feed", n=feed_no, of=len(specs))
-            try:
-                gate = _generate_feed(spec, config, dry_run=dry_run,
-                                      skip_tests=skip_tests, output_mode=output_mode,
-                                      conventions_profile=conventions_profile,
-                                      iig_template=iig_template,
-                                      playbook_template=playbook_template,
-                                      faq_answers=faq_answers)
-                owed = owed_mod.owed_inputs(
-                    spec, config, index=index, output_mode=output_mode,
-                    iig_template=iig_template,
-                    faq=with_faq_answers(faq_for_spec(spec, config), faq_answers),
-                    resolved=resolved, profile=config.conventions.get(conventions_profile))
-                for item in owed:
-                    print(owed_mod.input_line(item))
-                owed_items += owed_mod.template_items(owed)
-                owed_items += choices_mod.shared_template_items(spec.feed_id, owed)
-                open_items += [run_stages.open_item("INPUT_NEEDED", item.key, feed=spec.feed_id)
-                               for item in owed]
-                # 2026-10-14 (D1 pair_12): files the LOB lookup keyed to no single
-                # LOB — ONE blocking question for the feed (its LOB cells are open,
-                # the workbook written: NEEDS_ANSWERS, exit 3)
-                lob_item = _lob_question(spec)
-                if lob_item is not None:
-                    owed_items.append(lob_item)
-                    open_items.append(run_stages.open_item("QUESTION", lob_item.key,
-                                                           feed=spec.feed_id))
-            except TemplateGapError as exc:
-                _fail(command, f"{spec.feed_id} — template gap: {exc}", "template.gap", where,
-                      exc=exc)
-                failed = crashed = True
-                removed = run_stages.remove_partial(feed_dir, before)
-                feed_entries.append(run_stages.feed_entry(
-                    out_root, feed_no, len(specs), "CRASHED", {}, removed))
-                continue
-            except Exception:
-                # CRASHED: an uncaught error mid-feed — no partial workbook survives
-                # it, the manifest says so, the error propagates (exit 1)
-                removed = run_stages.remove_partial(feed_dir, before)
-                feed_entries.append(run_stages.feed_entry(
-                    out_root, feed_no, len(specs), "CRASHED", {}, removed))
-                run_stages.write_stage_manifest(
-                    out_root, command=command, exit_code=1,
-                    statuses=run_stages.stage_statuses("CRASHED", kept), feeds=feed_entries,
-                    questions=open_items)
-                raise
-            if gate.verdict == "FAIL":
-                # GATE_FAIL: complete artefacts, the gate said no — kept for review
-                failed = gate_failed = True
-                failing = [c for c in gate.checks if not c.passed and not c.not_run]
-                # D1 post51 pair_01: counts per flag type and per violated rule
-                # (vocabulary only) for the coordinates tier; the flags' text is
-                # grouped by type in the full report (reports/<feed>.md).
-                flag_counts = run_stages.flag_counts(gate.flags)
-                violations: dict[str, int] = {}
-                for check in failing:
-                    for kind, n in check.violations.items():
-                        violations[kind] = violations.get(kind, 0) + n
-                report_error(command, "gate.verdict_fail", where,
-                             checks=[c.name for c in failing], flags=flag_counts,
-                             violations=violations)
-                for kind, n in sorted(flag_counts.items(), key=lambda kv: (-kv[1], kv[0])):
-                    print(f"{'GATE_FLAGS':<15} {kind} \u2014 {n}")
-                moved = run_stages.quarantine(feed_dir, before)
-                q_dir = feed_dir / run_stages.QUARANTINE_DIR
-                q_dir.mkdir(parents=True, exist_ok=True)
-                (q_dir / run_stages.GATE_FAIL_FILE).write_text(
-                    run_stages.gate_fail_note(gate, feed_no, len(specs), len(moved)),
-                    encoding="utf-8", newline="\n")
-                written = run_stages.by_stage(moved)
-                for stage, paths in written.items():
-                    kept[stage] += paths
-                quarantined.append(q_dir.relative_to(out_root).as_posix())
-                feed_entries.append(run_stages.feed_entry(
-                    out_root, feed_no, len(specs), "GATE_FAIL", written,
-                    quarantine_dir=q_dir, iig_cells=gate.iig_cells))
-                entry_of[spec.feed_id] = feed_entries[-1]
-                print(f"{'GATE_FAIL':<15} {spec.feed_id} \u2014 {run_stages.REVIEW_ONLY}: "
-                      f"{len(moved)} file(s) moved to {q_dir} ({run_stages.GATE_FAIL_FILE})")
-                continue
-            written = run_stages.written_since(feed_dir, before)
-            for stage, paths in written.items():
-                kept[stage] += paths
-            feed_entries.append(run_stages.feed_entry(
-                out_root, feed_no, len(specs), gate.verdict, written,
-                iig_cells=gate.iig_cells))
-            entry_of[spec.feed_id] = feed_entries[-1]
-    if only_feed is not None and not matched_feed:
+            run.feed(spec, feed_no, len(specs), frd_path=frd_path,
+                     produce=lambda faq_answers, spec=spec: _generate_feed(
+                         spec, config, dry_run=dry_run, skip_tests=skip_tests,
+                         output_mode=output_mode, conventions_profile=conventions_profile,
+                         iig_template=iig_template, playbook_template=playbook_template,
+                         faq_answers=faq_answers))
+    if only_feed is not None and not run.matched_feed:
         _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
-        failed = hard_failed = True
-    _write_template(template_path or Path(config.output.dir) / "answers_template.yaml",
-                    owed_items, "generate", merge=True)
+        run.hard_fail()
     # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks. post58: any blocking line
     # (QUESTION / UNRESOLVED) open exits 3, workbooks written or not (a workbook
     # with an empty storage account is not deployable); only INPUT_NEEDED lines
     # open = PASS_WITH_OPEN_INPUTS, exit 0
-    outcome = run_stages.generate_outcome(
-        crashed=crashed, hard_failed=hard_failed, gate_failed=gate_failed,
-        open_items=open_items)
-    code = 1 if failed else EXIT_NEEDS_ANSWERS if outcome == "NEEDS_ANSWERS" else 0
-    for feed_id, entry in entry_of.items():
-        entry["open"] = run_stages.open_counts([i for i in open_items if i.get("feed") == feed_id])
-        # post59: each defaulted input's source (default | standard | blank | answer)
-        if feed_records.get(feed_id):
-            entry["inputs"] = feed_records[feed_id]
-    statuses = run_stages.stage_statuses(outcome, kept, quarantined)
-    for stage in run_stages.EMIT_STAGES:
-        if outcome in ("CRASHED", "FAIL"):
-            print(f"{'SKIPPED':<15} {stage} — {run_stages.SKIPPED_UPSTREAM} (exit code "
-                  "unchanged; a crashed feed's partial emit artefacts are removed)")
-    counts = run_stages.open_counts(open_items)
-    if outcome == "PASS_WITH_OPEN_INPUTS":
-        print(f"{'OUTCOME':<15} generate — PASS_WITH_OPEN_INPUTS: {len(entry_of)} feed(s) "
-              f"written; {counts['non_blocking']} input(s) still open, none blocking "
-              "(answers_template.yaml); exit 0")
-    elif outcome == "NEEDS_ANSWERS":
-        print(f"{'OUTCOME':<15} generate — NEEDS_ANSWERS: {counts['blocking']} blocking "
-              f"question(s) open, {counts['non_blocking']} input(s); {len(entry_of)} feed(s) "
-              "written for review, not deployable until answered (CODEGEN_STAGES.json "
-              "written: true); exit 3")
-    run_stages.write_stage_manifest(out_root, command=command, exit_code=code,
-                                    statuses=statuses, feeds=feed_entries, questions=open_items)
+    _outcome, code = run.finish(
+        template_path=template_path or Path(config.output.dir) / "answers_template.yaml")
     return code
 
 
 def _input_choices(spec, config: Config, inputs: dict[str, str], choices: dict, index,
-                   output_mode, iig_template, conventions_profile) -> list:
+                   output_mode, iig_template, conventions_profile, *,
+                   base: Path | None = None) -> list:
     """post59: the feed's defaulted inputs resolved (codegen.input_choices) —
     framework output with an IIG template that owes cells only."""
     from codegen import input_choices as choices_mod
@@ -790,7 +716,8 @@ def _input_choices(spec, config: Config, inputs: dict[str, str], choices: dict, 
         return []
     return choices_mod.resolve_feed(
         spec, profile=config.conventions.get(conventions_profile), tpl=tpl, inputs=inputs,
-        choices=choices, index=index, faq=faq_for_spec(spec, config), base=Path("."))
+        choices=choices, index=index, faq=faq_for_spec(spec, config, base_dir=base),
+        base=base if base is not None else Path("."))
 
 
 def _answers_choices(path: Path | None) -> dict:
@@ -806,26 +733,26 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
                      *, dry_run: bool = False, choices: dict | None = None):
     """2026-10-14: the run's environment. An answers-file ``inputs:
     run.environment`` selects one when no flag did; a run on the default
-    prints ONE INPUT_NEEDED line naming the environment it assumed (and returns
-    its answers-template item). Only framework runs whose IIG template has
-    environment cells use one.
+    prints ONE INPUT_NEEDED line naming the environment it assumed.
+    Only framework runs whose IIG template has environment cells use one.
 
     2026-10-14 (post47): a custom environment's unset keys may be given as
     ``inputs.run: environment.<key>``; every run-level input (the environment,
     a custom environment's unset keys, the run-scoped owed cells) is printed
-    ONCE, in one block, before any feed — and returned as answers-template
-    items (``inputs.run``). A named environment left incomplete raises
-    EnvironmentSelectionError (the caller prints FAIL).
+    ONCE, in one block, before any feed. A named environment left incomplete
+    raises EnvironmentSelectionError (the caller prints FAIL).
 
     2026-10-15 (D1 post50 item 2): ``inputs.run: environment.<key>`` fills any
     environment's key (a named profile's too); the run banner line ``NOTE
     run.environment — environment: <name> (complete, from <origin>; <source>)``
-    is printed first; a REQUIRED key still unset is a QUESTION line. The third
-    return value (post58) = the run-level open lines (``run_stages.open_item``):
-    those QUESTIONs (blocking) and the INPUT_NEEDED lines (not blocking)."""
+    is printed first; a REQUIRED key still unset is a QUESTION line.
+
+    Returns (config, the required-key QUESTIONs, the run-level INPUT_NEEDED
+    items) — post60: the lines from ``generate_run.run_level_lines``, the
+    App's too."""
     from codegen import environments as envs
     from codegen import owed_inputs as owed_mod
-    from codegen.layout.answers_template import TemplateItem
+    from codegen.generate_run import run_level_lines
     from codegen.output_modes import output_parts
 
     tpl = config.metadata.templates.get(iig_template or config.metadata.template)
@@ -842,28 +769,15 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
             config = envs.with_environment(
                 config, envs.with_values(config, env, given, "the answers file"))
     env = envs.run_environment(config) if tpl is not None and tpl.environment_cells else None
-    questions = envs.required_items(config) if env is not None else []
     if env is not None:
         print(answer_line("NOTE", envs.INPUT_KEY, f"environment: {envs.banner(config, env)}"))
+    questions, items = run_level_lines(config, inputs, output_mode=output_mode,
+                                       iig_template=iig_template, choices=choices)
     for key, reason in questions:
         print(answer_line("QUESTION", key, reason))
-    items = [*owed_mod.environment_inputs(config, output_mode=output_mode,
-                                          iig_template=iig_template),
-             *owed_mod.run_owed_inputs(config, inputs, output_mode=output_mode,
-                                       iig_template=iig_template, choices=choices)]
     for line in owed_mod.run_block_lines(items):
         print(line)
-    from codegen.run_stages import open_item
-
-    return config, [*(TemplateItem(key, reason, [], owed_mod.INPUTS_SECTION)
-                      for key, reason in questions),
-                    *(TemplateItem(i.key, i.question,
-                                   list(config.environments) if i.key == envs.INPUT_KEY else [],
-                                   owed_mod.INPUTS_SECTION, options=list(i.options),
-                                   proposed=i.proposed, proposed_template=i.template)
-                      for i in items)], \
-        [*(open_item("QUESTION", key) for key, _ in questions),
-         *(open_item("INPUT_NEEDED", i.key) for i in items)]
+    return config, questions, items
 
 
 def _live_run(config: Config, dry_run: bool) -> bool:
@@ -874,7 +788,7 @@ def _live_run(config: Config, dry_run: bool) -> bool:
     return provider_mode(config).live and not dry_run
 
 
-def _lob_question(spec):
+def _lob_question(spec, say=print):
     """The feed's ONE LOB question (resolver ``lob_unkeyed``): printed as a
     QUESTION, returned as an answers-template item whose ``files:`` block
     lists every unkeyed file (candidates = the FRD's LOB codes)."""
@@ -884,7 +798,7 @@ def _lob_question(spec):
     from codegen.resolve.resolver import lob_question
 
     reason = lob_question(len(spec.lob_unkeyed), list(spec.lobs))
-    print(answer_line("QUESTION", spec.lob_question_key,
+    say(answer_line("QUESTION", spec.lob_question_key,
                       f"{reason} (feed {spec.feed_id}; their LOB cells are written OPEN — "
                       "answer one LOB per file under gaps: files: in answers.yaml)"))
     return TemplateItem(spec.lob_question_key, f"{reason} (feed {spec.feed_id})",

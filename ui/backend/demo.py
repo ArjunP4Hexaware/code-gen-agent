@@ -268,6 +268,9 @@ class DemoRunner:
         # WITHOUT (INPUT_NEEDED: ACTIVE_START_DATE ...) — a non-blocking banner,
         # never the needs_answers pause: [{key, question, feed}]
         self.inputs_needed: list[dict] = []
+        # post60: the last App run's generate outcome, read from its
+        # CODEGEN_STAGES.json (codegen.generate_run) — never inferred here
+        self.outcome: str | None = None
         # post59: the BSA's CONFIRMED input choices (key -> input_choices.Choice):
         # the panel's radio sits on use_default, but only a Confirm records it,
         # and only a recorded choice is applied by the next Generate
@@ -1840,6 +1843,8 @@ class DemoRunner:
             "needs_answers": list(self.needs_answers),
             # never blocking: the workbooks are written with these cells empty
             "inputs_needed": list(self.inputs_needed),
+            # post60: the run's generate outcome from its CODEGEN_STAGES.json
+            "outcome": self.outcome,
             # post59: the choices the BSA confirmed (applied by the next Generate)
             "input_choices": {key: {"choice": c.choice, "standard": c.standard}
                               for key, c in self.input_choices.items()},
@@ -2138,6 +2143,61 @@ class DemoRunner:
         self._stage("pairing", "the FRD pairing did not finish in time — running with what is "
                                "selected now")
 
+    def _generate_specs(self, specs, config, *, run_env, frd_path: Path, run_root: Path,
+                        reports_root: Path, held: list, unstated: list,
+                        extra_flags: list[str], layout_usage=None):
+        """post60: the App's generate — the CLI's entry point
+        (codegen.generate_run.GenerateRun over cli.generate_feed_result): the
+        BSA's confirmed choices, the owed inputs, CRASHED / GATE_FAIL /
+        written and ``<run>/CODEGEN_STAGES.json``, built by the same code as
+        ``codegen generate``. Returns (runs by slug, the failed feeds, the
+        manifest); :attr:`outcome` is the manifest's."""
+        from codegen import run_stages
+        from codegen.environments import with_environment
+        from codegen.generate_run import GenerateRun, run_level_lines
+
+        run_config = with_environment(config, run_env)
+        parts = self.effective_output_parts()
+        gen = GenerateRun(run_config, out_root=run_root, command="generate", output_mode=parts,
+                          iig_template=self.iig_template,
+                          conventions_profile=self.conventions_profile, inputs={},
+                          choices=self.input_choices, base=REPO_ROOT, say=lambda _line: None)
+        gen.run_level(*run_level_lines(
+            run_config, {}, output_mode=parts, iig_template=self.iig_template,
+            choices={k: c for k, c in self.input_choices.items() if k.startswith("run.")}))
+        gen.unstated(unstated)          # the CLI's order: unstated, then held back
+        gen.held_back(held)
+        runs: dict[str, FeedRun] = {}
+        failures: list[FailedRun] = []
+        for feed_no, spec in enumerate(specs, 1):
+            slug = spec.feed_slug
+            result = gen.feed(
+                spec, feed_no, len(specs), frd_path=frd_path, reraise=False,
+                produce=lambda faq_answers, spec=spec, slug=slug: self._store._generate_feed(  # noqa: SLF001
+                    spec, dry_run=False, skip_tests=True, out_root=run_root,
+                    reports_dir=reports_root,
+                    on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
+                    output_mode=parts, extra_flags=extra_flags,
+                    conventions_profile=self.conventions_profile,
+                    iig_template=self.iig_template, playbook_template=self.playbook_template,
+                    layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers))
+            if result is None:
+                failures.append(FailedRun(label=slug, error=gen.errors.get(spec.feed_id, "")))
+                continue
+            runs[slug] = result
+        self.inputs_needed += [o.as_dict() for o in gen.owed if o.scope == "feed"]
+        self.outcome, _code = gen.finish()
+        manifest = run_stages.read_stage_manifest(run_root) or {}
+        # a GATE_FAIL feed's files were moved under <feed>/quarantine/
+        quarantined = {e["quarantine"].split("/", 1)[0] for e in manifest.get("feeds") or []
+                       if e.get("quarantine")}
+        for slug in quarantined & set(runs):
+            run = runs[slug]
+            runs[slug] = run.model_copy(update={"written_files": [
+                path.replace(f"/{slug}/", f"/{slug}/{run_stages.QUARANTINE_DIR}/", 1)
+                if f"/{slug}/" in path else path for path in run.written_files]})
+        return runs, failures, manifest
+
     def confirm_input_choices(self, choices: dict) -> dict:
         """post59: record the BSA's confirmed choices — ``{key: {choice,
         standard?}}`` (``null`` withdraws one). Applied by the next Generate
@@ -2231,6 +2291,7 @@ class DemoRunner:
         self._run_items = []
         self._open_owed = []
         self.inputs_needed = []
+        self.outcome = None
         try:
             self._await_pairing()
             self._note_undecided_vdd()
@@ -2573,6 +2634,7 @@ class DemoRunner:
         # A feed whose targets no document states is held back (NEEDS_ANSWERS)
         # with the answers-file key; the others run.
         hold_back(contract.needs_answers)
+        held = list(contract.needs_answers)          # post60: the manifest's lines too
         if contract.needs_answers:
             self._stage("feeds set aside",
                         f"{len(contract.needs_answers)} answer(s) needed: "
@@ -2599,6 +2661,7 @@ class DemoRunner:
             write_applied_answers(run_root / "answers.yaml", gaps, stage="this App run")
         from codegen.resolve.resolver import ContractUnstatedError
 
+        unstated_values: list = []
         try:
             specs = resolve_pair(frd_path, contract_path, with_environment(config, run_env),
                                  vdd_path=vdd_contract_path, gaps=gaps or None)
@@ -2606,6 +2669,7 @@ class DemoRunner:
             # post57: a value no document states is a question (the CLI's
             # QUESTION line); the feeds that resolved still run
             specs = exc.specs
+            unstated_values = list(exc.questions)
             for unstated in exc.questions:
                 self._run_items.append(needs_answer_item(
                     {"document": "frd", "key": unstated.key, "sheet": None, "layer": None,
@@ -2626,46 +2690,28 @@ class DemoRunner:
                     reason=(f"generated with its {len(spec.lob_unkeyed)} file rows' LOB cells "
                             "OPEN — answer each file's LOB and re-run")))
 
-        runs: dict[str, FeedRun] = {}
-        failures: list[FailedRun] = list(pre_failures)
-        from codegen.input_choices import faq_answers as chosen_answers
-
-        for spec in specs:
-            slug = spec.feed_slug
-            try:
-                resolved = self._resolved_inputs(spec, config, frd_path)
-                runs[slug] = self._store._generate_feed(  # noqa: SLF001
-                    spec,
-                    dry_run=False,
-                    skip_tests=True,
-                    out_root=run_root,
-                    reports_dir=reports_root,
-                    on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
-                    output_mode=self.effective_output_parts(),
-                    # M15e: "VDD not decided at run start" is a flag on every
-                    # feed — the report says the run went without a VDD.
-                    extra_flags=[*layout_flags,
-                                 *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes),
-                                 *(f"pairing_note: {n}" for n in self.run_pairing_notes)],
-                    conventions_profile=self.conventions_profile,
-                    iig_template=self.iig_template,
-                    playbook_template=self.playbook_template,
-                    layout_usage=layout_usage,
-                    environment=run_env,
-                    faq_answers=chosen_answers(resolved),
-                )
-                self.inputs_needed += self._owed_inputs(spec, config, frd_path, resolved)
-            except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
-                failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
-        if not runs:
-            if pre_failures and len(failures) == len(pre_failures):
+        runs, failures, manifest = self._generate_specs(
+            specs, config, run_env=run_env, frd_path=frd_path, run_root=run_root,
+            reports_root=reports_root, held=held, unstated=unstated_values,
+            # M15e: "VDD not decided at run start" is a flag on every feed — the
+            # report says the run went without a VDD.
+            extra_flags=[*layout_flags,
+                         *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes),
+                         *(f"pairing_note: {n}" for n in self.run_pairing_notes)],
+            layout_usage=layout_usage)
+        failures = [*pre_failures, *failures]
+        # post60: the run state from the manifest — its outcome and each feed's
+        # ``written`` — never inferred from which feeds returned
+        written = [f for f in manifest.get("feeds") or [] if f.get("written")]
+        if not written:
+            if self.outcome == "NEEDS_ANSWERS":
                 # Every feed is held back or set aside — answers, not a failure.
                 self.set_aside = [f.model_dump() for f in pre_failures]
-                self._stage("needs answers", f"every feed is held back — {len(pre_failures)} "
-                                             "feed(s) wait for an answer")
+                self._stage("needs answers", "no workbook written — every feed waits for an "
+                                             "answer (CODEGEN_STAGES.json: NEEDS_ANSWERS)")
                 raise RunNeedsAnswers("every feed is held back")
             details = "; ".join(f"{f.label}: {f.error}" for f in failures) or "no feeds resolved"
-            raise RuntimeError(f"live run produced no feeds — {details}")
+            raise RuntimeError(f"live run produced no feeds ({self.outcome}) — {details}")
 
         self.model_usage = run_usage([r.model_usage or [] for r in runs.values()], layout_usage)
         self._stage("model usage", "; ".join(f"{u['stage']}: {u['label']}"

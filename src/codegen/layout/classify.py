@@ -14,6 +14,13 @@ tell the two apart:
 * **vdd** — a FILES sheet or a field sheet by header signature
   (``discover_vdd``; checked second — an STTM's "Layout" sheet may carry
   field-sheet-like headers);
+* **iig** / **iig_review** (2026-10-16) — checked FIRST, when the caller passes
+  the IIG template's sheet names (``iig_sheets``): at least two of the
+  workbook's sheets are IIG template tabs (DATA_FACTORY_PIPELINE_SCHEDULE …);
+  with the review copy's summary sheet (``review_sheet``) as well it is the
+  BSA's review copy. Never an input — the App's chooser leaves both out of
+  its lists. Callers that pass no sheet names (the CLI's pair folders) get
+  the three kinds below, as before;
 * **unclassified** — neither. Never hidden: the chooser lists it with a badge,
   because a workbook the signatures do not know is exactly the one a person
   must be able to pick.
@@ -24,6 +31,7 @@ only — sheet names and the strategy) out.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -36,7 +44,11 @@ from codegen.layout.discover import (
     discover_vdd,
 )
 
-WorkbookKind = Literal["sttm", "vdd", "unclassified"]
+WorkbookKind = Literal["sttm", "vdd", "iig", "iig_review", "unclassified"]
+# the kinds that are never an input (an IIG is the agent's OUTPUT / a golden)
+IIG_KINDS = ("iig", "iig_review")
+# an IIG has at least this many template tabs among its sheets
+IIG_MIN_TABS = 2
 
 
 @dataclass(frozen=True)
@@ -48,9 +60,44 @@ class WorkbookClass:
         return {"kind": self.kind, "reason": self.reason}
 
 
-def classify_workbook(path: Path, extractor: ExtractorConfig) -> WorkbookClass:
+def _sheet_names(path: Path) -> list[str]:
+    from openpyxl import load_workbook
+
+    book = load_workbook(path, read_only=True)
+    try:
+        return list(book.sheetnames)
+    finally:
+        book.close()
+
+
+def iig_kind(sheets: list[str], iig_sheets: Iterable[str],
+             review_sheet: str = "") -> WorkbookClass | None:
+    """The workbook is an IIG / an IIG review copy by its SHEET NAMES (None:
+    it is not): at least ``IIG_MIN_TABS`` of them are IIG template tabs;
+    with ``review_sheet`` too, the review copy."""
+    tabs = {str(s).strip().upper() for s in iig_sheets if str(s).strip()}
+    matched = [s for s in sheets if s.strip().upper() in tabs]
+    if not tabs or len(matched) < IIG_MIN_TABS:
+        return None
+    shown = ", ".join(matched[:3]) + (f" … +{len(matched) - 3}" if len(matched) > 3 else "")
+    review = review_sheet.strip().upper()
+    if review and any(s.strip().upper() == review for s in sheets):
+        return WorkbookClass("iig_review", f"an IIG review copy: sheet {review_sheet} and "
+                                           f"{len(matched)} IIG template sheet(s) ({shown})")
+    return WorkbookClass("iig", f"an IIG: {len(matched)} IIG template sheet(s) ({shown})")
+
+
+def classify_workbook(path: Path, extractor: ExtractorConfig, *,
+                      iig_sheets: Iterable[str] = (), review_sheet: str = "") -> WorkbookClass:
     unconfirmed: list[str] = []
     candidates: list[str] = []
+    if iig_sheets:
+        try:
+            iig = iig_kind(_sheet_names(path), iig_sheets, review_sheet)
+        except Exception as exc:  # noqa: BLE001 — a workbook that cannot be opened is a fact to show
+            return WorkbookClass("unclassified", f"could not be read: {type(exc).__name__}: {exc}")
+        if iig is not None:
+            return iig
     try:
         found = discover(path, extractor)
         # Chunk A: an STTM only when a band carries EVIDENCE of a target layer
@@ -102,4 +149,4 @@ def classify_workbook(path: Path, extractor: ExtractorConfig) -> WorkbookClass:
         "(Vendor Data Dictionary)")
 
 
-__all__ = ["WorkbookClass", "WorkbookKind", "classify_workbook"]
+__all__ = ["IIG_KINDS", "WorkbookClass", "WorkbookKind", "classify_workbook", "iig_kind"]

@@ -1315,10 +1315,19 @@ class DemoRunner:
         file that failed or timed out — listed all the same, never retried in a
         loop.
         """
+        from codegen.demo_sources import classify_document_name
+        from codegen.layout.classify import IIG_KINDS
+
         chosen = self.selection()
         choices = []
         for doc in self._workbook_catalog().documents((".xlsx",)):
+            # 2026-10-16: an IIG / IIG review copy is never an input — by its
+            # name (an ``iig`` token) or, once read, by its sheet names
+            if classify_document_name(doc.name).role == "iig":
+                continue
             verdict = self._index.lookup(doc)
+            if verdict["state"] in IIG_KINDS:
+                continue
             choices.append({"name": doc.name, "source": doc.source, "size": doc.size,
                             "modified": doc.modified,
                             # The SAME record the status reports (``selection``).

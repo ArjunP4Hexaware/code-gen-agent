@@ -633,6 +633,8 @@ def file_role(name: str, content: tuple[str, str] | None = None) -> FileRole:
     if content is None:
         return FileRole(name, "unclassified", f"{verdict.rule}; content not read")
     kind, reason = content
+    if kind in ("iig", "iig_review"):
+        return FileRole(name, "iig", f"IIG by its sheets: {reason}")
     if kind == "vdd":
         return FileRole(name, "vdd", f"dictionary by content: {reason}")
     if kind == "sttm":

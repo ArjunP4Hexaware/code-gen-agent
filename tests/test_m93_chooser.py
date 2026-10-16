@@ -52,7 +52,38 @@ TREE = {
                "FRD_hotel.docx": SHAPES / "frd" / "f2_pair_8.docx",
                "VDD_india.xlsx": SHAPES / "vdd" / "pair_9_v3_per_table.xlsx"},
 }
+# An IIG (the pair-1 golden): "unclassified" to the content classifier alone
+# (the CLI's call); the App's index reads it by its sheet names as an IIG.
 UNCLASSIFIED = SHAPES / "pair_1" / "golden" / "RFC_ACCUMULATORS_IIG.xlsx"
+
+
+def _plain_workbook(*sheets: str) -> bytes:
+    """A workbook no signature knows (no band, no dictionary, no IIG tabs)."""
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active.title = sheets[0] if sheets else "Inventory"
+    for name in sheets[1:]:
+        book.create_sheet(name)
+    book.active["A1"] = "item"
+    buf = io.BytesIO()
+    book.save(buf)
+    return buf.getvalue()
+
+
+def _review_copy(iig: Path) -> bytes:
+    """The IIG plus the BSA review copy's summary sheet."""
+    import io
+
+    from openpyxl import load_workbook
+
+    book = load_workbook(iig)
+    book.create_sheet("REVIEW_SUMMARY", 0)
+    buf = io.BytesIO()
+    book.save(buf)
+    return buf.getvalue()
 
 
 class _Workspace:
@@ -158,7 +189,7 @@ def _rows(runner) -> dict[str, dict]:
 
 def test_list_is_metadata_only_then_kinds_arrive_by_content_and_are_kept_in_state(ws):
     ws.pairs()
-    ws.put("pair_1", "Inventory_juliet.xlsx", UNCLASSIFIED)
+    ws.put("pair_1", "Inventory_juliet.xlsx", _plain_workbook())
     runner = ws.runner(warmup=False)        # the LIST is under test, not the start-up warm-up
     started = time.monotonic()
     rows = _rows(runner)
@@ -201,7 +232,7 @@ def test_a_changed_file_is_read_again_once(ws):
     assert runner._index.wait_idle(60)
     assert _rows(runner)["VDD_charlie.xlsx"]["kind"] == "vdd"
     # The dictionary is replaced by a different workbook under the same name.
-    ws.put("pair_1", "VDD_charlie.xlsx", UNCLASSIFIED)
+    ws.put("pair_1", "VDD_charlie.xlsx", _plain_workbook())
     assert _rows(runner)["VDD_charlie.xlsx"]["kind"] == "classifying"   # new size: a new version
     assert runner._index.wait_idle(60)
     assert _rows(runner)["VDD_charlie.xlsx"]["kind"] == "unclassified"
@@ -1032,6 +1063,63 @@ def test_workbooks_are_classified_by_content_never_by_name(path, kind, config, t
     verdict = classify_workbook(disguised, config.extractor)
     assert verdict.kind == kind, verdict.reason
     assert verdict.reason
+
+
+def test_an_iig_is_classified_by_its_sheet_names(config, tmp_path):
+    """2026-10-16: given the IIG templates' tab names, a workbook with IIG
+    template sheets is an ``iig`` (with the review summary sheet: an
+    ``iig_review``) whatever its name; an STTM / a plain workbook is not."""
+    from codegen.layout.classify import classify_workbook
+    from codegen.layout.docworker import iig_sheet_names
+
+    sheets = iig_sheet_names(config)
+    assert "DATA_FACTORY_PIPELINE_SCHEDULE" in sheets
+    review = tmp_path / "Book_b.xlsx"
+    review.write_bytes(_review_copy(UNCLASSIFIED))
+    cases = {UNCLASSIFIED: "iig", review: "iig_review",
+             TREE["pair_1"]["STTM_alpha.xlsx"]: "sttm"}
+    for path, kind in cases.items():
+        verdict = classify_workbook(path, config.extractor, iig_sheets=sheets,
+                                    review_sheet="REVIEW_SUMMARY")
+        assert verdict.kind == kind, (path.name, verdict.reason)
+    one = tmp_path / "one_tab.xlsx"
+    one.write_bytes(_plain_workbook("DATA_FACTORY_PIPELINE_SCHEDULE", "Notes"))
+    assert classify_workbook(one, config.extractor, iig_sheets=sheets).kind == "unclassified"
+
+
+def test_a_folder_with_two_sttms_and_two_iigs_lists_two(ws):
+    """2026-10-16: the STTM picker lists only STTMs — an IIG and an IIG review
+    copy (neither with 'iig' in its name) are classified by their sheets and
+    left out of the list (and so out of the VDD choices too)."""
+    ws.put("pair_9", "STTM_kilo.xlsx", TREE["pair_1"]["STTM_alpha.xlsx"])
+    ws.put("pair_9", "STTM_lima.xlsx", TREE["pair_2"]["STTM_delta.xlsx"])
+    ws.put("pair_9", "Book_mike.xlsx", UNCLASSIFIED)
+    ws.put("pair_9", "Book_november.xlsx", _review_copy(UNCLASSIFIED))
+    runner = ws.runner(warmup=False)
+    runner.workbook_choices()                               # queues all four for reading
+    assert runner._index.wait_idle(60)
+    rows = {c["name"]: c["kind"] for c in runner.workbook_choices()
+            if c["source"] == "frd_sttm_pairs/pair_9"}
+    assert rows == {"STTM_kilo.xlsx": "sttm", "STTM_lima.xlsx": "sttm"}
+
+
+def test_a_stale_unclassified_verdict_is_read_again_once(ws):
+    """An IIG an older classifier left ``unclassified`` in the state index is
+    read again (CLASSIFIER_VERSION), then left out of the list."""
+    from ui.backend.docindex import CLASSIFIER_VERSION
+
+    ws.put("pair_9", "Book_mike.xlsx", UNCLASSIFIED)
+    runner = ws.runner(warmup=False)
+    runner.workbook_choices()
+    assert runner._index.wait_idle(60)
+    entries = runner._index._load()
+    key = next(k for k, e in entries.items() if e["name"] == "Book_mike.xlsx")
+    assert entries[key]["classifier"] == CLASSIFIER_VERSION
+    entries[key] = {"name": "Book_mike.xlsx", "state": "unclassified", "reason": "old"}
+    assert runner._index.lookup(next(d for d in runner._workbook_catalog().documents(
+        (".xlsx",)) if d.name == "Book_mike.xlsx"))["state"] == "classifying"
+    assert runner._index.wait_idle(60)
+    assert "Book_mike.xlsx" not in {c["name"] for c in runner.workbook_choices()}
 
 
 def test_a_file_that_is_not_a_workbook_is_unclassified_with_the_error(config, tmp_path):

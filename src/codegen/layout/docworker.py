@@ -13,7 +13,7 @@ a file exceeds its time budget.
 stdin  : one JSON object per line — {"path": <local file>, "name": <file name>}
 stdout : {"ready": true} once the config is loaded, then one JSON object per
          request line — {"state", "reason", "facts"}
-         state = sttm | vdd | unclassified | frd | unreadable
+         state = sttm | vdd | iig | iig_review | unclassified | frd | unreadable
 
 Nothing but those lines is written to stdout (warnings go to stderr).
 """
@@ -30,6 +30,12 @@ UNREADABLE = "unreadable"
 _SUFFIX_KIND = {".docx": "frd", ".json": "frd"}
 
 
+def iig_sheet_names(config) -> list[str]:
+    """Every IIG template's tab names (``metadata.templates.<t>.tabs``)."""
+    return sorted({tab for template in config.metadata.templates.values()
+                   for tab in template.tabs})
+
+
 def read_document(local: Path, name: str, config, base_dir: Path) -> dict:
     """{state, reason, facts} of one document: a workbook's kind by content
     (``codegen.layout.classify``), and the pairing facts of an STTM / VDD /
@@ -39,7 +45,10 @@ def read_document(local: Path, name: str, config, base_dir: Path) -> dict:
 
     suffix = Path(name).suffix.lower()
     if suffix == ".xlsx":
-        verdict = classify_workbook(local, config.extractor)
+        # 2026-10-16: an IIG / IIG review copy by its sheet names (the IIG
+        # templates' tabs) — never listed as an input by the App's chooser
+        verdict = classify_workbook(local, config.extractor, iig_sheets=iig_sheet_names(config),
+                                    review_sheet=config.iig_review.summary_sheet)
         if verdict.reason.startswith("could not be read"):
             return {"state": UNREADABLE, "reason": verdict.reason, "facts": None}
         state, reason = verdict.kind, verdict.reason

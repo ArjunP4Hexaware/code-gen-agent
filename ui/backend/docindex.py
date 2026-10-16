@@ -45,6 +45,10 @@ from codegen._srcpath import child_env, ensure_src_first
 
 INDEX_FILE = "document_index.json"
 CLASSIFYING = "classifying"
+# 2026-10-16: the classifier's version, stamped on every verdict. A workbook an
+# older classifier called ``unclassified`` is read again once (it may be an IIG,
+# which the chooser now leaves out); every other verdict stands.
+CLASSIFIER_VERSION = 2
 UNREADABLE = "unreadable"
 
 
@@ -302,7 +306,7 @@ class DocumentIndex:
         key = doc.version
         with self._lock:
             entry = self._load().get(key)
-            if entry is not None:
+            if entry is not None and not _stale(doc, entry):
                 return {"state": entry["state"], "reason": entry.get("reason", "")}
             if key not in self._pending:
                 self._pending.add(key)
@@ -455,11 +459,19 @@ class DocumentIndex:
             entries = self._load()
             for stale in [k for k in entries if k.split("#", 1)[0] == doc.uri]:
                 del entries[stale]                     # one verdict per file
-            entries[doc.version] = {"name": doc.name, **entry}
+            entries[doc.version] = {"name": doc.name, **entry,
+                                    "classifier": CLASSIFIER_VERSION}
         self._save()
         for callback in list(self._listeners):
             with contextlib.suppress(Exception):      # a listener never breaks the index
                 callback(doc, entry)
 
 
-__all__ = ["CLASSIFYING", "INDEX_FILE", "UNREADABLE", "DocumentIndex", "fetch_exclusive"]
+def _stale(doc, entry: dict) -> bool:
+    """A workbook verdict ``unclassified`` from before CLASSIFIER_VERSION."""
+    return (str(doc.name).lower().endswith(".xlsx") and entry.get("state") == "unclassified"
+            and int(entry.get("classifier") or 1) < CLASSIFIER_VERSION)
+
+
+__all__ = ["CLASSIFIER_VERSION", "CLASSIFYING", "INDEX_FILE", "UNREADABLE", "DocumentIndex",
+           "fetch_exclusive"]

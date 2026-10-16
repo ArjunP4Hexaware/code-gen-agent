@@ -5,7 +5,9 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post63).** post63 = wording only: the metadata-sheet
+**RESTART HERE (2026-10-16, after post64).** post64 = the "Framework artefacts" output
+toggle tooltip says "DDL + BSA-annotated IIG for the existing ingestion framework".
+post63 = wording only: the metadata-sheet
 preview footnote and the report's framework section ("Framework artefacts",
 `framework.presented_files`) say what the artefacts panel says (`artefacts.ts`
 `APPROVAL_NOTE`): the BSA-annotated IIG is the approval artefact, CI/CD applies the DDL.

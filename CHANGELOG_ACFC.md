@@ -4,6 +4,12 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post64 — 2026-10-16 (App wording; text only)
+
+1. **Output toggle tooltip (App).** "Framework artefacts" now reads "DDL +
+   BSA-annotated IIG for the existing ingestion framework" (was "DDL scripts +
+   config rows + inserts …").
+
 ## 0.5.8.post63 — 2026-10-16 (approval wording; text only, the same files are written)
 
 One commit per item.

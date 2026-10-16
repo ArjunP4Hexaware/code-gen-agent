@@ -151,7 +151,7 @@ def test_v1_all_files_against_v2_file_adls_all_paired_score_100(tmp_path: Path, 
     s = sheets[LABEL]
     assert V1 not in sheets and V2 not in sheets           # one mapped pair, not two halves
     assert s["presence"] == "compared"
-    assert s["pairing"] == {"identity": 3, "position": 0, "key": 0}
+    assert s["pairing"] == {"identity": 3, "order": 0, "position": 0, "key": 0}
     assert s["unpaired"] == {"golden": 0, "agent": 0}
     assert s["out_of_scope_rows"] == 0
     assert s["score"] == 100.0 and s["comparable_score"] == 100.0
@@ -329,7 +329,7 @@ def test_an_mft_feed_pairs_all_files_with_adls_delta_and_file_adls_is_empty_by_r
     capsys.readouterr()
     sheets = json.loads((out / "score.json").read_text(encoding="utf-8"))["sheets"]
     s = sheets[f"{V1} → {ADLS}"]
-    assert s["pairing"] == {"identity": 3, "position": 0, "key": 0}
+    assert s["pairing"] == {"identity": 3, "order": 0, "position": 0, "key": 0}
     assert s["unpaired"] == {"golden": 0, "agent": 0}
     assert s["counts"]["exact"] == 3 * 2 and s["counts"]["missing-in-agent"] == 0
     assert "MFT feed (landing 'mftlanding')" in s["template_mismatch"]["note"]

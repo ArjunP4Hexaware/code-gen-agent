@@ -46,8 +46,17 @@ in the EDO standard — zero rows paired on pair_2):
   rule 1, 2026-10-14: the BSA assigns it, the agent leaves it blank) are never
   missing, never scored: status ``bsa-owned``, counted with how many the golden
   fills;
-* every sheet reports rows paired by identity / by position / unpaired, so a
-  score is never read without how its rows were matched.
+* every sheet reports rows paired by identity / by order / by position /
+  unpaired, so a score is never read without how its rows were matched;
+* post57 (D1 post55 pair_01): an identity carrying a NAME (``name_components``:
+  TGT_TABLE_NAME, TGT_TABLE, @file) that differs, both sides ONE feed and ONE
+  flow — the rows left over pair by feed + flow + row order (``order``), the
+  name one mismatch cell; a column of the agent's template version the golden's
+  sheet lacks is ``template-only`` (never scored, listed once under HEADERS); a
+  date equals the same date at midnight; segment columns (``segment_columns``)
+  compare through the conventions profile's ``segment_codes``
+  (``segment_codes_profile``: hddr / det / trlr == header / details / trailer).
+  ``tools/iig_rescore_export.py`` re-scores a scrubbed export at home.
 
 ``--pair-mode key`` keeps the natural key per sheet below (the 2026-10-12
 rule: rows it cannot pair stay missing / extra). Position (``--pair-mode
@@ -193,6 +202,12 @@ PAIR_MODES = ("identity", "key", "position", "fuzzy")
 # (a sheet with no identity whose row counts match), or by the natural key
 # (``--pair-mode key``).
 BY_IDENTITY, BY_POSITION, BY_KEY = "identity", "position", "key"
+# post57 (D1 post55 pair_01): a sheet whose identity carries a NAME (iig_keys.yaml
+# ``name_components``: TGT_TABLE_NAME, TGT_TABLE, @file) where the name differs,
+# both sides one feed and one flow: the rows left over pair by feed + flow + row
+# order, so the name is ONE mismatch cell, not an unpaired row on each side.
+BY_ORDER = "order"
+PAIR_METHODS = (BY_IDENTITY, BY_ORDER, BY_POSITION, BY_KEY)
 _FUZZY_PREFIXES = re.compile(
     r"^(PL_File_|PL_|NB_|WF_)", re.IGNORECASE,
 )
@@ -228,8 +243,12 @@ EMPTY_BY_RULE = "empty-by-rule"
 # status_columns: EMAIL_TEMPLATE_CONFIG STATUS) the golden does not use — the
 # status set is the BSA's to trim — "status not in golden", never extra.
 STATUS_NOT_IN_GOLDEN = "status-not-in-golden"
+# post57: a column the agent's IIG template version has and the golden's sheet
+# does not (PROCESS_NAME … UDF5 on the schedule, FILE_METADATA, …) — never
+# scored, listed once in the HEADERS section.
+TEMPLATE_ONLY = "template-only"
 STATUSES = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA, ASSIGN, OUT_OF_SCOPE, CONVENTION,
-            GROUP_LEVEL, BSA_OWNED, STATUS_NOT_IN_GOLDEN)
+            GROUP_LEVEL, BSA_OWNED, STATUS_NOT_IN_GOLDEN, TEMPLATE_ONLY)
 SCORED = (EXACT, NORMALIZED, MISMATCH, MISSING, EXTRA)
 # The overall score keeps its meaning (an out-of-scope cell counts as missing);
 # ``comparable_score`` is the one over scoped cells of shared sheets only.
@@ -262,6 +281,7 @@ WITHHELD = "<withheld>"
 SOURCE_COLUMN = "_source_group_ids"
 SUMMARY_SHEET = "_DIFF_SUMMARY"
 _NUMBER = re.compile(r"[+-]?\d+\.\d+")
+_MIDNIGHT = re.compile(r"(\d{4}-\d{2}-\d{2})[ T]00:00(?::00(?:\.0+)?)?")
 _FILLS = {
     EXACT: None,
     NORMALIZED: "DDEBF7",
@@ -272,6 +292,7 @@ _FILLS = {
     OUT_OF_SCOPE: "F2F2F2",
     CONVENTION: "FCE4D6",
     BSA_OWNED: "E2EFDA",
+    TEMPLATE_ONLY: "EDEDED",
 }
 
 
@@ -353,6 +374,21 @@ class KeyConfig:
     mft: dict = field(default_factory=dict)
     # 2026-10-14: sheet -> its status column (status rows not in the golden)
     status_columns: dict[str, str] = field(default_factory=dict)
+    # post57: identity components that NAME a row (rule BY_ORDER)
+    name_components: tuple[str, ...] = ()
+    # post57: sheet -> its record-segment columns, compared through the
+    # conventions profile's segment codes (spelling -> canonical)
+    segment_columns: dict[str, list[str]] = field(default_factory=dict)
+    segment_codes: dict[str, str] = field(default_factory=dict)
+    segment_profile: str | None = None
+
+    def is_segment_column(self, sheet: str, column: str) -> bool:
+        return column.upper() in {c.upper() for c in _by_sheet(self.segment_columns, sheet) or []}
+
+    def segment_code(self, value: object) -> str:
+        """A segment cell as its canonical code (unknown spellings as written)."""
+        text = _raw(value).strip()
+        return self.segment_codes.get(text.casefold(), text)
 
     def identity_for(self, sheet: str) -> list[str] | None:
         return _by_sheet(self.identity, sheet)
@@ -448,7 +484,8 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
              "environment_tokens", "identity", "flow", "convention_columns", "bsa_columns",
              "group_index",
              "sheet_aliases", "file_name_tokens", "file_columns", "group_level_flows",
-             "rule_diagnostics", "mft", "status_columns"}
+             "rule_diagnostics", "mft", "status_columns", "name_components",
+             "segment_columns", "segment_codes_profile"}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
@@ -482,7 +519,26 @@ def load_keys(path: Path, env_local: Path | None = DEFAULT_ENV_LOCAL) -> KeyConf
         rule_diagnostics=_column_lists(path, "rule_diagnostics", raw.get("rule_diagnostics")),
         mft=_mft(path, raw.get("mft")),
         status_columns={str(k): str(v) for k, v in (raw.get("status_columns") or {}).items()},
+        name_components=tuple(str(c) for c in raw.get("name_components") or []),
+        segment_columns=_column_lists(path, "segment_columns", raw.get("segment_columns")),
+        segment_codes=segment_codes(raw.get("segment_codes_profile")),
+        segment_profile=(str(raw["segment_codes_profile"])
+                         if raw.get("segment_codes_profile") else None),
     )
+
+
+def segment_codes(profile: object, config_path: Path | None = None) -> dict[str, str]:
+    """post57: a conventions profile's ``segment_codes`` (config/config.yaml,
+    canonical -> spellings) as {spelling casefolded: canonical}."""
+    if not profile:
+        return {}
+    path = Path(config_path or DEFAULT_TEMPLATE_CONFIG)
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    profiles = ((raw.get("conventions") or {}).get("profiles")) or {}
+    codes = (profiles.get(str(profile)) or {}).get("segment_codes") or {}
+    return {str(spelling).strip().casefold(): str(canonical)
+            for canonical, spellings in dict(codes).items()
+            for spelling in [canonical, *(spellings or [])]}
 
 
 _ALIAS_KEYS = {"agent_sheet", "golden_files", "agent_files", "agent_files_from", "columns"}
@@ -737,11 +793,17 @@ def normalize(value: object) -> str:
         return str(value)
     if isinstance(value, float):
         return str(int(value)) if value.is_integer() else _trim_zeros(repr(value))
+    if isinstance(value, dt.datetime) and value.time() == dt.time(0):
+        return value.date().isoformat()     # post57: a midnight datetime is its date
     if isinstance(value, (dt.datetime, dt.date, dt.time)):
         return value.isoformat()
     text = " ".join(str(value).split())
     if text.upper() in NULL_TOKENS:
         return ""
+    midnight = _MIDNIGHT.fullmatch(text)
+    if midnight:
+        # post57 (D1 post55 pair_01): "9999-12-31" == "9999-12-31 00:00:00"
+        return midnight.group(1)
     if _NUMBER.fullmatch(text):
         return _trim_zeros(text)
     text = text.replace("\\", "/")
@@ -1232,10 +1294,15 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
                     keys: KeyConfig, tables: tuple, scope: FeedScope | None,
                     oos_rows: set[int] | None = None,
                     group_rows: frozenset[int] = frozenset(),
-                    status_only: frozenset[int] = frozenset()) -> tuple[list[Cell], set[int]]:
+                    status_only: frozenset[int] = frozenset(),
+                    template_only: frozenset[str] = frozenset(),
+                    sheet: str = "") -> tuple[list[Cell], set[int]]:
     """Every cell of every pair, with its status; + the golden rows out of
     scope (``oos_rows`` when the caller decided them, else the scope's test).
-    A CONVENTION column's cell is ``convention`` — never scored."""
+    A CONVENTION column's cell is ``convention`` — never scored; a column of
+    ``template_only`` (post57: the agent's template has it, the golden's sheet
+    does not) is ``template-only`` — never scored; a segment column compares
+    through the profile's segment codes."""
     cells: list[Cell] = []
     found: set[int] = set()
     for pair in pairs:
@@ -1268,12 +1335,17 @@ def _classify_pairs(pairs: list[RowPair], order: list[str], g_canon: dict, a_can
                 status = BSA_OWNED
             elif keys.is_convention(label):
                 status = CONVENTION
+            elif col in template_only:
+                status = TEMPLATE_ONLY
             elif not in_g:
                 status = EXTRA
             elif not in_a:
                 status = MISSING
             else:
                 status = classify(g_val, a_val, keys.env_tokens)
+                if status == MISMATCH and keys.is_segment_column(sheet, label) and \
+                        keys.segment_code(g_val).casefold() == keys.segment_code(a_val).casefold():
+                    status = NORMALIZED          # post57: hddr == header (segment codes)
             cells.append(Cell(pair.key, pair.golden[0] if pair.golden else None,
                               pair.agent[0] if pair.agent else None, label, g_val, a_val,
                               status, pair.method))
@@ -1332,8 +1404,8 @@ def row_flow(sheet: str, row: dict[str, object], canon: dict[str, str],
 
 def _parts(components: list[str], row: dict[str, object], canon: dict[str, str],
            tables: ObjectTables | None, feed: int | str | None, flow: str | None,
-           files: tuple[list[str], tuple[re.Pattern[str], ...]] = ([], ())
-           ) -> list[str | None]:
+           files: tuple[list[str], tuple[re.Pattern[str], ...]] = ([], ()),
+           segments: tuple[KeyConfig, str] | None = None) -> list[str | None]:
     out: list[str | None] = []
     for component in components:
         if component == FILE_COMPONENT:
@@ -1350,7 +1422,11 @@ def _parts(components: list[str], row: dict[str, object], canon: dict[str, str],
             out.append(identity_value(table, "TABLE"))
         else:
             real = canon.get(component.upper())
-            out.append(identity_value(row.get(real), component) if real else None)
+            value = row.get(real) if real else None
+            if real and segments is not None and segments[0].is_segment_column(segments[1],
+                                                                              component):
+                value = segments[0].segment_code(value)     # post57: one vocabulary
+            out.append(identity_value(value, component) if real else None)
     return out
 
 
@@ -1366,7 +1442,8 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
     g_canon, a_canon = golden.canon(), agent.canon()
     files = (_by_sheet(keys.file_columns, name) or [], keys.file_name_tokens)
     g_parts = {n: _parts(components, row, g_canon, tables[0], g_info[n][0],
-                         g_info[n][1] or row_flow(name, row, g_canon, keys), files)
+                         g_info[n][1] or row_flow(name, row, g_canon, keys), files,
+                         (keys, name))
                for n, row in golden.rows if n not in oos}
     def agent_side(n: int, row: dict) -> tuple:
         if ctx.self_check:
@@ -1374,7 +1451,8 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
             return feed, flow or row_flow(name, row, a_canon, keys)
         return feed_of_agent_row(n), row_flow(name, row, a_canon, keys)
 
-    a_parts = {n: _parts(components, row, a_canon, tables[1], *agent_side(n, row), files)
+    a_parts = {n: _parts(components, row, a_canon, tables[1], *agent_side(n, row), files,
+                         (keys, name))
                for n, row in agent.rows}
     keep, dropped = [], []
     for i, component in enumerate(components):
@@ -1469,7 +1547,42 @@ def _identity_pairs(name: str, golden: Sheet, agent: Sheet, components: list[str
         facts["warnings"].append(
             f"identity incomplete (golden {no_identity['golden']}, agent "
             f"{no_identity['agent']} rows) — those rows NOT paired")
-    return pairs
+    return _pair_by_order(pairs, components, keys, g_parts, a_parts, facts)
+
+
+def _pair_by_order(pairs: list[RowPair], components: list[str], keys: KeyConfig,
+                   g_parts: dict[int, list], a_parts: dict[int, list],
+                   facts: dict) -> list[RowPair]:
+    """post57 rule (a): the identity carries a NAME (``name_components``) and
+    both sides are ONE feed and ONE flow — the rows the identity left unpaired
+    pair by row order (``BY_ORDER``), so a differing table / file name is one
+    mismatch cell per row, never a missing row plus an extra one."""
+    names = {c.upper() for c in keys.name_components}
+    if not any(c.upper() in names for c in components):
+        return pairs
+    at = {c: components.index(c) for c in ("@feed", "@flow") if c in components}
+
+    def scope(parts: list) -> tuple:
+        return tuple(parts[i] for i in at.values())
+
+    g_scopes = {scope(p) for p in g_parts.values()}
+    a_scopes = {scope(p) for p in a_parts.values()}
+    if len(g_scopes) != 1 or g_scopes != a_scopes:
+        return pairs
+    golden = [p for p in pairs if p.golden and not p.agent and p.key != "out of scope"]
+    agent = [p for p in pairs if p.agent and not p.golden]
+    agent.sort(key=lambda p: p.agent[0])
+    matched = list(zip(golden, agent, strict=False))
+    if not matched:
+        return pairs
+    taken = {id(a) for _g, a in matched}
+    for g, a in matched:
+        g.agent, g.method = a.agent, BY_ORDER
+    facts["order_paired"] = len(matched)
+    facts["warnings"].append(
+        f"{len(matched)} row(s) paired by feed + flow + row order (one feed, one flow; the "
+        f"name differs: {', '.join(c for c in components if c.upper() in names)})")
+    return [p for p in pairs if id(p) not in taken]
 
 
 KEY_SAMPLE_ROWS = 5
@@ -1562,7 +1675,10 @@ def diff_sheet(
     pair_mode: str = "identity",
     scope: FeedScope | None = None,
     ctx: FeedContext | None = None,
+    template_columns: frozenset[str] = frozenset(),
 ) -> SheetDiff:
+    """``template_columns``: the agent template's headers for this sheet
+    (upper-case) — a column of it the golden's sheet lacks is template-only."""
     presence = "compared" if golden and agent else ("golden-only" if golden else "agent-only")
     texts: dict = {}
     oos: set[int] | None = None
@@ -1584,9 +1700,12 @@ def diff_sheet(
     }
     group_rows = frozenset(group_level_rows(name, pairs, golden, agent, keys))
     status_only = frozenset(status_rows(name, pairs, golden, agent, keys)) - group_rows
+    template_only = frozenset(c for c in a_canon if g_canon and c not in g_canon
+                              and c in template_columns)
+    out.columns["template_only"] = [a_canon[c] for c in order if c in template_only]
     out.cells, oos_rows = _classify_pairs(pairs, order, g_canon, a_canon, keys, tables,
                                           scope if agent is not None else None, oos,
-                                          group_rows, status_only)
+                                          group_rows, status_only, template_only, name)
     out.identity_text = texts
     out.rule_samples = rule_samples(name, golden, agent, keys, texts)
     return _tally(out, pairs, oos_rows, golden, agent, keys, group_rows, status_only)
@@ -1625,7 +1744,7 @@ def _tally(out: SheetDiff, pairs: list[RowPair], oos_rows: set[int], golden: She
     """Rows paired per method, unpaired per side, the row counts."""
     group_rows = group_rows | status_only        # neither is unpaired / extra
     out.pairing = {m: sum(1 for p in pairs if p.golden and p.agent and p.method == m)
-                   for m in (BY_IDENTITY, BY_POSITION, BY_KEY)}
+                   for m in PAIR_METHODS}
     out.unpaired = {"golden": sum(1 for p in pairs if p.golden and not p.agent
                                   and p.golden[0] not in oos_rows),
                     "agent": sum(1 for p in pairs if p.agent and not p.golden
@@ -1807,6 +1926,9 @@ def diff_workbooks(
                       feeds or {1 if len(paths) > 1 else 0}, self_check=self_check)
     a_by_id = {sheet_id(n): n for n in a}
     g_ids = {sheet_id(n) for n in g}
+    # post57: the agent template version's headers per sheet (template-only columns)
+    template_columns = {sheet_id(tab): frozenset(h.upper() for h in heads)
+                        for tab, heads in _template_tabs(detect_template(list(a))).items()}
 
     # Cross-template sheets (iig_keys.yaml sheet_aliases): only when the golden
     # lacks the agent's sheet AND the agent lacks the golden's.
@@ -1860,7 +1982,8 @@ def diff_workbooks(
                        "missing-in-agent": 0, "extra-in-agent": 0}
         else:
             sd = diff_sheet(name, g.get(name), a.get(a_by_id.get(sheet_id(name), "")), keys,
-                            tables, pair_mode=pair_mode, scope=scope, ctx=ctx)
+                            tables, pair_mode=pair_mode, scope=scope, ctx=ctx,
+                            template_columns=template_columns.get(sheet_id(name), frozenset()))
         sd.facts["scope"] = {"active": scope.active, "feeds": len(scope.stems)}
         result.append(sd)
     return result
@@ -2032,7 +2155,7 @@ def score_payload(golden: Path, agent: Path | list[Path], keys_path: Path,
             "out_of_scope_rows": sum(d.out_of_scope_rows for d in diffs),
             "group_level_rows": sum(d.group_level_rows for d in diffs),
             "status_not_in_golden_rows": sum(d.status_rows for d in diffs),
-            "pairing": {m: pairing.get(m, 0) for m in (BY_IDENTITY, BY_POSITION, BY_KEY)},
+            "pairing": {m: pairing.get(m, 0) for m in PAIR_METHODS},
             "unpaired": {s: unpaired.get(s, 0) for s in ("golden", "agent")},
             "convention_cells": {k: convention.get(k, 0) for k in ("cells", "differing")},
             "bsa_cells": {k: bsa.get(k, 0) for k in ("cells", "golden_filled")},
@@ -2177,6 +2300,16 @@ def agent_build(agents: list[Path]) -> tuple[dict | None, str | None]:
 DEFAULT_TEMPLATE_CONFIG = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
 
 
+def _template_tabs(name: str | None) -> dict[str, list]:
+    """The config template ``name``'s sheets -> headers ({} for none), read once."""
+    return _cached_template_headers().get(name or "", {})
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_template_headers() -> dict[str, dict[str, list]]:
+    return template_headers()
+
+
 def template_headers(config_path: Path = DEFAULT_TEMPLATE_CONFIG) -> dict[str, dict[str, list]]:
     """2026-10-14 (framework owner's rule 5): every IIG template's sheets and
     headers as the run's config states them — config.yaml with the committed
@@ -2258,11 +2391,20 @@ def header_report(golden: Path, agents: list[Path], keys: KeyConfig,
     for name, headers in agent.items():
         if name.startswith("_") or sheet_id(name) not in t_by_id:
             continue
-        vs_template[name] = compare_headers(template[t_by_id[sheet_id(name)]], headers)
+        expected = template[t_by_id[sheet_id(name)]]
+        vs_template[name] = compare_headers(expected, headers)
         if sheet_id(name) in g_by_id:
             golden_heads = [h for h in golden_rows[g_by_id[sheet_id(name)]]
                             if h != SOURCE_COLUMN]
-            vs_golden[name] = compare_headers(golden_heads, headers)
+            result = compare_headers(golden_heads, headers)
+            # post57: the agent template's own columns the golden lacks are
+            # template-only — listed here once, never scored, not an issue
+            ids = {header_id(h) for h in expected}
+            result["template_only"] = [h for h in result["extra"] if header_id(h) in ids]
+            result["extra"] = [h for h in result["extra"] if header_id(h) not in ids]
+            result["ok"] = not (result["spelling"] or result["missing"] or result["extra"]
+                                or result["order"])
+            vs_golden[name] = result
     absent = [n for n in template if sheet_id(n) not in {sheet_id(a) for a in agent}]
     differing = [i for i, rows in enumerate(agent_rows[1:], start=2) if rows != agent]
     issues = (sum(not r["ok"] for r in vs_template.values())
@@ -2280,6 +2422,9 @@ def header_lines(report: dict) -> list[str]:
              f"{report.get('issues', 0)} issue(s)"]
     for side, label in (("agent_vs_template", "template"), ("agent_vs_golden", "golden")):
         for sheet, r in (report.get(side) or {}).items():
+            if r.get("template_only"):
+                lines.append(f"  {sheet} vs {label}: template-only (not scored) "
+                             + ", ".join(r["template_only"]))
             if r["ok"]:
                 continue
             parts = []
@@ -2300,7 +2445,7 @@ def header_lines(report: dict) -> list[str]:
     if report.get("agent_workbooks_with_other_headers"):
         lines.append(f"  agent workbooks {report['agent_workbooks_with_other_headers']} have "
                      "other headers than the first")
-    if len(lines) == 1:
+    if not report.get("issues") and not report.get("agent_workbooks_with_other_headers"):
         lines.append("  every sheet's headers match (names, spelling, order)")
     return lines
 
@@ -2742,10 +2887,11 @@ def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
         # is scrubbed like any other name
         lines += ["## Headers", "",
                   *header_lines(_scrubbed_headers(headers, vocabulary, scr)), ""]
-    lines += ["| sheet | paired (identity / position / key) | unpaired (golden / agent) | score "
-              "| comparable | exact | normalized | mismatch | missing | extra | out of scope "
-              "| convention | bsa-owned |",
-              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines += ["| sheet | paired (identity / order / position / key) | unpaired (golden / agent) "
+              "| score | comparable | exact | normalized | mismatch | missing | extra "
+              "| out of scope | convention | bsa-owned | template-only |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- "
+              "| --- |"]
     columns_listed = 0
     detail: list[str] = []
     for d in diffs:
@@ -2756,12 +2902,12 @@ def _write_sheets(path: Path, diffs: list[SheetDiff], scr: Scrubber,
         pairing, unpaired = d.pairing or {}, d.unpaired or {}
         lines.append("| " + " | ".join(str(x) for x in (
             _md(_template_text(d.name, vocabulary, scr)),
-            f"{pairing.get(BY_IDENTITY, 0)} / {pairing.get(BY_POSITION, 0)} / "
-            f"{pairing.get(BY_KEY, 0)}",
+            f"{pairing.get(BY_IDENTITY, 0)} / {pairing.get(BY_ORDER, 0)} / "
+            f"{pairing.get(BY_POSITION, 0)} / {pairing.get(BY_KEY, 0)}",
             f"{unpaired.get('golden', 0)} / {unpaired.get('agent', 0)}",
             score, "-" if comparable is None else comparable,
             c[EXACT], c[NORMALIZED], c[MISMATCH], c[MISSING], c[EXTRA], c[OUT_OF_SCOPE],
-            c[CONVENTION], c[BSA_OWNED])) + " |")
+            c[CONVENTION], c[BSA_OWNED], c[TEMPLATE_ONLY])) + " |")
         per_column = d.column_counts()
         detail += [f"## {_md(_template_text(d.name, vocabulary, scr))}", ""]
         overlap = d.facts.get("component_overlap") or {}
@@ -3159,8 +3305,9 @@ def _print_pair(payload: dict, out: Path) -> None:
         score = s["note"] if s.get("note") else s["score"]
         pairing, unpaired = s.get("pairing") or {}, s.get("unpaired") or {}
         conv = s.get("convention_cells") or {}
-        how = (f"paired by identity {pairing.get(BY_IDENTITY, 0)}, position "
-               f"{pairing.get(BY_POSITION, 0)}"
+        how = (f"paired by identity {pairing.get(BY_IDENTITY, 0)}"
+               + (f", order {pairing[BY_ORDER]}" if pairing.get(BY_ORDER) else "")
+               + f", position {pairing.get(BY_POSITION, 0)}"
                + (f", key {pairing[BY_KEY]}" if pairing.get(BY_KEY) else "")
                + f"; unpaired golden {unpaired.get('golden', 0)}, agent "
                  f"{unpaired.get('agent', 0)}; convention {conv.get('cells', 0)} "
@@ -3177,7 +3324,8 @@ def _print_pair(payload: dict, out: Path) -> None:
           f"{t.get('out_of_scope_rows', 0)} golden row(s); group-level rows: "
           f"{t.get('group_level_rows', 0)} (not scored); status not in golden: "
           f"{t.get('status_not_in_golden_rows', 0)} agent row(s) (not scored)")
-    print(f"PAIRING: identity {t['pairing'].get(BY_IDENTITY, 0)}, position "
+    print(f"PAIRING: identity {t['pairing'].get(BY_IDENTITY, 0)}, order "
+          f"{t['pairing'].get(BY_ORDER, 0)}, position "
           f"{t['pairing'].get(BY_POSITION, 0)}, key {t['pairing'].get(BY_KEY, 0)} row(s); "
           f"unpaired golden {t['unpaired']['golden']}, agent {t['unpaired']['agent']}; "
           f"convention cells {t['convention_cells']['cells']} "

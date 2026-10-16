@@ -1165,6 +1165,11 @@ class ConventionsProfileConfig(BaseModel):
     # document's, byte for byte.
     storage_account_pattern: str = (r"(?=[a-z0-9]*\d)[a-z0-9]{3,24}"
                                     r"|[a-z0-9]{3,24}\.(?:dfs|blob)\.core\.windows\.net")
+    # post57 (D1 post55 pair_01 IIG diff): the profile's record-segment codes —
+    # canonical segment -> every spelling a document / golden writes for it
+    # (hddr / det / trlr <-> header / details / trailer). tools/iig_diff.py maps
+    # both sides through it before comparing a segment column.
+    segment_codes: dict[str, list[str]] = Field(default_factory=dict)
 
     @field_validator("audit_datatypes", "audit_flag_datatypes")
     @classmethod

@@ -146,7 +146,7 @@ def test_real_shapes_pair_by_identity_comparable_100(tmp_path: Path) -> None:
     payload = _run(tmp_path, golden, agents)
     for sheet, rows in ((PIPE, 4), (ADLS, 2), (STG, 2), (NB, 4), (DQ, 4)):
         s = payload["sheets"][sheet]
-        assert s["pairing"] == {"identity": rows, "position": 0, "key": 0}, (sheet, s)
+        assert s["pairing"] == {"identity": rows, "order": 0, "position": 0, "key": 0}, (sheet, s)
         assert s["unpaired"] == {"golden": 0, "agent": 0}, (sheet, s["warnings"])
         assert s["counts"]["mismatch"] == 0, sheet
         assert s["counts"]["missing-in-agent"] == s["counts"]["extra-in-agent"] == 0, sheet
@@ -205,12 +205,12 @@ def test_no_identity_pairs_by_position_only_when_counts_match(tmp_path: Path) ->
     equal = _book(tmp_path / "run" / "a" / "a_IIG.xlsx", {"FILE_LOG_INFORMATION": [
         head, ["x1", "ok"], ["x2", "ok"]]})
     s = _run(tmp_path, golden, [equal])["sheets"]["FILE_LOG_INFORMATION"]
-    assert s["pairing"] == {"identity": 0, "position": 2, "key": 0}
+    assert s["pairing"] == {"identity": 0, "order": 0, "position": 2, "key": 0}
     assert any("BY POSITION" in w for w in s["warnings"])
     fewer = _book(tmp_path / "run" / "b" / "b_IIG.xlsx", {"FILE_LOG_INFORMATION": [
         head, ["x1", "ok"]]})
     s = _run(tmp_path, golden, [fewer])["sheets"]["FILE_LOG_INFORMATION"]
-    assert s["pairing"] == {"identity": 0, "position": 0, "key": 0}
+    assert s["pairing"] == {"identity": 0, "order": 0, "position": 0, "key": 0}
     assert s["unpaired"] == {"golden": 2, "agent": 1}
     assert any("row counts differ" in w and "NOT paired" in w for w in s["warnings"])
 
@@ -266,7 +266,7 @@ def test_key_samples_and_the_export_show_identities(tmp_path: Path, capsys) -> N
     assert sheet["key_samples"]["golden"][:2] == ["feed#1 | file_to_stg", "feed#1 | stg_to_std"]
     assert sheet["key_samples"]["agent"][:2] == ["feed#1 | file_to_stg", "feed#1 | stg_to_std"]
     assert f"{PIPE}: score" in printed and "paired by identity 4, position 0" in printed
-    assert "PAIRING: identity 16, position 0, key 0 row(s)" in printed
+    assert "PAIRING: identity 16, order 0, position 0, key 0 row(s)" in printed
     assert "KEY CONVENTIONS (D1 only - unscrubbed" in printed
     row_keys = (export / "row_keys.md").read_text(encoding="utf-8")
     assert "key columns used for pairing: @feed, @flow" in row_keys
@@ -330,10 +330,13 @@ def test_agent_master_rows_are_group_level_not_extra(tmp_path: Path, capsys) -> 
     assert s["group_level_rows"] == 4
     assert s["rows"]["extra-in-agent"] == 0 and s["unpaired"]["agent"] == 0
     assert s["counts"]["group-level"] == 4 * (len(PIPE_HEAD) + 1)
-    # the only extra cells: the legs' PIPELINE_DESCRIPTION, a column the golden lacks
+    # the legs' PIPELINE_DESCRIPTION, a column the golden lacks, is an iig_v2
+    # template column: template-only (post57), never extra, never scored
     extra = {c: n["extra-in-agent"] for c, n in s["column_counts"].items()
              if n["extra-in-agent"]}
-    assert extra == {"PIPELINE_DESCRIPTION": 4}
+    assert extra == {}
+    assert s["counts"]["template-only"] == 4 and s["columns"]["template_only"] == [
+        "PIPELINE_DESCRIPTION"]
     assert iig_diff.GROUP_LEVEL not in (*iig_diff.SCORED, *iig_diff.LEGACY_SCORED)
     assert any("group-level rows: 4 (not scored)" in w for w in s["warnings"])
     assert payload["totals"]["group_level_rows"] == 4

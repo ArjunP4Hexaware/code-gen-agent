@@ -237,6 +237,7 @@ def test_missing_extra_rows_columns_and_sheets(tmp_path: Path) -> None:
     assert s["columns"] == {
         "golden_only": ["PIPELINE_ID", "PIPELINE_FREQUENCY", "CREATED_BY"],
         "agent_only": ["NEW_COL"],
+        "template_only": [],          # post57: NEW_COL is no template column
     }
     # paired row: FREQUENCY missing (column absent), NEW_COL extra; the GONE
     # row: FREQUENCY missing; the NEW row: NEW_COL extra (a cell neither

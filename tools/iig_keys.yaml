@@ -211,6 +211,18 @@ status_columns: {EMAIL_TEMPLATE_CONFIG: STATUS}
 # its own (cells, and how many the golden fills).
 bsa_columns: [PIPELINE_NAME]
 
+# post57 (D1 post55 pair_01): identity components that NAME a row. When one of
+# them differs and both sides are ONE feed and ONE flow, the rows the identity
+# leaves unpaired pair by feed + flow + row order ("order"): the name is one
+# mismatch cell, never a missing row plus an extra one.
+name_components: [TGT_TABLE_NAME, TGT_TABLE, "@file"]
+
+# post57: record-segment columns compare through the conventions profile's
+# segment_codes (config/config.yaml conventions.profiles.<profile>.segment_codes:
+# hddr / det / trlr <-> header / details / trailer), before pairing and scoring.
+segment_columns: {ADLS_FIXED_WIDTH_HANDLER: [SEGMENT]}
+segment_codes_profile: acfc_prx
+
 # Golden GROUP_ID / PIPELINE_ID -> flow_type + matched_table (repo-relative;
 # the files missing are skipped). --group-index replaces the list.
 group_index: [docs/acfc/iig_goldens/01_pair_group_index.csv,

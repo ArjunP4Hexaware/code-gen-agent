@@ -5,7 +5,10 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post64).** post64 = the "Framework artefacts" output
+**RESTART HERE (2026-10-16, after post65).** post65 = the Dashboard's metadata-sheet
+preview and "Publish to Unity Catalog volume" sections are gone with their routes
+(`/api/demo/metadata-sheet[.xlsx]`, `/api/databricks/publish[-target]`); the payload
+builder and `codegen databricks-publish` stay. post64 = the "Framework artefacts" output
 toggle tooltip says "DDL + BSA-annotated IIG for the existing ingestion framework".
 post63 = wording only: the metadata-sheet
 preview footnote and the report's framework section ("Framework artefacts",

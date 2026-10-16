@@ -4,6 +4,21 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post65 — 2026-10-16 (Dashboard: two deprecated sections removed; App only)
+
+One commit per item. Nothing else on the Dashboard moved; generated files are unchanged.
+
+1. **Metadata-sheet preview removed** (tabs, table, coverage line, Download .xlsx,
+   footnote): `MetadataSheetPanel`, its types / CSS, and the routes
+   `GET /api/demo/metadata-sheet` and `/api/demo/metadata-sheet.xlsx`.
+   `codegen.metadata_sheet` stays (the generator and `codegen demo-metadata-sheet`
+   use it).
+2. **"Publish to Unity Catalog volume" removed** (controls and the volume /
+   credentials text): `DatabricksPublishPanel`, its types, and the routes
+   `GET /api/databricks/publish-target` and `POST /api/databricks/publish`.
+   Publishing stays on the CLI (`codegen databricks-publish`); the documents /
+   fetch routes are unchanged.
+
 ## 0.5.8.post64 — 2026-10-16 (App wording; text only)
 
 1. **Output toggle tooltip (App).** "Framework artefacts" now reads "DDL +

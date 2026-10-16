@@ -5,7 +5,16 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post61).** post61 = two kinds of default
+**RESTART HERE (2026-10-16, after post62).** post62 = App-only demo cleanup (one commit
+each): no source-files panel / `/api/demo/source-files` route; the artefacts panel shows only
+DDL / IIG / IIG_REVIEW / ADDITION.md (`ui/frontend/src/artefacts.ts`; the other files still
+written); ADDITION.md = file table + "Review flow" + blank IDs (no inserts / config rows);
+FRD picker "none chosen" unless chosen or paired (`DemoRunner.effective_frd` is None for a
+chosen STTM without one; status `frd_paired`; `frd_warning` gone; `test_frd_default.py`);
+`classify_workbook(..., iig_sheets=, review_sheet=)` → `iig` / `iig_review` (App index only,
+`docindex.CLASSIFIER_VERSION` re-reads old "unclassified"), left out of the chooser lists.
+
+**After post61 (kept for reference).** post61 = two kinds of default
 (`codegen.input_choices`, `Defaulted.kind` / owed `default_kind`): `profile_default` (email
 status set, EMAIL_TO, notebook names `notebook_name.<leg>`, `src_file_name_style`) is WRITTEN
 unanswered — source `profile`, no NOTE / gate flag, not open (a NOTE line, `applied:` in the

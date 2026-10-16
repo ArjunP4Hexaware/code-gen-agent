@@ -4,6 +4,56 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post62 — 2026-10-16 (App cleanup for the demo; no generator behaviour change)
+
+One commit per item.
+
+1. **Generate panel.** The "Source files this run will read" section was removed,
+   along with its convention-check table (fed by the same request), the
+   "In the Databricks workspace" disclosure, their state, the `api.sourceFiles()`
+   request and the `GET /api/demo/source-files` route. Nothing else on the panel
+   moved. The payload builder `codegen.demo_sources.source_files_payload` (used by
+   `codegen demo-source-files`) is kept.
+2. **Framework artefacts panel.** Each feed now shows exactly four files:
+   `<FEED>_DDL.txt`, `<feed>_IIG.xlsx`, `<feed>_IIG_REVIEW.xlsx` and
+   `ADDITION.md` (`ui/frontend/src/artefacts.ts`). `metadata_inserts.sql`,
+   `config_rows.xlsx` and `config_inserts.xlsx` are still generated; the App no
+   longer lists them.
+   - Heading: "Framework artefacts".
+   - Subtitle: the BSA-annotated IIG is the approval artefact; the CI/CD
+     pipeline applies the DDL after approval.
+3. **ADDITION.md** (template text only; the same files are written). It now has
+   three sections:
+   - the file table: the DDL, the IIG, the IIG review copy and ADDITION.md itself;
+   - "Review flow": IIG → BSA review → the CI/CD pipeline applies the DDL;
+   - "Framework-assigned IDs left blank", one per line.
+
+   Nothing mentions inserts or config rows any more: the "By target system" and
+   "Switches" blocks are gone.
+4. **FRD picker default: none chosen.**
+   - The demo contract is never preselected.
+   - If the STTM has a match in the pair index, that FRD is preselected and
+     labelled "paired" (status `frd_paired`, frd-choices `current.paired`).
+   - A chosen STTM with no chosen or paired FRD disables Generate, with the reason
+     shown. The run refuses with "no FRD chosen for <STTM>", unless the FRD
+     pairing is still landing or will be asked.
+   - Only when no STTM is chosen does a run fall back to the configured demo
+     pair.
+   - The `frd_warning` flag is gone.
+   - Test: `test_frd_default.py`.
+5. **The STTM picker lists only STTMs.** The existing content classifier
+   (`classify_workbook`) gains the kinds `iig` and `iig_review`. A workbook with
+   at least two IIG template sheets is an IIG; with the `REVIEW_SUMMARY` sheet as
+   well, it is the review copy.
+   - Only the App's document worker passes the template sheet names; the CLI's
+     pair folders classify as before.
+   - The chooser leaves both kinds out of the STTM and VDD lists, as well as any
+     workbook with an `iig` token in its name (the existing name rule).
+   - Index verdicts are stamped `classifier: 2`. An older verdict of
+     "unclassified" is read again once, so IIGs cached before this change also
+     drop out.
+   - Test: a folder with 2 STTMs and 2 IIGs lists 2 (`test_m93_chooser.py`).
+
 ## 0.5.8.post61 — 2026-10-16 (two kinds of default: profile_default / agent_proposal)
 
 - **profile_default** — the value comes from the conventions profile or the ACFC

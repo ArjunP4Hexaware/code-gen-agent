@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from codegen import cli
+from codegen import cli, run_stages
 from codegen.resolve.files import (
     key_files_by_lob_table,
     lob_table_from_lines,
@@ -110,6 +110,13 @@ def test_the_home_caqh_shape_asks_one_question_with_18_keys(tmp_path, capsys):
     code = _generate(config, pair, feed)
     out = capsys.readouterr().out
     assert code == cli.EXIT_NEEDS_ANSWERS
+    # post58: blocking in the manifest, the workbook marked written for the App
+    manifest = run_stages.read_stage_manifest(tmp_path / "out")
+    assert manifest["stages"]["generate"]["status"] == "NEEDS_ANSWERS"
+    (lob,) = [q for q in manifest["questions"] if q["key"].endswith(".lob_by_file")]
+    assert lob == {"line": "QUESTION", "key": lob["key"], "scope": "feed", "blocking": True}
+    (entry,) = manifest["feeds"]
+    assert entry["written"] is True and entry["open"]["blocking"] == 1
     questions = [ln for ln in out.splitlines() if ln.startswith("QUESTION")]
     assert len(questions) == 1
     assert questions[0].startswith("QUESTION       feeds[")

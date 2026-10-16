@@ -319,11 +319,14 @@ EXIT_FAILED = 1
 EXIT_NEEDS_ANSWERS = 3
 EXIT_CODES = f"""exit codes:
   {EXIT_OK}  ok — every feed it produced or was asked for is done (PASS / PASS_WITH_FLAGS);
-     a sheet held back for an answer still prints its QUESTION line
+     extract-sttm: a sheet held back for an answer still prints its QUESTION
+     line; generate with only INPUT_NEEDED lines open = PASS_WITH_OPEN_INPUTS
+     (CODEGEN_STAGES.json lists each open line, blocking true / false)
   {EXIT_FAILED}  failed — a feed FAILed its gate, or a command could not complete
   {EXIT_NEEDS_ANSWERS}  NEEDS_ANSWERS — layout --require-complete: columns left unplaced / questions
      open; extract-sttm: NO feed produced a usable contract (none written);
-     generate: a feed it was asked for (--feed) has no contract
+     generate: any blocking QUESTION / UNRESOLVED line open, workbooks written
+     or not (CODEGEN_STAGES.json: written true / false per feed)
      pair: the FRD is not decided (a QUESTION pair.frd line)
   Every answer OWED (the run cannot complete a feed without it) is one line,
   label padded to 15 columns, then the answers.yaml key, an em-dash, the reason
@@ -509,6 +512,18 @@ def _pending_where(p) -> str:
     return f"feed {feed}, sheet {ref}"
 
 
+def _pending_label(p) -> str:
+    """QUESTION for a ``gaps:`` key, UNRESOLVED for a band whose layer is open."""
+    from codegen.extract.generic import answers_section
+
+    return "UNRESOLVED" if answers_section(p.key) == "answers" else "QUESTION"
+
+
+def _pending_feed(p, config: Config) -> str:
+    """A held-back answer's feed id, as ``--feed`` names it."""
+    return config.feed_aliases.get(p.feed_name) or normalize_feed_name(p.feed_name)
+
+
 def _pending_items(pending) -> list:
     from codegen.extract.generic import answers_section
     from codegen.layout.answers_template import TemplateItem
@@ -562,16 +577,18 @@ def _run_pairs(
     from codegen.environments import EnvironmentSelectionError
 
     try:
-        config, run_items, env_questions = _run_environment(config, inputs, output_mode,
-                                                            iig_template, dry_run=dry_run)
+        config, run_items, open_items = _run_environment(config, inputs, output_mode,
+                                                         iig_template, dry_run=dry_run)
     except EnvironmentSelectionError as exc:
         _fail(command, f"environment — {exc}", "environment", Coord("environment"), exc=exc)
         return 1
     owed_items += run_items
     failed = False
     matched_feed = False
-    # 2026-10-15: a required environment value unset is a QUESTION (exit 3)
-    needs_answers = env_questions
+    # post58: every open line (QUESTION / UNRESOLVED blocking, INPUT_NEEDED not)
+    # goes to the manifest; ANY blocking line open = NEEDS_ANSWERS (exit 3), a
+    # workbook written or not (run_stages.generate_outcome)
+    entry_of: dict[str, dict] = {}
     # D1 post51 (2026-10-15): CODEGEN_STAGES.json records the generate outcome.
     # CRASHED (an exception mid-write): the feed's partial emit files are deleted,
     # the emit stages SKIPPED. GATE_FAIL (complete, the gate said no): the files
@@ -596,8 +613,10 @@ def _run_pairs(
             for question in unstated:
                 print(answer_line("QUESTION", question.key, question.reason))
             owed_items += [TemplateItem(q.key, q.reason, [], "gaps") for q in unstated]
+            open_items += [run_stages.open_item("QUESTION", q.key, feed=q.feed_id)
+                           for q in unstated]
             if unstated:
-                needs_answers = matched_feed = True
+                matched_feed = True
         except (ContractMismatchError, ValueError) as exc:
             _fail(command, f"{frd_path.name} + {sttm_path.name} — {exc}",
                   "contract.mismatch" if isinstance(exc, ContractMismatchError)
@@ -605,12 +624,16 @@ def _run_pairs(
             failed = hard_failed = True
             continue
         # Every feed WITH a contract is generated; a held-back feed's answers are
-        # printed. Exit 3 only when a feed asked for (--feed) is one of them.
-        asked = [p for p in pending if only_feed is not None and (
-            config.feed_aliases.get(p.feed_name) or normalize_feed_name(p.feed_name)) == only_feed]
-        _print_needs_answers(asked if only_feed is not None else pending)
+        # printed (with --feed, only that feed's). post58: each is a blocking line,
+        # so the run exits 3 — the other feeds' workbooks are still written.
+        asked = [p for p in pending if only_feed is not None
+                 and _pending_feed(p, config) == only_feed]
+        shown = asked if only_feed is not None else pending
+        _print_needs_answers(shown)
+        open_items += [run_stages.open_item(_pending_label(p), _pending_key(p),
+                                            feed=_pending_feed(p, config)) for p in shown]
         if asked:
-            needs_answers = matched_feed = True
+            matched_feed = True
         for feed_no, spec in enumerate(specs, 1):
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
@@ -635,12 +658,16 @@ def _run_pairs(
                 for item in owed:
                     print(owed_mod.input_line(item))
                 owed_items += owed_mod.template_items(owed)
+                open_items += [run_stages.open_item("INPUT_NEEDED", item.key, feed=spec.feed_id)
+                               for item in owed]
                 # 2026-10-14 (D1 pair_12): files the LOB lookup keyed to no single
-                # LOB — ONE blocking question for the feed (its LOB cells are open)
+                # LOB — ONE blocking question for the feed (its LOB cells are open,
+                # the workbook written: NEEDS_ANSWERS, exit 3)
                 lob_item = _lob_question(spec)
                 if lob_item is not None:
                     owed_items.append(lob_item)
-                    needs_answers = True
+                    open_items.append(run_stages.open_item("QUESTION", lob_item.key,
+                                                           feed=spec.feed_id))
             except TemplateGapError as exc:
                 _fail(command, f"{spec.feed_id} — template gap: {exc}", "template.gap", where,
                       exc=exc)
@@ -657,7 +684,8 @@ def _run_pairs(
                     out_root, feed_no, len(specs), "CRASHED", {}, removed))
                 run_stages.write_stage_manifest(
                     out_root, command=command, exit_code=1,
-                    statuses=run_stages.stage_statuses("CRASHED", kept), feeds=feed_entries)
+                    statuses=run_stages.stage_statuses("CRASHED", kept), feeds=feed_entries,
+                    questions=open_items)
                 raise
             if gate.verdict == "FAIL":
                 # GATE_FAIL: complete artefacts, the gate said no — kept for review
@@ -689,6 +717,7 @@ def _run_pairs(
                 feed_entries.append(run_stages.feed_entry(
                     out_root, feed_no, len(specs), "GATE_FAIL", written,
                     quarantine_dir=q_dir, iig_cells=gate.iig_cells))
+                entry_of[spec.feed_id] = feed_entries[-1]
                 print(f"{'GATE_FAIL':<15} {spec.feed_id} \u2014 {run_stages.REVIEW_ONLY}: "
                       f"{len(moved)} file(s) moved to {q_dir} ({run_stages.GATE_FAIL_FILE})")
                 continue
@@ -698,25 +727,39 @@ def _run_pairs(
             feed_entries.append(run_stages.feed_entry(
                 out_root, feed_no, len(specs), gate.verdict, written,
                 iig_cells=gate.iig_cells))
+            entry_of[spec.feed_id] = feed_entries[-1]
     if only_feed is not None and not matched_feed:
         _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
         failed = hard_failed = True
     _write_template(template_path or Path(config.output.dir) / "answers_template.yaml",
                     owed_items, "generate", merge=True)
-    # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks — only a held-back feed
-    # asked for (a QUESTION / UNRESOLVED line) or a required environment value
-    # (2026-10-15) exits 3
-    code = 1 if failed else EXIT_NEEDS_ANSWERS if needs_answers else 0
-    outcome =("CRASHED" if crashed else "FAIL" if hard_failed else
-               "GATE_FAIL" if gate_failed else
-               "NEEDS_ANSWERS" if code == EXIT_NEEDS_ANSWERS else "PASS")
+    # 2026-10-14 (D1 post44): INPUT_NEEDED never blocks. post58: any blocking line
+    # (QUESTION / UNRESOLVED) open exits 3, workbooks written or not (a workbook
+    # with an empty storage account is not deployable); only INPUT_NEEDED lines
+    # open = PASS_WITH_OPEN_INPUTS, exit 0
+    outcome = run_stages.generate_outcome(
+        crashed=crashed, hard_failed=hard_failed, gate_failed=gate_failed,
+        open_items=open_items)
+    code = 1 if failed else EXIT_NEEDS_ANSWERS if outcome == "NEEDS_ANSWERS" else 0
+    for feed_id, entry in entry_of.items():
+        entry["open"] = run_stages.open_counts([i for i in open_items if i.get("feed") == feed_id])
     statuses = run_stages.stage_statuses(outcome, kept, quarantined)
     for stage in run_stages.EMIT_STAGES:
         if outcome in ("CRASHED", "FAIL"):
             print(f"{'SKIPPED':<15} {stage} — {run_stages.SKIPPED_UPSTREAM} (exit code "
                   "unchanged; a crashed feed's partial emit artefacts are removed)")
+    counts = run_stages.open_counts(open_items)
+    if outcome == "PASS_WITH_OPEN_INPUTS":
+        print(f"{'OUTCOME':<15} generate — PASS_WITH_OPEN_INPUTS: {len(entry_of)} feed(s) "
+              f"written; {counts['non_blocking']} input(s) still open, none blocking "
+              "(answers_template.yaml); exit 0")
+    elif outcome == "NEEDS_ANSWERS":
+        print(f"{'OUTCOME':<15} generate — NEEDS_ANSWERS: {counts['blocking']} blocking "
+              f"question(s) open, {counts['non_blocking']} input(s); {len(entry_of)} feed(s) "
+              "written for review, not deployable until answered (CODEGEN_STAGES.json "
+              "written: true); exit 3")
     run_stages.write_stage_manifest(out_root, command=command, exit_code=code,
-                                    statuses=statuses, feeds=feed_entries)
+                                    statuses=statuses, feeds=feed_entries, questions=open_items)
     return code
 
 
@@ -738,8 +781,9 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
     2026-10-15 (D1 post50 item 2): ``inputs.run: environment.<key>`` fills any
     environment's key (a named profile's too); the run banner line ``NOTE
     run.environment — environment: <name> (complete, from <origin>; <source>)``
-    is printed first; a REQUIRED key still unset is a QUESTION line (the third
-    return value True = exit 3)."""
+    is printed first; a REQUIRED key still unset is a QUESTION line. The third
+    return value (post58) = the run-level open lines (``run_stages.open_item``):
+    those QUESTIONs (blocking) and the INPUT_NEEDED lines (not blocking)."""
     from codegen import environments as envs
     from codegen import owed_inputs as owed_mod
     from codegen.layout.answers_template import TemplateItem
@@ -770,11 +814,15 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
                                        iig_template=iig_template)]
     for line in owed_mod.run_block_lines(items):
         print(line)
+    from codegen.run_stages import open_item
+
     return config, [*(TemplateItem(key, reason, [], owed_mod.INPUTS_SECTION)
                       for key, reason in questions),
                     *(TemplateItem(i.key, i.question,
                                    list(config.environments) if i.key == envs.INPUT_KEY else [],
-                                   owed_mod.INPUTS_SECTION) for i in items)], bool(questions)
+                                   owed_mod.INPUTS_SECTION) for i in items)], \
+        [*(open_item("QUESTION", key) for key, _ in questions),
+         *(open_item("INPUT_NEEDED", i.key) for i in items)]
 
 
 def _live_run(config: Config, dry_run: bool) -> bool:

@@ -130,13 +130,13 @@ def test_extract_with_a_usable_feed_exits_0_and_still_lists_the_held_back_answer
     assert rc == cli.EXIT_OK, out
     assert out_json.is_file()                                       # the contract is written
     assert _keys(out) == HELD_BACK_KEYS
-    # generate, NOT asked for the held-back feed: every feed with a contract runs, exit 0,
-    # the held-back keys printed again.
+    # generate, NOT asked for the held-back feed: every feed with a contract runs,
+    # the held-back keys printed again. post58: they are blocking — exit 3.
     capsys.readouterr()
     rc = cli.main(["generate", "--frd-contract", str(frd), "--sttm-contract", str(out_json),
                    "--output-mode", "framework", "--skip-tests", "--dry-run"])
     out = capsys.readouterr().out
-    assert rc == cli.EXIT_OK, out
+    assert rc == cli.EXIT_NEEDS_ANSWERS, out
     assert "PASS_WITH_FLAGS vc_enrollment" in out and "vc_individual_risk" in out
     assert _keys(out) == HELD_BACK_KEYS
     # generate ASKED for the held-back feed: exit 3, its keys only.

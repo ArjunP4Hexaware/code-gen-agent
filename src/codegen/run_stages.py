@@ -32,8 +32,17 @@ post52:
   an ACFC-side file, never pushed). A reader scores ONLY those files, never a
   glob of the output folder, which other pairs' runs share.
 
+post58: the manifest's ``questions`` lists each open line with ``blocking``. A
+QUESTION / UNRESOLVED line is blocking: true (the App's "Answers needed" list and
+its "required (blocking)" environment values); an INPUT_NEEDED line is blocking:
+false (the App's "not blocking" banner). ``NEEDS_ANSWERS`` (exit 3) = at least
+one blocking line is open, whether or not a workbook was written — each feed
+entry says ``written: true|false`` so the App can still show the workbook.
+``PASS_WITH_OPEN_INPUTS`` (exit 0) = the workbook written and every open line
+non-blocking.
+
 STABLE (2026-10-15) for the harness: :data:`STAGES_FILE`, :data:`EMIT_STAGES`,
-:func:`read_stage_manifest`.
+:data:`OUTCOMES`, :func:`read_stage_manifest`, :func:`pair_outcome` (post58).
 """
 
 from __future__ import annotations
@@ -50,7 +59,9 @@ QUARANTINE_DIR = "quarantine"
 GATE_FAIL_FILE = "GATE_FAIL.md"
 REVIEW_ONLY = "complete, gate failed, review only"
 # generate outcomes, most severe first (a run's status is its worst feed's)
-OUTCOMES = ("CRASHED", "FAIL", "GATE_FAIL", "NEEDS_ANSWERS", "PASS")
+OUTCOMES = ("CRASHED", "FAIL", "GATE_FAIL", "NEEDS_ANSWERS", "PASS_WITH_OPEN_INPUTS", "PASS")
+# post58: the console labels of an open line, and whether each blocks
+OPEN_LINES = {"QUESTION": True, "UNRESOLVED": True, "INPUT_NEEDED": False}
 
 Snapshot = dict[Path, tuple[int, int]]
 
@@ -223,12 +234,47 @@ def stage_statuses(outcome: str, written: dict[str, list[Path]],
     return statuses
 
 
+def open_item(line: str, key: str, *, feed: str | None = None) -> dict:
+    """One open console line for the manifest's ``questions`` (post58):
+    ``{line, key, scope, blocking}`` — ``scope`` ``feed`` (with the feed id, used
+    only to decide the outcome and dropped from the manifest) or ``run``."""
+    return {"line": line, "key": key, "scope": "run" if feed is None else "feed",
+            "blocking": OPEN_LINES[line], **({"feed": feed} if feed is not None else {})}
+
+
+def generate_outcome(*, crashed: bool, hard_failed: bool, gate_failed: bool,
+                     open_items: list[dict]) -> str:
+    """The run's outcome (:data:`OUTCOMES`): NEEDS_ANSWERS when ANY blocking
+    line is open, whether or not a workbook was written (a workbook with an
+    empty storage account is not deployable); PASS_WITH_OPEN_INPUTS when every
+    open line is non-blocking."""
+    if crashed:
+        return "CRASHED"
+    if hard_failed:
+        return "FAIL"
+    if gate_failed:
+        return "GATE_FAIL"
+    if any(i["blocking"] for i in open_items):
+        return "NEEDS_ANSWERS"
+    return "PASS_WITH_OPEN_INPUTS" if open_items else "PASS"
+
+
+def open_counts(items: list[dict]) -> dict[str, int]:
+    """``{"blocking": n, "non_blocking": n}`` over open items."""
+    blocking = sum(1 for i in items if i.get("blocking"))
+    return {"blocking": blocking, "non_blocking": len(items) - blocking}
+
+
 def write_stage_manifest(out_root: Path, *, command: str, exit_code: int,
-                         statuses: dict[str, dict[str, str]], feeds: list[dict]) -> Path:
-    """``<out_root>/CODEGEN_STAGES.json`` — rewritten by every generate run."""
+                         statuses: dict[str, dict[str, str]], feeds: list[dict],
+                         questions: list[dict] | None = None) -> Path:
+    """``<out_root>/CODEGEN_STAGES.json`` — rewritten by every generate run.
+    post58: ``questions`` = every open line, ``{line, key, scope, blocking}``."""
     out_root.mkdir(parents=True, exist_ok=True)
     path = out_root / STAGES_FILE
-    payload = {"command": command, "exit": exit_code, "stages": statuses, "feeds": feeds}
+    payload = {"command": command, "exit": exit_code, "stages": statuses, "feeds": feeds,
+               "questions": [{k: v for k, v in item.items() if k != "feed"}
+                             for item in questions or []]}
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return path
 
@@ -241,6 +287,9 @@ def feed_entry(out_root: Path, n: int, of: int, status: str,
     feed's IIG cell counts per sheet — open_for_bsa / empty_other /
     template_blanks — from codegen.iig_review.iig_cell_counts)."""
     entry = {"n": n, "of": of, "status": status, "removed": removed,
+             # post58: the feed's files were written (a GATE_FAIL feed's under
+             # quarantine/) — the App shows them on a NEEDS_ANSWERS run too
+             "written": status != "CRASHED",
              "artefacts": {stage: [p.relative_to(out_root).as_posix() for p in paths]
                            for stage, paths in written.items()}}
     if quarantine_dir is not None:
@@ -268,9 +317,37 @@ def read_stage_manifest(out_root: str | Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-__all__ = ["EMIT_STAGES", "GATE_FAIL_FILE", "OUTCOMES", "QUARANTINE_DIR", "REVIEW_ONLY",
-           "SKIPPED_NOT_WRITTEN", "SKIPPED_UPSTREAM", "STAGES_FILE", "by_stage",
+# a codegen step's exit code read alone (no manifest): 0 / 1 / 3
+_EXIT_OUTCOME = {0: "PASS", 1: "FAIL", 3: "NEEDS_ANSWERS"}
+
+
+def pair_outcome(steps: dict[str, int], out_root: str | Path | None = None) -> str:
+    """STABLE (post58, the harness summary): one pair's outcome, one of
+    :data:`OUTCOMES` — the worst of its codegen steps. ``steps`` maps each step
+    the pair ran (``layout``, ``extract-sttm``, ``generate``, …) to its exit
+    code. The ``generate`` step is read from ``<out_root>/CODEGEN_STAGES.json``
+    when that manifest is this run's (its ``exit`` equals the step's code), so a
+    run whose open lines are all non-blocking reads PASS_WITH_OPEN_INPUTS;
+    any other step (or generate without a manifest) reads by its exit code
+    (0 PASS, 3 NEEDS_ANSWERS, anything else FAIL). A pair that ran nothing is
+    FAIL."""
+    if not steps:
+        return "FAIL"
+    found: list[str] = []
+    for step, code in steps.items():
+        outcome = _EXIT_OUTCOME.get(code, "FAIL")
+        if step == "generate" and out_root is not None:
+            manifest = read_stage_manifest(out_root) or {}
+            status = ((manifest.get("stages") or {}).get("generate") or {}).get("status")
+            if manifest.get("exit") == code and status in OUTCOMES:
+                outcome = status
+        found.append(outcome)
+    return min(found, key=OUTCOMES.index)
+
+
+__all__ = ["EMIT_STAGES", "GATE_FAIL_FILE", "OPEN_LINES", "OUTCOMES", "QUARANTINE_DIR",
+           "REVIEW_ONLY", "SKIPPED_NOT_WRITTEN", "SKIPPED_UPSTREAM", "STAGES_FILE", "by_stage",
            "clear_quarantine", "emit_stage", "feed_entry", "flag_counts", "flag_type",
-           "gate_fail_note", "iig_unpopulated",
-           "quarantine", "read_stage_manifest", "remove_partial", "snapshot", "stage_statuses",
-           "write_stage_manifest", "written_since"]
+           "gate_fail_note", "generate_outcome", "iig_unpopulated", "open_counts", "open_item",
+           "pair_outcome", "quarantine", "read_stage_manifest", "remove_partial", "snapshot",
+           "stage_statuses", "write_stage_manifest", "written_since"]

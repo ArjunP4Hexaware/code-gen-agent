@@ -479,19 +479,42 @@ contract and the notebook stops before `generate`, saying so.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | ok — every feed the command produced or was asked for is done (PASS / PASS_WITH_FLAGS). A sheet held back for an answer still prints its `QUESTION` lines; `INPUT_NEEDED` lines (a workbook cell left empty) never change the code |
+| `0` | ok — every feed the command produced or was asked for is done (PASS / PASS_WITH_FLAGS). A sheet held back for an answer still prints its `QUESTION` lines; `INPUT_NEEDED` lines (a workbook cell left empty) never change the code. **`generate` (post58):** workbooks written and every open line non-blocking (`INPUT_NEEDED` only) = outcome `PASS_WITH_OPEN_INPUTS` (an `OUTCOME` line on the console) |
 | `1` | failed — a feed FAILed its gate, or a command could not complete (`1` wins over `3`) |
-| `3` | NEEDS_ANSWERS — **`layout --require-complete`**: columns left unplaced or questions open (one `UNRESOLVED` / `QUESTION` line each — layout is the first stage, so this is how a pair with unplaced columns reads NEEDS_ANSWERS, not FAILED); **`extract-sttm`**: NO feed produced a usable contract (nothing written: every sheet is held back, or `--require-complete` with layout roles open); **`generate`**: a feed it was asked for (`--feed`) has no contract |
+| `3` | NEEDS_ANSWERS — **`layout --require-complete`**: columns left unplaced or questions open (one `UNRESOLVED` / `QUESTION` line each — layout is the first stage, so this is how a pair with unplaced columns reads NEEDS_ANSWERS, not FAILED); **`extract-sttm`**: NO feed produced a usable contract (nothing written: every sheet is held back, or `--require-complete` with layout roles open); **`generate`** (post58): at least one blocking `QUESTION` / `UNRESOLVED` line is open, whether or not a workbook was written — a held-back feed, a value no document states, a required environment value unset (mock and live), the per-file LOB question. A workbook with an empty storage account is not deployable, so the run never reads as a pass |
+
+**Generate outcomes (post58), `CODEGEN_STAGES.json`.** `stages.generate.status`
+is one of `CRASHED`, `FAIL`, `GATE_FAIL`, `NEEDS_ANSWERS`,
+`PASS_WITH_OPEN_INPUTS`, `PASS` (most severe first;
+`codegen.run_stages.OUTCOMES`). `questions` lists every open line the run printed
+as `{line, key, scope, blocking}`:
+
+- `QUESTION` / `UNRESOLVED` are `blocking: true`. In the App these are the
+  "Answers needed" list and the "required (blocking)" environment values.
+- `INPUT_NEEDED` is `blocking: false` (the App's "not blocking" banner).
+
+Each generated feed's entry carries `written: true|false` (a CRASHED feed's
+partial files are removed; a GATE_FAIL feed's are under `quarantine/`) and `open:
+{blocking, non_blocking}`. A NEEDS_ANSWERS run can therefore still have written
+workbooks — the App shows them for review; they are not deployable until the
+blocking lines are answered.
+
+The harness reads a pair's outcome with `run_stages.pair_outcome(steps,
+out_root)`, where `steps` maps each codegen step to its exit code. The result is
+the worst step. Generate's status is taken from the manifest when the
+manifest's `exit` matches that step, and the other steps by their exit code.
+`acfc_run.py` prints it as the `outcome` line of its summary.
 
 The two branches, so a partial workbook never stops the feeds that are ready:
 
 - `extract-sttm` with at least one usable feed writes the contract and exits
   `0`; the held-back sheets are in the contract (`needs_answers`) and printed
   as `QUESTION` lines. With none, it writes nothing and exits `3`.
-- `generate` processes every feed that has a contract. Without `--feed` it is
-  asked for exactly those, so it exits on their verdicts (`0` / `1`) and prints
-  the held-back feeds' `QUESTION` lines for information. With `--feed X` where
-  `X` is held back, it generates nothing and exits `3`.
+- `generate` processes every feed that has a contract and prints the held-back
+  feeds' `QUESTION` lines (with `--feed X`, only X's). Since post58 those lines
+  are blocking: the run exits `3` (NEEDS_ANSWERS) with the ready feeds' workbooks
+  written (`written: true`). With `--feed X` where `X` is held back, it
+  generates nothing and exits `3`.
 
 Four labels, ONE line each, all in the same form (the label padded to 15
 columns, the key, ` — `, the reason). Only the first two are BLOCKING answers

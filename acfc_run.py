@@ -279,12 +279,23 @@ print(f"{len(sent)} file(s) stored under {stores.outputs.uri()}" if sent
 # COMMAND ----------
 
 # DBTITLE 1,Summary — 0 ok, 1 failed, 3 needs answers (codegen --help)
+from codegen.run_stages import open_counts, pair_outcome, read_stage_manifest  # noqa: E402
+
 MEANING = {EXIT_OK: "ok", EXIT_FAILED: "FAILED", EXIT_NEEDS_ANSWERS: "needs answers"}
 for step, code in STEPS.items():
     print(f"{step:<14} {MEANING.get(code, f'exit {code}')}"
           + (f" — first error: {ERRORS[step]}" if ERRORS.get(step) else ""))
     if ERRORS_FULL.get(step):
         print(f"{'':<14}   quoted (this workspace only): {ERRORS_FULL[step]}")
+# post58: the pair's outcome — the worst step; generate's from CODEGEN_STAGES.json
+# (PASS_WITH_OPEN_INPUTS: every feed written, lines still open)
+OUTCOME = pair_outcome(STEPS, stores.outputs.workdir)
+_manifest = read_stage_manifest(stores.outputs.workdir) or {}
+_open = (open_counts(_manifest.get("questions") or [])
+         if "generate" in STEPS and _manifest.get("exit") == STEPS["generate"] else None)
+print(f"\n{'outcome':<14} {OUTCOME}" + (
+    f" — {_open['blocking']} blocking question(s), {_open['non_blocking']} input(s) open"
+    if _open else ""))
 if NEEDS_ANSWERS:
     print("\nNEEDS ANSWERS — the outputs above were written for every feed that could "
           "proceed; answer these keys under `gaps:` in the pair folder's answers.yaml and "

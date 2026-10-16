@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from codegen import cli
+from codegen import cli, run_stages
 from codegen.config import PLACEHOLDER_RE, load_config
 from codegen.environments import (
     EnvironmentSelectionError,
@@ -172,6 +172,21 @@ def test_a_missing_required_value_is_a_question_and_exit_3(tmp_path, profiles, c
     assert questions == ["run.environment.storage_account"]   # a blank never clears a default
     (adls,) = _rows(_xlsx(tmp_path, spec), ADLS)
     assert adls["TGT_CONTAINER_NAME"][0] == config.environments["D1"].containers["stage"]
+
+
+def test_a_missing_required_value_under_live_is_the_same_question(tmp_path, profiles, capsys):
+    """post58: selected under provider=live, an unset REQUIRED key is not the
+    live FAIL (environments._complete leaves required keys out of it): the same
+    blocking QUESTION, exit 3, the workbook written but marked NEEDS_ANSWERS."""
+    config, spec, pair = _setup(tmp_path)
+    (profiles / "d1.yaml").write_text("containers: {stage: ''}\n", encoding="utf-8")
+    config = with_environment(config, select_environment(config, name="d1", live=True))
+    assert _generate(config, pair, spec.feed_id) == cli.EXIT_NEEDS_ANSWERS
+    manifest = run_stages.read_stage_manifest(tmp_path / "out")
+    assert manifest["stages"]["generate"]["status"] == "NEEDS_ANSWERS"
+    assert [(q["key"], q["blocking"]) for q in manifest["questions"]
+            if q["line"] == "QUESTION"] == [("run.environment.storage_account", True)]
+    assert [f["written"] for f in manifest["feeds"]] == [True]
 
 
 def test_an_answers_file_value_completes_a_named_profile(tmp_path, profiles, capsys):

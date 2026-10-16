@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from codegen import cli
+from codegen import cli, run_stages
 from codegen.config import load_config
 from codegen.environments import (
     EnvironmentSelectionError,
@@ -92,6 +92,12 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     # 2026-10-15: D1's storage account is a placeholder — a REQUIRED value: one
     # QUESTION, exit 3 (NEEDS_ANSWERS); the workbook is still written, the cells open
     assert code == cli.EXIT_NEEDS_ANSWERS
+    # post58: blocking in the manifest, the workbook marked written for the App
+    manifest = run_stages.read_stage_manifest(tmp_path / "out")
+    assert manifest["stages"]["generate"]["status"] == "NEEDS_ANSWERS"
+    assert [q["key"] for q in manifest["questions"] if q["blocking"]] == [
+        "run.environment.storage_account"]
+    assert [f["written"] for f in manifest["feeds"]] == [True]
     banner = ("NOTE           run.environment — environment: D1 (1 required missing: "
               "storage_account, from overlay environments.D1; default)")
     assert banner in out.splitlines()

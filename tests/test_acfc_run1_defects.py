@@ -29,7 +29,7 @@ from openpyxl.styles import Font
 
 from acfc_shapes import sttm as sttm_fixtures
 from acfc_shapes.common import xlsx_bytes
-from codegen import cli
+from codegen import cli, run_stages
 from codegen.contracts.resolved import ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
 from codegen.emit.context import build_context
@@ -300,7 +300,8 @@ def test_one_sheet_without_targets_holds_back_its_feed_only(config, tmp_path, mo
     assert [s.feed_id for s in specs] == ["vc_enrollment", "vc_individual_risk"]
     assert pending_answers(sttm_json) == contract.needs_answers
     # The CLI generates the others and prints the held-back feed's keys as
-    # QUESTION lines; it was not asked for that feed (no --feed): exit 0.
+    # QUESTION lines (no --feed). post58: a blocking line is open, so exit 3 —
+    # the other feeds' workbooks are still written.
     monkeypatch.setenv("CODEGEN_STORAGE_OUTPUTS", f"local:{(tmp_path / 'out').as_posix()}")
     (tmp_path / "out").mkdir()
     monkeypatch.chdir(REPO)
@@ -309,7 +310,9 @@ def test_one_sheet_without_targets_holds_back_its_feed_only(config, tmp_path, mo
                    str(sttm_json), "--output-mode", "framework", "--skip-tests", "--dry-run"])
     out = capsys.readouterr().out
     assert "QUESTION       feeds[2].stage_target.tables — " in out
-    assert rc == cli.EXIT_OK, out
+    assert rc == cli.EXIT_NEEDS_ANSWERS, out
+    assert [f["written"] for f in run_stages.read_stage_manifest(tmp_path / "out")["feeds"]] \
+        == [True, True]
     # Answered, all three feeds extract.
     answers = {"gaps": {
         "feeds[2].stage_target.tables": {"value": "vc_disenrollment", "layer": None,

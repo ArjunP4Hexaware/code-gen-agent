@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post66 — 2026-10-16 (artefacts panel review summary; generated files unchanged except the report's wording)
+
+1. **Artefacts panel, per feed:** the bold sheet-count line is one review summary,
+   e.g. "8 sheets · 17 rows · 9 open inputs (1 blocking) · empty by rule:
+   FILE_ADLS (MFT), FIXED_WIDTH (delimited)". The derived ratio left the panel.
+   - "empty by rule" lists only empty sheets, each with its reason:
+     `FrameworkArtefacts.empty_by_rule` (FILE_ADLS = MFT from the rule-3 note; the
+     fixed-width handler = delimited for a delimited file); short names in
+     `metadata_template.EMPTY_BY_RULE_LABELS`.
+   - Open inputs = the feed's open lines + the run-level ones
+     (`GenerateRun.review_open`), attached by the App after the run. At home the
+     one blocking line is `run.environment.storage_account` (D1's placeholder).
+2. **Generation report:** the "badge coverage" row became the labelled line
+   "cells derived from documents: <d> of <t>; the rest are profile defaults,
+   framework-assigned blanks, or open inputs", under the per-sheet "IIG rows".
+
 ## 0.5.8.post65 — 2026-10-16 (Dashboard: two deprecated sections removed; App only)
 
 One commit per item. Nothing else on the Dashboard moved; generated files are unchanged.

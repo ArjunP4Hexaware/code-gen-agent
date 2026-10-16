@@ -5,7 +5,11 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post65).** post65 = the Dashboard's metadata-sheet
+**RESTART HERE (2026-10-16, after post66).** post66 = the artefacts panel's per-feed
+line is `artefacts.ts reviewSummary` (sheets · rows · open inputs (blocking) · empty by
+rule: <label> (<reason>)) from `framework.empty_by_rule` + `framework.open`
+(`GenerateRun.review_open`: feed + run-level lines); the derived ratio is the report's
+labelled line (`framework.derived_line`). post65 = the Dashboard's metadata-sheet
 preview and "Publish to Unity Catalog volume" sections are gone with their routes
 (`/api/demo/metadata-sheet[.xlsx]`, `/api/databricks/publish[-target]`); the payload
 builder and `codegen databricks-publish` stay. post64 = the "Framework artefacts" output

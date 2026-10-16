@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
+import { presentedArtefacts } from "../artefacts";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { DatabricksPublishPanel } from "../components/DatabricksPublishPanel";
@@ -227,10 +228,10 @@ export function Dashboard({
       {feeds.some((f) => f.framework) ? (
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-head">
-            <h2>Framework artefacts (Option B)</h2>
+            <h2>Framework artefacts</h2>
             <span className="hint">
-              config rows are the approval artefact; DDL + inserts are add-ons to
-              ACFC's master notebook, applied only after approval
+              The BSA-annotated IIG is the approval artefact; the CI/CD pipeline applies
+              the DDL after approval.
             </span>
           </div>
           <div className="panel-body">
@@ -248,27 +249,20 @@ export function Dashboard({
                       derived
                     </span>
                   </div>
-                  {Object.entries(
-                    f.framework!.groups ?? { Artefacts: f.framework!.files },
-                  ).map(([group, names]) => (
-                    <div key={group} style={{ marginBottom: 6 }}>
-                      <div className="hint" style={{ fontWeight: 600, marginBottom: 2 }}>
-                        {group}
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {names.map((name) => (
-                          <a
-                            key={name}
-                            className="btn"
-                            href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
-                            download
-                          >
-                            {name}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                  {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
+                      ADDITION.md — the other files are still written, not listed */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                    {presentedArtefacts(f.framework!.files).map((name) => (
+                      <a
+                        key={name}
+                        className="btn"
+                        href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
+                        download
+                      >
+                        {name}
+                      </a>
+                    ))}
+                  </div>
                   <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
                     Framework-assigned IDs left blank:{" "}
                     {f.framework!.flagged_blank_columns.join(", ") || "none"} — the

@@ -150,7 +150,8 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     assert list(inputs["feeds"][spec.feed_id]) == [
         *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
                                                "stg_to_std")),
-        "active_start_date"]
+        "active_start_date",
+        "pipeline_name"]            # post59: one choice / standard for all four flows
     assert inputs["run"]["environment"]["candidates"] == ["D1", "A2", "PR"]
     assert load_answers(path).inputs == {}            # every value empty: nothing answered
 
@@ -352,7 +353,7 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monk
     config = load_config(REPO / "config" / "config.yaml", overlays=[ACFC_OVERLAY])
     runner = SimpleNamespace(_store=SimpleNamespace(config=config), _lock=threading.Lock(),
                              state="idle", environment_choice=None, iig_template="iig_v2",
-                             effective_output_parts=lambda: ["framework"])
+                             effective_output_parts=lambda: ["framework"], input_choices={})
     for name in ("run_environment", "select_environment", "environment_options",
                  "_run_level_inputs"):
         setattr(runner, name, MethodType(getattr(DemoRunner, name), runner))

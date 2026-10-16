@@ -36,6 +36,15 @@ class TemplateItem:
     # post57: the sheet a ``sheets[<i>]/...`` key means, as written — a reading
     # aid in this ACFC-side file only (never on stdout).
     sheet_name: str = ""
+    # post59: a defaulted input's three-way choice (codegen.input_choices):
+    # the options offered, the proposal and its template (reading aids — the
+    # choice itself is written empty: proposed is not applied)
+    options: list[str] = field(default_factory=list)
+    proposed: str = ""
+    proposed_template: str = ""
+    # post59: a convenience entry (the feed-level pipeline_name choice that
+    # covers every flow) — not an input owed, not counted in the header
+    shared: bool = False
 
 
 def _q(value: str) -> str:
@@ -61,6 +70,22 @@ def _answers_entry(item: TemplateItem) -> list[str]:
 
 
 def _gaps_entry(item: TemplateItem) -> list[str]:
+    if item.options:
+        from codegen.input_choices import PLACEHOLDERS
+
+        placeholders = " ".join("{" + p + "}" for p in PLACEHOLDERS)
+        return [f"  {_q(item.key)}:",
+                f'    choice: ""                 # {" | ".join(item.options)} — proposed: '
+                f"{item.options[0]} (applied only when written here)",
+                *(['    standard: ""               # naming_standard: a template over '
+                   f"{placeholders}"] if "naming_standard" in item.options else []),
+                '    value: ""',
+                f"    proposed: {_q(item.proposed)}",
+                f"    template: {_q(item.proposed_template)}",
+                *(["    shared: true               # covers every flow of the feed"]
+                  if item.shared else []),
+                f"    question: {_q(item.reason)}",
+                f"    candidates: {json.dumps(item.candidates, ensure_ascii=False)}"]
     if item.files:
         return [f"  {_q(item.key)}:",
                 "    files:",
@@ -93,9 +118,15 @@ def read_template(path: Path) -> list[TemplateItem]:
         entries = flatten_inputs(block) if section == "inputs" else block
         for key, entry in entries.items():
             entry = entry if isinstance(entry, dict) else {}
+            options = ([o.strip() for o in str(entry.get("_options") or "").split("|")
+                        if o.strip()] or (_OPTIONS_READ if "choice" in entry else []))
             items.append(TemplateItem(str(key), str(entry.get("question") or ""),
                                       [str(c) for c in entry.get("candidates") or []], section,
-                                      files=[str(f) for f in entry.get("files") or {}]))
+                                      files=[str(f) for f in entry.get("files") or {}],
+                                      options=options,
+                                      proposed=str(entry.get("proposed") or ""),
+                                      proposed_template=str(entry.get("template") or ""),
+                                      shared=bool(entry.get("shared"))))
     return items
 
 
@@ -117,8 +148,11 @@ def flatten_inputs(block: dict) -> dict:
     return out
 
 
+_OPTIONS_READ = ["use_default", "naming_standard", "leave_blank"]
+
+
 def _is_entry(entry: dict) -> bool:
-    return "value" in entry or "question" in entry
+    return any(k in entry for k in ("value", "question", "choice", "standard"))
 
 
 def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
@@ -132,8 +166,9 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
     answers = [i for i in ordered.values() if i.section == "answers"]
     inputs = [i for i in ordered.values() if i.section == "inputs"]
     gaps = [i for i in ordered.values() if i.section not in ("answers", "inputs")]
+    owed = [i for i in inputs if not i.shared]
     lines = [f"{_HEADER} — {len(ordered) - len(inputs)} open question(s), "
-             f"{len(inputs)} input(s) needed, written by {stage}.",
+             f"{len(owed)} input(s) needed, written by {stage}.",
              "# Fill each empty value / column, then rerun the run's stages with",
              "#   --answers <this file>   (layout, extract-sttm and generate read it).",
              "# An entry left empty is skipped: its question stays open.",
@@ -156,14 +191,18 @@ def write_answers_template(path: Path, items: list[TemplateItem], *, stage: str,
             lines.append("  run:")
             for item in run:
                 lines += _indent(_gaps_entry(TemplateItem(
-                    item.key[len("run."):], item.reason, item.candidates)), 2)
+                    item.key[len("run."):], item.reason, item.candidates,
+                    options=item.options, proposed=item.proposed,
+                    proposed_template=item.proposed_template)), 2)
         feeds: dict[str, list[TemplateItem]] = {}
         other = []
         for item in inputs:
             if item.key.startswith("feeds.") and item.key.count(".") >= 2:
                 feed, name = item.key[len("feeds."):].split(".", 1)
-                feeds.setdefault(feed, []).append(TemplateItem(name, item.reason,
-                                                               item.candidates))
+                feeds.setdefault(feed, []).append(TemplateItem(
+                    name, item.reason, item.candidates, options=item.options,
+                    proposed=item.proposed, proposed_template=item.proposed_template,
+                    shared=item.shared))
             elif not item.key.startswith("run."):
                 other.append(item)
         if feeds:

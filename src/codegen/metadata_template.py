@@ -244,10 +244,30 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
         name = f"{rule.faq}_{flow}" if rule.per_flow else rule.faq
         label = f"{rule.faq}.{flow}" if rule.per_flow else rule.faq
         answer = getattr(faq, name, None) if faq is not None else None
+        from codegen.input_choices import chosen_of
+
+        chosen = chosen_of(answer) if answer is not None else None
+        where = f"{tab}.{header}" + (f"[{flow}]" if rule.per_flow else "")
+        if chosen is not None and chosen[0] == "blank":
+            # post59: leave_blank — the BSA's explicit choice
+            cell = _cell("", "needs_template", f"left blank by choice — {rule.question}")
+            cell["badge_entry"]["note"] = (f"iig_owed_blank:{where} — left blank: the BSA chose "
+                                           f"leave_blank for {label}")
+            cells[header] = cell
+            continue
         if answer is not None and answer.source != "unknown" and str(answer.value).strip():
             from codegen.metadata_sheet import _faq_cell as base
 
             cells[header] = base(answer, f"{rule.question} — answered")
+            if chosen is not None:
+                # post59: use_default / naming_standard — taken from other
+                # documents (the conventions profile / the BSA's standard): a flag
+                what = ("the conventions profile's proposal" if chosen[0] == "default"
+                        else "the BSA's naming standard")
+                cells[header]["badge_entry"]["note"] = (
+                    f"frd_unstated:{where} source_used:{what} {chosen[1]!r}: "
+                    f"{str(answer.value)!r} (chosen: "
+                    f"{'use_default' if chosen[0] == 'default' else 'naming_standard'})")
             continue
         # 2026-10-14 (post47): a run-scoped cell is one value for the whole run
         # (inputs.run), a feed-scoped one per feed (inputs.feeds.<feed>)
@@ -257,16 +277,14 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
                       f"inputs.feeds.<feed> with generate --answers, or the load-pattern FAQ "
                       f"{name}"))
         default = _owed_default(rule, {**tpl.corpus_tokens, **(context or {})})
+        # post59: proposed is not applied — an unanswered cell stays blank, its
+        # NOTE names the proposal (codegen.input_choices)
         if default and not is_placeholder(default):
-            share = rule.default_share or "default"
-            cell = _cell(default, "synthetic",
-                         f"default {default!r} ({share}) — owed: {rule.question}")
-            cell["badge_entry"]["note"] = (
-                f"{kind}:{tab}.{key} — {rule.question}; written with the default "
-                f"{rule.default!r} = {default!r} ({rule.default_share or 'default'}) ({how})")
-            cells[header] = cell
-            continue
-        shown = f" (default {rule.default!r}, a value the D1 overlay sets)" if default else ""
+            shown = (f" (proposed {rule.default!r} = {default!r}, "
+                     f"{rule.default_share or 'default'}: not written until chosen)")
+        else:
+            shown = (f" (default {rule.default!r}, a value the D1 overlay sets)" if default
+                     else "")
         cell = _cell("", "needs_template", f"owed: {rule.question}{shown}")
         cell["badge_entry"]["note"] = f"{kind}:{tab}.{key} — {rule.question}{shown} ({how})"
         cells[header] = cell
@@ -280,6 +298,15 @@ def _owed_default(rule, tokens: dict) -> str:
     if any(not str(tokens.get(t) or "").strip() for t in _DERIVED_TOKEN_RE.findall(rule.default)):
         return ""
     return _DERIVED_TOKEN_RE.sub(lambda m: str(tokens[m.group(1)]).strip(), rule.default)
+
+
+def _answered(answer) -> bool:
+    """An owed cell's FAQ answer counts: a value, or an explicit choice
+    (post59: leave_blank's empty value too)."""
+    from codegen.input_choices import chosen_of
+
+    return answer is not None and answer.source != "unknown" and (
+        bool(str(answer.value).strip()) or chosen_of(answer) is not None)
 
 
 def owed_questions(tpl: MetadataTemplateConfig, faq,
@@ -299,24 +326,25 @@ def owed_questions(tpl: MetadataTemplateConfig, faq,
                                           for r in tpl.pipeline_roles):
                     answer = (getattr(faq, f"{rule.faq}_{flow}", None)
                               if faq is not None else None)
-                    if (answer is not None and answer.source != "unknown"
-                            and str(answer.value).strip()):
+                    if _answered(answer):
                         continue
                     if f"{rule.faq}.{flow}" not in [n for n, _q in out]:
                         out.append((f"{rule.faq}.{flow}", f"{rule.question} — the {flow} row"))
                 continue
             answer = getattr(faq, rule.faq, None) if faq is not None else None
-            if answer is not None and answer.source != "unknown" and str(answer.value).strip():
+            if _answered(answer):
                 continue
             question = rule.question
             if rule.default:
+                # post59: a proposal, never written until chosen
                 value = _owed_default(rule, {**tpl.corpus_tokens, **(tokens or {})})
                 if value and not is_placeholder(value):
-                    question += f" — written with the default {value!r}"
+                    question += f" — proposed {value!r} (template {rule.default!r})"
                 elif is_placeholder(rule.default):
                     question += f" — default {rule.default!r} (set on D1)"
                 else:       # a token default for the whole run: each feed's own value
-                    question += f" — written with each feed's default {rule.default}"
+                    question += (f" — proposed per feed: the template {rule.default!r} "
+                                 "(each feed's own value)")
             if rule.faq not in [name for name, _q in out]:
                 out.append((rule.faq, question))
     return out
@@ -2207,10 +2235,13 @@ def email_status_set(tpl: MetadataTemplateConfig, faq,
         return None, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; written "
                       f"with every status: {', '.join(statuses)} (answered 'all')")
     if not stated:
+        # post59: the default set is a proposal — unanswered, every template
+        # status row is written (no default filter applied)
         how = f"INPUT_NEEDED run.{rule.faq}: once for the run, under inputs.run"
-        return default, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; "
-                         f"written with the default {email_status_default_label(tpl)!r}: "
-                         f"{', '.join(default or statuses)} ({how})")
+        return None, (f"iig_owed_run:EMAIL_TEMPLATE_CONFIG.STATUS — {rule.question}; every "
+                      f"template status written ({', '.join(statuses)}); proposed "
+                      f"{email_status_default_label(tpl)!r}: {', '.join(default or statuses)}, "
+                      f"not applied until chosen ({how})")
     wanted = [s.strip().lower() for s in re.split(r"[,;|]", stated) if s.strip()]
     keep = [s for s in statuses if s.lower() in wanted]
     unknown = [w for w in wanted if w not in {s.lower() for s in statuses}]

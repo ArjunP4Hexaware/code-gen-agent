@@ -253,6 +253,8 @@ export interface DemoStatus {
   // 2026-10-14: values the last run's IIG workbooks were written WITHOUT
   // (INPUT_NEEDED, e.g. ACTIVE_START_DATE) — never blocking, a banner only
   inputs_needed?: InputNeededItem[];
+  // post59: the input choices the BSA confirmed — key -> {choice, standard}
+  input_choices?: Record<string, ConfirmedChoice>;
   last_run_label: string | null;
   // feeds the last run set aside (no file for the table, question left unanswered)
   set_aside?: { label: string; error: string }[];
@@ -806,7 +808,37 @@ export interface InputNeededItem {
   scope: "run" | "feed";
   // 2026-10-15: a required environment value — blocking (exit 3 on the CLI)
   required?: boolean;
+  // post59: a defaulted input's three-way choice (use_default / naming_standard /
+  // leave_blank), its proposal (shown, never applied until confirmed) and the
+  // template it was rendered from; the placeholder values for the live preview;
+  // "no naming standard loaded — placeholder" when the template is a SYN_ one
+  options?: InputChoice[];
+  proposed?: string;
+  template?: string;
+  tokens?: Record<string, string>;
+  placeholder?: string;
 }
+
+export type InputChoice = "use_default" | "naming_standard" | "leave_blank";
+
+// post59: a choice the BSA confirmed (status.input_choices) — applied by the next Generate
+export interface ConfirmedChoice {
+  choice: InputChoice;
+  standard?: string;
+}
+
+// The same rendering as codegen.input_choices.render: {placeholders} filled,
+// then (a name) every run of characters outside [A-Za-z0-9_] -> "_", upper case.
+export function renderTemplate(template: string, tokens: Record<string, string>,
+                               name = true): string {
+  const filled = template.replace(/\{([^{}]*)\}/g, (_m, key: string) =>
+    String(tokens[key] ?? "").trim());
+  if (!name) return filled.trim();
+  return filled.replace(/[^A-Za-z0-9_]+/g, "_").replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "").toUpperCase();
+}
+
+const CHOICES: InputChoice[] = ["use_default", "naming_standard", "leave_blank"];
 
 export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
   if (!Array.isArray(raw)) return [];
@@ -818,6 +850,13 @@ export function normalizeInputsNeeded(raw: any): InputNeededItem[] {
       feed: typeof item.feed === "string" ? item.feed : "",
       scope: (item.scope === "run" ? "run" : "feed") as "run" | "feed",
       required: item.required === true,
+      ...(Array.isArray(item.options) ? {
+        options: item.options.filter((o: any) => CHOICES.includes(o)) as InputChoice[],
+        proposed: typeof item.proposed === "string" ? item.proposed : "",
+        template: typeof item.template === "string" ? item.template : "",
+        tokens: item.tokens && typeof item.tokens === "object" ? item.tokens : {},
+        placeholder: typeof item.placeholder === "string" ? item.placeholder : "",
+      } : {}),
     }));
 }
 
@@ -863,6 +902,7 @@ export function normalizeStatus(raw: DemoStatus): DemoStatus {
     needs_answers_inputs: r.needs_answers_inputs ?? null,
     needs_answers_stale: r.needs_answers_stale === true,
     inputs_needed: normalizeInputsNeeded(r.inputs_needed),
+    input_choices: r.input_choices && typeof r.input_choices === "object" ? r.input_choices : {},
     error_detail: errorDetail(r.error_detail),
   };
 }
@@ -974,6 +1014,13 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirm: true }),
+    }),
+  // post59: Confirm on the inputs panel — recorded, applied by the next Generate
+  confirmInputChoices: (choices: Record<string, ConfirmedChoice | null>) =>
+    statusRequest("/api/demo/input-choices", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ choices }),
     }),
   setOutputParts: (parts: OutputPart[]) =>
     statusRequest("/api/demo/output-parts", {

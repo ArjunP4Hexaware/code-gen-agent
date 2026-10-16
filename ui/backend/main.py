@@ -548,6 +548,23 @@ def layout_answers(req: LayoutAnswersRequest) -> dict:
     return runner.status()
 
 
+class InputChoicesRequest(BaseModel):
+    choices: dict = {}
+
+
+@app.post("/api/demo/input-choices")
+def confirm_input_choices(req: InputChoicesRequest) -> dict:
+    """post59: the BSA's Confirm on the inputs panel — ``{"choices": {"<inputs
+    key>": {"choice": "use_default" | "naming_standard" | "leave_blank",
+    "standard": "<template>"} | null}}``. Recorded, never applied until the next
+    Generate (proposed is not applied). 400 on an unknown choice / placeholder."""
+    runner = _require_runner()
+    try:
+        return runner.confirm_input_choices(req.choices)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 class RerunRequest(BaseModel):
     answers: dict = {}
     confirm: bool = False

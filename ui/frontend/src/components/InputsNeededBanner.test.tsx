@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { normalizeInputsNeeded } from "../api";
+import { normalizeInputsNeeded, renderTemplate } from "../api";
 import { InputsNeededBanner } from "./InputsNeededBanner";
 
 declare global {
@@ -62,5 +62,84 @@ describe("InputsNeededBanner", () => {
   it("renders nothing without items", () => {
     act(() => root.render(<InputsNeededBanner items={normalizeInputsNeeded(undefined)} />));
     expect(host.innerHTML).toBe("");
+  });
+});
+
+// post59: PIPELINE_NAME (and the other defaulted inputs) as a three-way choice
+const FLOWS = ["grand_master", "master", "file_to_stg", "stg_to_std"];
+const LAYER: Record<string, string> = {
+  grand_master: "GRANDMASTER", master: "MASTER", file_to_stg: "STG", stg_to_std: "STD",
+};
+
+function pipelineItems(template = "SYN_PL_{source}_{layer}") {
+  return normalizeInputsNeeded(FLOWS.map((flow) => ({
+    key: `feeds.zq_a.pipeline_name.${flow}`, question: "the pipeline name", feed: "zq_a",
+    scope: "feed", options: ["use_default", "naming_standard", "leave_blank"],
+    proposed: `SYN_PL_ZQ_VENDOR_${LAYER[flow]}`, template,
+    tokens: { source: "zq vendor", layer: LAYER[flow], domain: "", subdomain: "" },
+    placeholder: template.startsWith("SYN_") ? "no naming standard loaded — placeholder" : "",
+  })));
+}
+
+function type(el: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("InputsNeededBanner choices (post59)", () => {
+  it("shows each proposal beside its template, the radio on use_default, nothing applied", () => {
+    const sent: unknown[] = [];
+    act(() => root.render(
+      <InputsNeededBanner items={pipelineItems()} onConfirm={(c) => sent.push(c)} />));
+    const proposal = host.querySelector('[aria-label="proposal for feeds.zq_a.pipeline_name.master"]');
+    expect(proposal?.textContent).toContain("SYN_PL_ZQ_VENDOR_MASTER");
+    expect(proposal?.textContent).toContain("SYN_PL_{source}_{layer}");
+    expect(proposal?.textContent).toContain("no naming standard loaded — placeholder");
+    const checked = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]:checked')];
+    expect(checked.map((r) => r.value)).toEqual(FLOWS.map(() => "use_default"));
+    expect(sent).toEqual([]);                                  // proposed, not applied
+    expect(host.textContent).toContain("Nothing is applied until you confirm");
+    act(() => host.querySelector<HTMLButtonElement>("button")!.click());
+    expect(sent).toEqual([Object.fromEntries(FLOWS.map((f) => [
+      `feeds.zq_a.pipeline_name.${f}`, { choice: "use_default" }]))]);
+  });
+
+  it("a real template carries no placeholder label", () => {
+    act(() => root.render(<InputsNeededBanner items={pipelineItems("ACME_{source}_{layer}")} />));
+    expect(host.textContent).not.toContain("placeholder");
+  });
+
+  it("one naming standard re-renders all four names live and is confirmed for each", () => {
+    const sent: Record<string, unknown>[] = [];
+    act(() => root.render(
+      <InputsNeededBanner items={pipelineItems()} onConfirm={(c) => sent.push(c)} />));
+    for (const radio of host.querySelectorAll<HTMLInputElement>('input[value="naming_standard"]')) {
+      act(() => radio.click());
+    }
+    const box = host.querySelector<HTMLInputElement>('[aria-label="naming standard for zq_a"]')!;
+    act(() => type(box, "acme {source} {layer}"));
+    const preview = host.querySelector('[aria-label="preview for zq_a"]')?.textContent ?? "";
+    for (const flow of FLOWS) expect(preview).toContain(`ACME_ZQ_VENDOR_${LAYER[flow]}`);
+    act(() => host.querySelector<HTMLButtonElement>("button")!.click());
+    expect(sent[0]["feeds.zq_a.pipeline_name.stg_to_std"]).toEqual(
+      { choice: "naming_standard", standard: "acme {source} {layer}" });
+  });
+
+  it("says when the choices are confirmed", () => {
+    const confirmed = Object.fromEntries(FLOWS.map((f) => [
+      `feeds.zq_a.pipeline_name.${f}`, { choice: "leave_blank" as const }]));
+    act(() => root.render(<InputsNeededBanner items={pipelineItems()} confirmed={confirmed} />));
+    expect(host.textContent).toContain("Confirmed — applied by the next Generate");
+    const checked = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]:checked')];
+    expect(checked.map((r) => r.value)).toEqual(FLOWS.map(() => "leave_blank"));
+  });
+
+  it("renders a template as the backend does", () => {
+    const tokens = { domain: "Claims", subdomain: "", source: "Vendor & Co.", layer: "STG",
+                     load_mode: "Truncate and Load" };
+    expect(renderTemplate("PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}", tokens))
+      .toBe("PL_CLAIMS_VENDOR_CO_STG_TRUNCATE_AND_LOAD");
+    expect(renderTemplate("{source}", tokens, false)).toBe("Vendor & Co.");
   });
 });

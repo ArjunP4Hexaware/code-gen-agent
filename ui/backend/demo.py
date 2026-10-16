@@ -268,6 +268,10 @@ class DemoRunner:
         # WITHOUT (INPUT_NEEDED: ACTIVE_START_DATE ...) — a non-blocking banner,
         # never the needs_answers pause: [{key, question, feed}]
         self.inputs_needed: list[dict] = []
+        # post59: the BSA's CONFIRMED input choices (key -> input_choices.Choice):
+        # the panel's radio sits on use_default, but only a Confirm records it,
+        # and only a recorded choice is applied by the next Generate
+        self.input_choices: dict = {}
         # The readable form of the error that ended the last run (errors.py):
         # type, message, the traceback's innermost frame, the health line.
         self.error_detail: dict | None = None
@@ -1836,6 +1840,9 @@ class DemoRunner:
             "needs_answers": list(self.needs_answers),
             # never blocking: the workbooks are written with these cells empty
             "inputs_needed": list(self.inputs_needed),
+            # post59: the choices the BSA confirmed (applied by the next Generate)
+            "input_choices": {key: {"choice": c.choice, "standard": c.standard}
+                              for key, c in self.input_choices.items()},
             "needs_answers_inputs": ({"sttm": Path(self._run_inputs[0]).name,
                                       "frd": Path(self._run_inputs[1]).name}
                                      if self.needs_answers and self._run_inputs else None),
@@ -2131,16 +2138,57 @@ class DemoRunner:
         self._stage("pairing", "the FRD pairing did not finish in time — running with what is "
                                "selected now")
 
-    def _owed_inputs(self, spec, config, frd_path) -> list[dict]:
-        """The INPUT_NEEDED items of one generated feed (codegen.owed_inputs):
-        the cells its IIG workbook was written without."""
+    def confirm_input_choices(self, choices: dict) -> dict:
+        """post59: record the BSA's confirmed choices — ``{key: {choice,
+        standard?}}`` (``null`` withdraws one). Applied by the next Generate
+        (CLI parity: the answers file's ``choice:`` / ``standard:``).
+        ValueError = HTTP 400."""
+        from codegen.input_choices import parse_choice, validate_choice
+
+        updated = dict(self.input_choices)
+        for key, entry in (choices or {}).items():
+            if entry is None:
+                updated.pop(str(key), None)
+                continue
+            choice = parse_choice(str(key), entry)
+            if choice is None:
+                raise ValueError(f"inputs[{key!r}]: no choice given")
+            problem = validate_choice(str(key), choice)
+            if problem is not None:
+                raise ValueError(problem)
+            updated[str(key)] = choice
+        self.input_choices = updated
+        return self.status()
+
+    def _resolved_inputs(self, spec, config, frd_path) -> list:
+        """post59: the feed's defaulted inputs under the confirmed choices."""
         from codegen.faq import faq_for_spec
+        from codegen.input_choices import resolve_feed
+        from codegen.owed_inputs import _template, frd_feed_index
+
+        tpl = _template(config, self.effective_output_parts(), self.iig_template)
+        if tpl is None or not tpl.owed_cells:
+            return []
+        return resolve_feed(spec, profile=config.conventions.get(self.conventions_profile),
+                            tpl=tpl, inputs={}, choices=self.input_choices,
+                            index=frd_feed_index(frd_path, spec.feed_id, config),
+                            faq=faq_for_spec(spec, config, base_dir=REPO_ROOT), base=REPO_ROOT)
+
+    def _owed_inputs(self, spec, config, frd_path, resolved=None) -> list[dict]:
+        """The INPUT_NEEDED items of one generated feed (codegen.owed_inputs):
+        the cells its IIG workbook was written without. post59: a defaulted
+        one carries its options, proposal, template and preview tokens."""
+        from codegen.faq import faq_for_spec, with_faq_answers
+        from codegen.input_choices import faq_answers
         from codegen.owed_inputs import frd_feed_index, owed_inputs
 
         index = frd_feed_index(frd_path, spec.feed_id, config)
+        faq = with_faq_answers(faq_for_spec(spec, config, base_dir=REPO_ROOT),
+                               faq_answers(resolved or []))
         return [item.as_dict() for item in owed_inputs(
-            spec, config, index=index, faq=faq_for_spec(spec, config, base_dir=REPO_ROOT),
-            output_mode=self.effective_output_parts(), iig_template=self.iig_template)]
+            spec, config, index=index, faq=faq,
+            output_mode=self.effective_output_parts(), iig_template=self.iig_template,
+            resolved=resolved, profile=config.conventions.get(self.conventions_profile))]
 
     def _run_level_inputs(self, config) -> list[dict]:
         """The run-level banner items (scope "run"), once per run: the
@@ -2158,7 +2206,9 @@ class DemoRunner:
                     else [])
         return required + [item.as_dict() for item in (
             *environment_inputs(config, output_mode=parts, iig_template=self.iig_template),
-            *run_owed_inputs(config, {}, output_mode=parts, iig_template=self.iig_template))]
+            *run_owed_inputs(config, {}, output_mode=parts, iig_template=self.iig_template,
+                             choices={k: c for k, c in self.input_choices.items()
+                                      if k.startswith("run.")}))]
 
     def _note_undecided_vdd(self) -> None:
         """M15e: a run started while the dictionaries are still being indexed
@@ -2578,9 +2628,12 @@ class DemoRunner:
 
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = list(pre_failures)
+        from codegen.input_choices import faq_answers as chosen_answers
+
         for spec in specs:
             slug = spec.feed_slug
             try:
+                resolved = self._resolved_inputs(spec, config, frd_path)
                 runs[slug] = self._store._generate_feed(  # noqa: SLF001
                     spec,
                     dry_run=False,
@@ -2599,8 +2652,9 @@ class DemoRunner:
                     playbook_template=self.playbook_template,
                     layout_usage=layout_usage,
                     environment=run_env,
+                    faq_answers=chosen_answers(resolved),
                 )
-                self.inputs_needed += self._owed_inputs(spec, config, frd_path)
+                self.inputs_needed += self._owed_inputs(spec, config, frd_path, resolved)
             except Exception as exc:  # noqa: BLE001 — one bad feed must not sink the run
                 failures.append(FailedRun(label=slug, error=f"{type(exc).__name__}: {exc}"))
         if not runs:

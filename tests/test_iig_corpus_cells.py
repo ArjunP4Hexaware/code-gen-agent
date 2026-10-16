@@ -193,8 +193,10 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
         assert row["ACTIVE_START_DATE"][0] in (None, "")
         assert row["ACTIVE_START_DATE"][1] == OPEN
         assert row["PROCESS_NAME"][0] in (None, "") and row["SUBPROCESS_NAME"][0] in (None, "")
-        # APPLICATION_NAME = the feed's SOURCE, written as the default (INPUT_NEEDED)
-        assert row["APPLICATION_NAME"][:2] == (application, DECIDED)
+        # APPLICATION_NAME: the feed's SOURCE is PROPOSED, never written unanswered
+        # (post59: proposed is not applied) — the cell open, the INPUT_NEEDED owed
+        assert row["APPLICATION_NAME"][0] in (None, "") and row["APPLICATION_NAME"][1] == OPEN
+        assert application in str(row["APPLICATION_NAME"][2])     # the proposal, named
         assert row["NO_OF_CYCLE_PER_DAY"][0] in ("1", 1)
     flags = _notes(gate)
     assert any(f.startswith("iig_owed:DATA_FACTORY_PIPELINE_SCHEDULE.ACTIVE_START_DATE")
@@ -364,7 +366,8 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     keys = [ln[15:].split(" — ", 1)[0] for ln in lines]
     assert [k[len(f"feeds.{feed}."):] for k in keys] == OWED_KEYS
     app_line = next(ln for ln in every if "run.application_name — " in ln)
-    assert "written with each feed's default {source}" in app_line
+    assert "proposed per feed: the template '{source}'" in app_line
+    assert "use_default / naming_standard / leave_blank" in app_line
     xlsx = tmp_path / "out" / specs[0].feed_slug / "framework" / "config_rows.xlsx"
     assert xlsx.is_file()
     assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
@@ -458,7 +461,8 @@ def test_the_app_lists_inputs_needed_as_a_banner_item(tmp_path):
 
     config, specs, (frd, _sttm) = _pair11(tmp_path)
     runner = SimpleNamespace(effective_output_parts=lambda: ["framework"],
-                             iig_template="iig_v2")
+                             iig_template="iig_v2", conventions_profile="acfc_prx",
+                             input_choices={})
     items = DemoRunner._owed_inputs(runner, specs[0], config, frd)
     assert [i["key"] for i in items] == [f"feeds.{specs[0].feed_id}.{k}" for k in OWED_KEYS]
     assert items[0]["feed"] == specs[0].feed_id and items[0]["question"]

@@ -59,6 +59,9 @@ class AnswersFile:
     # 2026-10-14 (D1 post44): values a written workbook still lacks (INPUT_NEEDED
     # lines, never blocking) — {key: text}, e.g. feeds[0].active_start_date
     inputs: dict[str, str] = field(default_factory=dict)
+    # post59: an input's explicit choice — {key: Choice(use_default |
+    # naming_standard | leave_blank, standard)} (codegen.input_choices)
+    input_choices: dict = field(default_factory=dict)
 
 
 _ENTRY_KEYS = {"document", "workbook", "sheet", "layer", "role", "column", "value",
@@ -150,10 +153,19 @@ def load_answers(path: Path) -> AnswersFile:
             raise located(AnswersFileError(f"{path}: pairing[{name!r}] must be {{frd?, vdd?}}"),
                           Coord("answers"), "answers.file")
     inputs: dict[str, str] = {}
+    choices: dict = {}
+    from codegen.input_choices import parse_choice, validate_choice
     from codegen.layout.answers_template import flatten_inputs
 
     # post47: inputs.run / inputs.feeds.<feed> read as run.<k> / feeds.<feed>.<k>
     for key, value in flatten_inputs(raw.get("inputs") or {}).items():
+        choice = parse_choice(str(key), value)
+        if choice is not None:
+            problem = validate_choice(str(key), choice)
+            if problem is not None:
+                raise located(AnswersFileError(f"{path}: {problem}"), Coord("answers"),
+                              "answers.file")
+            choices[str(key)] = choice
         stated = value.get("value") if isinstance(value, dict) else value
         if isinstance(stated, (int, float)) and not isinstance(stated, bool):
             stated = str(stated)
@@ -162,7 +174,7 @@ def load_answers(path: Path) -> AnswersFile:
                           Coord("answers"), "answers.file")
         if not _blank(stated):
             inputs[str(key)] = stated.strip()
-    return AnswersFile(list(entries), dict(gaps), dict(pairing), inputs)
+    return AnswersFile(list(entries), dict(gaps), dict(pairing), inputs, choices)
 
 
 def _column_of(entry: dict, question) -> int | None:

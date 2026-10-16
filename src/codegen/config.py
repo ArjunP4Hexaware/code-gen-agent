@@ -1170,6 +1170,30 @@ class ConventionsProfileConfig(BaseModel):
     # (hddr / det / trlr <-> header / details / trailer). tools/iig_diff.py maps
     # both sides through it before comparing a segment column.
     segment_codes: dict[str, list[str]] = Field(default_factory=dict)
+    # post59 (PIPELINE_NAME three-way choice, codegen.input_choices): the
+    # proposal per flow (grand_master / master / file_to_stg / stg_to_std), a
+    # template over {domain} {subdomain} {source} {frequency} {layer}
+    # {load_mode}. Proposed is not applied: only the BSA's explicit choice
+    # (answers file / App Confirm) fills a cell. {} = no proposal.
+    pipeline_name_templates: dict[str, str] = Field(default_factory=dict)
+    # ... {layer} per flow, and the rendered name's case (upper | keep)
+    pipeline_flow_layers: dict[str, str] = Field(default_factory=lambda: {
+        "grand_master": "GRANDMASTER", "master": "MASTER", "file_to_stg": "STG",
+        "stg_to_std": "STD"})
+    pipeline_name_case: Literal["upper", "keep"] = "upper"
+    # ... the loaded goldens / corpus a proposal must not collide with: folders
+    # of IIG .xlsx (every PIPELINE_NAME column), .xlsx files, .txt name lists;
+    # relative to the working directory. A colliding proposal is never offered.
+    pipeline_name_corpus: list[str] = Field(default_factory=list)
+    # post59: the file-name recognizer's tie-break (layout split step: two files
+    # match a table equally) — first by the candidate's source, in this order
+    # (frd_pattern = the FRD's landed file pattern, frd_target_table = a file
+    # name in the FRD's 'Target Table Name', sttm_file_details = a FILE_DETAILS
+    # label, sttm_meta = the STTM 'File Names' meta row), then by shape (a vendor
+    # prefix + an extension); still tied = the question. [] / false = off.
+    file_tie_source_priority: list[str] = Field(default_factory=lambda: [
+        "frd_pattern", "frd_target_table", "sttm_file_details", "sttm_meta"])
+    file_tie_shape: bool = True
 
     @field_validator("audit_datatypes", "audit_flag_datatypes")
     @classmethod

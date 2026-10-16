@@ -94,6 +94,11 @@ environments:
     connection_ids: {src_adls: "<<PR:CONNECTION_ID.src_adls>>", metadata: "<<PR:CONNECTION_ID.metadata>>", target: "<<PR:CONNECTION_ID.target>>"}
 conventions:
   profile: acfc_prx
+  profiles:
+    acfc_prx:
+      # post59: the goldens a PIPELINE_NAME proposal must not collide with (every
+      # PIPELINE_NAME column of the .xlsx under it; D1 only — empty at home)
+      pipeline_name_corpus: [docs/acfc/iig_goldens]
   # catalog_map / the acfc_prx default_catalog: per environment (environments: above)
   # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the LOB
   # lookup's third source (after the FRD LOB table's plan-id and region

@@ -44,3 +44,37 @@ with `tools/iig_diff.py --golden-structure`.
   workbook for every feed of an FRD), and does a single-feed pair still carry a
   separate file_to_stg row? Until answered, row counts differ by design; the
   per-feed description text itself is rule 2's (provisional until the D1 dump).
+
+## 3. PIPELINE_NAME — blank (Aruna) vs default + naming standard (Venu) (2026-10-16)
+
+| Golden sheet | Column | Header |
+| --- | --- | --- |
+| `DATA_FACTORY_PIPELINE_SCHEDULE` | B | `PIPELINE_NAME` |
+| `DATABRICKS_NOTEBOOK_DETAILS` | — | `PIPELINE_NAME` (the leg's pipeline) |
+
+- Aruna's rule: PIPELINE_NAME is BSA-assigned, so the agent leaves it blank
+  (framework owner's rule 1, post49).
+- Venu's ask: the agent proposes a default name, and the BSA may apply the
+  team's naming standard instead.
+- **Resolved (post59): the BSA chooses, with the default shown.** Every
+  `pipeline_name.<flow>` input (grand_master / master / file_to_stg /
+  stg_to_std, per feed) is a three-way choice: `use_default` (the conventions
+  profile's per-flow template, rendered from the feed's {domain} {subdomain}
+  {source} {frequency} {layer} {load_mode}), `naming_standard` (the BSA's own
+  template in the same syntax), or `leave_blank`.
+- Aruna's rule still holds for every unattended run (CLI, harness, App with no
+  confirmation). The proposal is shown and NOT applied: the cell stays blank,
+  and a non-blocking INPUT_NEEDED line names the proposal and its template. A
+  cell is filled only on an explicit choice (the answers file's `choice:` /
+  `standard:`, or the App's Confirm); a filled default or standard carries the
+  "taken from other documents" gate flag (`frd_unstated:…`).
+- A proposal that collides with a PIPELINE_NAME of the loaded goldens / corpus
+  (`pipeline_name_corpus`) is never offered; the line asks instead.
+- The repo ships SYNTHETIC templates only (`SYN_PL_…`, labelled "no naming
+  standard loaded — placeholder"). The real templates go in the ACFC-side
+  `codegen-state/overlays/acfc_prx.yaml`, per flow
+  (`docs/acfc/OVERLAY_FIELDS.md`).
+- The same control applies to APPLICATION_NAME, EMAIL_TO and the email status
+  set wherever a default exists (ACTIVE_START_DATE has none).
+- Still open: the team's naming standard itself (the attach-a-document path
+  is deferred).

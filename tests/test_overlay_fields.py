@@ -131,8 +131,11 @@ def test_the_overlay_drives_the_notebook_rows_and_the_workspace_root(tmp_path):
 
 
 def test_the_default_status_set_and_a_feed_override(tmp_path):
+    # post59: email_status_default is a PROPOSAL — unanswered, every template
+    # status row is written (proposed is not applied until chosen)
     xlsx, _spec = _run(tmp_path / "default")
-    assert [r["STATUS"][0] for r in _rows(xlsx, EMAIL)] == ["Success", "Failed"]
+    assert [r["STATUS"][0] for r in _rows(xlsx, EMAIL)] == [
+        "FilesNotReceived", "New Files to Process", "Success", "Failed"]
     xlsx, _spec = _run(tmp_path / "override", {
         "email_statuses": ["FilesNotReceived", "New Files to Process", "Success", "Failed"],
         "src_file_name": "prefix_middle"})
@@ -156,7 +159,16 @@ def test_a_feed_override_beats_the_run_answer():
     assert email_status_set(tpl, Faq(), "syn_feed_alpha")[0] == [
         "FilesNotReceived", "New Files to Process", "Success", "Failed"]
     assert email_status_set(tpl, Faq(), "syn_other")[0] == ["Success"]
-    assert email_status_set(tpl, None, "syn_other")[0] == ["Success", "Failed"]
+    # post59: unanswered = every template row; the default set only when chosen
+    assert email_status_set(tpl, None, "syn_other")[0] is None
+    from codegen.faq import FaqAnswer
+    from codegen.input_choices import evidence
+
+    class Chosen:
+        email_statuses = FaqAnswer(value="Success, Failed", source="engineer",
+                                   evidence=evidence("default", "email_status_default"))
+
+    assert email_status_set(tpl, Chosen(), "syn_other")[0] == ["Success", "Failed"]
 
 
 # ---- iig_diff: the notebook rows keep their flow ------------------------------

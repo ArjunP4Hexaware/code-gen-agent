@@ -32,6 +32,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from codegen.config import is_placeholder
+
 INPUT_LABEL = "INPUT_NEEDED"
 INPUTS_SECTION = "inputs"
 RUN = "run"
@@ -47,10 +49,25 @@ class OwedInput:
     question: str
     feed: str         # the feed_id the cell belongs to ("" for a run-level input)
     scope: str = FEED
+    # post59: a defaulted input's three-way choice (codegen.input_choices) —
+    # the options, the proposal (never applied until chosen) and its template;
+    # ``tokens`` = the placeholder values the App's live preview renders with
+    options: tuple[str, ...] = ()
+    proposed: str = ""
+    template: str = ""
+    tokens: tuple[tuple[str, str], ...] = ()
 
     def as_dict(self) -> dict:
-        return {"key": self.key, "question": self.question, "feed": self.feed,
-                "scope": self.scope}
+        out = {"key": self.key, "question": self.question, "feed": self.feed,
+               "scope": self.scope}
+        if self.options:
+            from codegen.input_choices import PLACEHOLDER_LABEL, is_placeholder_template
+
+            out.update(options=list(self.options), proposed=self.proposed,
+                       template=self.template, tokens=dict(self.tokens),
+                       placeholder=(PLACEHOLDER_LABEL if is_placeholder_template(self.template)
+                                    else ""))
+        return out
 
 
 def run_key(name: str) -> str:
@@ -102,45 +119,92 @@ def _template(config, output_mode, iig_template):
 
 
 def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mode=None,
-                iig_template: str | None = None) -> list[OwedInput]:
+                iig_template: str | None = None, resolved=None,
+                profile=None) -> list[OwedInput]:
     """The FEED-level IIG cells of ``spec`` the workbook is written without
     (feed-scoped owed_cells the FAQ / answers leave unanswered) — framework
-    output with a template that names owed cells only."""
+    output with a template that names owed cells only. post59: ``resolved``
+    (codegen.input_choices.resolve_feed) adds each defaulted input's proposal
+    and its options."""
     from codegen.metadata_template import owed_questions
 
     tpl = _template(config, output_mode, iig_template)
     if tpl is None or not tpl.owed_cells:
         return []
-    return [OwedInput(feed_key(spec.feed_id, name), question, spec.feed_id)
-            for name, question in owed_questions(tpl, faq, _default_tokens(spec),
-                                                 scope=FEED)]
+    by_key = {r.key: r for r in resolved or []}
+    out = []
+    for name, question in owed_questions(tpl, faq, _default_tokens(spec), scope=FEED):
+        item = by_key.get(name)
+        out.append(_with_choice(OwedInput(feed_key(spec.feed_id, name), question,
+                                          spec.feed_id), item, spec, profile, tpl, faq))
+    return out
+
+
+def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq) -> OwedInput:
+    """``owed`` carrying ``item``'s proposal and options (post59)."""
+    if item is None:
+        return owed
+    from dataclasses import replace
+
+    from codegen import input_choices as choices
+
+    options = tuple(o for o in choices.CHOICES
+                    if not (o == "leave_blank" and item.key == "email_statuses"))
+    tokens: dict[str, str] = {}
+    if spec is not None and profile is not None:
+        tokens = choices.feed_tokens(spec, tpl, faq)
+        flow = item.key.split(".", 1)[1] if "." in item.key else ""
+        if flow:
+            tokens = choices.flow_tokens(tokens, spec, profile, flow)
+    return replace(owed, question=f"{owed.question} — {choices.proposal_text(item)}",
+                   options=options, proposed=item.proposal.value,
+                   template=item.proposal.template, tokens=tuple(sorted(tokens.items())))
 
 
 def run_owed_inputs(config, inputs: dict[str, str] | None, *, output_mode=None,
-                    iig_template: str | None = None) -> list[OwedInput]:
+                    iig_template: str | None = None, choices=None) -> list[OwedInput]:
     """The RUN-level owed cells (``scope: run``) the answers file's
-    ``inputs.run`` leaves unanswered — one item for the whole run."""
+    ``inputs.run`` leaves unanswered — one item for the whole run. post59: a
+    run-level choice (``choices``, codegen.input_choices) answers it too; a
+    defaulted one carries its options and its proposal's template."""
+    from codegen import input_choices as ic
     from codegen.metadata_template import owed_questions
 
     tpl = _template(config, output_mode, iig_template)
     if tpl is None or not tpl.owed_cells:
         return []
     answered = {key for key, value in (inputs or {}).items() if str(value).strip()}
-    items = [OwedInput(run_key(name), question, "", RUN)
+    answered |= set(choices or {})
+    defaulted = {d.key: d for d in ic.defaulted_inputs(tpl) if d.scope == RUN}
+
+    def offered(name: str, question: str) -> OwedInput:
+        item = defaulted.get(name)
+        if item is None or (item.rule.default and is_placeholder(str(item.rule.default))):
+            return OwedInput(run_key(name), question, "", RUN)
+        options = tuple(o for o in ic.CHOICES if not (item.statuses and o == "leave_blank"))
+        template = str(getattr(item.rule, "default", "") or "")
+        return OwedInput(run_key(name), f"{question} — {ic.HOW}", "", RUN, options=options,
+                         template=template)
+
+    items = [offered(name, question)
              for name, question in owed_questions(tpl, None, scope=RUN)
              if run_key(name) not in answered]
     rule = tpl.email_status_input
     if rule is not None and run_key(rule.faq) not in answered:
         # 2026-10-14 (framework owner): the email status set, default all four;
-        # 2026-10-15: or the overlay's email_status_default
+        # 2026-10-15: or the overlay's email_status_default. post59: proposed —
+        # unanswered, every template status row is written
         from codegen.metadata_template import _pick_statuses, email_status_default_label
 
         statuses = [str(r.get("STATUS") or "") for r in
                     tpl.template_rows.get("EMAIL_TEMPLATE_CONFIG") or []]
-        written = _pick_statuses(statuses, tpl.email_status_default) or statuses
-        items.append(OwedInput(run_key(rule.faq), f"{rule.question} — written with the "
-                               f"default {email_status_default_label(tpl)!r}: "
-                               f"{', '.join(written)}", "", RUN))
+        proposed = _pick_statuses(statuses, tpl.email_status_default) or statuses
+        items.append(OwedInput(
+            run_key(rule.faq), f"{rule.question} — every template status written "
+            f"({', '.join(statuses)}); proposed {email_status_default_label(tpl)!r}: "
+            f"{', '.join(proposed)} — {ic.HOW}", "", RUN,
+            options=("use_default", "naming_standard"), proposed=", ".join(proposed),
+            template=email_status_default_label(tpl)))
     return items
 
 
@@ -200,7 +264,8 @@ def template_items(items: list[OwedInput]) -> list:
     from codegen.layout.answers_template import TemplateItem
 
     return [TemplateItem(i.key, i.question if i.scope == RUN else f"{i.question} (feed {i.feed})",
-                         [], INPUTS_SECTION) for i in items]
+                         [], INPUTS_SECTION, options=list(i.options), proposed=i.proposed,
+                         proposed_template=i.template) for i in items]
 
 
 def answers_owed(flags: list[str]) -> tuple[list[str], list[str]]:

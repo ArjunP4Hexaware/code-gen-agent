@@ -949,6 +949,24 @@ conventions:
         header: [header, hddr, hdr, hdrr]
         details: [details, detail, det, dtl]
         trailer: [trailer, trlr, trl]
+      # post59: PIPELINE_NAME proposals per flow (codegen.input_choices) over
+      # {domain} {subdomain} {source} {frequency} {layer} {load_mode} ({layer} per
+      # flow: pipeline_flow_layers). A proposal is shown, never applied: the cell
+      # is written only after the BSA's explicit choice (use_default /
+      # naming_standard / leave_blank). Rendered names: non-name characters ->
+      # '_', upper case. A proposal colliding with a PIPELINE_NAME of
+      # pipeline_name_corpus (the overlay's goldens folder) is not offered.
+      # These four are SYNTHETIC placeholders (SYN_ prefix): no naming standard
+      # ships with the repo. The real templates come from the ACFC-side
+      # codegen-state/overlays/acfc_prx.yaml (conventions.profiles.acfc_prx.
+      # pipeline_name_templates.<flow>), which overrides them flow by flow; a
+      # proposal rendered from a SYN_ template is labelled "no naming standard
+      # loaded — placeholder" (CLI line and App).
+      pipeline_name_templates:
+        grand_master: "SYN_PL_{domain}_{subdomain}_{source}_{frequency}_{layer}"
+        master: "SYN_PL_{domain}_{subdomain}_{source}_{frequency}_{layer}"
+        file_to_stg: "SYN_PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}"
+        stg_to_std: "SYN_PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}"
       # M7: three-part names or no DDL (catalog_unstated:<layer> FAILs).
       # default_catalog is the LAST fallback (FRD label -> STTM band -> here);
       # empty = none configured. Set per environment in an overlay.

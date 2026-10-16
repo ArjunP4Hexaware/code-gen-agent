@@ -243,12 +243,14 @@ def with_faq_answers(faq: LoadPatternFaq, answers: dict[str, str] | None) -> Loa
     ``feeds[<i>].<companion>``, e.g. active_start_date), source engineer; a
     file answer already given is replaced (the run's answers file is the
     newer statement). Unknown names are ignored."""
-    updates = {name: FaqAnswer(value=str(value), source="engineer",
-                               evidence="answers file (gaps)")
+    # post59: a FaqAnswer value is applied as given (codegen.input_choices: a
+    # chosen default / naming standard, or leave_blank's empty value)
+    updates = {name: value if isinstance(value, FaqAnswer) else
+               FaqAnswer(value=str(value), source="engineer", evidence="answers file (gaps)")
                for name, value in (answers or {}).items()
                if name in LoadPatternFaq.model_fields
                and LoadPatternFaq.model_fields[name].annotation in (FaqAnswer, "FaqAnswer")
-               and str(value).strip()}
+               and (isinstance(value, FaqAnswer) or str(value).strip())}
     return faq.model_copy(update=updates) if updates else faq
 
 

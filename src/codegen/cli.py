@@ -573,12 +573,16 @@ def _run_pairs(
 
     inputs = _answers_inputs(answers_path)
     gaps = _answers_gaps(answers_path)
+    # post59: the BSA's explicit choices (use_default / naming_standard /
+    # leave_blank) — proposed is never applied without one
+    choices = _answers_choices(answers_path)
     owed_items: list = []
     from codegen.environments import EnvironmentSelectionError
 
     try:
         config, run_items, open_items = _run_environment(config, inputs, output_mode,
-                                                         iig_template, dry_run=dry_run)
+                                                         iig_template, dry_run=dry_run,
+                                                         choices=choices)
     except EnvironmentSelectionError as exc:
         _fail(command, f"environment — {exc}", "environment", Coord("environment"), exc=exc)
         return 1
@@ -589,6 +593,8 @@ def _run_pairs(
     # goes to the manifest; ANY blocking line open = NEEDS_ANSWERS (exit 3), a
     # workbook written or not (run_stages.generate_outcome)
     entry_of: dict[str, dict] = {}
+    feed_records: dict[str, dict] = {}
+    from codegen import input_choices as choices_mod
     # D1 post51 (2026-10-15): CODEGEN_STAGES.json records the generate outcome.
     # CRASHED (an exception mid-write): the feed's partial emit files are deleted,
     # the emit stages SKIPPED. GATE_FAIL (complete, the gate said no): the files
@@ -639,7 +645,11 @@ def _run_pairs(
                 continue
             matched_feed = True
             index = owed_mod.frd_feed_index(frd_path, spec.feed_id, config)
-            faq_answers = owed_mod.answers_for(inputs, index, spec.feed_id)
+            resolved = _input_choices(spec, config, inputs, choices, index, output_mode,
+                                      iig_template, conventions_profile)
+            feed_records[spec.feed_id] = choices_mod.records(resolved)
+            faq_answers = {**owed_mod.answers_for(inputs, index, spec.feed_id),
+                           **choices_mod.faq_answers(resolved)}
             feed_dir = out_root / spec.feed_slug
             run_stages.clear_quarantine(feed_dir)
             before = run_stages.snapshot(feed_dir)
@@ -654,10 +664,12 @@ def _run_pairs(
                 owed = owed_mod.owed_inputs(
                     spec, config, index=index, output_mode=output_mode,
                     iig_template=iig_template,
-                    faq=with_faq_answers(faq_for_spec(spec, config), faq_answers))
+                    faq=with_faq_answers(faq_for_spec(spec, config), faq_answers),
+                    resolved=resolved, profile=config.conventions.get(conventions_profile))
                 for item in owed:
                     print(owed_mod.input_line(item))
                 owed_items += owed_mod.template_items(owed)
+                owed_items += choices_mod.shared_template_items(spec.feed_id, owed)
                 open_items += [run_stages.open_item("INPUT_NEEDED", item.key, feed=spec.feed_id)
                                for item in owed]
                 # 2026-10-14 (D1 pair_12): files the LOB lookup keyed to no single
@@ -743,6 +755,9 @@ def _run_pairs(
     code = 1 if failed else EXIT_NEEDS_ANSWERS if outcome == "NEEDS_ANSWERS" else 0
     for feed_id, entry in entry_of.items():
         entry["open"] = run_stages.open_counts([i for i in open_items if i.get("feed") == feed_id])
+        # post59: each defaulted input's source (default | standard | blank | answer)
+        if feed_records.get(feed_id):
+            entry["inputs"] = feed_records[feed_id]
     statuses = run_stages.stage_statuses(outcome, kept, quarantined)
     for stage in run_stages.EMIT_STAGES:
         if outcome in ("CRASHED", "FAIL"):
@@ -763,8 +778,32 @@ def _run_pairs(
     return code
 
 
+def _input_choices(spec, config: Config, inputs: dict[str, str], choices: dict, index,
+                   output_mode, iig_template, conventions_profile) -> list:
+    """post59: the feed's defaulted inputs resolved (codegen.input_choices) —
+    framework output with an IIG template that owes cells only."""
+    from codegen import input_choices as choices_mod
+    from codegen.owed_inputs import _template
+
+    tpl = _template(config, output_mode, iig_template)
+    if tpl is None or not tpl.owed_cells:
+        return []
+    return choices_mod.resolve_feed(
+        spec, profile=config.conventions.get(conventions_profile), tpl=tpl, inputs=inputs,
+        choices=choices, index=index, faq=faq_for_spec(spec, config), base=Path("."))
+
+
+def _answers_choices(path: Path | None) -> dict:
+    """``generate --answers``: the answers file's explicit input choices."""
+    if path is None:
+        return {}
+    from codegen.layout.answers import load_answers
+
+    return load_answers(path).input_choices
+
+
 def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_template,
-                     *, dry_run: bool = False):
+                     *, dry_run: bool = False, choices: dict | None = None):
     """2026-10-14: the run's environment. An answers-file ``inputs:
     run.environment`` selects one when no flag did; a run on the default
     prints ONE INPUT_NEEDED line naming the environment it assumed (and returns
@@ -811,7 +850,7 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
     items = [*owed_mod.environment_inputs(config, output_mode=output_mode,
                                           iig_template=iig_template),
              *owed_mod.run_owed_inputs(config, inputs, output_mode=output_mode,
-                                       iig_template=iig_template)]
+                                       iig_template=iig_template, choices=choices)]
     for line in owed_mod.run_block_lines(items):
         print(line)
     from codegen.run_stages import open_item
@@ -820,7 +859,9 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
                       for key, reason in questions),
                     *(TemplateItem(i.key, i.question,
                                    list(config.environments) if i.key == envs.INPUT_KEY else [],
-                                   owed_mod.INPUTS_SECTION) for i in items)], \
+                                   owed_mod.INPUTS_SECTION, options=list(i.options),
+                                   proposed=i.proposed, proposed_template=i.template)
+                      for i in items)], \
         [*(open_item("QUESTION", key) for key, _ in questions),
          *(open_item("INPUT_NEEDED", i.key) for i in items)]
 

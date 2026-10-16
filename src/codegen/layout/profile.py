@@ -312,6 +312,18 @@ class LayoutProfile(BaseModel):
     strategy: str
     unresolved: list[UnresolvedRole] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # post59: the BSA's answer to "which file feeds this sheet's table?" (the
+    # split step's tie), cached with the profile — sheet -> file as answered;
+    # the next run of the same workbook takes it without asking. Omitted from
+    # the dump while empty (cached profiles stay byte-identical).
+    file_choices: dict[str, str] = Field(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_file_choices(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("file_choices"):
+            data.pop("file_choices", None)
+        return data
 
     def sheet(self, name: str) -> SheetProfile | None:
         for sheet in self.sheets:

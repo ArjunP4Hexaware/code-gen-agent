@@ -1523,9 +1523,12 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
     split_questions: list[LayoutQuestion] = []
     if frd_contract is not None and isinstance(sttm_doc.profile, LayoutProfile):
         facts = _sttm_facts(sttm_doc.profile, workbook, config)
+        remembered = dict(sttm_doc.profile.file_choices)
         frd_contract, split_flags, split_questions = split_frd_feeds_by_sttm(
             frd_contract, facts, answers.get("gaps") or {}, config,
-            force=sttm_doc.profile.strategy == "content")
+            force=sttm_doc.profile.strategy == "content", remember=remembered)
+        if remembered != sttm_doc.profile.file_choices:
+            sttm_doc.profile = sttm_doc.profile.model_copy(update={"file_choices": remembered})
         # M7: refused cells (nested tables / per-file blocks) resolve per
         # derived feed by file name; the rest stay unstated + flagged.
         frd_contract, structured_flags = resolve_structured_fields(frd_contract, config)
@@ -1910,8 +1913,52 @@ def _blank_sheet_targets(index: int, entry: dict, feed, files: list[str],
     return flags, questions
 
 
+def _file_kind(cell: str) -> str:
+    """A file candidate's source, as ``file_tie_source_priority`` names it."""
+    if cell == "FRD file pattern":
+        return "frd_pattern"
+    if cell.startswith("FRD 'Target Table Name'"):
+        return "frd_target_table"
+    return "sttm_file_details"
+
+
+_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{2,5}$")
+
+
+def _shaped(name: str, vendor: set[str]) -> bool:
+    """A vendor prefix (the name's first word is a word of the feed's source
+    system) + an extension."""
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", name) if w]
+    return bool(words) and words[0].lower() in vendor and bool(
+        _EXTENSION_RE.search(name.rstrip("*")))
+
+
+def break_file_tie(tied: list[str], kinds: dict[str, set[str]], profile,
+                   vendor: set[str]) -> tuple[str, str] | None:
+    """post59: ``tied`` files (equal name overlap with a table) — the one the
+    conventions profile prefers: the best source (``file_tie_source_priority``:
+    the FRD's landed pattern over an STTM FILE_DETAILS label …), then the shape
+    (``file_tie_shape``: a vendor prefix + an extension). (file, why) or None
+    while still tied."""
+    order = list(profile.file_tie_source_priority)
+    left = list(tied)
+    if order:
+        rank = {n: min((order.index(k) for k in kinds.get(n, set()) if k in order),
+                       default=len(order)) for n in left}
+        best = min(rank.values())
+        left = [n for n in left if rank[n] == best]
+        if len(left) == 1:
+            sources = "/".join(sorted(kinds.get(left[0], set()) & set(order)))
+            return left[0], f"source priority: {sources} first ({' > '.join(order)})"
+    if profile.file_tie_shape:
+        shaped = [n for n in left if _shaped(n, vendor)]
+        if len(shaped) == 1:
+            return shaped[0], "shape: a vendor prefix + an extension"
+    return None
+
+
 def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, config: Config,
-                            *, force: bool = False
+                            *, force: bool = False, remember: dict | None = None
                             ) -> tuple[FrdContract, list[str], list[LayoutQuestion]]:
     """A single FRD metadata block that describes several files (its
     'Target Table Name' row lists FILE names, none of them an STTM stage
@@ -1991,6 +2038,14 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     pool += [(p, "FRD file pattern") for p in feed.file_name_patterns]
     seen: set[str] = set()
     candidates = []
+    # post59: every source a file appears in (the tie-break's source priority)
+    kinds_by_id: dict[str, set[str]] = {}
+    meta_cell = facts.get("meta", {}).get("file_names", (None, None))[1]
+    for name, cell in pool:
+        key = file_identity(name) if normalize(name) else ""
+        if key:
+            kinds_by_id.setdefault(key, set()).add(
+                "sttm_meta" if cell == meta_cell else _file_kind(cell))
     for name, cell in pool:
         # One candidate per FILE (2026-10-13): the FRD's spelling (first in the
         # pool) and File Details' wildcard one made every match ambiguous.
@@ -2113,7 +2168,15 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                          f"FRD names no table for it; feed named {table!r} after the sheet")
         patterns: list[str] = []
         chosen = gaps.get(key)
-        if chosen is None and entry["sheet"] in own_file_sheets:
+        cached = (remember or {}).get(entry["sheet"]) if chosen is None else None
+        if chosen is not None and remember is not None and len(sheet_tables) > 1:
+            # post59: the BSA's answer is cached with the layout profile
+            remember[entry["sheet"]] = chosen["value"]
+        if cached is not None and any(n == cached for n, _c in candidates):
+            patterns = [cached]
+            flags.append(f"frd_unstated:{key} source_used:the BSA's earlier answer (cached in "
+                         f"the layout profile): {cached!r}")
+        elif chosen is None and entry["sheet"] in own_file_sheets:
             # The sheet states its own file: that file is this feed's.
             name, cell = entry["own_files"][0]
             patterns = [name]
@@ -2157,6 +2220,17 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
                              f"elimination: table {table!r} matches no file by name; the "
                              f"documents list {len(candidates)} files for {len(sheet_tables)} "
                              "tables and every other file pairs with another table)")
+            elif (len(tied.get(entry["sheet"], [])) > 1 and (broken := break_file_tie(
+                    [n for n, _s in tied[entry["sheet"]]],
+                    {n: kinds_by_id.get(file_identity(n), set()) for n, _c in candidates},
+                    config.conventions.get(None),
+                    {w.lower() for w in re.split(r"[^A-Za-z0-9]+", feed.source_system or "")
+                     if len(w) > 1})) is not None):
+                name, why = broken
+                cell = next(c for n, c in candidates if n == name)
+                patterns = [name]
+                flags.append(f"frd_unstated:{key} source_used:{cell}: {name!r} (tie between "
+                             f"{[n for n, _s in tied[entry['sheet']]]} broken by {why})")
             else:
                 title, hint, _s = frd_field_help(key, [], config)
                 best = [n for n, _s in tied.get(entry["sheet"], [])]
@@ -2301,7 +2375,8 @@ def split_single_frd_feed(frd: FrdContract, profile: LayoutProfile, workbook, co
         return None
     facts = _sttm_facts(profile, workbook, config)
     split, flags, questions = split_frd_feeds_by_sttm(frd, facts, gaps or {}, config,
-                                                      force=True)
+                                                      force=True,
+                                                      remember=dict(profile.file_choices))
     if len(split.feeds) < 2:
         return None
     split, structured_flags = resolve_structured_fields(split, config)

@@ -42,8 +42,10 @@ SCHED, NB, EMAIL = ("DATA_FACTORY_PIPELINE_SCHEDULE", "DATABRICKS_NOTEBOOK_DETAI
 # D1 post45 (patterns_post45, the full lists): the descriptions, the application
 # name (its default), the notebook names / paths / process names (pair_11 is a plain
 # delimited feed: no scrubbed handler prefix) and the four statuses are filled now.
+# post59: APPLICATION_NAME's default ({source}) is PROPOSED, never written
+# unanswered — an owed gap now (proposed is not applied).
 FILLED_NOW = {
-    SCHED: ["PIPELINE_DESCRIPTION", "APPLICATION_NAME"],
+    SCHED: ["PIPELINE_DESCRIPTION"],
     NB: ["PROCESS_NAME", "DATABRICKS_NOTEBOOK_PATH", "DATABRICKS_NOTEBOOK_NAME"],
     EMAIL: ["TEMPLATE_NAME", "PROCESS_NAME", "SENDER_NAME", "STATUS", "SUBJECT"],
 }
@@ -57,7 +59,8 @@ D1_PLACEHOLDER = {EMAIL: ["SENDER_EMAIL"]}
 # the home goldens fill these; the corpus does not (DAY_OF_SCHEDULE blank unless
 # Weekly), or no document does (ACTIVE_START_DATE owed), or the value is scrubbed
 # (SENDER_EMAIL, EMAIL_TO; BODY: 1 of the 4 status bodies carries the word G564)
-OPEN_GAPS = {SCHED: ["PIPELINE_NAME", "DAY_OF_SCHEDULE", "ACTIVE_START_DATE"],
+OPEN_GAPS = {SCHED: ["PIPELINE_NAME", "DAY_OF_SCHEDULE", "ACTIVE_START_DATE",
+                    "APPLICATION_NAME"],
              NB: ["PIPELINE_NAME"],
              EMAIL: ["BODY", "SENDER_EMAIL", "EMAIL_TO"]}
 
@@ -125,7 +128,8 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
     # corpus values are production text: withheld unless --show-values
     assert all(c["dominant_value"] is None for s in report.values()
                for c in s["columns"].values())
-    assert "GAPS (3): PIPELINE_NAME, DAY_OF_SCHEDULE, ACTIVE_START_DATE" in capsys.readouterr().out
+    assert ("GAPS (4): PIPELINE_NAME, DAY_OF_SCHEDULE, ACTIVE_START_DATE, APPLICATION_NAME"
+            in capsys.readouterr().out)
 
 
 def test_fill_rate_statuses_on_a_synthetic_corpus(tmp_path):

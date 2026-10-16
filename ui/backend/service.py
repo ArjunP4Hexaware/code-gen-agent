@@ -246,6 +246,7 @@ class GenerationStore:
         playbook_template: str | None = None,
         layout_usage=None,
         environment=None,
+        faq_answers: dict | None = None,
     ) -> FeedRun:
         # Mirrors codegen.cli._generate_feed step for step — keep in sync.
         # 2026-10-14: ``environment`` = the run's (codegen.environments; None =
@@ -292,7 +293,12 @@ class GenerationStore:
         stage("emitting code")
         # Three-input model: mirrors cli._generate_feed — FAQ file answers
         # plus contract prefills; missing file => defaults, flagged by gate.
-        faq = faq_for_spec(spec, self.config, base_dir=REPO_ROOT)
+        # post59: the BSA's confirmed choices (codegen.input_choices) ride the
+        # FAQ answers exactly as the CLI's answers file does
+        from codegen.faq import with_faq_answers
+
+        faq = with_faq_answers(faq_for_spec(spec, self.config, base_dir=REPO_ROOT),
+                               faq_answers)
 
         duplicate_outcome = next(
             (o for o in outcomes if o.feature == "allow_duplicate_file_name"), None

@@ -1038,7 +1038,17 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   </ErrorCard>
                 ) : null}
                 {!running && (status.inputs_needed ?? []).length ? (
-                  <InputsNeededBanner items={status.inputs_needed ?? []} />
+                  <InputsNeededBanner
+                    items={status.inputs_needed ?? []}
+                    confirmed={status.input_choices ?? {}}
+                    onConfirm={async (choices) => {
+                      try {
+                        setStatus(await api.confirmInputChoices(choices));
+                      } catch (e) {
+                        setError(e);
+                      }
+                    }}
+                  />
                 ) : null}
                 {!running && (status.needs_answers ?? []).length ? (
                   <NeedsAnswersPanel

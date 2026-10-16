@@ -1,0 +1,32 @@
+{
+  "run_id": "run_20261016T022706Z_0ac6846",
+  "timestamp": "20261016T022706Z",
+  "branch": "feature/multi-table",
+  "sha": "0ac6846",
+  "version": "0.5.8.post57",
+  "environment": "d1",
+  "endpoint": "databricks-claude-opus-5",
+  "provider": "live (databricks_fmapi)",
+  "codegen_state_dir": "repo-local codegen-state/ (UC Volume path TBD)",
+  "pairs": 12,
+  "outcomes": {
+    "PASS": [
+      "pair_01"
+    ],
+    "NEEDS_ANSWERS": [
+      "pair_02",
+      "pair_03",
+      "pair_04",
+      "pair_05",
+      "pair_07",
+      "pair_08",
+      "pair_09",
+      "pair_10",
+      "pair_11",
+      "pair_12"
+    ],
+    "FAIL": [
+      "pair_06"
+    ]
+  }
+}

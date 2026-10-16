@@ -797,7 +797,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             f"sheet {name!r}: no field rows could be read "
             f"(skipped: {sheet.skipped[:3]}{'…' if len(sheet.skipped) > 3 else ''}; "
             f"unresolved: {[u.role for u in ir.profile.unresolved_for(name)]})"),
-            _at(ir, name, sp.header_row), "sttm.missing")
+            _at(ir, name, sp.header_row), "sttm.missing", role="field_row")
     if sp.band("stage") is None:
         targets = [f"{b.layer} (columns {b.col_start}-{b.col_end}, "
                    f"{b.layer_evidence or 'band row'})"
@@ -814,7 +814,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         raise located(GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
             "empty) — a contract needs stage column and data type per field"),
-            _at(ir, name, sp.header_row), "sttm.missing")
+            _at(ir, name, sp.header_row), "sttm.missing", role=missing[0])
     flags: list[str] = []
     band_table, table_provenance = _band_constant(sheet, "stage.table")
     stage_catalog, _ = _band_constant(sheet, "stage.catalog")
@@ -933,7 +933,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             raise located(GenericExtractionError(
                 f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
                 f"column/data type (column={stage_column!r}, type={stage_type!r})"),
-                _at(ir, name, row.row, stage_column_col), "sttm.missing")
+                _at(ir, name, row.row, stage_column_col), "sttm.missing",
+                role="column" if stage_column is None else "target_type")
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values
         # (meant for yes/no columns) do not apply to it.
@@ -1012,7 +1013,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             raise located(GenericExtractionError(
                 f"sheet {name!r} row {entry.row}: audit column {entry.column!r} has datatype "
                 f"{entry.datatype_raw!r}; {audit_expectation(entry.column, config)}"),
-                _at(ir, entry.sheet, entry.row), "sttm.audit")
+                _at(ir, entry.sheet, entry.row), "sttm.audit", role="audit_column",
+                type_text=entry.datatype_raw or "")
         column = clean_audit_column(
             entry.column, prefix + "audit_columns",
             f"{entry.sheet}!{get_column_letter(entry.col)}{entry.row}" if entry.col

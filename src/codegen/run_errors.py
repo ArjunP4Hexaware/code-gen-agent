@@ -141,13 +141,21 @@ def column_number(col: int | str | None) -> int | None:
     return number
 
 
-def located(exc: BaseException, coord: Coord | None, reason: str | None = None) -> BaseException:
+def located(exc: BaseException, coord: Coord | None, reason: str | None = None, *,
+            role: str | None = None, type_text: object = None) -> BaseException:
     """Attach coordinates (and a :data:`REASONS` code) to an exception and
     return it: ``raise located(SomeError(full_message), Coord(...), "sttm.type")``.
     The message keeps its quoted text (the full tier); the coordinates tier reads
-    only ``exc.coord`` / ``exc.reason``."""
+    only ``exc.coord`` / ``exc.reason`` — and (post57) ``exc.role``, the header
+    ROLE the error is about (:func:`role_word`: template vocabulary or nothing),
+    and ``exc.type_keyword``, the TYPE KEYWORD of the cell (:func:`type_keyword`:
+    framework type vocabulary, else ``other``). Neither can carry cell text."""
     exc.coord = coord            # type: ignore[attr-defined]
     exc.reason = reason          # type: ignore[attr-defined]
+    if role is not None:
+        exc.role = role_word(role)                  # type: ignore[attr-defined]
+    if type_text is not None:
+        exc.type_keyword = type_keyword(type_text)  # type: ignore[attr-defined]
     return exc
 
 
@@ -168,6 +176,86 @@ def error_coord(exc: BaseException | None) -> Coord | None:
 def error_reason(exc: BaseException | None) -> str | None:
     """The first registered reason code on ``exc`` or its chain."""
     return next((r for e in _chain(exc) if (r := getattr(e, "reason", None)) in REASONS), None)
+
+
+def error_role(exc: BaseException | None) -> str | None:
+    """The first allowlisted header role on ``exc`` or its chain."""
+    return next((r for e in _chain(exc) if (r := getattr(e, "role", None)) in ROLE_WORDS), None)
+
+
+def error_type(exc: BaseException | None) -> str | None:
+    """The first allowlisted type keyword on ``exc`` or its chain."""
+    return next((t for e in _chain(exc)
+                 if (t := getattr(e, "type_keyword", None)) in (*TYPE_KEYWORDS, OTHER_TYPE)),
+                None)
+
+
+# ------------------------------------------------- roles and type keywords (post57)
+
+# D1 post55 pairs 05 / 06: "STTM required element missing" / "STTM audit column
+# invalid" said nothing of WHAT was missing or invalid. The coordinates tier now
+# names the header ROLE — the STTM / FRD template's own vocabulary (the layout
+# roles of codegen.layout.profile.Role plus the readers' structural words) — and
+# the TYPE KEYWORD of a data type cell — the framework's type vocabulary (the DDL
+# type map's keys, the audit datatypes, decimal); any other type reads "other".
+# Both are allowlists: a value outside them is dropped (a role) or "other" (a
+# type), never echoed. tests/test_error_roles.py keeps them in step with Role.
+ROLE_WORDS = frozenset({
+    # codegen.layout.profile.Role
+    "business_rule", "cadence", "catalog", "column", "comments", "constraints", "critical",
+    "data_definition", "data_type", "delimiter", "description", "dq_mandatory", "dq_rules",
+    "end", "example", "example_value", "field_description", "field_length", "field_name",
+    "field_sheet", "file_pattern", "format", "header_row", "inscope", "key", "length",
+    "load_rule", "lob", "mandatory", "mandatory_column", "multi_record", "not_null",
+    "null_check", "nullable", "ordinal", "phi", "pii", "position", "primary_key",
+    "record_type_field", "recycle_flag", "required", "sample_value", "schema", "segment",
+    "server", "source_database", "source_schema", "source_table", "source_type", "start",
+    "table", "table_description", "target_type", "title", "transformation", "workspace",
+    # the readers' structural words
+    "audit_column", "mapping_sheet", "file_details_sheet", "version_sheet", "field_row",
+    "metadata_block", "generator", "source_column", "source_datatype", "stage_band",
+    "recycle_validation", "version",
+})
+# template labels -> their role word (the STTM header vocabulary as written)
+_ROLE_ALIASES = {
+    "columnname": "column", "tablename": "table", "datatype": "data_type",
+    "stage_columnname": "column", "standard_columnname": "column",
+    "stage_datatype": "target_type", "standard_datatype": "target_type",
+    "stage_tablename": "table", "standard_tablename": "table",
+    "stage_schema": "schema", "standard_schema": "schema", "files": "file_pattern",
+    "file_type": "format", "fixed_width_length": "length", "fixed_width_start": "start",
+    "fixed_width_end": "end", "source_datatype": "source_datatype",
+}
+TYPE_KEYWORDS = frozenset({
+    "string", "varchar", "nvarchar", "char", "nchar", "text", "int", "integer", "bigint",
+    "smallint", "tinyint", "long", "short", "byte", "decimal", "numeric", "number", "double",
+    "float", "real", "money", "date", "datetime", "timestamp", "time", "boolean", "bool",
+    "bit", "binary", "varbinary",
+})
+OTHER_TYPE = "other"
+_WORD_TEXT = re.compile(r"[^a-z0-9]+")
+_TYPE_HEAD = re.compile(r"^\s*([A-Za-z]+)")
+
+
+def role_word(text: object) -> str | None:
+    """A header role as the coordinates tier may name it — the template label
+    normalized (``"stage DataType"`` -> ``target_type``) when it is one of
+    :data:`ROLE_WORDS`, else None."""
+    word = _WORD_TEXT.sub("_", str(text or "").lower()).strip("_")
+    word = _ROLE_ALIASES.get(word, word)
+    return word if word in ROLE_WORDS else None
+
+
+def type_keyword(text: object) -> str | None:
+    """A data type cell's leading keyword when it is framework vocabulary
+    (``"Decimal(17,2)"`` -> ``decimal``), ``other`` for any other spelling,
+    None for a blank cell."""
+    raw = str(text if text is not None else "").strip()
+    if not raw:
+        return None
+    match = _TYPE_HEAD.match(raw)
+    word = match.group(1).lower() if match else ""
+    return word if word in TYPE_KEYWORDS else OTHER_TYPE
 
 
 # ------------------------------------------------------------------ vocabulary
@@ -377,6 +465,11 @@ def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
         "counts": error_counts(exc),
         "where": path_hint(path),
     }
+    role, kind = error_role(exc), error_type(exc)
+    if role is not None:
+        payload["role"] = role
+    if kind is not None:
+        payload["type"] = kind
     tables = error_tables(exc)
     if tables is not None:
         payload["tables"] = tables
@@ -406,6 +499,14 @@ def coordinate_line(payload: object) -> str:
     reason = data.get("reason") if data.get("reason") in REASONS else "unclassified"
     phrase = REASONS[reason]
     line = f"{'FAIL':<15} {stage} — {phrase}"
+    # post57: what kind of thing — "(role target_type; type tinyint)"
+    what = []
+    if data.get("role") in ROLE_WORDS:
+        what.append(f"role {data['role']}")
+    if data.get("type") in (*TYPE_KEYWORDS, OTHER_TYPE):
+        what.append(f"type {data['type']}")
+    if what and not phrase.endswith(":"):
+        line += f" ({'; '.join(what)})"
     coord = Coord.from_dict(data.get("coord"))
     if reason == "contract.mismatch":
         # "contract mismatch, feed 2 of 3: 4 columns only in FRD, ..." (addendum 4)
@@ -600,7 +701,9 @@ def silence_pydantic_deprecations() -> None:
     warnings.filterwarnings("ignore", category=PydanticDeprecationWarning)
 
 
-__all__ = ["DOCS", "MARKER", "MISMATCH_LABELS", "REASONS", "STAGES", "Coord", "column_number",
+__all__ = ["DOCS", "MARKER", "MISMATCH_LABELS", "OTHER_TYPE", "REASONS", "ROLE_WORDS",
+           "STAGES", "TYPE_KEYWORDS", "Coord", "column_number", "error_role", "error_type",
+           "role_word", "type_keyword",
            "coordinate_line", "error_coord", "error_counts", "error_marker", "error_reason",
            "error_tables", "kind_counts", "tables_summary",
            "first_error_line", "first_error_line_full", "is_warning_line", "located",

@@ -294,7 +294,7 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str,
     if sheet_name not in workbook.sheetnames:
         raise located(
             WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing"),
-            Coord("STTM"), "sttm.missing")
+            Coord("STTM"), "sttm.missing", role="file_details_sheet")
     ws = workbook[sheet_name]
 
     header = [_norm(c) for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
@@ -345,7 +345,7 @@ def _parse_file_details(workbook, config: ExtractorConfig, name: str,
     if not rows:
         raise located(
             WorkbookParseError(f"{sheet_name}: no data rows"),
-            Coord.in_sheet("STTM", ws), "sttm.missing")
+            Coord.in_sheet("STTM", ws), "sttm.missing", role="field_row")
     return tuple(rows)
 
 
@@ -357,7 +357,7 @@ def _parse_version_history(workbook, config: ExtractorConfig, name: str) -> str:
     if sheet_name not in workbook.sheetnames:
         raise located(
             WorkbookParseError(f"{name}: required sheet {sheet_name!r} is missing"),
-            Coord("STTM"), "sttm.missing")
+            Coord("STTM"), "sttm.missing", role="version_sheet")
     ws = workbook[sheet_name]
 
     version_col: int | None = None
@@ -381,7 +381,7 @@ def _parse_version_history(workbook, config: ExtractorConfig, name: str) -> str:
     if not versions:
         raise located(
             WorkbookParseError(f"{sheet_name}: header found but no version rows below it"),
-            Coord.in_sheet("STTM", ws, row=header_row), "sttm.missing")
+            Coord.in_sheet("STTM", ws, row=header_row), "sttm.missing", role="version")
     return versions[-1]  # type: ignore[return-value]  # None filtered above
 
 
@@ -490,7 +490,7 @@ def _resolve_source_headers(
         raise located(WorkbookParseError(
             f"{ws.title}: source block is missing required column(s) {sorted(missing)}; "
             f"row-2 headers seen: {[headers[i] for i in range(*band)]}"
-        ), Coord.in_sheet("STTM", ws, row=2), "sttm.missing")
+        ), Coord.in_sheet("STTM", ws, row=2), "sttm.missing", role=sorted(missing)[0])
     return resolved
 
 
@@ -529,7 +529,8 @@ def _resolve_table_headers(
     if missing:
         raise located(WorkbookParseError(
             f"{ws.title}: {band_name} block is missing column(s) {sorted(missing)}"
-        ), Coord.in_sheet("STTM", ws, row=2), "sttm.missing")
+        ), Coord.in_sheet("STTM", ws, row=2), "sttm.missing",
+            role=f"{band_name} {sorted(missing)[0]}")
     return resolved
 
 
@@ -553,7 +554,7 @@ def _required_text(ws: Worksheet, row_number: int, value: object, column_name: s
     if text is None:
         raise located(
             WorkbookParseError(f"{ws.title} row {row_number}: {column_name} is empty"),
-            Coord.in_sheet("STTM", ws, row=row_number), "sttm.missing")
+            Coord.in_sheet("STTM", ws, row=row_number), "sttm.missing", role=column_name)
     return text
 
 
@@ -621,7 +622,7 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
             raise located(
                 WorkbookParseError(f"{ws.title} row {row_number}: NULL-check cell is empty"),
                 Coord.in_sheet("STTM", ws, row=row_number, col=source_cols["null_check"] + 1),
-                "sttm.missing")
+                "sttm.missing", role="null_check")
         nullable = not null_check.startswith("not null")
 
         rows.append(
@@ -657,7 +658,7 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
     if not rows:
         raise located(
             WorkbookParseError(f"{ws.title}: no mapping rows found"),
-            Coord.in_sheet("STTM", ws), "sttm.missing")
+            Coord.in_sheet("STTM", ws), "sttm.missing", role="field_row")
     stated_stage = {(s, t) for s, t in stage_refs if s is not None or t is not None}
     stage_schemas = {s for s, _t in stage_refs if s is not None}
     stage_tables = {t for _s, t in stage_refs if t is not None}
@@ -713,7 +714,7 @@ def _parse_audit_row(
             f"(got {column!r}) — audit column identities are unrecoverable"
         ),
             Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["columnname"] + 1),
-            "sttm.audit")
+            "sttm.audit", role="audit_column")
     raw_datatype = _text(row[stage_cols["datatype"]]) or ""
     # The legacy MAPPING- reader holds no Config: the profile model's defaults.
     datatype = audit_datatype(column, raw_datatype, None)
@@ -721,7 +722,8 @@ def _parse_audit_row(
         raise located(WorkbookParseError(
             f"{ws.title} row {row_number}: audit column {column!r} has datatype "
             f"{raw_datatype!r}; {audit_expectation(column, None)}"
-        ), Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["datatype"] + 1), "sttm.audit")
+        ), Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["datatype"] + 1), "sttm.audit",
+            role="audit_column", type_text=raw_datatype)
     return AuditRow(column=column, datatype=datatype)
 
 
@@ -761,7 +763,7 @@ def parse_recycle_text(sheet: SheetIR) -> RecycleText | None:
     if not validation:
         raise located(WorkbookParseError(
             f"{sheet.sheet_name} row {row.row_number}: recycle flag carries no validation text"
-        ), Coord("STTM", row=row.row_number), "sttm.missing")
+        ), Coord("STTM", row=row.row_number), "sttm.missing", role="recycle_validation")
     window_match = _WINDOW_DAYS_RE.search(text)
     return RecycleText(
         applies_to=row.source_column,

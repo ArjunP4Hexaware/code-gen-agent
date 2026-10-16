@@ -279,7 +279,7 @@ def _extract_contract(
             f"FRD feed(s) {unmatched_frd} have no mapping sheet in {ir.workbook_name} "
             f"(sheet stage tables: {sorted(sheet_tables)})"
         ), Coord("feed", n=[f.feed_name for f in frd.feeds].index(unmatched_frd[0]) + 1,
-                 of=len(frd.feeds)), "sttm.missing")
+                 of=len(frd.feeds)), "sttm.missing", role="mapping_sheet")
 
     return SttmContract(
         contract_name=contract_name
@@ -395,7 +395,7 @@ def _match_frd_feed(sheet: SheetIR, frd: FrdContract,
             f"sheet {sheet.sheet_name!r}: every TableName cell is blank and "
             f"{len(free)} FRD feed(s) {[f.feed_name for f in free]} are claimed by no other "
             "sheet — the sheet cannot be paired; state the table in the STTM"),
-            None, "sttm.missing")
+            None, "sttm.missing", role="table")
     matches = [f for f in frd.feeds if sheet.stage_table in f.stage_target.tables]
     if len(matches) != 1:
         raise located(ExtractionError(
@@ -434,7 +434,7 @@ def _match_file_details(feed: FrdFeed, ir: WorkbookIR) -> FileDetailsRow:
                 f"{[r.file_name for r in ir.file_details]}. Answer the layout dialog's "
                 f"'File for table {feed.feed_name}' question (the run paused there) or add "
                 "the file name to the FRD — the agent never guesses a file."
-            ), None, "frd.missing")
+            ), None, "frd.missing", role="file_pattern")
         raise located(ExtractionError(
             f"feed {feed.feed_name!r}: {len(matches)} FILE_DETAILS rows match its "
             f"file_name_patterns {feed.file_name_patterns} "
@@ -469,7 +469,7 @@ def _resolve_delimiter(feed: FrdFeed, file_name: str | None = None) -> str:
             f"feed {feed.feed_name!r}: format {feed.file_format!r} has no implied "
             "delimiter, the FRD contract states none and the file name "
             f"{file_name!r} has no delimiter-bearing extension (csv / psv / tsv)"
-        ), None, "frd.missing")
+        ), None, "frd.missing", role="delimiter")
     return implied
 
 
@@ -555,7 +555,7 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             f"feed {frd_feed.feed_name!r}: sheet {sheet.sheet_name!r} has no audit rows "
             "(trailing rows with source-side 'NA'); the contract requires at least one "
             "audit column"
-        ), None, "sttm.audit")
+        ), None, "sttm.audit", role="audit_column")
 
     recycle = None
     recycle_text = parse_recycle_text(sheet)

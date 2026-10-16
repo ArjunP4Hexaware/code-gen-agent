@@ -61,8 +61,9 @@ def test_a_parser_error_cites_coordinates_never_the_cell(tmp_path):
     line = first_error_line(done.returncode, done.stderr, done.stdout)
     assert SENTINEL not in line
     # the audit row: sheet 3 (MAPPING-ACME), row 4, the stage ColumnName column
-    assert line == (f"{'FAIL':<15} extract-sttm — STTM audit column invalid at STTM "
-                    "sheet 3 row 4 col 11 [WorkbookParseError]")
+    assert line == (f"{'FAIL':<15} extract-sttm — STTM audit column invalid (role "
+                    "audit_column; type tinyint) at STTM sheet 3 row 4 col 11 "
+                    "[WorkbookParseError]")
     # no marker line ever carries document text either
     assert all(SENTINEL not in ln for ln in done.stderr.splitlines() if ln.startswith(MARKER))
 

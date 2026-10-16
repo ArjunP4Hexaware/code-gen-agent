@@ -149,7 +149,7 @@ def _parse_metadata_block(rows, band_row: int, seg_config: SegmentedExtractorCon
         raise located(WorkbookParseError(
             f"{sheet}: metadata block is missing key(s) "
             f"{sorted(seg_config.metadata_keys[m] for m in missing)}"
-        ), Coord("STTM"), "sttm.missing")
+        ), Coord("STTM"), "sttm.missing", role=sorted(missing)[0])
     return facts
 
 
@@ -182,7 +182,7 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
     if required:
         raise located(WorkbookParseError(
             f"{sheet}: source block is missing required column(s) {sorted(required)}"),
-                Coord("STTM"), "sttm.missing")
+                Coord("STTM"), "sttm.missing", role=sorted(required)[0])
 
     def _table_block(start: int, end: int, band: str) -> dict[str, int]:
         known = {_norm(h): h for h in seg_config.table_headers}
@@ -201,7 +201,7 @@ def _resolve_blocks(header: list, band_starts: dict[str, int], max_col: int,
         if missing:
             raise located(WorkbookParseError(
                 f"{sheet}: {band} block is missing column(s) {sorted(missing)}"),
-                    Coord("STTM"), "sttm.missing")
+                    Coord("STTM"), "sttm.missing", role=f"{band} {sorted(missing)[0]}")
         return resolved
 
     stage = _table_block(stage_start, standard_start or (max_col + 1), "stage")
@@ -236,7 +236,7 @@ def _segment_rows(rows, header_row: int, blocks: _Blocks,
     if not out:
         raise located(
             WorkbookParseError(f"{sheet}: no data rows below the header row"),
-            Coord("STTM"), "sttm.missing")
+            Coord("STTM"), "sttm.missing", role="field_row")
     return out
 
 
@@ -395,13 +395,15 @@ def extract_segmented_contract(
             raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: row carries neither a Segment "
                 "value nor an audit-column identity"
-            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit")
+            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit",
+                role="audit_column")
         datatype = audit_datatype(column, datatype_raw, config)
         if datatype is None:
             raise located(WorkbookParseError(
                 f"{ws.title} row {seg_row.row_number}: audit column {column!r} has "
                 f"datatype {datatype_raw!r}; {audit_expectation(column, config)}"
-            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit")
+            ), Coord.in_sheet("STTM", ws, row=seg_row.row_number), "sttm.audit",
+                role="audit_column", type_text=datatype_raw)
         column = clean_audit_column(column, "audit_columns",
                                     f"{ws.title} row {seg_row.row_number}", annotation_flags)
         # 2026-10-14 (D1 post44 item 5): the row's transformation cell rides on
@@ -527,7 +529,7 @@ def extract_segmented_contract(
         raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no Detail-segment audit rows found "
             "(rows with empty source cells inside the Detail block)"
-        ), Coord("STTM"), "sttm.audit")
+        ), Coord("STTM"), "sttm.audit", role="audit_column")
 
     segmented = SegmentedExtraction(
         segments_found=segments_found,
@@ -566,7 +568,7 @@ def extract_segmented_contract(
             f"feed {frd_feed.feed_name!r}: no delimiter in the FRD, the metadata "
             f"block ({facts['file_type']!r}), or implied by format "
             f"{frd_feed.file_format!r}"
-        ), Coord("FRD"), "frd.missing")
+        ), Coord("FRD"), "frd.missing", role="delimiter")
 
     feed = SttmFeed(
         feed_id=feed_id,
@@ -705,7 +707,7 @@ def _require(sheet: str, row_number: int, value: str | None, what: str) -> str:
     if value is None:
         raise located(
             WorkbookParseError(f"{sheet} row {row_number}: {what} is empty"),
-            Coord("STTM", row=row_number), "sttm.missing")
+            Coord("STTM", row=row_number), "sttm.missing", role=what)
     return value
 
 

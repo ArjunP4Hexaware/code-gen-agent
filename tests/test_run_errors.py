@@ -189,7 +189,9 @@ def test_every_located_call_in_src_names_a_registered_reason():
     used = set()
     for path in src.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
-        used |= set(re.findall(r"located\((?:.|\n)*?,\s*\"([a-z_.]+)\"\)", text))
+        # post57: the reason may be followed by role= / type_text= keywords
+        used |= set(re.findall(r"located\((?:.|\n)*?,\s*\"([a-z_.]+)\""
+                               r"(?:,\s*(?:role|type_text)=[^)]*?)?\)", text))
     assert used, "no located(...) call found"
     assert used <= set(REASONS), sorted(used - set(REASONS))
 

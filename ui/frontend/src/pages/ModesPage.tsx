@@ -36,30 +36,12 @@ import {
   type OutputPart,
   type InputRequirementsResponse,
   type RequirementStatus,
-  type SourceFilesResponse,
   type SttmWorkbook,
 } from "../api";
 
 /* Run-mode picker: replay a recorded live run (instant, zero API calls) or
    fire a real live run (key-gated, cost-confirmed, stage-by-stage progress).
    Both land on the same results UI; the guided demo then walks it. */
-
-// One-line notes naming where the real value comes from — shown as the
-// SYNTHETIC badge tooltip. Honesty is the pitch.
-const LANDING_TOOLTIP =
-  "The real FRD states this under Structural Metadata → ADLS Location; " +
-  "this build carries an anonymized stand-in.";
-const STRATEGY_TOOLTIP =
-  "The real FRD states these under Structural Metadata → Load Strategy STG / STD; " +
-  "this build carries a config stand-in.";
-
-function SyntheticBadge({ title }: { title: string }) {
-  return (
-    <span className="pill synthetic" title={title}>
-      SYNTHETIC
-    </span>
-  );
-}
 
 // Middle-ellipsis: the trailing ticket/suffix (e.g. "_1005034 (1).xlsx") is
 // how these files are told apart, so the END must stay visible — plain
@@ -136,7 +118,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   const [confirming, setConfirming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [workbooks, setWorkbooks] = useState<SttmWorkbook[] | null>(null);
-  const [sourceFiles, setSourceFiles] = useState<SourceFilesResponse | null>(null);
   // null = unconfigured/unreachable → the Databricks section renders nothing.
   const [dbDocs, setDbDocs] = useState<DatabricksDocumentsResponse | null>(null);
   // The workspace REFUSED the volumes listing (502) — shown in the chooser
@@ -174,9 +155,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     api.outputOptions().then(setOutputOptions).catch((e) => {
       setError(e);
     });
-    // The source-files panel and the request-time checks render on load —
-    // live reads on the backend, nothing is cached to disk.
-    api.sourceFiles().then(setSourceFiles).catch(() => setSourceFiles(null));
+    // The request-time checks render on load — live reads on the backend,
+    // nothing is cached to disk.
     api.inputRequirements().then(setRequirements).catch(() => setRequirements(null));
     api.governanceChecks().then(setGovernance).catch(() => setGovernance(null));
     return () => {
@@ -709,157 +689,6 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </span>
               ) : null}
             </p>
-            {sourceFiles && sourceFiles.feeds.length > 0 ? (
-              <>
-                <div className="panel-subhead">Source files this run will read</div>
-                <p className="hint" style={{ marginTop: 0 }}>
-                  From the FRD contract <code>{sourceFiles.frd_contract}</code>, read at
-                  request time.
-                </p>
-                <div className="source-files-scroll">
-                  <table className="source-files-table">
-                    <thead>
-                      <tr>
-                        <th>feed</th>
-                        <th>landing root</th>
-                        <th>file patterns</th>
-                        <th>format</th>
-                        <th>frequency</th>
-                        <th>stage target</th>
-                        <th>standard target</th>
-                        <th>load strategy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sourceFiles.feeds.map((f) => (
-                        <tr key={f.feed_name}>
-                          <td>
-                            <code>{f.feed_name}</code>
-                          </td>
-                          <td>
-                            <code>{f.landing_root.value}</code>
-                            {f.landing_root.synthetic ? (
-                              <SyntheticBadge title={LANDING_TOOLTIP} />
-                            ) : null}
-                          </td>
-                          <td>
-                            {f.file_name_patterns.length === 0 ? (
-                              <em className="hint">none in FRD</em>
-                            ) : (
-                              f.file_name_patterns.map((p) => (
-                                <div key={p}>
-                                  <code>{p}</code>
-                                </div>
-                              ))
-                            )}
-                          </td>
-                          <td>
-                            {f.file_format}
-                            {f.delimiter ? (
-                              <span className="hint"> · {f.delimiter}</span>
-                            ) : null}
-                          </td>
-                          <td className="sf-wrap">
-                            {f.frequency ?? <em className="hint">not stated in FRD</em>}
-                          </td>
-                          <td>{f.stage_target ? <code>{f.stage_target}</code> : "—"}</td>
-                          <td>{f.standard_target ? <code>{f.standard_target}</code> : "—"}</td>
-                          <td>
-                            <div>
-                              {f.load_strategy.stage} <span className="hint">(stage)</span>
-                            </div>
-                            <div>
-                              {f.load_strategy.standard}{" "}
-                              <span className="hint">(standard)</span>
-                            </div>
-                            {f.load_strategy.synthetic ? (
-                              <SyntheticBadge title={STRATEGY_TOOLTIP} />
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {sourceFiles.convention_check ? (
-                  <>
-                    <div className="panel-subhead">
-                      Convention check — reference FRD document
-                    </div>
-                    <p className="hint" style={{ marginTop: 0 }}>
-                      Read live from <code>{sourceFiles.convention_check.source}</code>{" "}
-                      (Structural Metadata), at request time — the client's real
-                      convention beside the synthesized paths above.
-                    </p>
-                    <div className="source-files-scroll">
-                      <table className="source-files-table">
-                        <tbody>
-                          {(
-                            [
-                              ["ADLS Location", sourceFiles.convention_check.adls_location],
-                              ["Target Schema", sourceFiles.convention_check.target_schema],
-                              [
-                                "Load Strategy STG",
-                                sourceFiles.convention_check.load_strategy_stg,
-                              ],
-                              [
-                                "Load Strategy STD",
-                                sourceFiles.convention_check.load_strategy_std,
-                              ],
-                              [
-                                "Object / data Format",
-                                sourceFiles.convention_check.object_format,
-                              ],
-                            ] as [string, string | undefined][]
-                          )
-                            .filter(([, v]) => v)
-                            .map(([label, value]) => (
-                              <tr key={label}>
-                                <td>{label}</td>
-                                <td>
-                                  <code>{value}</code>
-                                </td>
-                                <td>
-                                  <span className="hint">from document</span>
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : null}
-                <details className="shell-block">
-                  <summary>In the Databricks workspace</summary>
-                  {sourceFiles.shell_mode === "live" ? (
-                    <div className="shell-note shell-note-live">
-                      LIVE — listed from <code>{sourceFiles.shell_source}</code> at{" "}
-                      {sourceFiles.shell_listed_at}
-                    </div>
-                  ) : (
-                    <div className="shell-note">
-                      SYNTHETIC
-                      {sourceFiles.shell_reason
-                        ? ` (live listing unavailable: ${sourceFiles.shell_reason})`
-                        : ""}{" "}
-                      — rendered from the FRD's landing location and file patterns,
-                      not a live listing.
-                    </div>
-                  )}
-                  <div className="shell-pre">
-                    {sourceFiles.shell_listing.map((line, i) => (
-                      <div
-                        key={i}
-                        className={`shell-line${line.startsWith("$ ") ? " shell-cmd" : ""}`}
-                      >
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              </>
-            ) : null}
-
             <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
             <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
               <OutputSelector

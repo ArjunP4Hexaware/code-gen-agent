@@ -414,43 +414,6 @@ export interface InputDocumentScan {
   missing?: string[];
 }
 
-export interface SourceFileValue {
-  value: string;
-  synthetic: boolean;
-}
-
-export interface SourceFileFeed {
-  feed_name: string;
-  landing_root: SourceFileValue;
-  file_name_patterns: string[];
-  file_format: string | null;
-  delimiter: string | null;
-  frequency: string | null;
-  stage_target: string | null;
-  standard_target: string | null;
-  load_strategy: { stage: string; standard: string; synthetic: boolean };
-}
-
-export interface ConventionCheck {
-  source: string;
-  adls_location?: string;
-  target_schema?: string;
-  load_strategy_stg?: string;
-  load_strategy_std?: string;
-  object_format?: string;
-}
-
-export interface SourceFilesResponse {
-  frd_contract: string;
-  feeds: SourceFileFeed[];
-  shell_listing: string[];
-  shell_mode: "live" | "synthetic";
-  shell_reason: string | null;
-  shell_source: string | null;
-  shell_listed_at: string | null;
-  convention_check: ConventionCheck | null;
-}
-
 export interface DatabricksDocument {
   name: string;
   // null when the listing gave no size (rendered "— KB")
@@ -1063,7 +1026,6 @@ export const api = {
   clearVdd: () => request<{ selected: null }>("/api/demo/vdd", { method: "DELETE" }),
   inputDocuments: () =>
     request<{ documents: InputDocumentScan[] }>("/api/demo/input-documents"),
-  sourceFiles: () => request<SourceFilesResponse>("/api/demo/source-files"),
   metadataSheet: () => request<MetadataSheetResponse>("/api/demo/metadata-sheet"),
   inputRequirements: () =>
     request<InputRequirementsResponse>("/api/demo/input-requirements"),

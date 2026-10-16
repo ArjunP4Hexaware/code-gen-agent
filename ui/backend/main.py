@@ -28,7 +28,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 
 from codegen.config import load_dotenv
-from codegen.demo_sources import scan_reference_documents, source_files_payload
+from codegen.demo_sources import scan_reference_documents
 from codegen.governance_checks import RunFacts, governance_checks_payload
 from codegen.input_requirements import input_requirements_payload
 from codegen.metadata_sheet import (
@@ -1136,21 +1136,6 @@ def input_documents() -> dict:
             },
         ]
     }
-
-
-@app.get("/api/demo/source-files")
-def demo_source_files() -> dict:
-    """The "source files this run will read" panel + synthetic shell listing.
-
-    Display data only, rendered server-side (no path logic in TypeScript);
-    reads the demo FRD contract at request time and, when the real FRD .docx
-    is present in the input dirs, its Structural Metadata convention values —
-    nothing is cached to disk.
-    """
-    try:
-        return source_files_payload(_require_store().config, REPO_ROOT)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
 
 
 def _metadata_sheet_inputs(store: GenerationStore):

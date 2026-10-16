@@ -676,7 +676,7 @@ def read_frd_convention(docx_path: Path) -> dict | None:
 
 def source_files_payload(config: Config, base_dir: Path, env=None,
                          shell_mode: str | None = None) -> dict:
-    """Everything ``GET /api/demo/source-files`` returns; also printed by
+    """The source-files payload (the App route was removed 2026-10-16); printed by
     ``codegen demo-source-files``. Contract/docx reads are local;
     ``shell_mode`` (None = config's demo.shell_listing) may add ONE
     workspace listing call for the live shell block — the CLI pins

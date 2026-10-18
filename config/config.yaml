@@ -523,6 +523,15 @@ reasoning:
   # the harness jobs and acfc_run.py. Never inferred from an endpoint or a
   # Databricks login. --provider (CLI) > CODEGEN_PROVIDER > this.
   mode: mock
+  # post67: list prices, US $ per million tokens, by model id — what a live
+  # run's MEASURED tokens cost in the App's confirm dialog (the date is shown
+  # there). A model without a row gets no dollar figure. Under FMAPI the
+  # workspace is billed in DBUs; these are the Anthropic first-party rates.
+  prices:
+    as_of: "2026-10-06"
+    source: Anthropic API list prices
+    models:
+      claude-opus-5-5: {input: 4.00, output: 20.00, cache_read: 0.20}
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
@@ -536,10 +545,10 @@ demo:
   frd: "FRD_demo_cv_golden.contract.json"
   sttm: "sttm_mapping_contracts_cv_golden.json"
   workbook: fixtures/workbooks/demo_sttm_cv_golden.xlsx
-  # Cost-confirmation copy for the live run (measured 2026-08-07 live E2E).
-  estimated_calls: 3
-  estimated_cost_usd: 0.10
-  estimated_seconds: 20
+  # post67: the live-run confirm dialog shows what the last N live runs per
+  # conventions profile took (wall-clock, calls, measured cost) — ranges from
+  # that record, "no history yet" when it is empty; no constant estimate.
+  run_history_size: 10
 
   # Reference documents the documents card checks for — DISPLAY ONLY in this
   # build; wiring these into generation is the next step. Filenames as they

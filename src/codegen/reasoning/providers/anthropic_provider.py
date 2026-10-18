@@ -17,7 +17,7 @@ import json
 from codegen.config import Config
 from codegen.reasoning.providers.ask import AttemptFailure, ask_candidate
 from codegen.reasoning.schema import CandidateResponse, ContextPack
-from codegen.reasoning.usage import timed
+from codegen.reasoning.usage import add_tokens, message_tokens, timed
 
 _SYSTEM_PROMPT = (
     "You are a data-engineering assistant proposing a REVIEW CANDIDATE for one "
@@ -58,6 +58,9 @@ class AnthropicProvider:
         self.endpoint: str | None = None
         self.calls = 0
         self.seconds = 0.0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cache_read_tokens = 0
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
         self._truncation_max_tokens = config.reasoning.truncation_max_tokens
@@ -80,6 +83,7 @@ class AnthropicProvider:
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
             )
+            add_tokens(self, message_tokens(message))
             return "".join(block.text for block in message.content if block.type == "text")
 
         return ask_candidate(timed(self, send), user_prompt, max_attempts=self._max_attempts,

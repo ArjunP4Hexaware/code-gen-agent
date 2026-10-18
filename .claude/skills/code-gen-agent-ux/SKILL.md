@@ -620,8 +620,13 @@ Title "Generate a pipeline from this STTM?". Body: "Input:
 provider** — the run makes **zero model calls** (deterministic mock
 candidates)." or "This makes real, billed Claude calls through the
 Databricks serving endpoint:" (FMAPI) / "This makes real, billed
-Anthropic API calls:" (Anthropic) followed by "**~3 calls · ≈ $0.10 ·
-~20s**" (numbers from `status.estimates`). Then "Output is isolated to
+Anthropic API calls:" (Anthropic) followed by the measured ranges of the
+last live runs for the run's conventions profile (post67, `status.live_history`,
+`ui/frontend/src/liveEstimate.ts`): "**typically 1½–2½ min · 3–5 calls ·
+≈ $0.10–0.15**" — wall-clock first — and "Measured from N runs (profile P;
+prices as of D)." Dollars only from runs whose tokens were measured and
+priced (`reasoning.prices`); none recorded = calls + wall-clock only; an
+empty record = "**no history yet**", never a constant. Then "Output is isolated to
 its own run directory; the tracked replay fixtures and default output
 are never touched." and, depending on `frd_chosen`: "Client documents in
 play: live runs on client STTM/FRD pairs are permitted only per the
@@ -780,7 +785,7 @@ it fails the app still starts with empty state and reports through
 |---|---|---|
 | `GET /api/demo/live-available` | `{available, provider, reason}` — provider is `databricks_fmapi`, `anthropic`, `mock (locked)` or null; `reason` is the remedy | — |
 | `POST /api/demo/run-live` `{confirm: true}` | Start the background live run; returns `DemoStatus` | 400 no confirm / unavailable; 409 already running |
-| `GET /api/demo/status` | `DemoStatus`: `state idle|running|done|failed`, `stages[{stage, detail, at}]`, `error`, `error_hint`, `last_run_label`, `mode`, `label`, `estimates{calls,cost_usd,seconds}`, `sttm_workbook`, `sttm_chosen`, `output_mode`, `frd_name`, `frd_chosen`, `frd_warning` | — |
+| `GET /api/demo/status` | `DemoStatus`: `state idle|running|done|failed`, `stages[{stage, detail, at}]`, `error`, `error_hint`, `last_run_label`, `mode`, `label`, `live_history{profile,runs,wall_seconds,model_seconds,calls,cost_usd,cost_runs,prices_as_of}` (ranges `{low,high}`), `sttm_workbook`, `sttm_chosen`, `output_mode`, `frd_name`, `frd_chosen`, `frd_warning` | — |
 | `POST /api/demo/output-mode` `{mode|null}` | `notebook|framework|both`; null = config default → `DemoStatus` | 400 bad value; 409 running |
 
 `error_hint` = `{sttm, frd_used, candidate_doc_id, message}` when a
@@ -983,7 +988,7 @@ string `#006300`; number/boolean `#1c5cab`; function/class/decorator
    section hidden on 503 and shown with Retry on 502, fetch/re-fetch/
    fetched states, companion FRDs collapsed, FRD section with paired /
    suggested / local / no-contract rows, Done vs Cancel.
-9. Cost modal shows estimates from the backend and the FMAPI wording;
+9. Cost modal shows the measured live-run ranges (or "no history yet") and the FMAPI wording;
    confirm → run → 1 s polling → stage checklist → View results.
 10. Failed run shows the error and, when hinted, the one-click companion
     FRD button; no auto-retry.

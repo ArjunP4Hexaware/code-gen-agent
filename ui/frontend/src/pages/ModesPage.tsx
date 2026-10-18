@@ -19,7 +19,8 @@ import { EnvironmentSelector } from "../components/EnvironmentSelector";
 import { OUTPUT_COPY, OutputSelector } from "../components/OutputSelector";
 import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
-import { fmtKb, fmtNumber } from "../format";
+import { fmtKb } from "../format";
+import { liveEstimate } from "../liveEstimate";
 import {
   api,
   ApiError,
@@ -543,7 +544,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
     if (!advice) return;
     setPicks(applyAdvicePicks(s?.layout_questions ?? [], advice, picks));
   };
-  const est = status?.estimates;
+  const estimate = liveEstimate(status?.live_history);
 
   return (
     <div>
@@ -1555,8 +1556,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   "This makes real, billed Anthropic API calls:"
                 )}
                 <br />
-                <strong>~{est?.calls ?? 3} calls · ≈ ${fmtNumber(est?.cost_usd ?? 0.1, 2)} · ~
-                {est?.seconds ?? 20}s</strong>
+                <strong data-testid="live-estimate">{estimate.headline}</strong>
+                <br />
+                <span className="hint">{estimate.detail}</span>
               </p>
             )}
             <p className="hint">

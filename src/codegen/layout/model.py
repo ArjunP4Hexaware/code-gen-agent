@@ -28,7 +28,7 @@ from typing import Protocol
 
 from codegen.config import Config
 from codegen.layout.profile import ROLE_DEFINITIONS, LayoutProfile, UnresolvedRole
-from codegen.reasoning.usage import timed
+from codegen.reasoning.usage import add_tokens, message_tokens, timed
 
 
 class LayoutProviderError(RuntimeError):
@@ -361,14 +361,22 @@ class FmapiLayoutProvider:
         self.model = config.reasoning.model
         self.calls = 0
         self.seconds = 0.0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cache_read_tokens = 0
 
     def _chat(self, system: str):
         from codegen.databricks import chat
 
         def send(prompt: str) -> str:
-            return chat(self._cfg, messages=[{"role": "system", "content": system},
-                                             {"role": "user", "content": prompt}],
-                        endpoint=self._endpoint, max_tokens=self._max_tokens)
+            counts: dict = {}
+            try:
+                return chat(self._cfg, messages=[{"role": "system", "content": system},
+                                                 {"role": "user", "content": prompt}],
+                            endpoint=self._endpoint, max_tokens=self._max_tokens,
+                            usage=counts)
+            finally:
+                add_tokens(self, counts)
         return timed(self, send)
 
     def _count(self) -> None:
@@ -399,6 +407,9 @@ class AnthropicLayoutProvider:
         self.endpoint: str | None = None
         self.calls = 0
         self.seconds = 0.0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cache_read_tokens = 0
 
     def _messages(self, system: str):
         import anthropic
@@ -412,6 +423,7 @@ class AnthropicLayoutProvider:
             message = client.messages.create(
                 model=self._model, max_tokens=self._max_tokens, system=system,
                 messages=[{"role": "user", "content": prompt}])
+            add_tokens(self, message_tokens(message))
             return "".join(block.text for block in message.content
                            if getattr(block, "type", "") == "text")
         return timed(self, send)

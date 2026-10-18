@@ -551,6 +551,35 @@ class ExtractorConfig(BaseModel):
         return self
 
 
+class ModelPriceConfig(BaseModel):
+    """One model's list price, US dollars per million tokens."""
+
+    model_config = _MODEL_CONFIG
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+    cache_read: float = Field(ge=0)
+
+
+class PriceTableConfig(BaseModel):
+    """Per-model prices (model id -> $/MTok) and the date they were read."""
+
+    model_config = _MODEL_CONFIG
+
+    as_of: str
+    source: str
+    models: dict[str, ModelPriceConfig] = Field(default_factory=dict)
+
+    def cost_usd(self, model: str | None, *, input_tokens: int, output_tokens: int,
+                 cache_read_tokens: int = 0) -> float | None:
+        """Tokens x this table's price for ``model``; None when it has no row."""
+        price = self.models.get(model or "")
+        if price is None:
+            return None
+        return (input_tokens * price.input + output_tokens * price.output
+                + cache_read_tokens * price.cache_read) / 1_000_000
+
+
 class ReasoningConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -569,6 +598,9 @@ class ReasoningConfig(BaseModel):
     # 2026-10-13: mock | live — the ONE provider switch (codegen.reasoning.mode);
     # CODEGEN_PROVIDER / --provider win. Never inferred from an endpoint.
     mode: Literal["mock", "live"] = "mock"
+    # post67: what a live run's measured tokens cost (the App's confirm
+    # dialog); a model missing from the table = no dollars shown, never a guess
+    prices: PriceTableConfig | None = None
 
 
 class DemoInputDocumentsConfig(BaseModel):
@@ -693,10 +725,9 @@ class DemoConfig(BaseModel):
     vdd_pairing_map: dict[str, str] = Field(default_factory=dict)
     # Workbook the live demo extracts from (repo-relative path).
     workbook: str
-    # Cost-confirmation copy shown before a live run fires.
-    estimated_calls: int = Field(gt=0)
-    estimated_cost_usd: float = Field(gt=0)
-    estimated_seconds: int = Field(gt=0)
+    # post67: the live-run confirm dialog shows ranges from the last N live
+    # runs per conventions profile (ui/backend/run_history.py) — no constants.
+    run_history_size: int = Field(default=10, gt=0)
     # Display-only panels (codegen.demo_sources); all default so an older
     # config still loads unchanged.
     # Shell-block source: live (list the real landing volume) | synthetic

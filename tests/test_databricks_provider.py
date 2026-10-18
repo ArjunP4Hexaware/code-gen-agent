@@ -97,7 +97,7 @@ def _stub_chat(monkeypatch, responses: list[str]) -> dict:
 
     calls = {"count": 0, "kwargs": []}
 
-    def fake_chat(cfg, messages, endpoint=None, max_tokens=1024):
+    def fake_chat(cfg, messages, endpoint=None, max_tokens=1024, usage=None):
         calls["count"] += 1
         calls["kwargs"].append({"messages": messages, "endpoint": endpoint,
                                 "max_tokens": max_tokens})

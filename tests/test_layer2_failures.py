@@ -42,7 +42,7 @@ def _pack() -> ContextPack:
 def _provider(config, monkeypatch, responses):
     calls: list[dict] = []
 
-    def fake_chat(cfg, messages, endpoint=None, max_tokens=1024):
+    def fake_chat(cfg, messages, endpoint=None, max_tokens=1024, usage=None):
         calls.append({"prompt": messages[1]["content"], "max_tokens": max_tokens})
         answer = responses.pop(0)
         if isinstance(answer, Exception):

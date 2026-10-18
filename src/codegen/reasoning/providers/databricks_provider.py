@@ -22,7 +22,7 @@ from codegen.config import Config
 from codegen.reasoning.providers.anthropic_provider import _SYSTEM_PROMPT
 from codegen.reasoning.providers.ask import AttemptFailure, ask_candidate
 from codegen.reasoning.schema import CandidateResponse, ContextPack
-from codegen.reasoning.usage import timed
+from codegen.reasoning.usage import add_tokens, timed
 
 
 class DatabricksFmapiProvider:
@@ -49,6 +49,9 @@ class DatabricksFmapiProvider:
         self.model = config.reasoning.model
         self.calls = 0
         self.seconds = 0.0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cache_read_tokens = 0
         self.requests = 0
         self.failures: list[AttemptFailure] = []
 
@@ -64,15 +67,20 @@ class DatabricksFmapiProvider:
 
         def send(prompt: str, max_tokens: int) -> str:
             self.calls += 1
-            return chat(
-                self._cfg,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                endpoint=self._endpoint,
-                max_tokens=max_tokens,
-            )
+            counts: dict = {}
+            try:
+                return chat(
+                    self._cfg,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    endpoint=self._endpoint,
+                    max_tokens=max_tokens,
+                    usage=counts,
+                )
+            finally:
+                add_tokens(self, counts)
 
         return ask_candidate(timed(self, send), user_prompt, max_attempts=self._max_attempts,
                              max_tokens=self._max_tokens,

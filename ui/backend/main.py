@@ -646,11 +646,10 @@ def demo_status() -> dict:
         **runner_status,
         "mode": _require_store().mode,
         "label": _require_store().label,
-        "estimates": {
-            "calls": demo.estimated_calls,
-            "cost_usd": demo.estimated_cost_usd,
-            "seconds": demo.estimated_seconds,
-        },
+        # post67: what the last live runs for the run's conventions profile
+        # took (ui/backend/run_history.py) — the confirm dialog's ranges
+        "live_history": _require_runner().live_history.view(
+            _require_runner().live_history_profile()),
         # Which STTM workbook a live run would consume — file name only, so
         # the "choose an STTM" step is legible in the UI before firing.
         # sttm_chosen distinguishes an operator's explicit pick from the

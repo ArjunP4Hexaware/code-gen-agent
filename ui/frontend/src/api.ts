@@ -239,6 +239,25 @@ export interface ErrorDetail {
   request?: string;
 }
 
+export interface ValueRange {
+  low: number;
+  high: number;
+}
+
+/** post67: ranges over the last live runs (the fastest / slowest one left out
+ * from five runs on); null = nothing recorded. Cost comes only from runs whose
+ * tokens were measured and priced (``cost_runs`` of ``runs``). */
+export interface LiveHistory {
+  profile: string;
+  runs: number;
+  wall_seconds: ValueRange | null;
+  model_seconds: ValueRange | null;
+  calls: ValueRange | null;
+  cost_usd: ValueRange | null;
+  cost_runs: number;
+  prices_as_of: string | null;
+}
+
 export interface DemoStatus {
   // needs_answers: EVERY feed of the last run is held back — the list below
   // is the outcome (answered inline and re-run), never a generic failure.
@@ -288,7 +307,9 @@ export interface DemoStatus {
   vdd_name?: string | null;
   mode: RunMode;
   label: string | null;
-  estimates: { calls: number; cost_usd: number; seconds: number };
+  // post67: the last live runs for the run's conventions profile — the
+  // confirm dialog's ranges (ui/backend/run_history.py); runs 0 = no history
+  live_history?: LiveHistory;
   sttm_workbook?: string;
   sttm_chosen?: boolean;
   output_mode?: OutputPart[] | null;

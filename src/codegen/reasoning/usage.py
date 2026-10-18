@@ -58,6 +58,12 @@ class StageUsage:
     # D1 post51 pair_03 (109 s vs ~10 s): wall-clock seconds the live calls
     # took, retries included — which stage the time went to.
     seconds: float = 0.0
+    # post67: tokens the live calls reported, summed per call (the App's
+    # measured cost reads them; never part of the label). input excludes
+    # cache reads, as the Anthropic API counts them.
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
 
     @property
     def forced_mock(self) -> bool:
@@ -120,6 +126,9 @@ def usage_from_provider(stage: str, provider, *, requests: int, failed: int = 0,
         mock_reason=(getattr(provider, "mock_reason", None) or MOCK_REASON_DEFAULT)
         if is_mock and provider is not None else None,
         seconds=0.0 if is_mock else round(float(getattr(provider, "seconds", 0.0) or 0.0), 1),
+        input_tokens=0 if is_mock else int(getattr(provider, "input_tokens", 0) or 0),
+        output_tokens=0 if is_mock else int(getattr(provider, "output_tokens", 0) or 0),
+        cache_read_tokens=0 if is_mock else int(getattr(provider, "cache_read_tokens", 0) or 0),
     )
 
 
@@ -144,6 +153,9 @@ def merge(stage: str, usages: list[StageUsage]) -> StageUsage:
         mock_reason="; ".join(reasons) or None,
         recorded_provider=first.recorded_provider,
         seconds=round(sum(u.seconds for u in usages), 1),
+        input_tokens=sum(u.input_tokens for u in usages),
+        output_tokens=sum(u.output_tokens for u in usages),
+        cache_read_tokens=sum(u.cache_read_tokens for u in usages),
     )
 
 
@@ -157,6 +169,39 @@ def timed(owner, send):
         finally:
             owner.seconds = getattr(owner, "seconds", 0.0) + time.perf_counter() - start
     return wrapped
+
+
+TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens")
+
+
+def add_tokens(owner, counts: dict) -> None:
+    """Add one call's token counts (``TOKEN_FIELDS``) to ``owner``'s running
+    totals (what StageUsage reads)."""
+    for name in TOKEN_FIELDS:
+        setattr(owner, name, getattr(owner, name, 0) + int(counts.get(name) or 0))
+
+
+def message_tokens(message) -> dict:
+    """An Anthropic-API message's ``usage`` (input_tokens / output_tokens /
+    cache_read_input_tokens) in ``add_tokens``' shape."""
+    counts = getattr(message, "usage", None)
+    return {"input_tokens": getattr(counts, "input_tokens", 0) or 0,
+            "output_tokens": getattr(counts, "output_tokens", 0) or 0,
+            "cache_read_tokens": getattr(counts, "cache_read_input_tokens", 0) or 0}
+
+
+def completion_tokens(response) -> dict:
+    """An FM API (chat-completions shape) response's ``usage`` — prompt_tokens
+    / completion_tokens, cached prompt tokens from ``prompt_tokens_details``
+    when the endpoint reports them — in ``add_tokens``' shape."""
+    counts = getattr(response, "usage", None)
+    prompt = int(getattr(counts, "prompt_tokens", 0) or 0)
+    details = getattr(counts, "prompt_tokens_details", None)
+    cached = int((details.get("cached_tokens") if isinstance(details, dict)
+                  else getattr(details, "cached_tokens", 0)) or 0)
+    return {"input_tokens": max(prompt - cached, 0),
+            "output_tokens": int(getattr(counts, "completion_tokens", 0) or 0),
+            "cache_read_tokens": cached}
 
 
 def layer2_usage(provider, candidates) -> StageUsage:
@@ -212,8 +257,12 @@ __all__ = [
     "LIVE_PROVIDERS",
     "NO_CALL_NEEDED",
     "StageUsage",
+    "TOKEN_FIELDS",
+    "add_tokens",
+    "completion_tokens",
     "layer2_usage",
     "merge",
+    "message_tokens",
     "model_display_name",
     "replay_usage",
     "run_usage",

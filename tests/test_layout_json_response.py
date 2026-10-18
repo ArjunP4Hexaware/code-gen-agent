@@ -54,7 +54,7 @@ def _live(config, monkeypatch, responses: list[str]) -> tuple[FmapiLayoutProvide
     prompts: list[str] = []
     queue = list(responses)
 
-    def fake_chat(cfg, messages, endpoint=None, max_tokens=0, client=None):
+    def fake_chat(cfg, messages, endpoint=None, max_tokens=0, client=None, usage=None):
         prompts.append(messages[-1]["content"])
         return queue.pop(0)
 

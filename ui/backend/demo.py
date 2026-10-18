@@ -32,6 +32,7 @@ from ui.backend.docindex import (
     fetch_exclusive,
 )
 from ui.backend.errors import error_detail
+from ui.backend.run_history import LiveRunHistory, run_entry
 from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
 
 # State files under the default (local) state role — module constants so tests
@@ -312,6 +313,11 @@ class DemoRunner:
         # Built from the providers the run actually used, never from config.
         self.model_usage: list[dict] = []
         self._layout_providers: list = []
+        # post67: the last live runs per conventions profile (the confirm
+        # dialog's ranges) and the seconds the current run waited for the person
+        self.live_history = LiveRunHistory(lambda: self._store.config)
+        self._waited_for_person = 0.0
+        self._run_label: str | None = None         # the current run's folder name
         # "Clear past runs" in progress: a run must not start into it.
         self._clearing = False
         # Recording the selection (selection.json in the state role) happens
@@ -1024,7 +1030,7 @@ class DemoRunner:
         self._layout_event.clear()
         self.state = "needs_layout"
         self._stage("needs pairing", "; ".join(d.reason for d in pending))
-        self._layout_event.wait()
+        self._wait_for_person()
         self.state = "running"
         reply = self._layout_answers or {}
         self.layout_questions = []
@@ -2038,7 +2044,7 @@ class DemoRunner:
             self.state = "needs_layout"
             self._stage("needs layout", f"{len(result.questions)} unresolved role(s) — "
                                         "waiting for the human")
-            self._layout_event.wait()
+            self._wait_for_person()
             self.state = "running"
             reply = self._layout_answers or {}
             self.layout_questions = []
@@ -2328,15 +2334,45 @@ class DemoRunner:
             self.run_notes.append(note)
             self._stage("VDD not decided at run start", note + " — running without a VDD")
 
+    def _wait_for_person(self) -> None:
+        """Wait for the dialog's reply; the time is left out of the run's
+        recorded wall-clock (it measures the run, not the person)."""
+        started = time.monotonic()
+        try:
+            self._layout_event.wait()
+        finally:
+            self._waited_for_person += time.monotonic() - started
+
+    def live_history_profile(self) -> str:
+        """The conventions profile a run would use (the history's key)."""
+        return self.conventions_profile or self._store.config.conventions.profile
+
+    def _record_live_run(self, started: float, profile: str) -> None:
+        """Add a completed run to the live-run record — a live run only, and
+        never at the run's expense (a failed write is logged, not raised)."""
+        try:
+            entry = run_entry(label=self._run_label, model_usage=self.model_usage,
+                              wall_seconds=time.monotonic() - started - self._waited_for_person,
+                              prices=self._store.config.reasoning.prices)
+            if entry is not None:
+                self.live_history.record(profile, entry)
+        except Exception:  # noqa: BLE001 — the record is best-effort
+            log.exception("live-run record not written")
+
     def _run(self) -> None:
         self._run_items = []
         self._open_owed = []
         self.inputs_needed = []
         self.outcome = None
+        started = time.monotonic()
+        self._waited_for_person = 0.0
+        self._run_label = None
+        profile = self.live_history_profile()
         try:
             self._await_pairing()
             self._note_undecided_vdd()
             self._work()
+            self._record_live_run(started, profile)
             # Some feeds held back: the run is done, the list says what they
             # need — and the owed questions "Proceed with unresolved" left
             # open (a feed that failed without one is answered inline too;
@@ -2345,6 +2381,7 @@ class DemoRunner:
             self.state = "done"
         except RunNeedsAnswers:
             # EVERY feed held back: not a failure — the list is the outcome.
+            self._record_live_run(started, profile)
             self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "needs_answers"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
@@ -2500,6 +2537,7 @@ class DemoRunner:
         # HERE, naming the keys — before anything is written (mock: INPUT_NEEDED)
         self.run_environment(config)
         label = f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self._run_label = label
         from ui.backend import stores as ui_stores
 
         # Generated into the outputs role's local directory (./out by default;

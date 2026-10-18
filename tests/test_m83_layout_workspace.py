@@ -295,7 +295,7 @@ def test_live_request_is_the_mock_request_and_is_validated(config, monkeypatch):
 
     sent: list[dict] = []
 
-    def fake_chat(cfg, messages, endpoint=None, max_tokens=0, client=None):
+    def fake_chat(cfg, messages, endpoint=None, max_tokens=0, client=None, usage=None):
         sent.append({"endpoint": endpoint, "prompt": messages[-1]["content"]})
         return TRUTH.read_text(encoding="utf-8")
 

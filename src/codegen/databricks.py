@@ -438,13 +438,15 @@ def _chat_content_text(content) -> str:
 
 
 def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = None,
-         max_tokens: int = 1024, client=None) -> str:
+         max_tokens: int = 1024, client=None, usage: dict | None = None) -> str:
     """One chat completion via a Foundation Model API serving endpoint.
 
     Anthropic remains the sole model vendor — FMAPI serving a Claude model
     is a TRANSPORT, not a vendor change. ``messages`` are
     ``{"role": ..., "content": ...}`` dicts; no sampling parameters, ever
-    (same no-temperature rule as the Anthropic provider).
+    (same no-temperature rule as the Anthropic provider). ``usage`` (post67):
+    the response's token counts are written into it
+    (``codegen.reasoning.usage.completion_tokens``; the App's live-run cost).
     """
     name = endpoint or _require(cfg, "serving_endpoint")
     if client is None:
@@ -467,6 +469,10 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
         response = client.serving_endpoints.query(
             name=name, messages=sdk_messages, max_tokens=max_tokens
         )
+        if usage is not None:
+            from codegen.reasoning.usage import completion_tokens
+
+            usage.update(completion_tokens(response))
         return _chat_content_text(response.choices[0].message.content)
     except (DatabricksConfigError, DatabricksTransportError):
         raise

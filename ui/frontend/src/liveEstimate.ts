@@ -5,7 +5,10 @@
  * measured and priced, labelled "measured from N runs" with the price rows'
  * source, and said at which price: "at this workspace's rate", or "at
  * Anthropic list price; Databricks bills in DBUs" for list-priced FM API
- * runs; "no history yet" when nothing is recorded.
+ * runs. The range comes from completed runs only (PASS /
+ * PASS_WITH_OPEN_INPUTS): "no history yet for completed runs" under
+ * ``min_runs`` of them. Runs that stopped (NEEDS_ANSWERS / GATE_FAIL) are a
+ * second line, only when there are any.
  */
 import type { LiveHistory, ValueRange } from "./api";
 
@@ -55,20 +58,35 @@ export interface LiveEstimate {
   headline: string;
   /** Where the numbers come from. */
   detail: string;
+  /** "runs that stopped for answers: typically 20–40 s"; null when none did. */
+  stopped: string | null;
+}
+
+function stoppedLine(history: LiveHistory | null | undefined): string | null {
+  const stopped = history?.stopped;
+  if (!stopped || stopped.runs === 0 || !stopped.wall_seconds) return null;
+  const span = fmtDurationRange(stopped.wall_seconds);
+  return `runs that stopped for answers: ${stopped.runs === 1 ? `${span} (1 run)`
+    : `typically ${span}`}`;
 }
 
 export function liveEstimate(history: LiveHistory | null | undefined): LiveEstimate {
   const profile = history?.profile ?? "this profile";
-  if (!history || history.runs === 0 || !history.wall_seconds || !history.calls) {
+  const stopped = stoppedLine(history);
+  if (!history || history.runs < history.min_runs || !history.wall_seconds || !history.calls) {
+    const recorded = history?.runs ?? 0;
     return {
-      headline: "no history yet",
-      detail: `No live run is recorded for profile ${profile}; this one's time, calls and `
-        + "cost will be.",
+      headline: "no history yet for completed runs",
+      detail: recorded === 0
+        ? `No completed live run is recorded for profile ${profile} yet.`
+        : `${recorded} completed live run${recorded === 1 ? "" : "s"} recorded for profile `
+          + `${profile}; a range is shown from ${history?.min_runs}.`,
+      stopped,
     };
   }
   const runs = `${history.runs} run${history.runs === 1 ? "" : "s"}`;
   const parts = [
-    `${history.runs === 1 ? "last run" : "typically"} ${fmtDurationRange(history.wall_seconds)}`,
+    `typically ${fmtDurationRange(history.wall_seconds)}`,
     fmtCallsRange(history.calls),
   ];
   const sources: string[] = [];
@@ -85,5 +103,5 @@ export function liveEstimate(history: LiveHistory | null | undefined): LiveEstim
   if (history.model_seconds && history.model_seconds.high > 0) {
     sources.push(`Model calls took ${fmtDurationRange(history.model_seconds)} of that.`);
   }
-  return { headline: parts.join(" · "), detail: sources.join(" ") };
+  return { headline: parts.join(" · "), detail: sources.join(" "), stopped };
 }

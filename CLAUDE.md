@@ -11,10 +11,13 @@ FM API `chat(usage=)`), cost = tokens × `reasoning.prices` (`anthropic` list ro
 an EMPTY `databricks_fmapi` set for the workspace's DBU rate; each row has a `source`;
 `PriceTableConfig.rate`; the dialog says "at Anthropic list price; Databricks bills in
 DBUs" or "at this workspace's rate"), the
-App's last 10 live runs per conventions profile (`ui/backend/run_history.py`,
-`live_run_history.json` in the state role; wall-clock minus dialog waits), the dialog
-(`ui/frontend/src/liveEstimate.ts`) shows ranges, "no history yet" or no dollars when no
-tokens; `demo.estimated_*` / status `estimates` removed. Test: `test_live_run_history.py`.
+App's last 10 live runs per (conventions profile, outcome) (`ui/backend/run_history.py`,
+`live_run_history.json` in the state role; wall-clock minus dialog waits; CRASHED / FAIL
+not kept), the dialog (`ui/frontend/src/liveEstimate.ts`) ranges over PASS /
+PASS_WITH_OPEN_INPUTS runs only ("no history yet for completed runs" under 3), a second
+line for NEEDS_ANSWERS / GATE_FAIL runs, no dollars when no tokens; `demo.estimated_*` /
+status `estimates` removed. Test: `test_live_run_history.py`. Open for Soham: the
+second line says "stopped for answers" for GATE_FAIL runs too (the wording as given).
 
 **After post66 (kept for reference).** post66 = the artefacts panel's per-feed
 line is `artefacts.ts reviewSummary` (sheets · rows · open inputs (blocking) · empty by

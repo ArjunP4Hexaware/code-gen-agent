@@ -17,13 +17,13 @@ declare global {
    an STTM + FRD chosen. */
 
 const HISTORY = {
-  profile: "acfc_prx", runs: 6,
+  profile: "acfc_prx", runs: 6, min_runs: 3, stopped: null,
   wall_seconds: { low: 95, high: 140 }, model_seconds: { low: 41, high: 68 },
   calls: { low: 3, high: 5 }, cost_usd: { low: 0.1, high: 0.15 }, cost_runs: 6,
   cost_basis: "list", price_source: "anthropic list price, 2026-10-06", billed_in_dbus: true,
 };
 const EMPTY = {
-  profile: "acfc_prx", runs: 0, wall_seconds: null, model_seconds: null, calls: null,
+  profile: "acfc_prx", runs: 0, min_runs: 3, stopped: null, wall_seconds: null, model_seconds: null, calls: null,
   cost_usd: null, cost_runs: 0, cost_basis: null, price_source: null, billed_in_dbus: false,
 };
 
@@ -108,12 +108,21 @@ describe("the live-run confirm dialog", () => {
     expect(modal.textContent).not.toMatch(/~\s*20s|~3 calls/);
   });
 
-  it("says 'no history yet' when nothing is recorded — no number at all", async () => {
+  it("says 'no history yet for completed runs' when none is recorded — no number at all",
+     async () => {
     liveHistory = EMPTY;
     const modal = await openConfirm();
     const headline = modal.querySelector("[data-testid=live-estimate]")!;
-    expect(headline.textContent).toBe("no history yet");
+    expect(headline.textContent).toBe("no history yet for completed runs");
     expect(headline.parentElement!.textContent).not.toContain("$");
+    expect(modal.querySelector("[data-testid=live-estimate-stopped]")).toBeNull();
+  });
+
+  it("shows the runs that stopped as a second line when there are any", async () => {
+    liveHistory = { ...HISTORY, stopped: { runs: 3, wall_seconds: { low: 22, high: 38 } } };
+    const modal = await openConfirm();
+    expect(modal.querySelector("[data-testid=live-estimate-stopped]")!.textContent)
+      .toBe("runs that stopped for answers: typically 20–40 s");
   });
 
   it("says 'at this workspace's rate' once the workspace's FM API rate priced the runs",

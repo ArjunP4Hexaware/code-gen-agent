@@ -2348,11 +2348,13 @@ class DemoRunner:
         return self.conventions_profile or self._store.config.conventions.profile
 
     def _record_live_run(self, started: float, profile: str) -> None:
-        """Add a completed run to the live-run record — a live run only, and
-        never at the run's expense (a failed write is logged, not raised)."""
+        """Add the run to the live-run record under (profile, its outcome) — a
+        live run with a kept outcome only (run_history), and never at the
+        run's expense (a failed write is logged, not raised)."""
         try:
             entry = run_entry(label=self._run_label, model_usage=self.model_usage,
                               wall_seconds=time.monotonic() - started - self._waited_for_person,
+                              outcome=self.outcome,
                               prices=self._store.config.reasoning.prices)
             if entry is not None:
                 self.live_history.record(profile, entry)
@@ -2385,6 +2387,10 @@ class DemoRunner:
             self.needs_answers = _dedup_items([*self._run_items, *self._open_owed])
             self.state = "needs_answers"
         except Exception as exc:  # noqa: BLE001 — must release the guard and surface, not crash
+            if self.outcome == "GATE_FAIL":
+                # every feed's files quarantined: a run that stopped, kept in
+                # the record (any other failure is not)
+                self._record_live_run(started, profile)
             self.error = f"{type(exc).__name__}: {exc}"
             self.error_detail = error_detail(exc)
             # The questions left open (Proceed with unresolved) stay answerable.

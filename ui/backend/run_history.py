@@ -1,18 +1,21 @@
 """post67: the record behind the live-run confirm dialog.
 
-The last ``demo.run_history_size`` live runs per conventions profile — calls,
-live-call seconds (the MODEL USAGE line's), wall-clock and measured tokens /
-cost — kept in the state role as ``live_run_history.json``. The dialog shows
-ranges FROM this record, never a constant: "no history yet" when it is
-empty, no dollar figure when no run reported tokens (or the price table has
-no row for the model). Cost = tokens x ``reasoning.prices`` — the workspace's
-FM API rate when it has the model, else the Anthropic list price; never calls
-x a constant.
+The last ``demo.run_history_size`` live runs per (conventions profile,
+generate outcome) — calls, live-call seconds (the MODEL USAGE line's),
+wall-clock and measured tokens / cost — kept in the state role as
+``live_run_history.json``. The dialog shows ranges FROM this record, never a
+constant. Its range comes from COMPLETED runs only (PASS /
+PASS_WITH_OPEN_INPUTS), "no history yet for completed runs" under
+``MIN_COMPLETED`` of them; runs that STOPPED (NEEDS_ANSWERS / GATE_FAIL) are
+kept and shown as a second line when they exist. CRASHED and FAIL runs (and
+runs that ended with no outcome) are not recorded. No dollar figure when no
+run reported tokens (or the price table has no row for the model). Cost =
+tokens x ``reasoning.prices`` — the workspace's FM API rate when it has the
+model, else the Anthropic list price; never calls x a constant.
 
 Wall-clock runs from the run's start to its end, minus the time it waited
 for the person (a pairing / layout dialog) — what a user waits for, which is
-the dialog's headline. Only completed live runs (done / needs_answers) are
-recorded: a failed run's time says nothing about the next one.
+the dialog's headline.
 """
 
 from __future__ import annotations
@@ -31,6 +34,12 @@ HISTORY_PATH = STATE_DIR / HISTORY_FILE
 # At least this many runs before the range drops the single fastest and
 # slowest one ("typically"); fewer runs show their full spread.
 TRIM_FROM = 5
+# Generate outcomes (codegen.run_stages.OUTCOMES) the record keeps: the
+# dialog's range comes from the completed ones, the stopped ones are a second line.
+COMPLETED_OUTCOMES = ("PASS", "PASS_WITH_OPEN_INPUTS")
+STOPPED_OUTCOMES = ("NEEDS_ANSWERS", "GATE_FAIL")
+# Fewer completed runs than this = "no history yet for completed runs".
+MIN_COMPLETED = 3
 
 
 def is_live(usage: dict) -> bool:
@@ -75,16 +84,18 @@ def entry_cost(entry: dict, prices) -> dict | None:
 
 
 def run_entry(*, label: str | None, model_usage: list[dict], wall_seconds: float,
-              prices=None) -> dict | None:
+              outcome: str | None, prices=None) -> dict | None:
     """One run's record from its ``model_usage`` (StageUsage.as_dict per stage);
-    None for a run no live provider answered (mock, replay)."""
+    None for a run no live provider answered (mock, replay) and for an outcome
+    the record does not keep (CRASHED, FAIL, none)."""
     live = [u for u in model_usage if is_live(u)]
-    if not live:
+    if not live or outcome not in (*COMPLETED_OUTCOMES, *STOPPED_OUTCOMES):
         return None
     calls = sum(int(u.get("calls") or 0) for u in live)
     tokens = {name: sum(int(u.get(name) or 0) for u in live) for name in TOKEN_FIELDS}
     entry = {
         "label": label,
+        "outcome": outcome,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "calls": calls,
         "model_seconds": round(sum(float(u.get("seconds") or 0.0) for u in live), 1),
@@ -112,9 +123,26 @@ def typical_range(values: list[float]) -> dict | None:
 
 
 def summary(entries: list[dict], *, profile: str, prices=None) -> dict:
-    """What the dialog shows for ``profile``: ranges over its recorded runs.
+    """What the dialog shows for ``profile``: ranges over its COMPLETED runs
+    (none under MIN_COMPLETED), and ``stopped`` — the NEEDS_ANSWERS /
+    GATE_FAIL runs' wall-clock — when there are any.
     Dollars only from runs whose tokens were measured and priced, at ONE basis:
     the workspace's rate when any run has it, else the Anthropic list price."""
+    stopped = [e for e in entries if e.get("outcome") in STOPPED_OUTCOMES]
+    completed = [e for e in entries if e.get("outcome") in COMPLETED_OUTCOMES]
+    view = {
+        "profile": profile,
+        "runs": len(completed),
+        "min_runs": MIN_COMPLETED,
+        "stopped": ({"runs": len(stopped),
+                     "wall_seconds": typical_range([e["wall_seconds"] for e in stopped])}
+                    if stopped else None),
+    }
+    if len(completed) < MIN_COMPLETED:
+        return {**view, "wall_seconds": None, "model_seconds": None, "calls": None,
+                "cost_usd": None, "cost_runs": 0, "cost_basis": None, "price_source": None,
+                "billed_in_dbus": False}
+    entries = completed
     priced = [c for c in (entry_cost(e, prices) for e in entries) if c is not None]
     basis = (PRICE_BASIS_WORKSPACE
              if any(c["basis"] == PRICE_BASIS_WORKSPACE for c in priced)
@@ -122,8 +150,7 @@ def summary(entries: list[dict], *, profile: str, prices=None) -> dict:
     used = [c for c in priced if c["basis"] in (basis, None)]
     sources = list(dict.fromkeys(s for c in used for s in c["sources"]))
     return {
-        "profile": profile,
-        "runs": len(entries),
+        **view,
         "wall_seconds": typical_range([e["wall_seconds"] for e in entries]),
         "model_seconds": typical_range([e["model_seconds"] for e in entries]),
         "calls": typical_range([e["calls"] for e in entries]),
@@ -163,22 +190,31 @@ class LiveRunHistory:
         return self._data
 
     def entries(self, profile: str) -> list[dict]:
+        """Every kept run for ``profile``, all outcomes, oldest first."""
         with self._lock:
-            return list(self._load()["profiles"].get(profile) or [])
+            by_outcome = self._load()["profiles"].get(profile)
+            if not isinstance(by_outcome, dict):       # an older record: not keyed by outcome
+                return []
+            runs = [e for kept in by_outcome.values() if isinstance(kept, list) for e in kept]
+        return sorted(runs, key=lambda e: str(e.get("at") or ""))
 
     def view(self, profile: str) -> dict:
         return summary(self.entries(profile), profile=profile,
                        prices=self._config().reasoning.prices)
 
     def record(self, profile: str, entry: dict) -> None:
+        """Keep ``entry`` under (profile, its outcome): the last N per key."""
         from ui.backend import stores as ui_stores
 
         config = self._config()
         keep = config.demo.run_history_size
         with self._lock:
             data = self._load()
-            runs = [*(data["profiles"].get(profile) or []), entry][-keep:]
-            data["profiles"][profile] = runs
+            by_outcome = data["profiles"].get(profile)
+            if not isinstance(by_outcome, dict):
+                by_outcome = data["profiles"][profile] = {}
+            outcome = entry["outcome"]
+            by_outcome[outcome] = [*(by_outcome.get(outcome) or []), entry][-keep:]
             text = json.dumps(data, indent=2, sort_keys=True) + "\n"
         path = Path(ui_stores.state_local_path(config, HISTORY_FILE, HISTORY_PATH))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -186,5 +222,5 @@ class LiveRunHistory:
         ui_stores.push_state(config, HISTORY_FILE)
 
 
-__all__ = ["HISTORY_FILE", "LiveRunHistory", "entry_cost", "run_entry", "summary",
-           "typical_range"]
+__all__ = ["COMPLETED_OUTCOMES", "HISTORY_FILE", "MIN_COMPLETED", "STOPPED_OUTCOMES",
+           "LiveRunHistory", "entry_cost", "run_entry", "summary", "typical_range"]

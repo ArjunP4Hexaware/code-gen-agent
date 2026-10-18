@@ -6,6 +6,8 @@ function history(over: Partial<LiveHistory> = {}): LiveHistory {
   return {
     profile: "acfc_prx",
     runs: 8,
+    min_runs: 3,
+    stopped: null,
     wall_seconds: { low: 95, high: 140 },
     model_seconds: { low: 41, high: 68 },
     calls: { low: 3, high: 5 },
@@ -58,15 +60,41 @@ describe("liveEstimate", () => {
     expect(estimate.detail).toContain("Model calls took 40–70 s of that.");
   });
 
-  it("says 'no history yet' — never a made-up number — when nothing is recorded", () => {
+  it("says 'no history yet for completed runs' — never a made-up number — when none is "
+     + "recorded", () => {
     for (const empty of [undefined, null, history({ runs: 0, wall_seconds: null, calls: null,
       model_seconds: null, cost_usd: null, cost_runs: 0, cost_basis: null, price_source: null,
       billed_in_dbus: false })]) {
       const estimate = liveEstimate(empty);
-      expect(estimate.headline).toBe("no history yet");
+      expect(estimate.headline).toBe("no history yet for completed runs");
       // no figure of any kind: no dollar sign, no digit
       expect(estimate.headline + estimate.detail).not.toMatch(/\$|\d/);
+      expect(estimate.stopped).toBeNull();
     }
+  });
+
+  it("needs three completed runs before it shows a range", () => {
+    const estimate = liveEstimate(history({ runs: 2, wall_seconds: null, calls: null,
+      model_seconds: null, cost_usd: null, cost_runs: 0, cost_basis: null }));
+    expect(estimate.headline).toBe("no history yet for completed runs");
+    expect(estimate.detail).toBe("2 completed live runs recorded for profile acfc_prx; a range "
+      + "is shown from 3.");
+    expect(estimate.headline + estimate.detail).not.toContain("$");
+  });
+
+  it("adds the runs that stopped as a second line, only when there are any", () => {
+    expect(liveEstimate(history()).stopped).toBeNull();
+    const two = liveEstimate(history({ stopped: { runs: 4, wall_seconds: { low: 22, high: 38 } } }));
+    expect(two.stopped).toBe("runs that stopped for answers: typically 20–40 s");
+    expect(two.headline).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at "
+      + "Anthropic list price; Databricks bills in DBUs");
+    const one = liveEstimate(history({ stopped: { runs: 1, wall_seconds: { low: 31, high: 31 } } }));
+    expect(one.stopped).toBe("runs that stopped for answers: about 30 s (1 run)");
+    // shown even before three completed runs exist
+    const early = liveEstimate(history({ runs: 0, wall_seconds: null, calls: null,
+      stopped: { runs: 2, wall_seconds: { low: 22, high: 38 } } }));
+    expect(early.headline).toBe("no history yet for completed runs");
+    expect(early.stopped).toBe("runs that stopped for answers: typically 20–40 s");
   });
 
   it("shows calls and wall-clock only, no dollars, when no run reported tokens", () => {
@@ -98,12 +126,12 @@ describe("liveEstimate", () => {
     expect(estimate.detail).toContain("Measured from 3 of 8 runs");
   });
 
-  it("calls one run the last run, not typical", () => {
-    const estimate = liveEstimate(history({ runs: 1, cost_runs: 1,
+  it("collapses equal ranges", () => {
+    const estimate = liveEstimate(history({ runs: 3, cost_runs: 3,
       wall_seconds: { low: 118, high: 118 }, calls: { low: 4, high: 4 },
       cost_usd: { low: 0.13, high: 0.13 } }));
-    expect(estimate.headline).toBe("last run about 2 min · 4 calls · ≈ $0.13 at Anthropic list "
+    expect(estimate.headline).toBe("typically about 2 min · 4 calls · ≈ $0.13 at Anthropic list "
       + "price; Databricks bills in DBUs");
-    expect(estimate.detail).toContain("Measured from 1 run ");
+    expect(estimate.detail).toContain("Measured from 3 runs ");
   });
 });

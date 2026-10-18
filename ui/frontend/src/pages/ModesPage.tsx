@@ -1559,6 +1559,14 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 <strong data-testid="live-estimate">{estimate.headline}</strong>
                 <br />
                 <span className="hint">{estimate.detail}</span>
+                {estimate.stopped ? (
+                  <>
+                    <br />
+                    <span className="hint" data-testid="live-estimate-stopped">
+                      {estimate.stopped}
+                    </span>
+                  </>
+                ) : null}
               </p>
             )}
             <p className="hint">

@@ -30,6 +30,10 @@ is invisible at home unless the suite also runs under these pins.
 | pyyaml | 6.0.1 |
 | ruff | 0.17.0 |
 | databricks-sdk | 0.30.0 |
+| nbformat | 5.11.1 |
+
+nbformat (post68, the notebook validator the suite runs) is the version tested at
+home, not one the D1 report lists: D1 to confirm on its next run.
 
 The same pins, machine-readable: `constraints/acfc_d1.txt` (a pip / uv
 constraints file; `tests/test_d1_environment.py` keeps it and this table equal).

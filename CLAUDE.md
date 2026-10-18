@@ -5,7 +5,24 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-18, after post68).** post68 = the notebook path made honest
+**RESTART HERE (2026-10-18, after post69).** post69 = notebook v2 for acfc_prx
+(`conventions.profiles.acfc_prx.notebook_version: v2`; every other profile keeps v1).
+`codegen.emit.notebook_v2` renders from `FrameworkArtefacts.payload` (the IIG rows; a
+notebook-only run emits the framework into a scratch dir and counts its checks /
+flags) through `templates/notebook_v2/*.j2`; `codegen.emit.notebook_files` = cells ->
+.ipynb + Databricks .py + the checks (nbformat, compile, ruff, scrub). Files
+`<feed>/notebook/<slug>.{ipynb,py}`. DQ registry `notebook_v2.RULES`; unknown class =
+markdown + `notebook_rule_not_implemented`; open needed IIG cell = `OPEN_CELLS` stop +
+`notebook_iig_cell_open`. Writes happen in the run cell after the DQ rules (the
+specified cell order 3-6 defines steps; the run cell executes them). `frd_path` /
+`sttm_path` now reach `generate_feed_result` (provenance coordinates). Tests:
+`test_notebook_v2.py` + fixtures `tests/notebook_v2_fixtures.py` (SD = CV golden, SFMC,
+TPL from SFMC renamed, PRX = pair 1). Tool: `tools/notebook_parity.py`. Open: SD parity
+shows v1-only PHI masking / schema drift / post-load DQ / run report / recycle, the
+file-name pattern style (IIG `prefix_star` vs FRD pattern) and the natural key (v1 FAQ /
+contract key vs an empty IIG TGT_PRIMARY_KEY).
+
+**After post68 (kept for reference).** post68 = the notebook path made honest
 (cell layout untouched; session B is the layout). One GenerateRun for both outputs: a
 blocking line withholds the feed's notebook (`run_stages.remove_notebook`, NOTE
 `feeds.<feed>.notebook`; notebook-only = `written: false`); owed inputs / choices /

@@ -4,6 +4,43 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post69 — 2026-10-18 (notebook v2 for acfc_prx; v1 unchanged elsewhere)
+
+1. **Selection:** `conventions.profiles.<p>.notebook_version` — `v1` (the default,
+   unchanged) | `v2`; acfc_prx = v2. The App's badge reads "Output: Notebook —
+   notebook: v2 (acfc_prx)".
+2. **Source of truth = the IIG rows** the workbook emitter produced (the same feed
+   contract, environment profile, overlay and answers). On a notebook-only run the
+   framework emit runs into a scratch folder: nothing of it is persisted, but its
+   gate checks and flags count for the notebook (a derivation-gate FAIL quarantines
+   the notebook). The notebook states no value the IIG does not; the storage
+   account is the one value from the environment profile. Jinja only, no model call.
+3. **Files:** `<feed>/notebook/<slug>.ipynb` (nbformat 4.5) and `<slug>.py` (a
+   Databricks notebook source: `# Databricks notebook source`, `# COMMAND ----------`,
+   `# MAGIC %md`) — the manifest's `notebook_emit` stage. **Harness:** the paths
+   moved from `<feed>/<slug>.ipynb` + `pipeline/` to `<feed>/notebook/` for acfc_prx.
+4. **Cells:** title · config (widgets `run_date` and `dry_run` only; `adls_uri()`) ·
+   read (delimited from the ADLS_DELTA row, or fixed width from
+   ADLS_FIXED_WIDTH_HANDLER; MANDATORY_FIELD_LIST rejects) · stage · standard · DQ
+   (one call per DATA_QUALITY_RULES row through a registry: DateFormat, DataTypeCast,
+   LRTrim, DateConversion, NullCheck, DeDuplication, AddCustomColumns,
+   LoadHeaderAndTrailerToSeparateTables; any other RULE_CLASS — e.g. the Custom
+   ReferentialCheckRule — is a markdown "rule not implemented" cell and a
+   `notebook_rule_not_implemented` flag) · a provenance cell per stage (IIG sheet /
+   row; STTM `sheets[i]` rows, FRD `tables[t]` row / col — coordinates only) · run ·
+   review-only Layer-2 candidates (markdown; omitted when empty). The writes happen
+   in the run cell, after the DQ rules (the rules must run before the data lands).
+   `dry_run` (default true) reads 100 rows and writes `*_dryrun`; nothing archived.
+5. **A cell the notebook needs and the IIG leaves open** stops the run at the config
+   cell (`OPEN_CELLS`) and is a `notebook_iig_cell_open` flag (e.g. SEGMENT_FILTER on
+   a multi-segment fixed-width feed without confirmed record-type discriminators).
+6. **Checks at generate time:** nbformat validate (flagged not-run where nbformat is
+   absent — a dev dependency), every code cell compiles, ruff on the .py, the scrub
+   (no ADLS host literal, no address other than the configured notification list).
+   App and CLI write byte-identical notebooks.
+7. **`tools/notebook_parity.py`** reports v1 vs v2 on a pair (cell counts, stages,
+   constants that differ; values only with `--show-values`).
+
 ## 0.5.8.post68 — 2026-10-18 (the notebook path made honest; cell layout unchanged)
 
 One commit per item, mock only, synthetic fixtures. The notebook's cells are

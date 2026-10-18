@@ -5,7 +5,15 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-16, after post66).** post66 = the artefacts panel's per-feed
+**RESTART HERE (2026-10-18, after post67).** post67 = the live-run confirm dialog is
+measured: tokens per call (`StageUsage.input_tokens / output_tokens / cache_read_tokens`,
+FM API `chat(usage=)`), cost = tokens × `reasoning.prices` (dated per-model table), the
+App's last 10 live runs per conventions profile (`ui/backend/run_history.py`,
+`live_run_history.json` in the state role; wall-clock minus dialog waits), the dialog
+(`ui/frontend/src/liveEstimate.ts`) shows ranges, "no history yet" or no dollars when no
+tokens; `demo.estimated_*` / status `estimates` removed. Test: `test_live_run_history.py`.
+
+**After post66 (kept for reference).** post66 = the artefacts panel's per-feed
 line is `artefacts.ts reviewSummary` (sheets · rows · open inputs (blocking) · empty by
 rule: <label> (<reason>)) from `framework.empty_by_rule` + `framework.open`
 (`GenerateRun.review_open`: feed + run-level lines); the derived ratio is the report's

@@ -190,6 +190,7 @@ class GenerateRun:
             self.errors[spec.feed_id] = f"{type(exc).__name__}: {exc}"
             return None
         self.results[spec.feed_id] = result
+        withheld, nothing_written = self._withhold_notebook(spec, feed_dir, before)
         if gate.verdict == "FAIL":
             self._gate_fail(spec, gate, feed_no, of, feed_dir, before, where)
             return result
@@ -197,9 +198,35 @@ class GenerateRun:
         for stage, paths in written.items():
             self.kept[stage] += paths
         self.feed_entries.append(run_stages.feed_entry(
-            self.out_root, feed_no, of, gate.verdict, written, iig_cells=gate.iig_cells))
+            self.out_root, feed_no, of, gate.verdict, written, iig_cells=gate.iig_cells,
+            withheld=withheld, nothing_written=nothing_written))
         self.entry_of[spec.feed_id] = self.feed_entries[-1]
         return result
+
+    def blocking_for(self, feed_id: str) -> list[dict]:
+        """The blocking lines open for ``feed_id``: its own and the run-level ones."""
+        return [i for i in self.open_items if i["blocking"]
+                and (i["scope"] == "run" or i.get("feed") == feed_id)]
+
+    def _withhold_notebook(self, spec, feed_dir: Path, before) -> tuple[int, bool]:
+        """post68: a feed with a blocking line open writes no notebook (the
+        workbook is still written for review, post58). A notebook-only run
+        then keeps none of its emit artefacts either: ``written: false``.
+        (files removed, nothing written)."""
+        from codegen.cli import answer_line
+        from codegen.output_modes import output_parts
+
+        parts = output_parts(self.output_mode or self.config.output.mode)
+        blocking = self.blocking_for(spec.feed_id) if "notebook" in parts else []
+        if not blocking:
+            return 0, False
+        notebook_only = "framework" not in parts
+        removed = run_stages.remove_notebook(feed_dir, before, emit_too=notebook_only)
+        keys = ", ".join(dict.fromkeys(i["key"] for i in blocking))
+        self.say(answer_line("NOTE", f"feeds.{spec.feed_id}.notebook",
+                             f"not written — {len(blocking)} blocking line(s) open ({keys}); "
+                             "answer them and re-run"))
+        return removed, notebook_only
 
     def _gate_fail(self, spec, gate, feed_no, of, feed_dir, before, where) -> None:
         """GATE_FAIL: complete artefacts, the gate said no — kept for review."""
@@ -290,10 +317,9 @@ def run_level_lines(config, inputs: dict, *, output_mode, iig_template, choices=
     from codegen import environments as envs
     from codegen import owed_inputs as owed_mod
 
-    tpl = config.metadata.templates.get(iig_template or config.metadata.template)
-    env = (envs.run_environment(config)
-           if tpl is not None and tpl.environment_cells else None)
-    questions = envs.required_items(config) if env is not None else []
+    # post68: one required-environment check whatever the output mode (the
+    # notebook reads the environment too); none when no environment is defined
+    questions = envs.required_items(config)
     items = [*owed_mod.environment_inputs(config, output_mode=output_mode,
                                           iig_template=iig_template),
              *owed_mod.run_owed_inputs(config, inputs, output_mode=output_mode,

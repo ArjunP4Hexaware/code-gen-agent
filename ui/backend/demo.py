@@ -2242,6 +2242,14 @@ class DemoRunner:
             runs[slug] = run.model_copy(update={"written_files": [
                 path.replace(f"/{slug}/", f"/{slug}/{run_stages.QUARANTINE_DIR}/", 1)
                 if f"/{slug}/" in path else path for path in run.written_files]})
+        # post68: a feed whose notebook a blocking line withheld lists only what stayed
+        for slug, run in list(runs.items()):
+            if gen.blocking_for(run.spec.feed_id) and "notebook" in parts:
+                notebook_only = "framework" not in parts
+                runs[slug] = run.model_copy(update={"written_files": [
+                    path for path in run.written_files
+                    if not run_stages.is_notebook_file(Path(path))
+                    and not (notebook_only and run_stages.emit_stage(Path(path)) is not None)]})
         return runs, failures, manifest
 
     def confirm_input_choices(self, choices: dict) -> dict:
@@ -2305,12 +2313,10 @@ class DemoRunner:
         from codegen.owed_inputs import environment_inputs, run_owed_inputs
 
         parts = self.effective_output_parts()
-        tpl = config.metadata.templates.get(self.iig_template or config.metadata.template)
-        # 2026-10-15: a required environment value unset — blocking (exit 3 on the CLI)
-        required = ([{"key": key, "question": reason, "feed": "", "scope": "run",
-                      "required": True} for key, reason in required_items(config)]
-                    if "framework" in parts and tpl is not None and tpl.environment_cells
-                    else [])
+        # 2026-10-15: a required environment value unset — blocking (exit 3 on the
+        # CLI); post68: whatever the output mode, as codegen.generate_run.run_level_lines
+        required = [{"key": key, "question": reason, "feed": "", "scope": "run",
+                     "required": True} for key, reason in required_items(config)]
         return required + [item.as_dict() for item in (
             *environment_inputs(config, output_mode=parts, iig_template=self.iig_template),
             *run_owed_inputs(config, {}, output_mode=parts, iig_template=self.iig_template,

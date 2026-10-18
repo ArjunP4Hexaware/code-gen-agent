@@ -79,6 +79,31 @@ def emit_stage(path: Path) -> str | None:
     return None
 
 
+def is_notebook_file(path: Path) -> bool:
+    """A file of the notebook output (the assembled ``.ipynb``, the
+    ``pipeline/*.py`` modules, the ``job/*`` files)."""
+    return path.suffix.lower() == ".ipynb" or path.parent.name in ("pipeline", "job")
+
+
+def remove_notebook(root: Path, before: Snapshot, *, emit_too: bool) -> int:
+    """post68: withhold a feed's notebook output — delete the notebook files it
+    wrote or rewrote since ``before`` (and, ``emit_too``, its emit artefacts:
+    a notebook-only run whose notebook is withheld keeps nothing deployable);
+    the count."""
+    removed = 0
+    for path, stamp in sorted(snapshot(root).items()):
+        if before.get(path) == stamp:
+            continue
+        if is_notebook_file(path) or (emit_too and emit_stage(path) is not None):
+            path.unlink(missing_ok=True)
+            removed += 1
+    for folder in sorted((p for p in root.rglob("*") if p.is_dir()),
+                         key=lambda p: len(p.parts), reverse=True):
+        if not any(folder.iterdir()):
+            folder.rmdir()                         # folders the removal left empty
+    return removed
+
+
 def snapshot(root: Path) -> Snapshot:
     """(mtime_ns, size) of every file under ``root`` (empty when absent),
     the ``quarantine/`` subtree excluded."""
@@ -281,7 +306,8 @@ def write_stage_manifest(out_root: Path, *, command: str, exit_code: int,
 
 def feed_entry(out_root: Path, n: int, of: int, status: str,
                written: dict[str, list[Path]], removed: int = 0,
-               quarantine_dir: Path | None = None, iig_cells: dict | None = None) -> dict:
+               quarantine_dir: Path | None = None, iig_cells: dict | None = None,
+               withheld: int = 0, nothing_written: bool = False) -> dict:
     """One feed's manifest entry (position, outcome, the artefacts it kept —
     under ``quarantine/`` for a GATE_FAIL feed; post56: ``iig_cells``, the
     feed's IIG cell counts per sheet — open_for_bsa / empty_other /
@@ -289,9 +315,12 @@ def feed_entry(out_root: Path, n: int, of: int, status: str,
     entry = {"n": n, "of": of, "status": status, "removed": removed,
              # post58: the feed's files were written (a GATE_FAIL feed's under
              # quarantine/) — the App shows them on a NEEDS_ANSWERS run too
-             "written": status != "CRASHED",
+             "written": status != "CRASHED" and not nothing_written,
              "artefacts": {stage: [p.relative_to(out_root).as_posix() for p in paths]
                            for stage, paths in written.items()}}
+    if withheld:
+        # post68: the notebook files a blocking open line withheld
+        entry["notebook_withheld"] = withheld
     if quarantine_dir is not None:
         entry["quarantine"] = quarantine_dir.relative_to(out_root).as_posix()
         entry["label"] = REVIEW_ONLY

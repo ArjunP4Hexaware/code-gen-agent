@@ -4,6 +4,50 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post68 — 2026-10-18 (the notebook path made honest; cell layout unchanged)
+
+One commit per item, mock only, synthetic fixtures. The notebook's cells are
+laid out as before (session B changes them).
+
+1. **A blocking line withholds the notebook.** A feed with a blocking line open
+   (its own, or a run-level one such as a required environment value) writes no
+   `.ipynb`, `pipeline/*.py` or `job/*`: one `NOTE feeds.<feed>.notebook — not
+   written — …` line names the keys. On a notebook-only run its emit artefacts go
+   too and the manifest entry says `written: false` (`notebook_withheld: n`);
+   next to Framework the workbook is still written for review (post58). CLI and
+   App ask the required environment values whatever the output mode.
+2. **One input set.** The owed inputs, the input choices and the answers file's
+   `run.environment` (+ `environment.<key>`) apply on a notebook run exactly as on
+   a framework run: the same open lines and counts.
+3. **Manifest:** `CODEGEN_STAGES.json` has a `notebook_emit` stage (`.ipynb`,
+   `pipeline/*.py`, `job/*`; PASS / SKIPPED like the others); a crash mid-feed
+   removes those files too. **Harness:** read the notebook paths from
+   `feeds[].artefacts.notebook_emit`, never a glob.
+4. **The environment profile reaches the notebook** (`codegen.emit.notebook_env`):
+   `feed_spec` states the stage / standard catalogs, the storage account, and the
+   landing / archive / reject containers + container-relative paths (the IIG
+   ADLS_DELTA row's own cells); `adls_uri()` builds the abfss:// address at run
+   time. No `None` default, no account in a widget. A value the profile leaves
+   unset (a catalog, the account, a container) or an unstated landing is a
+   QUESTION on a notebook run (an INPUT_NEEDED for the same key turns blocking),
+   so the notebook is withheld. A config with no environment block keeps the
+   contract's values. The create_tables=false prerequisites list every standard
+   table.
+5. **Scrub:** an address an FRD notification requirement quotes (and its domain)
+   becomes the configured `job.notification_emails` (`CODEGEN_NOTIFICATION_EMAILS`)
+   before it reaches `job/workflow.json`; the notebook text spells no ADLS host.
+6. **nbformat** is in the dev extra and `constraints/acfc_d1.txt` (5.11.1 — D1 to
+   confirm); the suite validates every notebook it emits. **ACFC side:** reinstall
+   `.venv-d1` with the constraints. The App's output toggles show the backend's
+   per-profile default only (no Notebook fallback); the "notebook not validated for
+   acfc_prx" badge stays.
+
+SD mock run, same contracts + answers, notebook vs framework (home D1 profile, its
+storage account a placeholder): both NEEDS_ANSWERS, run-level 1 blocking + 3
+non-blocking, each feed 0 blocking / 5 non-blocking; the notebook path writes no
+notebook (`written: false`). With a complete synthetic D1 profile: both
+PASS_WITH_OPEN_INPUTS with the same counts, 3 notebooks written.
+
 ## 0.5.8.post67 — 2026-10-18 (live-run confirm dialog: measured, not a constant; generated files unchanged)
 
 1. **Tokens are measured per call.** The FM API transport (`codegen.databricks.chat`,

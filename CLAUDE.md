@@ -5,7 +5,22 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-18, after post67).** post67 = the live-run confirm dialog is
+**RESTART HERE (2026-10-18, after post68).** post68 = the notebook path made honest
+(cell layout untouched; session B is the layout). One GenerateRun for both outputs: a
+blocking line withholds the feed's notebook (`run_stages.remove_notebook`, NOTE
+`feeds.<feed>.notebook`; notebook-only = `written: false`); owed inputs / choices /
+answers-file environment apply in notebook mode (`owed_inputs._template` ignores the
+mode); manifest stage `notebook_emit`; `codegen.emit.notebook_env` puts catalogs,
+account, containers and container-relative paths into feed_spec (`adls_uri()` at run
+time; a missing value = QUESTION on notebook runs; no environment block = contract
+values); `codegen.notification_contacts.redact_contacts` for FRD addresses; nbformat in
+dev + d1 constraints, conftest validates every emitted notebook. Tests:
+`test_notebook_path_honest.py`, `test_notebook_validation.py`,
+`OutputDefault.test.tsx`. Inventory item 14 (stale RFC / contracts.pairs / replay /
+SharePoint) left alone by request. Next: Genie runs MIDS, Pyx, CAQH on D1 + imports one
+notebook; the live SD run waits on Soham (client-document approval + profile).
+
+**After post67 (kept for reference).** post67 = the live-run confirm dialog is
 measured: tokens per call (`StageUsage.input_tokens / output_tokens / cache_read_tokens`,
 FM API `chat(usage=)`), cost = tokens × `reasoning.prices` (`anthropic` list rows +
 an EMPTY `databricks_fmapi` set for the workspace's DBU rate; each row has a `source`;

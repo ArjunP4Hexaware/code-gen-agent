@@ -10,6 +10,8 @@ workbook (codegen.generate_run.GenerateRun). Synthetic pair 11, mock only.
 2. One input set: the answers file's run.environment, the owed inputs and the
    input choices apply on a notebook run exactly as on a framework run — the
    same open lines, the same counts.
+3. The manifest lists the notebook output (.ipynb, pipeline/*.py, job/*) as the
+   notebook_emit stage; a crash mid-feed removes it like the workbook.
 """
 
 from __future__ import annotations
@@ -142,3 +144,52 @@ def test_the_answers_file_environment_applies_on_a_notebook_run(
     assert "QUESTION       run.environment.storage_account" not in out
     assert "NOTE           run.environment — environment: D1" in out
     assert len(_files(tmp_path / "out", ".ipynb")) == 1
+
+
+# ------------------------------------------------ 3. the manifest's notebook_emit
+
+
+def test_the_manifest_lists_the_notebook_outputs(tmp_path):
+    config, specs, pair = _pair11(tmp_path)
+    assert _run(config, pair, ["notebook"], only_feed=specs[0].feed_id) == cli.EXIT_OK
+    manifest = run_stages.read_stage_manifest(tmp_path / "out")
+    assert manifest["stages"]["notebook_emit"] == {"status": "PASS"}
+    (feed,) = manifest["feeds"]
+    listed = feed["artefacts"]["notebook_emit"]
+    slug = specs[0].feed_slug
+    assert f"{slug}/{slug}.ipynb" in listed
+    assert any(p.startswith(f"{slug}/pipeline/") and p.endswith(".py") for p in listed)
+    assert any(p.startswith(f"{slug}/job/") for p in listed)
+    assert not any(p.startswith(f"{slug}/tests/") for p in listed)
+
+
+def test_a_framework_run_skips_notebook_emit(tmp_path):
+    config, specs, pair = _pair11(tmp_path)
+    assert _run(config, pair, ["framework"], only_feed=specs[0].feed_id) == cli.EXIT_OK
+    stages = run_stages.read_stage_manifest(tmp_path / "out")["stages"]
+    assert stages["notebook_emit"] == {"status": "SKIPPED",
+                                       "reason": run_stages.SKIPPED_NOT_WRITTEN}
+
+
+def test_a_crash_removes_the_partial_notebook_output(tmp_path):
+    import pytest
+
+    from codegen.generate_run import GenerateRun
+
+    config, specs, _pair = _pair11(tmp_path)
+    out = tmp_path / "crash"
+    run = GenerateRun(config, out_root=out, output_mode=["notebook"])
+    feed_dir = out / specs[0].feed_slug
+
+    def produce(_faq):
+        for rel in ("x.ipynb", "pipeline/reader.py", "job/workflow.json", "ddl/t.sql"):
+            (feed_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+            (feed_dir / rel).write_text("partial", encoding="utf-8")
+        raise RuntimeError("mid-write")
+
+    with pytest.raises(RuntimeError):
+        run.feed(specs[0], 1, 1, frd_path=None, produce=produce)
+    assert sorted(p.name for p in feed_dir.rglob("*") if p.is_file()) == []
+    manifest = run_stages.read_stage_manifest(out)
+    assert manifest["stages"]["notebook_emit"]["status"] == "SKIPPED"
+    assert manifest["feeds"][0]["removed"] == 4

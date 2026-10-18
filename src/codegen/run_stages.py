@@ -52,7 +52,8 @@ import re
 from pathlib import Path
 
 STAGES_FILE = "CODEGEN_STAGES.json"
-EMIT_STAGES = ("ddl_emit", "iig_emit", "dml_emit")
+# post68: notebook_emit = the notebook output (.ipynb, pipeline/*.py, job/*)
+EMIT_STAGES = ("ddl_emit", "iig_emit", "dml_emit", "notebook_emit")
 SKIPPED_UPSTREAM = "upstream stage generate failed"
 SKIPPED_NOT_WRITTEN = "not produced by the selected output mode"
 QUARANTINE_DIR = "quarantine"
@@ -68,7 +69,10 @@ Snapshot = dict[Path, tuple[int, int]]
 
 def emit_stage(path: Path) -> str | None:
     """Which emit stage a generated file belongs to (None: not an emit artefact
-    — the notebook pipeline modules, reports, candidates, the README)."""
+    — reports, candidates, the README, the generated tests). post68: the
+    notebook output is ``notebook_emit``."""
+    if is_notebook_file(path):
+        return "notebook_emit"
     name = path.name.lower()
     if path.suffix.lower() == ".xlsx":
         return "dml_emit" if "insert" in name else "iig_emit"
@@ -94,7 +98,7 @@ def remove_notebook(root: Path, before: Snapshot, *, emit_too: bool) -> int:
     for path, stamp in sorted(snapshot(root).items()):
         if before.get(path) == stamp:
             continue
-        if is_notebook_file(path) or (emit_too and emit_stage(path) is not None):
+        if emit_stage(path) == "notebook_emit" or (emit_too and emit_stage(path) is not None):
             path.unlink(missing_ok=True)
             removed += 1
     for folder in sorted((p for p in root.rglob("*") if p.is_dir()),
@@ -242,7 +246,7 @@ def remove_partial(root: Path, before: Snapshot) -> int:
 
 def stage_statuses(outcome: str, written: dict[str, list[Path]],
                    quarantined: list[str] | None = None) -> dict[str, dict]:
-    """``generate`` + the three emit stages, each ``{"status": ..., ...}``.
+    """``generate`` + the emit stages, each ``{"status": ..., ...}``.
     ``outcome`` is one of :data:`OUTCOMES`; the emit stages are SKIPPED only
     after CRASHED / FAIL (a GATE_FAIL run's files are complete)."""
     generate: dict = {"status": outcome}

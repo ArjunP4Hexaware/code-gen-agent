@@ -9,7 +9,11 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
 line is `artefacts.ts reviewSummary` (sheets · rows · open inputs (blocking) · empty by
 rule: <label> (<reason>)) from `framework.empty_by_rule` + `framework.open`
 (`GenerateRun.review_open`: feed + run-level lines); the derived ratio is the report's
-labelled line (`framework.derived_line`). post65 = the Dashboard's metadata-sheet
+labelled line (`framework.derived_line`). post65 + post66 were reported to Soham
+(2026-10-16); nothing is queued. Open after post66 (Soham to decide): run-level open
+lines count in every feed's summary; a feed generated outside `DemoRunner` has no
+`framework.open`, so its summary omits the open-inputs part; the summary keeps the old
+bold styling. post65 = the Dashboard's metadata-sheet
 preview and "Publish to Unity Catalog volume" sections are gone with their routes
 (`/api/demo/metadata-sheet[.xlsx]`, `/api/databricks/publish[-target]`); the payload
 builder and `codegen databricks-publish` stay. post64 = the "Framework artefacts" output

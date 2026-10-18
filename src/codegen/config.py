@@ -552,32 +552,47 @@ class ExtractorConfig(BaseModel):
 
 
 class ModelPriceConfig(BaseModel):
-    """One model's list price, US dollars per million tokens."""
+    """One model's price, US dollars per million tokens, and where it comes
+    from (``source``, e.g. "anthropic list price, 2026-10-06")."""
 
     model_config = _MODEL_CONFIG
 
     input: float = Field(ge=0)
     output: float = Field(ge=0)
     cache_read: float = Field(ge=0)
+    source: str
+
+    def cost_usd(self, *, input_tokens: int, output_tokens: int,
+                 cache_read_tokens: int = 0) -> float:
+        return (input_tokens * self.input + output_tokens * self.output
+                + cache_read_tokens * self.cache_read) / 1_000_000
+
+
+# Which price a cost was computed at (codegen.config.PriceTableConfig.rate).
+PRICE_BASIS_LIST = "list"
+PRICE_BASIS_WORKSPACE = "workspace"
 
 
 class PriceTableConfig(BaseModel):
-    """Per-model prices (model id -> $/MTok) and the date they were read."""
+    """Per-model prices by model id: ``anthropic`` = Anthropic list prices;
+    ``databricks_fmapi`` = this workspace's per-token rate (the DBU rate in
+    $/MTok), empty until the workspace fills it — a run through the FM API
+    endpoint is priced at it when its model has a row."""
 
     model_config = _MODEL_CONFIG
 
-    as_of: str
-    source: str
-    models: dict[str, ModelPriceConfig] = Field(default_factory=dict)
+    anthropic: dict[str, ModelPriceConfig] = Field(default_factory=dict)
+    databricks_fmapi: dict[str, ModelPriceConfig] = Field(default_factory=dict)
 
-    def cost_usd(self, model: str | None, *, input_tokens: int, output_tokens: int,
-                 cache_read_tokens: int = 0) -> float | None:
-        """Tokens x this table's price for ``model``; None when it has no row."""
-        price = self.models.get(model or "")
-        if price is None:
-            return None
-        return (input_tokens * price.input + output_tokens * price.output
-                + cache_read_tokens * price.cache_read) / 1_000_000
+    def rate(self, provider: str | None, model: str | None) -> tuple[ModelPriceConfig, str] | None:
+        """(price, basis) for a call ``provider`` made to ``model``: the
+        workspace's rate for an FM API call when it has the model, else the
+        Anthropic list price; None when neither has a row."""
+        if provider == "databricks_fmapi" and (model or "") in self.databricks_fmapi:
+            return self.databricks_fmapi[model or ""], PRICE_BASIS_WORKSPACE
+        if (model or "") in self.anthropic:
+            return self.anthropic[model or ""], PRICE_BASIS_LIST
+        return None
 
 
 class ReasoningConfig(BaseModel):

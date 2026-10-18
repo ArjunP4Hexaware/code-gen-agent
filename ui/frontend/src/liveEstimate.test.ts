@@ -11,7 +11,9 @@ function history(over: Partial<LiveHistory> = {}): LiveHistory {
     calls: { low: 3, high: 5 },
     cost_usd: { low: 0.1, high: 0.15 },
     cost_runs: 8,
-    prices_as_of: "2026-10-06",
+    cost_basis: "list",
+    price_source: "anthropic list price, 2026-10-06",
+    billed_in_dbus: true,
     ...over,
   };
 }
@@ -49,15 +51,17 @@ describe("calls and cost", () => {
 describe("liveEstimate", () => {
   it("leads with wall-clock, then calls and the measured cost", () => {
     const estimate = liveEstimate(history());
-    expect(estimate.headline).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15");
+    expect(estimate.headline).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at "
+      + "Anthropic list price; Databricks bills in DBUs");
     expect(estimate.detail).toContain("Measured from 8 runs");
-    expect(estimate.detail).toContain("prices as of 2026-10-06");
+    expect(estimate.detail).toContain("(profile acfc_prx; anthropic list price, 2026-10-06)");
     expect(estimate.detail).toContain("Model calls took 40–70 s of that.");
   });
 
   it("says 'no history yet' — never a made-up number — when nothing is recorded", () => {
     for (const empty of [undefined, null, history({ runs: 0, wall_seconds: null, calls: null,
-      model_seconds: null, cost_usd: null, cost_runs: 0, prices_as_of: null })]) {
+      model_seconds: null, cost_usd: null, cost_runs: 0, cost_basis: null, price_source: null,
+      billed_in_dbus: false })]) {
       const estimate = liveEstimate(empty);
       expect(estimate.headline).toBe("no history yet");
       // no figure of any kind: no dollar sign, no digit
@@ -66,11 +70,27 @@ describe("liveEstimate", () => {
   });
 
   it("shows calls and wall-clock only, no dollars, when no run reported tokens", () => {
-    const estimate = liveEstimate(history({ cost_usd: null, cost_runs: 0, prices_as_of: null }));
+    const estimate = liveEstimate(history({ cost_usd: null, cost_runs: 0, cost_basis: null,
+      price_source: null, billed_in_dbus: false }));
     expect(estimate.headline).toBe("typically 1½–2½ min · 3–5 calls");
     expect(estimate.headline + estimate.detail).not.toContain("$");
     expect(estimate.detail).not.toContain("Measured from");
     expect(estimate.detail).toContain("no token counts recorded");
+  });
+
+  it("says 'at this workspace's rate' when the workspace's FM API rate priced the runs", () => {
+    const estimate = liveEstimate(history({ cost_basis: "workspace", billed_in_dbus: false,
+      price_source: "workspace DBU rate, 2026-10-20" }));
+    expect(estimate.headline).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at this "
+      + "workspace's rate");
+    expect(estimate.headline).not.toContain("list price");
+    expect(estimate.detail).toContain("workspace DBU rate, 2026-10-20");
+  });
+
+  it("drops the DBU note for list-priced runs through the Anthropic API", () => {
+    const estimate = liveEstimate(history({ billed_in_dbus: false }));
+    expect(estimate.headline).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at "
+      + "Anthropic list price");
   });
 
   it("names how many runs the cost was measured from", () => {
@@ -82,7 +102,8 @@ describe("liveEstimate", () => {
     const estimate = liveEstimate(history({ runs: 1, cost_runs: 1,
       wall_seconds: { low: 118, high: 118 }, calls: { low: 4, high: 4 },
       cost_usd: { low: 0.13, high: 0.13 } }));
-    expect(estimate.headline).toBe("last run about 2 min · 4 calls · ≈ $0.13");
+    expect(estimate.headline).toBe("last run about 2 min · 4 calls · ≈ $0.13 at Anthropic list "
+      + "price; Databricks bills in DBUs");
     expect(estimate.detail).toContain("Measured from 1 run ");
   });
 });

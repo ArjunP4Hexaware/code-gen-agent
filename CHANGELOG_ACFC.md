@@ -12,18 +12,24 @@ named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
    `input_tokens` / `output_tokens` / `cache_read_input_tokens`. `StageUsage` carries
    `input_tokens`, `output_tokens`, `cache_read_tokens` next to `seconds` (the label,
    the report and the MODEL USAGE line are unchanged).
-2. **Price table** `reasoning.prices` (model id -> $/MTok input, output, cache read; `as_of`
-   + `source`): `claude-opus-5-5` = 4.00 / 20.00 / 0.20, Anthropic list prices as of
-   2026-10-06. Under FMAPI the workspace is billed in DBUs, so the dollars are list-price
-   equivalents. A model without a row gets no dollar figure.
+2. **Price table** `reasoning.prices`, model id -> $/MTok input, output, cache read, each
+   row with its `source`: `anthropic` = `claude-opus-5-5` 4.00 / 20.00 / 0.20 ("anthropic
+   list price, 2026-10-06"); `databricks_fmapi` = EMPTY, for this workspace's per-token DBU
+   rate (shape in `config/config.yaml`). An FM API call is priced at the workspace's row
+   when its model has one, else at the list price; a model with no row = no dollars.
+   **ACFC side (optional):** fill `reasoning.prices.databricks_fmapi.claude-opus-5-5` in
+   the overlay with the workspace's rate and a `source`; the record is re-priced at once.
 3. **The App keeps the last `demo.run_history_size` (10) live runs per conventions
    profile** in the state role (`live_run_history.json`, `ui/backend/run_history.py`):
    calls, live-call seconds, wall-clock, tokens, cost. Wall-clock = run start to end
    minus the time spent waiting on a pairing / layout dialog. Only completed live runs
    (done / needs_answers) are recorded; mock and failed runs are not.
 4. **The confirm dialog shows ranges from that record**, wall-clock first: "typically
-   1½–2½ min · 3–5 calls · ≈ $0.10–0.15" + "Measured from N runs (profile P; prices as
-   of D)". From five runs on, the fastest and slowest are left out of each range.
+   1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at Anthropic list price; Databricks bills in
+   DBUs" ("at this workspace's rate" once that row exists) + "Measured from N runs
+   (profile P; <the price row's source>)". From five runs on, the fastest and slowest are
+   left out of each range. The record keeps each run's per-stage provider / model /
+   tokens, so the dialog prices it at the CURRENT table.
    No token counts = calls + wall-clock only, no dollars; an empty record = "no history
    yet". `demo.estimated_calls / estimated_cost_usd / estimated_seconds` and the status
    `estimates` are gone (status `live_history`).

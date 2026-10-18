@@ -5,8 +5,9 @@ live-call seconds (the MODEL USAGE line's), wall-clock and measured tokens /
 cost — kept in the state role as ``live_run_history.json``. The dialog shows
 ranges FROM this record, never a constant: "no history yet" when it is
 empty, no dollar figure when no run reported tokens (or the price table has
-no row for the model). Cost = tokens x ``reasoning.prices``; never calls x
-a constant.
+no row for the model). Cost = tokens x ``reasoning.prices`` — the workspace's
+FM API rate when it has the model, else the Anthropic list price; never calls
+x a constant.
 
 Wall-clock runs from the run's start to its end, minus the time it waited
 for the person (a pairing / layout dialog) — what a user waits for, which is
@@ -21,6 +22,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from codegen.config import PRICE_BASIS_LIST, PRICE_BASIS_WORKSPACE
 from codegen.reasoning.usage import LIVE_PROVIDERS, TOKEN_FIELDS
 from ui.backend.service import STATE_DIR
 
@@ -35,6 +37,43 @@ def is_live(usage: dict) -> bool:
     return any(p in LIVE_PROVIDERS for p in str(usage.get("provider") or "").split("+"))
 
 
+def _stages(live: list[dict]) -> list[dict]:
+    """What pricing needs per live stage that sent calls: who answered, which
+    model, its tokens."""
+    return [{"provider": u.get("provider"), "model": u.get("model"),
+             "calls": int(u.get("calls") or 0),
+             **{n: int(u.get(n) or 0) for n in TOKEN_FIELDS}}
+            for u in live if int(u.get("calls") or 0)]
+
+
+def entry_cost(entry: dict, prices) -> dict | None:
+    """A recorded run priced at ``prices`` (the CURRENT table — a rate filled
+    in later applies to the runs already recorded): {cost_usd, basis, sources,
+    fmapi}; None when its tokens were not measured or a model has no row.
+    basis = workspace only when every call was priced at the workspace's rate;
+    a run with no call costs 0 at any basis (None)."""
+    if not entry.get("calls"):
+        return {"cost_usd": 0.0, "basis": None, "sources": [], "fmapi": False}
+    stages = entry.get("stages")
+    if not entry.get("tokens_measured") or not stages or prices is None:
+        return None
+    total, bases, sources = 0.0, set(), []
+    for stage in stages:
+        found = prices.rate(stage.get("provider"), stage.get("model"))
+        if found is None:
+            return None
+        price, basis = found
+        total += price.cost_usd(**{n: int(stage.get(n) or 0) for n in TOKEN_FIELDS})
+        bases.add(basis)
+        if price.source not in sources:
+            sources.append(price.source)
+    return {"cost_usd": round(total, 4),
+            "basis": PRICE_BASIS_WORKSPACE if bases == {PRICE_BASIS_WORKSPACE}
+            else PRICE_BASIS_LIST,
+            "sources": sources,
+            "fmapi": any(s.get("provider") == "databricks_fmapi" for s in stages)}
+
+
 def run_entry(*, label: str | None, model_usage: list[dict], wall_seconds: float,
               prices=None) -> dict | None:
     """One run's record from its ``model_usage`` (StageUsage.as_dict per stage);
@@ -44,25 +83,21 @@ def run_entry(*, label: str | None, model_usage: list[dict], wall_seconds: float
         return None
     calls = sum(int(u.get("calls") or 0) for u in live)
     tokens = {name: sum(int(u.get(name) or 0) for u in live) for name in TOKEN_FIELDS}
-    # Tokens exist when the calls reported them; a run with no call costs nothing.
-    measured = calls == 0 or tokens["input_tokens"] + tokens["output_tokens"] > 0
-    cost = None
-    if calls == 0:
-        cost = 0.0
-    elif measured and prices is not None:
-        parts = [prices.cost_usd(u.get("model"), **{n: int(u.get(n) or 0) for n in TOKEN_FIELDS})
-                 for u in live if int(u.get("calls") or 0)]
-        cost = None if any(p is None for p in parts) else round(sum(parts), 4)
-    return {
+    entry = {
         "label": label,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "calls": calls,
         "model_seconds": round(sum(float(u.get("seconds") or 0.0) for u in live), 1),
         "wall_seconds": round(wall_seconds, 1),
         **tokens,
-        "tokens_measured": measured,
-        "cost_usd": cost,
+        # tokens exist when the calls reported them
+        "tokens_measured": calls == 0 or tokens["input_tokens"] + tokens["output_tokens"] > 0,
+        "stages": _stages(live),
     }
+    cost = entry_cost(entry, prices)
+    entry["cost_usd"] = cost["cost_usd"] if cost else None       # as priced when recorded
+    entry["cost_basis"] = cost["basis"] if cost else None
+    return entry
 
 
 def typical_range(values: list[float]) -> dict | None:
@@ -77,18 +112,29 @@ def typical_range(values: list[float]) -> dict | None:
 
 
 def summary(entries: list[dict], *, profile: str, prices=None) -> dict:
-    """What the dialog shows for ``profile``: ranges over its recorded runs."""
-    costed = [e for e in entries if e.get("cost_usd") is not None]
+    """What the dialog shows for ``profile``: ranges over its recorded runs.
+    Dollars only from runs whose tokens were measured and priced, at ONE basis:
+    the workspace's rate when any run has it, else the Anthropic list price."""
+    priced = [c for c in (entry_cost(e, prices) for e in entries) if c is not None]
+    basis = (PRICE_BASIS_WORKSPACE
+             if any(c["basis"] == PRICE_BASIS_WORKSPACE for c in priced)
+             else PRICE_BASIS_LIST)
+    used = [c for c in priced if c["basis"] in (basis, None)]
+    sources = list(dict.fromkeys(s for c in used for s in c["sources"]))
     return {
         "profile": profile,
         "runs": len(entries),
         "wall_seconds": typical_range([e["wall_seconds"] for e in entries]),
         "model_seconds": typical_range([e["model_seconds"] for e in entries]),
         "calls": typical_range([e["calls"] for e in entries]),
-        # dollars only from runs whose tokens were measured and priced
-        "cost_usd": typical_range([e["cost_usd"] for e in costed]),
-        "cost_runs": len(costed),
-        "prices_as_of": prices.as_of if prices is not None and costed else None,
+        "cost_usd": typical_range([c["cost_usd"] for c in used]),
+        "cost_runs": len(used),
+        "cost_basis": basis if used else None,
+        # each price row's own source, e.g. "anthropic list price, 2026-10-06"
+        "price_source": "; ".join(sources) or None,
+        # list-priced FM API calls: the workspace is billed in DBUs, not these dollars
+        "billed_in_dbus": bool(used) and basis == PRICE_BASIS_LIST
+        and any(c["fmapi"] for c in used),
     }
 
 
@@ -140,4 +186,5 @@ class LiveRunHistory:
         ui_stores.push_state(config, HISTORY_FILE)
 
 
-__all__ = ["HISTORY_FILE", "LiveRunHistory", "run_entry", "summary", "typical_range"]
+__all__ = ["HISTORY_FILE", "LiveRunHistory", "entry_cost", "run_entry", "summary",
+           "typical_range"]

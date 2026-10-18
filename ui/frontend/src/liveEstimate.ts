@@ -2,8 +2,10 @@
  * the last live runs for the run's conventions profile (``status.live_history``,
  * ui/backend/run_history.py) — never a constant. Wall-clock is the headline
  * (it is what the user waits for); dollars only when the runs' tokens were
- * measured and priced, labelled "measured from N runs" with the price
- * table's date; "no history yet" when nothing is recorded.
+ * measured and priced, labelled "measured from N runs" with the price rows'
+ * source, and said at which price: "at this workspace's rate", or "at
+ * Anthropic list price; Databricks bills in DBUs" for list-priced FM API
+ * runs; "no history yet" when nothing is recorded.
  */
 import type { LiveHistory, ValueRange } from "./api";
 
@@ -36,6 +38,12 @@ export function fmtCallsRange(range: ValueRange): string {
   return `${range.low}–${range.high} calls`;
 }
 
+/** "at this workspace's rate" / "at Anthropic list price[; Databricks bills in DBUs]". */
+export function priceBasis(history: LiveHistory): string {
+  if (history.cost_basis === "workspace") return "at this workspace's rate";
+  return `at Anthropic list price${history.billed_in_dbus ? "; Databricks bills in DBUs" : ""}`;
+}
+
 export function fmtCostRange(range: ValueRange): string {
   const low = range.low.toFixed(2);
   const high = range.high.toFixed(2);
@@ -65,11 +73,11 @@ export function liveEstimate(history: LiveHistory | null | undefined): LiveEstim
   ];
   const sources: string[] = [];
   if (history.cost_usd && history.cost_runs > 0) {
-    parts.push(fmtCostRange(history.cost_usd));
+    parts.push(`${fmtCostRange(history.cost_usd)} ${priceBasis(history)}`);
     const costed = history.cost_runs === history.runs
       ? runs : `${history.cost_runs} of ${history.runs} runs`;
-    sources.push(`Measured from ${costed} (profile ${profile}; prices as of `
-      + `${history.prices_as_of ?? "unknown"}).`);
+    sources.push(`Measured from ${costed} (profile ${profile}`
+      + `${history.price_source ? `; ${history.price_source}` : ""}).`);
   } else {
     sources.push(`From the last ${runs} (profile ${profile}); no token counts recorded, `
       + "so no cost is shown.");

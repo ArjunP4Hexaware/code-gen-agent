@@ -246,7 +246,9 @@ export interface ValueRange {
 
 /** post67: ranges over the last live runs (the fastest / slowest one left out
  * from five runs on); null = nothing recorded. Cost comes only from runs whose
- * tokens were measured and priced (``cost_runs`` of ``runs``). */
+ * tokens were measured and priced (``cost_runs`` of ``runs``), at one basis:
+ * ``workspace`` (the workspace's FM API rate) or ``list`` (Anthropic list price;
+ * ``billed_in_dbus`` when those runs went through the FM API endpoint). */
 export interface LiveHistory {
   profile: string;
   runs: number;
@@ -255,7 +257,9 @@ export interface LiveHistory {
   calls: ValueRange | null;
   cost_usd: ValueRange | null;
   cost_runs: number;
-  prices_as_of: string | null;
+  cost_basis: "workspace" | "list" | null;
+  price_source: string | null;
+  billed_in_dbus: boolean;
 }
 
 export interface DemoStatus {

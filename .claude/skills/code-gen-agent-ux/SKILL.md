@@ -623,9 +623,11 @@ Databricks serving endpoint:" (FMAPI) / "This makes real, billed
 Anthropic API calls:" (Anthropic) followed by the measured ranges of the
 last live runs for the run's conventions profile (post67, `status.live_history`,
 `ui/frontend/src/liveEstimate.ts`): "**typically 1½–2½ min · 3–5 calls ·
-≈ $0.10–0.15**" — wall-clock first — and "Measured from N runs (profile P;
-prices as of D)." Dollars only from runs whose tokens were measured and
-priced (`reasoning.prices`); none recorded = calls + wall-clock only; an
+≈ $0.10–0.15 at Anthropic list price; Databricks bills in DBUs**" ("at this
+workspace's rate" once `reasoning.prices.databricks_fmapi` has the model) —
+wall-clock first — and "Measured from N runs (profile P; <price row source>)."
+Dollars only from runs whose tokens were measured and priced
+(`reasoning.prices`); none recorded = calls + wall-clock only; an
 empty record = "**no history yet**", never a constant. Then "Output is isolated to
 its own run directory; the tracked replay fixtures and default output
 are never touched." and, depending on `frd_chosen`: "Client documents in
@@ -785,7 +787,7 @@ it fails the app still starts with empty state and reports through
 |---|---|---|
 | `GET /api/demo/live-available` | `{available, provider, reason}` — provider is `databricks_fmapi`, `anthropic`, `mock (locked)` or null; `reason` is the remedy | — |
 | `POST /api/demo/run-live` `{confirm: true}` | Start the background live run; returns `DemoStatus` | 400 no confirm / unavailable; 409 already running |
-| `GET /api/demo/status` | `DemoStatus`: `state idle|running|done|failed`, `stages[{stage, detail, at}]`, `error`, `error_hint`, `last_run_label`, `mode`, `label`, `live_history{profile,runs,wall_seconds,model_seconds,calls,cost_usd,cost_runs,prices_as_of}` (ranges `{low,high}`), `sttm_workbook`, `sttm_chosen`, `output_mode`, `frd_name`, `frd_chosen`, `frd_warning` | — |
+| `GET /api/demo/status` | `DemoStatus`: `state idle|running|done|failed`, `stages[{stage, detail, at}]`, `error`, `error_hint`, `last_run_label`, `mode`, `label`, `live_history{profile,runs,wall_seconds,model_seconds,calls,cost_usd,cost_runs,cost_basis,price_source,billed_in_dbus}` (ranges `{low,high}`), `sttm_workbook`, `sttm_chosen`, `output_mode`, `frd_name`, `frd_chosen`, `frd_warning` | — |
 | `POST /api/demo/output-mode` `{mode|null}` | `notebook|framework|both`; null = config default → `DemoStatus` | 400 bad value; 409 running |
 
 `error_hint` = `{sttm, frd_used, candidate_doc_id, message}` when a

@@ -20,11 +20,11 @@ const HISTORY = {
   profile: "acfc_prx", runs: 6,
   wall_seconds: { low: 95, high: 140 }, model_seconds: { low: 41, high: 68 },
   calls: { low: 3, high: 5 }, cost_usd: { low: 0.1, high: 0.15 }, cost_runs: 6,
-  prices_as_of: "2026-10-06",
+  cost_basis: "list", price_source: "anthropic list price, 2026-10-06", billed_in_dbus: true,
 };
 const EMPTY = {
   profile: "acfc_prx", runs: 0, wall_seconds: null, model_seconds: null, calls: null,
-  cost_usd: null, cost_runs: 0, prices_as_of: null,
+  cost_usd: null, cost_runs: 0, cost_basis: null, price_source: null, billed_in_dbus: false,
 };
 
 let liveHistory: unknown = HISTORY;
@@ -101,9 +101,10 @@ describe("the live-run confirm dialog", () => {
   it("shows the measured ranges, wall-clock first", async () => {
     const modal = await openConfirm();
     const headline = modal.querySelector("[data-testid=live-estimate]")!;
-    expect(headline.textContent).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15");
-    expect(modal.textContent).toContain("Measured from 6 runs (profile acfc_prx; prices as of "
-      + "2026-10-06).");
+    expect(headline.textContent).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at "
+      + "Anthropic list price; Databricks bills in DBUs");
+    expect(modal.textContent).toContain("Measured from 6 runs (profile acfc_prx; anthropic list "
+      + "price, 2026-10-06).");
     expect(modal.textContent).not.toMatch(/~\s*20s|~3 calls/);
   });
 
@@ -115,8 +116,19 @@ describe("the live-run confirm dialog", () => {
     expect(headline.parentElement!.textContent).not.toContain("$");
   });
 
+  it("says 'at this workspace's rate' once the workspace's FM API rate priced the runs",
+     async () => {
+    liveHistory = { ...HISTORY, cost_basis: "workspace", billed_in_dbus: false,
+      price_source: "workspace DBU rate, 2026-10-20" };
+    const modal = await openConfirm();
+    const headline = modal.querySelector("[data-testid=live-estimate]")!;
+    expect(headline.textContent).toBe("typically 1½–2½ min · 3–5 calls · ≈ $0.10–0.15 at this "
+      + "workspace's rate");
+  });
+
   it("drops the dollars when no run reported tokens", async () => {
-    liveHistory = { ...HISTORY, cost_usd: null, cost_runs: 0, prices_as_of: null };
+    liveHistory = { ...HISTORY, cost_usd: null, cost_runs: 0, cost_basis: null,
+      price_source: null, billed_in_dbus: false };
     const modal = await openConfirm();
     const headline = modal.querySelector("[data-testid=live-estimate]")!;
     expect(headline.textContent).toBe("typically 1½–2½ min · 3–5 calls");

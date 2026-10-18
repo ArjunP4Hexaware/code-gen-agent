@@ -7,7 +7,10 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
 
 **RESTART HERE (2026-10-18, after post67).** post67 = the live-run confirm dialog is
 measured: tokens per call (`StageUsage.input_tokens / output_tokens / cache_read_tokens`,
-FM API `chat(usage=)`), cost = tokens × `reasoning.prices` (dated per-model table), the
+FM API `chat(usage=)`), cost = tokens × `reasoning.prices` (`anthropic` list rows +
+an EMPTY `databricks_fmapi` set for the workspace's DBU rate; each row has a `source`;
+`PriceTableConfig.rate`; the dialog says "at Anthropic list price; Databricks bills in
+DBUs" or "at this workspace's rate"), the
 App's last 10 live runs per conventions profile (`ui/backend/run_history.py`,
 `live_run_history.json` in the state role; wall-clock minus dialog waits), the dialog
 (`ui/frontend/src/liveEstimate.ts`) shows ranges, "no history yet" or no dollars when no

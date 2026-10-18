@@ -33,15 +33,21 @@ from codegen.reasoning.usage import (
     usage_from_provider,
 )
 
-PRICES = PriceTableConfig(as_of="2026-10-06", source="test",
-                          models={"claude-opus-5-5": ModelPriceConfig(
-                              input=4.0, output=20.0, cache_read=0.2)})
+LIST = ModelPriceConfig(input=4.0, output=20.0, cache_read=0.2,
+                        source="anthropic list price, 2026-10-06")
+PRICES = PriceTableConfig(anthropic={"claude-opus-5-5": LIST})
+# the workspace's FM API rate, once filled (synthetic numbers)
+WORKSPACE = PriceTableConfig(
+    anthropic={"claude-opus-5-5": LIST},
+    databricks_fmapi={"claude-opus-5-5": ModelPriceConfig(
+        input=2.0, output=10.0, cache_read=0.1, source="workspace DBU rate, 2026-10-20")})
 
 
 def _live(stage: str = "layer2", *, calls: int = 3, seconds: float = 40.0,
           input_tokens: int = 20_000, output_tokens: int = 3_000,
-          cache_read_tokens: int = 0, model: str = "claude-opus-5-5") -> dict:
-    return StageUsage(stage=stage, provider="databricks_fmapi",
+          cache_read_tokens: int = 0, model: str = "claude-opus-5-5",
+          provider: str = "databricks_fmapi") -> dict:
+    return StageUsage(stage=stage, provider=provider,
                       endpoint="databricks-claude-opus-5-5", model=model, calls=calls,
                       requests=calls, seconds=seconds, input_tokens=input_tokens,
                       output_tokens=output_tokens,
@@ -103,7 +109,42 @@ def test_cost_is_tokens_times_the_price_table():
     assert entry["calls"] == 4 and entry["model_seconds"] == 49.0
     assert entry["wall_seconds"] == 118.0 and entry["tokens_measured"] is True
     expected = (25_000 * 4.0 + 3_500 * 20.0 + 10_000 * 0.2) / 1_000_000
-    assert entry["cost_usd"] == pytest.approx(expected)
+    assert entry["cost_usd"] == pytest.approx(expected) and entry["cost_basis"] == "list"
+
+
+def test_the_shipped_table_has_list_prices_and_an_empty_workspace_entry():
+    prices = load_config("config/config.yaml").reasoning.prices
+    row = prices.anthropic["claude-opus-5-5"]
+    assert (row.input, row.output, row.cache_read) == (4.0, 20.0, 0.2)
+    assert row.source == "anthropic list price, 2026-10-06"
+    assert prices.databricks_fmapi == {}
+    assert prices.rate("databricks_fmapi", "claude-opus-5-5")[1] == "list"
+
+
+def test_fm_api_runs_use_the_workspace_rate_once_it_exists():
+    assert WORKSPACE.rate("databricks_fmapi", "claude-opus-5-5")[1] == "workspace"
+    # an Anthropic API call is billed at the list price whatever the workspace rate
+    assert WORKSPACE.rate("anthropic", "claude-opus-5-5")[1] == "list"
+    entry = run_entry(label="x", wall_seconds=100, prices=WORKSPACE, model_usage=[_live()])
+    assert entry["cost_basis"] == "workspace"
+    assert entry["cost_usd"] == pytest.approx((20_000 * 2.0 + 3_000 * 10.0) / 1_000_000)
+
+
+def test_the_dialog_says_which_price_it_used():
+    entries = [run_entry(label=str(i), wall_seconds=100, prices=PRICES, model_usage=[_live()])
+               for i in range(3)]
+    at_list = summary(entries, profile="acfc_prx", prices=PRICES)
+    assert at_list["cost_basis"] == "list" and at_list["billed_in_dbus"] is True
+    assert at_list["price_source"] == "anthropic list price, 2026-10-06"
+    # the same recorded runs, priced after the workspace's rate was filled in
+    at_rate = summary(entries, profile="acfc_prx", prices=WORKSPACE)
+    assert at_rate["cost_basis"] == "workspace" and at_rate["billed_in_dbus"] is False
+    assert at_rate["price_source"] == "workspace DBU rate, 2026-10-20"
+    assert at_rate["cost_usd"]["high"] < at_list["cost_usd"]["high"]
+    # Anthropic API runs at the list price: no DBU note
+    direct = [run_entry(label="d", wall_seconds=100, prices=PRICES,
+                        model_usage=[_live(provider="anthropic")])]
+    assert summary(direct, profile="acfc_prx", prices=PRICES)["billed_in_dbus"] is False
 
 
 def test_no_tokens_or_no_price_means_no_dollars():
@@ -144,10 +185,11 @@ def test_summary_takes_cost_only_from_measured_runs():
     view = summary(entries, profile="acfc_prx", prices=PRICES)
     assert view["runs"] == 4 and view["cost_runs"] == 2
     assert view["wall_seconds"] == {"low": 100.0, "high": 103.0}
-    assert view["prices_as_of"] == "2026-10-06"
+    assert view["price_source"] == "anthropic list price, 2026-10-06"
     empty = summary([], profile="acfc_prx", prices=PRICES)
     assert empty["runs"] == 0 and empty["wall_seconds"] is None
-    assert empty["cost_usd"] is None and empty["prices_as_of"] is None
+    assert empty["cost_usd"] is None and empty["price_source"] is None
+    assert empty["cost_basis"] is None and empty["billed_in_dbus"] is False
 
 
 @pytest.fixture
@@ -256,4 +298,5 @@ def test_the_status_carries_the_history_not_constants(history_file, monkeypatch)
     runner._run()
     history = client.get("/api/demo/status").json()["live_history"]
     assert history["runs"] == 1 and history["calls"] == {"low": 3, "high": 3}
-    assert history["prices_as_of"] == "2026-10-06"
+    assert history["cost_basis"] == "list" and history["billed_in_dbus"] is True
+    assert history["price_source"] == "anthropic list price, 2026-10-06"

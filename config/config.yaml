@@ -523,15 +523,21 @@ reasoning:
   # the harness jobs and acfc_run.py. Never inferred from an endpoint or a
   # Databricks login. --provider (CLI) > CODEGEN_PROVIDER > this.
   mode: mock
-  # post67: list prices, US $ per million tokens, by model id — what a live
-  # run's MEASURED tokens cost in the App's confirm dialog (the date is shown
-  # there). A model without a row gets no dollar figure. Under FMAPI the
-  # workspace is billed in DBUs; these are the Anthropic first-party rates.
+  # post67: what a live run's MEASURED tokens cost in the App's confirm
+  # dialog, US $ per million tokens by model id; each row names its source.
+  # A model without a row gets no dollar figure.
   prices:
-    as_of: "2026-10-06"
-    source: Anthropic API list prices
-    models:
-      claude-opus-5-5: {input: 4.00, output: 20.00, cache_read: 0.20}
+    # Anthropic first-party list prices — the dialog says "at Anthropic list
+    # price; Databricks bills in DBUs" for a run through the FM API endpoint.
+    anthropic:
+      claude-opus-5-5: {input: 4.00, output: 20.00, cache_read: 0.20,
+                        source: "anthropic list price, 2026-10-06"}
+    # This workspace's per-token rate (its DBU rate as $/MTok), filled by the
+    # workspace — when the run's model has a row here, FM API runs are priced
+    # at it and the dialog says "at this workspace's rate". Shape:
+    #   claude-opus-5-5: {input: <$>, output: <$>, cache_read: <$>,
+    #                     source: "<workspace> DBU rate, <date>"}
+    databricks_fmapi: {}
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).

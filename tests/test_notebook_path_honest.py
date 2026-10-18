@@ -17,6 +17,9 @@ workbook (codegen.generate_run.GenerateRun). Synthetic pair 11, mock only.
    workbook's ADLS_DELTA cells as abfss URIs), never a None default, no account
    in a widget; a value the profile leaves unset is a blocking line. The
    create_tables=false prerequisites list every standard table.
+5. Contact addresses a document's notification requirement quotes go through
+   the configured job.notification_emails (CODEGEN_NOTIFICATION_EMAILS): the
+   job's workflow.json carries the configured list, never the document's.
 """
 
 from __future__ import annotations
@@ -245,12 +248,30 @@ def test_feed_spec_states_the_environment_profile(tmp_path):
     sheet = load_workbook(iig, read_only=True)["ADLS_DELTA_INGESTION_DETAILS"]
     rows = list(sheet.iter_rows(values_only=True))
     row = dict(zip(rows[0], rows[1], strict=False))
-    host = f"@{account}.dfs.core.windows.net"
-    for key, header, container in (("LANDING_PATH", "SRC_ADLS_PATH", "SRC_CONTAINER_NAME"),
-                                   ("ARCHIVE_PATH", "SRC_ADLS_ARCHVL_PATH", "SRC_CONTAINER_NAME"),
-                                   ("REJECT_PATH", "TGT_RJT_ADLS_PATH", "TGT_CONTAINER_NAME")):
-        assert spec_values[key] == (f"abfss://{row[container]}{host}/"
-                                    f"{str(row[header]).lstrip('/')}"), key
+    for key, header, container in (("LANDING", "SRC_ADLS_PATH", "SRC_CONTAINER_NAME"),
+                                   ("ARCHIVE", "SRC_ADLS_ARCHVL_PATH", "SRC_CONTAINER_NAME"),
+                                   ("REJECT", "TGT_RJT_ADLS_PATH", "TGT_CONTAINER_NAME")):
+        assert spec_values[f"{key}_PATH"] == row[header], key
+        assert spec_values[f"{key}_CONTAINER"] == row[container], key
+    # the abfss:// address is built at run time (adls_uri) ...
+    import ast
+
+    (func,) = [n for n in ast.parse(source).body
+               if isinstance(n, ast.FunctionDef) and n.name == "adls_uri"]
+    namespace = {"STORAGE_ACCOUNT": account, "_ADLS_HOST": spec_values["_ADLS_HOST"]}
+    exec(compile(ast.Module(body=[func], type_ignores=[]), "feed_spec", "exec"), namespace)
+    uri = namespace["adls_uri"](spec_values["LANDING_CONTAINER"], spec_values["LANDING_PATH"])
+    assert uri == (f"abfss://{row['SRC_CONTAINER_NAME']}@{account}.dfs.core.windows.net/"
+                   f"{str(row['SRC_ADLS_PATH']).lstrip('/')}")
+    # ... so the generated text spells no ADLS host and no address-shaped string
+    import sys
+
+    from conftest import REPO
+    sys.path.insert(0, str(REPO / "scripts"))
+    from scrub_check import scan_paths
+
+    notebook = [p for p in out.rglob("*") if p.is_file() and run_stages.is_notebook_file(p)]
+    assert notebook and scan_paths(notebook) == []
     # no account name in a widget: widgets carry the catalog and blanks only
     entry = next(out.rglob("job/notebook_entrypoint.py")).read_text(encoding="utf-8")
     widgets = [ln for ln in entry.splitlines() if "widgets.text(" in ln]
@@ -297,3 +318,47 @@ def test_the_prerequisites_list_every_standard_table():
                                    {"catalog": "std", "schema": "s", "table": "b"}]}
     text = "".join(_prerequisite_cell(context)["source"])
     assert "std.s.a" in text and "std.s.b" in text
+
+
+# ----------------------------------------------- 5. document addresses scrubbed
+
+
+def test_redact_contacts_uses_the_configured_list():
+    from codegen.notification_contacts import NO_EMAILS, redact_contacts
+
+    text = ("Alert the Support team (dl.ops@client-corp.org, cc oncall@client-corp.org) "
+            "on failure; see client-corp.org/runbook or @client-corp.")
+    out = redact_contacts(text, ["syn.dl@synthetic.example"])
+    assert "client-corp" not in out
+    assert out.count("syn.dl@synthetic.example") == 2
+    assert "synthetic.example/runbook" in out and "@synthetic.example." in out
+    assert redact_contacts("no address here", ["a@b.example"]) == "no address here"
+    assert NO_EMAILS in redact_contacts("mail x@y.org", [])
+
+
+def test_the_sfmc_notebook_outputs_carry_no_document_address(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    from codegen.config import load_config
+    from conftest import REPO
+
+    monkeypatch.setenv("CODEGEN_NOTIFICATION_EMAILS", "syn.dl.prodsupport@synthetic.example")
+    config = load_config(REPO / "config" / "config.yaml")
+    config = config.model_copy(update={"output": config.output.model_copy(
+        update={"dir": str(tmp_path / "out"), "reports_dir": str(tmp_path / "reports")})})
+    pair = (REPO / "fixtures" / "contracts" / "FRD_sfmc_email_campaign.contract.json",
+            REPO / "fixtures" / "contracts" / "sttm_mapping_contracts_sfmc.json")
+    code = cli._run_pairs([pair], config, dry_run=True, skip_tests=True,
+                          output_mode=["notebook"], only_feed=None)
+    assert code in (cli.EXIT_OK, cli.EXIT_NEEDS_ANSWERS)
+    (workflow,) = list((tmp_path / "out").rglob("job/workflow.json"))
+    job = json.loads(workflow.read_text(encoding="utf-8"))
+    rules = job["_notification_rules_from_contract"]
+    assert rules and all("syn.dl.prodsupport@synthetic.example" in r for r in rules)
+    sys.path.insert(0, str(REPO / "scripts"))
+    from scrub_check import scan_paths
+
+    notebook = [p for p in (tmp_path / "out").rglob("*")
+                if p.is_file() and run_stages.is_notebook_file(p)]
+    assert scan_paths(notebook) == []

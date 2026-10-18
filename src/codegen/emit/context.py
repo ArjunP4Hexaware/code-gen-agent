@@ -471,6 +471,7 @@ def build_context(
     # post68: the run's environment profile (catalogs, account, paths) for the
     # notebook's feed_spec; empty when no environment is defined
     from codegen.emit.notebook_env import notebook_environment
+    from codegen.notification_contacts import redact_contacts
 
     nb_env = notebook_environment(spec, config, iig_template)
     standard = None
@@ -691,7 +692,9 @@ def build_context(
         "duplicate_rule_text": duplicate_rule_text,
         "notifications": {
             "emails": config.job.notification_emails,
-            "rule_texts": notification_rule_texts,
+            # post68: a document's own addresses never reach the job
+            "rule_texts": [redact_contacts(text, config.job.notification_emails)
+                           for text in notification_rule_texts],
         },
         "schedule": schedule_from_sla(spec.frequency),
         "sla_texts": spec.load_windows_sla,

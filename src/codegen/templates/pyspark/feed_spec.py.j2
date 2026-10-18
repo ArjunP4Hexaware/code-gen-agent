@@ -38,9 +38,25 @@ STANDARD_CATALOG = {{ (standard.catalog or "") | tojson }}
 STANDARD_SCHEMA = {{ standard.schema | tojson }}
 {% endif %}
 STORAGE_ACCOUNT = {{ (notebook_env.get("storage_account") or "") | tojson }}
+# Container-relative paths and their containers (the IIG ADLS_DELTA row's);
+# adls_uri() makes the abfss:// address on STORAGE_ACCOUNT.
+LANDING_CONTAINER = {{ (notebook_env.get("landing_container") or "") | tojson }}
 LANDING_PATH = {{ (notebook_env.get("landing_path") or "") | tojson }}
+ARCHIVE_CONTAINER = {{ (notebook_env.get("archive_container") or "") | tojson }}
 ARCHIVE_PATH = {{ (notebook_env.get("archive_path") or "") | tojson }}
+REJECT_CONTAINER = {{ (notebook_env.get("reject_container") or "") | tojson }}
 REJECT_PATH = {{ (notebook_env.get("reject_path") or "") | tojson }}
+_ADLS_HOST = "dfs.core.windows.net"
+
+
+def adls_uri(container: str, path: str) -> str:
+    """The abfss:// address of ``path`` in ``container`` on STORAGE_ACCOUNT (a
+    path that already is a URI is returned as is)."""
+    if "://" in path:
+        return path
+    return f"abfss://{container}@{STORAGE_ACCOUNT}.{_ADLS_HOST}/{path.lstrip('/')}"
+
+
 {% else %}
 DEFAULT_CATALOG: str | None = {{ default_catalog | py }}
 STAGE_SCHEMA = {{ stage_schema | tojson }}

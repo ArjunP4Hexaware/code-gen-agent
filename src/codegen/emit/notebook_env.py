@@ -5,8 +5,11 @@ account and the landing / archive / reject paths from the run's environment
 (``codegen.environments``) — never a ``None`` default, never an account name in
 a widget. The paths are the IIG workbook's own: the ADLS_DELTA row's path
 shapes (``metadata.templates.<t>.path_patterns``) over the containers the
-environment fills (``environment_cells``), as an ``abfss://`` URI on the
-environment's storage account, so the notebook and the workbook agree.
+environment fills (``environment_cells``), so the notebook and the workbook
+agree. feed_spec states the account, each container and each container-relative
+path as data and builds the ``abfss://`` URI at run time (``adls_uri``): the
+generated text never spells an ADLS host, so the leak scrub passes it the way
+it passes the workbook.
 
 A value the environment leaves unset (a catalog, the storage account, a
 container) or a landing no document states is a BLOCKING line on a notebook
@@ -19,7 +22,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-ABFSS_HOST = "dfs.core.windows.net"
 LANDING_TAB = "ADLS_DELTA_INGESTION_DETAILS"
 # (feed_spec key, the ADLS_DELTA path header, the header of its container)
 PATHS = (
@@ -53,11 +55,6 @@ def _real(value: str | None) -> str | None:
 
     value = (value or "").strip()
     return value if value and not is_placeholder(value) else None
-
-
-def abfss(container: str, account: str, path: str) -> str:
-    """``abfss://<container>@<account>.dfs.core.windows.net/<path>``."""
-    return f"abfss://{container}@{account}.{ABFSS_HOST}/{path.lstrip('/')}"
 
 
 def notebook_environment(spec, config, iig_template: str | None = None) -> NotebookEnvironment:
@@ -104,8 +101,10 @@ def notebook_environment(spec, config, iig_template: str | None = None) -> Noteb
     feed_key = f"feeds.{spec.feed_id}.notebook"
     for key, header, container_header in PATHS:
         path, container = paths.get(key, (None, None))
+        container_key = key.replace("_path", "_container")
         if path and location_scheme(path):
             values[key] = path                       # a stated URI, the environment's address
+            values[container_key] = ""
             continue
         container = _real(container)
         if not path:
@@ -120,10 +119,11 @@ def notebook_environment(spec, config, iig_template: str | None = None) -> Noteb
             missing.append(Missing(
                 f"{envs.INPUT_KEY}.{ref}",
                 f"the notebook's {key.replace('_', ' ')}: {where} leaves {ref} unset", True))
-        elif account:
-            values[key] = abfss(container, account, path)
+        else:
+            values[key] = path
+            values[container_key] = container
     unique = list({m.key: m for m in missing}.values())
     return NotebookEnvironment(environment=env.name, values=values, missing=unique)
 
 
-__all__ = ["NotebookEnvironment", "abfss", "notebook_environment"]
+__all__ = ["NotebookEnvironment", "notebook_environment"]

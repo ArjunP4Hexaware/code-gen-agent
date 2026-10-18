@@ -2185,7 +2185,8 @@ class DemoRunner:
 
     def _generate_specs(self, specs, config, *, run_env, frd_path: Path, run_root: Path,
                         reports_root: Path, held: list, unstated: list,
-                        extra_flags: list[str], layout_usage=None):
+                        extra_flags: list[str], layout_usage=None,
+                        sttm_path: Path | None = None):
         """post60: the App's generate — the CLI's entry point
         (codegen.generate_run.GenerateRun over cli.generate_feed_result): the
         BSA's confirmed choices, the owed inputs, CRASHED / GATE_FAIL /
@@ -2220,7 +2221,8 @@ class DemoRunner:
                     output_mode=parts, extra_flags=extra_flags,
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template, playbook_template=self.playbook_template,
-                    layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers))
+                    layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers,
+                    frd_path=frd_path, sttm_path=sttm_path))
             if result is None:
                 failures.append(FailedRun(label=slug, error=gen.errors.get(spec.feed_id, "")))
                 continue
@@ -2789,7 +2791,7 @@ class DemoRunner:
             extra_flags=[*layout_flags,
                          *(f"vdd_not_decided_at_run_start: {n}" for n in self.run_notes),
                          *(f"pairing_note: {n}" for n in self.run_pairing_notes)],
-            layout_usage=layout_usage)
+            layout_usage=layout_usage, sttm_path=contract_path)
         failures = [*pre_failures, *failures]
         # post60: the run state from the manifest — its outcome and each feed's
         # ``written`` — never inferred from which feeds returned

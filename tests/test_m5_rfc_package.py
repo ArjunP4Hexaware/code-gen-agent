@@ -418,7 +418,8 @@ def test_retired_all_mode_writes_notebook_and_framework_without_a_package(
                               output_mode="all", conventions_profile="acfc_prx",
                               iig_template="iig_v2")
     feed_dir = tmp_path / "out" / pair1_spec.feed_slug
-    assert (feed_dir / "pipeline").is_dir() and (feed_dir / "framework").is_dir()
+    # post69: acfc_prx's notebook is v2 (notebook/<slug>.ipynb + .py)
+    assert (feed_dir / "notebook").is_dir() and (feed_dir / "framework").is_dir()
     assert not any(p.name.startswith("RFC") for p in feed_dir.iterdir())
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert not any(f.startswith("playbook_blank:") for f in gate.flags)

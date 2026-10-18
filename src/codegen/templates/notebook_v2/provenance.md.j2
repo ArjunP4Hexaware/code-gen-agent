@@ -1,0 +1,16 @@
+### Provenance — {{ stage }}
+
+The IIG rows the cell above reads (workbook row numbers, the header is row 1) and where each of their cells came from — coordinates only.
+{% for line in lines %}
+
+**{{ line.tab }} row {{ line.row }}**
+
+| Cell | Badge | From |
+| --- | --- | --- |
+{% for c in line.cells %}
+| {{ c.header }} | {{ c.badge }} | {{ c.where | mdcell }} |
+{% endfor %}
+{% else %}
+
+No {{ stage | lower }} row in this feed's IIG.
+{% endfor %}

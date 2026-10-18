@@ -81,8 +81,17 @@ def _validate_every_emitted_notebook(monkeypatch):
         resync(notebook_path, feed_dir)
         _validate_notebook_text(Path(notebook_path).read_text(encoding="utf-8"))
 
+    from codegen.emit import notebook_v2
+
+    write_v2 = notebook_v2.write
+
+    def written_v2(nb, feed_dir, slug):         # post69: the v2 notebook too
+        _validate_notebook_text(nb.ipynb)
+        return write_v2(nb, feed_dir, slug)
+
     monkeypatch.setattr(emitter, "build_notebook", built)
     monkeypatch.setattr(notebook, "resync_notebook", resynced)
+    monkeypatch.setattr(notebook_v2, "write", written_v2)
     yield
 
 

@@ -246,6 +246,8 @@ class GenerationStore:
         layout_usage=None,
         environment=None,
         faq_answers: dict | None = None,
+        frd_path: Path | None = None,
+        sttm_path: Path | None = None,
     ) -> FeedRun:
         # post60: THE feed pipeline is codegen.cli.generate_feed_result — the
         # CLI's own (no mirror to keep in sync); this wraps it in a FeedRun.
@@ -267,7 +269,7 @@ class GenerationStore:
             reports_dir=(reports_dir if reports_dir is not None
                          else REPO_ROOT / self.config.output.reports_dir),
             base_dir=REPO_ROOT, on_stage=on_stage, candidates_override=candidates_override,
-            console=False)
+            console=False, frd_path=frd_path, sttm_path=sttm_path)
         framework_summary = None
         artefacts = result.framework_artefacts
         if artefacts is not None:

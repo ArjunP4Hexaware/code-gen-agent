@@ -1,0 +1,134 @@
+{% set kinds = (stage_calls + std_calls) | map(attribute="kind") | list %}
+# DATA_QUALITY_RULES: the rule registry (one function per implemented
+# RULE_CLASS), then one call per row, in SEQUENCE_NO order, per leg.
+{% if "lr_trim" in kinds %}
+
+
+def rule_lr_trim(df: DataFrame, columns: list[str]) -> DataFrame:
+    """LRTrimRule: trim both ends of each column."""
+    return df.withColumns({c: F.trim(F.col(c)) for c in columns})
+{% endif %}
+{% if "data_type_cast" in kinds %}
+
+
+def rule_data_type_cast(df: DataFrame, columns: list[str], types: list[str]) -> DataFrame:
+    """DataTypeCastRule: each column to its TGT_DATA_TYPE."""
+    return df.withColumns(
+        {c: F.col(c).cast(t) for c, t in zip(columns, types, strict=False) if t}
+    )
+{% endif %}
+{% if "date_conversion" in kinds %}
+
+
+def rule_date_conversion(df: DataFrame, columns: list[str], formats: list) -> DataFrame:
+    """DateConversionRule: each column parsed as a date in its source format."""
+    return df.withColumns(
+        {c: F.to_date(F.col(c), source) for c, (source, _target) in zip(columns, formats,
+                                                                        strict=False)}
+    )
+{% endif %}
+{% if "date_format" in kinds %}
+
+
+def rule_date_format(df: DataFrame, columns: list[str], formats: list) -> DataFrame:
+    """DateFormatRule: each column re-written from its source to its target format."""
+    return df.withColumns(
+        {
+            c: F.date_format(F.to_date(F.col(c), source), target)
+            for c, (source, target) in zip(columns, formats, strict=False)
+        }
+    )
+{% endif %}
+{% if "null_check" in kinds %}
+
+
+def rule_null_check(df: DataFrame, columns: list[str], row: dict) -> DataFrame:
+    """NullCheckRule: a record with any of the columns null or blank is a reject."""
+    kept, rejected = split_mandatory(df, columns)
+    write_rejects(rejected, row)
+    return kept
+{% endif %}
+{% if "dedup" in kinds %}
+
+
+def rule_dedup(df: DataFrame, columns: list[str]) -> DataFrame:
+    """DeDuplicationRule: one record per value of the columns."""
+    return df.dropDuplicates(columns)
+{% endif %}
+{% if "add_custom_columns" in kinds %}
+
+
+def rule_add_custom_columns(frames: dict, target: str, literal: str) -> dict:
+    """AddCustomColumnsRule: the header / trailer tables get ``target`` = ``literal``."""
+    return {
+        name: df if name == DETAIL_SEGMENT else df.withColumn(target, F.lit(literal))
+        for name, df in frames.items()
+    }
+{% endif %}
+{% if "header_trailer_split" in kinds %}
+
+
+def rule_header_trailer_split(frames: dict) -> list[str]:
+    """LoadHeaderAndTrailerToSeparateTablesRule: the header / trailer segments
+    load to their own ADLS_FIXED_WIDTH_HANDLER TGT_TABLE (the run cell)."""
+    return [name for name in frames if name != DETAIL_SEGMENT]
+{% endif %}
+
+
+def apply_stage_rules(frames: dict, source: dict) -> tuple[dict, list[str]]:
+    """The stage leg's rows (the ADLS_DELTA objects), on the source's records."""
+    detail = frames[DETAIL_SEGMENT]
+    separate: list[str] = []
+{% for call in stage_calls %}
+    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence }}){% endif %}: {{ call.rule_class }}
+{% if call.source is not none %}
+    if source["index"] == {{ call.source }}:
+{% set pad = "        " %}
+{% else %}
+{% set pad = "    " %}
+{% endif %}
+{% if call.kind == "lr_trim" %}
+{{ pad }}detail = rule_lr_trim(detail, {{ call.columns | arg(pad | length) }})
+{% elif call.kind == "data_type_cast" %}
+{{ pad }}detail = rule_data_type_cast(detail, {{ call.columns | arg(pad | length) }}, {{ call.types | arg(pad | length) }})
+{% elif call.kind == "date_conversion" %}
+{{ pad }}detail = rule_date_conversion(detail, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+{% elif call.kind == "date_format" %}
+{{ pad }}detail = rule_date_format(detail, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+{% elif call.kind == "null_check" %}
+{{ pad }}detail = rule_null_check(detail, {{ call.columns | arg(pad | length) }}, source)
+{% elif call.kind == "dedup" %}
+{{ pad }}detail = rule_dedup(detail, {{ call.columns | arg(pad | length) }})
+{% elif call.kind == "add_custom_columns" %}
+{{ pad }}frames = rule_add_custom_columns(frames, {{ call.target | py }}, {{ (call.columns | first) | py }})
+{% elif call.kind == "header_trailer_split" %}
+{{ pad }}separate = rule_header_trailer_split(frames)
+{% endif %}
+{% endfor %}
+    frames[DETAIL_SEGMENT] = detail
+    return frames, separate
+
+
+def apply_standard_rules(df: DataFrame, standard: dict) -> DataFrame:
+    """The standard leg's rows (STDDelta), on the standard table's records."""
+{% for call in std_calls %}
+    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence }}){% endif %}: {{ call.rule_class }}
+    if standard["index"] == {{ call.standard }}:
+{% set pad = "        " %}
+{% if call.kind == "lr_trim" %}
+        df = rule_lr_trim(df, {{ call.columns | arg(pad | length) }})
+{% elif call.kind == "data_type_cast" %}
+        df = rule_data_type_cast(df, {{ call.columns | arg(pad | length) }}, {{ call.types | arg(pad | length) }})
+{% elif call.kind == "date_conversion" %}
+        df = rule_date_conversion(df, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+{% elif call.kind == "date_format" %}
+        df = rule_date_format(df, {{ call.columns | arg(pad | length) }}, {{ call.formats | arg(pad | length) }})
+{% elif call.kind == "null_check" %}
+        df = rule_null_check(df, {{ call.columns | arg(pad | length) }}, standard)
+{% elif call.kind == "dedup" %}
+        df = rule_dedup(df, {{ call.columns | arg(pad | length) }})
+{% else %}
+        pass  # {{ call.rule_class }} applies to the stage leg's segments only
+{% endif %}
+{% endfor %}
+    return df

@@ -105,6 +105,8 @@ def generate_feed_result(
     on_stage=None,
     candidates_override: list[RuleCandidate] | None = None,
     console: bool = True,
+    frd_path: Path | None = None,
+    sttm_path: Path | None = None,
 ) -> FeedResult:
     """Generate one feed — post60: THE feed pipeline of both the CLI and the App
     (``ui.backend.service.GenerationStore._generate_feed`` wraps it in its
@@ -197,7 +199,43 @@ def generate_feed_result(
 
     parts = output_parts(output_mode or config.output.mode, source="generate")
     framework_artefacts = None
-    if parts == ["framework"]:
+    notebook_v2_checks: list = []
+    from codegen.emit.notebook_v2 import notebook_version
+
+    if "notebook" in parts and notebook_version(config, conventions_profile) == "v2":
+        # post69: notebook v2 renders from the IIG rows the workbook emitter
+        # produced; the v1 tree renders in a scratch tree only (the gate checks
+        # stay identical across outputs), ddl/ persists.
+        stage("notebook v2")
+        written, checks, tests_skipped, ddl_sources = _emit_framework_only(
+            context, spec, config, feed_dir, skip_tests
+        )
+        if "framework" in parts:
+            framework_artefacts = _run_emit_framework(
+                spec, faq, ddl_sources, config, out_root, outcomes, base_dir=base_dir,
+                conventions_profile=conventions_profile, iig_template=iig_template,
+            )
+            written = [*written, *framework_artefacts.files]
+            iig = framework_artefacts
+        else:
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as scratch:
+                iig = _run_emit_framework(
+                    spec, faq, ddl_sources, config, Path(scratch), outcomes,
+                    base_dir=base_dir, conventions_profile=conventions_profile,
+                    iig_template=iig_template,
+                )
+            # the IIG is the notebook's source of truth: its gate counts
+            extra_flags = [*extra_flags, *iig.flags]
+            notebook_v2_checks += iig.checks
+        notebook, notebook_written = _emit_notebook_v2(
+            spec, config, iig.payload, candidates, feed_dir, base_dir, iig_template, frd_path,
+            sttm_path)
+        written = [*written, *notebook_written]
+        extra_flags = [*extra_flags, *notebook.flags]
+        notebook_v2_checks += notebook.checks
+    elif parts == ["framework"]:
         stage("framework artefacts")
         written, checks, tests_skipped, ddl_sources = _emit_framework_only(
             context, spec, config, feed_dir, skip_tests
@@ -232,6 +270,7 @@ def generate_feed_result(
         checks = [*checks, vdd_check]
     if framework_artefacts is not None:
         checks = [*checks, *framework_artefacts.checks]   # M7.1 derivation gate (global)
+    checks = [*checks, *notebook_v2_checks]
     iig_cells = _iig_cells(spec, config, framework_artefacts)
 
     gate = compute_verdict(
@@ -293,13 +332,16 @@ def _generate_feed(
     playbook_template: str | None = None,
     layout_usage=None,
     faq_answers: dict | None = None,
+    frd_path: Path | None = None,
+    sttm_path: Path | None = None,
 ) -> GateResult:
     """The CLI's feed: :func:`generate_feed_result`'s gate."""
     return generate_feed_result(
         spec, config, dry_run=dry_run, skip_tests=skip_tests, output_mode=output_mode,
         extra_flags=extra_flags, conventions_profile=conventions_profile,
         iig_template=iig_template, playbook_template=playbook_template,
-        layout_usage=layout_usage, faq_answers=faq_answers).gate
+        layout_usage=layout_usage, faq_answers=faq_answers, frd_path=frd_path,
+        sttm_path=sttm_path).gate
 
 
 def _iig_cells(spec, config, artefacts) -> dict:
@@ -321,6 +363,27 @@ def _read_ddl_sources(feed_dir: Path) -> list[tuple[str, str]]:
         (p.name, p.read_text(encoding="utf-8"))
         for p in (feed_dir / "ddl").glob("*.sql")
     )
+
+
+def _emit_notebook_v2(spec, config, payload, candidates, feed_dir, base_dir, iig_template,
+                      frd_path: Path | None = None, sttm_path: Path | None = None):
+    """post69: the v2 notebook from the feed's IIG rows (codegen.emit.notebook_v2):
+    (the notebook, the files written). ``frd_path`` = the run's FRD contract (its
+    field coordinates feed the provenance cells); else the contracts folder's."""
+    from codegen.emit import notebook_v2
+    from codegen.owed_inputs import frd_feed_index
+
+    if frd_path is None:
+        contracts_dir = Path(config.contracts.dir)
+        if base_dir is not None:
+            contracts_dir = base_dir / contracts_dir
+        frd_path = contracts_dir / spec.frd_contract_name
+    frd_path = frd_path if frd_path is not None and Path(frd_path).is_file() else None
+    notebook = notebook_v2.build(
+        spec, config, payload, candidates=candidates, frd_path=frd_path,
+        iig_template=iig_template, sttm_path=sttm_path,
+        feed_index=frd_feed_index(frd_path, spec.feed_id, config) if frd_path else None)
+    return notebook, notebook_v2.write(notebook, feed_dir, spec.feed_slug)
 
 
 def _emit_framework_only(context, spec, config, feed_dir, skip_tests):
@@ -691,11 +754,12 @@ def _run_pairs(
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
             run.feed(spec, feed_no, len(specs), frd_path=frd_path,
-                     produce=lambda faq_answers, spec=spec: _generate_feed(
+                     produce=lambda faq_answers, spec=spec, frd_path=frd_path,
+                     sttm_path=sttm_path: _generate_feed(
                          spec, config, dry_run=dry_run, skip_tests=skip_tests,
                          output_mode=output_mode, conventions_profile=conventions_profile,
                          iig_template=iig_template, playbook_template=playbook_template,
-                         faq_answers=faq_answers))
+                         faq_answers=faq_answers, frd_path=frd_path, sttm_path=sttm_path))
     if only_feed is not None and not run.matched_feed:
         _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
         run.hard_fail()

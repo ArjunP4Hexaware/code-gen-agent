@@ -1,0 +1,84 @@
+def source_files(source: dict) -> list[str]:
+    """The landed files matching SRC_FILE_NAME (on RUN_DATE, when given)."""
+    folder = adls_uri(source["landing_container"], source["landing_path"])
+    listing = dbutils.fs.ls(folder)  # noqa: F821 - dbutils exists on Databricks
+    found = [f for f in listing if fnmatch.fnmatch(f.name, source["file_pattern"])]
+    if RUN_DATE:
+        day = datetime.strptime(RUN_DATE, "%Y-%m-%d").date()
+        found = [f for f in found if datetime.fromtimestamp(f.modificationTime / 1000).date() == day]
+    return sorted(f.path for f in found)
+
+
+{% if fixed_width %}
+def read_fixed_width(paths: list[str]) -> dict[str, DataFrame]:
+    """ADLS_FIXED_WIDTH_HANDLER: each segment's records (SEGMENT_FILTER) cut at
+    start_ind / LEN into its COL columns."""
+    lines = spark.read.text(paths).withColumn("_source_file", F.col("_metadata.file_path"))
+    if DRY_RUN:
+        lines = lines.limit(DRY_RUN_ROWS)
+    frames = {}
+    for segment in SEGMENTS:
+        part = lines.filter(F.expr(segment["filter"])) if segment["filter"] else lines
+        cut = [F.substring("value", start, length).alias(name)
+               for name, start, length in segment["columns"]]
+        frames[segment["segment"]] = part.select(*cut, "_source_file")
+    return frames
+{% else %}
+{% if sources | selectattr("footer") | list %}
+def drop_footer(df: DataFrame) -> DataFrame:
+    """FILE_FOOTER_FLAG = Y: each file's last record is its trailer, not data."""
+    numbered = df.withColumn("_line", F.monotonically_increasing_id())
+    last = numbered.groupBy("_source_file").agg(F.max("_line").alias("_last"))
+    kept = numbered.join(last, "_source_file").filter(F.col("_line") != F.col("_last"))
+    return kept.drop("_line", "_last")
+
+
+{% endif %}
+def read_delimited(paths: list[str], source: dict) -> DataFrame:
+    """SRC_FILE_DELIMITER / HEADER_FLAG / MULTILINE_FLAG; the SRC_COLUMNS left
+    names as the (string) read schema, renamed to the stage columns."""
+    schema = T.StructType(
+        [T.StructField(name, T.StringType()) for name, _stage in source["src_columns"]]
+    )
+    df = (
+        spark.read.format("csv")
+        .option("header", source["header"])
+        .option("sep", source["delimiter"])
+        .option("multiLine", source["multiline"])
+        .schema(schema)
+        .load(paths)
+        .withColumn("_source_file", F.col("_metadata.file_path"))
+    )
+{% if sources | selectattr("footer") | list %}
+    if source["footer"]:
+        df = drop_footer(df)
+{% endif %}
+    renamed = [F.col(name).alias(stage) for name, stage in source["src_columns"]]
+    df = df.select(*renamed, "_source_file")
+    return df.limit(DRY_RUN_ROWS) if DRY_RUN else df
+{% endif %}
+
+
+def split_mandatory(df: DataFrame, columns: list[str]) -> tuple[DataFrame, DataFrame | None]:
+    """MANDATORY_FIELD_LIST: a record with any of them null or blank is a reject."""
+    if not columns:
+        return df, None
+{% if needs_reduce %}
+    empty = {c: F.col(c).isNull() | (F.trim(F.col(c)) == "") for c in columns}
+    bad = functools.reduce(lambda left, right: left | right, empty.values())
+    rejected = df.filter(bad)
+    if REJECT_REASON_COLUMN:
+        reason = F.concat_ws(",", *[F.when(cond, F.lit(c)) for c, cond in empty.items()])
+        rejected = rejected.withColumn(REJECT_REASON_COLUMN, reason)
+    return df.filter(~bad), rejected
+{% else %}
+    raise ValueError("MANDATORY_FIELD_LIST is empty in every ADLS_DELTA row")
+{% endif %}
+
+
+def write_rejects(rejected: DataFrame | None, source: dict) -> None:
+    """Rejected records, appended at TGT_RJT_ADLS_PATH in TGT_CONTAINER_NAME."""
+    if rejected is None:
+        return
+    path = source["reject_path"].rstrip("/") + (DRY_RUN_SUFFIX if DRY_RUN else "")
+    rejected.write.format("delta").mode("append").save(adls_uri(source["reject_container"], path))

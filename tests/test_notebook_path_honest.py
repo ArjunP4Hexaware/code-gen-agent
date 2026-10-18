@@ -34,6 +34,15 @@ def _run(config, pair, parts, **kw) -> int:
                           conventions_profile="acfc_prx", iig_template="iig_v2", **kw)
 
 
+def _v1(config):
+    """``config`` with the acfc_prx notebook pinned to v1 (post69: acfc_prx renders
+    v2 — these post68 checks are about the v1 module tree)."""
+    profiles = dict(config.conventions.profiles)
+    profiles["acfc_prx"] = profiles["acfc_prx"].model_copy(update={"notebook_version": "v1"})
+    return config.model_copy(update={"conventions": config.conventions.model_copy(
+        update={"profiles": profiles})})
+
+
 def _files(root, suffix: str) -> list:
     return sorted(p for p in root.rglob(f"*{suffix}") if run_stages.QUARANTINE_DIR not in p.parts)
 
@@ -159,6 +168,7 @@ def test_the_answers_file_environment_applies_on_a_notebook_run(
 
 def test_the_manifest_lists_the_notebook_outputs(tmp_path):
     config, specs, pair = _pair11(tmp_path)
+    config = _v1(config)
     assert _run(config, pair, ["notebook"], only_feed=specs[0].feed_id) == cli.EXIT_OK
     manifest = run_stages.read_stage_manifest(tmp_path / "out")
     assert manifest["stages"]["notebook_emit"] == {"status": "PASS"}
@@ -227,6 +237,7 @@ def test_feed_spec_states_the_environment_profile(tmp_path):
     from codegen import environments as envs
 
     config, specs, pair = _pair11(tmp_path)
+    config = _v1(config)
     parts = ["notebook", "framework"]
     assert _run(config, pair, parts, only_feed=specs[0].feed_id) == cli.EXIT_OK
     out = tmp_path / "out"

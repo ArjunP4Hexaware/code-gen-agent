@@ -85,8 +85,10 @@ def emit_stage(path: Path) -> str | None:
 
 def is_notebook_file(path: Path) -> bool:
     """A file of the notebook output (the assembled ``.ipynb``, the
-    ``pipeline/*.py`` modules, the ``job/*`` files)."""
-    return path.suffix.lower() == ".ipynb" or path.parent.name in ("pipeline", "job")
+    ``pipeline/*.py`` modules, the ``job/*`` files; post69: v2's
+    ``notebook/<slug>.ipynb`` + ``.py``)."""
+    return path.suffix.lower() == ".ipynb" or path.parent.name in ("pipeline", "job",
+                                                                    "notebook")
 
 
 def remove_notebook(root: Path, before: Snapshot, *, emit_too: bool) -> int:

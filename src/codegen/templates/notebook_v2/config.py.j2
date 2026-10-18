@@ -1,0 +1,67 @@
+import fnmatch
+{% if needs_reduce %}
+import functools
+{% endif %}
+from datetime import datetime
+
+{% if needs_merge %}
+from delta.tables import DeltaTable
+{% endif %}
+from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
+{% if not fixed_width %}
+from pyspark.sql import types as T
+{% endif %}
+
+spark = SparkSession.builder.getOrCreate()
+
+# Widgets: the run date (files that landed that day; blank = every matching
+# file) and dry_run (true: reads stop at DRY_RUN_ROWS rows, writes go to
+# *_dryrun tables / reject paths, nothing is archived).
+dbutils.widgets.text("run_date", "")  # noqa: F821 - dbutils exists on Databricks
+dbutils.widgets.dropdown("dry_run", "true", ["true", "false"])  # noqa: F821
+RUN_DATE = dbutils.widgets.get("run_date").strip()  # noqa: F821
+DRY_RUN = dbutils.widgets.get("dry_run") != "false"  # noqa: F821
+DRY_RUN_ROWS = {{ dry_run_rows }}
+DRY_RUN_SUFFIX = "_dryrun"
+
+# The run's environment profile{% if env_name %} ({{ env_name }}){% endif %}.
+STORAGE_ACCOUNT = {{ storage_account | py }}
+_ADLS_HOST = "dfs.core.windows.net"
+
+# The IIG rows (sheet / row per value: the provenance cells).
+# STGDELTA_STDDELTA_INGESTION_DET SRC_CATALOG_NAME: the stage tables' catalog.
+STAGE_CATALOG = {{ stage_catalog | py }}
+# One entry per ADLS_DELTA_INGESTION_DETAILS row (one per source file).
+SOURCES = {{ sources | block }}
+# One entry per STGDELTA_STDDELTA_INGESTION_DET row (one per standard table).
+STANDARDS = {{ standards | block }}
+{% if fixed_width %}
+# ADLS_FIXED_WIDTH_HANDLER rows: (column, 1-based start, length) per segment.
+SEGMENTS = {{ segments | block }}
+DETAIL_SEGMENT = {{ (segments | selectattr("detail") | first).segment | py }}
+{% else %}
+DETAIL_SEGMENT = "Detail"
+{% endif %}
+# ADLS_FIXED_WIDTH_HANDLER RJCT_RSN_COLUMN_NM (blank: rejects carry no reason column).
+REJECT_REASON_COLUMN = {{ reject_reason_column | py }}
+# The conventions profile's audit columns present in TGT_COLUMN_NAMES.
+AUDIT_COLUMNS = {{ audit | map(attribute="name") | list | block }}
+
+# Cells this notebook needs that the IIG leaves open: the run stops here.
+OPEN_CELLS = {{ open_cells | block }}
+if OPEN_CELLS:
+    raise RuntimeError("open in the IIG: " + "; ".join(OPEN_CELLS))
+
+
+def adls_uri(container: str, path: str) -> str:
+    """The abfss:// address of ``path`` in ``container`` on STORAGE_ACCOUNT."""
+    if "://" in path:
+        return path
+    return f"abfss://{container}@{STORAGE_ACCOUNT}.{_ADLS_HOST}/{path.lstrip('/')}"
+
+
+def table_name(catalog: str, schema: str, table: str) -> str:
+    """catalog.schema.table — with the _dryrun suffix under dry_run."""
+    name = ".".join(part for part in (catalog, schema, table) if part)
+    return name + DRY_RUN_SUFFIX if DRY_RUN else name

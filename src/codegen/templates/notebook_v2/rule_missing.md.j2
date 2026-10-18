@@ -1,0 +1,3 @@
+**rule not implemented: {{ m.rule_class or "(blank RULE_CLASS)" }} on {{ m.columns | join(", ") or "(no SOURCE_COLUMN)" }}**
+
+DATA_QUALITY_RULES row {{ m.row }}{% if m.sequence %} (SEQUENCE_NO {{ m.sequence }}){% endif %}: {{ m.why }}. No code is generated for it — the gate flags it (`notebook_rule_not_implemented`); the framework's generic notebooks apply it.

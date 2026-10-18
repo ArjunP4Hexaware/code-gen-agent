@@ -1,0 +1,17 @@
+## Review-only candidates (Layer 2)
+
+**Not executable.** Each entry is a model's proposal for a validation rule the deterministic compiler could not map (`candidates/candidates.json`). Nothing here runs — a reviewer decides, and an accepted rule reaches the IIG, then this notebook, through the documents.
+{% for c in candidates %}
+
+### {{ loop.index }}. {{ c.classification }}
+
+> {{ c.rule_text | mdcell }}
+
+{{ c.rationale | mdcell }}
+{% if c.code %}
+
+```text
+{{ c.code }}
+```
+{% endif %}
+{% endfor %}

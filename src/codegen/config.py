@@ -1150,6 +1150,10 @@ class ConventionsProfileConfig(BaseModel):
     # two_files: <slug>_stage/_standard_table_creation.txt (today) |
     # combined: ONE file with '--stage table' / '--standard table' banners.
     ddl_layout: Literal["two_files", "combined"] = "two_files"
+    # post69: which notebook the Notebook output is — v1 (the module tree
+    # assembled into one notebook, unchanged) | v2 (rendered from the IIG rows
+    # the workbook emitter produced: codegen.emit.notebook_v2).
+    notebook_version: Literal["v1", "v2"] = "v1"
     # combined-layout file name; {feed_abbrev} = the FAQ's feed_abbreviation
     # (client-assigned), else the sanitized slug + a flag.
     ddl_file_name_pattern: str = "{feed_abbrev}_DDL.txt"

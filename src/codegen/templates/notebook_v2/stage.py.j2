@@ -1,0 +1,52 @@
+_AUDIT_RULES = {{ audit_rules | block }}
+
+
+def with_audit(df: DataFrame, source: dict, names: list[str]) -> DataFrame:
+    """The profile's audit columns: the file's LOB, its name, the load time."""
+    values = {
+        "lob": F.lit(source["lob"] or None).cast("string"),
+        "file_name": F.element_at(F.split("_source_file", "/"), -1),
+        "timestamp": F.current_timestamp(),
+    }
+    for name in names:
+        if name in _AUDIT_RULES:
+            df = df.withColumn(name, values[_AUDIT_RULES[name]])
+    return df.drop("_source_file")
+
+
+def write_table(df: DataFrame, target: str, row: dict) -> None:
+    """TGT_LOAD_OPTION (Overwrite / Append{% if needs_merge %} / Upsert{% endif %}) with the row's
+    TGT_PARTITION_COLUMN / TGT_PARTITION_VALUE{% if needs_merge %} and TGT_PRIMARY_KEY{% endif %}."""
+    option = row["load_option"].lower()
+{% if needs_merge %}
+    if option in ("upsert", "merge"):
+        if not row["primary_key"]:
+            raise ValueError(f"{target}: {row['load_option']} needs TGT_PRIMARY_KEY")
+        if not spark.catalog.tableExists(target):
+            df.write.format("delta").saveAsTable(target)
+            return
+        condition = " AND ".join(f"t.{key} = s.{key}" for key in row["primary_key"])
+        merge = DeltaTable.forName(spark, target).alias("t").merge(df.alias("s"), condition)
+        merge.whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        return
+{% endif %}
+    if option not in ("overwrite", "append"):
+        raise ValueError(f"{target}: TGT_LOAD_OPTION {row['load_option']!r} is not handled")
+    writer = df.write.format("delta").mode(option)
+    if row["partition_column"]:
+        writer = writer.partitionBy(row["partition_column"])
+        if option == "overwrite" and row["partition_value"] not in ("", "NA"):
+            where = f"{row['partition_column']} = '{row['partition_value']}'"
+            writer = writer.option("replaceWhere", where)
+    writer.saveAsTable(target)
+
+
+def stage_frame(df: DataFrame, source: dict) -> DataFrame:
+    """The detail records with the audit columns, in TGT_COLUMN_NAMES order."""
+    df = with_audit(df, source, AUDIT_COLUMNS)
+    return df.select(*source["target_columns"]) if source["target_columns"] else df
+
+
+def write_stage(df: DataFrame, source: dict) -> None:
+    """ADLS_DELTA TGT_DATABASE_NAME.TGT_TABLE_NAME in STAGE_CATALOG."""
+    write_table(df, table_name(STAGE_CATALOG, source["schema"], source["table"]), source)

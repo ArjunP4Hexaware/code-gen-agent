@@ -1,0 +1,49 @@
+# Run: read -> stage-leg rules -> stage -> standard -> standard-leg rules ->
+# standard; the processed files are archived (not under dry_run).
+processed: dict[int, list[str]] = {}
+for source in SOURCES:
+    files = source_files(source)
+    if not files:
+        print(f"{source['file_pattern']}: no file to load")
+        continue
+{% if fixed_width %}
+    frames = read_fixed_width(files)
+{% else %}
+    frames = {DETAIL_SEGMENT: read_delimited(files, source)}
+{% endif %}
+    detail, rejected = split_mandatory(frames[DETAIL_SEGMENT], source["mandatory"])
+    write_rejects(rejected, source)
+    frames[DETAIL_SEGMENT] = detail
+    frames, separate = apply_stage_rules(frames, source)
+{% if fixed_width %}
+    for segment in SEGMENTS:
+        if segment["shared"] and not segment["detail"]:
+            # its records load into the detail's stage table (one shared
+            # table), after the rules on the detail records
+            shared = frames.pop(segment["segment"])
+            frames[DETAIL_SEGMENT] = frames[DETAIL_SEGMENT].unionByName(
+                shared, allowMissingColumns=True
+            )
+{% endif %}
+    write_stage(stage_frame(frames[DETAIL_SEGMENT], source), source)
+{% if fixed_width %}
+    for segment in SEGMENTS:
+        if segment["segment"] in separate and segment["segment"] in frames:
+            catalog, schema, table = ([STAGE_CATALOG, *segment["table"].split(".")])[-3:]
+            records = with_audit(frames[segment["segment"]], source, segment["audit"])
+            write_table(records, table_name(catalog, schema, table), source)
+{% else %}
+    if separate:
+        raise ValueError("a header / trailer split rule on a delimited feed")
+{% endif %}
+    processed[source["index"]] = files
+
+loaded = [path for paths in processed.values() for path in paths]
+for standard in STANDARDS:
+    write_standard(apply_standard_rules(build_standard(standard, loaded), standard), standard)
+
+if not DRY_RUN:
+    for source in SOURCES:
+        archive = adls_uri(source["landing_container"], source["archive_path"])
+        for path in processed.get(source["index"], []):
+            dbutils.fs.mv(path, archive.rstrip("/") + "/" + path.rsplit("/", 1)[-1])  # noqa: F821

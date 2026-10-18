@@ -12,6 +12,11 @@ workbook (codegen.generate_run.GenerateRun). Synthetic pair 11, mock only.
    same open lines, the same counts.
 3. The manifest lists the notebook output (.ipynb, pipeline/*.py, job/*) as the
    notebook_emit stage; a crash mid-feed removes it like the workbook.
+4. The environment profile reaches the notebook: feed_spec states the
+   catalogs, the storage account and the landing / archive / reject paths (the
+   workbook's ADLS_DELTA cells as abfss URIs), never a None default, no account
+   in a widget; a value the profile leaves unset is a blocking line. The
+   create_tables=false prerequisites list every standard table.
 """
 
 from __future__ import annotations
@@ -193,3 +198,102 @@ def test_a_crash_removes_the_partial_notebook_output(tmp_path):
     manifest = run_stages.read_stage_manifest(out)
     assert manifest["stages"]["notebook_emit"]["status"] == "SKIPPED"
     assert manifest["feeds"][0]["removed"] == 4
+
+
+# --------------------------------------------- 4. the environment in the notebook
+
+
+def _feed_spec(out) -> dict[str, str]:
+    import ast
+
+    (path,) = list(out.rglob("pipeline/feed_spec.py"))
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    values = {}
+    for node in tree.body:
+        target = (node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1
+                  else node.target if isinstance(node, ast.AnnAssign) else None)
+        if isinstance(target, ast.Name) and node.value is not None:
+            try:
+                values[target.id] = ast.literal_eval(node.value)
+            except ValueError:
+                continue
+    return values
+
+
+def test_feed_spec_states_the_environment_profile(tmp_path):
+    from codegen import environments as envs
+
+    config, specs, pair = _pair11(tmp_path)
+    parts = ["notebook", "framework"]
+    assert _run(config, pair, parts, only_feed=specs[0].feed_id) == cli.EXIT_OK
+    out = tmp_path / "out"
+    spec_values = _feed_spec(out)
+    env = envs.run_environment(config)
+    account = env.entry.storage_account
+    assert spec_values["DEFAULT_CATALOG"] == envs.default_catalog(config, "stage")
+    assert spec_values["STANDARD_CATALOG"] == envs.default_catalog(config, "standard")
+    assert spec_values["STORAGE_ACCOUNT"] == account
+    for key in ("DEFAULT_CATALOG", "STANDARD_CATALOG", "STORAGE_ACCOUNT", "LANDING_PATH",
+                "ARCHIVE_PATH", "REJECT_PATH"):
+        assert spec_values[key], key                              # never None / blank
+    source = next(out.rglob("pipeline/feed_spec.py")).read_text(encoding="utf-8")
+    assert "str | None = None" not in source.split("STAGE_SCHEMA")[0]
+    # the paths are the workbook's own ADLS_DELTA cells, on the environment's account
+    from openpyxl import load_workbook
+
+    (iig,) = list(out.rglob("*_IIG.xlsx"))
+    sheet = load_workbook(iig, read_only=True)["ADLS_DELTA_INGESTION_DETAILS"]
+    rows = list(sheet.iter_rows(values_only=True))
+    row = dict(zip(rows[0], rows[1], strict=False))
+    host = f"@{account}.dfs.core.windows.net"
+    for key, header, container in (("LANDING_PATH", "SRC_ADLS_PATH", "SRC_CONTAINER_NAME"),
+                                   ("ARCHIVE_PATH", "SRC_ADLS_ARCHVL_PATH", "SRC_CONTAINER_NAME"),
+                                   ("REJECT_PATH", "TGT_RJT_ADLS_PATH", "TGT_CONTAINER_NAME")):
+        assert spec_values[key] == (f"abfss://{row[container]}{host}/"
+                                    f"{str(row[header]).lstrip('/')}"), key
+    # no account name in a widget: widgets carry the catalog and blanks only
+    entry = next(out.rglob("job/notebook_entrypoint.py")).read_text(encoding="utf-8")
+    widgets = [ln for ln in entry.splitlines() if "widgets.text(" in ln]
+    assert widgets and not any(account in ln for ln in widgets)
+    assert f'dbutils.widgets.text("catalog", "{spec_values["DEFAULT_CATALOG"]}")' in entry
+
+
+def test_a_catalog_the_profile_leaves_unset_withholds_the_notebook(tmp_path, capsys):
+    from codegen import environments as envs
+
+    config, specs, pair = _pair11(tmp_path)
+    named = envs.run_environment(config).entry
+    custom = {"storage_account": named.storage_account,
+              **{f"containers.{k}": v for k, v in named.containers.items()}}
+    config = envs.with_environment(config, envs.resolve(config, custom=custom))
+    code = _run(config, pair, ["notebook"], only_feed=specs[0].feed_id)
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_NEEDS_ANSWERS
+    assert "QUESTION       run.environment.default_catalog.stage — " in out
+    assert _files(tmp_path / "out", ".ipynb") == []
+    # a framework-only run of the same environment is not blocked by it (its
+    # catalog cells are written open: INPUT_NEEDED)
+    assert _run(config, pair, ["framework"], only_feed=specs[0].feed_id) == cli.EXIT_OK
+    assert "INPUT_NEEDED   run.environment.default_catalog.stage — " in capsys.readouterr().out
+
+
+def test_without_an_environment_block_the_contract_values_stay(tmp_path):
+    from codegen.emit.notebook_env import notebook_environment
+
+    config, specs, _pair = _pair11(tmp_path)
+    bare = config.model_copy(update={"environments": {}, "run_environment": None})
+    found = notebook_environment(specs[0], bare)
+    assert found.environment is None and found.values == {} and found.missing == []
+
+
+def test_the_prerequisites_list_every_standard_table():
+    from codegen.emit.notebook import _prerequisite_cell
+
+    context = {"default_catalog": "cat", "stage_schema": "stg",
+               "segments": [{"stage_table": "t"}], "errors_table": "t_errors",
+               "processed_files_table": "t_files", "recycle": None,
+               "standard": {"catalog": "std", "schema": "s", "table": "a"},
+               "standard_tables": [{"catalog": "std", "schema": "s", "table": "a"},
+                                   {"catalog": "std", "schema": "s", "table": "b"}]}
+    text = "".join(_prerequisite_cell(context)["source"])
+    assert "std.s.a" in text and "std.s.b" in text

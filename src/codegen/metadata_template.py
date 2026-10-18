@@ -507,6 +507,29 @@ def _table_groups(spec: ResolvedFeedSpec) -> list[_TableGroup]:
     return out
 
 
+@dataclass(frozen=True)
+class _LandingOnly:
+    """The one FrdFeed field the path shapes read (``_paths``)."""
+
+    landing_location: str | None
+
+
+def notebook_paths(tpl: MetadataTemplateConfig,
+                   spec: ResolvedFeedSpec) -> dict[str, tuple[str | None, str | None]]:
+    """post68: the ADLS_DELTA row's landing / archive / reject paths (the
+    container-relative path, or a stated URI) with the constant of their
+    container — what the notebook's feed_spec states
+    (codegen.emit.notebook_env), the same cells as the workbook's."""
+    from codegen.emit.notebook_env import LANDING_TAB, PATHS
+
+    stage = _detail_group(_table_groups(spec)).stage
+    cells = _paths(tpl, LANDING_TAB, _LandingOnly(spec.landing_location), stage.table,
+                   _reject_table(tpl, spec, stage.table))
+    consts = tpl.constants.get(LANDING_TAB, {})
+    return {key: ((cells.get(header) or {}).get("value") or None, consts.get(container))
+            for key, header, container in PATHS}
+
+
 def _detail_group(groups: list[_TableGroup]) -> _TableGroup:
     """Rule 3: the table holding the Detail segment, else the sole table."""
     return next((g for g in groups if g.is_detail), groups[0])

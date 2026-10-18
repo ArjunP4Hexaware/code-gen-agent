@@ -294,8 +294,9 @@ def _prerequisite_cell(context: dict[str, Any]) -> dict[str, Any]:
     tables.append(f"{prefix}{schema}.{context['processed_files_table']}")
     if context["recycle"]:
         tables.append(f"{prefix}{schema}.{context['recycle']['table']}")
-    if context["standard"]:
-        std = context["standard"]
+    # post68: every standard table (multi-table feeds have several)
+    for std in context.get("standard_tables") or ([context["standard"]]
+                                                  if context["standard"] else []):
         std_prefix = f"{std['catalog']}." if std["catalog"] else ""
         tables.append(f"{std_prefix}{std['schema']}.{std['table']}")
     text = (

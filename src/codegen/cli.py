@@ -186,6 +186,7 @@ def generate_feed_result(
             o.rule_text for o in outcomes if o.classification == "notification"
         ],
         faq=faq,
+        iig_template=iig_template,
     )
     # Option A ("notebook") is today's path, byte for byte. Option B
     # ("framework") renders the SAME pipeline into a scratch tree so the

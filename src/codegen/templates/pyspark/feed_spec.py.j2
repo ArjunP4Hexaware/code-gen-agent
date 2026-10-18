@@ -27,8 +27,24 @@ _FILE_NAME_REGEXES = [
 {% endfor %}
 ]
 
+{% if notebook_env.environment %}
+# From the run's environment profile {{ notebook_env.environment | tojson }}
+# (codegen.emit.notebook_env): catalogs, account and paths are the profile's,
+# the paths the IIG workbook's own (ADLS_DELTA path shapes).
+DEFAULT_CATALOG = {{ (default_catalog or "") | tojson }}
+STAGE_SCHEMA = {{ stage_schema | tojson }}
+{% if standard %}
+STANDARD_CATALOG = {{ (standard.catalog or "") | tojson }}
+STANDARD_SCHEMA = {{ standard.schema | tojson }}
+{% endif %}
+STORAGE_ACCOUNT = {{ (notebook_env.get("storage_account") or "") | tojson }}
+LANDING_PATH = {{ (notebook_env.get("landing_path") or "") | tojson }}
+ARCHIVE_PATH = {{ (notebook_env.get("archive_path") or "") | tojson }}
+REJECT_PATH = {{ (notebook_env.get("reject_path") or "") | tojson }}
+{% else %}
 DEFAULT_CATALOG: str | None = {{ default_catalog | py }}
 STAGE_SCHEMA = {{ stage_schema | tojson }}
+{% endif %}
 
 IS_SEGMENTED = {{ "True" if is_segmented else "False" }}
 RECORD_TYPE_COLUMN: str | None = {{ record_type_column | py }}

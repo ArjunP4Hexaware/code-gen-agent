@@ -18,7 +18,7 @@ dbutils.widgets.text("run_ts", "")  # noqa: F821
 
 file_path = dbutils.widgets.get("file_path")  # noqa: F821
 lob = dbutils.widgets.get("lob")  # noqa: F821
-catalog = dbutils.widgets.get("catalog") or None  # noqa: F821
+catalog = dbutils.widgets.get("catalog") or {{ default_catalog | py }}  # noqa: F821
 run_ts_raw = dbutils.widgets.get("run_ts")  # noqa: F821
 run_ts = datetime.fromisoformat(run_ts_raw) if run_ts_raw else None
 

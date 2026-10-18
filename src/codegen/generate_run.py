@@ -165,6 +165,7 @@ class GenerateRun:
                 self.template_items.append(lob_item)
                 self.open_items.append(run_stages.open_item("QUESTION", lob_item.key,
                                                             feed=spec.feed_id))
+            self._notebook_environment(spec)
         except TemplateGapError as exc:
             if self._fail is not None:
                 self._fail(self.command, f"{spec.feed_id} — template gap: {exc}",
@@ -202,6 +203,34 @@ class GenerateRun:
             withheld=withheld, nothing_written=nothing_written))
         self.entry_of[spec.feed_id] = self.feed_entries[-1]
         return result
+
+    def _notebook_environment(self, spec) -> None:
+        """post68: a value the notebook needs from the environment (a catalog,
+        the storage account, a container) or the documents (the landing) and
+        does not have is a QUESTION — blocking, so the notebook is withheld
+        (codegen.emit.notebook_env). Notebook runs only."""
+        from codegen.cli import answer_line
+        from codegen.emit.notebook_env import notebook_environment
+        from codegen.layout.answers_template import TemplateItem
+        from codegen.output_modes import output_parts
+        from codegen.owed_inputs import INPUTS_SECTION
+
+        if "notebook" not in output_parts(self.output_mode or self.config.output.mode):
+            return
+        for item in notebook_environment(spec, self.config, self.iig_template).missing:
+            same = [i for i in self.open_items if i["key"] == item.key]
+            if any(i["blocking"] for i in same):
+                continue
+            self.say(answer_line("QUESTION", item.key, item.reason))
+            if same:
+                # an INPUT_NEEDED (the workbook's cells open) the notebook cannot run
+                # without: blocking on a notebook run
+                for open_line in same:
+                    open_line.update(line="QUESTION", blocking=True)
+                continue
+            self.open_items.append(run_stages.open_item(
+                "QUESTION", item.key, feed=None if item.run_scope else spec.feed_id))
+            self.template_items.append(TemplateItem(item.key, item.reason, [], INPUTS_SECTION))
 
     def blocking_for(self, feed_id: str) -> list[dict]:
         """The blocking lines open for ``feed_id``: its own and the run-level ones."""

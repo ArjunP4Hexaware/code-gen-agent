@@ -429,6 +429,7 @@ def build_context(
     duplicate_rule_text: str | None,
     notification_rule_texts: list[str],
     faq: LoadPatternFaq | None = None,
+    iig_template: str | None = None,
 ) -> dict[str, Any]:
     """Everything the templates interpolate, and nothing they compute."""
     # No file read here — callers load the FAQ (codegen.faq.faq_for_spec) so
@@ -467,6 +468,11 @@ def build_context(
         # (audit columns keep their own types; they are appended separately).
         return "STRING" if spec.load_as_is else sql_type(datatype)
 
+    # post68: the run's environment profile (catalogs, account, paths) for the
+    # notebook's feed_spec; empty when no environment is defined
+    from codegen.emit.notebook_env import notebook_environment
+
+    nb_env = notebook_environment(spec, config, iig_template)
     standard = None
     standard_tables: list[dict] = []
     if spec.standard_table is not None:
@@ -524,6 +530,9 @@ def build_context(
                 })
         else:
             standard_tables = [standard]
+        if nb_env.values.get("standard_catalog"):
+            for table in {id(t): t for t in [standard, *standard_tables]}.values():
+                table["catalog"] = table["catalog"] or nb_env.values["standard_catalog"]
 
     recycle = None
     if spec.recycle is not None:
@@ -625,7 +634,9 @@ def build_context(
         "file_format": spec.file_format,
         "delimiter": spec.delimiter,
         "landing_location": spec.landing_location,
-        "default_catalog": next((s.stage_table.catalog for s in spec.segments), None),
+        "default_catalog": (nb_env.values.get("stage_catalog")
+                            or next((s.stage_table.catalog for s in spec.segments), None)),
+        "notebook_env": nb_env.as_context(),
         "stage_schema": spec.segments[0].stage_table.schema_name,
         "is_segmented": spec.is_segmented,
         # M4: fixed-width source (positions from the STTM source band) and

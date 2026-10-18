@@ -328,6 +328,8 @@ export interface DemoStatus {
   // The current / last run's per-stage model record.
   model_usage?: StageUsage[];
   conventions_profile?: string;
+  // post69: the profile's notebook (v2 = rendered from the IIG rows)
+  notebook_version?: "v1" | "v2";
   iig_template?: string;
   playbook_template?: string;
   // 2026-10-16: null = none chosen (the demo contract is never preselected);

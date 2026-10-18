@@ -13,7 +13,8 @@ declare global {
 
 /* post68: the output toggles show the BACKEND's choice — the selection, else
    its per-profile default (acfc_prx -> framework) — and assume nothing before
-   the status answers. The badge keeps "notebook not validated for acfc_prx". */
+   the status answers. post69: the badge names the notebook — "notebook: v2
+   (acfc_prx)" when the profile's notebook is v2. */
 
 let status: Record<string, unknown> | null = null;
 
@@ -90,10 +91,19 @@ describe("the output toggles follow the backend", () => {
       .toBe("Output: …");
   });
 
-  it("keeps the acfc_prx notebook warning on the badge", async () => {
-    status = { ...BASE, output_parts: ["notebook"], conventions_profile: "acfc_prx" };
+  it("names the v2 notebook on the badge", async () => {
+    status = { ...BASE, output_parts: ["notebook"], conventions_profile: "acfc_prx",
+               notebook_version: "v2" };
     await render();
     expect(host.querySelector("[data-testid=output-badge]")!.textContent)
-      .toBe("Output: Notebook — notebook not validated for acfc_prx");
+      .toBe("Output: Notebook — notebook: v2 (acfc_prx)");
+  });
+
+  it("says nothing more for a v1 notebook", async () => {
+    status = { ...BASE, output_parts: ["notebook"], conventions_profile: "edo_sfmc",
+               notebook_version: "v1" };
+    await render();
+    expect(host.querySelector("[data-testid=output-badge]")!.textContent)
+      .toBe("Output: Notebook");
   });
 });

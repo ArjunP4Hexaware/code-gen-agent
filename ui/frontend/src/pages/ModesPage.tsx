@@ -581,8 +581,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 {transport.label}
               </span>
             ) : null}
-            {/* The output a run produces, in the header: only framework was
-                validated for acfc_prx (2026-10-13, D1 demo). */}
+            {/* The output a run produces, in the header; post69: which notebook
+                (v2 renders from the IIG rows) for the run's profile. */}
             <span
               className="mode-badge"
               data-testid="output-badge"
@@ -590,8 +590,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
             >
               Output: {!status?.output_parts ? "…" : outputParts.size === 0 ? "none"
                 : [...outputParts].map((p) => OUTPUT_COPY[p].label).join(" + ")}
-              {outputParts.has("notebook") && status?.conventions_profile === "acfc_prx"
-                ? " — notebook not validated for acfc_prx" : ""}
+              {outputParts.has("notebook") && status?.notebook_version === "v2"
+                ? ` — notebook: v2 (${status?.conventions_profile ?? ""})` : ""}
             </span>
           </div>
           <div className="panel-body">

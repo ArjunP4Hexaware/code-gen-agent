@@ -670,6 +670,9 @@ def demo_status() -> dict:
                                 or _require_store().config.conventions.profile),
         "iig_template": (_require_runner().iig_template
                          or _require_store().config.metadata.template),
+        # post69: which notebook the Notebook output is for that profile (v1 | v2)
+        "notebook_version": _require_store().config.conventions.get(
+            _require_runner().conventions_profile).notebook_version,
         "playbook_template": (_require_runner().playbook_template
                               or _require_store().config.playbook.template),
         # The FRD side of the pair (2026-10-16): only the one chosen or paired

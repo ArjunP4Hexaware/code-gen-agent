@@ -711,7 +711,7 @@ def _input_choices(spec, config: Config, inputs: dict[str, str], choices: dict, 
                    output_mode, iig_template, conventions_profile, *,
                    base: Path | None = None) -> list:
     """post59: the feed's defaulted inputs resolved (codegen.input_choices) —
-    framework output with an IIG template that owes cells only."""
+    an IIG template that owes cells (post68: any output mode)."""
     from codegen import input_choices as choices_mod
     from codegen.owed_inputs import _template
 
@@ -738,7 +738,6 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
     """2026-10-14: the run's environment. An answers-file ``inputs:
     run.environment`` selects one when no flag did; a run on the default
     prints ONE INPUT_NEEDED line naming the environment it assumed.
-    Only framework runs whose IIG template has environment cells use one.
 
     2026-10-14 (post47): a custom environment's unset keys may be given as
     ``inputs.run: environment.<key>``; every run-level input (the environment,
@@ -753,15 +752,14 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
 
     Returns (config, the required-key QUESTIONs, the run-level INPUT_NEEDED
     items) — post60: the lines from ``generate_run.run_level_lines``, the
-    App's too."""
+    App's too. post68: the same for every output mode."""
     from codegen import environments as envs
     from codegen import owed_inputs as owed_mod
     from codegen.generate_run import run_level_lines
-    from codegen.output_modes import output_parts
 
-    tpl = config.metadata.templates.get(iig_template or config.metadata.template)
-    if "framework" in output_parts(output_mode if output_mode else config.output.mode) \
-            and tpl is not None and tpl.environment_cells:
+    # post68: the answers file's run.environment and its environment.<key> values
+    # apply whatever the output mode (the notebook reads the environment too)
+    if config.environments or config.run_environment is not None:
         chosen = config.run_environment
         if inputs.get(envs.INPUT_KEY) and (chosen is None or chosen.source == "default"):
             config = envs.with_environment(config, envs.resolve(
@@ -772,7 +770,7 @@ def _run_environment(config: Config, inputs: dict[str, str], output_mode, iig_te
         if env is not None and given:
             config = envs.with_environment(
                 config, envs.with_values(config, env, given, "the answers file"))
-    env = envs.run_environment(config) if tpl is not None and tpl.environment_cells else None
+    env = envs.run_environment(config)
     if env is not None:
         print(answer_line("NOTE", envs.INPUT_KEY, f"environment: {envs.banner(config, env)}"))
     questions, items = run_level_lines(config, inputs, output_mode=output_mode,

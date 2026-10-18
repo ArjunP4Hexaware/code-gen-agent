@@ -472,5 +472,6 @@ def test_the_app_lists_inputs_needed_as_a_banner_item(tmp_path):
     assert [i["key"] for i in items] == [f"feeds.{specs[0].feed_id}.{k}" for k in OWED_KEYS]
     assert items[0]["feed"] == specs[0].feed_id and items[0]["question"]
     assert {i["scope"] for i in items} == {"feed"}       # the run-level ones: _run_level_inputs
+    # post68: one input set — a notebook run owes the same inputs
     runner.effective_output_parts = lambda: ["notebook"]
-    assert DemoRunner._owed_inputs(runner, specs[0], config, frd) == []
+    assert DemoRunner._owed_inputs(runner, specs[0], config, frd) == items

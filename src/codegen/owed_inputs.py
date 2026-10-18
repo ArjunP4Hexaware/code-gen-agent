@@ -122,11 +122,10 @@ def answers_for(inputs: dict[str, str], index: int | str,
 
 
 def _template(config, output_mode, iig_template):
-    """The IIG template a framework run fills (None: no owed cells apply)."""
-    from codegen.output_modes import output_parts
-
-    if "framework" not in output_parts(output_mode if output_mode else config.output.mode):
-        return None
+    """The run's IIG template (None: no owed cells apply). post68: one input
+    set whatever the output mode — a notebook run owes, asks and applies the
+    same inputs as a framework run (``output_mode`` is kept for the callers)."""
+    del output_mode
     return config.metadata.templates.get(iig_template or config.metadata.template)
 
 
@@ -134,8 +133,8 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
                 iig_template: str | None = None, resolved=None,
                 profile=None) -> list[OwedInput]:
     """The FEED-level IIG cells of ``spec`` the workbook is written without
-    (feed-scoped owed_cells the FAQ / answers leave unanswered) — framework
-    output with a template that names owed cells only. post59: ``resolved``
+    (feed-scoped owed_cells the FAQ / answers leave unanswered) — a template
+    that names owed cells (post68: any output mode). post59: ``resolved``
     (codegen.input_choices.resolve_feed) adds each defaulted input's proposal
     and its options."""
     from codegen.metadata_template import owed_questions
@@ -275,7 +274,7 @@ def environment_inputs(config, *, output_mode=None,
     """The run's environment inputs: ``run.environment`` when the default was
     assumed, ``run.environment.<key>`` per key the environment leaves unset (a
     custom one: missing; a named one under provider=mock: blank / placeholder).
-    Only framework runs whose IIG template has environment cells."""
+    Runs whose IIG template has environment cells (post68: any output mode)."""
     from codegen import environments as envs
 
     tpl = _template(config, output_mode, iig_template)

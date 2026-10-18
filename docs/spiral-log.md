@@ -172,3 +172,15 @@
 - Approx. time lost: ~2 minutes
 - Permanent fix: none new - known cause "A patch script that aborted before writing"; the
   rule (Write-tool scripts, never a heredoc, for anything with a backslash) stands.
+
+## 2026-10-18: hook (b) on the post68 notebook-path tests
+- Actual cause: not a spiral. `test_iig_corpus_cells.py -k test_the_app_lists_inputs_needed_as_a_banner_item`
+  failed once because it pinned the rule post68 item 2 removes (a notebook run owes no
+  inputs); the assertion was updated once and passed inside a multi-file pytest run. The
+  hook keys on the exact command string and never saw that command go green; the four
+  counted edits to tests/test_notebook_path_honest.py added the tests of items 1-4.
+- Pattern: none
+- Caught by skill: false trigger (diagnostic: re-ran the exact command — 1 passed)
+- Earliest signal that would have revealed it: the multi-file run that included the test, green
+- Approx. time lost: ~2 minutes
+- Permanent fix: none new - known cause "Hook (b) false positive"; date added to its Seen line.

@@ -95,7 +95,9 @@ Entry format:
   feature code written that step; the counted edits were the feature, no retry;
   `ruff format` once, exact command exit 0); 2026-10-15 (the failing run was a
   `-W error::DeprecationWarning` probe under .venv-d1 tripping openpyxl 3.1.2's utcnow;
-  the counted edits were CLAUDE.md restart notes; the command without the flag exit 0)
+  the counted edits were CLAUDE.md restart notes; the command without the flag exit 0);
+  2026-10-18 (post68: a pinned "notebook owes nothing" assertion fixed once inside a
+  multi-file run; the counted edits added one test block per item to a new test file)
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro.
 
 ## Hook (a) false positive: one test name, a different failure each run

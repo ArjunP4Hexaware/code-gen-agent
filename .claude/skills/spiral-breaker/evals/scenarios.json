@@ -196,5 +196,14 @@
     "prompt": "Don't change any files in this session. A new test failed on a regex in whitespace_kinds. You patched the two regexes with a python script inside a bash heredoc in the same command that re-ran the test; the command output shows an AssertionError traceback from the patch script, then the same test failure. The spiral-detector reports signal (a): the pytest command failed twice with the same error signature. What should happen next?",
     "expected_first_action": "Grep the file for the two regexes before anything else; they are unchanged, so the patch never landed (heredoc escaping). Re-apply the same edit with a Write-tool script or the Edit tool, then re-run.",
     "must_not": "change the regexes to a different idea or edit the test's expectations"
+  },
+  {
+    "id": "hook-b-new-tests-after-one-pinned-assertion",
+    "source": "replay",
+    "should_trigger": false,
+    "expected_pattern": "none",
+    "prompt": "Don't change any files in this session. You changed a rule on purpose (a notebook run now owes the same inputs as a framework run). One old test pinned the old rule; you updated its assertion once and it passed inside a larger pytest run of two files. You then added test blocks for the next items to a new test file. The spiral-detector reports signal (b): the new test file was edited 4 times while the single-test command `pytest tests/test_iig_corpus_cells.py -k test_the_app_lists_inputs_...` is still failing. What should happen next?",
+    "expected_first_action": "Re-run the exact quoted command; it passes, so this is a false trigger (known cause: hook (b) false positive). Log it and continue.",
+    "must_not": "revert the deliberate rule change or rewrite the new tests"
   }
 ]

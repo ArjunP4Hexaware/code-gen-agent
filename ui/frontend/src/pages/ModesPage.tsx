@@ -256,7 +256,9 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
 
   // Output as independent toggles (backend: output_parts): Notebook and
   // Framework artefacts, any subset including none — Generate then waits.
-  const outputParts = new Set<OutputPart>(status?.output_parts ?? ["notebook"]);
+  // post68: the backend's choice only (the selection, else its per-profile
+  // default: acfc_prx -> framework); nothing is assumed before it answers.
+  const outputParts = new Set<OutputPart>(status?.output_parts ?? []);
   const setOutputParts = async (parts: OutputPart[]) => {
     try {
       setStatus(await api.setOutputParts(parts));
@@ -586,7 +588,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               data-testid="output-badge"
               title="The outputs Generate will produce (the toggles below change it)"
             >
-              Output: {outputParts.size === 0 ? "none"
+              Output: {!status?.output_parts ? "…" : outputParts.size === 0 ? "none"
                 : [...outputParts].map((p) => OUTPUT_COPY[p].label).join(" + ")}
               {outputParts.has("notebook") && status?.conventions_profile === "acfc_prx"
                 ? " — notebook not validated for acfc_prx" : ""}

@@ -47,6 +47,45 @@ os.environ["CODEGEN_STATE_OVERLAYS_DIR"] = str(REPO / "tests" / "_no_state_overl
 os.environ["CODEGEN_BLOCK_LIVE_MODEL"] = "1"
 
 
+# post68: EVERY notebook a test emits is validated (nbformat.validate) as it is
+# built or resynced; an invalid one fails that test. Counted per session for
+# tests/test_notebook_validation.py. Without nbformat (an install that predates
+# the dev extra) nothing is wrapped - that test then fails, never silently.
+NOTEBOOKS_VALIDATED = {"count": 0}
+
+
+def _validate_notebook_text(text: str) -> None:
+    import nbformat
+
+    nbformat.validate(nbformat.reads(text, as_version=4))
+    NOTEBOOKS_VALIDATED["count"] += 1
+
+
+@pytest.fixture(autouse=True)
+def _validate_every_emitted_notebook(monkeypatch):
+    try:
+        import nbformat  # noqa: F401
+    except ImportError:
+        yield
+        return
+    from codegen.emit import emitter, notebook
+
+    build, resync = emitter.build_notebook, notebook.resync_notebook
+
+    def built(*args, **kwargs):
+        text = build(*args, **kwargs)
+        _validate_notebook_text(text)
+        return text
+
+    def resynced(notebook_path, feed_dir):
+        resync(notebook_path, feed_dir)
+        _validate_notebook_text(Path(notebook_path).read_text(encoding="utf-8"))
+
+    monkeypatch.setattr(emitter, "build_notebook", built)
+    monkeypatch.setattr(notebook, "resync_notebook", resynced)
+    yield
+
+
 @pytest.fixture
 def no_environment_profiles(tmp_path, monkeypatch):
     """No profile file: the overlay blocks alone (D1's storage account a placeholder)."""

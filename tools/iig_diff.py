@@ -2490,17 +2490,108 @@ _MARKED = re.compile("\x00([A-Z0-9_]+)\x00")   # a scrub_check class placeholder
 _TEXT_SUFFIXES = {".json", ".yaml", ".yml", ".txt", ".md", ".csv"}
 _PLACEHOLDER_NAMES = {"email_address": "EMAIL"}
 EXPORT_INTRO = (
-    "Every value below is scrubbed: a scrub_check class (and a local-denylist term) is "
-    "`<CLASS>`; a token found in the golden but not in the repo's committed fixtures is "
-    "`G<n>`, any other token outside the fixtures is `A<n>` - one map for every file of "
-    "this export, so the same token is the same placeholder everywhere. Tokens under 3 "
-    "characters and numbers under 5 digits are kept. CREATED_BY / UPDATED_BY values are "
+    "Every value below is scrubbed: a scrub_check class (and a static-denylist or harvested "
+    "term) is `<CLASS>`; a token found in the golden but not in the repo-token dictionary "
+    "(the leak gate's) is `G<n>`, any other token outside it is `A<n>` - one map for every "
+    "file of this export, so the same token is the same placeholder everywhere. Tokens under "
+    "3 characters and numbers under 5 digits are kept. CREATED_BY / UPDATED_BY values are "
     "withheld."
 )
+# post74 (D1 post73 item 7): the export keeps a token only when the ACFC leak
+# gate would: the gate's vocabulary is a static denylist + terms harvested from
+# the client documents (sheet / file names) + a REPO-TOKEN DICTIONARY (the
+# tokens of the repo's tracked text files in the runner's scope; a harvested
+# term in it is dropped). The fixture-token universe (which also read the
+# fixture .xlsx / .docx cell text) kept tokens the gate does not know: the
+# pair_01 export failed the gate with 22 hits.
+GATE_SCOPE = ("src", "fixtures", "config", "tools", "scripts", "pyproject.toml",
+              "requirements.txt", "acfc_run.py")
+_DICTIONARY_SUFFIXES = {".py", ".json", ".yaml", ".yml", ".txt", ".md", ".csv", ".toml",
+                        ".j2", ".cfg", ".ini", ".sql"}
 
 
 def _tokens(text: str) -> list[str]:
     return [t for t in _TOKEN_SPLIT.split(text)[::2] if t]
+
+
+def _git_ls(root: Path, paths: tuple[str, ...]) -> list[Path]:
+    """``git ls-files -- <paths>`` — raises where there is no git (D1's workspace)."""
+    if not (root / ".git").exists():
+        raise FileNotFoundError(f"no .git under {root}")
+    done = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", *paths],
+                          capture_output=True, check=True, timeout=120)
+    return [root / p for p in done.stdout.decode("utf-8", "replace").split("\0") if p]
+
+
+def _walk_scope(root: Path, scope: tuple[str, ...]) -> list[Path]:
+    """No git: the scope's files the repo's .gitignore does not ignore."""
+    rules = gitignore_rules(root / ".gitignore")
+    files: list[Path] = []
+    for name in scope:
+        base = root / name
+        if base.is_file() and not gitignored(name, False, rules):
+            files.append(base)
+            continue
+        if not base.is_dir() or gitignored(name, True, rules):
+            continue
+        for folder, dirs, names in os.walk(base):
+            rel = Path(folder).relative_to(root).as_posix()
+            dirs[:] = sorted(d for d in dirs if not gitignored(f"{rel}/{d}", True, rules))
+            files += [Path(folder) / n for n in sorted(names)
+                      if not gitignored(f"{rel}/{n}", False, rules)]
+    return files
+
+
+@functools.cache
+def repo_token_dictionary(root: Path = REPO_ROOT,
+                          scope: tuple[str, ...] = GATE_SCOPE) -> tuple[frozenset[str], str, int]:
+    """(caseless tokens, where the file list came from, file count) of the
+    repo's tracked TEXT files in the leak gate's scope (:data:`GATE_SCOPE`) —
+    the gate's repo-token dictionary. A workbook / document's cell text is not
+    read (the gate's dictionary does not read it)."""
+    root = Path(root)
+    try:
+        files = _git_ls(root, scope)
+        source = f"git ls-files {' '.join(scope)}"
+    except (OSError, subprocess.SubprocessError):
+        files = _walk_scope(root, scope)
+        source = f"disk walk of {' '.join(scope)} (no git), .gitignore honoured"
+    files = [f for f in files if f.suffix.lower() in _DICTIONARY_SUFFIXES and f.is_file()]
+    tokens: set[str] = set()
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        tokens.update(t.casefold() for t in _tokens(text))
+    return frozenset(tokens), source, len(files)
+
+
+def gate_terms(candidates: list[str], dictionary: frozenset[str],
+               template: frozenset[str] = frozenset()) -> tuple[list[str], int]:
+    """(terms the gate checks, terms dropped): harvested whole terms (sheet /
+    file names), a term whose casefold is a dictionary token dropped, an IIG
+    template sheet / column name dropped (template vocabulary, committed in
+    config/config.yaml), terms under 5 characters dropped (the gate's floor)."""
+    kept: list[str] = []
+    dropped = 0
+    for term in dict.fromkeys(" ".join(str(c).split()) for c in candidates if c):
+        if len(term) < 5 or term.casefold() in dictionary or term.upper() in template:
+            dropped += 1
+        else:
+            kept.append(term)
+    return kept, dropped
+
+
+def load_gate_terms(path: Path | None) -> list[str]:
+    """``--gate-terms FILE``: the harness's harvested terms, one per line
+    (``#`` lines skipped). Absent = none (the run's own sheet / file names
+    are harvested regardless)."""
+    if path is None or not Path(path).is_file():
+        return []
+    return [line.strip() for line in Path(path).read_text(encoding="utf-8",
+                                                          errors="replace").splitlines()
+            if line.strip() and not line.strip().startswith("#")]
 
 
 def _git_ls_fixtures(root: Path) -> list[Path]:
@@ -2661,6 +2752,14 @@ def _term_regex(terms: list[str]) -> re.Pattern[str] | None:
         return None
     alternatives = "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True))
     return re.compile(rf"(?<![^\W_])(?:{alternatives})(?![^\W_])", re.IGNORECASE)
+
+
+def _caseless_regex(terms: list[str]) -> re.Pattern[str] | None:
+    """Any of ``terms`` anywhere, caseless (the leak gate's substring check)."""
+    if not terms:
+        return None
+    return re.compile("|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)),
+                      re.IGNORECASE)
 
 
 def _marker(klass: str) -> str:
@@ -2993,13 +3092,20 @@ def _write_row_keys(path: Path, diffs: list[SheetDiff], keys: KeyConfig,
     return listed
 
 
-def _rescan(sc, files: list[Path], deny: dict[str, str], local) -> Counter[str]:
+def _rescan(sc, files: list[Path], deny: dict[str, str], local,
+            gate=None) -> Counter[str]:
     hits = Counter(klass for _, klass, _ in sc.scan_paths(files, deny=deny))
-    if local is not None:
-        for f in files:
-            n = len(local.findall(f.read_text(encoding="utf-8")))
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        if local is not None:
+            n = len(local.findall(text))
             if n:
                 hits["local_denylist"] += n
+        if gate is not None:
+            # the leak gate's check: a harvested term, caseless, anywhere
+            n = len(gate.findall(text))
+            if n:
+                hits["harvested_term"] += n
     return hits
 
 
@@ -3011,16 +3117,27 @@ def _class_counts(counts: Counter[str] | dict[str, int]) -> str:
 def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Path = REPO_ROOT,
                     local_denylist: Path | None = None,
                     harvest: dict[str, str] | None = None,
-                    headers: dict | None = None) -> dict:
+                    headers: dict | None = None,
+                    gate_candidates: list[str] | None = None) -> dict:
     """Write mismatches.md + row_keys.md + SELF_CHECK.md under ``out``. The
     result's ``rescan`` is empty when the written files are clean; otherwise
-    the two evidence files are deleted (SELF_CHECK.md names the classes)."""
+    the two evidence files are deleted (SELF_CHECK.md names the classes).
+    post74: the leak gate's vocabulary — the repo-token dictionary keeps a
+    token, the static denylist (local file + CODEGEN_SCRUB_DENYLIST) and the
+    harvested terms (``gate_candidates``: the workbooks' sheet / file names and
+    the harness's list, minus dictionary words) are masked and re-scanned."""
     root = Path(root)
     sc = load_scrub_check(root)
     deny_path = root / LOCAL_DENYLIST_REL if local_denylist is None else Path(local_denylist)
     terms = load_local_denylist(deny_path)
+    env_terms = [t for t in getattr(sc, "load_local_denylist", lambda: [])()
+                 if isinstance(t, str) and t.strip()] if local_denylist is None else []
+    terms = list(dict.fromkeys([*terms, *env_terms]))
     harvested = sc.harvest_raw_denylist() if harvest is None else dict(harvest)
-    universe, source, n_files = fixture_universe(root)
+    universe, source, n_files = repo_token_dictionary(root)
+    sheet_names = [s.name for d in diffs for s in d.sides if s is not None]
+    checked, dropped = gate_terms([*sheet_names, *(gate_candidates or [])], universe,
+                                  template_vocabulary(root))
     golden_tokens: set[str] = set()
     for d in diffs:
         g = d.sides[0]
@@ -3028,7 +3145,7 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
             continue
         texts = [g.name, *g.columns, *(_raw(v) for _, row in g.rows for v in row.values())]
         golden_tokens.update(t.casefold() for text in texts for t in _tokens(text))
-    scr = Scrubber(sc, universe, frozenset(golden_tokens), terms, harvested)
+    scr = Scrubber(sc, universe, frozenset(golden_tokens), [*terms, *checked], harvested)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     counts = _write_mismatches(out / EXPORT_FILES[0], diffs, keys, scr)
@@ -3041,8 +3158,11 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
                     f"A {len(scr.maps['A'])} ({scr.uses['A']} uses)")
     before = _class_counts(scr.before)
     lines = ["# SELF_CHECK - scrubbed export (counts only)", "",
-             f"- fixtures token universe: {source}, {n_files} files, {len(universe)} tokens",
-             f"- local denylist: {f'{len(terms)} terms' if terms else 'absent'}",
+             f"- repo-token dictionary (the leak gate's): {source}, text files only, "
+             f"{n_files} files, {len(universe)} tokens",
+             f"- static denylist: {f'{len(terms)} terms' if terms else 'absent'}",
+             f"- harvested gate terms: {len(checked)} checked, {dropped} dropped (dictionary "
+             "words / under 5 characters)",
              f"- raw harvest (inputs/reference_raw): "
              f"{f'{len(harvested)} tokens' if harvested else 'absent or empty'}",
              f"- cells exported: {cells} ({by_status})",
@@ -3052,7 +3172,8 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
              f"- scrub_check hits before replacement, per class: {before}"]
     check_path = out / SELF_CHECK_FILE
     check_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    hits = _rescan(sc, [out / f for f in (*EXPORT_FILES, SELF_CHECK_FILE)], harvested, scr.local)
+    hits = _rescan(sc, [out / f for f in (*EXPORT_FILES, SELF_CHECK_FILE)], harvested,
+                   _term_regex(terms), _caseless_regex(checked))
     if hits:
         for name in EXPORT_FILES:
             (out / name).unlink(missing_ok=True)
@@ -3062,7 +3183,7 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
         rescan = "0 hits"
     with check_path.open("a", encoding="utf-8") as fh:
         fh.write(f"- re-scan of {', '.join((*EXPORT_FILES, SELF_CHECK_FILE))} with "
-                 f"scrub_check: {rescan}\n")
+                 f"scrub_check + the gate's terms: {rescan}\n")
     return {
         "cells": cells, "counts": dict(counts), "rows_listed": listed,
         "placeholders": {p: len(m) for p, m in scr.maps.items()}, "uses": dict(scr.uses),
@@ -3443,6 +3564,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--export-scrubbed", type=Path, metavar="DIR",
                     help="with --golden / --agent: also write mismatches.md, row_keys.md and "
                          "SELF_CHECK.md to DIR, every value scrubbed (safe to hand home)")
+    ap.add_argument("--gate-terms", type=Path, metavar="FILE",
+                    help="with --export-scrubbed: the leak gate's harvested terms, one per "
+                         "line (masked and re-scanned, minus repo-dictionary words); the "
+                         "workbooks' own sheet / file names are harvested regardless")
     ap.add_argument("--dump-row", nargs="*", metavar="SHEET[:N]", default=None,
                     help="print one PAIRED row's golden and agent values side by side, "
                          "column by column (D1 only - unscrubbed console): SHEET[:N] = the "
@@ -3506,8 +3631,10 @@ def main(argv: list[str] | None = None) -> int:
     _print_pair(payload, args.out)
     for line in dump_rows(diffs, keys, args.dump_row) if args.dump_row is not None else []:
         print(line)
+    names = [Path(p).stem for p in (args.golden, *agents)]
     check = export_scrubbed(diffs, keys, args.export_scrubbed,
-                            headers=payload.get("headers"))
+                            headers=payload.get("headers"),
+                            gate_candidates=[*names, *load_gate_terms(args.gate_terms)])
     print(check["line"])
     written = EXPORT_FILES + (SELF_CHECK_FILE,) if not check["rescan"] else (SELF_CHECK_FILE,)
     print(f"wrote {', '.join(str(args.export_scrubbed / f) for f in written)}")

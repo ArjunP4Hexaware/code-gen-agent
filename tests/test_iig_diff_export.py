@@ -44,8 +44,10 @@ pytestmark = pytest.mark.skipif(not SFMC.exists(), reason=f"{SFMC} absent")
 @pytest.fixture(autouse=True)
 def _fresh_universe():
     iig_diff.fixture_universe.cache_clear()
+    iig_diff.repo_token_dictionary.cache_clear()
     yield
     iig_diff.fixture_universe.cache_clear()
+    iig_diff.repo_token_dictionary.cache_clear()
 
 
 def _set(ws, row: int, column: str, value) -> None:
@@ -161,11 +163,13 @@ def test_self_check_counts_and_rescan_is_clean(tmp_path: Path) -> None:
     assert check["before"]["email_address"] >= 1
     assert check["before"]["workspace_user_path"] >= 1
     assert check["before"]["local_denylist"] >= 1
-    assert check["universe_source"] == "git ls-files fixtures/" or not (REPO / ".git").exists()
+    assert (check["universe_source"] == "git ls-files " + " ".join(iig_diff.GATE_SCOPE)
+            or not (REPO / ".git").exists())
     assert check["line"].startswith("SELF_CHECK: ")
     assert check["line"].endswith("re-scan: 0 hits")
     self_check = (export / "SELF_CHECK.md").read_text(encoding="utf-8")
-    assert "scrub_check: 0 hits" in self_check
+    assert "scrub_check + the gate's terms: 0 hits" in self_check
+    assert "- repo-token dictionary (the leak gate's): " in self_check
     sc = iig_diff.load_scrub_check()
     assert sc.scan_paths([export], deny={}) == []
 
@@ -208,18 +212,76 @@ def test_out_is_still_required_without_the_new_flags(tmp_path: Path, capsys) -> 
 
 
 def test_without_git_the_universe_is_a_gitignore_aware_disk_walk(tmp_path, monkeypatch) -> None:
-    def no_git(root):
+    def no_git(root, *paths):
         raise FileNotFoundError("git unavailable")
 
-    monkeypatch.setattr(iig_diff, "_git_ls_fixtures", no_git)
+    monkeypatch.setattr(iig_diff, "_git_ls", no_git)
     _, _, export, check = _export(tmp_path)
-    assert check["universe_source"].startswith("disk walk of fixtures/ (no git)")
+    assert check["universe_source"].startswith("disk walk of src fixtures")
     assert check["rescan"] == {}
     text = _texts(export)
     for leak in LEAKS:
         assert leak.lower() not in text.lower(), leak
-    assert "disk walk of fixtures/ (no git)" in (export / "SELF_CHECK.md").read_text(
+    assert "(no git), .gitignore honoured" in (export / "SELF_CHECK.md").read_text(
         encoding="utf-8")
+
+
+# ---------------------------------------------- post74: the leak gate's vocabulary
+
+
+def test_the_dictionary_is_the_tracked_text_files_of_the_gate_scope(tmp_path: Path) -> None:
+    root = tmp_path / "repo"                                    # no .git: the disk walk
+    (root / "src").mkdir(parents=True)
+    (root / "fixtures").mkdir()
+    (root / "docs").mkdir()
+    (root / ".gitignore").write_text("*.secret\n", encoding="utf-8")
+    (root / "src" / "a.py").write_text("alpha_bravo = 1", encoding="utf-8")
+    (root / "fixtures" / "x.secret").write_text("ZqOther", encoding="utf-8")
+    (root / "docs" / "notes.md").write_text("ZqOutOfScope", encoding="utf-8")
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = "ZqCellText"                              # a workbook's cell: not read
+    wb.save(root / "fixtures" / "f.xlsx")
+    tokens, source, n = iig_diff.repo_token_dictionary(root)
+    assert source.startswith("disk walk of src fixtures config tools scripts")
+    assert n == 1 and {"alpha", "bravo"} <= tokens
+    assert not {"zqother", "zqoutofscope", "zqcelltext"} & tokens
+
+
+def test_a_token_only_a_fixture_workbook_carries_is_now_masked(tmp_path: Path) -> None:
+    sfmc_cells = iig_diff._file_text(SFMC)
+    dictionary, _source, _n = iig_diff.repo_token_dictionary(REPO)
+    fixture_only = sorted({t for t in iig_diff._tokens(sfmc_cells) if len(t) >= 6
+                           and t.isalpha() and t.casefold() not in dictionary})
+    assert fixture_only, "the SFMC fixture carries no workbook-only token"
+    _, _, export, check = _export(tmp_path)
+    assert check["rescan"] == {}
+    text = _texts(export)
+    kept = [t for t in fixture_only if re.search(rf"(?<![A-Za-z]){t}(?![A-Za-z])", text)]
+    assert kept == []
+
+
+def test_harvested_terms_are_masked_and_rescanned(tmp_path: Path) -> None:
+    golden, agent = _build_pair(tmp_path)
+    payload, diffs, keys = iig_diff._run_pair(golden, agent, tmp_path / "out", KEYS, "key")
+    term = f"{TOKEN} Mapping"                     # a harvested sheet name, not one word
+    check = iig_diff.export_scrubbed(diffs, keys, tmp_path / "export",
+                                     local_denylist=_deny(tmp_path, DENY_TERM), harvest={},
+                                     gate_candidates=[term, "Mapping", "ADLS_DELTA_INGESTION_"
+                                                      "DETAILS"])
+    assert check["rescan"] == {}
+    self_check = (tmp_path / "export" / "SELF_CHECK.md").read_text(encoding="utf-8")
+    assert "- harvested gate terms: 1 checked, " in self_check
+    assert term.lower() not in _texts(tmp_path / "export").lower()
+
+
+def test_the_gate_rescan_counts_a_harvested_term(tmp_path: Path) -> None:
+    folder = tmp_path / "files"
+    folder.mkdir()
+    (folder / "a.md").write_text("see the Vendor Feed Layout sheet", encoding="utf-8")
+    sc = iig_diff.load_scrub_check()
+    hits = iig_diff._rescan(sc, [folder / "a.md"], {}, None,
+                            iig_diff._caseless_regex(["vendor feed layout"]))
+    assert hits == {"harvested_term": 1}
 
 
 def test_the_disk_walk_skips_gitignored_files(tmp_path: Path) -> None:

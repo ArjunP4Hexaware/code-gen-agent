@@ -99,3 +99,10 @@ def test_the_answer_fills_the_workbook_and_the_notebook(tmp_path, capsys):
     assert str(paths["TGT_RJT_ADLS_PATH"]).startswith("/claims/vendor_k/Reject/")
     assert code in (cli.EXIT_OK, cli.EXIT_NEEDS_ANSWERS)
     assert not [ln for ln in _lines(out, "QUESTION") if "adls_path" in ln]
+
+
+def test_no_proposal_from_an_unstated_source(tmp_path):
+    config, specs, _pair = _pair11(tmp_path)
+    tpl = config.metadata.templates["iig_v2"]
+    spec = specs[0].model_copy(update={"source_system": "unstated", "landing_location": None})
+    assert landing_proposal(tpl, spec) == ""

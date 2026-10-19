@@ -530,8 +530,15 @@ def landing_proposal(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec) -> str
     token it needs is unstated): container-relative, '/'-wrapped."""
     if not tpl.landing_proposal:
         return ""
-    values = {"domain": spec.domain or "", "sub_domain": spec.sub_domain or "",
-              "source": spec.source_system or ""}
+    from codegen.config import is_placeholder
+
+    def stated(value: str | None) -> str:
+        # the reader's "unstated" sentinel / a placeholder is no token to propose with
+        text = (value or "").strip()
+        return "" if text.lower() == "unstated" or is_placeholder(text) else text
+
+    values = {"domain": stated(spec.domain), "sub_domain": stated(spec.sub_domain),
+              "source": stated(spec.source_system)}
     used = re.findall(r"{(\w+)}", tpl.landing_proposal)
     if not all(values.get(token) for token in used if token != "sub_domain"):
         return ""

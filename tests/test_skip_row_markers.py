@@ -17,7 +17,6 @@ from codegen.extract import extract_contract
 from codegen.run_errors import first_error_line
 from post73_pairs import (
     FIRST_DATA_ROW,
-    coordinates,
     frd,
     mapping_workbook,
     without_markers,
@@ -32,14 +31,19 @@ def _extract(config, tmp_path, overrides):
                             frd(tmp_path / "frd.json"), config, generated_date=DATE)
 
 
-def test_the_fixture_reproduces_the_d1_line_without_markers(config, tmp_path):
-    # pair_05's shape: stage ColumnName blank, the stage DataType cell 'N/A'
-    with pytest.raises(Exception) as caught:
-        _extract(without_markers(config), tmp_path, {2: {"stage_column": None,
-                                                         "stage_type": "N/A"}})
-    assert coordinates(caught.value) == (
-        f"FAIL            extract-sttm — STTM required element missing (role column) at "
-        f"STTM sheet 2 row {FIRST_DATA_ROW + 2} col 15 [ExtractionError]")
+def test_without_markers_the_row_is_still_no_mapping_row(config, tmp_path):
+    # pair_05's shape: stage ColumnName blank, the stage DataType cell 'N/A'. Before
+    # post74 (97f42e9) it stopped extract-sttm with "FAIL            extract-sttm —
+    # STTM required element missing (role column) at STTM sheet 2 row 14 col 15
+    # [ExtractionError]". With no marker list at all, the row names no stage column:
+    # not a mapping row (post74 item 3), counted in the same flag.
+    contract = _extract(without_markers(config), tmp_path, {2: {"stage_column": None,
+                                                                "stage_type": "N/A"}})
+    (feed,) = contract.feeds
+    assert feed.field_count == 5 and not contract.needs_answers
+    (flag,) = [f for f in feed.extraction_flags if f.startswith("skipped_rows:")]
+    assert f"1 name no target column (not a mapping row): FEED_5_MAPPING!O{FIRST_DATA_ROW + 2}" \
+        in flag
 
 
 @pytest.mark.parametrize(("cells", "marker_cell"), [

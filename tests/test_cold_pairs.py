@@ -156,7 +156,8 @@ def test_cold_pair_completes_after_the_answers(pair, cold_env, capsys):
     owed = (".active_start_date — ", ".application_name — ", ".email_to — ",
             ".pipeline_name.",              # framework owner's rule 1: BSA, per flow
             ".email_statuses — ",
-            ".primary_key — ")              # post70: a key proposal, written when chosen
+            ".primary_key — ",              # post70: a key proposal, written when chosen
+            ".src_adls_path — ")            # post74: the FRD states no inbound path
     assert inputs and all(any(k in ln for k in owed) or
                           ln.startswith("INPUT_NEEDED   run.environment") for ln in inputs), out
     verdicts = re.findall(r"^(PASS_WITH_FLAGS|PASS|FAIL)\s", out, re.MULTILINE)

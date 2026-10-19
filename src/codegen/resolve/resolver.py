@@ -177,7 +177,10 @@ def _unstated_questions(errors: list[str], feed_id: str, feed_index: int,
 # (the layout stage takes the same gaps: keys).
 _UNSTATED_ANSWERS = {"file_format": "text", "delimiter": "text",
                      "stage_target.load_strategy": "strategy", "lobs": "list",
-                     "file_name_patterns": "list", "file_patterns": "list"}
+                     "file_name_patterns": "list", "file_patterns": "list",
+                     # post74: the IIG landing cell's question sets the landing
+                     "src_adls_path": "text"}
+_UNSTATED_TARGET = {"file_patterns": "file_name_patterns", "src_adls_path": "landing_location"}
 
 
 def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_index: int,
@@ -188,9 +191,11 @@ def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_inde
     from codegen.layout.resolve import _feed_get, _feed_set
     from codegen.resolve.gapfill import Statement, canonical_strategy, fill_flag
 
+    feed_id = normalize_feed_name(frd_feed.feed_name)
     for field, kind in _UNSTATED_ANSWERS.items():
-        answer = str((gaps or {}).get(f"feeds[{feed_index}].{field}") or "").strip()
-        target = "file_name_patterns" if field == "file_patterns" else field
+        answer = str((gaps or {}).get(f"feeds[{feed_index}].{field}")
+                     or (gaps or {}).get(f"feeds.{feed_id}.{field}") or "").strip()
+        target = _UNSTATED_TARGET.get(field, field)
         if not answer or _feed_get(frd_feed, target) not in (None, "", []):
             continue
         if kind == "list":

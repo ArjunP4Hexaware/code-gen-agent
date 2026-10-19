@@ -1701,6 +1701,12 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> header -> path shape with {landing} {stage_table} {reject_table}
     # (the golden spells the archive path differently per sheet).
     path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # post74 (D1 post73 pair_11): the landing a document does not state - the
+    # family's convention over {domain} {sub_domain} {source}, container-relative
+    # as SRC_ADLS_PATH is written. An agent_proposal: SHOWN with the
+    # feeds[<i>].src_adls_path question, never written unanswered. "" = none.
+    landing_proposal: str = ""
+    landing_proposal_citation: str = ""
     # The family's path-case convention for the INPUT-derived segments of a
     # path cell (the FRD landing, table names); the shapes' own literals
     # ("Processed/") are written as configured. "preserve" = as stated.

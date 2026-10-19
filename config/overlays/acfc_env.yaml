@@ -196,6 +196,13 @@ metadata:
       # both); any other feed gets one FILE_ADLS row per ADLS_DELTA row (its file).
       file_adls_rows: per_file
       mft_landing_markers: [mftlanding]
+      # post74 (D1 post73 pair_11): an FRD that states no inbound path (the Pyx FRD)
+      # leaves SRC_ADLS_PATH / SRC_ADLS_ARCHVL_PATH / TGT_RJT_ADLS_PATH open: ONE
+      # question per feed, feeds[<i>].src_adls_path (workbook and notebook alike), with
+      # this convention shown as the agent's proposal - never written unanswered.
+      # TODO D1: confirm against the corpus's SRC_ADLS_PATH values (patterns.json).
+      landing_proposal: "/inbound/{domain}/{sub_domain}/{source}/"
+      landing_proposal_citation: "the landing convention the FRD Structural Metadata states (demo.source_files.landing_root_template: <landing container>/inbound/<domain>/<sub domain>/<source>), container-relative"
       path_patterns:
         ADLS_DELTA_INGESTION_DETAILS:
           SRC_ADLS_PATH: "{landing_rel}"

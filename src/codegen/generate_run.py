@@ -174,7 +174,8 @@ class GenerateRun:
                 self.template_items.append(key_item)
                 self.open_items.append(run_stages.open_item("QUESTION", key_item.key,
                                                             feed=spec.feed_id))
-            self._notebook_environment(spec)
+            self._landing_input(spec, index)
+            self._notebook_environment(spec, index)
         except TemplateGapError as exc:
             if self._fail is not None:
                 self._fail(self.command, f"{spec.feed_id} — template gap: {exc}",
@@ -213,7 +214,27 @@ class GenerateRun:
         self.entry_of[spec.feed_id] = self.feed_entries[-1]
         return result
 
-    def _notebook_environment(self, spec) -> None:
+    def _landing_input(self, spec, index) -> None:
+        """post74 (D1 post73 pair_11): a landing no document states leaves the
+        IIG's path cells open - ONE input per feed under the IIG cell's key
+        (codegen.metadata_template.landing_question), the convention shown as
+        the proposal. Non-blocking here; a notebook run makes it blocking."""
+        from codegen.cli import answer_line
+        from codegen.layout.answers_template import TemplateItem
+        from codegen.metadata_template import landing_question
+        from codegen.owed_inputs import INPUTS_SECTION, _template
+
+        asked = landing_question(_template(self.config, self.output_mode, self.iig_template),
+                                 spec, index)
+        if asked is None or any(i["key"] == asked[0] for i in self.open_items):
+            return
+        key, reason, proposal = asked
+        self.say(answer_line("INPUT_NEEDED", key, reason))
+        self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
+        self.template_items.append(TemplateItem(key, reason, [], INPUTS_SECTION,
+                                                proposed=proposal))
+
+    def _notebook_environment(self, spec, index=None) -> None:
         """post68: a value the notebook needs from the environment (a catalog,
         the storage account, a container) or the documents (the landing) and
         does not have is a QUESTION — blocking, so the notebook is withheld
@@ -226,7 +247,8 @@ class GenerateRun:
 
         if "notebook" not in output_parts(self.output_mode or self.config.output.mode):
             return
-        for item in notebook_environment(spec, self.config, self.iig_template).missing:
+        for item in notebook_environment(spec, self.config, self.iig_template,
+                                         index).missing:
             same = [i for i in self.open_items if i["key"] == item.key]
             if any(i["blocking"] for i in same):
                 continue

@@ -514,6 +514,56 @@ class _LandingOnly:
     landing_location: str | None
 
 
+LANDING_KEY = "src_adls_path"
+
+
+def landing_key(index: int | str, feed_id: str) -> str:
+    """post74: THE key of a feed's open landing - the IIG cell's
+    (``feeds[<i>].src_adls_path``; ``feeds.<feed>.src_adls_path`` when the
+    feed has no FRD position) - asked once for workbook and notebook."""
+    return (f"feeds[{index}].{LANDING_KEY}" if isinstance(index, int)
+            else f"feeds.{feed_id}.{LANDING_KEY}")
+
+
+def landing_proposal(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec) -> str:
+    """The template's landing convention for ``spec`` ('' when none, or when a
+    token it needs is unstated): container-relative, '/'-wrapped."""
+    if not tpl.landing_proposal:
+        return ""
+    values = {"domain": spec.domain or "", "sub_domain": spec.sub_domain or "",
+              "source": spec.source_system or ""}
+    used = re.findall(r"{(\w+)}", tpl.landing_proposal)
+    if not all(values.get(token) for token in used if token != "sub_domain"):
+        return ""
+    text = tpl.landing_proposal.format(**values)
+    segments = [s for s in text.replace("\\", "/").split("/") if s.strip()]
+    return "/" + "/".join(segments) + "/" if segments else ""
+
+
+def landing_question(tpl: MetadataTemplateConfig | None, spec: ResolvedFeedSpec,
+                     index: int | str) -> tuple[str, str, str] | None:
+    """post74 (D1 post73 pair_11): (key, reason, proposal) when no document
+    states the feed's landing and the template derives the ADLS_DELTA path
+    cells from it (SRC_ADLS_PATH, and SRC_ADLS_ARCHVL_PATH / TGT_RJT_ADLS_PATH
+    from that); None otherwise. One key for the workbook's cells and the
+    notebook's landing / archive / reject paths."""
+    from codegen.emit.notebook_env import LANDING_TAB
+
+    if tpl is None or (spec.landing_location or "").strip():
+        return None
+    if "SRC_ADLS_PATH" not in tpl.path_patterns.get(LANDING_TAB, {}):
+        return None
+    proposal = landing_proposal(tpl, spec)
+    reason = ("no document states the inbound path: the IIG's SRC_ADLS_PATH (and the "
+              "SRC_ADLS_ARCHVL_PATH / TGT_RJT_ADLS_PATH derived from it) and the notebook's "
+              "landing / archive / reject paths stay open; answer the path inside the landing "
+              "container")
+    if proposal:
+        reason += (f" — proposed (agent_proposal, not applied): {proposal!r}, "
+                   f"{tpl.landing_proposal_citation or 'the template landing_proposal'}")
+    return landing_key(index, spec.feed_id), reason, proposal
+
+
 def notebook_paths(tpl: MetadataTemplateConfig,
                    spec: ResolvedFeedSpec) -> dict[str, tuple[str | None, str | None]]:
     """post68: the ADLS_DELTA row's landing / archive / reject paths (the

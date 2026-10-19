@@ -706,7 +706,10 @@ def _run_pairs(
     from codegen.resolve.resolver import pending_answers
 
     inputs = _answers_inputs(answers_path)
-    gaps = _answers_gaps(answers_path)
+    # post74: a feed-scoped answer written under inputs: (the IIG landing cell's
+    # feeds[<i>].src_adls_path) reaches the resolver like a gaps: answer
+    gaps = {**{k: v for k, v in inputs.items() if k.startswith("feeds")},
+            **_answers_gaps(answers_path)}
     # post59: the BSA's explicit choices (use_default / naming_standard /
     # leave_blank) — proposed is never applied without one
     choices = _answers_choices(answers_path)

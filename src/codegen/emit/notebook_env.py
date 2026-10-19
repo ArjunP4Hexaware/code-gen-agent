@@ -35,7 +35,7 @@ PATHS = (
 class Missing:
     """A value the notebook needs and the run does not state."""
 
-    key: str            # the answers key (run.environment.<k> or feeds.<feed>.notebook.<k>)
+    key: str            # the answers key (run.environment.<k>, or the IIG cell's feeds[<i>].<k>)
     reason: str
     run_scope: bool     # an environment value (run-level) vs the feed's own
 
@@ -57,12 +57,16 @@ def _real(value: str | None) -> str | None:
     return value if value and not is_placeholder(value) else None
 
 
-def notebook_environment(spec, config, iig_template: str | None = None) -> NotebookEnvironment:
+def notebook_environment(spec, config, iig_template: str | None = None,
+                         index: int | str | None = None) -> NotebookEnvironment:
     """The environment values the notebook's feed_spec states, and what is
-    missing (see the module docstring)."""
+    missing (see the module docstring). post74: an open path is asked by the
+    IIG cell's key (``feeds[<index>].src_adls_path`` ...), never a
+    notebook-only key — the landing once; archive / reject only when their
+    own shape is missing."""
     from codegen import environments as envs
     from codegen.gate.derivations import location_scheme
-    from codegen.metadata_template import notebook_paths
+    from codegen.metadata_template import landing_key, landing_question, notebook_paths
 
     try:
         env = envs.run_environment(config)
@@ -98,7 +102,10 @@ def notebook_environment(spec, config, iig_template: str | None = None) -> Noteb
     tpl = config.metadata.templates.get(iig_template or config.metadata.template)
     tpl = envs.apply_environment(tpl, config) if tpl is not None else None
     paths = notebook_paths(tpl, spec) if tpl is not None else {}
-    feed_key = f"feeds.{spec.feed_id}.notebook"
+    where_index = index if index is not None else spec.feed_id
+    landing_open = landing_question(tpl, spec, where_index)
+    if landing_open is not None:
+        missing.append(Missing(landing_open[0], landing_open[1], False))
     for key, header, container_header in PATHS:
         path, container = paths.get(key, (None, None))
         container_key = key.replace("_path", "_container")
@@ -108,10 +115,13 @@ def notebook_environment(spec, config, iig_template: str | None = None) -> Noteb
             continue
         container = _real(container)
         if not path:
-            missing.append(Missing(
-                f"{feed_key}.{key}",
-                f"the notebook's {key.replace('_', ' ')}: no document states the landing "
-                f"location, or the template has no {LANDING_TAB}.{header} shape", False))
+            if landing_open is None:
+                # the landing is stated, this cell's shape is missing: its own cell
+                missing.append(Missing(
+                    landing_key(where_index, spec.feed_id).replace("src_adls_path",
+                                                                    header.lower()),
+                    f"the notebook's {key.replace('_', ' ')}: the template has no "
+                    f"{LANDING_TAB}.{header} shape (the IIG cell is open too)", False))
         elif container is None:
             # the environment key the template fills this container from
             ref = (tpl.environment_cells.get(LANDING_TAB, {}).get(container_header)

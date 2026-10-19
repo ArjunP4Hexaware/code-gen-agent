@@ -106,6 +106,13 @@ def _codegen_source_line() -> str:
 CODEGEN_SOURCE = _codegen_source_line()
 print(CODEGEN_SOURCE, flush=True)
 
+# post72: a CODEGEN_STATE_DIR on a UC volume is copied (Files API, read-only)
+# BEFORE the config loads, so the volume's overlays/<profile>.yaml applies;
+# the state line in lifespan names the volume and the copy.
+from codegen import state_mirror  # noqa: E402
+
+state_mirror.refresh()
+
 # An Apps deployment may start without config/fixtures in place — come up
 # with empty state and a clear message instead of crashing at import.
 store: GenerationStore | None
@@ -157,6 +164,23 @@ def _require_runner() -> DemoRunner:
     if runner is None:
         raise HTTPException(503, f"pipeline unavailable — {startup_error}")
     return runner
+
+
+def _refresh_state() -> None:
+    """post72: re-copy a volume CODEGEN_STATE_DIR before a generate request;
+    when its content changed, reload the config (the volume's overlay) so the
+    edit shows without a redeploy. A failed refresh keeps the previous copy."""
+    result = state_mirror.refresh()
+    if result is None:
+        return
+    if result.error:
+        print(f"state refresh failed, previous copy kept: {result.error}", flush=True)
+    elif result.changed and store is not None:
+        from codegen.config import load_config
+
+        store.config = load_config(CONFIG_PATH)
+        print("state changed on the volume — config reloaded; "
+              + state_mirror.describe(), flush=True)
 
 
 @asynccontextmanager
@@ -364,6 +388,7 @@ def generate(req: GenerateRequest) -> dict:
     # Always mock here regardless of the request body: with a real key in the
     # backend env, honoring dry_run=False would allow billed calls without the
     # cost confirmation. The ONLY live path is /api/demo/run-live.
+    _refresh_state()
     try:
         _require_store().generate(
             only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests
@@ -472,6 +497,7 @@ def run_live(req: LiveRunRequest) -> dict:
     if not available:
         raise HTTPException(400, f"live run unavailable: {reason}")
     _require_store()
+    _refresh_state()
     try:
         _require_runner().start_live()
     except LiveRunInProgress as exc:

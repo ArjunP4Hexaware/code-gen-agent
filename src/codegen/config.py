@@ -2168,9 +2168,23 @@ STATE_DIR_ENV = "CODEGEN_STATE_DIR"
 STATE_DIR = Path(__file__).resolve().parents[2] / "codegen-state"
 
 
+# post72: a CODEGEN_STATE_DIR on an unmounted UC volume is read through its
+# local copy (codegen.state_mirror): {volume path: local copy}
+_STATE_MIRRORS: dict[str, Path] = {}
+
+
+def register_state_mirror(volume: str, local: Path) -> None:
+    """``state_root`` answers ``local`` while ``CODEGEN_STATE_DIR`` is ``volume``."""
+    _STATE_MIRRORS[volume.rstrip("/")] = Path(local)
+
+
 def state_root() -> Path:
-    """The codegen-state folder: ``CODEGEN_STATE_DIR``, else ``<repo>/codegen-state``."""
-    return Path(os.environ.get(STATE_DIR_ENV) or STATE_DIR)
+    """The codegen-state folder: ``CODEGEN_STATE_DIR`` (its local copy when it
+    is a volume path, post72), else ``<repo>/codegen-state``."""
+    value = os.environ.get(STATE_DIR_ENV)
+    if value and value.rstrip("/") in _STATE_MIRRORS:
+        return _STATE_MIRRORS[value.rstrip("/")]
+    return Path(value or STATE_DIR)
 
 
 def state_overlays_dir() -> Path:

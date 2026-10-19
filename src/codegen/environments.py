@@ -150,6 +150,8 @@ def profiles_dir() -> Path:
 def state_dirs_line() -> str:
     """Where this process reads codegen-state from — the App logs it at
     startup (post56: the App read a staged copy that had none)."""
+    from codegen import state_mirror
+
     root = state_root()
     how = STATE_DIR_ENV if os.environ.get(STATE_DIR_ENV) else "next to the code"
     folders = [("environments", profiles_dir(), PROFILES_DIR_ENV),
@@ -157,8 +159,10 @@ def state_dirs_line() -> str:
     parts = [f"{label} {display_path(path)}"
              + (f" ({var})" if os.environ.get(var) else "")
              + ("" if path.is_dir() else " [MISSING]") for label, path, var in folders]
-    return (f"codegen-state root: {display_path(root)} ({how})"
-            + ("" if root.is_dir() else " [MISSING]") + "; " + "; ".join(parts))
+    # post72: a volume state dir names the volume AND its local copy
+    head = state_mirror.describe() or (f"{display_path(root)} ({how})"
+                                       + ("" if root.is_dir() else " [MISSING]"))
+    return f"codegen-state root: {head}; " + "; ".join(parts)
 
 
 def profile_file(name: str) -> Path | None:
@@ -172,7 +176,13 @@ def profile_file(name: str) -> Path | None:
 
 
 def display_path(path: Path) -> str:
-    """A path as the banner prints it: repo-relative when inside the checkout."""
+    """A path as the banner prints it: repo-relative when inside the checkout;
+    the volume path for a file in a volume state dir's local copy (post72)."""
+    from codegen import state_mirror
+
+    on_volume = state_mirror.volume_display(path)
+    if on_volume is not None:
+        return on_volume
     try:
         return Path(path).resolve().relative_to(_REPO).as_posix()
     except ValueError:

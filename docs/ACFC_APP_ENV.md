@@ -15,7 +15,7 @@ shared with the App` (naming the App's service principal) / `not set`.
 | `CODEGEN_STORAGE_STATE` | `workspace:/Workspace/<…>/codegen/state` | **Can Manage** |
 | `CODEGEN_STORAGE_OUTPUTS` | `workspace:/Workspace/<…>/codegen/outputs` | **Can Manage** |
 | `CODEGEN_CONFIG_OVERLAYS` | `config/overlays/acfc_env.yaml` | — (a file in the deployed tree) |
-| `CODEGEN_STATE_DIR` | the `codegen-state` folder as a LOCAL path in the deployed tree (e.g. `codegen-state`, relative to the App's source root) | — (files deployed with the App) |
+| `CODEGEN_STATE_DIR` | `/Volumes/d1_dlk/codegen/state` (post72; a LOCAL folder in the deployed tree still works) | **USE CATALOG** on the catalog, **USE SCHEMA** on the schema, **READ VOLUME** on the volume |
 
 `CODEGEN_STATE_DIR` (post56): the environment profiles (`environments/<name>.yaml`)
 and the ACFC overlay (`overlays/<profile>.yaml`) are read from it. Without it the
@@ -26,6 +26,19 @@ variable to it. The App's startup log prints `codegen-state root: … ; environm
 … ; overlays …`, with `[MISSING]` after any folder it cannot see, and the
 environment picker names the folder ("profiles read from …") and each field's
 source.
+
+post72: a `/Volumes/...` value is a UC volume. The App has no `/Volumes` mount,
+so `codegen.state_mirror` copies the folder read-only through the Files API
+into `<tmp>/codegen-state-volume/current` at startup (before the config loads,
+so the volume's `overlays/<profile>.yaml` applies) and again before every
+generate request (`POST /api/generate`, `POST /api/demo/run-live`): an edit on
+the volume shows without a redeploy, and a changed copy reloads the config. The
+startup line reads `codegen-state root: /Volumes/… (CODEGEN_STATE_DIR; volume)
+-> local copy … (N files, copied …)`; a failed refresh keeps the previous copy
+and says so, and with no copy at all the line ends `[MISSING]`. The picker shows
+each field's source as the volume path. Job compute that mounts `/Volumes`
+reads the folder directly; the harness passes it as the `state_dir` job
+parameter.
 
 The folders must exist before the App starts — the agent never creates a
 root. `workspace:` = the Workspace API (never the `/Workspace` mount).

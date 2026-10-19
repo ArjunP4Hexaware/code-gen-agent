@@ -57,9 +57,11 @@ command: ["python", "-m", "ui.backend.main"]
 #                              first; CODEGEN_SKIP_ENV_OVERLAY=1 opts out of it.
 #                              The list in effect: startup line + GET /api/health)
 #   CODEGEN_NOTIFICATION_EMAILS  <prod-support DL>
-#   CODEGEN_STATE_DIR          codegen-state   (post56: a LOCAL folder deployed with
-#                              the App - copy the checkout's codegen-state/ into the
-#                              staged tree; the startup line names it, [MISSING] if absent)
+#   CODEGEN_STATE_DIR          /Volumes/<catalog>/<schema>/<volume>  (post72: the App has no
+#                              /Volumes mount, so the folder is copied read-only through the
+#                              Files API at startup and before every generate request; the
+#                              startup line names the volume and the local copy, [MISSING]
+#                              if absent. A local folder in the deployed tree still works.)
 
 # --- 2026-10-07: a Git deploy is self-sufficient --------------------------
 # ACFC workspace paths are committed HERE on explicit instruction (Soham,
@@ -82,3 +84,7 @@ env:
     value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/state"
   - name: CODEGEN_STORAGE_OUTPUTS
     value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/outputs"
+  # post72: codegen-state (environments/<name>.yaml, overlays/<profile>.yaml) on a UC
+  # volume; the App's service principal needs USE CATALOG / USE SCHEMA / READ VOLUME
+  - name: CODEGEN_STATE_DIR
+    value: "/Volumes/d1_dlk/codegen/state"

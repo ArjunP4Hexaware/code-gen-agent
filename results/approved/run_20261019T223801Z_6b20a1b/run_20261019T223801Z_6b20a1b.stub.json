@@ -1,0 +1,29 @@
+{
+  "status": "CLEAN",
+  "label": "run_20261019T223801Z_6b20a1b",
+  "sha": "6b20a1b2a4a234a5fcbf3218f0e7ac19064555cd",
+  "runner": "claude-code container, src-only",
+  "lane": "approved",
+  "verdict": "CLEAN",
+  "dictionary": "repo-tokens",
+  "terms_checked": 3572,
+  "real_hits": 0,
+  "self_match_hits": 0,
+  "harvested_terms_dropped": 1231,
+  "static_denylist_sha256": "f287e089e6c3bd7c6a31b2257269713d6c9ba358d1f4a3e884a8b206b5c0b517",
+  "harvested_terms_sha256": "9104457e93b7de45cfec27fa91d3a407b106945dcbd946084ca4c5b07b6e6754",
+  "outcomes": {
+    "pair_01": "PASS_WITH_OPEN_INPUTS",
+    "pair_02": "PASS_WITH_OPEN_INPUTS",
+    "pair_03": "CRASHED",
+    "pair_04": "PASS_WITH_OPEN_INPUTS",
+    "pair_05": "FAIL",
+    "pair_06": "FAIL",
+    "pair_07": "NEEDS_ANSWERS",
+    "pair_08": "FAIL",
+    "pair_09": "FAIL",
+    "pair_10": "NEEDS_ANSWERS",
+    "pair_11": "PASS_WITH_OPEN_INPUTS",
+    "pair_12": "PASS_WITH_OPEN_INPUTS"
+  }
+}

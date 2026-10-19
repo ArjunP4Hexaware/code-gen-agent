@@ -58,6 +58,26 @@ _lock = threading.Lock()
 _status: MirrorStatus | None = None
 
 
+class StateDirNotFound(FileNotFoundError):
+    """The volume folder is absent, or the principal cannot see it."""
+
+    error_code = "STATE_DIR_NOT_FOUND"
+
+
+def error_text(exc: BaseException) -> str:
+    """post73: a refresh failure as exception types + error code ONLY — the
+    SDK's message carries its config dump (host, client id, auth type), which
+    must never reach the log or the state line."""
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    names = list(dict.fromkeys(type(e).__name__ for e in chain))
+    code = next((str(e.error_code) for e in chain if getattr(e, "error_code", None)), None)
+    return f"{' <- '.join(names)}, error code {code or 'none'}"
+
+
 def volume_state_dir() -> str | None:
     """The ``CODEGEN_STATE_DIR`` value when it names a volume this process
     cannot read as a folder; None otherwise (unset, local, or mounted)."""
@@ -136,8 +156,7 @@ def refresh(*, client=None, client_factory: Callable | None = None) -> MirrorSta
             backend = VolumeBackend(volume, client=client,
                                     client_factory=client_factory or _default_factory())
             if not backend.exists():
-                raise FileNotFoundError(f"{volume} does not exist or is not shared with "
-                                        "this principal (READ VOLUME)")
+                raise StateDirNotFound(volume)
             files = {rel: backend.read_bytes(rel) for rel, _entry in backend.walk()}
             digest = _digest(files)
             base = mirror_base()
@@ -151,7 +170,7 @@ def refresh(*, client=None, client_factory: Callable | None = None) -> MirrorSta
                                    copied_at=now, changed=previous is None
                                    or previous.digest != digest)
         except Exception as exc:  # noqa: BLE001 — reported on the state line, never fatal
-            error = f"{type(exc).__name__}: {exc}"
+            error = error_text(exc)
             _status = (replace(previous, error=error, changed=False) if previous is not None
                        else MirrorStatus(volume=volume, error=error))
         return _status

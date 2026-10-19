@@ -106,7 +106,9 @@ def test_a_failed_first_copy_leaves_the_volume_path_missing(volume, monkeypatch)
     assert result.error and result.local is None
     assert state_root() == Path(STATE)
     line = state_dirs_line()
-    assert "last refresh FAILED (StorageError:" in line and "no copy [MISSING]" in line
+    assert ("last refresh FAILED (StorageError <- PermissionDenied, error code "
+            "PERMISSION_DENIED)") in line and "no copy [MISSING]" in line
+    assert "no READ VOLUME" not in line                       # never the SDK's message
 
 
 def test_a_failed_refresh_keeps_the_previous_copy(volume, monkeypatch):
@@ -126,7 +128,8 @@ def test_a_missing_state_folder_is_an_error_not_an_empty_copy(volume):
     volume.vol.dirs -= {STATE, f"{STATE}/environments", f"{STATE}/overlays"}
     volume.vol.files.clear()
     result = state_mirror.refresh(client=volume)
-    assert result.local is None and "does not exist or is not shared" in result.error
+    assert result.local is None
+    assert result.error == "StateDirNotFound, error code STATE_DIR_NOT_FOUND"
 
 
 def test_a_local_or_unset_state_dir_is_not_copied(tmp_path, monkeypatch):
@@ -153,3 +156,17 @@ def test_a_generate_request_refreshes_and_reloads_the_config(volume, monkeypatch
     holder.config = None
     main._refresh_state()
     assert holder.config is None                              # unchanged: not reloaded
+
+
+def test_the_sdk_config_dump_never_reaches_the_state_line(volume, monkeypatch):
+    def forbidden(path):
+        raise PermissionDenied("Forbidden. Config: host=https://syn.example, "
+                               "client_id=00000000-syn, auth_type=oauth-m2m")
+
+    monkeypatch.setattr(volume.files, "get_metadata", forbidden)
+    monkeypatch.setattr(volume.files, "get_directory_metadata", forbidden)
+    state_mirror.refresh(client=volume)
+    line = state_dirs_line()
+    assert "error code PERMISSION_DENIED" in line
+    for leaked in ("Config:", "host=", "client_id", "auth_type", "syn.example"):
+        assert leaked not in line

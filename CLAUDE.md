@@ -1,9 +1,22 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-15, `feature/multi-table`, post58)
+## NEWEST — IIG validation (state as of 2026-10-19, `feature/multi-table`, post73)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
+
+**Session end (2026-10-19, home).** Head `dded7d7` (pushed from ACFC after post73: the
+SFMC-shaped notebook / primary-key tests and the acfc_shapes registry test skip through
+`conftest.require_fixture_files` when the client fixtures are absent; a clean clone had
+dev 1 failure, the timing-dependent m93 chooser test). post70 + post71 were reported to
+Soham; nothing is queued at home. Open:
+- For Aruna (docs/acfc/OPEN_QUESTIONS.md): §4 PHI masking (no IIG cell), §5 v1 / iig_v1
+  use the not-null list as the key, §6 SCHEMA_DRIFT_FLAG. §6 was kept as written by
+  request, so its "Now (post70)" bullet still says the overlay writes Y (post71 = N).
+- The post50 D1 asks below (SRC_COLUMNS golden cells → rule 4 cherry-pick; the
+  PIPELINE_DESCRIPTION dump; the workspace-folder token) are still open.
+- Verification is D1 via Genie (MIDS, Pyx, CAQH + one imported notebook); no home live
+  SD run.
 
 **RESTART HERE (2026-10-19, after post73).** post73 = the refresh error is exception types + error code only (no SDK config dump). post72 = `CODEGEN_STATE_DIR` on the UC
 volume `d1_dlk.codegen.state` (`app.yaml`). An App has no `/Volumes` mount:

@@ -78,12 +78,13 @@ def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_pat
             # from the run's environment (D1)
             assert "environment D1 (default): " in tooltip
         # SCHEMA_DRIFT_FLAG is a feed-family setting since 2026-10-09: the
-        # overlay pins the SD family's value — Y since post70 (the SD golden; N
-        # from round 6 until then), not a constant; feed_overrides sets a feed N.
-        assert values["SCHEMA_DRIFT_FLAG"] == "Y"
+        # overlay pins the SD family's value — N (round 6, post71: the SD prod
+        # rows, the SFMC reference and the pair-1 golden), not a constant;
+        # feed_overrides.<feed>.schema_drift_flag sets a feed Y.
+        assert values["SCHEMA_DRIFT_FLAG"] == "N"
         badge, tooltip = tooltips["SCHEMA_DRIFT_FLAG"]
         assert badge == "SYNTHETIC"
-        assert "family convention schema_drift_flag: Y — ACFC environment overlay" in tooltip
+        assert "family convention schema_drift_flag: N — ACFC environment overlay" in tooltip
         # round 6: the header / footer flags both reference IIGs agree on
         assert (values["HEADER_FLAG"], values["FILE_FOOTER_FLAG"]) == ("Y", "N")
         assert "both reference IIGs agree" in tooltips["HEADER_FLAG"][1]

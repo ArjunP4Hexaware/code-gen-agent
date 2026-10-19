@@ -123,13 +123,12 @@ metadata:
         lob: codes
         stgdelta_unknown_primary_key: ""
         stgdelta_object_name: generalized_file_pattern
-        # SCHEMA_DRIFT_FLAG Y (post70, 2026-10-18, Soham: match the SD golden — the
-        # SD test-cells sheet and the reported CAQH IIG say Y). History: round 6
-        # (2026-10-13) set N from the SD PROD rows, the SFMC reference IIG and the
-        # pair-1 golden (ADLS_DELTA!AB2) — still a question for Aruna
-        # (docs/acfc/OPEN_QUESTIONS.md §6). A feed whose golden says N sets
-        # feed_overrides.<feed_id>.schema_drift_flag: N (the ACFC-side overlay).
-        schema_drift_flag: "Y"
+        # SCHEMA_DRIFT_FLAG N (post71, 2026-10-18): the SD PROD rows, the SFMC
+        # reference IIG and the pair-1 golden (ADLS_DELTA!AB2) all say N; the Y was
+        # the SD test-cells sheet only (post70 briefly set Y). Still a question for
+        # Aruna (docs/acfc/OPEN_QUESTIONS.md §6). A feed whose golden says Y sets
+        # feed_overrides.<feed_id>.schema_drift_flag: Y (the ACFC-side overlay).
+        schema_drift_flag: "N"
         # First real-row scorecard (2026-10-08, the three SD rows): SRC_FILE_NAME
         # is the name prefix + '*'; the audit columns are LOB, SRC_FILE_NAME,
         # REC_CREATION_TIME, REC_UPDATED_TIME, typed in the data columns'

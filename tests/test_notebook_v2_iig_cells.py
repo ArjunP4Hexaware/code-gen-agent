@@ -141,21 +141,22 @@ def test_fixed_width_drift_and_recycle_compile(tmp_path, monkeypatch):
     assert "def keep_for_recycle" in by_id["recycle"]
 
 
-def test_the_overlay_default_is_y_and_a_feed_override_sets_n(tmp_path):
-    """post70: SCHEMA_DRIFT_FLAG Y by the ACFC overlay (the SD golden); a feed
-    whose golden says N sets feed_overrides.<feed>.schema_drift_flag."""
+def test_the_overlay_default_is_n_and_a_feed_override_sets_y(tmp_path):
+    """post71: SCHEMA_DRIFT_FLAG N by the ACFC overlay (the prod rows, the SFMC
+    reference, the pair-1 golden); a feed whose golden says Y sets
+    feed_overrides.<feed>.schema_drift_flag."""
     from codegen.config import FeedOverrideConfig
 
     spec, config, payload, frd = _payload(tmp_path)
-    assert {r["values"]["SCHEMA_DRIFT_FLAG"] for r in payload["tabs"][ADLS]["rows"]} == {"Y"}
-    _c, _f, cells, by_id = _render(spec, config, payload, frd)
-    assert "drift" in by_id
-    tpl = config.metadata.templates["iig_v2"]
-    tpl = tpl.model_copy(update={"feed_overrides": {
-        **tpl.feed_overrides, spec.feed_id: FeedOverrideConfig(schema_drift_flag="N")}})
-    config = config.model_copy(update={"metadata": config.metadata.model_copy(
-        update={"templates": {**config.metadata.templates, "iig_v2": tpl}})})
-    spec, config, payload, frd = _payload(tmp_path / "n", config=config)
     assert {r["values"]["SCHEMA_DRIFT_FLAG"] for r in payload["tabs"][ADLS]["rows"]} == {"N"}
     _c, _f, cells, by_id = _render(spec, config, payload, frd)
     assert "drift" not in by_id
+    tpl = config.metadata.templates["iig_v2"]
+    tpl = tpl.model_copy(update={"feed_overrides": {
+        **tpl.feed_overrides, spec.feed_id: FeedOverrideConfig(schema_drift_flag="Y")}})
+    config = config.model_copy(update={"metadata": config.metadata.model_copy(
+        update={"templates": {**config.metadata.templates, "iig_v2": tpl}})})
+    spec, config, payload, frd = _payload(tmp_path / "y", config=config)
+    assert {r["values"]["SCHEMA_DRIFT_FLAG"] for r in payload["tabs"][ADLS]["rows"]} == {"Y"}
+    _c, _f, cells, by_id = _render(spec, config, payload, frd)
+    assert "drift" in by_id

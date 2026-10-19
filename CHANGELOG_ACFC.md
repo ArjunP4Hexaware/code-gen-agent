@@ -4,6 +4,15 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post71 — 2026-10-18 (SCHEMA_DRIFT_FLAG default back to N)
+
+1. The ACFC overlay's SCHEMA_DRIFT_FLAG default is N again. The SD PROD rows, the
+   SFMC reference IIG and the pair-1 golden all say N; the Y came from the SD
+   test-cells sheet only. `feed_overrides.<feed_id>.schema_drift_flag` stays, to set
+   Y on a feed whose golden says Y. docs/acfc/OPEN_QUESTIONS.md §6 is unchanged (its
+   "Now" bullet describes post70). Decided: no live SD run at home; D1 via Genie is
+   the verification.
+
 ## 0.5.8.post70 — 2026-10-18 (scrub: split storage account; TGT_PRIMARY_KEY from a key signal only; v2's IIG-driven cells)
 
 1. **Scrub (`scripts/scrub_check.py`):** a storage account written apart from its host

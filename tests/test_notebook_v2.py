@@ -366,7 +366,7 @@ def test_the_parity_tool_reports_v1_against_v2(tmp_path, capsys):
     assert "   DELIMITER            same" in out
     # post70: v1's stages an IIG cell drives are IIG-driven, not "only v1"
     assert "recycle (RECYCL_ENBL_FLG = Y: in v2)" in out
-    assert "schema drift check (SCHEMA_DRIFT_FLAG = Y: in v2)" in out
+    assert "schema drift check (SCHEMA_DRIFT_FLAG = N: not generated)" in out
     assert "run report (always" in out
     assert "   v1 only: PHI masking (no IIG cell, docs/acfc/OPEN_QUESTIONS.md" in out
     assert "FILE_NAME_PATTERNS   expected: v2 writes the IIG's SRC_FILE_NAME" in out

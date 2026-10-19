@@ -5,7 +5,12 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-18, after post70).** post70 = three items:
+**RESTART HERE (2026-10-18, after post71).** post71 = SCHEMA_DRIFT_FLAG default back to
+N in acfc_env.yaml (prod rows, SFMC reference, pair-1 golden; the Y was the test-cells
+sheet only); `feed_overrides.<feed>.schema_drift_flag` sets a feed Y. Decided: no live
+SD run at home — D1 via Genie is the verification.
+
+**After post70 (kept for reference).** post70 = three items:
 - `scripts/scrub_check.py` class `client_storage_account`: profile accounts and
   `STORAGE_ACCOUNT = <pattern token>`; SYN-shaped / placeholders exempt.
 - TGT_PRIMARY_KEY via `codegen.primary_key` (template knob `primary_key_input`, on in
@@ -20,8 +25,8 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   - v1 / iig_v1 still use the not-null list (OPEN_QUESTIONS §5).
 - Notebook v2's IIG-driven cells: drift (`SCHEMA_DRIFT_FLAG`), recycle (`RECYCL_*`), the
   final run-report cell, and an open merge key in `OPEN_CELLS`. SCHEMA_DRIFT_FLAG
-  defaults to Y in acfc_env.yaml; `feed_overrides.<feed>.schema_drift_flag` sets a feed
-  N (OPEN_QUESTIONS §6). Parity tool: "IIG-driven"
+  defaulted to Y in post70 (back to N in post71); `feed_overrides.<feed>.schema_drift_flag`
+  sets one feed (OPEN_QUESTIONS §6). Parity tool: "IIG-driven"
   vs "only v1". Tests: `test_storage_account_scrub.py`, `test_primary_key_proposal.py`,
   `test_notebook_v2_iig_cells.py`. The SFMC-shaped v2 fixtures pass a typed key
   (`notebook_v2_fixtures.key_answers`).
@@ -56,7 +61,7 @@ dev + d1 constraints, conftest validates every emitted notebook. Tests:
 `test_notebook_path_honest.py`, `test_notebook_validation.py`,
 `OutputDefault.test.tsx`. Inventory item 14 (stale RFC / contracts.pairs / replay /
 SharePoint) left alone by request. Next: Genie runs MIDS, Pyx, CAQH on D1 + imports one
-notebook; the live SD run waits on Soham (client-document approval + profile).
+notebook (no home live SD run — D1 via Genie is the verification).
 
 **After post67 (kept for reference).** post67 = the live-run confirm dialog is
 measured: tokens per call (`StageUsage.input_tokens / output_tokens / cache_read_tokens`,

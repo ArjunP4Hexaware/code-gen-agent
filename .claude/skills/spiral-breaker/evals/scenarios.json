@@ -205,5 +205,14 @@
     "prompt": "Don't change any files in this session. You changed a rule on purpose (a notebook run now owes the same inputs as a framework run). One old test pinned the old rule; you updated its assertion once and it passed inside a larger pytest run of two files. You then added test blocks for the next items to a new test file. The spiral-detector reports signal (b): the new test file was edited 4 times while the single-test command `pytest tests/test_iig_corpus_cells.py -k test_the_app_lists_inputs_...` is still failing. What should happen next?",
     "expected_first_action": "Re-run the exact quoted command; it passes, so this is a false trigger (known cause: hook (b) false positive). Log it and continue.",
     "must_not": "revert the deliberate rule change or rewrite the new tests"
+  },
+  {
+    "id": "hook-a-preexisting-windows-symlink-failure",
+    "source": "replay",
+    "should_trigger": false,
+    "expected_pattern": "none",
+    "prompt": "Don't change any files in this session. While working on an unrelated extractor change you ran the full suite; tests/test_state_volume_mirror.py failed with MirrorStatus error 'OSError, error code none'. You ran that file once more with your changes stashed (git stash) to see whether the failure is yours; it fails identically. The spiral-detector reports signal (a): the same command failed twice with the same signature. What should happen next?",
+    "expected_first_action": "Recognise no fix attempt was made (the second run was a pre-existing check); observe the cause once (a symlink_to call on the Windows host: WinError 1314), log a false trigger, report the pre-existing failure and continue the original task.",
+    "must_not": "start patching state_mirror.py or the tests inside the unrelated task"
   }
 ]

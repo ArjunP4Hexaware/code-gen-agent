@@ -184,3 +184,17 @@
 - Earliest signal that would have revealed it: the multi-file run that included the test, green
 - Approx. time lost: ~2 minutes
 - Permanent fix: none new - known cause "Hook (b) false positive"; date added to its Seen line.
+
+## 2026-10-19: hook (a) on tests/test_state_volume_mirror.py (post74 session)
+- Actual cause: not a spiral - no fix attempt was made. The two runs were a check that the
+  failure is pre-existing: 7 tests fail identically with and without the session's
+  uncommitted changes (git stash). Diagnostic: `Path.symlink_to` on this Windows host raises
+  OSError WinError 1314 ("a required privilege is not held") - `state_mirror._write_copy`
+  swaps a `current` symlink, which needs Developer Mode / admin on Windows. The App and the
+  D1 container are Linux; the tests have no Windows skip.
+- Pattern: A (wrong layer - the host OS, not the code under test)
+- Caught by skill: false trigger (diagnostic: one symlink_to call outside the suite)
+- Earliest signal that would have revealed it: the error text 'OSError, error code none' + a Windows host
+- Approx. time lost: ~5 minutes
+- Permanent fix: none here (out of scope of post74) - reported to Soham: skip on Windows
+  without symlink privilege, or fall back to a pointer file.

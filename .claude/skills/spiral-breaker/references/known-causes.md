@@ -133,3 +133,11 @@ Entry format:
 - Pattern: none (not a spiral)
 - Seen: 2026-10-13
 - Permanent fix: none yet — candidate hook refinement logged for /spiral-retro (proposals.md).
+## Windows host without symlink privilege (state_mirror tests)
+- Signature: tests/test_state_volume_mirror.py fails with MirrorStatus error 'OSError, error code
+  none' on a Windows checkout; passes in the Linux container / App.
+- Usual cause: `Path.symlink_to` needs Developer Mode or admin on Windows (WinError 1314).
+- Check: one `Path(tmp/'l').symlink_to('t', target_is_directory=True)` outside the suite.
+- Pattern: A (wrong layer - the host OS)
+- Seen: 2026-10-19
+- Permanent fix: none yet (candidate: skip on Windows without the privilege).

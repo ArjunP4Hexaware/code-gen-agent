@@ -5,7 +5,7 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-19, after post72).** post72 = `CODEGEN_STATE_DIR` on the UC
+**RESTART HERE (2026-10-19, after post73).** post73 = the refresh error is exception types + error code only (no SDK config dump). post72 = `CODEGEN_STATE_DIR` on the UC
 volume `d1_dlk.codegen.state` (`app.yaml`). An App has no `/Volumes` mount:
 `codegen.state_mirror` copies it read-only via the Files API at import and before each
 generate request (`main._refresh_state`, config reloaded on change);

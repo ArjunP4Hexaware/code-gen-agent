@@ -4,6 +4,14 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post73 — 2026-10-19 (state refresh error without the SDK config dump)
+
+1. `state_mirror.error_text`: a failed volume refresh is reported as the exception
+   types + the error code only (`StorageError <- PermissionDenied, error code
+   PERMISSION_DENIED`); the SDK message (its config dump: host, client id, auth type)
+   reached the App log and the state line on the first post72 deploy. A missing volume
+   folder is `StateDirNotFound` (`STATE_DIR_NOT_FOUND`).
+
 ## 0.5.8.post72 — 2026-10-19 (CODEGEN_STATE_DIR on a UC volume)
 
 1. **`codegen.state_mirror`.** A Databricks App has no `/Volumes` mount, so a

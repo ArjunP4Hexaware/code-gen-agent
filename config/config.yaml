@@ -526,6 +526,12 @@ reasoning:
   # the harness jobs and acfc_run.py. Never inferred from an endpoint or a
   # Databricks login. --provider (CLI) > CODEGEN_PROVIDER > this.
   mode: mock
+  # post76: Layer 2 is its own stage AFTER the run's outcome and files
+  # (codegen.layer2_stage) — ONE model request per feed for its unmapped rules.
+  # now | defer (kept for `codegen layer2` / the App's review panel) | skip;
+  # `generate --layer2` wins on the CLI.
+  layer2_cli: now
+  layer2_app: defer
   # post67: what a live run's MEASURED tokens cost in the App's confirm
   # dialog, US $ per million tokens by model id; each row names its source.
   # A model without a row gets no dollar figure.

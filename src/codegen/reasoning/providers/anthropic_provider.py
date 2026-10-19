@@ -15,8 +15,8 @@ from __future__ import annotations
 import json
 
 from codegen.config import Config
-from codegen.reasoning.providers.ask import AttemptFailure, ask_candidate
-from codegen.reasoning.schema import CandidateResponse, ContextPack
+from codegen.reasoning.providers.ask import AttemptFailure, ask_batch, ask_candidate
+from codegen.reasoning.schema import CandidateResponse, ContextPack, batch_pack
 from codegen.reasoning.usage import add_tokens, message_tokens, timed
 
 _SYSTEM_PROMPT = (
@@ -40,6 +40,38 @@ _SYSTEM_PROMPT = (
     "not exact substrings of the rule_text or contract_excerpts are rejected. "
     "Use only columns listed in the pack."
 )
+
+# post76: ONE request per feed — every unmapped rule of the feed in one pack.
+_BATCH_SYSTEM_PROMPT = (
+    "You are a data-engineering assistant proposing REVIEW CANDIDATES for the "
+    "free-text validation rules of one ingestion feed. Your output is never "
+    "deployed directly; an engineer reviews it.\n"
+    "The context pack's \"rules\" list numbers the rules (\"rule\": 1, 2, ...). "
+    "Respond with exactly one JSON object and nothing else — no preamble, no "
+    "markdown fences, no commentary after it — of the form "
+    '{"candidates": [...]}, with ONE entry per rule. Each entry must contain '
+    "exactly these five keys, always all present, and no others:\n"
+    '  "rule": the rule\'s number from the pack\n'
+    '  "classification": one of "mappable", "orchestration_config", '
+    '"notification", "out_of_scope"\n'
+    '  "code_candidate": a short PySpark sketch as a string, or the JSON '
+    "literal null for non-code classifications (never omit the key)\n"
+    '  "rationale": why this classification and sketch\n'
+    '  "citations": a non-empty list of EXACT verbatim substrings copied from '
+    "that rule's rule_text or the contract_excerpts entries ONLY — these are the "
+    "only citable material. The column lists (available_source_columns, "
+    "available_stage_columns, audit_columns) are context, not citable material: "
+    "never use a bare column name as a citation.\n"
+    "Ground every claim in the provided context pack only. Citations that are "
+    "not exact substrings of the rule's rule_text or the contract_excerpts are "
+    "rejected. Use only columns listed in the pack."
+)
+
+
+def batch_prompt(packs: list[ContextPack]) -> str:
+    """The user prompt of a feed's batched request (both live providers)."""
+    return "Context pack (the only citable text):\n" + json.dumps(
+        batch_pack(packs).model_dump(), indent=2)
 
 
 class AnthropicProvider:
@@ -90,3 +122,23 @@ class AnthropicProvider:
                              max_tokens=self._max_tokens,
                              truncation_max_tokens=self._truncation_max_tokens,
                              failures=self.failures, request=self.requests)
+
+    def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
+        """post76: every unmapped rule of a feed in ONE request (rule n = packs[n-1])."""
+        self.requests += 1
+
+        def send(prompt: str, max_tokens: int) -> str:
+            self.calls += 1
+            message = self._client.messages.create(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=_BATCH_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            add_tokens(self, message_tokens(message))
+            return "".join(block.text for block in message.content if block.type == "text")
+
+        return ask_batch(timed(self, send), batch_prompt(packs), len(packs),
+                         max_attempts=self._max_attempts, max_tokens=self._max_tokens,
+                         truncation_max_tokens=self._truncation_max_tokens,
+                         failures=self.failures, request=self.requests)

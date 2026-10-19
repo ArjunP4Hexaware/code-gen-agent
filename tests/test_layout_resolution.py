@@ -239,7 +239,7 @@ def test_unresolved_roles_extract_empty_and_flag_the_gate(config, no_cache, tmp_
                         cache_dirs=no_cache)
     assert any(f.startswith("layout_unresolved:sttm MAPPING_FEED_7/stage/column")
                for f in pair.flags)
-    gate = compute_verdict("feed_7", [], [], [], True, extra_flags=pair.flags)
+    gate = compute_verdict("feed_7", [], [], True, extra_flags=pair.flags)
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert any("layout_unresolved" in f for f in gate.flags)
 
@@ -382,7 +382,7 @@ def test_target_schema_mismatch_is_a_flag_citing_both_and_the_run_completes(conf
     assert contract.feeds[0].field_count == 12
     from codegen.gate.verdict import compute_verdict
 
-    gate = compute_verdict("feed_4_remit", [], [], [], True, extra_flags=pair.flags)
+    gate = compute_verdict("feed_4_remit", [], [], True, extra_flags=pair.flags)
     assert gate.verdict == "PASS_WITH_FLAGS" and flag in gate.flags
 
 

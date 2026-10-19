@@ -448,7 +448,7 @@ def test_cosmetic_lint_is_fixed_recorded_and_never_a_fail(tmp_path):
     assert check.passed and not check.not_run, check.details
     assert check.fixes == ["pipeline/tidy.py: I001 x1"]
     assert "import json\nimport sys" in (feed / "pipeline" / "tidy.py").read_text(encoding="utf-8")
-    gate = compute_verdict("feed_x", [], [], [check], tests_skipped=False)
+    gate = compute_verdict("feed_x", [], [check], tests_skipped=False)
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert gate.flags == ["ruff_fixed: 1 kind(s) of ruff finding fixed automatically (safe "
                           "fixes only) before the check — pipeline/tidy.py: I001 x1"]
@@ -461,7 +461,7 @@ def test_a_finding_without_a_safe_fix_still_fails_and_says_what_was_fixed(tmp_pa
     assert check.fixes == ["pipeline/tidy.py: I001 x1"]
     assert check.details.startswith("1 finding(s) remain after 1 safe fix(es) applied first")
     assert "pipeline/bad.py:3:9: F821" in check.details
-    gate = compute_verdict("feed_x", [], [], [check], tests_skipped=False)
+    gate = compute_verdict("feed_x", [], [check], tests_skipped=False)
     assert gate.verdict == "FAIL" and gate.flags[0].startswith("ruff_fixed:")
 
 
@@ -475,7 +475,7 @@ def test_an_unwrappable_long_line_is_a_flag_never_a_fail(tmp_path):
     check = _ruff_check(feed)
     assert check.passed and not check.not_run, check.details
     assert check.long_lines == ["pipeline/spec.py:3"]
-    gate = compute_verdict("feed_x", [], [], [check], tests_skipped=False)
+    gate = compute_verdict("feed_x", [], [check], tests_skipped=False)
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert gate.flags == ["ruff_line_length: 1 emitted line(s) over the line length that "
                           "`ruff format` cannot wrap (one string literal or comment) — "

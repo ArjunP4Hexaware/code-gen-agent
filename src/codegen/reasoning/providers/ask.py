@@ -31,7 +31,7 @@ from codegen.layout.model import (
     parse_json_response,
 )
 from codegen.reasoning.providers import ProviderError
-from codegen.reasoning.schema import CandidateResponse
+from codegen.reasoning.schema import BatchResponse, CandidateResponse
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,51 @@ def ask_candidate(send, user_prompt: str, *, max_attempts: int, max_tokens: int,
     """``send(prompt, max_tokens) -> text`` until a schema-valid response;
     every failed attempt is appended to ``failures``. A transport error is
     recorded and re-raised (the engine turns it into a failed candidate)."""
+    def validate(data, _last_attempt: bool):
+        return CandidateResponse.model_validate(data)
+
+    return _ask(send, user_prompt, validate, max_attempts=max_attempts,
+                max_tokens=max_tokens, truncation_max_tokens=truncation_max_tokens,
+                failures=failures, request=request)
+
+
+class _Incomplete(ValueError):
+    """A batched response that left rules unanswered (retried while attempts
+    remain; the last attempt keeps what it got)."""
+
+
+def ask_batch(send, user_prompt: str, rules: int, *, max_attempts: int, max_tokens: int,
+              truncation_max_tokens: int, failures: list[AttemptFailure],
+              request: int) -> dict[int, CandidateResponse]:
+    """post76: ONE request for a feed's ``rules`` unmapped rules (numbered 1..n)
+    — the same loop as :func:`ask_candidate`; the result maps a rule number to
+    its answer. A response missing some rules is retried naming them; on the
+    last attempt the answered rules are kept and the rest are absent (the
+    engine records them as failed)."""
+    wanted = set(range(1, rules + 1))
+
+    def validate(data, last_attempt: bool) -> dict[int, CandidateResponse]:
+        batch = BatchResponse.model_validate(data)
+        answers: dict[int, CandidateResponse] = {}
+        for item in batch.candidates:
+            if item.rule not in wanted:
+                raise _Incomplete(f"rule {item.rule} is not one of the {rules} rule(s) asked")
+            if item.rule in answers:
+                raise _Incomplete(f"rule {item.rule} answered twice")
+            answers[item.rule] = CandidateResponse.model_validate(
+                item.model_dump(exclude={"rule"}))
+        missing = sorted(wanted - set(answers))
+        if missing and not last_attempt:
+            raise _Incomplete("no candidate for rule(s) " + ", ".join(map(str, missing)))
+        return answers
+
+    return _ask(send, user_prompt, validate, max_attempts=max_attempts,
+                max_tokens=max_tokens, truncation_max_tokens=truncation_max_tokens,
+                failures=failures, request=request)
+
+
+def _ask(send, user_prompt: str, validate, *, max_attempts: int, max_tokens: int,
+         truncation_max_tokens: int, failures: list[AttemptFailure], request: int):
     attempts = max(1, max_attempts)
     prompt, tokens = user_prompt, max_tokens
     start = len(failures)
@@ -87,12 +132,16 @@ def ask_candidate(send, user_prompt: str, *, max_attempts: int, max_tokens: int,
                 raised_to = truncation_max_tokens
         else:
             try:
-                response = CandidateResponse.model_validate(data)
+                response = validate(data, attempt == attempts)
             except ValidationError as exc:
                 last = schema_reason(exc)
                 retry = (f"Your previous response failed schema validation:\n{last}\n"
                          f"Respond again with ONLY the corrected JSON object. "
                          f"{RETRY_INSTRUCTION}")
+            except _Incomplete as exc:
+                last = f"incomplete batch: {exc}"
+                retry = (f"Your previous response was incomplete: {exc}. Respond again with "
+                         f"ONE candidate per rule asked. {RETRY_INSTRUCTION}")
             else:
                 for index in range(start, len(failures)):
                     failures[index] = _recovered(failures[index])
@@ -110,4 +159,4 @@ def _recovered(failure: AttemptFailure) -> AttemptFailure:
     return AttemptFailure(**{**failure.as_dict(), "recovered": True})
 
 
-__all__ = ["AttemptFailure", "ask_candidate", "schema_reason"]
+__all__ = ["AttemptFailure", "ask_batch", "ask_candidate", "schema_reason"]

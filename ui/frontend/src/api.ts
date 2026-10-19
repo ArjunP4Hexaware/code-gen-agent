@@ -36,6 +36,15 @@ export interface FeedSummary {
   candidates_pending: number;
   files_written: number;
   framework: FrameworkSummary | null;
+  // post76: the Layer-2 stage (after the outcome); review_candidates "pending"
+  // until the review panel asks (POST /api/demo/layer2)
+  layer2?: Layer2State | null;
+}
+
+export interface Layer2State {
+  mode: "now" | "defer" | "skip" | null;
+  review_candidates: "pending" | "done" | "skipped" | "none";
+  rules: number;
 }
 
 export interface FrameworkSummary {
@@ -913,6 +922,16 @@ export const api = {
       `/api/feeds/${slug}/file?path=${encodeURIComponent(path)}`,
     ),
   report: (slug: string) => request<{ markdown: string }>(`/api/feeds/${slug}/report`),
+  // post76: the deferred Layer 2, asked now (one model request per feed)
+  layer2: () =>
+    request<FeedsResponse & { asked: { feeds: number; rules: number; calls: number } }>(
+      "/api/demo/layer2",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      },
+    ),
   decide: (slug: string, index: number, decision: Decision, note?: string) =>
     request<{ review: { decision: Decision; note: string | null } }>(
       `/api/feeds/${slug}/candidates/${index}/decision`,

@@ -24,6 +24,11 @@ class Provider(Protocol):
 
     def complete(self, pack: ContextPack) -> CandidateResponse: ...
 
+    # post76 (optional): every unmapped rule of one feed in ONE request; the
+    # result maps rule n (= packs[n-1]) to its answer, a rule left out = failed.
+    # A provider without it is asked rule by rule (run_reasoning).
+    # def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]
+
 
 def build_provider(config: Config, dry_run: bool) -> Provider:
     from codegen.reasoning.providers.mock import MockProvider

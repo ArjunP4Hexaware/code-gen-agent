@@ -44,7 +44,7 @@ def test_a_missing_ruff_module_is_a_ruff_unavailable_flag(tmp_path, monkeypatch)
     check = _ruff_check(tmp_path)
     assert check.passed and check.not_run and check.flag == RUFF_UNAVAILABLE
     assert "the ruff module is not installed for" in check.details
-    gate = compute_verdict("feed", [], [], [check], tests_skipped=False)
+    gate = compute_verdict("feed", [], [check], tests_skipped=False)
     assert gate.verdict == "PASS_WITH_FLAGS"
     (flag,) = gate.flags
     assert flag.startswith("ruff_unavailable — ruff unavailable: the ruff module is not "

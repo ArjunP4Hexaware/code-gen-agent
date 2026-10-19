@@ -19,8 +19,12 @@ imports keyless.
 from __future__ import annotations
 
 from codegen.config import Config
-from codegen.reasoning.providers.anthropic_provider import _SYSTEM_PROMPT
-from codegen.reasoning.providers.ask import AttemptFailure, ask_candidate
+from codegen.reasoning.providers.anthropic_provider import (
+    _BATCH_SYSTEM_PROMPT,
+    _SYSTEM_PROMPT,
+    batch_prompt,
+)
+from codegen.reasoning.providers.ask import AttemptFailure, ask_batch, ask_candidate
 from codegen.reasoning.schema import CandidateResponse, ContextPack
 from codegen.reasoning.usage import add_tokens, timed
 
@@ -55,15 +59,8 @@ class DatabricksFmapiProvider:
         self.requests = 0
         self.failures: list[AttemptFailure] = []
 
-    def complete(self, pack: ContextPack) -> CandidateResponse:
-        import json as json_module
-
+    def _sender(self, system: str):
         from codegen.databricks import chat
-
-        user_prompt = "Context pack (the only citable text):\n" + json_module.dumps(
-            pack.model_dump(), indent=2
-        )
-        self.requests += 1
 
         def send(prompt: str, max_tokens: int) -> str:
             self.calls += 1
@@ -72,7 +69,7 @@ class DatabricksFmapiProvider:
                 return chat(
                     self._cfg,
                     messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "system", "content": system},
                         {"role": "user", "content": prompt},
                     ],
                     endpoint=self._endpoint,
@@ -82,7 +79,24 @@ class DatabricksFmapiProvider:
             finally:
                 add_tokens(self, counts)
 
-        return ask_candidate(timed(self, send), user_prompt, max_attempts=self._max_attempts,
-                             max_tokens=self._max_tokens,
+        return timed(self, send)
+
+    def complete(self, pack: ContextPack) -> CandidateResponse:
+        import json as json_module
+
+        user_prompt = "Context pack (the only citable text):\n" + json_module.dumps(
+            pack.model_dump(), indent=2
+        )
+        self.requests += 1
+        return ask_candidate(self._sender(_SYSTEM_PROMPT), user_prompt,
+                             max_attempts=self._max_attempts, max_tokens=self._max_tokens,
                              truncation_max_tokens=self._truncation_max_tokens,
                              failures=self.failures, request=self.requests)
+
+    def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
+        """post76: every unmapped rule of a feed in ONE request (rule n = packs[n-1])."""
+        self.requests += 1
+        return ask_batch(self._sender(_BATCH_SYSTEM_PROMPT), batch_prompt(packs), len(packs),
+                         max_attempts=self._max_attempts, max_tokens=self._max_tokens,
+                         truncation_max_tokens=self._truncation_max_tokens,
+                         failures=self.failures, request=self.requests)

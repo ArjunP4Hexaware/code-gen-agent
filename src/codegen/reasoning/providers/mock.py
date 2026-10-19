@@ -37,3 +37,7 @@ class MockProvider:
             ),
             citations=[pack.rule_text],
         )
+
+    def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
+        """post76: the feed's batch, answered rule by rule (no model call)."""
+        return {n: self.complete(pack) for n, pack in enumerate(packs, 1)}

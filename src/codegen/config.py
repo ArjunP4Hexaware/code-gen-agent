@@ -616,6 +616,11 @@ class ReasoningConfig(BaseModel):
     # post67: what a live run's measured tokens cost (the App's confirm
     # dialog); a model missing from the table = no dollars shown, never a guess
     prices: PriceTableConfig | None = None
+    # post76: the Layer-2 stage (codegen.layer2_stage), run after the outcome:
+    # now = one request per feed | defer = kept for `codegen layer2` / the App's
+    # review panel | skip. --layer2 wins on the CLI.
+    layer2_cli: Literal["now", "defer", "skip"] = "now"
+    layer2_app: Literal["now", "defer", "skip"] = "defer"
 
 
 class DemoInputDocumentsConfig(BaseModel):

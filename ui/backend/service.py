@@ -69,6 +69,23 @@ class FeedRun(BaseModel):
     # What this feed's run did with a model, per stage
     # (codegen.reasoning.usage.StageUsage.as_dict — carries the label).
     model_usage: list[dict] | None = None
+    # post76: the Layer-2 stage for this feed — {mode, review_candidates, rules};
+    # review_candidates = pending | done | skipped | none (the manifest's)
+    layer2: dict | None = None
+
+
+def with_layer2(run: FeedRun, candidates: list, usage, block: dict) -> FeedRun:
+    """post76: a FeedRun with its Layer-2 stage's results (candidates, usage,
+    the manifest block's row for the feed)."""
+    state = {"deferred": "pending", "skipped": "skipped"}.get(
+        usage.provider, "done" if usage.requests else "none")
+    return run.model_copy(update={
+        "candidates": candidates,
+        "model_usage": [*[u for u in run.model_usage or [] if u.get("stage") != "layer2"],
+                        usage.as_dict()],
+        "layer2": {"mode": block.get("mode"), "review_candidates": state,
+                   "rules": usage.requests},
+    })
 
 
 class FailedRun(BaseModel):
@@ -156,6 +173,18 @@ class GenerationStore:
             self.out_root = out_root
             self.reports_root = reports_root
             self.has_run = True
+
+    def apply_layer2(self, results: dict, block: dict) -> int:
+        """post76: the Layer-2 stage's results (``{feed_id: (candidates, usage)}``)
+        on the served runs; returns how many feeds changed."""
+        with self._lock:
+            changed = 0
+            for slug, run in list(self.runs.items()):
+                if run.spec.feed_id not in results:
+                    continue
+                self.runs[slug] = with_layer2(run, *results[run.spec.feed_id], block)
+                changed += 1
+            return changed
 
     def forget_runs(self, labels: list[str]) -> bool:
         """The served run's folder was deleted: serve nothing rather than a
@@ -248,7 +277,11 @@ class GenerationStore:
         faq_answers: dict | None = None,
         frd_path: Path | None = None,
         sttm_path: Path | None = None,
+        layer2: str = "now",
+        layer2_jobs: dict | None = None,
     ) -> FeedRun:
+        # post76: ``layer2="later"`` leaves the Layer-2 stage to the run (its job
+        # lands in ``layer2_jobs`` by feed_id — DemoRunner runs it after the outcome).
         # post60: THE feed pipeline is codegen.cli.generate_feed_result — the
         # CLI's own (no mirror to keep in sync); this wraps it in a FeedRun.
         # 2026-10-14: ``environment`` = the run's (codegen.environments; None =
@@ -269,7 +302,9 @@ class GenerationStore:
             reports_dir=(reports_dir if reports_dir is not None
                          else REPO_ROOT / self.config.output.reports_dir),
             base_dir=REPO_ROOT, on_stage=on_stage, candidates_override=candidates_override,
-            console=False, frd_path=frd_path, sttm_path=sttm_path)
+            console=False, frd_path=frd_path, sttm_path=sttm_path, layer2=layer2)
+        if layer2_jobs is not None and result.layer2_job is not None:
+            layer2_jobs[spec.feed_id] = result.layer2_job
         framework_summary = None
         artefacts = result.framework_artefacts
         if artefacts is not None:

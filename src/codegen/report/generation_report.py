@@ -87,10 +87,25 @@ def _rules_section(outcomes: list[RuleOutcome]) -> list[str]:
     return lines
 
 
-def _candidates_section(candidates: list[RuleCandidate]) -> list[str]:
-    lines = ["## Layer-2 candidates (review required — never auto-merged)", ""]
+CANDIDATES_HEADING = "## Layer-2 candidates (review required — never auto-merged)"
+LAYER2_USAGE_PREFIX = "- Layer 2 (rule reasoning): "
+
+
+def _candidates_section(candidates: list[RuleCandidate],
+                        layer2_note: str | None = None,
+                        info_flags: list[str] | None = None) -> list[str]:
+    lines = [CANDIDATES_HEADING, ""]
+    if layer2_note:
+        # post76: the Layer-2 stage runs after emit — where the rules stand
+        lines += [layer2_note, ""]
+    if info_flags:
+        # post76: what Layer 2 found — informational, never the verdict
+        lines += ["Informational flags (Layer 2 — never the gate verdict):", ""]
+        lines += [f"- {flag}" for flag in info_flags]
+        lines.append("")
     if not candidates:
-        lines += ["None — every rule compiled deterministically.", ""]
+        if not layer2_note:
+            lines += ["None — every rule compiled deterministically.", ""]
         return lines
     for index, candidate in enumerate(candidates, start=1):
         if candidate.kind == "confirm":
@@ -228,6 +243,7 @@ def write_generation_report(
     out_root: Path,
     inputs_summary: dict | None = None,
     model_usage: list[StageUsage] | None = None,
+    layer2_note: str | None = None,
 ) -> Path:
     lines: list[str] = [f"# Generation report — {spec.feed_id}", ""]
     lines += [f"> **WARNING** {all_failed_line(u)}\n" for u in model_usage or ()
@@ -251,7 +267,7 @@ def write_generation_report(
     lines += _files_section(written_files, out_root)
     lines += _rules_section(outcomes)
     lines += _segmented_section(spec)
-    lines += _candidates_section(candidates)
+    lines += _candidates_section(candidates, layer2_note)
     # What the run actually did with a model, per stage (codegen.reasoning.usage).
     if model_usage:
         lines += report_lines(model_usage)
@@ -261,6 +277,31 @@ def write_generation_report(
     report_path = reports_dir / f"{spec.feed_slug}.md"
     report_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return report_path
+
+
+def rewrite_layer2(report_path: Path, candidates: list[RuleCandidate], usage: StageUsage,
+                   layer2_note: str | None = None,
+                   info_flags: list[str] | None = None) -> None:
+    """post76: the Layer-2 stage's results written into a feed's report after
+    the fact — the candidates section, the Model usage line and the all-failed
+    WARNING; every other line stays as generate wrote it."""
+    if not report_path.is_file():
+        return
+    lines = report_path.read_text(encoding="utf-8").split("\n")
+    warning = f"> **WARNING** {all_failed_line(usage)}"
+    lines = [ln for ln in lines if not ln.startswith("> **WARNING** Layer 2 (rule reasoning)")]
+    if usage.all_failed:
+        title = next((i for i, ln in enumerate(lines) if ln.startswith("# Generation report")),
+                     0)
+        lines[title + 2:title + 2] = [warning, ""]
+    if CANDIDATES_HEADING in lines:
+        start = lines.index(CANDIDATES_HEADING)
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+                   len(lines))
+        lines[start:end] = _candidates_section(candidates, layer2_note, info_flags)
+    label = "- Layer 2 (rule reasoning): " + usage.label
+    lines = [label if ln.startswith(LAYER2_USAGE_PREFIX) else ln for ln in lines]
+    report_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 
 _CONSOLE_DETAIL_LINES = 8

@@ -2210,6 +2210,7 @@ class DemoRunner:
         gen.held_back(held)
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = []
+        jobs: dict = {}                    # post76: each feed's Layer-2 work
         for feed_no, spec in enumerate(specs, 1):
             slug = spec.feed_slug
             result = gen.feed(
@@ -2222,13 +2223,28 @@ class DemoRunner:
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template, playbook_template=self.playbook_template,
                     layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers,
-                    frd_path=frd_path, sttm_path=sttm_path))
+                    frd_path=frd_path, sttm_path=sttm_path, layer2="later",
+                    layer2_jobs=jobs))
             if result is None:
                 failures.append(FailedRun(label=slug, error=gen.errors.get(spec.feed_id, "")))
                 continue
+            gen.keep_layer2(spec, jobs.get(spec.feed_id), feed_no, len(specs))
             runs[slug] = result
         self.inputs_needed += [o.as_dict() for o in gen.owed if o.scope == "feed"]
         self.outcome, _code = gen.finish()
+        # post76: the Layer-2 stage after the outcome — the App defers it by default
+        # (reasoning.layer2_app): "review candidates: pending" until the review
+        # panel asks (POST /api/demo/layer2)
+        from codegen import cli
+        from ui.backend.service import with_layer2
+
+        mode = run_config.reasoning.layer2_app
+        self._stage("layer2", f"{mode}: {sum(j.rules for j in gen.layer2_jobs)} unmapped "
+                              f"rule(s) over {len(gen.layer2_jobs)} feed(s)")
+        results = gen.layer2(mode, dry_run=False, build=cli.build_provider, console=False)
+        for slug, run in list(runs.items()):
+            if run.spec.feed_id in results:
+                runs[slug] = with_layer2(run, *results[run.spec.feed_id], gen.layer2_block)
         # post66: the open lines each feed's IIG review faces (the artefacts
         # panel's summary line)
         for slug, run in list(runs.items()):
@@ -2253,6 +2269,29 @@ class DemoRunner:
                     if not run_stages.is_notebook_file(Path(path))
                     and not (notebook_only and run_stages.emit_stage(Path(path)) is not None)]})
         return runs, failures, manifest
+
+    def run_deferred_layer2(self) -> dict:
+        """post76: the served run's deferred Layer 2, asked now — one request per
+        feed (codegen.layer2_stage.run_pending); candidates.json, the reports
+        and the manifest's layer2 block updated, the run pushed again.
+        ValueError = HTTP 400 (no run loaded, nothing deferred)."""
+        from codegen import cli
+        from codegen.layer2_stage import pending_jobs, run_pending
+        from ui.backend import stores as ui_stores
+
+        store = self._store
+        if store.mode != "live" or store.label is None:
+            raise ValueError("no generated run is loaded")
+        if not pending_jobs(store.out_root):
+            raise ValueError("this run has no deferred Layer-2 review")
+        config = store.config
+        block, results = run_pending(store.out_root, config=config, dry_run=False,
+                                     base_dir=REPO_ROOT, reports_dir=store.reports_root,
+                                     say=None, console=False, build=cli.build_provider)
+        changed = store.apply_layer2(results, block)
+        ui_stores.push_run(config, store.label)
+        return {"feeds": changed, "rules": sum(r["rules"] for r in block["feeds"]),
+                "calls": sum(r["calls"] for r in block["feeds"])}
 
     def confirm_input_choices(self, choices: dict) -> dict:
         """post59: record the BSA's confirmed choices — ``{key: {choice,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FrameworkSummary } from "./api";
-import { APPROVAL_NOTE, presentedArtefacts, reviewSummary } from "./artefacts";
+import { APPROVAL_NOTE, layer2Line, presentedArtefacts, reviewSummary } from "./artefacts";
 
 describe("presentedArtefacts", () => {
   it("shows exactly the DDL, the IIG, the IIG review copy and ADDITION.md", () => {
@@ -91,5 +91,19 @@ describe("reviewSummary", () => {
     expect(reviewSummary(framework({ empty_by_rule: [] }))).toBe(
       "8 sheets · 17 rows · 9 open inputs (1 blocking)",
     );
+  });
+});
+
+describe("layer2Line", () => {
+  it("says review candidates: pending while the App's Layer 2 is deferred", () => {
+    expect(layer2Line({ mode: "defer", review_candidates: "pending", rules: 7 })).toBe(
+      "review candidates: pending",
+    );
+  });
+
+  it("says nothing once asked, or when no rule was unmapped", () => {
+    expect(layer2Line({ mode: "now", review_candidates: "done", rules: 7 })).toBeNull();
+    expect(layer2Line({ mode: "defer", review_candidates: "pending", rules: 0 })).toBeNull();
+    expect(layer2Line(null)).toBeNull();
   });
 });

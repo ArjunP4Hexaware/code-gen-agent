@@ -277,6 +277,8 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
         "candidates_pending": pending,
         "files_written": len(run.written_files),
         "framework": run.framework,
+        # post76: {mode, review_candidates: pending | done | skipped | none, rules}
+        "layer2": run.layer2,
     }
 
 
@@ -584,6 +586,26 @@ def confirm_input_choices(req: InputChoicesRequest) -> dict:
         return runner.confirm_input_choices(req.choices)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+class Layer2Request(BaseModel):
+    confirm: bool = False  # one model request per feed (billed on a live transport)
+
+
+@app.post("/api/demo/layer2")
+def run_layer2(req: Layer2Request) -> dict:
+    """post76: ask the model about the served run's deferred feeds (the App
+    defers Layer 2 by default — ``reasoning.layer2_app``): one request per feed,
+    candidates added to the review. Confirm-gated; 400 when nothing is deferred."""
+    if not req.confirm:
+        raise HTTPException(400, "Layer 2 requires explicit confirm: true (billed API calls)")
+    _require_store()
+    runner = _require_runner()
+    try:
+        asked = runner.run_deferred_layer2()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"asked": asked, **list_feeds()}
 
 
 class RerunRequest(BaseModel):

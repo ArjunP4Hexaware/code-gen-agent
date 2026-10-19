@@ -1,8 +1,9 @@
 """Run Layer 2 over the rules Layer 1 could not map.
 
-For each ``unmapped`` outcome: build the context pack, ask the provider,
-grounding-check the citations. Provider failures become candidates with
-``response=None`` and a failure note — never a silent skip, and never an
+For each ``unmapped`` outcome: build the context pack, ask the provider
+(post76: one request per feed), grounding-check the citations. Provider
+failures become candidates with ``response=None`` and a failure note —
+never a silent skip, and never an
 exception that aborts generation of the deterministic modules.
 """
 
@@ -14,7 +15,7 @@ from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.reasoning.context import build_context_pack
 from codegen.reasoning.grounding import grounding_failures
 from codegen.reasoning.providers import Provider
-from codegen.reasoning.schema import CandidateResponse
+from codegen.reasoning.schema import CandidateResponse, ContextPack
 from codegen.rules.compiler import RuleOutcome
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -131,34 +132,65 @@ def run_reasoning(
     provider: Provider,
 ) -> list[RuleCandidate]:
     """Produce one candidate per unmapped outcome, in contract order."""
+    return reason_over_packs(unmapped_packs(spec, outcomes), provider)
+
+
+def unmapped_packs(spec: ResolvedFeedSpec, outcomes: list[RuleOutcome]) -> list[ContextPack]:
+    """The feed's unmapped rules as context packs, in contract order (post76:
+    what a deferred Layer-2 stage stores and later asks)."""
+    return [build_context_pack(spec, o) for o in outcomes if o.classification == "unmapped"]
+
+
+def reason_over_packs(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
+    """One candidate per pack (one feed's rules), in order.
+
+    post76: a provider with ``complete_batch`` gets the feed's rules in ONE
+    request (D1 post73 pair_11: one request per rule per feed); each answer is
+    grounding-checked against its own rule's pack. A provider without it is
+    asked rule by rule."""
+    if not packs:
+        return []
+    if hasattr(provider, "complete_batch"):
+        return _batch(packs, provider)
     candidates: list[RuleCandidate] = []
-    for outcome in outcomes:
-        if outcome.classification != "unmapped":
-            continue
-        pack = build_context_pack(spec, outcome)
+    for pack in packs:
         try:
             response = provider.complete(pack)
         except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
-            candidates.append(
-                RuleCandidate(
-                    feed_id=spec.feed_id,
-                    rule_text=outcome.rule_text,
-                    provider=provider.name,
-                    response=None,
-                    grounded=False,
-                    failure_notes=[f"provider '{provider.name}' failed: {exc}"],
-                )
-            )
+            candidates.append(_failed(pack, provider, f"provider '{provider.name}' failed: {exc}"))
             continue
-        failures = grounding_failures(pack, response)
-        candidates.append(
-            RuleCandidate(
-                feed_id=spec.feed_id,
-                rule_text=outcome.rule_text,
-                provider=provider.name,
-                response=response,
-                grounded=not failures,
-                failure_notes=failures,
-            )
-        )
+        candidates.append(_answered(pack, provider, response))
     return candidates
+
+
+def _batch(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
+    """One request for the feed's rules; rule n = ``packs[n-1]``."""
+    try:
+        answers = provider.complete_batch(packs)       # type: ignore[attr-defined]
+    except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
+        return [_failed(pack, provider, f"provider '{provider.name}' failed: {exc}")
+                for pack in packs]
+    candidates: list[RuleCandidate] = []
+    for number, pack in enumerate(packs, 1):
+        response = answers.get(number)
+        if response is None:
+            candidates.append(_failed(
+                pack, provider,
+                f"provider '{provider.name}' failed: the feed's batched response gave no "
+                f"candidate for rule {number} of {len(packs)}"))
+            continue
+        candidates.append(_answered(pack, provider, response))
+    return candidates
+
+
+def _answered(pack: ContextPack, provider: Provider, response) -> RuleCandidate:
+    failures = grounding_failures(pack, response)
+    return RuleCandidate(feed_id=pack.feed_id, rule_text=pack.rule_text,
+                         provider=provider.name, response=response,
+                         grounded=not failures, failure_notes=failures)
+
+
+def _failed(pack: ContextPack, provider: Provider, note: str) -> RuleCandidate:
+    return RuleCandidate(feed_id=pack.feed_id, rule_text=pack.rule_text,
+                         provider=provider.name, response=None, grounded=False,
+                         failure_notes=[note])

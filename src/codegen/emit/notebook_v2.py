@@ -511,9 +511,7 @@ def build_context(spec, config, payload: dict, *, candidates, frd_path: Path | N
         "file_column": next((c for c in audit if AUDIT_VALUES.get(c) == "file_name"), ""),
         "stage_calls": stage_calls, "std_calls": std_calls, "missing_rules": missing,
         "open_cells": opened.cells, "provenance": provenance,
-        "candidates": [{"rule_text": c.rule_text, "classification":
-                        c.response.classification, "code": c.response.code_candidate or "",
-                        "rationale": c.response.rationale} for c in review],
+        "candidates": review_entries(review),
         "dry_run_rows": DRY_RUN_ROWS,
         "drift": any(s["schema_drift"] for s in sources),
         "recycle": any(s["recycle"] for s in sources),
@@ -607,10 +605,49 @@ def render_cells(context: dict) -> list[nbf.Cell]:
                                               {"stage": "Data quality", **context,
                                                "lines": context["provenance"]["dq"]})),
               nbf.code("run", _render(env, "run.py.j2", context))]
-    if context["candidates"]:
-        cells.append(nbf.md("review-candidates", _render(env, "candidates.md.j2", context)))
     cells += _step(env, context, "run-report", "Run report", "run_report")
+    if context["candidates"]:
+        # post76: the TRAILING %md — the only cell the --layer2 mode changes
+        # (codegen.layer2_stage re-emits it through with_review)
+        cells.append(review_cell(context["candidates"]))
     return cells
+
+
+REVIEW_CELL = "review-candidates"
+
+
+def review_entries(candidates) -> list[dict]:
+    """The Layer-2 candidates the review cell shows (a model's answer only)."""
+    return [{"rule_text": c.rule_text, "classification": c.response.classification,
+             "code": c.response.code_candidate or "", "rationale": c.response.rationale}
+            for c in candidates
+            if getattr(c, "kind", "layer2") == "layer2" and c.response is not None]
+
+
+def review_cell(entries: list[dict]) -> nbf.Cell:
+    env = _environment()
+    return nbf.md(REVIEW_CELL, _render(env, "candidates.md.j2", {"candidates": entries}))
+
+
+def with_review(feed_dir: Path, slug: str, candidates) -> list[Path]:
+    """post76: the written notebook's trailing review cell replaced by the
+    Layer-2 stage's candidates (none = no cell); every other cell byte for
+    byte. Returns the files rewritten ([] when the notebook is not there — a
+    blocking line withheld it, a GATE_FAIL moved it)."""
+    folder = feed_dir / NOTEBOOK_DIR
+    ipynb, source = folder / f"{slug}.ipynb", folder / f"{slug}.py"
+    if not (ipynb.is_file() and source.is_file()):
+        return []
+    cells =[nbf.Cell("markdown" if c["cell_type"] == "markdown" else "code", c["id"],
+                      "".join(c["source"]))
+             for c in json.loads(ipynb.read_text(encoding="utf-8"))["cells"]
+             if c["id"] != REVIEW_CELL]
+    entries = review_entries(candidates)
+    if entries:
+        cells.append(review_cell(entries))
+    ipynb.write_text(nbf.ipynb_text(cells), encoding="utf-8", newline="\n")
+    source.write_text(nbf.databricks_source(cells), encoding="utf-8", newline="\n")
+    return [ipynb, source]
 
 
 def _step(env: Environment, context: dict, name: str, title: str,

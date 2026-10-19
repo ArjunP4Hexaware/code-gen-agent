@@ -27,6 +27,15 @@ NO_CALL_NEEDED = "Resolved from the documents (no model call needed)"
 MOCK_REASON_DEFAULT = "test"
 # The live providers' names; anything else that answered is not a model.
 LIVE_PROVIDERS = ("databricks_fmapi", "anthropic")
+# post76: Layer 2 is its own stage after emit (codegen.layer2_stage) — until it
+# runs, a feed's record says where its rules are (never a call count).
+NOT_RUN_LABELS = {
+    "pending": "Not run yet: the Layer-2 stage runs after the run's outcome is written "
+               "({n} rule(s))",
+    "deferred": "Deferred (--layer2 defer): {n} rule(s), review candidates: pending; "
+                "no model call",
+    "skipped": "Skipped (--layer2 skip): {n} rule(s) left unmapped for review; no model call",
+}
 
 
 def model_display_name(model: str | None) -> str:
@@ -77,6 +86,8 @@ class StageUsage:
                     f"{self.recorded_provider or 'unknown'}) · 0 new call(s)")
         if self.requests == 0:
             return NO_CALL_NEEDED
+        if self.provider in NOT_RUN_LABELS:
+            return NOT_RUN_LABELS[self.provider].format(n=self.requests)
         if self.provider == "mock":
             return f"Mock provider (reason: {self.mock_reason or MOCK_REASON_DEFAULT})"
         label = (f"{model_display_name(self.model)} ({self.endpoint or self.model}) · "
@@ -215,6 +226,12 @@ def layer2_usage(provider, candidates) -> StageUsage:
                                recovered=recovered)
 
 
+def not_run_usage(state: str, rules: int) -> StageUsage:
+    """post76: Layer 2's record for a feed whose stage has not asked a model
+    (``state`` = pending | deferred | skipped)."""
+    return StageUsage(stage="layer2", provider=state, requests=rules)
+
+
 def layout_usage(*providers) -> StageUsage:
     """The layout recognizer's record: every provider it built this run (the
     resolver's, plus any dialog-advice one). A request is a layout / advice
@@ -255,6 +272,7 @@ def replay_usage(candidates) -> StageUsage:
 
 __all__ = [
     "LIVE_PROVIDERS",
+    "NOT_RUN_LABELS",
     "NO_CALL_NEEDED",
     "StageUsage",
     "TOKEN_FIELDS",
@@ -264,6 +282,7 @@ __all__ = [
     "merge",
     "message_tokens",
     "model_display_name",
+    "not_run_usage",
     "replay_usage",
     "run_usage",
     "timed",

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
-import { APPROVAL_NOTE, presentedArtefacts, reviewSummary } from "../artefacts";
+import { APPROVAL_NOTE, layer2Line, presentedArtefacts, reviewSummary } from "../artefacts";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { StatTile } from "../components/StatTile";
@@ -88,7 +88,8 @@ function FeedCard({ feed }: { feed: FeedSummary }) {
           {deterministic}/{feed.rule_total} rules compiled deterministically
         </span>
         <span>
-          {feed.files_written} files · {feed.candidates_pending} pending review
+          {feed.files_written} files ·{" "}
+          {layer2Line(feed.layer2) ?? `${feed.candidates_pending} pending review`}
         </span>
       </div>
     </Link>
@@ -108,6 +109,22 @@ export function Dashboard({
 }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+
+  // post76: the App defers Layer 2 — the review panel asks (one request per feed)
+  const askLayer2 = async () => {
+    setAsking(true);
+    setAskError(null);
+    try {
+      await api.layer2();
+      await onFeedsChanged();
+    } catch (err) {
+      setAskError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAsking(false);
+    }
+  };
 
   const resetDecisions = async () => {
     setResetting(true);
@@ -123,6 +140,9 @@ export function Dashboard({
   const feeds = data?.feeds ?? [];
   const byVerdict = (v: string) => feeds.filter((f) => f.verdict === v).length;
   const pending = feeds.reduce((n, f) => n + f.candidates_pending, 0);
+  const deferred = feeds.filter(
+    (f) => f.layer2?.review_candidates === "pending" && f.layer2.rules,
+  );
   const rules = feeds.reduce((n, f) => n + f.rule_total, 0);
   const deterministic = feeds.reduce(
     (n, f) => n + (f.rule_counts.mappable ?? 0) + (f.rule_counts.orchestration_config ?? 0),
@@ -212,6 +232,26 @@ export function Dashboard({
           hint="Layer-2 candidates awaiting an engineer"
         />
       </div>
+
+      {deferred.length ? (
+        <div className="panel" style={{ marginTop: 18 }}>
+          <div className="panel-head">
+            <h2>Layer-2 review</h2>
+            <span className="hint">
+              review candidates: pending — {deferred.reduce((n, f) => n + f.layer2!.rules, 0)}{" "}
+              unmapped rule(s) over {deferred.length} feed(s); the outcome and files are already
+              written
+            </span>
+          </div>
+          <div className="panel-body">
+            <button className="btn primary" onClick={askLayer2} disabled={asking}>
+              {asking ? <span className="spin" /> : null}
+              {asking ? "Asking…" : `Ask the model (${deferred.length} request(s))`}
+            </button>
+            {askError ? <div className="error-banner">{askError}</div> : null}
+          </div>
+        </div>
+      ) : null}
 
       {feeds.length === 0 ? (
         <div className="empty">No feeds generated yet — the backend generates on startup.</div>

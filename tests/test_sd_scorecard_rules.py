@@ -341,7 +341,7 @@ def test_no_spark_session_is_check_not_run(monkeypatch, tmp_path):
     monkeypatch.setattr(tests_runner.subprocess, "run", no_spark)
     check = tests_runner.run_generated_tests(tmp_path, 20)
     assert check.passed and check.not_run and check.flag == "spark_unavailable"
-    gate = compute_verdict("feed", [], [], [check], tests_skipped=False)
+    gate = compute_verdict("feed", [], [check], tests_skipped=False)
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert gate.flags[0].startswith("spark_unavailable — a Spark session could not be "
                                     "configured (CANNOT_CONFIGURE_SPARK)")
@@ -362,7 +362,7 @@ def test_ruff_format_wraps_a_long_line_instead_of_an_e501_fail(tmp_path):
     check = _ruff_check(feed)
     assert check.passed, check.details
     assert check.formatted == ["pipeline/wide.py"]
-    gate = compute_verdict("feed_x", [], [], [check], tests_skipped=False)
+    gate = compute_verdict("feed_x", [], [check], tests_skipped=False)
     assert gate.flags == ["ruff_formatted: 1 emitted .py file(s) rewritten by `ruff format` "
                           "before the check — pipeline/wide.py"]
 

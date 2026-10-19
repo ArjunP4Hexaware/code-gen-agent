@@ -1,4 +1,4 @@
-import type { FrameworkSummary } from "./api";
+import type { FrameworkSummary, Layer2State } from "./api";
 
 /* The framework artefacts the App presents per feed (2026-10-16 demo cleanup):
    exactly <FEED>_DDL.txt, <feed>_IIG.xlsx, <feed>_IIG_REVIEW.xlsx and
@@ -39,6 +39,15 @@ export function reviewSummary(framework: FrameworkSummary): string {
     parts.push(`empty by rule: ${empty.map((e) => `${e.label} (${e.reason})`).join(", ")}`);
   }
   return parts.join(" · ");
+}
+
+/* post76: where a feed's Layer-2 review stands (null once its candidates are in,
+   or when it had no unmapped rule). */
+export function layer2Line(layer2: Layer2State | null | undefined): string | null {
+  if (!layer2 || !layer2.rules) return null;
+  if (layer2.review_candidates === "pending") return "review candidates: pending";
+  if (layer2.review_candidates === "skipped") return "Layer 2 skipped";
+  return null;
 }
 
 /* The one approval sentence: the artefacts panel's subtitle (2026-10-16, post63). */

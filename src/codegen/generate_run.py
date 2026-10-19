@@ -10,7 +10,10 @@
   CRASHED (partial emit files removed) / GATE_FAIL (files kept under
   ``quarantine/`` + GATE_FAIL.md) / written;
 - :meth:`GenerateRun.finish` — the outcome (``run_stages.generate_outcome``),
-  the exit code and ``<out root>/CODEGEN_STAGES.json``.
+  the exit code and ``<out root>/CODEGEN_STAGES.json``;
+- post76: :meth:`GenerateRun.layer2` — the Layer-2 stage over the feeds whose
+  files were written (codegen.layer2_stage), AFTER the outcome: one request
+  per feed, its ``layer2`` block added to the manifest.
 
 So the manifest — ``questions`` with ``blocking``, each feed's ``written``,
 ``open``, ``inputs`` and ``iig_cells``, the outcome — is built by the same code
@@ -64,6 +67,8 @@ class GenerateRun:
         self.quarantined: list[str] = []
         self.crashed = self.gate_failed = self.hard_failed = False
         self.matched_feed = False
+        self.layer2_jobs: list = []             # post76: the stage's work, feed by feed
+        self.layer2_block: dict | None = None
 
     # -- lines before any feed ---------------------------------------------------
 
@@ -212,7 +217,19 @@ class GenerateRun:
             self.out_root, feed_no, of, gate.verdict, written, iig_cells=gate.iig_cells,
             withheld=withheld, nothing_written=nothing_written))
         self.entry_of[spec.feed_id] = self.feed_entries[-1]
+        self.keep_layer2(spec, getattr(result, "layer2_job", None), feed_no, of)
         return result
+
+    def keep_layer2(self, spec, job, feed_no: int, of: int) -> None:
+        """post76: a written feed's Layer 2 waits for the run's outcome; a
+        GATE_FAIL / CRASHED feed's, or one that wrote nothing, is not asked.
+        (The App passes its job here: its FeedRun does not carry one.)"""
+        entry = self.entry_of.get(spec.feed_id)
+        if job is None or entry is None or not entry.get("written") or (
+                entry.get("status") == "GATE_FAIL"):
+            return
+        job.n, job.of, job.out_root = feed_no, of, self.out_root
+        self.layer2_jobs.append(job)
 
     def _landing_input(self, spec, index) -> None:
         """post74 (D1 post73 pair_11): a landing no document states leaves the
@@ -368,6 +385,23 @@ class GenerateRun:
                                         statuses=statuses, feeds=self.feed_entries,
                                         questions=self.open_items)
         return outcome, code
+
+    def layer2(self, mode: str, *, dry_run: bool, build=None, console: bool = True) -> dict:
+        """post76: the Layer-2 stage — after :meth:`finish` (the outcome, the files
+        and the manifest are written first). ``mode`` = now | defer | skip; the
+        manifest gains its ``layer2`` block; the exit code is not touched.
+        Returns {feed_id: (candidates, usage)}."""
+        from codegen.layer2_stage import run_stage
+
+        if self.layer2_jobs and console:
+            rules = sum(job.rules for job in self.layer2_jobs)
+            self.say(f"{'STAGE':<15} layer2 — {mode}: {rules} unmapped rule(s) over "
+                     f"{len(self.layer2_jobs)} feed(s), one request per feed with rules "
+                     "(after the outcome; never changes it)")
+        self.layer2_block, results = run_stage(
+            self.layer2_jobs, mode, config=self.config, dry_run=dry_run, base_dir=self.base,
+            out_root=self.out_root, say=self.say, console=console, build=build)
+        return results
 
 
 def run_level_lines(config, inputs: dict, *, output_mode, iig_template, choices=None

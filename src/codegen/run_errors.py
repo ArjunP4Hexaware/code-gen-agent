@@ -265,7 +265,7 @@ STAGES = frozenset({
     "codegen", "generate", "generate-all", "layout", "extract-sttm", "extract-frd",
     "extract-vdd", "pair", "sharepoint-fetch", "sharepoint-publish", "databricks-fetch",
     "databricks-publish", "databricks-seed-landing", "demo-source-files",
-    "demo-metadata-sheet", "doctor", "verify",
+    "demo-metadata-sheet", "doctor", "verify", "layer2",
 })
 
 # reason code -> the coordinates tier's phrase. Phrases are fixed text: they may
@@ -606,7 +606,9 @@ def coordinate_line(payload: object) -> str:
 # them with :func:`model_usage` / :func:`usage_summary` (STABLE).
 USAGE_MARKER = "CODEGEN-USAGE "
 USAGE_STAGES = ("layout", "layer2")
-USAGE_PROVIDERS = ("databricks_fmapi", "anthropic", "mock", "replay", "none")
+USAGE_PROVIDERS = ("databricks_fmapi", "anthropic", "mock", "replay", "none",
+                   # post76: Layer 2 not asked in this run (codegen.layer2_stage)
+                   "deferred", "skipped")
 _USAGE_INTS = ("calls", "requests", "failed", "recovered")
 
 

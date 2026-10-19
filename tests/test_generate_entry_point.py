@@ -6,8 +6,9 @@ entry point.
 over ``cli.generate_feed_result``. The manifest (questions with ``blocking``,
 each feed's ``written`` / ``open`` / ``inputs`` / ``iig_cells``, the outcome)
 comes from the same code, so the same synthetic pair gives byte-identical
-manifests from both (the manifest carries no timestamp). The App's run state
-reads the outcome and ``written`` from it."""
+manifests from both (the manifest carries no timestamp) — post76: under the
+same Layer-2 mode (its ``layer2`` block). The App's run state reads the
+outcome and ``written`` from it."""
 
 from __future__ import annotations
 
@@ -56,7 +57,9 @@ def _app_run(runner, config, frd: Path, sttm: Path, root: Path, *, choices=None)
 
 def test_the_app_and_the_cli_write_the_same_manifest(app, tmp_path):
     config, spec, (frd, sttm) = _pair(tmp_path / "cli")
-    assert _generate(config, (frd, sttm), only_feed=None) == 0
+    # post76: the same Layer-2 mode (the App defers it by default) = the same manifest
+    assert _generate(config, (frd, sttm), only_feed=None,
+                     layer2=config.reasoning.layer2_app) == 0
     cli_manifest = (tmp_path / "cli" / "out" / run_stages.STAGES_FILE).read_bytes()
     runs, failures, manifest = _app_run(app, config, frd, sttm, tmp_path)
     app_manifest = (tmp_path / "app" / run_stages.STAGES_FILE).read_bytes()
@@ -78,7 +81,8 @@ def test_a_confirmed_choice_gives_the_same_manifest_as_the_answers_file(app, tmp
     answers = tmp_path / "answers.yaml"
     answers.write_text(f"inputs:\n  feeds:\n    {spec.feed_id}:\n"
                        "      pipeline_name: {choice: use_default}\n", encoding="utf-8")
-    _generate(config, (frd, sttm), only_feed=None, answers_path=answers)
+    _generate(config, (frd, sttm), only_feed=None, answers_path=answers,
+              layer2=config.reasoning.layer2_app)
     cli_manifest = (tmp_path / "cli" / "out" / run_stages.STAGES_FILE).read_bytes()
     _app_run(app, config, frd, sttm, tmp_path, choices={
         f"feeds.{spec.feed_id}.pipeline_name": Choice("use_default")})

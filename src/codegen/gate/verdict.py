@@ -3,8 +3,8 @@
 FAIL    — any gate check failed (ruff, structural, generated tests). Contract
           validation errors, resolver mismatches, and TemplateGapError abort
           before the gate runs; the CLI reports those as FAIL directly.
-PASS_WITH_FLAGS — everything passed but something needs a human: Layer-2
-          candidates pending approval, or rules classified flagged /
+PASS_WITH_FLAGS — everything passed but something needs a human: unmapped
+          rules (Layer-2 review pending, post76), or rules classified flagged /
           notification / out_of_scope, or tests skipped.
 PASS    — all checks green and nothing pending.
 """
@@ -41,10 +41,17 @@ class GateResult(BaseModel):
     iig_cells: dict = {}
 
 
+def review_item_flags(items: list[RuleCandidate]) -> list[str]:
+    """The deterministic CONFIRM items' flags (segmented extraction, cited) —
+    the caller passes them in ``extra_flags``. post76: Layer-2 candidates are
+    never gate input (codegen.layer2_stage writes their informational flags)."""
+    return [f"confirm item pending (document-derived, cited): {item.rule_text}"
+            for item in items if item.kind == "confirm"]
+
+
 def compute_verdict(
     feed_id: str,
     outcomes: list[RuleOutcome],
-    candidates: list[RuleCandidate],
     checks: list[GateCheck],
     tests_skipped: bool,
     *,
@@ -76,23 +83,12 @@ def compute_verdict(
                 f"rule classified {outcome.classification}: {outcome.rule_text!r}"
                 + (f" — {outcome.notes}" if outcome.notes else "")
             )
-    for candidate in candidates:
-        if candidate.kind == "confirm":
-            flags.append(
-                f"confirm item pending (document-derived, cited): {candidate.rule_text}"
-            )
-        elif candidate.response is None:
-            flags.append(
-                f"Layer-2 provider failed for rule {candidate.rule_text!r}: "
-                + "; ".join(candidate.failure_notes)
-            )
-        elif not candidate.grounded:
-            flags.append(
-                f"Layer-2 candidate NOT grounded for rule {candidate.rule_text!r}: "
-                + "; ".join(candidate.failure_notes)
-            )
-        else:
-            flags.append(f"Layer-2 candidate pending engineer approval: {candidate.rule_text!r}")
+        elif outcome.classification == "unmapped":
+            # post76: candidates never affect the verdict — Layer 2 is its own stage
+            # AFTER the gate (codegen.layer2_stage). An unmapped rule needs an
+            # engineer whatever the model proposes, fails or was never asked
+            # (--layer2 defer | skip): the same flag in every mode.
+            flags.append(f"Layer-2 candidate pending engineer approval: {outcome.rule_text!r}")
     if tests_skipped:
         flags.append("generated tests were skipped — PASS cannot be claimed")
     for check in checks:

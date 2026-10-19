@@ -17,10 +17,12 @@ Commands:
 The two sharepoint-* commands are the transport seam at the edges; the
 generation path between them never opens a socket (codegen/sharepoint.py).
 
-Per feed: resolve -> compile rules -> Layer 2 over unmapped rules -> render
-templates -> write candidates artifact -> gate -> report. A feed that fails
-resolution or rendering is reported FAIL and does not stop other feeds.
-Exit code is 0 only when no feed FAILed (see EXIT_CODES).
+Per feed: resolve -> compile rules -> render templates -> gate -> report; then
+(post76) the run's outcome, and only then the Layer-2 stage over the unmapped
+rules — ONE request per feed, ``--layer2 now | defer | skip``
+(codegen.layer2_stage). A feed that fails resolution or rendering is reported
+FAIL and does not stop other feeds. Exit code is 0 only when no feed FAILed
+(see EXIT_CODES).
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ from codegen.emit.emitter import emit_feed
 from codegen.faq import faq_for_spec, with_faq_answers
 from codegen.gate import compute_verdict, run_generated_tests, run_preflight
 from codegen.gate.verdict import GateResult
-from codegen.reasoning import build_provider, run_reasoning
+from codegen.reasoning import build_provider
 from codegen.reasoning.engine import RuleCandidate, segmented_review_items
 from codegen.report import console_summary, write_generation_report
 from codegen.report.generation_report import all_failed_line
@@ -55,23 +57,9 @@ from codegen.run_errors import Coord, report_error, report_usage
 
 def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) -> Path | None:
     """Layer-2 output goes here — a review artifact, never a generated module."""
-    if not candidates:
-        return None
-    artifact_dir = feed_dir / "candidates"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_dir / "candidates.json"
-    payload = []
-    for candidate in candidates:
-        entry = candidate.model_dump()
-        if entry.get("kind") == "layer2":
-            # Default-kind entries serialize exactly as before the segmented
-            # dialect landed — flat candidates.json stays byte-identical.
-            entry.pop("kind", None)
-            entry.pop("detail", None)
-            entry.pop("citation", None)
-        payload.append(entry)
-    artifact_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
-    return artifact_path
+    from codegen.layer2_stage import write_candidates
+
+    return write_candidates(candidates, feed_dir)
 
 
 @dataclass
@@ -84,6 +72,9 @@ class FeedResult:
     written: list[Path]
     framework_artefacts: object | None
     model_usage: list
+    # post76: the feed's Layer-2 work when the caller runs the stage itself
+    # (layer2="later"; codegen.layer2_stage.run_stage after the run's outcome)
+    layer2_job: object | None = None
 
 
 def generate_feed_result(
@@ -107,6 +98,7 @@ def generate_feed_result(
     console: bool = True,
     frd_path: Path | None = None,
     sttm_path: Path | None = None,
+    layer2: str = "now",
 ) -> FeedResult:
     """Generate one feed — post60: THE feed pipeline of both the CLI and the App
     (``ui.backend.service.GenerationStore._generate_feed`` wraps it in its
@@ -114,7 +106,13 @@ def generate_feed_result(
     ``reports_dir`` default to the config's; ``base_dir`` anchors the FAQ /
     contract paths (the App: the repo root); ``on_stage`` receives the App's
     stage labels; ``candidates_override`` replays a recorded Layer-2 result;
-    ``console`` prints the CLI's summary lines."""
+    ``console`` prints the CLI's summary lines.
+
+    post76: Layer 2 runs AFTER the files, the gate and the report
+    (codegen.layer2_stage): ``layer2`` = now | defer | skip runs that stage for
+    this feed before returning; ``later`` leaves it to the caller
+    (``FeedResult.layer2_job``) — ``codegen generate`` runs it once the run's
+    outcome is written."""
     out_root = Path(out_root) if out_root is not None else Path(config.output.dir)
     reports_dir = (Path(reports_dir) if reports_dir is not None
                    else Path(config.output.reports_dir))
@@ -123,31 +121,31 @@ def generate_feed_result(
 
     stage("compiling rules")
     outcomes = compile_rules(spec)
-    from codegen.reasoning.usage import layer2_usage, replay_usage
+    from codegen import layer2_stage
+    from codegen.reasoning.engine import unmapped_packs
+    from codegen.reasoning.usage import StageUsage, not_run_usage
 
-    if candidates_override is not None:
-        candidates = list(candidates_override)
-        layer2 = replay_usage(candidates)
-    else:
-        provider = build_provider(config, dry_run)
-        stage(f"Layer-2 reasoning ({provider.name})")
-        candidates = run_reasoning(spec, outcomes, provider)
-        from codegen.reasoning.raw_log import log_layer2_failures
-
-        # 2026-10-14: every failed Layer-2 attempt on the log (reason + RAW, D1-only)
-        log_layer2_failures(provider, spec.feed_slug, config,
-                            base_dir if base_dir is not None else Path("."))
-        layer2 = layer2_usage(provider, candidates)
-        # Segmented-extraction review items (assumption/conflict cards) ride the
-        # same review artifact and decision flow as Layer-2 candidates; a
-        # replayed set already carries them.
-        candidates = [*segmented_review_items(spec), *candidates]
+    if layer2 not in (*layer2_stage.MODES, "later"):
+        raise ValueError(f"layer2 must be one of {', '.join(layer2_stage.MODES)} or later "
+                         f"(got {layer2!r})")
+    # post76: no model call before the files — the unmapped rules' packs are the
+    # Layer-2 stage's work (one request per feed, after the run's outcome)
+    packs = unmapped_packs(spec, outcomes)
+    replay = list(candidates_override) if candidates_override is not None else None
+    # Segmented-extraction review items (assumption/conflict cards) ride the
+    # same review artifact and decision flow as Layer-2 candidates; a
+    # replayed set already carries them.
+    candidates = ([c for c in replay if c.kind != "layer2"] if replay is not None
+                  else segmented_review_items(spec))
+    not_run = {"defer": "deferred", "skip": "skipped"}.get(layer2, "pending")
+    layer2_record = (not_run_usage(not_run, len(packs)) if packs
+                     else StageUsage(stage="layer2", provider="none"))
     from codegen.reasoning.mode import DRY_RUN_OVER_LIVE, provider_mode
 
     if dry_run and provider_mode(config).live:
         # The report says it too: never a dry run that reads like a live one.
         extra_flags = [f"provider_overridden: {DRY_RUN_OVER_LIVE}", *(extra_flags or [])]
-    model_usage = [*([layout_usage] if layout_usage is not None else []), layer2]
+    model_usage = [*([layout_usage] if layout_usage is not None else []), layer2_record]
     # M3: STTM-vs-VDD cross-check — one flag per mismatch citing both cells;
     # a fixed-width FRD with no VDD positions is a failed gate check.
     # M4: resolver provenance flags (facts taken from the STTM because the
@@ -229,6 +227,8 @@ def generate_feed_result(
             # the IIG is the notebook's source of truth: its gate counts
             extra_flags = [*extra_flags, *iig.flags]
             notebook_v2_checks += iig.checks
+        # post76: the executable cells are the same in every --layer2 mode; the
+        # trailing review cell is (re-)emitted by the Layer-2 stage
         notebook, notebook_written = _emit_notebook_v2(
             spec, config, iig.payload, candidates, feed_dir, base_dir, iig_template, frd_path,
             sttm_path)
@@ -273,15 +273,18 @@ def generate_feed_result(
     checks = [*checks, *notebook_v2_checks]
     iig_cells = _iig_cells(spec, config, framework_artefacts)
 
+    # post76: candidates never affect the verdict (codegen.layer2_stage); the
+    # deterministic CONFIRM items are flags like any other
+    from codegen.gate.verdict import review_item_flags
+
     gate = compute_verdict(
         spec.feed_id,
         outcomes,
-        candidates,
         checks,
         tests_skipped,
         faq=faq,
         standards=config.engineering_standards,
-        extra_flags=extra_flags,
+        extra_flags=[*extra_flags, *review_item_flags(candidates)],
     )
     if iig_cells:
         gate = gate.model_copy(update={"iig_cells": iig_cells})
@@ -295,6 +298,7 @@ def generate_feed_result(
         out_root,
         inputs_summary=context["provenance"]["inputs"],
         model_usage=model_usage,
+        layer2_note=layer2_stage.note(not_run, len(packs)),
     )
     if dry_run and provider_mode(config).live:
         # The report's FIRST line too (2026-10-13): a D1 report must never look
@@ -310,14 +314,28 @@ def generate_feed_result(
         with open(reports_dir / f"{spec.feed_slug}.md", "a",
                   encoding="utf-8", newline="\n") as handle:
             handle.write(report_section(framework_artefacts))
+    job = layer2_stage.Layer2Job(
+        feed_id=spec.feed_id, feed_slug=spec.feed_slug, packs=packs, confirm=list(candidates),
+        feed_dir=feed_dir, report_path=reports_dir / f"{spec.feed_slug}.md", replay=replay)
+    if layer2 != "later":
+        stage("Layer-2 reasoning")
+        _block, results = layer2_stage.run_stage(
+            [job], layer2, config=config, dry_run=dry_run, base_dir=base_dir, console=False,
+            build=build_provider)
+        if spec.feed_id in results:
+            candidates, model_usage[-1] = results[spec.feed_id]
+        job = None
     if console:
         print(console_summary(spec, gate))
         for usage in model_usage:
+            if job is not None and usage is model_usage[-1]:
+                continue                # the Layer-2 stage prints its own, later
             print(f"{'MODEL USAGE':<15} {usage.stage}: {usage.label}")
             report_usage(usage)        # post74: the numbers, for the harness report
             if usage.all_failed:
                 print(f"{'WARNING':<15} {all_failed_line(usage)}")
-    return FeedResult(gate, outcomes, candidates, written, framework_artefacts, model_usage)
+    return FeedResult(gate, outcomes, candidates, written, framework_artefacts, model_usage,
+                      layer2_job=job)
 
 
 def _generate_feed(
@@ -699,6 +717,7 @@ def _run_pairs(
     answers_path: Path | None = None,
     template_path: Path | None = None,
     command: str = "generate",
+    layer2: str | None = None,
 ) -> int:
     # post60: the run's bookkeeping (open lines, choices, CRASHED / GATE_FAIL /
     # written, the outcome, CODEGEN_STAGES.json) is codegen.generate_run's —
@@ -757,13 +776,16 @@ def _run_pairs(
         for feed_no, spec in enumerate(specs, 1):
             if only_feed is not None and spec.feed_id != only_feed:
                 continue
+            # post76: every feed's files without a model call; the Layer-2 stage
+            # runs after the outcome (below)
             run.feed(spec, feed_no, len(specs), frd_path=frd_path,
                      produce=lambda faq_answers, spec=spec, frd_path=frd_path,
-                     sttm_path=sttm_path: _generate_feed(
+                     sttm_path=sttm_path: generate_feed_result(
                          spec, config, dry_run=dry_run, skip_tests=skip_tests,
                          output_mode=output_mode, conventions_profile=conventions_profile,
                          iig_template=iig_template, playbook_template=playbook_template,
-                         faq_answers=faq_answers, frd_path=frd_path, sttm_path=sttm_path))
+                         faq_answers=faq_answers, frd_path=frd_path, sttm_path=sttm_path,
+                         layer2="later"))
     if only_feed is not None and not run.matched_feed:
         _fail(command, f"no resolved feed matches --feed {only_feed!r}", "feed.no_match")
         run.hard_fail()
@@ -773,6 +795,9 @@ def _run_pairs(
     # open = PASS_WITH_OPEN_INPUTS, exit 0
     _outcome, code = run.finish(
         template_path=template_path or Path(config.output.dir) / "answers_template.yaml")
+    # post76: Layer 2 is its own stage, after the outcome and the files — ONE
+    # request per feed; its results never change the outcome or the exit code
+    run.layer2(layer2 or config.reasoning.layer2_cli, dry_run=dry_run, build=build_provider)
     return code
 
 
@@ -2051,6 +2076,12 @@ def _parser() -> argparse.ArgumentParser:
         "standalone PySpark pipeline) and/or framework (Option B: DDL scripts + "
         "config rows + inserts for the existing ingestion framework)",
     )
+    common.add_argument(
+        "--layer2", choices=["now", "defer", "skip"], default=None,
+        help="the Layer-2 stage, run after the outcome and every file (post76; default "
+             "reasoning.layer2_cli = now): now = ONE model request per feed for its "
+             "unmapped rules; defer = keep them for `codegen layer2`; skip = ask nothing",
+    )
 
     generate = subparsers.add_parser(
         "generate", parents=[common], help="generate one contract pair"
@@ -2283,6 +2314,18 @@ def _parser() -> argparse.ArgumentParser:
                             help="override databricks.output_volume")
     db_publish.add_argument("--force", action="store_true",
                             help="overwrite files already in the volume")
+    layer2 = subparsers.add_parser(
+        "layer2", help="post76: ask the model about the feeds a `generate --layer2 defer` "
+                       "left pending (one request per feed; candidates.json, the report and "
+                       "CODEGEN_STAGES.json's layer2 block are updated)")
+    layer2.add_argument("--config", default="config/config.yaml")
+    layer2.add_argument("--output", default=None,
+                        help="the generate run's output root (default output.dir)")
+    layer2.add_argument("--reports", default=None,
+                        help="its reports folder, when the pending files cannot find it")
+    layer2.add_argument("--feed", default=None, help="only this feed_id")
+    layer2.add_argument("--dry-run", action="store_true",
+                        help="force the mock Layer-2 provider (no network)")
     doctor = subparsers.add_parser(
         "doctor", help="print which codegen runs (version, location, overlays, python, "
                        "sys.path) and whether it knows the config's sections")
@@ -2345,6 +2388,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "extract-sttm":
         return _extract_sttm(args, config)
+    if args.command == "layer2":
+        return _layer2_pending(args, config)
     if args.command == "extract-frd":
         return _extract_frd(args, config)
     if args.command == "extract-vdd":
@@ -2523,9 +2568,29 @@ def _main(argv: list[str] | None = None) -> int:
         template_path=(Path(args.answers_template)
                        if getattr(args, "answers_template", None) else None),
         command=args.command,
+        layer2=getattr(args, "layer2", None),
     )
     push_outputs()
     return code
+
+
+def _layer2_pending(args: argparse.Namespace, config: Config) -> int:
+    """``codegen layer2``: the deferred feeds asked now (post76)."""
+    from codegen.layer2_stage import run_pending
+
+    out_root = Path(args.output) if args.output else Path(config.output.dir)
+    block, results = run_pending(
+        out_root, config=config, dry_run=args.dry_run, only_feed=args.feed,
+        reports_dir=Path(args.reports) if args.reports else Path(config.output.reports_dir),
+        build=build_provider)
+    if not results:
+        print(answer_line("NOTE", "layer2", f"no deferred feed under {out_root}"
+                          + (f" for --feed {args.feed}" if args.feed else "")))
+        return EXIT_OK
+    asked = sum(r["rules"] for r in block["feeds"])
+    print(answer_line("NOTE", "layer2", f"{len(results)} feed(s) asked, {asked} rule(s); "
+                      "candidates.json and the reports updated"))
+    return EXIT_OK
 
 
 if __name__ == "__main__":

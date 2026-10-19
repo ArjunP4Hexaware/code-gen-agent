@@ -187,8 +187,9 @@ def test_the_cell_layout(tmp_path):
         "title", "config", "read", "read-provenance", *drift, "stage", "stage-provenance",
         *recycle, "standard", "standard-provenance", "dq"]
     tail = ids[ids.index("run"):]
+    # post76: the review cell is the TRAILING %md (the only cell --layer2 changes)
     assert tail in (["run", "run-report", "run-report-provenance"],
-                    ["run", "review-candidates", "run-report", "run-report-provenance"])
+                    ["run", "run-report", "run-report-provenance", "review-candidates"])
     assert "dq-provenance" in ids
     title = "".join(cells[0]["source"])
     assert ("Standalone equivalent of the framework's generic notebooks for this IIG; "
@@ -322,7 +323,9 @@ def test_the_app_and_the_cli_emit_byte_identical_notebooks(tmp_path, monkeypatch
     monkeypatch.chdir(fx.REPO)
     config = fx.acfc_config(tmp_path / "cli")
     frd, sttm = fx.sd_pair()
-    assert _run(config, [(frd, sttm)]) == cli.EXIT_OK
+    # post76: the same Layer-2 mode (the App defers it) — under another mode only
+    # the trailing review %md differs (tests/test_layer2_stage.py)
+    assert _run(config, [(frd, sttm)], layer2=config.reasoning.layer2_app) == cli.EXIT_OK
     runner = DemoRunner(GenerationStore(str(fx.REPO / "config" / "config.yaml")),
                         index_warmup=False)
     runner.iig_template, runner.conventions_profile = "iig_v2", "acfc_prx"

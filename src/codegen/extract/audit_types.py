@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from codegen.config import Config, ConventionsProfileConfig
 from codegen.contracts.sttm import AUDIT_DATATYPE_SPELLING
+from codegen.extract.type_format import split_type
 
 
 def _profile(config: Config | None) -> ConventionsProfileConfig:
@@ -31,8 +32,10 @@ def accepted(column: str, config: Config | None) -> list[str]:
 
 def audit_datatype(column: str, raw: str | None, config: Config | None) -> str | None:
     """The contract spelling of ``raw`` for ``column``, or None when the
-    profile does not accept it for that column."""
-    key = " ".join(str(raw or "").split()).lower()
+    profile does not accept it for that column. post74 (D1 post73 pair_06): a
+    parenthesised attribute (``timestamp(YYYY-MM-DD HH:MM:SS)``) is split off
+    first — the check reads the type keyword (codegen.extract.type_format)."""
+    key = split_type(raw).keyword.lower()
     if key not in accepted(column, config):
         return None
     return AUDIT_DATATYPE_SPELLING.get(key)

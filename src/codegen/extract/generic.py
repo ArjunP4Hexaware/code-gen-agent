@@ -45,6 +45,7 @@ from codegen.contracts.sttm import (
 from codegen.extract.audit_names import clean_audit_column
 from codegen.extract.audit_types import audit_datatype
 from codegen.extract.audit_types import expectation as audit_expectation
+from codegen.extract.type_format import split_type
 from codegen.layout.discover import Discovery, is_blank_placeholder, normalize, text
 from codegen.layout.profile import LayoutProfile, Role, SheetProfile
 from codegen.run_errors import Coord, located, sheet_number
@@ -1018,6 +1019,10 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         source_width, source_precision = _width_facts(row, field_name, sp, flags)
         answered = (width_answers or {}).get(frd.feeds.index(feed), {}).get(
             normalize_field_name(field_name))
+        # post74 (D1 post73 pair_06): "timestamp(YYYY-MM-DD HH:MM:SS)" = the
+        # keyword + a format kept on the column (codegen.extract.type_format)
+        stage_parts = split_type(stage_type)
+        standard_parts = split_type(_first(row, "standard.target_type")) if has_standard else None
         fields.append(SttmField(
             source_column=field_name,
             description=_first(row, "source.description", "rules.data_definition",
@@ -1028,9 +1033,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             phi=pii,
             mandatory=mandatory,
             stage_column=stage_column,
-            stage_datatype=stage_type,
+            stage_datatype=stage_parts.type_text,
             standard_column=_first(row, "standard.column") if has_standard else None,
-            standard_datatype=_first(row, "standard.target_type") if has_standard else None,
+            standard_datatype=(standard_parts.type_text or None) if standard_parts else None,
             value_spec=value_spec,
             source_length=_first(row, "source.length", "source.field_length"),
             source_start=_first(row, "source.start"),
@@ -1052,6 +1057,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                              if has_standard else None),
             standard_mandatory=standard_mandatory,
             standard_primary_key=standard_primary_key,
+            stage_datatype_format=stage_parts.format,
+            standard_datatype_format=standard_parts.format if standard_parts else None,
             provenance=FieldProvenance(
                 sheet=row.sheet, row=row.row, col=row.col,
                 source=ir.profile.role_source(row.sheet, "source", "field_name")),
@@ -1076,7 +1083,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         if column not in seen:
             seen.add(column)
             audit.append(AuditColumn(column=column, datatype=datatype,  # type: ignore[arg-type]
-                                     value_spec=entry.rule))
+                                     value_spec=entry.rule,
+                                     datatype_format=split_type(entry.datatype_raw).attribute))
     if not audit:
         # Chunk B (cold drill): the STTM lists no audit row. The framework's
         # audit set is never added silently: the feed waits for the person's

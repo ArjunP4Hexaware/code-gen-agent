@@ -93,6 +93,10 @@ class AuditColumn(BaseModel):
     # states it ("Default to 'CAQH'") — the DQ AddCustomColumnsRule literal.
     # None (the JSON leaves it out) when the row states none.
     value_spec: str | None = None
+    # post74 (D1 post73 pair_06): the type cell's parenthesised attribute,
+    # verbatim ("YYYY-MM-DD HH:MM:SS" of "timestamp(YYYY-MM-DD HH:MM:SS)");
+    # the datatype is the keyword. None when the cell has none.
+    datatype_format: str | None = None
 
 
 # ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------
@@ -278,6 +282,12 @@ class SttmField(BaseModel):
     # Stage band's, else None = the same.
     standard_mandatory: bool | None = None
     standard_primary_key: bool | None = None
+    # post74 (D1 post73 pair_06): a type cell's parenthesised FORMAT
+    # ("timestamp(YYYY-MM-DD HH:MM:SS)" -> datatype "timestamp", format
+    # "YYYY-MM-DD HH:MM:SS"; codegen.extract.type_format). A size (decimal(18,2),
+    # varchar(50)) stays in the datatype. None = the cell states no format.
+    stage_datatype_format: str | None = None
+    standard_datatype_format: str | None = None
 
     @property
     def byte_width(self) -> int | None:

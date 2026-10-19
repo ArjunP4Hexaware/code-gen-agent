@@ -1994,15 +1994,25 @@ def _role_pipeline_name(feed: FrdFeed, faq, tpl: MetadataTemplateConfig,
     return match.name.format(feed=token)
 
 
+def _type_formats(f: SttmField) -> tuple[str, str] | None:
+    """post74 (D1 post73 pair_06): (source, target) date formats the STTM's
+    type cells state — the stage band's and the standard band's parenthesised
+    formats ("timestamp(YYYY-MM-DD HH:MM:SS)"); None unless both are stated."""
+    if f.stage_datatype_format and f.standard_datatype_format:
+        return f.stage_datatype_format, f.standard_datatype_format
+    return None
+
+
 def _date_rule(tpl: MetadataTemplateConfig, fields: list[SttmField]):
     regex = re.compile(tpl.date_format_rule_regex, re.IGNORECASE)
     columns, params = [], []
     for f in fields:
         match = regex.match(f.value_spec or "")
-        if match is None:
+        formats = match.groups() if match is not None else _type_formats(f)
+        if formats is None:
             continue
         columns.append(f.stage_column)
-        param = tpl.date_format_param_joiner.join(match.groups())
+        param = tpl.date_format_param_joiner.join(formats)
         if param not in params:
             params.append(param)
     return columns, params
@@ -2285,11 +2295,23 @@ def _std_dq_rules(kind: str, tpl: MetadataTemplateConfig, group: _TableGroup) ->
             if _base_type(f.standard_datatype).lower() != "date":
                 continue
             match = regex.match(f.value_spec or "")
-            param = (_cell(tpl.date_format_param_joiner.join(match.groups()), "from_sttm",
-                           "STTM Load Rule text, formats in the template's shape")
-                     if match is not None else
-                     _cell("", "needs_template", "the STTM states no source / target date "
-                                                 f"format for {f.standard_column} — open"))
+            formats = _type_formats(f)
+            stated = f.stage_datatype_format or f.standard_datatype_format
+            if match is not None:
+                param = _cell(tpl.date_format_param_joiner.join(match.groups()), "from_sttm",
+                              "STTM Load Rule text, formats in the template's shape")
+            elif formats is not None:
+                # post74: the formats the stage / standard type cells state
+                param = _cell(tpl.date_format_param_joiner.join(formats), "from_sttm",
+                              "the STTM type cells' formats (stage band, standard band)")
+            elif stated:
+                band = "stage" if f.stage_datatype_format else "standard"
+                param = _cell("", "needs_template",
+                              f"the STTM {band} type cell states the format {stated!r}; the "
+                              f"other band states none for {f.standard_column} — open")
+            else:
+                param = _cell("", "needs_template", "the STTM states no source / target date "
+                                                    f"format for {f.standard_column} — open")
             rows.append(_columns_rule(tpl, kind, [f.standard_column],
                                       "a Date-typed standard column (STTM Standard band)",
                                       INPUT_PARAM=param))

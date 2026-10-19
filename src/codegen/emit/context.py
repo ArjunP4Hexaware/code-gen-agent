@@ -171,8 +171,12 @@ def example_file_name(name_pattern: str, variant: int = 0) -> str:
 
 
 def sql_type(contract_datatype: str) -> str:
-    """Contract datatype string -> Delta SQL type, loud on unknowns."""
-    normalized = contract_datatype.strip()
+    """Contract datatype string -> Delta SQL type, loud on unknowns. A
+    parenthesised format (post74) is not part of the type: its keyword maps."""
+    from codegen.extract.type_format import split_type
+
+    parts = split_type(contract_datatype)
+    normalized = parts.keyword if parts.kind == "format" else contract_datatype.strip()
     decimal = _DECIMAL_RE.match(normalized)
     if decimal:
         return f"DECIMAL({decimal.group(1)},{decimal.group(2)})"

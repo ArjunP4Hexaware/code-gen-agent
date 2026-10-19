@@ -118,8 +118,9 @@ extractor:
   audit_source_markers: ["na"]
   # M9.2 (docs/acfc/HANDOVER_GENIE.md §4 error 3): target-column cell texts
   # (normalized) by which an STTM marks a source field as NOT mapped. The
-  # field is left out of stage and standard and flagged
-  # field_unmapped:<field>, citing the cell — never a note only.
+  # field is left out of stage and standard and counted in the feed's
+  # skipped_rows flag, citing the cell — never a note only (post74: read
+  # with the conventions profile's skip_row_markers).
   unmapped_markers: ["do not map", "dnm", "not mapped", "n/a", "na", "none"]
   # A delimiter stated as a word -> the character every artefact writes
   # (first real-row scorecard, 2026-10-08: never the word in an IIG cell).

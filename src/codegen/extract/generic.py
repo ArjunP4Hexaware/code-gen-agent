@@ -505,7 +505,54 @@ def _open_required_roles(sheet: SheetData, ir: GenericIR, stop: str) -> list[Pen
 
 
 def _unmapped_markers(config: Config) -> set[str]:
-    return {normalize(m) for m in config.extractor.unmapped_markers}
+    """The skip markers: the conventions profile's ``skip_row_markers`` plus
+    the older ``extractor.unmapped_markers``, normalized."""
+    profile = config.conventions.get(None)
+    return {normalize(m) for m in [*profile.skip_row_markers,
+                                   *config.extractor.unmapped_markers]}
+
+
+# post74 (D1 post73 pair_05): the target cells a skip marker may sit in.
+_TARGET_CELLS = ("stage.column", "stage.target_type", "standard.column",
+                 "standard.target_type")
+
+
+def _skip_marker(row: FieldRow, markers: set[str]) -> tuple[str, str] | None:
+    """(role key, cell text) of the skip marker that leaves ``row`` unmapped,
+    else None. The stage column cell reading a marker, or — that cell blank —
+    any other target column / data type cell reading one. A real stage column
+    keeps the row (a marker in the standard band alone = stage only)."""
+    stage_column = row.values.get("stage.column")
+    if stage_column is not None and normalize(stage_column) not in markers:
+        return None
+    for key in _TARGET_CELLS:
+        value = row.values.get(key)
+        if value is not None and normalize(value) in markers:
+            return key, value
+    return None
+
+
+def _cell_ref(sp: SheetProfile, row: int, key: str) -> str:
+    """``<sheet>!<col><row>`` of a band role, else ``<sheet> row <row>``."""
+    layer, _dot, role = key.partition(".")
+    band = sp.band(layer)  # type: ignore[arg-type]
+    col = band.column(role) if band is not None else None
+    return f"{sp.name}!{get_column_letter(col)}{row}" if col else f"{sp.name} row {row}"
+
+
+def _skipped_rows_flag(prefix: str, marked: list[str], unnamed: list[str]) -> str:
+    """ONE flag per feed: how many rows were left out before the required-
+    element checks, and why — cells cited, nothing else read from them."""
+    parts = []
+    if marked:
+        parts.append(f"{len(marked)} read a skip marker (conventions profile skip_row_markers): "
+                     + ", ".join(marked))
+    if unnamed:
+        parts.append(f"{len(unnamed)} name no target column (not a mapping row): "
+                     + ", ".join(unnamed))
+    total = len(marked) + len(unnamed)
+    return (f"skipped_rows:{prefix.rstrip('.')} — {total} row(s) left out of both layers "
+            f"before the required-element checks: {'; '.join(parts)}")
 
 
 def _canonical_file_name(name: str) -> str:
@@ -808,8 +855,13 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             f"answers: (`{name}/band[<n>]/layer`: stage, the target bands numbered left to "
             "right) - an answer outranks every other evidence"),
             _at(ir, name, sp.band_row), "sttm.band")
+    # post74 (D1 post73 pair_05): rows a skip marker leaves unmapped are out
+    # before any required-element check.
+    markers = _unmapped_markers(config)
+    skip = {r.row: hit for r in sheet.fields if (hit := _skip_marker(r, markers)) is not None}
+    mapping_rows = [r for r in sheet.fields if r.row not in skip]
     missing = [role for role in ("column", "target_type")
-               if all(r.values.get(f"stage.{role}") is None for r in sheet.fields)]
+               if all(r.values.get(f"stage.{role}") is None for r in mapping_rows)]
     if missing:
         raise located(GenericExtractionError(
             f"sheet {name!r}: the stage band has no values for {missing} (roles unresolved or "
@@ -896,23 +948,23 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 _at(ir, name, first_row, sp.segment_column), "sttm.record_type")
 
     fields: list[SttmField] = []
-    markers = _unmapped_markers(config)
     stage_band = sp.band("stage")
     stage_column_col = stage_band.column("column") if stage_band is not None else None
+    marked: list[str] = []
     for row in sheet.fields:
         field_name = _first(row, "source.field_name")
         assert field_name is not None
         stage_column = _first(row, "stage.column")
         stage_type = _first(row, "stage.target_type")
-        if stage_column is not None and normalize(stage_column) in markers:
+        if row.row in skip:
             # The STTM says this source field is not mapped: left out of both
-            # layers, flagged with the cell that says so (never a note only).
-            cell = f"{name}!{get_column_letter(stage_column_col or 1)}{row.row}"
-            label = " ".join(field_name.split())
-            flags.append(f"field_unmapped:{label} — STTM {cell} reads {stage_column!r}; the "
-                         "field is in neither the stage nor the standard table")
-            notes.append(f"sheet {name!r} row {row.row}: field {label!r} skipped — stage column "
-                         f"cell {cell} reads {stage_column!r}")
+            # layers, counted in the feed's skipped_rows flag with the cell
+            # that says so (never a note only).
+            key, value = skip[row.row]
+            cell = _cell_ref(sp, row.row, key)
+            marked.append(f"{cell} {value!r}")
+            notes.append(f"sheet {name!r} row {row.row}: field "
+                         f"{' '.join(field_name.split())!r} skipped — {cell} reads {value!r}")
             continue
         if stage_column is None and stage_type is None and not any(
                 v for k, v in row.values.items() if k.startswith(("stage.", "standard."))):
@@ -1004,6 +1056,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 sheet=row.sheet, row=row.row, col=row.col,
                 source=ir.profile.role_source(row.sheet, "source", "field_name")),
         ))
+    if marked:
+        flags.append(_skipped_rows_flag(prefix, marked, []))
 
     audit: list[AuditColumn] = []
     seen: set[str] = set()

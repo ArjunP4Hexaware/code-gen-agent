@@ -1629,7 +1629,9 @@ def _width_questions(profile: LayoutProfile, workbook, vdd_path, vdd_doc, frd_co
                 generated_date="1970-01-01")[0].fields)
         except Exception:  # noqa: BLE001 — no VDD facts: the question is asked instead
             vdd_fields = []
-    markers = {normalize(m) for m in config.extractor.unmapped_markers}
+    from codegen.extract.generic import _skip_marker, _unmapped_markers
+
+    markers = _unmapped_markers(config)
     feeds = len(frd_contract.feeds) if frd_contract is not None else 1
     questions: list[LayoutQuestion] = []
     for sheet_index, sheet in enumerate(ir.sheets):
@@ -1640,7 +1642,7 @@ def _width_questions(profile: LayoutProfile, workbook, vdd_path, vdd_doc, frd_co
             name = row.values.get("source.field_name") or ""
             length = row.values.get("source.length") or row.values.get("source.field_length")
             start, end = row.values.get("source.start"), row.values.get("source.end")
-            if normalize(row.values.get("stage.column")) in markers:
+            if _skip_marker(row, markers) is not None:
                 continue                      # "Do Not Map": in no table, needs no width
             if as_integer(start) is None or sttm_width(length, start, end)[0] is not None:
                 continue

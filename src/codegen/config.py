@@ -504,8 +504,8 @@ class ExtractorConfig(BaseModel):
     audit_source_markers: list[str] = Field(min_length=1)
     # M9.2: target-column cell texts (normalized) by which an STTM says a
     # source field is NOT mapped ("Do Not Map"). Such a field is left out of
-    # both layers and flagged field_unmapped:<field>, citing the cell. Empty =
-    # no marker is recognised (the row then fails loudly for its missing type).
+    # both layers and counted in the feed's skipped_rows flag, citing the cell
+    # (post74: read together with the conventions profile's skip_row_markers).
     unmapped_markers: list[str] = Field(default_factory=list)
     # A delimiter stated as a word ("Pipe", "comma delimited") -> the
     # character every artefact writes (first real-row scorecard, 2026-10-08).
@@ -1188,6 +1188,13 @@ class ConventionsProfileConfig(BaseModel):
     audit_flag_datatypes: list[str] = Field(
         default_factory=lambda: ["tinyint", "int", "smallint", "boolean"])
     audit_flag_suffixes: list[str] = Field(default_factory=lambda: ["_flag", "_ind"])
+    # post74 (D1 post73 pair_05): a mapping row whose target column (the stage
+    # band's column, or — that cell blank — any target-band column / data type
+    # cell) reads one of these (normalized) is not mapped: excluded before the
+    # required-element checks, one skipped_rows flag per feed with the count.
+    # extractor.unmapped_markers is read too (the older list).
+    skip_row_markers: list[str] = Field(default_factory=lambda: [
+        "do not map", "not mapped", "n/a"])
     # post57 (D1 post55 pair_01, derivations [path_whitespace 19]): whitespace in
     # a folder path the documents state. keep = the path is written byte for byte
     # and each cell gets ONE flag naming its coordinates and the kind of

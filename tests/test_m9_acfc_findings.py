@@ -331,8 +331,9 @@ def test_real_shape_fixture_extracts_schema_segments_unmapped_flag_and_field_cou
     assert not any("Reserved" in f.source_column or f.stage_column == "Do Not Map"
                    for f in feed.fields)
     (flag,) = feed.extraction_flags
-    assert flag == ("field_unmapped:Reserved Group (01) — STTM FEED_1_MAPPING!V38 reads "
-                    "'Do Not Map'; the field is in neither the stage nor the standard table")
+    assert flag == ("skipped_rows:feeds[0] — 1 row(s) left out of both layers before the "
+                    "required-element checks: 1 read a skip marker (conventions profile "
+                    "skip_row_markers): FEED_1_MAPPING!V38 'Do Not Map'")
     # Provenance of the band constants: the cell each was read from.
     notes = "\n".join(contract.notes)
     assert "stage table 'vnd_p_accum_client' — FEED_1_MAPPING!U17 (first non-empty cell" in notes
@@ -429,9 +430,11 @@ def test_band_constant_reads_a_merged_anchor_and_keeps_the_dominant_of_many(conf
 def test_unmapped_markers_are_config(config, tmp_path):
     assert config.extractor.unmapped_markers == ["do not map", "dnm", "not mapped", "n/a", "na",
                                                  "none"]
-    no_markers = config.model_copy(update={"extractor": config.extractor.model_copy(
-        update={"unmapped_markers": []})})
-    # Without the knob the row is what it always was: a loud failure.
+    assert config.conventions.get(None).skip_row_markers == ["do not map", "not mapped", "n/a"]
+    from post73_pairs import without_markers
+
+    no_markers = without_markers(config)
+    # Without either list the row is what it always was: a loud failure.
     with pytest.raises(ExtractionError, match="has no stage column/data type"):
         extract_contract(PAIR_1, _frd_json(tmp_path, config), no_markers, generated_date=DATE)
 

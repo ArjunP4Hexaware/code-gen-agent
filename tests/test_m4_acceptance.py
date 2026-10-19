@@ -94,7 +94,7 @@ PAIR1_PROVENANCE_KINDS = [
     "file_pattern_from_object_name",         # Object Name lists "<label>: <file>" lines
     "frd_feed_name_unstated",                # … so it names no feed
     "frd_unstated:feeds[0].feed_name",       # the layout stage named it: the STTM stage band
-    "field_unmapped",                        # the "Do Not Map" row
+    "skipped_rows",                          # the "Do Not Map" row (post74: one count flag)
     "frd_unstated:stage_target.schema",      # FRD states no schema -> STTM band
     "frd_unstated:standard_target.schema",
     "frd_unstated:stage_target.catalog",     # … and no catalog -> STTM band
@@ -124,8 +124,10 @@ def test_pair1_resolver_provenance_flags_are_pinned_and_cite_their_cells(pair1_s
     assert "('Object Name') cell is a labelled_files value" in by_kind["frd_feed_name_unstated"]
     assert "source_used:STTM stage band 'FEED_1_MAPPING': 'vnd_p_accum_client'" in by_kind[
         "frd_unstated:feeds[0].feed_name"]
-    assert by_kind["field_unmapped"].startswith(
-        "field_unmapped:Reserved Group (01) — STTM FEED_1_MAPPING!V38 reads 'Do Not Map'")
+    assert by_kind["skipped_rows"] == (
+        "skipped_rows:feeds[0] — 1 row(s) left out of both layers before the required-element "
+        "checks: 1 read a skip marker (conventions profile skip_row_markers): "
+        "FEED_1_MAPPING!V38 'Do Not Map'")
     assert by_kind["frd_unstated:stage_target.schema"].endswith(
         "STTM FEED_1_MAPPING stage band (schema column): 'stg_vnd_p_accum'")
     assert by_kind["frd_unstated:standard_target.catalog"].endswith(

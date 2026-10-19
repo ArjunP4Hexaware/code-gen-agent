@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post72 — 2026-10-19 (CODEGEN_STATE_DIR on a UC volume)
+
+1. **`codegen.state_mirror`.** A Databricks App has no `/Volumes` mount, so a
+   `CODEGEN_STATE_DIR=/Volumes/<catalog>/<schema>/<volume>[/…]` that is not a local
+   folder is copied read-only through the Files API (`VolumeBackend` list + download,
+   never a write) into `<tmp>/codegen-state-volume/current` (`CODEGEN_STATE_MIRROR_DIR`
+   moves it); `config.state_root()` answers the copy for that value
+   (`register_state_mirror`). Each copy is its own `gen-<sha>` folder swapped in by one
+   atomic symlink rename. The App copies at import (before the config loads, so the
+   volume's `overlays/<profile>.yaml` applies) and again before `POST /api/generate` /
+   `POST /api/demo/run-live` (`main._refresh_state`; a changed copy reloads the
+   config). A failed refresh keeps the previous copy; with none the root stays the
+   volume path (`[MISSING]`). Job compute that mounts `/Volumes` reads the folder as is.
+2. **State line + picker.** `state_dirs_line()` reads `codegen-state root: /Volumes/…
+   (CODEGEN_STATE_DIR; volume) -> local copy … (N files, copied …)`; `display_path`
+   shows a file in the copy as its volume path (picker source `profile
+   /Volumes/…/environments/d1.yaml`).
+3. **`app.yaml`** sets `CODEGEN_STATE_DIR=/Volumes/d1_dlk/codegen/state`; the grants
+   are in `docs/ACFC_APP_ENV.md` §1. Test: `test_state_volume_mirror.py` (the fake
+   Files API in `tests/storage_fakes.py`).
+
 ## 0.5.8.post71 — 2026-10-18 (SCHEMA_DRIFT_FLAG default back to N)
 
 1. The ACFC overlay's SCHEMA_DRIFT_FLAG default is N again. The SD PROD rows, the

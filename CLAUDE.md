@@ -5,7 +5,19 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-18, after post71).** post71 = SCHEMA_DRIFT_FLAG default back to
+**RESTART HERE (2026-10-19, after post72).** post72 = `CODEGEN_STATE_DIR` on the UC
+volume `d1_dlk.codegen.state` (`app.yaml`). An App has no `/Volumes` mount:
+`codegen.state_mirror` copies it read-only via the Files API at import and before each
+generate request (`main._refresh_state`, config reloaded on change);
+`config.state_root()` answers the copy; the state line names volume + copy. Volume
+holds `environments/d1.yaml` (from the D1 Git folder's codegen-state) and
+`overlays/acfc_prx.yaml` (authored from the pair_2 / pair_12 goldens; no
+`naming.pipeline_name`: no derivation table). Harness: `codegen-pull-and-run` /
+`codegen-watch` take a `state_dir` job parameter (the runner notebook sets
+`CODEGEN_STATE_DIR` and clears the per-folder variables). USE CATALOG on `d1_dlk` for
+the App SP is Raj's grant. Test: `test_state_volume_mirror.py`.
+
+**After post71 (kept for reference).** post71 = SCHEMA_DRIFT_FLAG default back to
 N in acfc_env.yaml (prod rows, SFMC reference, pair-1 golden; the Y was the test-cells
 sheet only); `feed_overrides.<feed>.schema_drift_flag` sets a feed Y. Decided: no live
 SD run at home — D1 via Genie is the verification.

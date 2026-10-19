@@ -5,7 +5,28 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-18, after post69).** post69 = notebook v2 for acfc_prx
+**RESTART HERE (2026-10-18, after post70).** post70 = three items:
+- `scripts/scrub_check.py` class `client_storage_account`: profile accounts and
+  `STORAGE_ACCOUNT = <pattern token>`; SYN-shaped / placeholders exempt.
+- TGT_PRIMARY_KEY via `codegen.primary_key` (template knob `primary_key_input`, on in
+  acfc_env.yaml):
+  - the STTM contract's `load_rules.natural_key` (Primary Key cells) is apart from
+    `not_null_columns`; `FrdFeed.key_statement`; `spec.frd_key_statement`;
+  - a proposal only from an explicit signal (STTM PK cells, FRD statement, FAQ
+    `natural_key_columns`, corpus row), shown on `INPUT_NEEDED
+    feeds.<feed>.primary_key` and written only when chosen (`key_from_contract`);
+  - a merge with no signal = blocking `QUESTION feeds.<feed>.primary_key` (cli
+    `_key_question`), candidates = the not-null columns;
+  - v1 / iig_v1 still use the not-null list (OPEN_QUESTIONS §5).
+- Notebook v2's IIG-driven cells: drift (`SCHEMA_DRIFT_FLAG`), recycle (`RECYCL_*`), the
+  final run-report cell, and an open merge key in `OPEN_CELLS`. SCHEMA_DRIFT_FLAG
+  defaults to Y in acfc_env.yaml; `feed_overrides.<feed>.schema_drift_flag` sets a feed
+  N (OPEN_QUESTIONS §6). Parity tool: "IIG-driven"
+  vs "only v1". Tests: `test_storage_account_scrub.py`, `test_primary_key_proposal.py`,
+  `test_notebook_v2_iig_cells.py`. The SFMC-shaped v2 fixtures pass a typed key
+  (`notebook_v2_fixtures.key_answers`).
+
+**After post69 (kept for reference).** post69 = notebook v2 for acfc_prx
 (`conventions.profiles.acfc_prx.notebook_version: v2`; every other profile keeps v1).
 `codegen.emit.notebook_v2` renders from `FrameworkArtefacts.payload` (the IIG rows; a
 notebook-only run emits the framework into a scratch dir and counts its checks /

@@ -4,6 +4,60 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post70 — 2026-10-18 (scrub: split storage account; TGT_PRIMARY_KEY from a key signal only; v2's IIG-driven cells)
+
+1. **Scrub (`scripts/scrub_check.py`):** a storage account written apart from its host
+   (a notebook's `STORAGE_ACCOUNT = "<account>"`; `adls_uri()` joins them at run time)
+   is now a hit, class `client_storage_account`. Two sources: every `storage_account`
+   of a loaded environment profile (the config's `environments:` blocks, the profiles
+   directory, the tracked examples), and any `storage_account_pattern` token assigned
+   to `STORAGE_ACCOUNT`. SYN-shaped accounts (`syn…`) and `<<…>>` placeholders never
+   hit, so the tracked tree stays at 68 hits / 18 rows. A notebook generated inside
+   ACFC still carries the real account (it must, to run); the harness's scrub now
+   catches it before anything leaves.
+2. **TGT_PRIMARY_KEY (iig_v2, `primary_key_input: true` in acfc_env.yaml;
+   `codegen.primary_key`):**
+   - **The contract now has two lists.** `load_rules.not_null_columns` is the
+     required columns; `load_rules.natural_key` comes only from Primary Key / Key
+     cells. They used to be one list. The FRD's Primary Key / Natural Key /
+     Business Key row is read as `FrdFeed.key_statement`.
+   - **Where a proposal can come from.** Only an explicit signal: the STTM's
+     Primary Key cells, the FRD's key statement, the FAQ's `natural_key_columns`,
+     or a corpus row for the same target table. The not-null list never proposes
+     a key.
+   - **A proposal is shown, not applied.** It appears on `INPUT_NEEDED
+     feeds.<feed>.primary_key` and in the cell's NOTE. It is written only on an
+     explicit choice (`choice: use_default`, a typed column list, or Confirm in
+     the App), and then flagged `key_from_contract`.
+   - **No signal on a merge load (Upsert / Merge):** ONE blocking `QUESTION
+     feeds.<feed>.primary_key`, exit 3, with the not-null columns listed as
+     candidates, none selected. Without a merge, the cell stays blank.
+   - **SFMC shape** (standard Upsert, no key cell) now asks this question.
+   - **Unchanged:** the v1 notebook and iig_v1 keep their not-null-list keys, now
+     named as such in the code (docs/acfc/OPEN_QUESTIONS.md §5).
+3. **Notebook v2: the cells v1 had, only where an IIG cell states them.**
+   - `SCHEMA_DRIFT_FLAG = Y`: a drift cell before the stage. A missing column stops
+     the run before any write; extra columns are counted.
+   - `RECYCL_ENBL_FLG = Y`: a recycle cell. Rejects are kept in RECYCL_TBL_NM at
+     RECYCL_ADLS_PATH and retried with the next run's records until
+     RECYCL_RETN_DAYS days have passed. An open cell, or a retention that is not a
+     whole number of days, stops the run at the config cell.
+   - Always, a final run-report cell: row counts per step and the DQ rule counts,
+     appended to `<stage catalog>.<TGT_DATABASE_NAME>.<feed>_run_report`
+     (`_dryrun` under dry_run).
+   - A merge row whose TGT_PRIMARY_KEY is open or NA stops the run at the config
+     cell (`notebook_iig_cell_open`); nothing is appended silently.
+   - PHI masking has no IIG cell, so v2 has none (OPEN_QUESTIONS.md §4, for Aruna).
+   - `tools/notebook_parity.py` reports these stages as "IIG-driven" (the cell,
+     its value, whether v2 has the cell) and keeps "only v1" for stages no IIG cell
+     states. A differing file-name pattern is reported as expected (v2 writes the
+     IIG's SRC_FILE_NAME).
+4. **SCHEMA_DRIFT_FLAG defaults to Y** in the ACFC overlay (`family_conventions`),
+   to match the SD golden. It was N from round 6. A feed whose golden says N sets
+   the new `feed_overrides.<feed_id>.schema_drift_flag: N` (docs/acfc/OVERLAY_FIELDS.md).
+   The sources disagree; the question for Aruna is docs/acfc/OPEN_QUESTIONS.md §6.
+   The SD parity run now generates the drift cell on all three feeds.
+
 ## 0.5.8.post69 — 2026-10-18 (notebook v2 for acfc_prx; v1 unchanged elsewhere)
 
 1. **Selection:** `conventions.profiles.<p>.notebook_version` — `v1` (the default,

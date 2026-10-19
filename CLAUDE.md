@@ -1,11 +1,24 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-19, `feature/multi-table`, post74)
+## NEWEST — IIG validation (state as of 2026-10-19, `feature/multi-table`, post76)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-19, after post75).** post75 = the leak gate in the repo:
+**RESTART HERE (2026-10-19, after post76).** post76 = Layer 2 as its own stage after the
+outcome (`codegen.layer2_stage`, `GenerateRun.layer2` after `finish`): ONE request per feed
+(`complete_batch` / `providers.ask.ask_batch`), `--layer2 now | defer | skip`
+(`reasoning.layer2_cli` now, `reasoning.layer2_app` defer; deferred = `<feed>/candidates/
+layer2_pending.json`, asked by `codegen layer2 --output DIR` or `POST /api/demo/layer2`).
+Candidates never affect the verdict (`compute_verdict` takes none; Layer 2's findings are
+informational flags `unimplemented_rule_has_candidate` / `layer2_*`); notebook v2's review
+%md is the TRAILING cell, re-emitted by the stage (`notebook_v2.with_review`); manifest
+`layer2` block + feeds[].`review_candidates` (pending | done | skipped | none). Tests that
+pass `generate_feed_result` directly get `layer2="now"` (the stage runs inside); the CLI /
+App pass `"later"`. Test: `test_layer2_stage.py`. Pre-existing here (also at post75):
+`test_m93_chooser.py` 2 failures on this Windows host.
+
+**After post75 (kept for reference).** post75 = the leak gate in the repo:
 `codegen.leakgate` (harvest + static denylist BY PATH from `<state root>/leakgate/` on the
 volume + the repo-token dictionary fallback + self-match + hash-only records + the
 approved / held lane). Callers: `tools/iig_diff.py --export-scrubbed --gate-pairs DIR`,

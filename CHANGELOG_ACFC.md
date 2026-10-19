@@ -4,6 +4,70 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post76 — 2026-10-19 (Layer 2: one request per feed, its own stage after emit)
+
+D1 post73 pair_11 (556 s over five feeds): Layer 2 asked one request per unmapped rule
+per feed, inside each feed's generate, before the feed's files were written.
+
+1. **One request per feed.** `reasoning.engine.reason_over_packs` hands a provider with
+   `complete_batch` every unmapped rule of the feed in ONE request (`schema.BatchPack`:
+   the rules numbered, the shared contract excerpts / columns once). The response is
+   `{"candidates": [{rule, classification, code_candidate, rationale, citations}]}`
+   (`providers.ask.ask_batch`, the same tolerant parser and retry loop). A response that
+   leaves rules out is retried naming them; on the last attempt the answered rules are
+   kept and the rest are recorded as failed. Grounding stays per rule, against that
+   rule's own pack. Both live providers (anthropic, databricks_fmapi) and the mock
+   implement it; a provider without it is still asked rule by rule.
+2. **Layer 2 is its own stage, after emit** (`codegen.layer2_stage`). `generate` writes
+   every feed's files, its gate verdict, its report and `CODEGEN_STAGES.json` (the
+   outcome) with no model call. Only then does the stage run (`GenerateRun.layer2`,
+   after `finish`). Its results never change the outcome or the exit code.
+   `--layer2 now | defer | skip` on `generate` / `generate-all` (default
+   `reasoning.layer2_cli: now`); the App's default is `reasoning.layer2_app: defer`.
+   - `now`: one request per feed with rules. The candidates go into `candidates.json`,
+     the report's candidates section, its Model usage line, and the notebook's trailing
+     review cell.
+   - `defer`: nothing is asked. `<feed>/candidates/layer2_pending.json` keeps the feed's
+     rule packs (contract text only). The report and the App say "review candidates:
+     pending". `codegen layer2 --output DIR [--feed ID] [--reports DIR]`, or the App's
+     "Ask the model" button (`POST /api/demo/layer2`, confirm-gated), asks later with
+     the same one request per feed.
+   - `skip`: nothing is asked and nothing is kept; the rules stay unmapped for review.
+   - `MODEL USAGE layer2:` and the `CODEGEN-USAGE` marker are printed once per feed, by
+     the stage. Their providers now include `deferred` and `skipped` (0 calls).
+   - Only a written feed is asked: a GATE_FAIL or CRASHED feed's Layer 2 is not. Generate
+     clears a feed's previous `candidates.json` and `layer2_pending.json` first, so a
+     rerun never shows the last run's candidates.
+3. **Candidates never affect the verdict.** `compute_verdict` no longer takes
+   candidates. An unmapped rule is the gate flag "Layer-2 candidate pending engineer
+   approval" in every mode, read from the rule outcomes. The deterministic CONFIRM items
+   (segmented extraction) reach the gate as flags (`verdict.review_item_flags`). What
+   Layer 2 used to add to the gate ("provider failed", "NOT grounded", "pending
+   approval" per candidate) is now an INFORMATIONAL flag of the Layer-2 stage, never
+   pass/fail: `unimplemented_rule_has_candidate`, `layer2_candidate_not_grounded`,
+   `layer2_provider_failed`. These appear in the report's candidates section and as
+   counts per kind in the manifest's `layer2` rows. A feed's GateResult is
+   byte-identical under `now`, `defer` and `skip`.
+4. **Notebook (v2).** The executable cells are identical in all three modes; only the
+   trailing `%md` review cell differs. That cell is now the last cell (it used to sit
+   before the run report). Generate writes the notebook without it, and the Layer-2
+   stage re-emits the notebook with it (`notebook_v2.with_review`: the other cells are
+   unchanged byte for byte).
+   - Under `now` this happens before the command returns, so the finished notebook
+     carries the review cell as before.
+   - Under `defer` it happens when `codegen layer2` or the App's button completes.
+   - Under `skip` the notebook has no review cell.
+   - A notebook a blocking line withheld, or a GATE_FAIL moved, is not touched.
+5. **Manifest.** `CODEGEN_STAGES.json` gains `layer2: {mode, review_candidates, feeds:
+   [{n, of, review_candidates, rules, calls, failed, seconds, flags}]}`, and each feed
+   entry gains `review_candidates`. The values are `pending | done | skipped`, and `none`
+   when the feed has no unmapped rule. The App and the CLI write byte-identical manifests
+   under the same mode.
+6. Tests: `tests/test_layer2_stage.py` (5 feeds × 7 rules → 5 calls, and the outcome
+   and every IIG written before the first call; the verdict is byte-identical across
+   modes; defer, then `codegen layer2`; skip; the batch retry; the App defers, then its
+   button asks; the notebook's executable cells are identical across modes).
+
 ## 0.5.8.post75 — 2026-10-19 (the leak gate in the repo: codegen.leakgate)
 
 1. **`src/codegen/leakgate.py`** — the one leak gate, ported from the D1 harness's

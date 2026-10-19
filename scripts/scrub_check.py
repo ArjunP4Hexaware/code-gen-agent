@@ -17,6 +17,15 @@ Two layers:
    gitignored file, one term per line (``#`` comments / blank lines skipped):
    :func:`load_local_denylist`, merged by :func:`active_denylist`.
 
+4. Storage accounts (post70) — a notebook carries the account apart from its
+   host (``STORAGE_ACCOUNT = "<account>"``; ``adls_uri()`` joins them at run
+   time), so ``real_adls_host`` alone never sees it. Class
+   ``client_storage_account``: every ``storage_account`` value of a loaded
+   environment profile (:func:`environment_accounts`), and any token matching a
+   conventions profile's ``storage_account_pattern`` assigned to
+   ``STORAGE_ACCOUNT``. A SYN-shaped account (``syn…``) and a ``<<…>>``
+   placeholder are never a hit.
+
 Usage:
     python scripts/scrub_check.py [path ...]     # default: fixtures/reference out
     python scripts/scrub_check.py --rebaseline [root ...]   # default: config docs/acfc
@@ -180,6 +189,92 @@ def load_local_denylist(path: str | Path | None = None) -> dict[str, str]:
             if line.strip() and not line.lstrip().startswith("#")}
 
 
+ACCOUNT_CLASS = "client_storage_account"
+# a STORAGE_ACCOUNT assignment: Python / YAML / JSON, and the escaped quote of an
+# .ipynb source line (STORAGE_ACCOUNT = \"acct\")
+STORAGE_ACCOUNT_ASSIGNMENT = re.compile(
+    r"\bSTORAGE_ACCOUNT\b[\"']?\s*[:=]\s*\\?[\"']?([A-Za-z0-9.-]+)")
+
+
+def synthetic_account(value: str) -> bool:
+    """A SYN-shaped account (an account name is lowercase letters and digits, so
+    ``syn…`` is the only synthetic marker it can carry) or a placeholder."""
+    value = value.strip()
+    return not value or value.lower().startswith("syn") or "<<" in value
+
+
+def _yaml(path: Path) -> dict:
+    import yaml
+
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _config_files(repo: Path = REPO) -> list[Path]:
+    """The config files environments are loaded from: the tracked config, the
+    always-applied acfc_env.yaml and ``CODEGEN_CONFIG_OVERLAYS``."""
+    files = [repo / "config" / "config.yaml", repo / "config" / "overlays" / "acfc_env.yaml"]
+    files += [Path(p) for p in os.environ.get("CODEGEN_CONFIG_OVERLAYS", "").split(os.pathsep)
+              if p.strip()]
+    return [f for f in files if f.is_file()]
+
+
+def environment_accounts(repo: Path = REPO) -> dict[str, str]:
+    """account -> ``client_storage_account``: every ``storage_account`` an
+    environment profile states — the config's ``environments:`` blocks, the
+    per-workspace profile files (``codegen.environments.profiles_dir()``) and the
+    tracked examples (``config/environments/``) — less the synthetic ones."""
+    sys.path.insert(0, str(repo / "src"))
+    from codegen.environments import profiles_dir
+
+    values = []
+    for f in _config_files(repo):
+        envs = _yaml(f).get("environments") or {}
+        values += [e.get("storage_account") for e in envs.values() if isinstance(e, dict)]
+    for folder in (profiles_dir(), repo / "config" / "environments"):
+        if folder.is_dir():
+            for f in sorted(folder.iterdir()):
+                if f.suffix.lower() in (".yaml", ".yml"):
+                    raw = _yaml(f)
+                    blocks = [raw] if "storage_account" in raw else [
+                        b for b in raw.values() if isinstance(b, dict)]
+                    values += [b.get("storage_account") for b in blocks]
+    return {v.strip(): ACCOUNT_CLASS for v in values
+            if isinstance(v, str) and not synthetic_account(v)}
+
+
+def account_patterns(repo: Path = REPO) -> list[re.Pattern[str]]:
+    """Every conventions profile's ``storage_account_pattern`` (the model default
+    plus any profile that states its own)."""
+    sys.path.insert(0, str(repo / "src"))
+    from codegen.config import ConventionsProfileConfig
+
+    found = {ConventionsProfileConfig.model_fields["storage_account_pattern"].default}
+    for f in _config_files(repo):
+        profiles = (_yaml(f).get("conventions") or {}).get("profiles") or {}
+        found |= {p["storage_account_pattern"] for p in profiles.values()
+                  if isinstance(p, dict) and p.get("storage_account_pattern")}
+    return [re.compile(p) for p in sorted(found)]
+
+
+def account_hits(text: str, accounts: dict[str, str],
+                 patterns: list[re.Pattern[str]]) -> list[tuple[str, str]]:
+    """[(class, account)], one per distinct account: a profile's account as a
+    whole token, or a pattern-shaped token assigned to STORAGE_ACCOUNT."""
+    found: dict[str, str] = {}
+    for account, klass in accounts.items():
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(account)}(?![A-Za-z0-9])", text):
+            found.setdefault(account, klass)
+    for m in STORAGE_ACCOUNT_ASSIGNMENT.finditer(text):
+        token = m.group(1)
+        if not synthetic_account(token) and any(p.fullmatch(token) for p in patterns):
+            found.setdefault(token, ACCOUNT_CLASS)
+    return [(klass, account) for account, klass in found.items()]
+
+
 def active_denylist() -> dict[str, str]:
     """The harvested raw denylist plus the local term file."""
     return {**harvest_raw_denylist(), **load_local_denylist()}
@@ -189,6 +284,7 @@ def scan_hits(paths: list[Path], deny: dict[str, str] | None = None):
     """[(path, class, term)] — the same hits as :func:`scan_paths`, each with
     the FULL matched term (for hashing; never print it)."""
     deny = deny if deny is not None else harvest_raw_denylist()
+    accounts, patterns = environment_accounts(), account_patterns()
     hits: list[tuple[Path, str, str]] = []
     for root in paths:
         files = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
@@ -200,6 +296,8 @@ def scan_hits(paths: list[Path], deny: dict[str, str] | None = None):
                     m = pat.search(text)
                     if m:
                         hits.append((f, klass, m.group(0)))
+                hits += [(f, klass, account)
+                         for klass, account in account_hits(text, accounts, patterns)]
                 for klass, match in structural_hits(text)[:1]:
                     hits.append((f, klass, match))
                 phrases = title_phrases(text)
@@ -287,6 +385,7 @@ def write_ledger_baseline(rows, ledger: Path = LEDGER) -> None:
 def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
     """Return [(path, class, context)] for every denylist hit under paths."""
     deny = deny if deny is not None else harvest_raw_denylist()
+    accounts, patterns = environment_accounts(), account_patterns()
     hits: list[tuple[Path, str, str]] = []
     for root in paths:
         files = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
@@ -300,6 +399,8 @@ def scan_paths(paths: list[Path], deny: dict[str, str] | None = None):
                     m = pat.search(text)
                     if m:
                         hits.append((f, klass, m.group(0)[:60]))
+                hits += [(f, klass, "<a storage account>")
+                         for klass, _account in account_hits(text, accounts, patterns)]
                 for klass, match in structural_hits(text)[:1]:   # one per file, like above
                     hits.append((f, klass, match[:60]))
                 if title_hits(text):

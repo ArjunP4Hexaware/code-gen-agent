@@ -4,6 +4,70 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post74 — 2026-10-19 (D1 post73 12-pair report: extractor fixes, landing key, export vocabulary, model usage)
+
+From acfc-results `run_20261019T193332Z_fe61bc4` (timestamp 181043Z). Each item has a
+synthetic fixture reproducing the coordinate-only line (`tests/post73_pairs.py`).
+
+1. pair_05 (`required element missing (role column) … col 15`): conventions profile
+   `skip_row_markers` (default "do not map", "not mapped", "n/a"; read with
+   `extractor.unmapped_markers`). A row whose stage column reads one — or is blank while
+   another target column / data type cell reads one — is out before the required-element
+   checks; ONE `skipped_rows:feeds[i]` flag per feed with the count and the cells (it
+   replaces the per-row `field_unmapped` flag of a marked row).
+2. pair_06 (`audit column invalid (… type timestamp)`): `codegen.extract.type_format`
+   splits `timestamp(YYYY-MM-DD HH:MM:SS)` into keyword + format before the vocabulary
+   check; a size (`decimal(18,2)`, `varchar(50)`) stays in the type. Contract:
+   `AuditColumn.datatype_format`, `SttmField.stage_datatype_format` /
+   `standard_datatype_format` (left out of the JSON when empty). IIG: the DateFormatRule /
+   DateConversionRule INPUT_PARAM takes `<stage format>--<standard format>` from the type
+   cells when no "Convert X to Y" rule states them; one format alone = open cell + NOTE.
+3. pair_08 (`required element missing (role target_type) … col 17`): one row never fails
+   the feed. No stage column = not a mapping row (counted in `skipped_rows`); a stage
+   column without a data type = blocking `QUESTION feeds[i].columns[j].target_type`
+   (j = the row among the sheet's field rows), cited by coordinates; the feed extracts
+   without that column; `gaps:` answer fills it (`answered_cell` flag).
+4. pair_10 (`Contract fails validation at STTM sheet 2`): `run_errors.CONTRACT_RULES` names
+   every STTM contract rule with a disposition. QUESTION: value_unstated,
+   value_outside_vocabulary, value_out_of_range, feed_without_audit_columns,
+   recycle_unknown_column, segment_missing_on_fields, segment_without_table (the feed held
+   back, one key each, e.g. `feeds[0].file_format`). FAIL: feed_without_fields,
+   field_count_mismatch, load_rule_unknown_column, phi_mismatch, duplicate_feed_id,
+   invalid_value — first line `contract validation: <rule> (<n>) at STTM sheet 2`,
+   details in the full tier only. pair_10's shape (no file format anywhere) is now
+   `QUESTION feeds[0].file_format`, exit 3.
+5. Answer keys: `codegen.answer_keys.canonical_key` — a key's path is the role name
+   (lowercase, `_`), never a header label. The layout stage normalises every path a model
+   claims (pair_04's `feeds[0].Delimiter` came from a live claim under the label); the
+   answers file is read through it, so both spellings answer.
+6. Notebook paths: an open landing is asked ONCE per feed by the IIG cell's key
+   `feeds[<i>].src_adls_path` (INPUT_NEEDED for the workbook; the same line blocking on a
+   notebook run) — never `feeds.<feed>.notebook.<path>`. pair_11 vs pair_02: the paths
+   derive from the FRD's landing location; pair_02's FRD states it, an FRD without an
+   inbound path (Pyx, to confirm on D1) leaves all three open. The template's
+   `landing_proposal` (ACFC overlay: `/inbound/{domain}/{sub_domain}/{source}/`, TODO D1:
+   confirm against the corpus) is shown as an agent_proposal, never written. The answer
+   (gaps: or inputs:) sets the landing; archive / reject follow.
+7. `tools/iig_diff.py --export-scrubbed` keeps a token only when it is in the gate's
+   repo-token dictionary (tracked text files of src fixtures config tools scripts + root
+   files; no workbook cell text) — not the fixture-token universe. Harvested gate terms
+   (the workbooks' sheet / file names + `--gate-terms FILE`) minus dictionary words /
+   template names are masked and re-scanned (class `harvested_term`); static denylist =
+   the local file + `CODEGEN_SCRUB_DENYLIST`. PROVISIONAL: a best guess at the gate's
+   vocabulary from its reports (not its code), said in the SELF_CHECK header; the D1 gate
+   is not reproduced further. The pair_01 re-export needs the prod golden: run it on D1.
+8. pair_11 556 s: live layout asks at most one request per document (all STTM sheets /
+   roles in one; one for the FRD), never per feed or per path question — nothing to
+   batch. Layer 2 (generate) is the per-feed one: one request per unmapped rule per feed.
+   No before/after claimed. Every MODEL USAGE line now has a `CODEGEN-USAGE {json}`
+   stderr marker (stage, provider, calls, requests, seconds, failed, recovered); STABLE
+   readers `run_errors.model_usage(stderr, stdout)` / `usage_summary(entries)` for the
+   harness report; run_round.py / acfc_run.py print it per stage.
+
+Harness asks: stop a pair at an extract-sttm exit 3 (pairs 07 / 09); put
+`usage_summary(model_usage(stderr, stdout))` on every stage's report line; pass the
+harvested term list to `--gate-terms` for the scrubbed export.
+
 ## 0.5.8.post73 — 2026-10-19 (state refresh error without the SDK config dump)
 
 1. `state_mirror.error_text`: a failed volume refresh is reported as the exception

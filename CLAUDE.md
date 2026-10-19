@@ -1,11 +1,40 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-19, `feature/multi-table`, post73)
+## NEWEST — IIG validation (state as of 2026-10-19, `feature/multi-table`, post74)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**Session end (2026-10-19, home).** Head `dded7d7` (pushed from ACFC after post73: the
+**RESTART HERE (2026-10-19, after post74).** post74 = the post73 12-pair report's items
+(acfc-results `run_20261019T193332Z_fe61bc4`; `CHANGELOG_ACFC.md` lists all 8), one commit
+each; synthetic reproductions in `tests/post73_pairs.py` (Family E with per-cell
+overrides):
+- extract-sttm (generic): profile `skip_row_markers` + ONE `skipped_rows:feeds[i]` flag
+  (replaces a marked row's `field_unmapped`); `extract.type_format.split_type` (format
+  split off a type, size kept; `*_datatype_format` contract fields; IIG date rules read
+  them); one row's missing type = blocking `QUESTION feeds[i].columns[j].target_type`
+  (no stage column = skipped row); `run_errors.CONTRACT_RULES` (question | fail per rule,
+  `contracts.validation.classify`; first line `contract validation: <rule> (<n>)`).
+- `codegen.answer_keys.canonical_key`: keys are role names; `_merge_frd` and
+  `load_answers` go through it.
+- Open landing = ONE key per feed, the IIG cell's `feeds[<i>].src_adls_path`
+  (`metadata_template.landing_question`; INPUT_NEEDED, blocking on a notebook run);
+  template `landing_proposal` shown as agent_proposal (ACFC overlay value is a TODO D1).
+- iig_diff export: `repo_token_dictionary` (GATE_SCOPE text files) + harvested gate terms
+  (`--gate-terms`) + static denylist; the fixture universe is no longer the keep-set.
+  PROVISIONAL best guess (SELF_CHECK header says so) - Soham: don't reproduce the D1 gate
+  further.
+- `CODEGEN-USAGE` stderr marker beside every MODEL USAGE line; STABLE
+  `run_errors.model_usage` / `usage_summary`. Layout = at most 1 request per document;
+  Layer 2 scales per feed × unmapped rule (not changed; D1 timing pending).
+- Windows: tests/test_state_volume_mirror.py fails here (symlink privilege, WinError
+  1314) — pre-existing, logged in docs/spiral-log.md; passes on Linux. Verified before
+  the push: dev `.venv` 1937 passed / 28 skipped / 7 failed (those), `.venv-d1` 1652
+  passed / 77 skipped / 6 failed (those); ruff src tests clean.
+Open for D1: re-export pair_01 with the new vocabulary (+ `--gate-terms`); confirm the
+landing proposal against the corpus; pair_11's MODEL USAGE split (layout vs layer2).
+
+**Session end (2026-10-19, home, before post74).** Head `dded7d7` (pushed from ACFC after post73: the
 SFMC-shaped notebook / primary-key tests and the acfc_shapes registry test skip through
 `conftest.require_fixture_files` when the client fixtures are absent; a clean clone had
 dev 1 failure, the timing-dependent m93 chooser test). post70 + post71 were reported to

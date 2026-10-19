@@ -629,9 +629,12 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             extraction_flags=flags,
         )
     except ValueError as exc:  # pydantic ValidationError is a ValueError
-        raise located(ExtractionError(
-            f"feed {frd_feed.feed_name!r}: extracted feed fails contract validation:\n{exc}"
-        ), None, "contract.invalid") from exc
+        # post74: the rules by name (classic path: FAIL with each rule's count)
+        from codegen.contracts.validation import classify
+        from codegen.extract.generic import contract_invalid
+
+        raise contract_invalid(ExtractionError, frd_feed.feed_name, classify(exc), None) \
+            from exc
 
 
 def contract_to_json(contract: SttmContract) -> str:

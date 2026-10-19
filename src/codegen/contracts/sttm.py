@@ -332,52 +332,56 @@ class SttmFeed(BaseModel):
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:
-        errors: list[str] = []
+        # post74 (D1 post73 pair_10): each check is a NAMED rule
+        # (codegen.contracts.validation.RULES) carrying the columns it names.
+        from codegen.contracts.validation import ContractRuleError
+
+        errors: list[tuple[str, str, tuple[str, ...]]] = []
 
         if self.field_count != len(self.fields):
-            errors.append(
-                f"field_count is {self.field_count} but fields[] has {len(self.fields)} entries"
-            )
+            errors.append(("field_count_mismatch",
+                           f"field_count is {self.field_count} but fields[] has "
+                           f"{len(self.fields)} entries", ()))
 
         source_columns = {f.source_column for f in self.fields}
         for rule_name in ("not_null_columns", "mandatory_columns", "phi_columns"):
             unknown = set(getattr(self.load_rules, rule_name)) - source_columns
             if unknown:
-                errors.append(
-                    f"load_rules.{rule_name} references columns not in fields[]: {sorted(unknown)}"
-                )
+                errors.append(("load_rule_unknown_column",
+                               f"load_rules.{rule_name} references columns not in fields[]: "
+                               f"{sorted(unknown)}", tuple(sorted(unknown))))
 
         recycle = self.load_rules.recycle
         if recycle is not None and recycle.applies_to not in source_columns:
-            errors.append(
-                f"load_rules.recycle.applies_to '{recycle.applies_to}' is not a column in fields[]"
-            )
+            errors.append(("recycle_unknown_column",
+                           f"load_rules.recycle.applies_to '{recycle.applies_to}' is not a "
+                           "column in fields[]", ()))
 
         phi_flagged = {f.source_column for f in self.fields if f.phi}
         phi_listed = set(self.load_rules.phi_columns)
         if phi_flagged != phi_listed:
-            errors.append(
-                f"fields flagged phi=true {sorted(phi_flagged)} do not match "
-                f"load_rules.phi_columns {sorted(phi_listed)}"
-            )
+            errors.append(("phi_mismatch",
+                           f"fields flagged phi=true {sorted(phi_flagged)} do not match "
+                           f"load_rules.phi_columns {sorted(phi_listed)}", ()))
 
         # Segment annotations must be all-or-nothing within a feed: a mix
         # means the contract is half-migrated to the segmented dialect.
         with_segment = [f.source_column for f in self.fields if f.record_segment]
         if with_segment and len(with_segment) != len(self.fields):
             missing = sorted(source_columns - set(with_segment))
-            errors.append(f"some fields carry record_segment but these do not: {missing}")
+            errors.append(("segment_missing_on_fields",
+                           f"some fields carry record_segment but these do not: {missing}",
+                           tuple(missing)))
         for f in self.fields:
             if (f.record_segment is None) != (f.stage_table is None):
-                errors.append(
-                    f"field '{f.source_column}' must set record_segment and "
-                    "stage_table together or not at all"
-                )
+                errors.append(("segment_without_table",
+                               f"field '{f.source_column}' must set record_segment and "
+                               "stage_table together or not at all", (f.source_column,)))
 
         if errors:
-            raise ValueError(
-                f"STTM feed '{self.feed_id}' failed validation:\n  - " + "\n  - ".join(errors)
-            )
+            raise ContractRuleError(
+                f"STTM feed '{self.feed_id}' failed validation:\n  - "
+                + "\n  - ".join(text for _rule, text, _columns in errors), errors)
         return self
 
     @property
@@ -432,5 +436,8 @@ class SttmContract(BaseModel):
         for feed in self.feeds:
             (duplicates if feed.feed_id in seen else seen).add(feed.feed_id)
         if duplicates:
-            raise ValueError(f"duplicate feed_id(s) in STTM contract: {sorted(duplicates)}")
+            from codegen.contracts.validation import ContractRuleError
+
+            text = f"duplicate feed_id(s) in STTM contract: {sorted(duplicates)}"
+            raise ContractRuleError(text, [("duplicate_feed_id", text, ())])
         return self

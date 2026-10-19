@@ -540,14 +540,17 @@ def _role_col(sp: SheetProfile, key: str) -> int | None:
 
 
 CELL_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.columns\[(\d+)\]\.([a-z_]+)$")
+VALUE_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.(file_format|source_system)$")
 
 
 def parse_cell_answers(gaps: dict | None) -> dict[str, str]:
     """post74: the answers file's ``feeds[i].columns[j].<role>`` values (one
-    mapping row's open cell, :func:`_build_feed`'s QUESTION) by key."""
+    mapping row's open cell, :func:`_build_feed`'s QUESTION) and the contract
+    values a validation question asks (``feeds[i].file_format`` /
+    ``.source_system``), by key."""
     out: dict[str, str] = {}
     for key, answer in (gaps or {}).items():
-        if CELL_KEY_RE.match(str(key)):
+        if CELL_KEY_RE.match(str(key)) or VALUE_KEY_RE.match(str(key)):
             value = answer.get("value") if isinstance(answer, dict) else answer
             if str(value or "").strip():
                 out[str(key)] = str(value).strip()
@@ -560,6 +563,32 @@ def _cell_ref(sp: SheetProfile, row: int, key: str) -> str:
     band = sp.band(layer)  # type: ignore[arg-type]
     col = band.column(role) if band is not None else None
     return f"{sp.name}!{get_column_letter(col)}{row}" if col else f"{sp.name} row {row}"
+
+
+def hit_rules(hits, key: str, prefix: str, column_index: dict[str, int], fields) -> str:
+    """The rule names behind one answers key (vocabulary only)."""
+    from codegen.contracts.validation import answer_key
+
+    return ", ".join(dict.fromkeys(h.rule for h in hits
+                                   if key in answer_key(h, prefix, column_index, fields)))
+
+
+def contract_invalid(error_type, feed_name: str, hits, coord: Coord) -> BaseException:
+    """post74: a FAIL naming each failed contract rule and its count (the
+    coordinates tier), the details (locations, the model's messages) in the
+    message - the full tier."""
+    from codegen.contracts.validation import rule_counts
+
+    counts = rule_counts(hits)
+    details = "; ".join(f"{h.rule}" + (f" at {'.'.join(str(p) for p in h.loc)}" if h.loc
+                                       else "") + (f": {h.text}" if h.text else "")
+                        for h in hits)
+    exc = located(error_type(
+        f"feed {feed_name!r}: contract validation: "
+        + ", ".join(f"{rule} ({n})" for rule, n in counts.items())
+        + f" — {' '.join(details.split())}"), coord, "contract.invalid")
+    exc.contract_rules = counts  # type: ignore[attr-defined]
+    return exc
 
 
 def _skipped_rows_flag(prefix: str, marked: list[str], unnamed: list[str]) -> str:
@@ -1191,18 +1220,29 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         notes.append(f"feed {feed.feed_name!r}: neither the FRD nor the workbook (meta rows "
                      "'File Names' / 'File Name Example', File Details sheet) names a file "
                      "pattern; left open for the VDD FILES sheet / the file_patterns answer")
+    # post74: a contract value no document states, answered under gaps:
+    # (the question contract validation asked: feeds[i].file_format, ...)
+    def answered(field_name: str, stated: str | None) -> str | None:
+        answer = (cell_answers or {}).get(prefix + field_name)
+        if stated or not answer:
+            return stated
+        flags.append(f"answered_value:{prefix}{field_name} — no document states it; the person "
+                     f"answered {answer!r}")
+        return answer
+
+    file_format = answered("file_format", feed.file_format)
     delimiter = feed.delimiter or sheet.meta.get("delimiter") or \
-        _FORMAT_DELIMITERS.get((feed.file_format or "").lower())
+        _FORMAT_DELIMITERS.get((file_format or "").lower())
     frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
-    source_system = (details or {}).get("vendor") or sheet.meta.get("file_generator") \
-        or feed.source_system
+    source_system = answered("source_system", (details or {}).get("vendor")
+                             or sheet.meta.get("file_generator") or feed.source_system)
 
     try:
         return SttmFeed(
             feed_id=feed_id,
             source_system=source_system,
             mapping_sheet=name,
-            source_file=SourceFile(name_pattern=name_pattern, format=feed.file_format,
+            source_file=SourceFile(name_pattern=name_pattern, format=file_format,
                                    delimiter=delimiter, frequency=frequency),
             stage=TableRef(schema=stage_schema, table=stage_table, catalog=stage_catalog),
             standard=(TableRef(schema=standard_schema or "", table=standard_table or "",
@@ -1222,9 +1262,24 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             extraction_flags=flags,
         )
     except ValueError as exc:
-        raise located(GenericExtractionError(
-            f"feed {feed.feed_name!r}: extracted feed fails contract validation:\n{exc}"
-        ), _at(ir, name), "contract.invalid") from exc
+        # post74 (D1 post73 pair_10): the rules by name. Every hit a
+        # `question` -> the feed waits for the answers (NEEDS_ANSWERS);
+        # any `fail` -> FAIL naming each rule and its count.
+        from codegen.contracts.validation import answer_key, classify
+
+        hits = classify(exc)
+        if hits and all(h.disposition == "question" for h in hits):
+            column_index = {f.source_column: row_index[f.provenance.row]
+                            for f in fields if f.provenance and f.provenance.row in row_index}
+            keys = list(dict.fromkeys(k for h in hits
+                                      for k in answer_key(h, prefix, column_index, fields)))
+            raise NeedsAnswers([PendingAnswer(
+                feed_name=feed.feed_name, sheet=name, key=key,
+                reason=f"contract validation: {hit_rules(hits, key, prefix, column_index, fields)}"
+                       " — no document states it in a form the contract can carry")
+                for key in keys]) from exc
+        raise contract_invalid(GenericExtractionError, feed.feed_name, hits,
+                               _at(ir, name)) from exc
 
 
 def extract_generic_contract(found: Discovery, workbook_path: Path, frd: FrdContract,

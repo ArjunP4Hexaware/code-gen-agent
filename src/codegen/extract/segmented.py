@@ -573,33 +573,40 @@ def extract_segmented_contract(
             f"{frd_feed.file_format!r}"
         ), Coord("FRD"), "frd.missing", role="delimiter")
 
-    feed = SttmFeed(
-        feed_id=feed_id,
-        source_system=facts["generator"],
-        mapping_sheet=ws.title,
-        source_file=SourceFile(
-            name_pattern=file_pattern,
-            format=frd_feed.file_format,
-            delimiter=delimiter,
-            frequency=facts.get("frequency"),
-        ),
-        stage=TableRef(schema=stage_schema, table=detail_stage_table,
-                       catalog=stage_catalog),
-        standard=standard_ref,
-        load_rules=LoadRules(
-            not_null_columns=list(mandatory_sources),
-            mandatory_columns=list(mandatory_sources),
-            natural_key=list(dict.fromkeys(key_sources)),
-            phi_columns=phi_sources,
-            recycle=recycle,
-        ),
-        audit_columns=[AuditColumn(column=c, datatype=d, value_spec=r)
-                       for c, d, r in detail_audit],
-        field_count=len(fields),
-        fields=fields,
-        segmented=segmented,
-        extraction_flags=annotation_flags,
-    )
+    try:
+        feed = SttmFeed(
+            feed_id=feed_id,
+            source_system=facts["generator"],
+            mapping_sheet=ws.title,
+            source_file=SourceFile(
+                name_pattern=file_pattern,
+                format=frd_feed.file_format,
+                delimiter=delimiter,
+                frequency=facts.get("frequency"),
+            ),
+            stage=TableRef(schema=stage_schema, table=detail_stage_table,
+                           catalog=stage_catalog),
+            standard=standard_ref,
+            load_rules=LoadRules(
+                not_null_columns=list(mandatory_sources),
+                mandatory_columns=list(mandatory_sources),
+                natural_key=list(dict.fromkeys(key_sources)),
+                phi_columns=phi_sources,
+                recycle=recycle,
+            ),
+            audit_columns=[AuditColumn(column=c, datatype=d, value_spec=r)
+                           for c, d, r in detail_audit],
+            field_count=len(fields),
+            fields=fields,
+            segmented=segmented,
+            extraction_flags=annotation_flags,
+        )
+    except ValueError as exc:  # post74: the contract rules by name
+        from codegen.contracts.validation import classify
+        from codegen.extract.generic import contract_invalid
+
+        raise contract_invalid(ExtractionError, frd_feed.feed_name, classify(exc),
+                               Coord.in_sheet("STTM", ws)) from exc
 
     return SttmContract(
         contract_name=contract_name

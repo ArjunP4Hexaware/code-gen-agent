@@ -279,7 +279,7 @@ REASONS: dict[str, str] = {
     "workbook.not_found": "workbook not found",
     "contract.not_found": "contract not found:",
     "contract.mismatch": "contract mismatch",
-    "contract.invalid": "contract fails validation",
+    "contract.invalid": "contract validation",
     "feed.no_match": "no resolved feed matches --feed",
     "feed.none_produced": "produced no feeds",
     "answers.missing": "a value only the answers file can supply (under gaps:)",
@@ -342,6 +342,55 @@ MISMATCH_LABELS: dict[str, tuple[str, str]] = {
     "rule.unparseable": ("recycle rule not parseable", "recycle rules not parseable"),
     "other": ("other mismatch", "other mismatches"),
 }
+
+
+# post74 (D1 post73 pair_10): the STTM contract's validation rules by name,
+# rule -> (disposition, what failed); codegen.contracts.validation classifies a
+# failure into them. ``question``: no document states the value in a form the
+# contract carries - the feed waits for the answer (NEEDS_ANSWERS); ``fail``:
+# the extractor built an inconsistent feed. The first line names each failed
+# rule and its count: "contract validation: segment_without_table (2) at STTM
+# sheet 2". The order is the report order.
+CONTRACT_RULES: dict[str, tuple[str, str]] = {
+    "value_unstated": ("question", "a value the contract needs is stated by no document "
+                                   "(file format, source system, a table / schema)"),
+    "value_outside_vocabulary": ("question", "a value outside the contract's vocabulary "
+                                             "(a segment, an audit data type)"),
+    "value_out_of_range": ("question", "a number outside its range (recycle window days)"),
+    "feed_without_audit_columns": ("question", "the feed lists no audit column"),
+    "recycle_unknown_column": ("question", "the recycle rule names a column the feed does "
+                                           "not carry (its row was skipped or is open)"),
+    "segment_missing_on_fields": ("question", "some rows state a record segment, these do not"),
+    "segment_without_table": ("question", "a row states a record segment without its stage "
+                                          "table, or a table without a segment"),
+    "feed_without_fields": ("fail", "no mapping row is left (every row skipped, unmapped or "
+                                    "open)"),
+    "field_count_mismatch": ("fail", "field_count differs from the fields listed"),
+    "load_rule_unknown_column": ("fail", "a not-null / mandatory / PHI list names a column the "
+                                         "feed does not carry"),
+    "phi_mismatch": ("fail", "the fields flagged PHI differ from the PHI list"),
+    "duplicate_feed_id": ("fail", "two feeds of one contract share a feed id"),
+    "invalid_value": ("fail", "any other value the contract model refuses"),
+}
+
+
+def error_rules(exc: BaseException | None) -> dict[str, int]:
+    """The first ``contract_rules`` mapping on ``exc`` or its chain, known rules only."""
+    for e in _chain(exc):
+        rules = getattr(e, "contract_rules", None)
+        if isinstance(rules, dict):
+            return {k: v for k, v in rules.items() if k in CONTRACT_RULES
+                    and isinstance(v, int) and not isinstance(v, bool) and v > 0}
+    return {}
+
+
+def rules_summary(rules: object) -> str:
+    """``{rule: n}`` as the coordinates tier prints it, in rule order."""
+    if not isinstance(rules, dict):
+        return ""
+    return ", ".join(f"{rule} ({rules[rule]})" for rule in CONTRACT_RULES
+                     if isinstance(rules.get(rule), int) and not isinstance(rules.get(rule), bool)
+                     and rules[rule] > 0)
 
 
 def mismatch_summary(counts: object) -> str:
@@ -465,6 +514,9 @@ def error_marker(stage: str, reason: str, coord: Coord | None = None, *,
         "counts": error_counts(exc),
         "where": path_hint(path),
     }
+    rules = error_rules(exc)
+    if rules:
+        payload["rules"] = rules
     role, kind = error_role(exc), error_type(exc)
     if role is not None:
         payload["role"] = role
@@ -512,6 +564,11 @@ def coordinate_line(payload: object) -> str:
         # "contract mismatch, feed 2 of 3: 4 columns only in FRD, ..." (addendum 4)
         summary = mismatch_summary(data.get("counts"))
         line += (f", {coord}" if coord is not None else "") + (f": {summary}" if summary else "")
+    elif reason == "contract.invalid":
+        # post74: "contract validation: segment_without_table (2) at STTM sheet 2"
+        summary = rules_summary(data.get("rules"))
+        line += (f": {summary}" if summary else "") + (f" at {coord}" if coord is not None
+                                                        else "")
     elif coord is not None:
         line += f" {coord}" if phrase.endswith(":") else f" at {coord}"
     tables = tables_summary(data.get("tables"))
@@ -701,11 +758,11 @@ def silence_pydantic_deprecations() -> None:
     warnings.filterwarnings("ignore", category=PydanticDeprecationWarning)
 
 
-__all__ = ["DOCS", "MARKER", "MISMATCH_LABELS", "OTHER_TYPE", "REASONS", "ROLE_WORDS",
-           "STAGES", "TYPE_KEYWORDS", "Coord", "column_number", "error_role", "error_type",
-           "role_word", "type_keyword",
+__all__ = ["CONTRACT_RULES", "DOCS", "MARKER", "MISMATCH_LABELS", "OTHER_TYPE", "REASONS",
+           "ROLE_WORDS", "STAGES", "TYPE_KEYWORDS", "Coord", "column_number", "error_role",
+           "error_type", "role_word", "type_keyword",
            "coordinate_line", "error_coord", "error_counts", "error_marker", "error_reason",
-           "error_tables", "kind_counts", "tables_summary",
+           "error_rules", "error_tables", "kind_counts", "rules_summary", "tables_summary",
            "first_error_line", "first_error_line_full", "is_warning_line", "located",
            "mismatch_summary", "path_hint", "report_error", "sheet_number",
            "silence_pydantic_deprecations", "without_warnings"]

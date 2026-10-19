@@ -1,0 +1,44 @@
+RECYCLED_AT = "_recycled_at"
+
+
+def recycle_table(source: dict) -> str:
+    """RECYCL_TBL_NM (in the stage catalog and TGT_DATABASE_NAME unless qualified)."""
+    parts = source["recycle"]["table"].split(".")
+    catalog, schema, table = [STAGE_CATALOG, source["schema"], *parts][-3:]
+    return table_name(catalog, schema, table)
+
+
+def recycle_backlog(source: dict) -> DataFrame | None:
+    """RECYCL_ENBL_FLG = Y: the records RECYCL_TBL_NM keeps from earlier runs,
+    no older than RECYCL_RETN_DAYS days, retried with this run's records."""
+    target = recycle_table(source)
+    if not spark.catalog.tableExists(target):
+        return None
+    cutoff = F.date_sub(F.current_date(), source["recycle"]["days"])
+    return spark.read.table(target).filter(F.col(RECYCLED_AT) >= cutoff)
+
+
+def keep_for_recycle(rejected: DataFrame | None, source: dict) -> None:
+    """This run's rejects replace the backlog (a retried record keeps its first
+    _recycled_at, so RECYCL_RETN_DAYS expires it), stored at RECYCL_ADLS_PATH."""
+    target = recycle_table(source)
+    if rejected is None:
+        if spark.catalog.tableExists(target):
+            spark.sql(f"DELETE FROM {target}")
+        return
+    if RECYCLED_AT not in rejected.columns:
+        rejected = rejected.withColumn(RECYCLED_AT, F.lit(None).cast("timestamp"))
+    kept = rejected.withColumn(RECYCLED_AT, F.coalesce(RECYCLED_AT, F.current_timestamp()))
+    if REJECT_REASON_COLUMN:
+        kept = kept.drop(REJECT_REASON_COLUMN)
+    # materialised first: the backlog it may contain is read from the same table
+    kept = kept.localCheckpoint()
+    path = source["recycle"]["path"].rstrip("/") + (DRY_RUN_SUFFIX if DRY_RUN else "")
+    (
+        kept.write.format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true")
+        .option("path", adls_uri(source["reject_container"], path))
+        .saveAsTable(target)
+    )
+    tally("recycle: kept for the next run", target, kept.count())

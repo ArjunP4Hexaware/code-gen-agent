@@ -799,8 +799,12 @@ def _key_marked(f: SttmField) -> bool:
     return not f.nullable or f.primary_key
 
 
+def _pk_marked(f: SttmField) -> bool:
+    return f.primary_key
+
+
 def _detail_key_columns(segments: list[SegmentSpec], source_columns: list[str],
-                        flags: list[str]) -> list[str]:
+                        flags: list[str], marked=_key_marked) -> list[str]:
     """The Detail table's natural key, resolved by (segment, field name).
 
     A key names SOURCE fields, and a fixed-width file repeats some of them in
@@ -819,10 +823,10 @@ def _detail_key_columns(segments: list[SegmentSpec], source_columns: list[str],
         own = [f for f in detail.fields if f.source_column == name]
         elsewhere = [(s, f) for s in segments if s is not detail
                      for f in s.fields if f.source_column == name]
-        if own and (any(_key_marked(f) for f in own)
-                    or not any(_key_marked(f) for _s, f in elsewhere)):
-            marked = next((f for f in own if _key_marked(f)), own[0])
-            keys.append(marked.stage_column)
+        if own and (any(marked(f) for f in own)
+                    or not any(marked(f) for _s, f in elsewhere)):
+            hit = next((f for f in own if marked(f)), own[0])
+            keys.append(hit.stage_column)
             continue
         if elsewhere:
             continue                 # the key of its own segment's table
@@ -1185,9 +1189,13 @@ def _resolve_one(
         files = file_flags.pop()
 
     key_flags: list[str] = []
-    natural_key = _detail_key_columns(segments, sttm_feed.load_rules.not_null_columns,
-                                      key_flags)
-    not_null = natural_key
+    # post70: two lists, never one — the not-null columns (rejects, MANDATORY)
+    # and the natural key, which only an explicit key signal states (the STTM's
+    # Primary Key cells: load_rules.natural_key). A required column is not a key.
+    not_null = _detail_key_columns(segments, sttm_feed.load_rules.not_null_columns,
+                                   key_flags)
+    natural_key = _detail_key_columns(segments, sttm_feed.load_rules.natural_key, [],
+                                      marked=_pk_marked)
     phi = _phi_stage_columns(segments, sttm_feed.load_rules.phi_columns)
 
     return ResolvedFeedSpec(
@@ -1210,6 +1218,7 @@ def _resolve_one(
         processed_files_table=processed_files_table,
         natural_key_columns=natural_key,
         not_null_columns=not_null,
+        frd_key_statement=frd_feed.key_statement,
         phi_columns=phi,
         audit_columns=sttm_feed.audit_columns,
         recycle=resolved_recycle,

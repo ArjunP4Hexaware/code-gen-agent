@@ -42,6 +42,27 @@ def sfmc_pair() -> tuple[Path, Path]:
 
 
 TPL_FEED = "SYN TPL Inbound Files"
+# post70: the SFMC-shaped feeds' standard load is an Upsert and no input states
+# their key (no Primary Key cell / key statement) — a blocking QUESTION; the
+# tests answer it as the BSA would, with a typed key (codegen.primary_key)
+KEY_COLUMNS = "MEMBER_ID, EMAIL_DTM"
+
+
+def key_answers(folder: Path) -> Path:
+    """An answers file typing KEY_COLUMNS for the SFMC and TPL feeds."""
+    from codegen.resolve.resolver import normalize_feed_name
+
+    feeds = [normalize_feed_name(json.loads((CONTRACTS / "FRD_sfmc_email_campaign.contract"
+                                             ".json").read_text(encoding="utf-8"))
+                                 ["feeds"][0]["feed_name"]), normalize_feed_name(TPL_FEED)]
+    path = Path(folder) / "key_answers.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["inputs:", "  feeds:"]
+    for feed in feeds:
+        lines += [f"    {feed}:", f'      primary_key: "{KEY_COLUMNS}"']
+    path.write_text("\n".join(lines) + "\n",
+        encoding="utf-8")
+    return path
 
 
 def tpl_pair(tmp_path: Path) -> tuple[Path, Path]:

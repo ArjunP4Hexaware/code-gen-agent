@@ -64,6 +64,11 @@ class LoadRules(BaseModel):
     mandatory_columns: list[str]
     phi_columns: list[str]
     recycle: RecycleSpec | None
+    # post70: the source columns an explicit KEY signal marks — a Primary Key /
+    # Key cell (the header families of docs/acfc/SHAPES_FOR_PORT.md). Never the
+    # not-null list: a required column is not a key. Empty (left out of the
+    # JSON) when no row is marked.
+    natural_key: list[str] = Field(default_factory=list)
 
 
 # Audit-column datatype: the workbook's spelling (normalized) -> the contract

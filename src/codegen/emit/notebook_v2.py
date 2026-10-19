@@ -63,6 +63,8 @@ FRD_FIELDS = {
     "SRC_ADLS_PATH": "landing_location", "SRC_FILE_NAME": "file_name_patterns",
     "LOB": "lobs", "TGT_LOAD_OPTION": "stage_target.load_strategy",
 }
+# TGT_LOAD_OPTION values that MERGE on TGT_PRIMARY_KEY (codegen.primary_key)
+MERGE_OPTIONS = ("upsert", "merge")
 STTM_COLUMN_HEADERS = ("SRC_COLUMNS", "SRC_DATA_TYPE", "TGT_COLUMN_NAMES", "TGT_DATA_TYPE",
                        "MANDATORY_FIELD_LIST", "TGT_PRIMARY_KEY", "COL", "LEN", "start_ind")
 
@@ -178,11 +180,37 @@ def _sources(payload: dict, opened: _Open) -> list[dict]:
             "partition_column": "" if partition in NA else partition,
             "partition_value": _value(row, "TGT_PARTITION_VALUE"),
             "primary_key": split_list(_value(row, "TGT_PRIMARY_KEY")),
+            # post70: cells v1 had, generated only where an IIG cell states them
+            "schema_drift": _flag(_value(row, "SCHEMA_DRIFT_FLAG")),
+            "recycle": _recycle(row, number, opened),
         })
         if sources[-1]["mandatory"]:
             opened.need(row, number, ADLS, "TGT_RJT_ADLS_PATH")
             opened.need(row, number, ADLS, "TGT_CONTAINER_NAME")
+        _need_key(opened, sources[-1], number, ADLS)
     return sources
+
+
+def _recycle(row: dict, number: int, opened: _Open) -> dict | None:
+    """RECYCL_ENBL_FLG = Y: RECYCL_TBL_NM / RECYCL_ADLS_PATH / RECYCL_RETN_DAYS
+    (each needed; a retention that is not a whole number of days is open)."""
+    if not _flag(_value(row, "RECYCL_ENBL_FLG")):
+        return None
+    table = opened.need(row, number, ADLS, "RECYCL_TBL_NM")
+    path = opened.need(row, number, ADLS, "RECYCL_ADLS_PATH")
+    days = opened.need(row, number, ADLS, "RECYCL_RETN_DAYS")
+    if days and not days.isdigit():
+        opened.cells.append(f"{ADLS}.RECYCL_RETN_DAYS (row {number}; not a whole number of "
+                            "days)")
+    return {"table": table, "path": path, "days": int(days) if days.isdigit() else 0}
+
+
+def _need_key(opened: _Open, row: dict, number: int, tab: str) -> None:
+    """post70: a merge load needs TGT_PRIMARY_KEY — open (or NA) stops the run
+    in the config cell; never a silent append."""
+    if row["load_option"].lower() in MERGE_OPTIONS and not row["primary_key"]:
+        opened.cells.append(f"{tab}.TGT_PRIMARY_KEY (row {number}; a {row['load_option']} "
+                            "load needs the key)")
 
 
 def _detail_label(spec) -> str | None:
@@ -249,6 +277,7 @@ def _standards(payload: dict, opened: _Open) -> list[dict]:
             "reject_container": _value(row, "TGT_CONTAINER_NAME"),
             "reject_path": _value(row, "TGT_RJT_ADLS_PATH"),
         })
+        _need_key(opened, out[-1], number, STD)
     return out
 
 
@@ -445,6 +474,16 @@ def build_context(spec, config, payload: dict, *, candidates, frd_path: Path | N
         "dq": _provenance(DQ, _rows(payload, DQ), [
             "SEQUENCE_NO", "RULE_TYPE", "RULE_CLASS", "SOURCE_COLUMN", "INPUT_PARAM",
             "TARGET_COLUMN"], sttm, frd, env_name),
+        "drift": _provenance(ADLS, adls_rows, [
+            "SCHEMA_DRIFT_FLAG", "SRC_COLUMNS", "HEADER_FLAG", "SRC_FILE_DELIMITER"],
+            sttm, frd, env_name)
+        + _provenance(FIXED, _rows(payload, FIXED), ["COL", "LEN", "start_ind"],
+                      sttm, frd, env_name),
+        "recycle": _provenance(ADLS, adls_rows, [
+            "RECYCL_ENBL_FLG", "RECYCL_TBL_NM", "RECYCL_ADLS_PATH", "RECYCL_RETN_DAYS",
+            "TGT_CONTAINER_NAME"], sttm, frd, env_name),
+        "run-report": _provenance(ADLS, adls_rows[:1], ["TGT_DATABASE_NAME"],
+                                  sttm, frd, env_name),
     }
     flags = [f"notebook_rule_not_implemented:{m['rule_class'] or 'blank'} — DATA_QUALITY_RULES "
              f"row {m['row']}: {m['why']}" for m in missing]
@@ -476,7 +515,9 @@ def build_context(spec, config, payload: dict, *, candidates, frd_path: Path | N
                         c.response.classification, "code": c.response.code_candidate or "",
                         "rationale": c.response.rationale} for c in review],
         "dry_run_rows": DRY_RUN_ROWS,
-        "needs_merge": any(s["load_option"].lower() in ("upsert", "merge")
+        "drift": any(s["schema_drift"] for s in sources),
+        "recycle": any(s["recycle"] for s in sources),
+        "needs_merge": any(s["load_option"].lower() in MERGE_OPTIONS
                            for s in [*sources, *standards]),
         "needs_reduce": any(s["mandatory"] for s in sources) or any(
             c["kind"] == "null_check" for c in [*stage_calls, *std_calls]),
@@ -546,12 +587,14 @@ def render_cells(context: dict) -> list[nbf.Cell]:
              nbf.code("read", _render(env, "read.py.j2", context)),
              nbf.md("read-provenance", _render(env, "provenance.md.j2",
                                                {"stage": "Read", **context,
-                                                "lines": context["provenance"]["read"]})),
-             nbf.code("stage", _render(env, "stage.py.j2", context)),
-             nbf.md("stage-provenance", _render(env, "provenance.md.j2",
-                                                {"stage": "Stage", **context,
-                                                 "lines": context["provenance"]["stage"]})),
-             nbf.code("standard", _render(env, "standard.py.j2", context)),
+                                                "lines": context["provenance"]["read"]}))]
+    # post70: v1's cells, each only where an IIG cell states it
+    if context["drift"]:
+        cells += _step(env, context, "drift", "Schema drift (SCHEMA_DRIFT_FLAG = Y)")
+    cells += _step(env, context, "stage", "Stage")
+    if context["recycle"]:
+        cells += _step(env, context, "recycle", "Recycle (RECYCL_ENBL_FLG = Y)")
+    cells += [nbf.code("standard", _render(env, "standard.py.j2", context)),
              nbf.md("standard-provenance", _render(env, "provenance.md.j2",
                                                    {"stage": "Standard", **context,
                                                     "lines":
@@ -566,7 +609,17 @@ def render_cells(context: dict) -> list[nbf.Cell]:
               nbf.code("run", _render(env, "run.py.j2", context))]
     if context["candidates"]:
         cells.append(nbf.md("review-candidates", _render(env, "candidates.md.j2", context)))
+    cells += _step(env, context, "run-report", "Run report", "run_report")
     return cells
+
+
+def _step(env: Environment, context: dict, name: str, title: str,
+          template: str | None = None) -> list[nbf.Cell]:
+    """A code cell and its provenance cell."""
+    return [nbf.code(name, _render(env, f"{template or name}.py.j2", context)),
+            nbf.md(f"{name}-provenance", _render(env, "provenance.md.j2",
+                                                 {"stage": title, **context,
+                                                  "lines": context["provenance"][name]}))]
 
 
 def build(spec, config, payload: dict, *, candidates, frd_path: Path | None,

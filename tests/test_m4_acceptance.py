@@ -136,8 +136,12 @@ def test_pair1_resolver_provenance_flags_are_pinned_and_cite_their_cells(pair1_s
     # The unmapped field is in no segment; 23 mapped rows over 21 columns.
     assert sum(len(s.fields) for s in pair1_spec.segments) == 23
     assert not any("Reserved" in f.source_column for s in pair1_spec.segments for f in s.fields)
-    # Not-null / natural key are the DETAIL segment's, deduped.
-    assert pair1_spec.natural_key_columns == ["SEGMENT_IDENTIFIER", "CARDHOLDER_ID", "PLAN_ID"]
+    # Not-null columns are the DETAIL segment's, deduped. post70: the natural key
+    # only from Primary Key cells — pair 1 marks none (its FRD's Business Key row
+    # is a key signal codegen.primary_key reads, never written unconfirmed).
+    assert pair1_spec.not_null_columns == ["SEGMENT_IDENTIFIER", "CARDHOLDER_ID", "PLAN_ID"]
+    assert pair1_spec.natural_key_columns == []
+    assert pair1_spec.frd_key_statement == "CARDHOLDER_ID, PLAN_ID, PLAN_YEAR_START_DATE"
 
 
 # -- DDL ------------------------------------------------------------------------- #

@@ -31,3 +31,14 @@ answers:
   - {sheet: "sheets[4]", layer: standard, role: table, column: "Table"}
   - {sheet: "sheets[4]", layer: standard, role: column, column: "Column"}
   - {sheet: "sheets[4]", layer: standard, role: target_type, column: "Type"}
+# post70: the three standard loads are Upserts and no input marks a key (no
+# Primary Key cell, FRD key statement or FAQ natural_key_columns): the person
+# types each table's key.
+inputs:
+  feeds:
+    nb_provider_demographic:
+      primary_key: "PROVIDER_ID"
+    nb_provider_location:
+      primary_key: "PROVIDER_ID, LOCATION_ID"
+    nb_provider_specialty:
+      primary_key: "PROVIDER_ID, SPECIALTY_CODE"

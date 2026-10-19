@@ -622,9 +622,15 @@ def _file_lob_cell(tpl: MetadataTemplateConfig, tab: str, file, spec: ResolvedFe
                      "(docs/acfc/MULTI_TABLE_DESIGN.md rule 2)")
 
 
-def _schema_drift_cell(tpl: MetadataTemplateConfig) -> dict:
+def _schema_drift_cell(tpl: MetadataTemplateConfig, feed_id: str | None = None) -> dict:
     """ADLS SCHEMA_DRIFT_FLAG by the feed family's convention (2026-10-09):
-    the pair-1 (PRX) family 'N', the SD / CAQH-style family 'Y'."""
+    the pair-1 (PRX) family 'N', the SD / CAQH-style family 'Y'; post70: a
+    ``feed_overrides.<feed>.schema_drift_flag`` wins for its feed."""
+    override = _feed_override(tpl, feed_id)
+    if override is not None and override.schema_drift_flag:
+        value = override.schema_drift_flag
+        return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(
+            citation=f"feed_overrides.{feed_id}.schema_drift_flag: {value}"))
     value = tpl.family_conventions.schema_drift_flag
     return _cell(value, "synthetic", _TEMPLATE_TOOLTIP.format(
         citation=f"family convention schema_drift_flag: {value} — {_family_citation(tpl)}"))
@@ -675,6 +681,34 @@ def _sequence_cell(index: int, what: str) -> dict:
                  f"(docs/acfc/METADATA_DB_SEMANTICS.md §5); this {what} is object {index}")
     cell["badge_entry"]["convention"] = True
     return cell
+
+
+def _key_input(tpl: MetadataTemplateConfig) -> bool:
+    from codegen import primary_key
+
+    return primary_key.enabled(tpl)
+
+
+def _key_cell(tab: str, config, spec, faq, tpl: MetadataTemplateConfig, table: str,
+              fields: list[SttmField], layer: str, detail: bool, strategy) -> dict | None:
+    """post70: the row's TGT_PRIMARY_KEY under ``primary_key_input``
+    (codegen.primary_key) — None when the template does not ask, or when
+    nothing is to be said (no signal, no merge)."""
+    if not _key_input(tpl):
+        return None
+    from pathlib import Path
+
+    from codegen import primary_key
+    from codegen.metadata_sheet import _REFRESH_TYPE_BY_STRATEGY
+
+    profile = config.conventions.get(None)
+    corpus = primary_key.corpus_keys(list(profile.pipeline_name_corpus), Path("."))
+    target = primary_key.TableKey(table, layer, fields, detail)
+    offer = primary_key.proposal(target, spec, faq, corpus)
+    option = str(getattr(strategy, "value", strategy) or "")
+    return primary_key.key_cell(tab, target, spec, faq, offer,
+                                merge=primary_key.merge_load(strategy),
+                                load_option=_REFRESH_TYPE_BY_STRATEGY.get(option, option))
 
 
 def _primary_key(fields: list[SttmField], layer: str) -> list[str]:
@@ -1393,7 +1427,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
             "SOURCE": _source_cell(feed),
             "FREQUENCY": _frequency(feed, faq, tpl),
             "LOB": _file_lob_cell(tpl, tab, file, spec),
-            "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl),
+            "SCHEMA_DRIFT_FLAG": _schema_drift_cell(tpl, spec.feed_id),
             "SRC_FILE_NAME": _src_file_name_cell(
                 tpl, pattern, file.template,
                 "from_frd" if feed.file_name_patterns else "from_sttm", _feed_key(feed, spec),
@@ -1433,7 +1467,11 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
         cells.update(_header_flag_cells(spec, faq, tpl))
         if spec.not_null_columns:
             cells["MANDATORY_FIELD_LIST"] = _cell(",".join(spec.not_null_columns), "from_sttm")
-        if key_columns:
+        key = _key_cell(tab, config, spec, faq, tpl, stage.table, fields, "stage", True,
+                        spec.stage_load_strategy)
+        if key is not None:
+            cells["TGT_PRIMARY_KEY"] = key
+        elif key_columns and not _key_input(tpl):
             # Unknown (no Primary Key cell) stays blank and open (Chunk A).
             cells["TGT_PRIMARY_KEY"] = _cell(",".join(key_columns), "from_sttm",
                                              "the detail table's Primary Key cells (Stage band)")
@@ -1667,7 +1705,17 @@ def _stg_std_row(tab, feed, config, spec, faq, tpl, profile, group: _TableGroup,
         cells["TGT_LOAD_OPTION"] = _load_option_cell(spec.standard_load_strategy, "STD")
     key_columns = _primary_key(fields, "standard")
     unknown = tpl.family_conventions.stgdelta_unknown_primary_key
-    if key_columns:
+    detail = stage is not None and stage.table == spec.detail_segment.stage_table.table
+    key = _key_cell(tab, config, spec, faq, tpl, standard.table, fields, "standard", detail,
+                    spec.standard_load_strategy)
+    if key is not None:
+        cells["TGT_PRIMARY_KEY"] = key
+    elif _key_input(tpl):
+        if unknown:
+            cells["TGT_PRIMARY_KEY"] = _cell(
+                unknown, "synthetic", "template constant — no key signal for the table; "
+                f"family convention ({_family_citation(tpl)})")
+    elif key_columns:
         cells["TGT_PRIMARY_KEY"] = _cell(",".join(key_columns), "from_sttm",
                                          "the table's Primary Key cells (Standard band)")
     elif unknown:

@@ -87,3 +87,52 @@ with `tools/iig_diff.py --golden-structure`.
   a `{token}` is an agent proposal, a literal one a profile default).
 - Still open: the team's naming standard itself (the attach-a-document path
   is deferred).
+
+## 4. PHI masking — v1 masked from the FAQ, the framework path has no equivalent (2026-10-18, for Aruna)
+
+- v1 notebook (the standalone module tree): a `masking` module masks the PHI
+  columns (the STTM's PII / PHI flags, the FAQ's answers) to the last
+  `masking.visible_chars` characters before anything is written.
+- v2 notebook (post69, acfc_prx) renders only what the IIG states, and no IIG
+  sheet has a PHI / masking cell. So v2 has no masking cell. The framework's
+  generic notebooks have none we know of either.
+- Question for Aruna: does the framework mask PHI anywhere, for example a
+  DATA_QUALITY_RULES class, a view or a column tag? If it does, which IIG cell
+  states it? Until that is answered, v2 writes the columns as they arrive, the
+  same as the framework path.
+
+## 5. The not-null list used as a key — v1 and iig_v1 only (2026-10-18)
+
+- The STTM contract now carries two lists: `load_rules.not_null_columns` (the
+  required columns) and `load_rules.natural_key` (the Primary Key / Key cells).
+  The not-null list is never a key.
+- iig_v2 (acfc_prx) proposes TGT_PRIMARY_KEY only from an explicit key signal
+  (`codegen.primary_key`). A merge load with no signal gets a blocking QUESTION.
+- Left as they were: the v1 notebook still merges and dedups on the not-null
+  list (its MERGE keys, rejects and generated tests), and iig_v1 (the SFMC 7-tab,
+  byte for byte) writes the not-null list as TGT_PRIMARY_KEY and the dedup keys.
+  Both are now named `not_null_columns` in the code. Moving them to the
+  explicit key changes their outputs and is a separate decision.
+- Also unchanged: iig_v2's DeDuplicationRule / NullCheckRule SOURCE_COLUMN is
+  still the detail table's Primary Key cells plus the not-null columns.
+
+## 6. SCHEMA_DRIFT_FLAG — Y by default on a new delimited feed? (2026-10-18, for Aruna)
+
+| Golden sheet | Header |
+| --- | --- |
+| `ADLS_DELTA_INGESTION_DETAILS` | `SCHEMA_DRIFT_FLAG` |
+
+- **Now (post70):** the ACFC overlay writes `Y` (`family_conventions.schema_drift_flag`),
+  as the SD golden does. A feed whose golden says `N` sets
+  `feed_overrides.<feed_id>.schema_drift_flag: N` in the ACFC-side overlay. With `Y`,
+  the v2 notebook adds a drift check before the stage: a missing column stops the
+  run, extra columns are counted.
+- **The sources disagree:**
+  - `Y`: the SD test-cells sheet and the reported CAQH IIG.
+  - `N`: the SD PROD rows read in round 6 (2026-10-13), the SFMC reference IIG and
+    the pair-1 golden.
+- **Questions for Aruna:**
+  1. Does the framework expect `SCHEMA_DRIFT_FLAG = Y` on a new delimited feed by
+     default?
+  2. What does `Y` change in the generic notebook? Does a missing column fail the
+     file? Is an extra column dropped, loaded or quarantined? Is the schema evolved?

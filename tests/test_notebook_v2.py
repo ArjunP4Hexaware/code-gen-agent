@@ -27,6 +27,8 @@ PROFILE = {"conventions_profile": "acfc_prx", "iig_template": "iig_v2"}
 
 
 def _run(config, pairs, parts=("notebook",), **kw) -> int:
+    # post70: the SFMC-shaped feeds' merge key, typed as the BSA answers it
+    kw.setdefault("answers_path", fx.key_answers(Path(config.output.dir).parent))
     return cli._run_pairs(list(pairs), config, dry_run=True, skip_tests=True,
                           output_mode=list(parts), only_feed=kw.pop("only_feed", None),
                           **PROFILE, **kw)
@@ -176,9 +178,17 @@ def test_the_cell_layout(tmp_path):
     (ipynb,) = _notebooks(tmp_path / "out")
     cells = _cells(ipynb)
     ids = [c["id"] for c in cells]
-    assert ids[:9] == ["title", "config", "read", "read-provenance", "stage",
-                       "stage-provenance", "standard", "standard-provenance", "dq"]
-    assert ids[-2:] == ["run", "review-candidates"] or ids[-1] == "run"
+    sources = _config_values(ipynb)["SOURCES"]
+    # post70: drift / recycle only where the IIG states them; the run report last
+    drift = ["drift", "drift-provenance"] if any(s["schema_drift"] for s in sources) else []
+    recycle = ["recycle", "recycle-provenance"] if any(s["recycle"] for s in sources) else []
+    assert recycle                  # the SFMC IIG row: RECYCL_ENBL_FLG = Y
+    assert ids[:9 + len(drift) + len(recycle)] == [
+        "title", "config", "read", "read-provenance", *drift, "stage", "stage-provenance",
+        *recycle, "standard", "standard-provenance", "dq"]
+    tail = ids[ids.index("run"):]
+    assert tail in (["run", "run-report", "run-report-provenance"],
+                    ["run", "review-candidates", "run-report", "run-report-provenance"])
     assert "dq-provenance" in ids
     title = "".join(cells[0]["source"])
     assert ("Standalone equivalent of the framework's generic notebooks for this IIG; "
@@ -191,7 +201,8 @@ def test_the_cell_layout(tmp_path):
     read = "".join(cells[2]["source"])
     assert "DRY_RUN_ROWS" in read and "limit(DRY_RUN_ROWS)" in read
     assert '"_dryrun"' in config_cell and "if not DRY_RUN:" in run
-    for prov in ("read-provenance", "stage-provenance", "standard-provenance", "dq-provenance"):
+    for prov in ("read-provenance", "stage-provenance", "standard-provenance", "dq-provenance",
+                 "recycle-provenance", "run-report-provenance"):
         text = "".join(cells[ids.index(prov)]["source"])
         assert "row" in text and "| Cell | Badge | From |" in text
 
@@ -205,7 +216,7 @@ def test_review_candidates_are_markdown_and_omitted_when_empty(tmp_path):
         assert review[0]["cell_type"] == "markdown"
         assert "Not executable" in "".join(review[0]["source"])
     context = {"candidates": [], "missing_rules": [], "provenance": {
-        k: [] for k in ("read", "stage", "standard", "dq")}}
+        k: [] for k in ("read", "stage", "standard", "dq", "drift", "recycle", "run-report")}}
     cells_without = [c for c in notebook_v2.render_cells({**_context(tmp_path), **context})
                      if c.cell_id == "review-candidates"]
     assert cells_without == []
@@ -283,7 +294,8 @@ def test_the_default_profile_keeps_v1(tmp_path):
     config = fx.acfc_config(tmp_path)
     code = cli._run_pairs([fx.sfmc_pair()], config, dry_run=True, skip_tests=True,
                           output_mode=["notebook"], only_feed=None,
-                          conventions_profile="edo_sfmc", iig_template="iig_v2")
+                          conventions_profile="edo_sfmc", iig_template="iig_v2",
+                          answers_path=fx.key_answers(tmp_path))
     assert code == cli.EXIT_OK
     assert _notebooks(tmp_path / "out") == []
     assert list((tmp_path / "out").rglob("pipeline/feed_spec.py"))       # the v1 tree
@@ -345,11 +357,18 @@ def test_the_parity_tool_reports_v1_against_v2(tmp_path, capsys):
     frd, sttm = fx.sfmc_pair()
     assert notebook_parity.main(["--frd", str(frd), "--sttm", str(sttm),
                                  "--overlay", str(fx.ACFC_OVERLAY),
+                                 "--answers", str(fx.key_answers(tmp_path)),
                                  "--out", str(tmp_path / "parity")]) == 0
     out = capsys.readouterr().out
     assert "generate (v1) exit 0" in out and "generate (v2) exit 0" in out
     assert "== sfmc_email_campaign_tracking" in out
     assert "   cells: v1 " in out and "   v1 only: " in out
     assert "   DELIMITER            same" in out
+    # post70: v1's stages an IIG cell drives are IIG-driven, not "only v1"
+    assert "recycle (RECYCL_ENBL_FLG = Y: in v2)" in out
+    assert "schema drift check (SCHEMA_DRIFT_FLAG = Y: in v2)" in out
+    assert "run report (always" in out
+    assert "   v1 only: PHI masking (no IIG cell, docs/acfc/OPEN_QUESTIONS.md" in out
+    assert "FILE_NAME_PATTERNS   expected: v2 writes the IIG's SRC_FILE_NAME" in out
     # values only with --show-values: no constant line carries "v1 <value> | v2 <value>"
     assert not re.search(r"^   [A-Z_]+ +[a-z].*: v1 .* \| v2 ", out, re.M)

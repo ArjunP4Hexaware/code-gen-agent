@@ -148,6 +148,11 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
         item = by_key.get(name)
         out.append(_with_choice(OwedInput(feed_key(spec.feed_id, name), question,
                                           spec.feed_id), item, spec, profile, tpl, faq))
+    # post70: TGT_PRIMARY_KEY proposed from an explicit key signal, not chosen
+    out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), KEY_QUESTION, spec.feed_id),
+                         r, spec, profile, tpl, faq)
+            for r in resolved or [] if r.key == "primary_key" and r.source == "blank"
+            and not r.chosen and r.proposal.value]
     # post61: the feed's profile defaults written (notebook names, the
     # SRC_FILE_NAME style) — shown as changeable, not open
     out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), _PROFILE_QUESTIONS.get(
@@ -155,6 +160,8 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
         for r in resolved or [] if r.applied and not _is_run_key(r.key, tpl)]
     return out
 
+
+KEY_QUESTION = "the detail table's key (TGT_PRIMARY_KEY)"
 
 # post61: what a feed-level profile default is (its NOTE line / the panel)
 _PROFILE_QUESTIONS = {

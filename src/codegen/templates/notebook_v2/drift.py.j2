@@ -1,0 +1,40 @@
+def check_drift(paths: list[str], source: dict) -> None:
+    """SCHEMA_DRIFT_FLAG = Y: each file against the IIG before anything is
+{% if fixed_width %}
+    written — a detail record shorter than the layout (the last COL's start_ind
+    + LEN - 1) is a missing column: the run stops.
+{% else %}
+    written — the header's names (HEADER_FLAG = Y; else the first record's field
+    count) against SRC_COLUMNS. A missing column stops the run; extra columns are
+    counted and not loaded.
+{% endif %}
+    """
+{% if fixed_width %}
+    del source  # one layout per handler row
+    detail = next(segment for segment in SEGMENTS if segment["detail"])
+    width = max(start + length - 1 for _name, start, length in detail["columns"])
+    lines = spark.read.text(paths).withColumn("_source_file", F.col("_metadata.file_path"))
+    if detail["filter"]:
+        lines = lines.filter(F.expr(detail["filter"]))
+    short = lines.filter(F.length("value") < width).groupBy("_source_file").count().collect()
+    for found in short:
+        tally("drift: records missing columns", found["_source_file"], found["count"])
+    if short:
+        raise RuntimeError(f"schema drift: detail records shorter than {width} characters")
+{% else %}
+    expected = [name for name, _stage in source["src_columns"]]
+    for path in paths:
+        first = spark.read.text(path).first()
+        fields = (first["value"] if first else "").split(source["delimiter"])
+        if source["header"]:
+            actual = [name.strip().strip('"') for name in fields]
+            missing = [name for name in expected if name not in actual]
+            extra = [name for name in actual if name not in expected]
+        else:
+            missing = expected[len(fields):]
+            extra = fields[len(expected):]
+        tally("drift: missing columns", path, len(missing))
+        tally("drift: extra columns", path, len(extra))
+        if missing:
+            raise RuntimeError(f"schema drift in {path}: missing {missing}")
+{% endif %}

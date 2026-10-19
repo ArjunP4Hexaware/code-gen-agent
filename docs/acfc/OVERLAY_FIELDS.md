@@ -29,6 +29,7 @@ under `metadata.templates.iig_v2.`
 | `email_status_default` | The `EMAIL_TEMPLATE_CONFIG` status set written for `run.email_statuses` when the run gives no answer (a subset of `template_rows.EMAIL_TEMPLATE_CONFIG`, in that order). post61: a profile default — written unanswered (no gate flag), listed as changeable (`choice: naming_standard` + `standard:`, or the App). Blank = every template row. |
 | `feed_overrides.<feed_id>.email_statuses` | That feed's status set; wins over the default and the run's answer for that feed. |
 | `feed_overrides.<feed_id>.src_file_name` | That feed's ADLS `SRC_FILE_NAME` style (below); wins over `family_conventions.src_file_name`. |
+| `feed_overrides.<feed_id>.schema_drift_flag` | post70: that feed's ADLS `SCHEMA_DRIFT_FLAG` (`Y` / `N`); wins over `family_conventions.schema_drift_flag` (the ACFC overlay's default is `Y`). Set `N` where the feed's golden says N. |
 | `family_conventions.src_file_name` | The profile's `SRC_FILE_NAME` style: `pattern` (the file pattern as stated), `prefix_star` (the suffix wildcard: name prefix + `*`), `prefix_middle` (leading and middle wildcards: `*` + the name core + `*` + the extension — the leading date-token segments and everything from the first wildcard on dropped). |
 
 `<feed_id>` is the run's feed id (`normalize_feed_name` of the FRD feed name; the

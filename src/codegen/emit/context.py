@@ -458,8 +458,10 @@ def build_context(
     # (segment, field name), flagging any key it drops); a key column a
     # hand-built spec names outside it has no Detail source to sample.
     detail_fields_by_stage = {f.stage_column: f.source_column for f in spec.detail_segment.fields}
+    # post70: the v1 pipeline keys its MERGE / rejects / tests on the not-null
+    # list as it always did (docs/acfc/OPEN_QUESTIONS.md) — now named as such.
     detail_natural_key_source_columns = [
-        detail_fields_by_stage[stage_column] for stage_column in spec.natural_key_columns
+        detail_fields_by_stage[stage_column] for stage_column in spec.not_null_columns
         if stage_column in detail_fields_by_stage
     ]
 
@@ -663,7 +665,7 @@ def build_context(
         # True only when the contract declares a FILE_TYPE audit column
         # (segmented-extraction feeds); flat feeds render byte-identically.
         "has_file_type_audit": any(a.column == "FILE_TYPE" for a in spec.audit_columns),
-        "natural_key": spec.natural_key_columns,
+        "natural_key": spec.not_null_columns,
         "phi_columns": spec.phi_columns,
         "errors_table": spec.errors_table.table,
         "processed_files_table": spec.processed_files_table.table,

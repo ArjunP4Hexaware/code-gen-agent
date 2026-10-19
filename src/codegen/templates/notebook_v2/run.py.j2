@@ -6,13 +6,30 @@ for source in SOURCES:
     if not files:
         print(f"{source['file_pattern']}: no file to load")
         continue
+{% if drift %}
+    if source["schema_drift"]:
+        check_drift(files, source)
+{% endif %}
 {% if fixed_width %}
     frames = read_fixed_width(files)
 {% else %}
     frames = {DETAIL_SEGMENT: read_delimited(files, source)}
 {% endif %}
+    tally("read", source["file_pattern"], frames[DETAIL_SEGMENT].count())
+{% if recycle %}
+    backlog = recycle_backlog(source) if source["recycle"] else None
+    if backlog is not None:
+        tally("recycle: retried from earlier runs", recycle_table(source), backlog.count())
+        frames[DETAIL_SEGMENT] = frames[DETAIL_SEGMENT].unionByName(
+            backlog, allowMissingColumns=True
+        )
+{% endif %}
     detail, rejected = split_mandatory(frames[DETAIL_SEGMENT], source["mandatory"])
     write_rejects(rejected, source)
+{% if recycle %}
+    if source["recycle"]:
+        keep_for_recycle(rejected, source)
+{% endif %}
     frames[DETAIL_SEGMENT] = detail
     frames, separate = apply_stage_rules(frames, source)
 {% if fixed_width %}

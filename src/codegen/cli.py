@@ -872,6 +872,31 @@ def _lob_question(spec, say=print):
                         list(spec.lobs), "gaps", files=list(spec.lob_unkeyed))
 
 
+def _key_question(spec, config: Config, faq, output_mode, iig_template, conventions_profile,
+                  say=print):
+    """post70: the feed's ONE blocking key question (codegen.primary_key) — a
+    merge load whose detail table no explicit key signal names: printed as a
+    QUESTION, returned as an answers-template item under ``inputs`` whose
+    candidates are the not-null columns (none selected)."""
+    from codegen import primary_key
+    from codegen.layout.answers_template import TemplateItem
+    from codegen.owed_inputs import _template, feed_key
+
+    tpl = _template(config, output_mode, iig_template)
+    if tpl is None or not primary_key.enabled(tpl):
+        return None
+    profile = config.conventions.get(conventions_profile)
+    asked = primary_key.question(
+        spec, faq, primary_key.corpus_keys(list(profile.pipeline_name_corpus), Path(".")))
+    if asked is None:
+        return None
+    reason, candidates = asked
+    key = feed_key(spec.feed_id, primary_key.KEY)
+    say(answer_line("QUESTION", key, f"{reason} (feed {spec.feed_id}; type the columns under "
+                                     f"inputs.feeds.{spec.feed_id}: {primary_key.KEY})"))
+    return TemplateItem(key, f"{reason} (feed {spec.feed_id})", candidates, "inputs")
+
+
 def _answers_gaps(path: Path | None) -> dict[str, str]:
     """``generate --answers``: the answers file's ``gaps:`` values as text
     (the LOB lookup's ``feeds[<i>].lob_by_file``)."""

@@ -28,6 +28,7 @@ def write_table(df: DataFrame, target: str, row: dict) -> None:
         condition = " AND ".join(f"t.{key} = s.{key}" for key in row["primary_key"])
         merge = DeltaTable.forName(spark, target).alias("t").merge(df.alias("s"), condition)
         merge.whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+        tally(f"written ({row['load_option']})", target, df.count())
         return
 {% endif %}
     if option not in ("overwrite", "append"):
@@ -39,11 +40,12 @@ def write_table(df: DataFrame, target: str, row: dict) -> None:
             where = f"{row['partition_column']} = '{row['partition_value']}'"
             writer = writer.option("replaceWhere", where)
     writer.saveAsTable(target)
+    tally(f"written ({row['load_option']})", target, df.count())
 
 
 def stage_frame(df: DataFrame, source: dict) -> DataFrame:
     """The detail records with the audit columns, in TGT_COLUMN_NAMES order."""
-    df = with_audit(df, source, AUDIT_COLUMNS)
+    df = with_audit(df.drop("_recycled_at"), source, AUDIT_COLUMNS)
     return df.select(*source["target_columns"]) if source["target_columns"] else df
 
 

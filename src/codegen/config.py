@@ -1562,6 +1562,9 @@ class FeedOverrideConfig(BaseModel):
 
     email_statuses: list[str] | None = None
     src_file_name: Literal["pattern", "prefix_star", "prefix_middle"] | None = None
+    # post70: the ADLS SCHEMA_DRIFT_FLAG for this feed (a golden that says N where
+    # the family default is Y, or the other way round); None = the family's.
+    schema_drift_flag: Literal["Y", "N"] | None = None
 
 
 class RunEnvironment(BaseModel):
@@ -1673,6 +1676,12 @@ class MetadataTemplateConfig(BaseModel):
     # segment without it gets it prepended (NOTE). "" = paths as written.
     notebook_path_prefix: str = ""
     owed_cells: dict[str, dict[str, OwedCellConfig]] = Field(default_factory=dict)
+    # post70 (codegen.primary_key): TGT_PRIMARY_KEY is an agent proposal from an
+    # explicit key signal (STTM Primary Key cells, an FRD key statement, the FAQ's
+    # natural_key_columns, a corpus row), written only when chosen; no signal on a
+    # merge load = a blocking QUESTION feeds.<feed>.primary_key. False = the
+    # table's own Primary Key cells written as before.
+    primary_key_input: bool = False
     # 2026-10-14: cells filled from the run's environment ({tab: {header: ref}},
     # refs containers.<layer> / storage_account / values.<name>) — each with an
     # iig_env NOTE (codegen.environments). ``environment`` is set at run time.

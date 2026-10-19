@@ -88,17 +88,19 @@ def test_rec_type_in_every_segment_resolves_the_detail_key_to_the_detail_column(
             if f.source_column == "REC_TYPE"] == [
         ("Header", "REC_TYP_HDR"), ("Detail", "REC_TYP_DTL"), ("Trailer", "REC_TYP_TRLR")]
     assert "REC_TYPE" in contract.feeds[0].load_rules.not_null_columns
-    # The Detail key resolves inside the Detail segment, never across segments.
-    assert "REC_TYP_DTL" in spec.natural_key_columns
-    assert not {"REC_TYP_HDR", "REC_TYP_TRLR"} & set(spec.natural_key_columns)
-    assert spec.not_null_columns == spec.natural_key_columns
+    # The Detail not-null list resolves inside the Detail segment, never across
+    # segments. post70: it is not the natural key (no Primary Key cell marks one).
+    assert "REC_TYP_DTL" in spec.not_null_columns
+    assert not {"REC_TYP_HDR", "REC_TYP_TRLR"} & set(spec.not_null_columns)
+    assert spec.natural_key_columns == []
     # Resolved by its own segment: no key was dropped, so no flag.
     assert not [f for f in spec.provenance_flags if f.startswith("key_column_not_in_table")]
     # The emitter (the first run's KeyError: 'REC_TYP_TRLR') now renders, the
     # sample key column being the Detail record's own source field.
     context = _context(spec, config)
     assert "REC_TYPE" in context["detail_natural_key_source_columns"]
-    assert context["natural_key"] == spec.natural_key_columns
+    # post70: the v1 pipeline keys on the not-null list (docs/acfc/OPEN_QUESTIONS.md §5)
+    assert context["natural_key"] == spec.not_null_columns
 
 
 def _field(name: str, column: str, segment: str, *, key: bool) -> SttmField:

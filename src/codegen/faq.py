@@ -135,6 +135,10 @@ class LoadPatternFaq(BaseModel):
     pipeline_name_master: FaqAnswer = FaqAnswer(value="unknown")
     pipeline_name_file_to_stg: FaqAnswer = FaqAnswer(value="unknown")
     pipeline_name_stg_to_std: FaqAnswer = FaqAnswer(value="unknown")
+    # post70: TGT_PRIMARY_KEY (codegen.primary_key) — an agent proposal from an
+    # explicit key signal, written only when chosen; or the BSA's typed columns
+    # (inputs.feeds.<feed>: primary_key)
+    primary_key: FaqAnswer = FaqAnswer(value="unknown")
     # post61: profile defaults the BSA may change (codegen.input_choices,
     # inputs.feeds.<feed>): the notebook NAME per leg and the ADLS SRC_FILE_NAME
     # style (pattern | prefix_star | prefix_middle) — unanswered = the profile's

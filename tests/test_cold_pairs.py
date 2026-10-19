@@ -87,7 +87,7 @@ def _chain(pair: str, tmp: Path, capsys, answers: Path | None = None) -> dict:
     stages["generate"] = (_run(capsys, [
         "generate", "--frd-contract", str(frd_out), "--sttm-contract", str(sttm_out),
         "--dry-run", "--skip-tests", "--output-mode", "framework", "--profile", "acfc_prx",
-        "--iig-template", "iig_v2"]) if sttm_out.exists() else None)
+        "--iig-template", "iig_v2", *extra]) if sttm_out.exists() else None)
     return stages
 
 
@@ -155,7 +155,8 @@ def test_cold_pair_completes_after_the_answers(pair, cold_env, capsys):
     # INPUT_PARAM shapes — every one an INPUT_NEEDED, never a QUESTION
     owed = (".active_start_date — ", ".application_name — ", ".email_to — ",
             ".pipeline_name.",              # framework owner's rule 1: BSA, per flow
-            ".email_statuses — ")
+            ".email_statuses — ",
+            ".primary_key — ")              # post70: a key proposal, written when chosen
     assert inputs and all(any(k in ln for k in owed) or
                           ln.startswith("INPUT_NEEDED   run.environment") for ln in inputs), out
     verdicts = re.findall(r"^(PASS_WITH_FLAGS|PASS|FAIL)\s", out, re.MULTILINE)

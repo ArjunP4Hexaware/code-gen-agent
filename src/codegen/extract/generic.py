@@ -1093,6 +1093,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                                catalog=standard_catalog) if has_standard else None),
             load_rules=LoadRules(
                 not_null_columns=_rule_columns(fields, segmented, lambda f: not f.nullable),
+                natural_key=_rule_columns(fields, segmented, lambda f: f.primary_key),
                 mandatory_columns=_rule_columns(fields, segmented, lambda f: f.mandatory),
                 phi_columns=_rule_columns(fields, segmented, lambda f: f.phi),
                 recycle=_recycle(sheet, config, disc),

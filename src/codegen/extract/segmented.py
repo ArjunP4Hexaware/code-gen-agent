@@ -444,6 +444,7 @@ def extract_segmented_contract(
     # ---- fields: every segment's rows, both layers -------------------------
     fields: list[SttmField] = []
     mandatory_sources: list[str] = []
+    key_sources: list[str] = []          # post70: Primary Key cells only
     phi_sources: list[str] = []
     for segment in segments_found:
         for seg_row in fields_by_segment[segment]:
@@ -455,6 +456,8 @@ def extract_segmented_contract(
             phi = _is_yes(_cell(row, blocks.source.get("pii")))
             if mandatory or primary_key:
                 mandatory_sources.append(field_name)
+            if primary_key and segment == "Detail":
+                key_sources.append(field_name)
             if phi:
                 phi_sources.append(field_name)
             value_parts = [
@@ -586,6 +589,7 @@ def extract_segmented_contract(
         load_rules=LoadRules(
             not_null_columns=list(mandatory_sources),
             mandatory_columns=list(mandatory_sources),
+            natural_key=list(dict.fromkeys(key_sources)),
             phi_columns=phi_sources,
             recycle=recycle,
         ),

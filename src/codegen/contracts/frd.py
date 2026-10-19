@@ -214,6 +214,10 @@ class FrdFeed(BaseModel):
     # distinct codes; the resolver keys each file to ONE row (never the whole
     # table in a cell). Absent from the JSON when empty.
     lob_table: list[dict[str, str]] = Field(default_factory=list)
+    # post70: the Technical Metadata key row as written (Primary Key / Business
+    # Key / Natural Key) — a key SIGNAL (codegen.primary_key), never a value
+    # written as is. Absent from the JSON when the document has none.
+    key_statement: str | None = None
 
     @property
     def is_segmented(self) -> bool:

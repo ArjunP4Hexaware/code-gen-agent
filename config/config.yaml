@@ -360,6 +360,8 @@ extractor:
       filter_criteria: ["Filter Criteria"]
       pii_fields: ["PII Fields"]
       transformation_logic: ["Transformation Logic"]
+      # post70: the key row (codegen.primary_key reads it as a key signal)
+      primary_key: ["Primary Key", "Natural Key", "Business Key"]
       # Data Quality (positional rule rows; the recycle row also feeds recycle_rule)
       recycle_process: ["Record Recycle Process (HARD - In pipeline)"]
       # Vendor

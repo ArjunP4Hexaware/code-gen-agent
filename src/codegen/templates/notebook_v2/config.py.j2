@@ -48,6 +48,11 @@ REJECT_REASON_COLUMN = {{ reject_reason_column | py }}
 # The conventions profile's audit columns present in TGT_COLUMN_NAMES.
 AUDIT_COLUMNS = {{ audit | map(attribute="name") | list | block }}
 
+# The run report (the last cell): one row per step, filled by the run cell.
+FEED_ID = {{ feed.id | py }}
+RUN_REPORT_TABLE = {{ (feed.slug ~ "_run_report") | py }}
+RUN_REPORT: list[dict] = []
+
 # Cells this notebook needs that the IIG leaves open: the run stops here.
 OPEN_CELLS = {{ open_cells | block }}
 if OPEN_CELLS:
@@ -59,6 +64,11 @@ def adls_uri(container: str, path: str) -> str:
     if "://" in path:
         return path
     return f"abfss://{container}@{STORAGE_ACCOUNT}.{_ADLS_HOST}/{path.lstrip('/')}"
+
+
+def tally(step: str, target: str, rows: int) -> None:
+    """One run-report row: ``rows`` at ``step`` for ``target``."""
+    RUN_REPORT.append({"step": step, "target": target, "rows": int(rows)})
 
 
 def table_name(catalog: str, schema: str, table: str) -> str:

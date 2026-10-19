@@ -53,7 +53,10 @@ def rule_null_check(df: DataFrame, columns: list[str], row: dict) -> DataFrame:
 
 def rule_dedup(df: DataFrame, columns: list[str]) -> DataFrame:
     """DeDuplicationRule: one record per value of the columns."""
-    return df.dropDuplicates(columns)
+    kept = df.dropDuplicates(columns)
+    tally("dq DeDuplicationRule: duplicates dropped", ",".join(columns),
+          df.count() - kept.count())
+    return kept
 {% endif %}
 {% if "add_custom_columns" in kinds %}
 

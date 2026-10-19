@@ -231,11 +231,9 @@ def flow_tokens(base: dict[str, str], spec, profile, flow: str) -> dict[str, str
 _CORPUS_CACHE: dict[tuple, frozenset[str]] = {}
 
 
-def corpus_pipeline_names(paths: list[str], base: Path | None = None) -> frozenset[str]:
-    """Every PIPELINE_NAME (case-folded) in the loaded goldens / corpus: each
-    path a folder (its ``*.xlsx``, read recursively), an ``.xlsx`` (every sheet
-    with a PIPELINE_NAME header) or a ``.txt`` (one name per line). Missing
-    paths contribute nothing. Cached per file state."""
+def _corpus_files(paths: list[str], base: Path | None = None) -> list[Path]:
+    """The corpus files ``paths`` name: a folder's ``*.xlsx`` / ``*.txt``
+    (recursively), a file itself; missing paths contribute nothing."""
     files: list[Path] = []
     for raw in paths:
         path = Path(raw)
@@ -245,6 +243,15 @@ def corpus_pipeline_names(paths: list[str], base: Path | None = None) -> frozens
             files += sorted(p for p in path.rglob("*") if p.suffix.lower() in (".xlsx", ".txt"))
         elif path.is_file():
             files.append(path)
+    return files
+
+
+def corpus_pipeline_names(paths: list[str], base: Path | None = None) -> frozenset[str]:
+    """Every PIPELINE_NAME (case-folded) in the loaded goldens / corpus: each
+    path a folder (its ``*.xlsx``, read recursively), an ``.xlsx`` (every sheet
+    with a PIPELINE_NAME header) or a ``.txt`` (one name per line). Missing
+    paths contribute nothing. Cached per file state."""
+    files = _corpus_files(paths, base)
     stamp = tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in files)
     if stamp in _CORPUS_CACHE:
         return _CORPUS_CACHE[stamp]
@@ -300,6 +307,7 @@ class Defaulted:
     kind: str = AGENT_PROPOSAL     # post61: profile_default | agent_proposal
     leg: str = ""      # a notebook NAME's flow (file_to_stg / stg_to_std)
     style: bool = False            # the ADLS SRC_FILE_NAME style
+    pk: bool = False               # post70: TGT_PRIMARY_KEY (codegen.primary_key)
 
 
 def _notebook_legs(tpl) -> list[str]:
@@ -346,7 +354,26 @@ def defaulted_inputs(tpl) -> list[Defaulted]:
         out.setdefault(SRC_FILE_NAME_STYLE, Defaulted(
             SRC_FILE_NAME_STYLE, SRC_FILE_NAME_STYLE, "feed", tpl.family_conventions,
             kind=PROFILE_DEFAULT, style=True))
+    from codegen import primary_key
+
+    if primary_key.enabled(tpl):
+        out.setdefault(primary_key.KEY, Defaulted(primary_key.KEY, primary_key.KEY, "feed",
+                                                  None, kind=AGENT_PROPOSAL, pk=True))
     return list(out.values())
+
+
+def _key_proposal(spec, faq, profile, base: Path | None) -> Proposal:
+    """post70: the feed's TGT_PRIMARY_KEY proposal — an explicit key signal
+    only (codegen.primary_key); none = refused, never the not-null list."""
+    from codegen import primary_key
+
+    corpus = primary_key.corpus_keys(list(getattr(profile, "pipeline_name_corpus", []) or []),
+                                     base)
+    offer = primary_key.feed_proposal(spec, faq, corpus)
+    if not offer:
+        return Proposal(refused="no explicit key signal (no Primary Key cell, FRD key "
+                                "statement, FAQ natural_key_columns or corpus row)")
+    return Proposal(offer.value, offer.source)
 
 
 def _notebook_proposal(item: Defaulted, spec, tpl, config) -> Proposal:
@@ -385,7 +412,7 @@ def _style_proposal(spec, tpl) -> Proposal:
 
 
 def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
-             taken: frozenset[str], config=None) -> Proposal:
+             taken: frozenset[str], config=None, faq=None, base: Path | None = None) -> Proposal:
     """What use_default would write for ``item`` of ``spec``."""
     from codegen.config import is_placeholder
     from codegen.metadata_template import (
@@ -396,6 +423,8 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
 
     if item.leg:
         return _notebook_proposal(item, spec, tpl, config)
+    if item.pk:
+        return _key_proposal(spec, faq, profile, base)
     if item.style:
         return _style_proposal(spec, tpl)
     if item.statuses:
@@ -445,7 +474,7 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
     for item in items:
         prefixes = (["run."] if item.scope == "run"
                     else [f"feeds.{spec.feed_id}.", f"feeds[{index}]."])
-        offer = proposal(item, spec, profile, tpl, tokens, taken, config)
+        offer = proposal(item, spec, profile, tpl, tokens, taken, config, faq, base)
         typed = _first(inputs, [p + item.key for p in prefixes])
         if typed is not None and str(typed).strip():
             out.append(Resolved(item.name, item.key, "answer", True, str(typed).strip(),
@@ -454,6 +483,8 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
         own = _first(choices, [p + item.key for p in prefixes])
         shared = (_first(choices, [p + item.rule.faq for p in prefixes]) if item.flow
                   else None)
+        if item.pk and offer.refused and own is None and shared is None:
+            continue           # post70: no signal — the blocking QUESTION asks instead
         choice = own or shared
         if item.kind == PROFILE_DEFAULT and (choice is None or choice.choice == "use_default"):
             # post61: a profile default — written unanswered, no gate flag (the
@@ -480,7 +511,8 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
         else:
             template = choice.standard or (shared.standard if shared is not None else "")
             values = flow_tokens(tokens, spec, profile, item.flow) if item.flow else tokens
-            value = (render(template, {**tpl.corpus_tokens, **values}, name=bool(item.flow),
+            value = (render(template, {**tpl.corpus_tokens, **values},
+                            name=bool(item.flow) and not item.pk,
                             case=profile.pipeline_name_case) if template else "")
             if value:
                 clash = bool(item.flow) and value.casefold() in taken

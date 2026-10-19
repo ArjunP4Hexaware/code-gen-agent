@@ -119,7 +119,9 @@ class ResolvedFeedSpec(BaseModel):
     errors_table: ResolvedTable
     processed_files_table: ResolvedTable
 
-    # Load semantics. natural_key_columns MAY be empty: a feed whose FRD
+    # Load semantics. post70: natural_key_columns = an EXPLICIT key signal only
+    # (the STTM's Primary Key cells); not_null_columns = the required columns —
+    # never the same list by construction. natural_key_columns MAY be empty: a feed whose FRD
     # states Primary/Unique/Business Key = None with STG Truncate-and-Load +
     # STD Append has no MERGE key by design (CAQH 1005034 Technical Metadata).
     natural_key_columns: list[str]
@@ -173,6 +175,9 @@ class ResolvedFeedSpec(BaseModel):
     # (``feeds[<i>].lob_by_file`` — a blocking QUESTION). Empty / None otherwise.
     lob_unkeyed: list[str] = Field(default_factory=list)
     lob_question_key: str | None = None
+    # post70: the FRD's key statement (FrdFeed.key_statement) — one of the
+    # explicit key signals codegen.primary_key reads; None = the FRD states none.
+    frd_key_statement: str | None = None
 
     @property
     def is_segmented(self) -> bool:

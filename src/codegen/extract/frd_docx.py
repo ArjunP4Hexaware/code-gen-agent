@@ -71,6 +71,7 @@ _SCALAR_FIELDS = {
     "source_data_dictionary": "sttm_reference",
     "pii_fields": "phi_pii_notes",
     "recycle_process": "recycle_rule",
+    "primary_key": "key_statement",          # post70: a key signal
 }
 _FALLBACK_FIELDS = {          # used only when the primary label is blank/absent
     "name": "feed_name",
@@ -1195,6 +1196,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
             history_backfill=None,
             archive_retention=get(f"{prefix}.archive_retention") or None,
             phi_pii_notes=get(f"{prefix}.phi_pii_notes") or None,
+            key_statement=get(f"{prefix}.key_statement") or None,
             sttm_reference=get(f"{prefix}.sttm_reference") or None,
             requirement_ids=_split(get(f"{prefix}.requirement_ids"), frd_config.list_separators),
             frequency_mentions=mentions,

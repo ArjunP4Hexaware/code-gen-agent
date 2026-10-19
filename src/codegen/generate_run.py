@@ -125,7 +125,7 @@ class GenerateRun:
         kept in :attr:`errors` and the run goes on (the App)."""
         from codegen import input_choices as choices_mod
         from codegen import owed_inputs as owed_mod
-        from codegen.cli import _input_choices, _lob_question
+        from codegen.cli import _input_choices, _key_question, _lob_question
         from codegen.emit.context import TemplateGapError
         from codegen.faq import faq_for_spec, with_faq_answers
 
@@ -164,6 +164,15 @@ class GenerateRun:
             if lob_item is not None:
                 self.template_items.append(lob_item)
                 self.open_items.append(run_stages.open_item("QUESTION", lob_item.key,
+                                                            feed=spec.feed_id))
+            # post70: a merge load with no key signal — ONE blocking question
+            key_item = _key_question(
+                spec, config, with_faq_answers(faq_for_spec(spec, config, base_dir=self.base),
+                                               faq_answers),
+                self.output_mode, self.iig_template, self.conventions_profile, say=self.say)
+            if key_item is not None:
+                self.template_items.append(key_item)
+                self.open_items.append(run_stages.open_item("QUESTION", key_item.key,
                                                             feed=spec.feed_id))
             self._notebook_environment(spec)
         except TemplateGapError as exc:

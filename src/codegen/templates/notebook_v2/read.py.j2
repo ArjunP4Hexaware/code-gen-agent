@@ -81,4 +81,6 @@ def write_rejects(rejected: DataFrame | None, source: dict) -> None:
     if rejected is None:
         return
     path = source["reject_path"].rstrip("/") + (DRY_RUN_SUFFIX if DRY_RUN else "")
+    rejected = rejected.drop("_recycled_at")
     rejected.write.format("delta").mode("append").save(adls_uri(source["reject_container"], path))
+    tally("rejects: MANDATORY_FIELD_LIST / NullCheckRule", path, rejected.count())

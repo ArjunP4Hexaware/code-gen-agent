@@ -226,9 +226,12 @@ def _load_config_rows(feed: FrdFeed, config: Config,
         if not target.tables:
             continue  # stage-only feeds declare no standard target
         faq_keys = ", ".join(getattr(faq, "dedup_keys", []) or [])
+        # post70: iig_v1 (the SFMC 7-tab, byte for byte) keys on the not-null
+        # list as it always did — docs/acfc/OPEN_QUESTIONS.md; iig_v2 proposes a
+        # key only from an explicit signal (codegen.primary_key).
         if layer == "standard" and spec is not None:
             dedup = _cell(
-                ", ".join(spec.natural_key_columns), "from_sttm",
+                ", ".join(spec.not_null_columns), "from_sttm",
                 "the mapping contract's natural key columns",
             )
         elif layer == "standard" and faq_keys:
@@ -419,9 +422,9 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
             ",".join(f.stage_datatype for f in fields), "from_sttm")
         cells["MANDATORY_FIELD_LIST"] = _cell(
             ",".join(spec.not_null_columns), "from_sttm")
-        if spec.natural_key_columns:
+        if spec.not_null_columns:
             cells["TGT_PRIMARY_KEY"] = _cell(
-                ",".join(spec.natural_key_columns), "from_sttm",
+                ",".join(spec.not_null_columns), "from_sttm",
                 "the mapping contract's natural key columns")
         if is_detail:
             cells["TGT_RJT_TABLE_NAME"] = _cell(
@@ -523,9 +526,9 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
             "from_frd" if spec.standard_load_strategy else "synthetic",
             None if spec.standard_load_strategy else _LOAD_STRATEGY_TOOLTIP),
     }
-    if spec.natural_key_columns:
+    if spec.not_null_columns:
         cells["TGT_PRIMARY_KEY"] = _cell(
-            ",".join(spec.natural_key_columns), "from_sttm",
+            ",".join(spec.not_null_columns), "from_sttm",
             "the mapping contract's natural key columns")
     return cells
 

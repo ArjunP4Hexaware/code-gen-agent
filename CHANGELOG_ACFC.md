@@ -4,6 +4,37 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post75 — 2026-10-19 (the leak gate in the repo: codegen.leakgate)
+
+1. **`src/codegen/leakgate.py`** — the one leak gate, ported from the D1 harness's
+   pull_and_run report cell: harvested terms (file names / stems, sheet names, the
+   header cells of rows 1–2, the column-A/B values below), the static denylist loaded
+   BY PATH (`CODEGEN_LEAKGATE_DENYLIST`, else `<state root>/leakgate/denylist_local.txt`
+   — the volume; never in the repo), the filter (> 5 characters, not an English word,
+   not an IIG template sheet / column, not harness vocabulary; static terms never
+   dropped), word-boundary matching for harvested terms and substring for static ones,
+   self-match exclusion (a hit wholly inside the report's own label phrases), per-hit
+   records (file, class, sha256, occurrences, pair index — never the term), `redact`,
+   and the lane (`approved` only with zero real hits AND a clean scrub check, else
+   `held`). The English-word list is wordfreq when installed, else the **repo-token
+   dictionary**: the tracked text files of `src/` (templates included), `ui/` (the
+   built `dist/` excluded) and `docs/`, never `fixtures/`, every file the LEAK_LEDGER
+   baseline lists left out whole and any token whose hash is a ledger hash dropped; no
+   git (D1's workspace) = the same scope walked on disk, `.gitignore` honoured.
+2. **Callers.** `tools/iig_diff.py --export-scrubbed` builds the gate's denylist
+   (`--gate-pairs DIR`, `--gate-denylist FILE`), masks every gate term and passes only
+   when `leakgate.scan` of the written files finds no real hit (else the evidence files
+   are deleted, `rescan` = `gate_<class>` counts); its dictionary is the gate's
+   (`GATE_SCOPE` = src ui docs; post74's fixtures-inclusive guess and the PROVISIONAL
+   header are gone; the `.gitignore` helpers moved into leakgate).
+   `scripts/scrub_check.py`: the gate's static list joins the local term file, the
+   ledger is read by `leakgate.read_ledger`, and `--leak-gate PAIRS_DIR path ...` runs
+   the whole gate (counts only, exit 1 on a real hit). The container runner
+   (`scripts/container_harness.py`, next commit) calls it; its private gate script is
+   deleted. The cluster's pull_and_run notebook still has its own copy.
+3. Tests: `tests/test_leakgate.py` (synthetic), `tests/test_iig_diff_export.py` (+2;
+   three post74 assertions moved to the post75 scope).
+
 ## 0.5.8.post74 — 2026-10-19 (D1 post73 12-pair report: extractor fixes, landing key, export vocabulary, model usage)
 
 From acfc-results `run_20261019T193332Z_fe61bc4` (timestamp 181043Z). Each item has a

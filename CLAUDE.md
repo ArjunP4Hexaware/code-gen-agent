@@ -5,7 +5,14 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-19, after post74).** post74 = the post73 12-pair report's items
+**RESTART HERE (2026-10-19, after post75).** post75 = the leak gate in the repo:
+`codegen.leakgate` (harvest + static denylist BY PATH from `<state root>/leakgate/` on the
+volume + the repo-token dictionary fallback + self-match + hash-only records + the
+approved / held lane). Callers: `tools/iig_diff.py --export-scrubbed --gate-pairs DIR`,
+`scripts/scrub_check.py --leak-gate PAIRS_DIR path ...`, the container runner
+`scripts/container_harness.py`. Client terms never in the repo. Test: `test_leakgate.py`.
+
+**Before post75 (kept for reference) (2026-10-19, after post74).** post74 = the post73 12-pair report's items
 (acfc-results `run_20261019T193332Z_fe61bc4`; `CHANGELOG_ACFC.md` lists all 8), one commit
 each; synthetic reproductions in `tests/post73_pairs.py` (Family E with per-cell
 overrides):

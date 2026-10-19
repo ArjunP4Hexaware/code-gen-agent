@@ -50,7 +50,7 @@ from codegen.resolve.resolver import (
     resolve_pair,
 )
 from codegen.rules.compiler import compile_rules
-from codegen.run_errors import Coord, report_error
+from codegen.run_errors import Coord, report_error, report_usage
 
 
 def _write_candidates_artifact(candidates: list[RuleCandidate], feed_dir: Path) -> Path | None:
@@ -314,6 +314,7 @@ def generate_feed_result(
         print(console_summary(spec, gate))
         for usage in model_usage:
             print(f"{'MODEL USAGE':<15} {usage.stage}: {usage.label}")
+            report_usage(usage)        # post74: the numbers, for the harness report
             if usage.all_failed:
                 print(f"{'WARNING':<15} {all_failed_line(usage)}")
     return FeedResult(gate, outcomes, candidates, written, framework_artefacts, model_usage)
@@ -1462,7 +1463,9 @@ def _layout(args: argparse.Namespace, config: Config) -> int:
             print(f"{'CROSSCHECK':<15} {check}")
         from codegen.reasoning.usage import layout_usage
 
-        print(f"{'MODEL USAGE':<15} layout: {layout_usage(provider).label}")
+        usage = layout_usage(provider)
+        print(f"{'MODEL USAGE':<15} layout: {usage.label}")
+        report_usage(usage)            # post74: the numbers, for the harness report
     if args.profile_out:
         Path(args.profile_out).write_text(
             result.sttm.profile.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")

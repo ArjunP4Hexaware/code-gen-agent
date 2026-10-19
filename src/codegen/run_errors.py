@@ -596,6 +596,101 @@ def coordinate_line(payload: object) -> str:
     return line
 
 
+# ---------------------------------------------------------- model usage (post74)
+
+# D1 post73 pair_11 (556 s): the report had no MODEL USAGE line, so where the
+# time went could not be read. Every "MODEL USAGE" console line is paired with
+# one ``CODEGEN-USAGE {json}`` marker on stderr — the stage (layout | layer2),
+# the provider word and numbers only (calls, requests, seconds, failed,
+# recovered); never a model reply, never a document's text. The harness reads
+# them with :func:`model_usage` / :func:`usage_summary` (STABLE).
+USAGE_MARKER = "CODEGEN-USAGE "
+USAGE_STAGES = ("layout", "layer2")
+USAGE_PROVIDERS = ("databricks_fmapi", "anthropic", "mock", "replay", "none")
+_USAGE_INTS = ("calls", "requests", "failed", "recovered")
+
+
+def _usage_entry(data: object) -> dict | None:
+    """A usage payload kept only when every field validates."""
+    if not isinstance(data, dict) or data.get("stage") not in USAGE_STAGES:
+        return None
+    entry: dict[str, object] = {"stage": data["stage"],
+                                "provider": data.get("provider")
+                                if data.get("provider") in USAGE_PROVIDERS else "none"}
+    for name in _USAGE_INTS:
+        value = data.get(name, 0)
+        entry[name] = value if isinstance(value, int) and not isinstance(value, bool) \
+            and value >= 0 else 0
+    seconds = data.get("seconds", 0)
+    entry["seconds"] = round(float(seconds), 1) if isinstance(seconds, (int, float)) \
+        and not isinstance(seconds, bool) and seconds >= 0 else 0.0
+    return entry
+
+
+def usage_entry(usage: object) -> dict | None:
+    """One stage's usage (a ``StageUsage`` or a dict) as validated numbers."""
+    data = usage if isinstance(usage, dict) else {
+        name: getattr(usage, name, None) for name in ("stage", "provider", "seconds",
+                                                      *_USAGE_INTS)}
+    return _usage_entry(data)
+
+
+def usage_marker(usage: object) -> str | None:
+    """The marker line of one stage's usage (a ``StageUsage`` or a dict)."""
+    entry = usage_entry(usage)
+    return None if entry is None else USAGE_MARKER + json.dumps(entry, sort_keys=True)
+
+
+def report_usage(usage: object, stream=None) -> None:
+    line = usage_marker(usage)
+    if line is not None:
+        print(line, file=stream or sys.stderr, flush=True)
+
+
+def model_usage(stderr: str | bytes | None = "", stdout: str | bytes | None = "") -> list[dict]:
+    """STABLE (post74): every validated ``CODEGEN-USAGE`` marker of one stage's
+    output, in order — whatever its exit code."""
+    out = []
+    for line in (*_text(stderr).splitlines(), *_text(stdout).splitlines()):
+        if line.startswith(USAGE_MARKER):
+            try:
+                entry = _usage_entry(json.loads(line[len(USAGE_MARKER):]))
+            except ValueError:
+                entry = None
+            if entry is not None:
+                out.append(entry)
+    return out
+
+
+def usage_summary(entries: list[dict]) -> str:
+    """STABLE (post74): the per-stage line a report carries — ``layout: 2
+    call(s) in 41.3s (databricks_fmapi); layer2: 20 call(s) in 480.2s over 5
+    feed(s), 1 failed`` — or ``no model call`` when nothing was asked."""
+    totals: dict[str, dict] = {}
+    for entry in (e for e in (_usage_entry(x) for x in entries or []) if e is not None):
+        total = totals.setdefault(entry["stage"], {"calls": 0, "seconds": 0.0, "failed": 0,
+                                                    "feeds": 0, "providers": []})
+        total["calls"] += entry["calls"]
+        total["seconds"] += entry["seconds"]
+        total["failed"] += entry["failed"]
+        total["feeds"] += 1
+        if entry["provider"] not in total["providers"]:
+            total["providers"].append(entry["provider"])
+    parts = []
+    for stage in USAGE_STAGES:
+        if stage not in totals:
+            continue
+        t = totals[stage]
+        text = (f"{stage}: {t['calls']} call(s) in {t['seconds']:.1f}s "
+                f"({', '.join(t['providers'])})")
+        if stage == "layer2":
+            text += f" over {t['feeds']} feed(s)"
+        if t["failed"]:
+            text += f", {t['failed']} failed"
+        parts.append(text)
+    return "; ".join(parts) or "no model call"
+
+
 # -------------------------------------------------------------------- warnings
 
 # path:lineno: SomethingWarning: message   (warnings.formatwarning)
@@ -613,7 +708,8 @@ _ERROR_OPEN = re.compile(r"^(?:Traceback \(most recent call last\)|FAIL\b|ERROR\
 _CLI_LABEL = re.compile(r"^[A-Z][A-Z_]*(?: [A-Z_]+)*\s{2,}\S")
 _LOG_RECORD = re.compile(r"^(?:\d{4}-\d\d-\d\d[ T]\d|(?:DEBUG|INFO|WARNING|ERROR|CRITICAL)"
                          r"(?::|\s))")
-_CODEGEN_LOG = re.compile(r"^(?:codegen \d|config overlays\b|" + re.escape(MARKER.strip()) + ")")
+_CODEGEN_LOG = re.compile(r"^(?:codegen \d|config overlays\b|" + re.escape(MARKER.strip()) + "|"
+                          + re.escape(USAGE_MARKER.strip()) + ")")
 
 
 def is_warning_line(line: str) -> bool:
@@ -721,7 +817,8 @@ def first_error_line_full(returncode: int, stderr: str | bytes | None = "",
     skipped; no such line -> the first non-empty one; none -> ``""``."""
     if not _failed(returncode):
         return None
-    lines = [ln for ln in _lines(stderr, stdout) if not ln.startswith(MARKER)]
+    lines = [ln for ln in _lines(stderr, stdout)
+             if not ln.startswith((MARKER, USAGE_MARKER))]
     return next((ln for ln in lines if _ERROR_OPEN.match(ln.strip())),
                 lines[0] if lines else "")
 
@@ -759,6 +856,8 @@ def silence_pydantic_deprecations() -> None:
 
 
 __all__ = ["CONTRACT_RULES", "DOCS", "MARKER", "MISMATCH_LABELS", "OTHER_TYPE", "REASONS",
+           "USAGE_MARKER", "model_usage", "report_usage", "usage_entry", "usage_marker",
+           "usage_summary",
            "ROLE_WORDS", "STAGES", "TYPE_KEYWORDS", "Coord", "column_number", "error_role",
            "error_type", "role_word", "type_keyword",
            "coordinate_line", "error_coord", "error_counts", "error_marker", "error_reason",

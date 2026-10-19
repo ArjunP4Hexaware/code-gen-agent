@@ -145,13 +145,19 @@ for name in documents:
 
 # DBTITLE 1,Pair by content, resolve the layout, extract, generate
 from codegen.cli import EXIT_FAILED, EXIT_NEEDS_ANSWERS, EXIT_OK  # noqa: E402
-from codegen.run_errors import first_error_line, first_error_line_full  # noqa: E402
+from codegen.run_errors import (  # noqa: E402
+    first_error_line,
+    first_error_line_full,
+    model_usage,
+    usage_summary,
+)
 
 STEPS: dict[str, int] = {}             # step -> codegen exit code (the summary below)
 # D1 post51: two tiers — coordinates only (safe to copy into a report) / quoted
 ERRORS: dict[str, str] = {}            # step -> its first error line, coordinates only
 ERRORS_FULL: dict[str, str] = {}       # step -> the quoted line (stays in this workspace)
 NEEDS_ANSWERS: list[str] = []          # the CLI's QUESTION / UNRESOLVED lines (answer keys)
+USAGE: dict[str, str] = {}             # post74: step -> its MODEL USAGE (calls, seconds)
 
 
 def run(label: str, *args: str) -> int:
@@ -159,6 +165,9 @@ def run(label: str, *args: str) -> int:
     done = launch_codegen(REPO, *args)
     print(done.stdout + (("\nSTDERR:\n" + done.stderr) if done.stderr.strip() else ""))
     STEPS[label] = done.returncode
+    usage = model_usage(done.stderr, done.stdout)
+    if usage:
+        USAGE[label] = usage_summary(usage)
     # D1 post50: the exit code decides (0 PASS / 3 NEEDS_ANSWERS: no error line);
     # a warning on stderr is never the error
     error = first_error_line(done.returncode, done.stderr, done.stdout)
@@ -287,6 +296,8 @@ for step, code in STEPS.items():
           + (f" — first error: {ERRORS[step]}" if ERRORS.get(step) else ""))
     if ERRORS_FULL.get(step):
         print(f"{'':<14}   quoted (this workspace only): {ERRORS_FULL[step]}")
+    if USAGE.get(step):
+        print(f"{'':<14}   model usage: {USAGE[step]}")
 # post58: the pair's outcome — the worst step; generate's from CODEGEN_STAGES.json
 # (PASS_WITH_OPEN_INPUTS: every feed written, lines still open)
 OUTCOME = pair_outcome(STEPS, stores.outputs.workdir)

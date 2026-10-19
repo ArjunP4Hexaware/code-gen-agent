@@ -260,6 +260,10 @@ class Round:
             owed = [k for k in keys if k[0] not in ("NOTE", "INPUT_NEEDED")]
             lines += [f"- `{' '.join(['codegen', *cmd[3:]])}` → exit {done.returncode}",
                       f"  first line: `{_first_line(done.stdout)}`"]
+            # post74: the stage's model calls and seconds (numbers only)
+            usage = run_errors.model_usage(done.stderr, done.stdout)
+            if usage:
+                lines.append(f"  model usage: {run_errors.usage_summary(usage)}")
             lines += [f"  {label} `{key}`" for label, key in keys]
             if name == "generate":
                 # 2026-10-15: the run banner's environment line (name, completeness,

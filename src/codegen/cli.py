@@ -258,6 +258,7 @@ def generate_feed_result(
             written = [*written, *framework_artefacts.files]
     if framework_artefacts is not None:
         extra_flags = [*extra_flags, *framework_artefacts.flags]
+    layer2_stage.clear(feed_dir)       # post76: never the last run's candidates
     _write_candidates_artifact(candidates, feed_dir)
 
     stage("gate")

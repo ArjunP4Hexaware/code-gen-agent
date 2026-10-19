@@ -186,6 +186,15 @@ def _finish(job: Layer2Job, candidates: list, usage, layer2_note: str | None) ->
         with_review(job.feed_dir, job.feed_slug, candidates)   # the trailing %md only
 
 
+def clear(feed_dir: Path) -> None:
+    """A rerun's start: the feed's previous Layer-2 outputs go (a GATE_FAIL rerun
+    must not leave the last run's candidates beside its quarantine)."""
+    for name in ("candidates.json", PENDING_FILE):
+        path = feed_dir / CANDIDATES_DIR / name
+        if path.is_file():
+            path.unlink()
+
+
 def _drop_pending(feed_dir: Path) -> None:
     pending = feed_dir / CANDIDATES_DIR / PENDING_FILE
     if pending.is_file():
@@ -332,6 +341,6 @@ def _merge_record(out_root: Path, block: dict) -> None:
                       "feeds": rows})
 
 
-__all__ = ["INFO_KINDS", "MODES", "PENDING_FILE", "Layer2Job", "defer_job", "info_flags",
+__all__ = ["INFO_KINDS", "MODES", "PENDING_FILE", "Layer2Job", "clear", "defer_job", "info_flags",
            "note", "pending_jobs", "record", "run_job", "run_pending", "run_stage", "skip_job",
            "write_candidates"]

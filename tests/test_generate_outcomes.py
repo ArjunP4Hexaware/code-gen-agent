@@ -46,8 +46,11 @@ def test_gate_fail_keeps_every_artefact_in_quarantine(contracts, tmp_path, capsy
     assert cli.main(contracts) == 0                      # the non-quarantined run
     clean = _workbooks(feed_dir)
     assert any(name.endswith("_IIG.xlsx") for name in clean)
+    # post76: candidates/ is the Layer-2 stage's, run after the outcome for a
+    # written feed only — a GATE_FAIL feed's Layer 2 is not asked
     clean_files = sorted(p.relative_to(feed_dir).as_posix()
-                         for p in feed_dir.rglob("*") if p.is_file())
+                         for p in feed_dir.rglob("*") if p.is_file()
+                         and p.relative_to(feed_dir).parts[0] != "candidates")
     capsys.readouterr()
 
     _fail_the_gate(monkeypatch)

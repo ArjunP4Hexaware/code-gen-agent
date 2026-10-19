@@ -35,6 +35,12 @@ _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, bytes]:
+    # the raw pair-1 golden the aliased fixture is built from is not in every checkout
+    from acfc_shapes import GOLDEN_SOURCE
+    from conftest import require_fixture_files
+
+    require_fixture_files(GOLDEN_SOURCE / "RFC_ACCUMULATORS_IIG.xlsx",
+                          GOLDEN_SOURCE / "ACCUM_DDL.txt")
     return build_all()
 
 

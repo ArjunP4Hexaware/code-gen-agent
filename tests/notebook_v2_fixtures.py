@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from codegen.config import load_config
+from conftest import require_fixture_files
 
 REPO = Path(__file__).resolve().parents[1]
 CONTRACTS = REPO / "fixtures" / "contracts"
@@ -37,8 +38,12 @@ def sd_pair() -> tuple[Path, Path]:
 
 
 def sfmc_pair() -> tuple[Path, Path]:
-    return (CONTRACTS / "FRD_sfmc_email_campaign.contract.json",
+    """The SFMC contract pair (client-derived, untracked since 2026-09-18): the
+    calling test skips when this checkout does not have it."""
+    pair = (CONTRACTS / "FRD_sfmc_email_campaign.contract.json",
             CONTRACTS / "sttm_mapping_contracts_sfmc.json")
+    require_fixture_files(*pair)
+    return pair
 
 
 TPL_FEED = "SYN TPL Inbound Files"
@@ -52,6 +57,7 @@ def key_answers(folder: Path) -> Path:
     """An answers file typing KEY_COLUMNS for the SFMC and TPL feeds."""
     from codegen.resolve.resolver import normalize_feed_name
 
+    sfmc_pair()                                  # skips when the SFMC contracts are absent
     feeds = [normalize_feed_name(json.loads((CONTRACTS / "FRD_sfmc_email_campaign.contract"
                                              ".json").read_text(encoding="utf-8"))
                                  ["feeds"][0]["feed_name"]), normalize_feed_name(TPL_FEED)]
@@ -68,6 +74,7 @@ def key_answers(folder: Path) -> Path:
 def tpl_pair(tmp_path: Path) -> tuple[Path, Path]:
     """A CAQH-shaped single-table TPL feed: the SFMC contracts renamed
     (feed, source, file pattern, tables), pipe-delimited."""
+    sfmc_pair()                                  # skips when the SFMC contracts are absent
     frd = json.loads((CONTRACTS / "FRD_sfmc_email_campaign.contract.json").read_text(
         encoding="utf-8"))
     sttm = json.loads((CONTRACTS / "sttm_mapping_contracts_sfmc.json").read_text(

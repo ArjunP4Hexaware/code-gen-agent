@@ -360,6 +360,9 @@ def test_the_sfmc_notebook_outputs_carry_no_document_address(tmp_path, monkeypat
         update={"dir": str(tmp_path / "out"), "reports_dir": str(tmp_path / "reports")})})
     pair = (REPO / "fixtures" / "contracts" / "FRD_sfmc_email_campaign.contract.json",
             REPO / "fixtures" / "contracts" / "sttm_mapping_contracts_sfmc.json")
+    from conftest import require_fixture_files
+
+    require_fixture_files(*pair)         # the SFMC contracts are not in every checkout
     code = cli._run_pairs([pair], config, dry_run=True, skip_tests=True,
                           output_mode=["notebook"], only_feed=None)
     assert code in (cli.EXIT_OK, cli.EXIT_NEEDS_ANSWERS)

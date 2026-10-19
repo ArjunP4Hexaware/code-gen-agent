@@ -34,6 +34,9 @@ def test_the_sfmc_fixture_notebook_is_validated(tmp_path):
         update={"dir": str(tmp_path / "out"), "reports_dir": str(tmp_path / "reports")})})
     pair = (REPO / "fixtures" / "contracts" / "FRD_sfmc_email_campaign.contract.json",
             REPO / "fixtures" / "contracts" / "sttm_mapping_contracts_sfmc.json")
+    from conftest import require_fixture_files
+
+    require_fixture_files(*pair)         # the SFMC contracts are not in every checkout
     cli._run_pairs([pair], config, dry_run=True, skip_tests=True, output_mode=["notebook"],
                    only_feed=None)
     assert list((tmp_path / "out").rglob("*.ipynb"))

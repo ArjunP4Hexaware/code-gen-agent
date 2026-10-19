@@ -1,0 +1,33 @@
+{
+  "status": "CLEAN",
+  "sha": "fe61bc48c22e38f1634cff6cfa48eee8b19f4dc2",
+  "timestamp": "20261019T181043Z",
+  "runner": "claude-code container, src-only",
+  "overall": "FAILED",
+  "real_hits": 0,
+  "self_match_hits": 0,
+  "terms_checked": 3561,
+  "harvested_terms_dropped": 1242,
+  "static_denylist_sha256": "f287e089e6c3bd7c6a31b2257269713d6c9ba358d1f4a3e884a8b206b5c0b517",
+  "harvested_terms_sha256": "555a72dbbf748779e5957b080c83dc42029cb984a78d9da82363042a5a1fe4cb",
+  "outcomes": {
+    "pair_01": "PASS_WITH_OPEN_INPUTS",
+    "pair_02": "PASS_WITH_OPEN_INPUTS",
+    "pair_03": "NEEDS_ANSWERS",
+    "pair_04": "NEEDS_ANSWERS",
+    "pair_05": "FAIL",
+    "pair_06": "FAIL",
+    "pair_07": "FAIL",
+    "pair_08": "FAIL",
+    "pair_09": "FAIL",
+    "pair_10": "FAIL",
+    "pair_11": "NEEDS_ANSWERS",
+    "pair_12": "PASS_WITH_OPEN_INPUTS"
+  },
+  "label": "run_20261019T193332Z_fe61bc4",
+  "dictionary": "repo-tokens",
+  "dictionary_tokens": 7705,
+  "dictionary_files": 288,
+  "gate_rerun_of": "run_20261019T181043Z_fe61bc4",
+  "pair_01_scrubbed": "withheld: 22 real hits in the harness leak gate; kept local"
+}

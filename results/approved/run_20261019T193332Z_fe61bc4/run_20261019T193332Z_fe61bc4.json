@@ -1,0 +1,594 @@
+{
+  "status": "FAILED",
+  "branch": "feature/multi-table",
+  "sha": "fe61bc48c22e38f1634cff6cfa48eee8b19f4dc2",
+  "timestamp": "20261019T181043Z",
+  "environment": {
+    "python_version": "3.12.12",
+    "packages": {
+      "codegen-data-engineer-agent": "src-only (fe61bc4)",
+      "openpyxl": "3.1.2",
+      "pydantic": "2.8.2",
+      "jinja2": "3.1.6",
+      "pyyaml": "6.0.1",
+      "ruff": "0.17.0",
+      "databricks-sdk": "0.30.0"
+    },
+    "endpoint": "databricks-claude-opus-5 (READY)",
+    "runner": "claude-code container, src-only"
+  },
+  "pairs": [
+    {
+      "pair": "pair_01",
+      "status": "OK",
+      "runtime_sec": 105.8,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "user",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 70,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 89,
+          "sheet_1": 89,
+          "sheet_2": 48,
+          "sheet_3": 12,
+          "sheet_4": 39,
+          "sheet_5": 26,
+          "sheet_6": 37,
+          "sheet_7": 20,
+          "sheet_8": 151
+        }
+      },
+      "error": null,
+      "notebook_present": [
+        true
+      ],
+      "iig_unpopulated": {
+        "sheet_0": 89,
+        "sheet_1": 89,
+        "sheet_2": 48,
+        "sheet_3": 12,
+        "sheet_4": 39,
+        "sheet_5": 26,
+        "sheet_6": 37,
+        "sheet_7": 20,
+        "sheet_8": 151
+      },
+      "outcome": "PASS_WITH_OPEN_INPUTS"
+    },
+    {
+      "pair": "pair_02",
+      "status": "OK",
+      "runtime_sec": 31.9,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 86,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 89,
+          "sheet_1": 89,
+          "sheet_2": 14,
+          "sheet_3": 10,
+          "sheet_4": 10,
+          "sheet_5": 26,
+          "sheet_6": 21,
+          "sheet_7": 41,
+          "sheet_8": 78
+        }
+      },
+      "error": null,
+      "notebook_present": [
+        true,
+        true,
+        true
+      ],
+      "iig_unpopulated": {
+        "sheet_0": 89,
+        "sheet_1": 89,
+        "sheet_2": 14,
+        "sheet_3": 10,
+        "sheet_4": 10,
+        "sheet_5": 26,
+        "sheet_6": 21,
+        "sheet_7": 41,
+        "sheet_8": 78
+      },
+      "outcome": "PASS_WITH_OPEN_INPUTS"
+    },
+    {
+      "pair": "pair_03",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 122.9,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "FAIL"
+        },
+        "iig_emit": {
+          "status": "FAIL"
+        },
+        "dml_emit": {
+          "status": "FAIL"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 331,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {}
+      },
+      "error": null,
+      "notebook_present": [],
+      "needed_answer_keys": [
+        "feeds[0].stage_target.load_strategy"
+      ],
+      "outcome": "NEEDS_ANSWERS"
+    },
+    {
+      "pair": "pair_04",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 6.2,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "FAIL"
+        },
+        "iig_emit": {
+          "status": "FAIL"
+        },
+        "dml_emit": {
+          "status": "FAIL"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 135,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {}
+      },
+      "error": null,
+      "notebook_present": [],
+      "needed_answer_keys": [
+        "feeds[0].Delimiter"
+      ],
+      "outcome": "NEEDS_ANSWERS"
+    },
+    {
+      "pair": "pair_05",
+      "status": "FAILED",
+      "runtime_sec": 3.2,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            extract-sttm \u2014 STTM Required element missing (role column) at STTM sheet 4 row 59 col 15 [ExtractionError]"
+        }
+      },
+      "layout_family": null,
+      "frd_type": null,
+      "counts": {},
+      "error": null,
+      "outcome": "FAIL"
+    },
+    {
+      "pair": "pair_06",
+      "status": "FAILED",
+      "runtime_sec": 3.0,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            extract-sttm \u2014 STTM audit column invalid (role audit_column; type timestamp) at STTM sheet 3 row 30 [ExtractionError]"
+        }
+      },
+      "layout_family": null,
+      "frd_type": null,
+      "counts": {},
+      "error": null,
+      "outcome": "FAIL"
+    },
+    {
+      "pair": "pair_07",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 6.6,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 Contract not found: STTM <workdir>/pair_07/\u2026 [FileNotFoundError]"
+        },
+        "ddl_emit": {
+          "status": "FAIL"
+        },
+        "iig_emit": {
+          "status": "FAIL"
+        },
+        "dml_emit": {
+          "status": "FAIL"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 459,
+        "unresolved_roles": 2,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {}
+      },
+      "error": null,
+      "notebook_present": null,
+      "needed_answer_keys": [
+        "sheets[2]/band[1]/layer",
+        "sheets[2]/band[1]/layer"
+      ],
+      "outcome": "FAIL"
+    },
+    {
+      "pair": "pair_08",
+      "status": "FAILED",
+      "runtime_sec": 60.5,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            extract-sttm \u2014 STTM Required element missing (role target_type) at STTM sheet 1 row 96 col 17 [ExtractionError]"
+        }
+      },
+      "layout_family": null,
+      "frd_type": null,
+      "counts": {},
+      "error": null,
+      "needed_answer_keys": [
+        "feeds[0].stage_target.load_strategy"
+      ],
+      "outcome": "FAIL"
+    },
+    {
+      "pair": "pair_09",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 34.7,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "vdd_crosscheck": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            generate \u2014 Contract not found: STTM <workdir>/pair_09/\u2026 [FileNotFoundError]"
+        },
+        "ddl_emit": {
+          "status": "FAIL"
+        },
+        "iig_emit": {
+          "status": "FAIL"
+        },
+        "dml_emit": {
+          "status": "FAIL"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 1398,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {}
+      },
+      "error": null,
+      "notebook_present": null,
+      "needed_answer_keys": [
+        "feeds[0].lobs",
+        "feeds[0].stage_target.load_strategy",
+        "feeds[0].audit_columns"
+      ],
+      "outcome": "FAIL"
+    },
+    {
+      "pair": "pair_10",
+      "status": "FAILED",
+      "runtime_sec": 149.0,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "FAIL",
+          "first_error_line": "FAIL            extract-sttm \u2014 Contract fails validation at STTM sheet 2 [ExtractionError]"
+        }
+      },
+      "layout_family": null,
+      "frd_type": null,
+      "counts": {},
+      "error": null,
+      "needed_answer_keys": [
+        "feeds[0].file_format",
+        "feeds[0].lobs",
+        "feeds[0].stage_target.load_strategy"
+      ],
+      "outcome": "FAIL"
+    },
+    {
+      "pair": "pair_11",
+      "status": "NEEDS_ANSWERS",
+      "runtime_sec": 556.0,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "NEEDS_ANSWERS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 11,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 89,
+          "sheet_1": 89,
+          "sheet_2": 19,
+          "sheet_3": 14,
+          "sheet_4": 14,
+          "sheet_5": 26,
+          "sheet_6": 21,
+          "sheet_7": 20,
+          "sheet_8": 79
+        }
+      },
+      "error": null,
+      "notebook_present": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "iig_unpopulated": {
+        "sheet_0": 89,
+        "sheet_1": 89,
+        "sheet_2": 19,
+        "sheet_3": 14,
+        "sheet_4": 14,
+        "sheet_5": 26,
+        "sheet_6": 21,
+        "sheet_7": 20,
+        "sheet_8": 79
+      },
+      "needed_answer_keys": [
+        "feeds.feed_1.notebook.landing_path",
+        "feeds.feed_1.notebook.archive_path",
+        "feeds.feed_1.notebook.reject_path",
+        "feeds.feed_2.notebook.landing_path",
+        "feeds.feed_2.notebook.archive_path",
+        "feeds.feed_2.notebook.reject_path",
+        "feeds.feed_3.notebook.landing_path",
+        "feeds.feed_3.notebook.archive_path",
+        "feeds.feed_3.notebook.reject_path",
+        "feeds.feed_4.notebook.landing_path",
+        "feeds.feed_4.notebook.archive_path",
+        "feeds.feed_4.notebook.reject_path",
+        "feeds.feed_5.notebook.landing_path",
+        "feeds.feed_5.notebook.archive_path",
+        "feeds.feed_5.notebook.reject_path"
+      ],
+      "outcome": "NEEDS_ANSWERS"
+    },
+    {
+      "pair": "pair_12",
+      "status": "OK",
+      "runtime_sec": 86.7,
+      "stages": {
+        "sttm_parse": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "frd_extract": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "generate": {
+          "status": "PASS",
+          "first_error_line": null
+        },
+        "ddl_emit": {
+          "status": "PASS"
+        },
+        "iig_emit": {
+          "status": "PASS"
+        },
+        "dml_emit": {
+          "status": "PASS"
+        }
+      },
+      "layout_family": "synonyms",
+      "frd_type": null,
+      "counts": {
+        "mapped_columns": 115,
+        "unresolved_roles": null,
+        "flags": {},
+        "gate_verdict": null,
+        "iig_unpopulated": {
+          "sheet_0": 86,
+          "sheet_1": 86,
+          "sheet_2": 252,
+          "sheet_3": 36,
+          "sheet_4": 36,
+          "sheet_5": 26,
+          "sheet_6": 305,
+          "sheet_7": 20,
+          "sheet_8": 523
+        }
+      },
+      "error": null,
+      "notebook_present": [
+        true
+      ],
+      "iig_unpopulated": {
+        "sheet_0": 86,
+        "sheet_1": 86,
+        "sheet_2": 252,
+        "sheet_3": 36,
+        "sheet_4": 36,
+        "sheet_5": 26,
+        "sheet_6": 305,
+        "sheet_7": 20,
+        "sheet_8": 523
+      },
+      "outcome": "PASS_WITH_OPEN_INPUTS"
+    }
+  ],
+  "runner": "claude-code container, src-only",
+  "leak_gate": {
+    "dictionary": "repo-tokens",
+    "terms_checked": 3561,
+    "real_hits": 0,
+    "self_match_hits": 0,
+    "static_denylist_sha256": "f287e089e6c3bd7c6a31b2257269713d6c9ba358d1f4a3e884a8b206b5c0b517",
+    "harvested_terms_sha256": "555a72dbbf748779e5957b080c83dc42029cb984a78d9da82363042a5a1fe4cb",
+    "verdict": "CLEAN"
+  }
+}

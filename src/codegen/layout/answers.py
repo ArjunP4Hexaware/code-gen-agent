@@ -134,7 +134,12 @@ def load_answers(path: Path) -> AnswersFile:
             raise located(AnswersFileError(f"{path}: answers[{index}].document must be sttm | vdd "
                                            "(FRD cells are placed with `gaps` / in the dialog)"),
                           Coord("answers", n=index + 1), "answers.file")
-    gaps = {key: _files_value(value) for key, value in (raw.get("gaps") or {}).items()}
+    # post74: a key read by its role name - feeds[0].Delimiter answers
+    # feeds[0].delimiter (codegen.answer_keys)
+    from codegen.answer_keys import canonical_keys
+
+    gaps = {key: _files_value(value)
+            for key, value in canonical_keys(raw.get("gaps") or {}).items()}
     gaps = {key: value for key, value in gaps.items()
             if not (isinstance(value, dict) and _blank(value.get("value")))}
     for value in gaps.values():
@@ -158,7 +163,7 @@ def load_answers(path: Path) -> AnswersFile:
     from codegen.layout.answers_template import flatten_inputs
 
     # post47: inputs.run / inputs.feeds.<feed> read as run.<k> / feeds.<feed>.<k>
-    for key, value in flatten_inputs(raw.get("inputs") or {}).items():
+    for key, value in canonical_keys(flatten_inputs(raw.get("inputs") or {})).items():
         choice = parse_choice(str(key), value)
         if choice is not None:
             problem = validate_choice(str(key), choice)

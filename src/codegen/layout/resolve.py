@@ -972,10 +972,15 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
 
 def _merge_frd(profile: FrdLayoutProfile, claims: dict[str, dict], source: str,
                confidence: float) -> FrdLayoutProfile:
+    from codegen.answer_keys import canonical_key
+
     fields = dict(profile.fields)
     conf = dict(profile.confidence)
     field_sources = dict(profile.field_sources)
-    for path, claim in claims.items():
+    for claimed, claim in claims.items():
+        # post74 (D1 post73 pair_04): a claim under a header label
+        # ("feeds[0].Delimiter") is the role's path ("feeds[0].delimiter")
+        path = canonical_key(claimed)
         if path in fields or not isinstance(claim, dict):
             continue
         try:

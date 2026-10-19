@@ -533,6 +533,27 @@ def _skip_marker(row: FieldRow, markers: set[str]) -> tuple[str, str] | None:
     return None
 
 
+def _role_col(sp: SheetProfile, key: str) -> int | None:
+    layer, _dot, role = key.partition(".")
+    band = sp.band(layer)  # type: ignore[arg-type]
+    return band.column(role) if band is not None else None
+
+
+CELL_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.columns\[(\d+)\]\.([a-z_]+)$")
+
+
+def parse_cell_answers(gaps: dict | None) -> dict[str, str]:
+    """post74: the answers file's ``feeds[i].columns[j].<role>`` values (one
+    mapping row's open cell, :func:`_build_feed`'s QUESTION) by key."""
+    out: dict[str, str] = {}
+    for key, answer in (gaps or {}).items():
+        if CELL_KEY_RE.match(str(key)):
+            value = answer.get("value") if isinstance(answer, dict) else answer
+            if str(value or "").strip():
+                out[str(key)] = str(value).strip()
+    return out
+
+
 def _cell_ref(sp: SheetProfile, row: int, key: str) -> str:
     """``<sheet>!<col><row>`` of a band role, else ``<sheet> row <row>``."""
     layer, _dot, role = key.partition(".")
@@ -724,12 +745,14 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
                            contract_name: str | None = None,
                            generated_date: str,
                            width_answers: dict[int, dict[str, int]] | None = None,
-                           audit_answers: dict[int, list[tuple[str, str]]] | None = None
+                           audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+                           cell_answers: dict[str, str] | None = None
                            ) -> SttmContract:
     disc = config.extractor.discovery
     notes: list[str] = []
     feeds: list[SttmFeed] = []
     pending: list[PendingAnswer] = []
+    questions: list[PendingAnswer] = []
     for sheet in ir.sheets:
         try:
             open_bands = _open_band_layers(sheet, ir)
@@ -737,7 +760,8 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
                 raise NeedsAnswers(open_bands)
             try:
                 feeds.append(_build_feed(sheet, ir, frd, config, disc, notes,
-                                         width_answers or {}, audit_answers or {}))
+                                         width_answers or {}, audit_answers or {},
+                                         cell_answers or {}, questions))
             except NeedsAnswers:
                 raise
             except GenericExtractionError as stop:
@@ -751,6 +775,11 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
             notes.extend(f"sheet {p.sheet!r}: feed {p.feed_name!r} NEEDS_ANSWERS — answer "
                          f"`{p.key}` under {answers_section(p.key)}: ({p.reason})"
                          for p in held.pending)
+    # post74: one row's open cell of a feed that WAS built - blocking, asked
+    # alongside the held-back feeds' answers
+    pending.extend(questions)
+    notes.extend(f"sheet {q.sheet!r}: feed {q.feed_name!r} — answer `{q.key}` under gaps: "
+                 f"({q.reason})" for q in questions)
     if not feeds:
         from codegen.extract.extractor import NeedsAnswersError
 
@@ -834,12 +863,18 @@ def _width_facts(row: FieldRow, field_name: str, sp: SheetProfile, flags: list[s
 def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Config,
                 disc: DiscoveryConfig, notes: list[str],
                 width_answers: dict[int, dict[str, int]] | None = None,
-                audit_answers: dict[int, list[tuple[str, str]]] | None = None) -> SttmFeed:
+                audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+                cell_answers: dict[str, str] | None = None,
+                questions: list[PendingAnswer] | None = None) -> SttmFeed:
+    """``cell_answers`` / ``questions`` (post74): the person's
+    ``feeds[i].columns[j].<role>`` answers, and the open ones this feed adds
+    (blocking QUESTIONs; the feed is still built without those rows)."""
     from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
     from codegen.resolve.widths import normalize_field_name
 
     sp = sheet.profile
     name = sp.name
+    questions = questions if questions is not None else []
     if not sheet.fields:
         raise located(GenericExtractionError(
             f"sheet {name!r}: no field rows could be read "
@@ -952,6 +987,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     stage_band = sp.band("stage")
     stage_column_col = stage_band.column("column") if stage_band is not None else None
     marked: list[str] = []
+    unnamed: list[str] = []
+    row_index = {r.row: j for j, r in enumerate(sheet.fields)}
     for row in sheet.fields:
         field_name = _first(row, "source.field_name")
         assert field_name is not None
@@ -982,12 +1019,29 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             notes.append(f"sheet {name!r} row {row.row}: field {label!r} skipped — no "
                          "target cell on its row")
             continue
-        if stage_column is None or stage_type is None:
-            raise located(GenericExtractionError(
-                f"sheet {name!r} row {row.row}: field {field_name!r} has no stage "
-                f"column/data type (column={stage_column!r}, type={stage_type!r})"),
-                _at(ir, name, row.row, stage_column_col), "sttm.missing",
-                role="column" if stage_column is None else "target_type")
+        if stage_column is None:
+            # post74 (D1 post73 pair_08): a row that names no target column is
+            # not a mapping row - left out, counted in the skipped_rows flag
+            unnamed.append(_cell_ref(sp, row.row, "stage.column"))
+            notes.append(f"sheet {name!r} row {row.row}: field "
+                         f"{' '.join(field_name.split())!r} skipped — it names no stage column")
+            continue
+        if stage_type is None:
+            # post74 (D1 post73 pair_08): ONE row's missing data type never fails
+            # the feed - a blocking QUESTION for that cell, the rest proceeds
+            key = f"{prefix}columns[{row_index[row.row]}].target_type"
+            where = _at(ir, name, row.row, _role_col(sp, "stage.target_type"))
+            answer = (cell_answers or {}).get(key)
+            if not answer:
+                questions.append(PendingAnswer(
+                    feed_name=feed.feed_name, sheet=name, key=key,
+                    reason=f"the stage data type cell at {where} is empty while the row names "
+                           "a stage column; answer the column's data type (the column is left "
+                           "out of the contract until then)"))
+                continue
+            stage_type = answer
+            flags.append(f"answered_cell:{key} — {where} is empty; the person answered "
+                         f"{answer!r}")
         # A NULLABLE column says "NULL"/"nullable"/"yes" for nullable and
         # "NOT NULL"/"no" for required — the null-ish spellings of no_values
         # (meant for yes/no columns) do not apply to it.
@@ -1063,8 +1117,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 sheet=row.sheet, row=row.row, col=row.col,
                 source=ir.profile.role_source(row.sheet, "source", "field_name")),
         ))
-    if marked:
-        flags.append(_skipped_rows_flag(prefix, marked, []))
+    if marked or unnamed:
+        flags.append(_skipped_rows_flag(prefix, marked, unnamed))
 
     audit: list[AuditColumn] = []
     seen: set[str] = set()
@@ -1177,12 +1231,13 @@ def extract_generic_contract(found: Discovery, workbook_path: Path, frd: FrdCont
                              config: Config, *, contract_name: str | None,
                              generated_date: str,
                              width_answers: dict[int, dict[str, int]] | None = None,
-                             audit_answers: dict[int, list[tuple[str, str]]] | None = None
+                             audit_answers: dict[int, list[tuple[str, str]]] | None = None,
+                             cell_answers: dict[str, str] | None = None
                              ) -> SttmContract:
     ir = read_workbook(found, workbook_path.name, config)
     return build_generic_contract(ir, frd, config, contract_name=contract_name,
                                   generated_date=generated_date, width_answers=width_answers,
-                                  audit_answers=audit_answers)
+                                  audit_answers=audit_answers, cell_answers=cell_answers)
 
 
 __all__ = [
@@ -1195,5 +1250,6 @@ __all__ = [
     "build_generic_contract",
     "extract_generic_contract",
     "layout_summary",
+    "parse_cell_answers",
     "read_workbook",
 ]

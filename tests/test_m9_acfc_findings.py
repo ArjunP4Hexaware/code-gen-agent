@@ -26,7 +26,7 @@ import pytest
 
 import pre_m9_vocabulary
 from codegen import cli
-from codegen.extract import ExtractionError, extract_contract
+from codegen.extract import extract_contract
 from codegen.layout.discover import discover
 from codegen.layout.model import MockLayoutProvider
 from codegen.layout.profile import REQUIRED_ROLES, LayoutProfile, Role, missing_required_roles
@@ -434,9 +434,14 @@ def test_unmapped_markers_are_config(config, tmp_path):
     from post73_pairs import without_markers
 
     no_markers = without_markers(config)
-    # Without either list the row is what it always was: a loud failure.
-    with pytest.raises(ExtractionError, match="has no stage column/data type"):
-        extract_contract(PAIR_1, _frd_json(tmp_path, config), no_markers, generated_date=DATE)
+    # Without either list "Do Not Map" reads as a stage column with no data
+    # type: post74 makes that ONE cell a blocking question, never a run stop.
+    contract = extract_contract(PAIR_1, _frd_json(tmp_path, config), no_markers,
+                                generated_date=DATE)
+    (question,) = contract.needs_answers
+    assert question.key.startswith("feeds[0].columns[") and question.key.endswith(
+        "].target_type")
+    assert contract.feeds[0].field_count == 23
 
 
 # ---------------------------------------------------------------- M9.3 matcher

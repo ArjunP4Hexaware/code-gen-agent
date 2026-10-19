@@ -202,11 +202,14 @@ def _extract_contract(
         if split is not None:
             frd = frd.model_copy(update={"feeds": split.feeds, "extraction_flags": [
                 *frd.extraction_flags, *split.flags]})
+        from codegen.extract.generic import parse_cell_answers
+
         try:
             contract = extract_generic_contract(
                 found, workbook_path, frd, config, contract_name=contract_name,
                 generated_date=generated_date or datetime.date.today().isoformat(),
                 width_answers=width_answers, audit_answers=audit_answers,
+                cell_answers=parse_cell_answers(gaps),
             )
         except GenericExtractionError as exc:
             raise ExtractionError(str(exc)) from exc

@@ -3158,6 +3158,9 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
                     f"A {len(scr.maps['A'])} ({scr.uses['A']} uses)")
     before = _class_counts(scr.before)
     lines = ["# SELF_CHECK - scrubbed export (counts only)", "",
+             "PROVISIONAL: the leak gate's vocabulary (repo-token dictionary, harvested terms, "
+             "static denylist) is reproduced here as a best guess from its reports, not from "
+             "its code; a 0-hit re-scan below does not prove the ACFC gate passes.", "",
              f"- repo-token dictionary (the leak gate's): {source}, text files only, "
              f"{n_files} files, {len(universe)} tokens",
              f"- static denylist: {f'{len(terms)} terms' if terms else 'absent'}",

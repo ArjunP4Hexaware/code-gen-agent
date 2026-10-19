@@ -170,6 +170,8 @@ def test_self_check_counts_and_rescan_is_clean(tmp_path: Path) -> None:
     self_check = (export / "SELF_CHECK.md").read_text(encoding="utf-8")
     assert "scrub_check + the gate's terms: 0 hits" in self_check
     assert "- repo-token dictionary (the leak gate's): " in self_check
+    # post74: a best guess at the gate's vocabulary, said in the header
+    assert self_check.splitlines()[2].startswith("PROVISIONAL: the leak gate's vocabulary")
     sc = iig_diff.load_scrub_check()
     assert sc.scan_paths([export], deny={}) == []
 

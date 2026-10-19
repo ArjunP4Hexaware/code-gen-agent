@@ -26,8 +26,16 @@ Two layers:
    ``STORAGE_ACCOUNT``. A SYN-shaped account (``syn…``) and a ``<<…>>``
    placeholder are never a hit.
 
+5. The leak gate (post75) — ``codegen.leakgate`` is the one implementation:
+   its static denylist (loaded BY PATH from the state root / the volume,
+   ``CODEGEN_LEAKGATE_DENYLIST``) joins the local term file, the ledger rows
+   are read by it, and ``--leak-gate PAIRS_DIR`` runs the whole gate
+   (harvested terms of every pair folder below PAIRS_DIR + the static list,
+   the repo-token dictionary filter, self-match exclusion) over the paths.
+
 Usage:
     python scripts/scrub_check.py [path ...]     # default: fixtures/reference out
+    python scripts/scrub_check.py --leak-gate PAIRS_DIR path ...   # the leak gate, counts only
     python scripts/scrub_check.py --rebaseline [root ...]   # default: config docs/acfc
         # rewrites the docs/acfc/LEAK_LEDGER.md baseline rows: one
         # "<file> <class> <sha256(term)>" per tracked hit (never the term)
@@ -42,6 +50,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+from codegen import leakgate  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 RAW = REPO / "inputs" / "reference_raw"
@@ -182,11 +195,13 @@ def load_local_denylist(path: str | Path | None = None) -> dict[str, str]:
     (or ``path``): one term per line, ``#`` comments and blank lines skipped.
     {} when no file is named; a named file that is missing is an error."""
     path = path or os.environ.get(LOCAL_DENYLIST_ENV, "").strip()
-    if not path:
-        return {}
-    lines = Path(path).read_text(encoding="utf-8").splitlines()
-    return {line.strip(): "local_denylist" for line in lines
-            if line.strip() and not line.lstrip().startswith("#")}
+    terms: dict[str, str] = {}
+    if path:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        terms = {line.strip(): "local_denylist" for line in lines
+                 if line.strip() and not line.lstrip().startswith("#")}
+    # post75: the leak gate's static denylist (the volume's file, by path)
+    return {**leakgate.load_static_denylist(), **terms}
 
 
 ACCOUNT_CLASS = "client_storage_account"
@@ -341,16 +356,7 @@ def ledger_hit_counts(files: list[Path], deny: dict[str, str] | None = None,
 
 def read_ledger_baseline(ledger: Path = LEDGER) -> set[tuple[str, str, str]]:
     """The (file, class, sha256) lines between the ledger's baseline markers."""
-    text = ledger.read_text(encoding="utf-8")
-    if LEDGER_BEGIN not in text:
-        return set()
-    block = text.split(LEDGER_BEGIN, 1)[1].split(LEDGER_END, 1)[0]
-    out = set()
-    for line in block.splitlines():
-        parts = line.strip().strip("`").split("\t")
-        if len(parts) in (3, 4) and re.fullmatch(r"[0-9a-f]{64}", parts[2]):
-            out.add((ledger_path_decode(parts[0]), parts[1], parts[2]))
-    return out
+    return leakgate.read_ledger(ledger)
 
 
 def ledger_path_encode(path: str) -> str:
@@ -361,7 +367,7 @@ def ledger_path_encode(path: str) -> str:
 
 
 def ledger_path_decode(path: str) -> str:
-    return path.replace("%28", "(").replace("%29", ")").replace("%25", "%")
+    return leakgate.ledger_path_decode(path)
 
 
 def write_ledger_baseline(rows, ledger: Path = LEDGER) -> None:
@@ -419,6 +425,8 @@ def main(argv: list[str]) -> int:
               f"{sum(rows.values())} hit(s) written (file, class, sha256, occurrences — never "
               "the term)")
         return 0
+    if argv[:1] == ["--leak-gate"]:
+        return leak_gate_main(argv[1:])
     targets = [Path(a) for a in argv] or [REPO / "fixtures" / "reference", REPO / "out"]
     targets = [t for t in targets if t.exists()]
     hits = scan_paths(targets)
@@ -429,6 +437,25 @@ def main(argv: list[str]) -> int:
         return 1
     print(f"clean: {', '.join(str(t) for t in targets)}")
     return 0
+
+
+def leak_gate_main(argv: list[str]) -> int:
+    """``--leak-gate PAIRS_DIR path ...``: counts per class, never a term."""
+    if len(argv) < 2:
+        print("usage: scrub_check.py --leak-gate PAIRS_DIR path ...", file=sys.stderr)
+        return 2
+    pairs_root, targets = Path(argv[0]), [Path(a) for a in argv[1:]]
+    pair_dirs = sorted(p for p in pairs_root.iterdir() if p.is_dir()) if pairs_root.is_dir() else []
+    deny = leakgate.build_denylist(pair_dirs)
+    result = leakgate.scan_paths([t for t in targets if t.exists()], deny)
+    classes: dict[str, int] = {}
+    for hit in result.hits:
+        if not hit.self_match:
+            classes[hit.pattern_class] = classes.get(hit.pattern_class, 0) + 1
+    print(f"leak gate: {'CLEAN' if result.clean else 'BLOCKED'} — dictionary {deny.dictionary}, "
+          f"{result.terms_checked} terms checked, {result.real_hits} real hit(s)"
+          + (f" {classes}" if classes else "") + f", {result.self_match_hits} self-match")
+    return 0 if result.clean else 1
 
 
 if __name__ == "__main__":

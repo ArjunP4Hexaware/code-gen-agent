@@ -188,6 +188,11 @@ import yaml
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font, PatternFill
 
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+from codegen import leakgate  # noqa: E402 - post75: the one leak gate
+
 DEFAULT_KEYS = Path(__file__).resolve().parent / "iig_keys.yaml"
 # The gitignored values of iig_keys.yaml's ``local:<name>`` environment tokens
 # (prod names never enter git); absent = those tokens are listed unresolved.
@@ -2504,67 +2509,21 @@ EXPORT_INTRO = (
 # term in it is dropped). The fixture-token universe (which also read the
 # fixture .xlsx / .docx cell text) kept tokens the gate does not know: the
 # pair_01 export failed the gate with 22 hits.
-GATE_SCOPE = ("src", "fixtures", "config", "tools", "scripts", "pyproject.toml",
-              "requirements.txt", "acfc_run.py")
-_DICTIONARY_SUFFIXES = {".py", ".json", ".yaml", ".yml", ".txt", ".md", ".csv", ".toml",
-                        ".j2", ".cfg", ".ini", ".sql"}
-
-
+GATE_SCOPE = leakgate.DICTIONARY_SCOPE    # post75: the leak gate's scope
 def _tokens(text: str) -> list[str]:
     return [t for t in _TOKEN_SPLIT.split(text)[::2] if t]
-
-
-def _git_ls(root: Path, paths: tuple[str, ...]) -> list[Path]:
-    """``git ls-files -- <paths>`` — raises where there is no git (D1's workspace)."""
-    if not (root / ".git").exists():
-        raise FileNotFoundError(f"no .git under {root}")
-    done = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", *paths],
-                          capture_output=True, check=True, timeout=120)
-    return [root / p for p in done.stdout.decode("utf-8", "replace").split("\0") if p]
-
-
-def _walk_scope(root: Path, scope: tuple[str, ...]) -> list[Path]:
-    """No git: the scope's files the repo's .gitignore does not ignore."""
-    rules = gitignore_rules(root / ".gitignore")
-    files: list[Path] = []
-    for name in scope:
-        base = root / name
-        if base.is_file() and not gitignored(name, False, rules):
-            files.append(base)
-            continue
-        if not base.is_dir() or gitignored(name, True, rules):
-            continue
-        for folder, dirs, names in os.walk(base):
-            rel = Path(folder).relative_to(root).as_posix()
-            dirs[:] = sorted(d for d in dirs if not gitignored(f"{rel}/{d}", True, rules))
-            files += [Path(folder) / n for n in sorted(names)
-                      if not gitignored(f"{rel}/{n}", False, rules)]
-    return files
 
 
 @functools.cache
 def repo_token_dictionary(root: Path = REPO_ROOT,
                           scope: tuple[str, ...] = GATE_SCOPE) -> tuple[frozenset[str], str, int]:
-    """(caseless tokens, where the file list came from, file count) of the
-    repo's tracked TEXT files in the leak gate's scope (:data:`GATE_SCOPE`) —
-    the gate's repo-token dictionary. A workbook / document's cell text is not
-    read (the gate's dictionary does not read it)."""
-    root = Path(root)
-    try:
-        files = _git_ls(root, scope)
-        source = f"git ls-files {' '.join(scope)}"
-    except (OSError, subprocess.SubprocessError):
-        files = _walk_scope(root, scope)
-        source = f"disk walk of {' '.join(scope)} (no git), .gitignore honoured"
-    files = [f for f in files if f.suffix.lower() in _DICTIONARY_SUFFIXES and f.is_file()]
-    tokens: set[str] = set()
-    for path in files:
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        tokens.update(t.casefold() for t in _tokens(text))
-    return frozenset(tokens), source, len(files)
+    """(caseless tokens, where the file list came from, file count) — post75:
+    the leak gate's repo-token dictionary (:func:`codegen.leakgate.repo_token_dictionary`:
+    the tracked text files of ``src`` / ``ui`` / ``docs``, fixtures and the
+    ledgered files excluded), tokenised as this export tokenises (letter and
+    digit runs). A workbook / document's cell text is never read."""
+    words = leakgate.repo_token_dictionary(Path(root), scope, token_pattern=r"[A-Za-z0-9]+")
+    return words.words, f"{words.source}: {' '.join(scope)}", words.files
 
 
 def gate_terms(candidates: list[str], dictionary: frozenset[str],
@@ -2603,63 +2562,10 @@ def _git_ls_fixtures(root: Path) -> list[Path]:
     return [root / p for p in done.stdout.decode("utf-8", "replace").split("\0") if p]
 
 
-def _glob_regex(pattern: str) -> str:
-    out, i = [], 0
-    while i < len(pattern):
-        if pattern.startswith("**/", i):
-            out.append("(?:.*/)?")
-            i += 3
-            continue
-        if pattern.startswith("**", i):
-            out.append(".*")
-            i += 2
-            continue
-        c = pattern[i]
-        if c == "*":
-            out.append("[^/]*")
-        elif c == "?":
-            out.append("[^/]")
-        elif c == "[" and "]" in pattern[i + 1:]:
-            j = pattern.index("]", i + 1)
-            body = pattern[i + 1:j]
-            out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
-            i = j
-        elif c == "\\" and i + 1 < len(pattern):
-            i += 1
-            out.append(re.escape(pattern[i]))
-        else:
-            out.append(re.escape(c))
-        i += 1
-    return "".join(out)
-
-
-def gitignore_rules(path: Path) -> list[tuple[re.Pattern[str], bool, bool]]:
-    """(regex over the repo-relative posix path, negated, directories only) per
-    line of a .gitignore — enough of git's rules for the repo's own file."""
-    rules = []
-    if not path.is_file():
-        return rules
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.rstrip()
-        if not line or line.startswith("#"):
-            continue
-        negated = line.startswith("!")
-        line = line[1:] if negated else line
-        dir_only = line.endswith("/")
-        line = line.rstrip("/")
-        anchored = "/" in line
-        body = _glob_regex(line.lstrip("/"))
-        rules.append((re.compile(("^" if anchored else "^(?:.*/)?") + body + "$"),
-                      negated, dir_only))
-    return rules
-
-
-def gitignored(rel: str, is_dir: bool, rules) -> bool:
-    ignored = False
-    for regex, negated, dir_only in rules:
-        if (is_dir or not dir_only) and regex.match(rel):
-            ignored = not negated            # the last matching line wins
-    return ignored
+# post75: the .gitignore rules live in codegen.leakgate (the gate's dictionary walk)
+_glob_regex = leakgate._glob_regex
+gitignore_rules = leakgate.gitignore_rules
+gitignored = leakgate.gitignored
 
 
 def _walk_fixtures(root: Path) -> list[Path]:
@@ -3118,14 +3024,19 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
                     local_denylist: Path | None = None,
                     harvest: dict[str, str] | None = None,
                     headers: dict | None = None,
-                    gate_candidates: list[str] | None = None) -> dict:
+                    gate_candidates: list[str] | None = None,
+                    gate: leakgate.Denylist | None = None) -> dict:
     """Write mismatches.md + row_keys.md + SELF_CHECK.md under ``out``. The
     result's ``rescan`` is empty when the written files are clean; otherwise
     the two evidence files are deleted (SELF_CHECK.md names the classes).
     post74: the leak gate's vocabulary — the repo-token dictionary keeps a
     token, the static denylist (local file + CODEGEN_SCRUB_DENYLIST) and the
     harvested terms (``gate_candidates``: the workbooks' sheet / file names and
-    the harness's list, minus dictionary words) are masked and re-scanned."""
+    the harness's list, minus dictionary words) are masked and re-scanned.
+    post75: ``gate`` = the leak gate's denylist (:mod:`codegen.leakgate`: the
+    pairs' harvested terms + the volume's static list, filtered): every term
+    is masked too, and the export passes only when the gate's own scan of the
+    written files finds no real hit (else the evidence files are deleted)."""
     root = Path(root)
     sc = load_scrub_check(root)
     deny_path = root / LOCAL_DENYLIST_REL if local_denylist is None else Path(local_denylist)
@@ -3145,7 +3056,9 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
             continue
         texts = [g.name, *g.columns, *(_raw(v) for _, row in g.rows for v in row.values())]
         golden_tokens.update(t.casefold() for text in texts for t in _tokens(text))
-    scr = Scrubber(sc, universe, frozenset(golden_tokens), [*terms, *checked], harvested)
+    gate_terms_masked = [t for t in (gate.terms if gate is not None else {}) if len(t) >= 4]
+    scr = Scrubber(sc, universe, frozenset(golden_tokens),
+                   list(dict.fromkeys([*terms, *checked, *gate_terms_masked])), harvested)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     counts = _write_mismatches(out / EXPORT_FILES[0], diffs, keys, scr)
@@ -3157,10 +3070,12 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
     placeholders = (f"G {len(scr.maps['G'])} ({scr.uses['G']} uses), "
                     f"A {len(scr.maps['A'])} ({scr.uses['A']} uses)")
     before = _class_counts(scr.before)
-    lines = ["# SELF_CHECK - scrubbed export (counts only)", "",
-             "PROVISIONAL: the leak gate's vocabulary (repo-token dictionary, harvested terms, "
-             "static denylist) is reproduced here as a best guess from its reports, not from "
-             "its code; a 0-hit re-scan below does not prove the ACFC gate passes.", "",
+    gate_line = (f"the leak gate (codegen.leakgate): dictionary {gate.dictionary}, "
+                 f"{len(gate.terms)} terms (harvested + static), {gate.dropped} harvested "
+                 "terms dropped" if gate is not None else
+                 "the leak gate (codegen.leakgate): no gate denylist given (--gate-pairs) - "
+                 "the export is NOT gated; it may not go to the approved lane")
+    lines = ["# SELF_CHECK - scrubbed export (counts only)", "", gate_line, "",
              f"- repo-token dictionary (the leak gate's): {source}, text files only, "
              f"{n_files} files, {len(universe)} tokens",
              f"- static denylist: {f'{len(terms)} terms' if terms else 'absent'}",
@@ -3177,6 +3092,12 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
     check_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     hits = _rescan(sc, [out / f for f in (*EXPORT_FILES, SELF_CHECK_FILE)], harvested,
                    _term_regex(terms), _caseless_regex(checked))
+    if gate is not None:
+        gated = leakgate.scan_paths([out / f for f in (*EXPORT_FILES, SELF_CHECK_FILE)
+                                     if (out / f).is_file()], gate)
+        for hit in gated.hits:
+            if not hit.self_match:
+                hits[f"gate_{hit.pattern_class}"] = hits.get(f"gate_{hit.pattern_class}", 0) + 1
     if hits:
         for name in EXPORT_FILES:
             (out / name).unlink(missing_ok=True)
@@ -3191,6 +3112,7 @@ def export_scrubbed(diffs: list[SheetDiff], keys: KeyConfig, out: Path, root: Pa
         "cells": cells, "counts": dict(counts), "rows_listed": listed,
         "placeholders": {p: len(m) for p, m in scr.maps.items()}, "uses": dict(scr.uses),
         "before": dict(scr.before), "rescan": dict(hits), "universe_source": source,
+        "gated": gate is not None,
         "line": (f"SELF_CHECK: {cells} cells exported ({by_status}); placeholders {placeholders}"
                  f"; scrub_check hits before replacement: {before}; re-scan: {rescan}"),
     }
@@ -3567,6 +3489,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--export-scrubbed", type=Path, metavar="DIR",
                     help="with --golden / --agent: also write mismatches.md, row_keys.md and "
                          "SELF_CHECK.md to DIR, every value scrubbed (safe to hand home)")
+    ap.add_argument("--gate-pairs", type=Path, metavar="DIR",
+                    help="with --export-scrubbed: the run's input documents (a pair folder, or "
+                         "a folder of pair folders) - the leak gate harvests its terms from them")
+    ap.add_argument("--gate-denylist", type=Path, metavar="FILE",
+                    help="with --export-scrubbed: the leak gate's static denylist (default: "
+                         "CODEGEN_LEAKGATE_DENYLIST, else "
+                         "<state root>/leakgate/denylist_local.txt)")
     ap.add_argument("--gate-terms", type=Path, metavar="FILE",
                     help="with --export-scrubbed: the leak gate's harvested terms, one per "
                          "line (masked and re-scanned, minus repo-dictionary words); the "
@@ -3635,13 +3564,25 @@ def main(argv: list[str] | None = None) -> int:
     for line in dump_rows(diffs, keys, args.dump_row) if args.dump_row is not None else []:
         print(line)
     names = [Path(p).stem for p in (args.golden, *agents)]
+    gate = leakgate.build_denylist(_pair_dirs(args.gate_pairs), args.gate_denylist)
     check = export_scrubbed(diffs, keys, args.export_scrubbed,
                             headers=payload.get("headers"),
-                            gate_candidates=[*names, *load_gate_terms(args.gate_terms)])
+                            gate_candidates=[*names, *load_gate_terms(args.gate_terms)],
+                            gate=gate)
     print(check["line"])
     written = EXPORT_FILES + (SELF_CHECK_FILE,) if not check["rescan"] else (SELF_CHECK_FILE,)
     print(f"wrote {', '.join(str(args.export_scrubbed / f) for f in written)}")
     return 2 if check["rescan"] else 0
+
+
+def _pair_dirs(folder: Path | None) -> list[Path]:
+    """``--gate-pairs``: one pair folder (it holds files), or a folder of them."""
+    if folder is None or not Path(folder).is_dir():
+        return []
+    folder = Path(folder)
+    if any(p.is_file() for p in folder.iterdir()):
+        return [folder]
+    return sorted(p for p in folder.iterdir() if p.is_dir())
 
 
 def paired_rows(d: SheetDiff) -> list[tuple[int, int, list[Cell]]]:

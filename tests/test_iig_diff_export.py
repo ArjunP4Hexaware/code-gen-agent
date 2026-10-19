@@ -163,15 +163,15 @@ def test_self_check_counts_and_rescan_is_clean(tmp_path: Path) -> None:
     assert check["before"]["email_address"] >= 1
     assert check["before"]["workspace_user_path"] >= 1
     assert check["before"]["local_denylist"] >= 1
-    assert (check["universe_source"] == "git ls-files " + " ".join(iig_diff.GATE_SCOPE)
+    assert (check["universe_source"] == "repo-tokens: " + " ".join(iig_diff.GATE_SCOPE)
             or not (REPO / ".git").exists())
     assert check["line"].startswith("SELF_CHECK: ")
     assert check["line"].endswith("re-scan: 0 hits")
     self_check = (export / "SELF_CHECK.md").read_text(encoding="utf-8")
     assert "scrub_check + the gate's terms: 0 hits" in self_check
     assert "- repo-token dictionary (the leak gate's): " in self_check
-    # post74: a best guess at the gate's vocabulary, said in the header
-    assert self_check.splitlines()[2].startswith("PROVISIONAL: the leak gate's vocabulary")
+    # post75: the gate is codegen.leakgate; without a gate denylist the export says so
+    assert self_check.splitlines()[2].startswith("the leak gate (codegen.leakgate): no gate")
     sc = iig_diff.load_scrub_check()
     assert sc.scan_paths([export], deny={}) == []
 
@@ -217,14 +217,17 @@ def test_without_git_the_universe_is_a_gitignore_aware_disk_walk(tmp_path, monke
     def no_git(root, *paths):
         raise FileNotFoundError("git unavailable")
 
-    monkeypatch.setattr(iig_diff, "_git_ls", no_git)
+    from codegen import leakgate
+
+    monkeypatch.setattr(leakgate, "_tracked", no_git)
+    iig_diff.repo_token_dictionary.cache_clear()
     _, _, export, check = _export(tmp_path)
-    assert check["universe_source"].startswith("disk walk of src fixtures")
+    assert check["universe_source"].startswith("repo-tokens (disk walk")
     assert check["rescan"] == {}
     text = _texts(export)
     for leak in LEAKS:
         assert leak.lower() not in text.lower(), leak
-    assert "(no git), .gitignore honoured" in (export / "SELF_CHECK.md").read_text(
+    assert "disk walk, .gitignore honoured" in (export / "SELF_CHECK.md").read_text(
         encoding="utf-8")
 
 
@@ -239,14 +242,16 @@ def test_the_dictionary_is_the_tracked_text_files_of_the_gate_scope(tmp_path: Pa
     (root / ".gitignore").write_text("*.secret\n", encoding="utf-8")
     (root / "src" / "a.py").write_text("alpha_bravo = 1", encoding="utf-8")
     (root / "fixtures" / "x.secret").write_text("ZqOther", encoding="utf-8")
-    (root / "docs" / "notes.md").write_text("ZqOutOfScope", encoding="utf-8")
+    (root / "docs" / "notes.md").write_text("ZqDocsToken", encoding="utf-8")
+    (root / "fixtures" / "notes.md").write_text("ZqFixtureToken", encoding="utf-8")
     wb = openpyxl.Workbook()
     wb.active["A1"] = "ZqCellText"                              # a workbook's cell: not read
     wb.save(root / "fixtures" / "f.xlsx")
     tokens, source, n = iig_diff.repo_token_dictionary(root)
-    assert source.startswith("disk walk of src fixtures config tools scripts")
-    assert n == 1 and {"alpha", "bravo"} <= tokens
-    assert not {"zqother", "zqoutofscope", "zqcelltext"} & tokens
+    # post75: the leak gate's scope - src / ui / docs; fixtures never
+    assert source.startswith("repo-tokens (disk walk") and source.endswith("src ui docs")
+    assert n == 2 and {"alpha", "bravo", "zqdocstoken"} <= tokens
+    assert not {"zqother", "zqfixturetoken", "zqcelltext"} & tokens
 
 
 def test_a_token_only_a_fixture_workbook_carries_is_now_masked(tmp_path: Path) -> None:
@@ -455,3 +460,36 @@ def test_a_non_template_header_is_scrubbed_in_sheets_md(tmp_path: Path) -> None:
     assert check["rescan"] == {}
     md = (export / "sheets.md").read_text(encoding="utf-8")
     assert TOKEN not in md and "| PROCESS_NAME | " in md
+
+
+# --------------------------------------------- post75: gated by codegen.leakgate
+
+
+def test_the_leak_gate_denylist_is_masked_and_gates_the_export(tmp_path: Path) -> None:
+    from codegen import leakgate
+
+    golden, agent = _build_pair(tmp_path)
+    payload, diffs, keys = iig_diff._run_pair(golden, agent, tmp_path / "out", KEYS, "key")
+    gate = leakgate.Denylist({TOKEN: "column_value", AGENT_ONLY: "local_denylist"}, 0, "test")
+    check = iig_diff.export_scrubbed(diffs, keys, tmp_path / "export",
+                                     local_denylist=_deny(tmp_path, DENY_TERM), harvest={},
+                                     gate=gate)
+    assert check["rescan"] == {} and check["gated"]
+    text = _texts(tmp_path / "export")
+    assert TOKEN not in text and AGENT_ONLY not in text
+    assert "the leak gate (codegen.leakgate): dictionary test, 2 terms" in text
+
+
+def test_a_gate_term_in_the_exports_own_text_fails_it(tmp_path: Path) -> None:
+    from codegen import leakgate
+
+    golden, agent = _build_pair(tmp_path)
+    payload, diffs, keys = iig_diff._run_pair(golden, agent, tmp_path / "out", KEYS, "key")
+    # "placeholders" is SELF_CHECK.md's own wording: the gate's scan must catch it
+    gate = leakgate.Denylist({"placeholders": "local_denylist"}, 0, "test")
+    check = iig_diff.export_scrubbed(diffs, keys, tmp_path / "export",
+                                     local_denylist=_deny(tmp_path, DENY_TERM), harvest={},
+                                     gate=gate)
+    assert check["rescan"].get("gate_local_denylist", 0) >= 1
+    assert not (tmp_path / "export" / "mismatches.md").exists()
+    assert "placeholders" not in check["line"].split("re-scan:")[1]

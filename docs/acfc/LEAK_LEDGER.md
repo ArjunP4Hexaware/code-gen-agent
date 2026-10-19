@@ -50,10 +50,15 @@ work dir.
 
 ## The harness leak gate
 
-The ACFC harness (codegen-watch) is not in this repo, so its gate cannot be
-edited here. Its owner adds the same two patterns — or runs
-`scripts/scrub_check.py` over every result before the push — and allow-lists
-its own keys (see `docs/acfc/HARNESS_EXIT_CODES.md` on `acfc/harness-exit3`).
+post75: the gate is in this repo — `src/codegen/leakgate.py` — and the container
+runner, `tools/iig_diff.py --export-scrubbed` (`--gate-pairs`) and
+`scripts/scrub_check.py --leak-gate PAIRS_DIR` call it. The static denylist and
+the client terms stay out of the repo: the static list is a file on the state
+volume (`<state root>/leakgate/denylist_local.txt`, or `CODEGEN_LEAKGATE_DENYLIST`),
+the harvested terms come from the run's own input documents. Its dictionary
+fallback (no wordfreq) is the repo-token dictionary, which leaves out every file
+this ledger's baseline lists. The cluster's codegen-watch / pull_and_run notebook
+still carries its own copy (not in this repo).
 
 ## 2026-10-15 — scrub backlog: the SD document-title phrases (visible, not tonight's work)
 

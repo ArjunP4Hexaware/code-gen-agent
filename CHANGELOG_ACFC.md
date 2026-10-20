@@ -45,7 +45,7 @@ mappings (Facets → Enterprise Data Hub; extractor dialect v2.1,
    - no crash; 11 of 11 exit 3;
    - 1,470 filled, 98 proposed, 200 QUESTION;
    - 102 of the 200 close with the profile, and 17 more with `function_map`.
-5. **Dialect v2.1 docs + fixtures** (6f9232f): the schema validates 11 of 11 real v2.1
+5. **Dialect v2.1 docs + fixtures** (38f0959): the schema validates 11 of 11 real v2.1
    files. Fixtures are regenerated (fixture (a) has two blocks). The profiler checks
    `(block_index, target_attribute)`.
 

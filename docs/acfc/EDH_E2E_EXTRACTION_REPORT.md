@@ -1,63 +1,61 @@
-# EDH_E2E_EXTRACTION_REPORT — v2.1.0 extraction results
+# EDH_E2E_EXTRACTION_REPORT — v2.2.0 extraction results
 
 > **Run date**: 2026-10-20  
-> **Extractor version**: 2.1.0  
+> **Extractor version**: 2.2.0  
 > **Source**: `/Volumes/d1_edh/edh_decom/sstm/` (12 EDWH_E2E_Mapping files)  
 > **Output**: `/Volumes/d1_dlk/codegen/codegen_inputs/sttm/edh_gold/` (11 table JSON + manifest)  
 > **Skipped**: `EDWH_CLIENT_SERVICE_LETTER_LOG_V1.0.xls` (no E2E_Mapping sheet)  
 
 ---
 
-## 1. Schema validation: v2.0 / v2.1
+## 1. Schema validation: v2.1 / v2.2
 
-| Metric | v2.0 | v2.1 | Change |
+| Metric | v2.1 | v2.2 | Change |
 | --- | --- | --- | --- |
 | Files extracted | 11 | 11 | — |
 | Schema-valid files | 11 / 11 | **11 / 11** | — |
-| Total mapping rows | 371 | 388 | +17 (A2 dedupe removed) |
-| Multi-block files (`block_index > 0`) | 0 | 2 | +2 (AUTHORIZATION, HEQI_CD) |
-| `regional_table_structures` non-empty | 10 / 11 | **11 / 11** | +1 (A3: m2 .xls fixed) |
-| m2 (CLAIMS_UB92) region count | 0 | 28 | fixed (A3) |
-| `data_type` verbatim (B6) | no (cleaned) | **yes** | `data_type_raw` removed |
-| `block_index` + `source_row` per mapping | absent | **all 388 rows** | new required keys |
-| Uniform key set (15 keys / row) | 13 keys | 15 keys | +`block_index`, +`source_row` |
+| Total mapping rows | 388 | 390 | +2 (STAMP_DT sparse rows now included) |
+| Multi-block files (`block_index > 0`) | 2 | 2 | — |
+| Per-block `target_table` | no (file-level) | **yes** | m10 blocks carry distinct targets |
+| m0 `target_format` | in `field_length` | **in `target_format`** | `field_length` null on m0 |
+| Uniform key set (15 keys / row) | 15 keys | 15 keys | — |
 
-### Per-file row counts (v2.0 / v2.1)
+### Per-file row counts (v2.1 / v2.2)
 
-| File | v2.0 | v2.1 | Blocks | Regions | Notes |
-| --- | --- | --- | --- | --- | --- |
-| FACETS_PROVIDER_TAXONOMY_CD | 11 | 11 | {0} | 7 | 0 |
-| FACETS_AUTHORIZATION | 84 | 98 | {0,1} | 7 | 0 |
-| FACETS_CLAIMS_UB92 | 55 | 55 | {0} | 28 | 1 |
-| FACETS_MEMBER_HM_SPECIAL_NEEDS | 9 | 9 | {0} | 7 | 1 |
-| FACETS_MEMBER_OTHER_INS | 63 | 63 | {0} | 7 | 0 |
-| FACETS_MEMBER_RATE_AREA | 7 | 7 | {0} | 7 | 1 |
-| FACETS_MEMBER | 75 | 75 | {0} | 7 | 1 |
-| FACETS_PCP_TRANSFER | 11 | 11 | {0} | 7 | 0 |
-| FACETS_PROCEDURE_CODE | 4 | 4 | {0} | 7 | 0 |
-| FACETS_PROVIDER | 49 | 49 | {0} | 7 | 2 |
-| FACETS_HEQI_CD | 3 | 6 | {0,1} | 7 | 0 |
-| **Total** | **371** | **388** | | **98** | **6** |
+| File | v2.1 | v2.2 | Blocks | Block targets | Regions | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| FACETS_PROVIDER_TAXONOMY_CD | 11 | 11 | {0} | FACETS_PROVIDER_TAXONOMY_CD | 7 | 1 |
+| FACETS_AUTHORIZATION | 98 | 98 | {0,1} | FACETS_AUTHORIZATION | 7 | 0 |
+| FACETS_CLAIMS_UB92 | 55 | 55 | {0} | FACETS_CLAIMS_UB92 | 28 | 1 |
+| FACETS_MEMBER_HM_SPECIAL_NEEDS | 9 | 9 | {0} | FACETS_MEMBER_HM_SPECIAL_NEEDS | 7 | 1 |
+| FACETS_MEMBER_OTHER_INS | 63 | 63 | {0} | FACETS_MEMBER_OTHER_INS | 7 | 0 |
+| FACETS_MEMBER_RATE_AREA | 7 | 7 | {0} | FACETS_MEMBER_RATE_AREA | 7 | 1 |
+| FACETS_MEMBER | 75 | 75 | {0} | FACETS_MEMBER | 7 | 1 |
+| FACETS_PCP_TRANSFER | 11 | 11 | {0} | FACETS_PCP_TRANSFER | 7 | 0 |
+| FACETS_PROCEDURE_CODE | 4 | 4 | {0} | FACETS_PROCEDURE_CODE | 7 | 0 |
+| FACETS_PROVIDER | 49 | 49 | {0} | FACETS_PROVIDER | 7 | 2 |
+| FACETS_HEQI_CD | 6 | 8 | {0,1} | FACETS_HEQI_CD, FACETS_RACE_CODE | 7 | 1 |
+| **Total** | **388** | **390** | | | **98** | **8** |
 
-## 2. Fixes applied (v2.0 → v2.1)
+## 2. Fixes applied (v2.1 → v2.2)
 
 | # | Fix | Effect |
 | --- | --- | --- |
-| A2 undo | Dedupe removed; every mapping row emitted. `block_index` (0-based, per block) and `source_row` (1-based workbook row) added to every mapping. Block boundaries: repeated-header detection (m10) + gap-based detection (m1). | AUTHORIZATION: 84 → 98 (49+49, two blocks). HEQI_CD: 3 → 6 (3+3, two blocks). |
-| A3 | Region detection changed from prefix-matching ("reg"/"medicare"/"exchange") to LOB-token matching. Root cause: m2 (.xls) uses plan-specific labels (MHP, AHM, SHP, etc.) that all contain "LOB" but not the original prefix tokens. | CLAIMS_UB92: 0 → 28 regions (55 columns each). |
-| B6 | `data_type` emitted verbatim (trailing commas, internal padding preserved). `data_type_raw` removed. | Regional `data_type` values like `VARCHAR2(1 BYTE),` now kept as-is. |
-| Schema | `block_index` (integer ≥ 0) and `source_row` (integer ≥ 1) added as required mapping keys. `propertyNames` pattern for regional labels broadened: `^[A-Z][A-Z0-9]* - LOB ?\(.+\)$`. | Reported in EDH_E2E_JSON_SCHEMA.md. |
+| Per-block target_table | `mappings[].target_table` now comes from each block’s own Data Table column, not the file-level resolved value. Top-level `target_table` stays the first-block / summary identifier. Sparse rows (e.g. STAMP_DT, 2 cells) get their block’s target. | HEQI_CD: 6 → 8 rows (4+4, incl. STAMP_DT). Block 0 = FACETS_HEQI_CD, block 1 = FACETS_RACE_CODE. `mixed_target` document_note added. |
+| type-in-length swap (m0) | Second “Data Format” column on m0 holds Oracle types (VARCHAR2, DATE), not lengths. Moved to `target_format`; `field_length` set null. | 11 rows on FACETS_PROVIDER_TAXONOMY_CD. `type_in_length_column` document_note. |
+| Sparse-row filter | `< 3` threshold lowered to `< 2` so 2-cell mapping rows (target_attribute + mapping_edits) are emitted. | +2 STAMP_DT rows on m10. |
 
 ## 3. Document notes by kind
 
-| Kind | Files | Total items | Source (defect list) |
+| Kind | Files | Total items | Source |
 | --- | --- | --- | --- |
 | `space_in_name` | 4 | 4 entries (regional items) | B2 |
-| `mixed_target` | 1 | 1 entry (2 distinct values) | B3 |
 | `drag_fill` | 1 | 1 entry (7 rows) | B1 |
 | `region_label_nonstandard` | 1 | 1 entry (28 plan-specific labels) | A3/B8 |
+| `mixed_target` | 1 | 1 entry (2 blocks, 2 targets) | v2.2 |
+| `type_in_length_column` | 1 | 1 entry (11 rows) | v2.2 |
 
-Total: 6 files carry `document_notes` (7 entries).
+Total: 8 files carry `document_notes` (8 entries).
 
 ## 4. Grammar counts (§2/§3 from profiler, counts only)
 
@@ -82,11 +80,11 @@ Total: 6 files carry `document_notes` (7 entries).
 
 Per-cell classification: equality 72, date window 10, join only 3, free text 34.
 
-### §3.3 Mapping edits (388 rows)
+### §3.3 Mapping edits (390 rows)
 
 | Class | Count |
 | --- | --- |
-| Direct mapping | 176 |
+| Direct mapping | 178 |
 | substring slice | 31 |
 | COALESCE-equivalent | 27 |
 | CASE | 24 |
@@ -105,7 +103,7 @@ Per-cell classification: equality 72, date window 10, join only 3, free text 34.
 | mapping_count | 11 |
 | refresh_schedule | 8 |
 | load_type | 6 |
-| regional_table_structures | **11** |
+| regional_table_structures | 11 |
 | summary | 4 |
 | rules | 2 |
 | document_notes | 6 |
@@ -116,4 +114,4 @@ All 15 mapping keys present on all 11 files (uniform).
 
 ---
 
-*Generated by Genie Code from jsonschema validation (Draft202012Validator, 11/11 PASS).*
+*Generated by Genie Code — v2.2.0, jsonschema Draft202012Validator, 11/11 PASS.*

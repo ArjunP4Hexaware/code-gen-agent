@@ -136,3 +136,44 @@ with `tools/iig_diff.py --golden-structure`.
      default?
   2. What does `Y` change in the generic notebook? Does a missing column fail the
      file? Is an extra column dropped, loaded or quarantined? Is the schema evolved?
+
+## 7. EDH E2E gold loads — values no mapping document states (2026-10-20, for the EDH team)
+
+Not IIG conventions: these concern the gold-layer EDH E2E mappings (Facets → Enterprise
+Data Hub, 11 documents, 12 target tables). The reader asks each of them once per table
+today. One answer per question closes them all, through the `edh_e2e:` profile
+(`ENVIRONMENT_ACFC.md` §h). No document values are recorded here.
+
+### 7.1 The target schema
+
+The documents name the destination catalog and each target table, never a schema.
+- **Question:** which UC schema do the 12 EDH gold tables load into? Is it one schema for
+  all, or does it vary by table (and if so, by what rule)?
+
+### 7.2 Facets databases → UC catalog.schema
+
+Every source is named by its Facets database and a bare table name. None is a UC
+three-part name.
+- **Question:** for each Facets database the mappings name, which UC `catalog.schema`
+  holds its tables in the environment the gold loads read from? Does that differ between
+  D1 and the higher environments?
+
+### 7.3 SCD2 and surrogate keys — the convention the existing EDH loads use
+
+No document states whether history is kept, or how surrogate keys are made. The
+documents carry effective-date columns, but no SCD2 marker and no SK.
+- **Questions:**
+  1. Do the existing EDH gold loads keep type-2 history?
+  2. If yes, what are the effective-start / effective-end / current-flag columns, and what
+     value closes a current row?
+  3. How are surrogate keys generated (identity column, hash of the business key,
+     sequence, max + 1)?
+  4. Which columns form the business key that the MERGE matches on? The documents mark
+     primary-key columns on 29 rows; is that the key?
+
+### 7.4 The two zero-argument Facets functions
+
+17 expressions call one of two zero-argument functions. Their meaning is not in the
+documents.
+- **Question:** what does each function return (for example an empty string, a blank of
+  a given width, the current date), so that it can be written as Spark SQL?

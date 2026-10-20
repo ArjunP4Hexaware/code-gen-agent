@@ -4,6 +4,56 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post78 — 2026-10-20 (EDH E2E v2.2: one feed per target; questions workbook; m93 chooser)
+
+1. **One feed per target table.** v2.2 has a file whose blocks load two tables (m10, the
+   `mixed_target` note). `read_dir` now emits one `GoldFeed` per target. Each feed carries
+   its `manifest_index` and `blocks`, and the feeds are numbered over the whole manifest,
+   so a `--table <i>` run keeps the same `feeds[<i>]` keys. A note goes to the feed of the
+   lowest block it names, and rules go to the file's first feed: both are asked once.
+2. **Lengths.** A new `length` role:
+   - `field_length` holding a length → filled;
+   - a type written in `field_length` or `target_format` → its `(n)` is proposed;
+   - DATE → no length;
+   - other text → QUESTION.
+
+   m0's 9 lengths are proposals from `target_format`.
+3. **`--questions-xlsx PATH`.** One sheet per feed (`feed_<i>`), columns `question_key,
+   role, block_index, source_row, cell_text, question, answer`. The workbook quotes cells:
+   - a path inside the repository is refused (exit 1);
+   - a `/Volumes/...` path goes through the Files API when there is no mount;
+   - the run prints `questions workbook: <path> (<n> rows)`.
+4. **`--answers FILE`.** Either an answers.yaml read by the ingestion loader
+   (`codegen.layout.answers.load_answers`, `gaps:` / `inputs:`) or the filled workbook.
+   An answered key is not asked again; it is recorded under `GoldFeed.answered`, counted as
+   filled, and applied where it sets a value (schema, load mode, SCD2 / SK, source
+   catalog.schema, type, expression, key, length).
+5. **Schema v2.2:** `extractor_version` 2.x, and the optional note `blocks:
+   [{block_index, target_table}]`. On v2.2: the manifest and 11 of 11 files are valid.
+6. **D1 run on the 11 real v2.2 files** (`docs/acfc/EDH_E2E_READER_RUN.md`):
+   - 390 rows → 12 feeds; no crash;
+   - 1,793 filled / 107 proposed / 210 QUESTION;
+   - the questions workbook has 210 rows, in the state volume
+     (`.../state/edh_e2e/questions_<run>.xlsx`).
+7. **Profile docs.** `docs/acfc/ENVIRONMENT_ACFC.md` §h documents the `edh_e2e` keys and
+   the QUESTION keys each closes. `docs/acfc/OPEN_QUESTIONS.md` §7 adds the four client
+   questions: target schema; Facets database → UC; SCD2 / SK; the two functions.
+8. **`test_m93_chooser` re-included and passing** (48 of 48). It had failed since c0358f6
+   (2026-09-21) for two reasons:
+   - `DocumentIndex._bounded` charged a parser restart to the file's budget (a product
+     bug, fixed: the parse budget is the timeout minus the download time);
+   - the first workspace download's cold SDK import (1.1 s) landed inside the test's
+     1.0 s listing budget (the test now warms it).
+
+   `main` has neither the test nor the code.
+
+**Tests:** `tests/test_edh_e2e_reader.py`:
+- per-target feeds, the stable numbering and the lengths;
+- the workbook, the YAML / xlsx answers and the CLI's repo refusal.
+
+Fixture (e) `syn_split_a_dim.json` is the clean two-target file. The profiler's mixed-target
+defect is now "more than one target in one block".
+
 ## 0.5.8.post77 — 2026-10-20 (the EDH E2E gold-mapping reader)
 
 The next phase is the gold layer: CodeGen generates the load SQL from extracted EDH E2E

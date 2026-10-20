@@ -3,7 +3,7 @@
 
     python scripts/gold/build_edh_synthetic.py [OUT_DIR]
 
-Dialect v2.1 (extractor_version 2.1.0): every mapping row carries the same 15 keys, among them
+Dialect v2.2 (extractor_version 2.2.0): every mapping row carries the same 15 keys, among them
 ``block_index`` and ``source_row``; every table file carries ``document_notes``. Every name is
 SYN_-prefixed and every value fabricated; only the structure and cardinalities follow the real
 set (docs/acfc/EDH_E2E_JSON_SCHEMA.md §5). Each file's ``$comment`` names the
@@ -20,7 +20,7 @@ from pathlib import Path
 
 DEFAULT_OUT = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "edh_gold_synthetic"
 STAMP = "2026-10-20T00:00:00.000000+00:00"
-EXTRACTOR_VERSION = "2.1.0"
+EXTRACTOR_VERSION = "2.2.0"
 
 REGION_SHAPES = [  # (label, code count, space before paren) — the real set's seven shapes
     ("SYNR1", 9, True),
@@ -353,10 +353,40 @@ D_DOC = table(
 )
 
 
+# (e) v2.2: one file, two blocks loading two different tables (mixed_target) ----------------
+E_A, E_B = "SYN_SPLIT_A_DIM", "SYN_SPLIT_B_DIM"
+e_cols = ["SYN_SPLIT_ID", "SYN_SPLIT_NM", "SYN_SPLIT_DT"]
+e_types = ["VARCHAR2(12)", "VARCHAR2(40)", "DATE"]
+e_rows = [
+    row(f"SYN_SPLIT_{'A' if blk == 0 else 'B'}_SRC", f"SYN_S{k}", tgt, col, block=blk,
+        source_row=4 + 8 * blk + k, length=None, target_format=t,
+        idx=("Primary key" if k == 0 else None))
+    for blk, tgt in ((0, E_A), (1, E_B))
+    for k, (col, t) in enumerate(zip(e_cols, e_types, strict=True))
+]
+E_DOC = table(
+    E_A,
+    e_rows,
+    regional=regions(e_cols),
+    notes=[
+        {"kind": "mixed_target", "where": "sheet 1, rows 3-14", "detail": "2 target tables",
+         "blocks": [{"block_index": 0, "target_table": E_A},
+                    {"block_index": 1, "target_table": E_B}]},
+        {"kind": "type_in_length_column", "where": "file 1", "detail": "6 rows"},
+    ],
+    comment=(
+        "Stands in for v2.2: a file whose two blocks load two different tables (1 of 11 real "
+        "files, 4 rows per block) with its mixed_target note; target_format filled and "
+        "field_length null (1 of 11 real files, 11 rows) with its type_in_length_column note. "
+        "Read as two feeds."
+    ),
+)
+
+
 def build(out=DEFAULT_OUT):
-    """Write the manifest + four table files into ``out``; returns the file names."""
+    """Write the manifest + five table files into ``out``; returns the file names."""
     os.makedirs(out, exist_ok=True)
-    docs = [A_DOC, B_DOC, C_DOC, D_DOC]
+    docs = [A_DOC, B_DOC, C_DOC, D_DOC, E_DOC]
     manifest = {
         "$comment": "Synthetic manifest: same keys as the real v2.1 _manifest.json (11 tables there, 4 here).",
         "extracted_at": STAMP,

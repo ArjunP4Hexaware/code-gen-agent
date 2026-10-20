@@ -1568,17 +1568,65 @@ def _question_items(questions, sheet_names: dict | None = None) -> list:
     return items
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _outside_repo(path: str) -> bool:
+    """The questions workbook quotes document cells: never inside the checkout."""
+    if path.startswith("/Volumes/"):
+        return True
+    resolved = Path(path).resolve()
+    return resolved != _REPO_ROOT and _REPO_ROOT not in resolved.parents
+
+
+def _volume_io(path: str, data: bytes | None = None) -> bytes | None:
+    """Read (``data`` None) or write a file; a ``/Volumes/...`` path ALWAYS through the
+    Files API — a mount is never opened as a path (tests/test_storage.py)."""
+    if not path.startswith("/Volumes/"):
+        if data is None:
+            return Path(path).read_bytes()
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(data)
+        return None
+    import io
+
+    from databricks.sdk import WorkspaceClient
+
+    client = WorkspaceClient()
+    if data is None:
+        return client.files.download(path).contents.read()
+    client.files.upload(path, io.BytesIO(data), overwrite=True)
+    return None
+
+
 def _read_edh_e2e(args: argparse.Namespace, config: Config) -> int:
     """``codegen read-edh-e2e``: an EDH E2E extraction folder -> a gold contract JSON.
     One QUESTION line per unstated / free-text value (exit 3), one INPUT_NEEDED line per
-    proposal, one NOTE per flag."""
-    from codegen.layouts.edh_e2e import read_dir
+    proposal, one NOTE per flag. ``--answers`` (an answers.yaml read by the ingestion
+    loader, or the filled questions workbook) closes questions by key;
+    ``--questions-xlsx`` writes the open ones for people (outside the repo only)."""
+    from codegen.layouts.edh_e2e import (
+        answers_from_workbook,
+        answers_from_yaml,
+        questions_workbook,
+        read_dir,
+    )
 
     folder = Path(args.input)
     if not (folder / "_manifest.json").is_file():
         _fail("read-edh-e2e", f"no _manifest.json in {folder}", "input.not_found", path=folder)
         return EXIT_FAILED
-    contract = read_dir(folder, config.edh_e2e, only=args.table)
+    if args.questions_xlsx and not _outside_repo(args.questions_xlsx):
+        _fail("read-edh-e2e", "the questions workbook quotes document cells: write it outside "
+              "the repository (a /Volumes/... path)", "usage")
+        return EXIT_FAILED
+    answers: dict[str, str] = {}
+    if args.answers:
+        if args.answers.lower().endswith(".xlsx"):
+            answers = answers_from_workbook(_volume_io(args.answers))
+        else:
+            answers = answers_from_yaml(Path(args.answers))
+    contract = read_dir(folder, config.edh_e2e, only=args.table, answers=answers)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(contract.model_dump_json(indent=2, by_alias=True) + "\n", encoding="utf-8",
@@ -1594,8 +1642,13 @@ def _read_edh_e2e(args: argparse.Namespace, config: Config) -> int:
             questions += 1
             cell = f" — cell: {q.quoted!r}" if q.quoted else ""
             print(answer_line("QUESTION", q.key, q.reason + cell))
+    answered = sum(len(f.answered) for f in contract.feeds)
+    if args.questions_xlsx:
+        data, rows = questions_workbook(contract)
+        _volume_io(args.questions_xlsx, data)
+        print(f"questions workbook: {args.questions_xlsx} ({rows} rows)")
     print(f"read-edh-e2e: {len(contract.feeds)} table(s), {questions} QUESTION, "
-          f"{proposals} INPUT_NEEDED -> {out}")
+          f"{proposals} INPUT_NEEDED, {answered} answered -> {out}")
     return EXIT_NEEDS_ANSWERS if questions else EXIT_OK
 
 
@@ -2246,6 +2299,13 @@ def _parser() -> argparse.ArgumentParser:
     read_edh.add_argument("--out", required=True, help="path for the emitted contract JSON")
     read_edh.add_argument("--table", type=int,
                           help="read only this manifest index (keys keep the index)")
+    read_edh.add_argument("--answers",
+                          help="answers.yaml (gaps: {<key>: {value: ...}}) or the filled "
+                               "questions workbook (.xlsx, a local or /Volumes/... path)")
+    read_edh.add_argument("--questions-xlsx",
+                          help="write the open questions, one sheet per table, to this "
+                               "workbook — it quotes document cells: a /Volumes/... path, "
+                               "never inside the repository")
 
     extract_vdd = subparsers.add_parser(
         "extract-vdd",

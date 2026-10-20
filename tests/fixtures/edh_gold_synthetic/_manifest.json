@@ -1,15 +1,16 @@
 {
   "$comment": "Synthetic manifest: same keys as the real v2.1 _manifest.json (11 tables there, 4 here).",
   "extracted_at": "2026-10-20T00:00:00.000000+00:00",
-  "extractor_version": "2.1.0",
+  "extractor_version": "2.2.0",
   "source_volume": "/Volumes/syn_cat/syn_schema/syn_inputs",
   "source_hashes": {
     "SYN_EDH_E2E_Mapping_SYN_MBR_DIM_V1.0.xlsx": "73fcc7639dcb97b3c2a80052e55b5a234935fe9524f5eff46b7909c6e6b20397",
     "SYN_EDH_E2E_Mapping_SYN_PLAN_REF_V1.0.xlsx": "10b5a90c317cdb35372615cc0544da2bb6251742547a2888fe01e349c7cab2c0",
     "SYN_EDH_E2E_Mapping_SYN_ELIG_FACT_V1.0.xlsx": "d6b79ebe8691695f9012e23c54191f63d00bde09dcef0a5e4b02abf9af1572bf",
-    "SYN_EDH_E2E_Mapping_SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping_V1.0.xlsx": "bced45fcbcd240078b3882c67d39e1191885c87a0c0ff920b0271451b78bbca4"
+    "SYN_EDH_E2E_Mapping_SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping_V1.0.xlsx": "bced45fcbcd240078b3882c67d39e1191885c87a0c0ff920b0271451b78bbca4",
+    "SYN_EDH_E2E_Mapping_SYN_SPLIT_A_DIM_V1.0.xlsx": "4ad7c1a96d48ffdaf5211a09fa2482fb2ee19bbf46a189c4c22b9b246d504c57"
   },
-  "file_count": 4,
+  "file_count": 5,
   "tables": [
     {
       "target_table": "SYN_MBR_DIM",
@@ -38,6 +39,13 @@
       "refresh_schedule": null,
       "json_file": "syn_memo_syn_view_pulls_syn_schema_syn_code_src_entries_per_syn_grouping.json",
       "document_notes_count": 1
+    },
+    {
+      "target_table": "SYN_SPLIT_A_DIM",
+      "mapping_count": 6,
+      "refresh_schedule": "Daily",
+      "json_file": "syn_split_a_dim.json",
+      "document_notes_count": 2
     }
   ]
 }

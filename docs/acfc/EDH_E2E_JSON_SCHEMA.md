@@ -7,6 +7,14 @@
 > Companion to `GOLD_STTM_SHAPE.md` (the Provider Lakehouse STTM workbook, a different
 > document family).
 >
+> **v2.2** (`extractor_version` 2.2.0, 2026-10-20) adds three things:
+> - a file's blocks may load different tables: m10, the `mixed_target` note, whose new
+>   `blocks: [{block_index, target_table}]` key §1.2 allows;
+> - `target_format` is filled again (m0, 11 rows; the `type_in_length_column` note);
+> - 390 rows, not 389. m10 has 8: 4 per block.
+>
+> On v2.2 the schema passes the manifest and 11 of 11 files. That needed two changes: the
+> `extractor_version` pattern now accepts 2.x, and the note `blocks` key is allowed.
 > **Dialect v2.1** (`extractor_version` 2.1.0, 2026-10-20): every mapping row carries
 > `block_index` and `source_row`, every table file `document_notes`, the manifest
 > `extractor_version`, `source_hashes` and `tables[].document_notes_count` (§1). §1 and §5
@@ -45,7 +53,7 @@ the schema allows it.
   "properties": {
     "$comment": {"type": "string"},
     "extracted_at": {"type": "string", "format": "date-time"},
-    "extractor_version": {"type": "string", "pattern": "^2\\.1\\.[0-9]+$"},
+    "extractor_version": {"type": "string", "pattern": "^2\\.[1-9][0-9]*\\.[0-9]+$"},
     "source_volume": {"type": "string", "pattern": "^/Volumes/[^/]+/[^/]+/[^/]+"},
     "source_hashes": {
       "type": "object",
@@ -138,7 +146,19 @@ the schema allows it.
         "properties": {
           "kind": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
           "where": {"type": "string", "minLength": 1},
-          "detail": {"type": "string"}
+          "detail": {"type": "string"},
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["block_index", "target_table"],
+              "properties": {
+                "block_index": {"type": "integer", "minimum": 0},
+                "target_table": {"type": "string"}
+              }
+            }
+          }
         }
       }
     },
@@ -185,6 +205,7 @@ the schema allows it.
     "mapping_count == len(mappings)",
     "every mappings[].target_table == target_table (one target per file)",
     "(block_index, target_attribute) unique within the file",
+    "one mappings[].target_table per block_index; a file whose blocks name different tables carries a mixed_target note (v2.2) and is read as one feed per table",
     "source_row strictly increasing within a block_index",
     "every regional region's column_name set == the set of mappings[].target_attribute (else a region-drift flag, not a failure)",
     "region keys identical across the manifest's files (same label, same code list)",

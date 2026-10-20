@@ -61,10 +61,11 @@ def test_profiler_counts_every_grammar_class_in_the_fixtures():
                                  "column reference (another column)", "free text"}
     assert out["defects"]["top target_table not an identifier"] == 1
     assert out["defects"]["duplicated (block_index, target_attribute)"] == 1
-    assert out["blocks"]["files with >1 block"] == 1
+    assert out["blocks"]["files with >1 block"] == 2
     assert out["blocks"]["rows without block_index"] == 0
     assert out["blocks"]["rows without source_row"] == 0
-    assert out["defects"][">1 mappings[].target_table"] == 1
+    assert out["defects"][">1 target_table in one block"] == 1
+    assert out["blocks"]["files whose blocks load different tables"] == 1
     assert out["distinct_region_keys"] == 10
     assert out["regions"]["non-standard region keys"] == 2
 

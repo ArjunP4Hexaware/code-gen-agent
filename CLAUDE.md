@@ -1,11 +1,28 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post77)
+## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post78)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-20, after post77) — gold layer.** post77 = the EDH E2E gold-mapping
+**RESTART HERE (2026-10-20, after post78) — gold layer, v2.2.** post78:
+- **One feed per target table.** `GoldFeed.manifest_index` / `blocks`; `feeds[<i>]` is
+  numbered over the whole manifest, so a `--table` run keeps the same keys.
+- **`length` role:** `field_length`, or the `(n)` of a type → proposal.
+- **`--questions-xlsx PATH`:** one sheet per feed. It quotes cells, so it is refused
+  inside the repo; a `/Volumes/` path always goes through the Files API (the
+  `test_storage` mount rule).
+- **`--answers FILE`:** an answers.yaml through `layout.answers.load_answers`, or the
+  filled workbook. Answered keys are recorded under `GoldFeed.answered` and counted as
+  filled.
+- **v2.2 run:** 390 rows → 12 feeds; 1,793 / 107 / 210. The workbook (210 rows) is
+  `/Volumes/d1_dlk/codegen/state/edh_e2e/questions_run_20261020T180637Z_fa5270e.xlsx`.
+- **Profile docs:** `ENVIRONMENT_ACFC.md` §h; `OPEN_QUESTIONS.md` §7.1–7.4 (the client
+  questions).
+- **`test_m93_chooser`** passes again (`DocumentIndex._bounded` budget fix + the test
+  warms the SDK import). It had failed since c0358f6; it is never deselected.
+
+**After post77 (kept for reference) — gold layer.** post77 = the EDH E2E gold-mapping
 reader: `codegen read-edh-e2e --input DIR --out FILE [--table N]` (`codegen.layouts.edh_e2e`
 -> `codegen.contracts.gold.GoldContract`). Rules: stated = filled, derived = `status:
 proposed` + INPUT_NEEDED, unstated / free text = QUESTION `feeds[<i>].<role>` /

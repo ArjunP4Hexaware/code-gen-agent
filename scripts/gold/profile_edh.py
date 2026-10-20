@@ -191,7 +191,13 @@ def profile(directory: str | Path) -> dict:
         c["document_notes"]["files with document_notes null"] += notes is None
         for note in notes or []:
             c["document_notes"]["kind " + str(note.get("kind"))] += 1
-        c["defects"][">1 mappings[].target_table"] += len(targets) > 1
+        by_block: dict = collections.defaultdict(set)
+        for x in mappings:
+            by_block[x.get("block_index")].add(x.get("target_table"))
+        # v2.2: blocks may load different tables; one block naming two is the defect
+        c["defects"][">1 target_table in one block"] += any(len(t) > 1 for t in by_block.values())
+        c["blocks"]["files whose blocks load different tables"] += len(targets) > 1 and all(
+            len(t) == 1 for t in by_block.values())
         c["defects"]["target_attribute not an identifier"] += any(
             not _is_identifier(a) for a in attrs
         )

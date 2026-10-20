@@ -40,6 +40,7 @@ ROLES = (
     "source_catalog_schema",
     "target_type",
     "nullable",
+    "length",
     "expression",
     "join",
     "filter",
@@ -68,6 +69,17 @@ class GoldQuestion(BaseModel):
     quoted: str | None = None  # the free-text cell, verbatim
     where: GoldWhere | None = None
     candidates: list[str] = Field(default_factory=list)
+
+
+class GoldAnswer(BaseModel):
+    """A question a person answered (``--answers``: an answers.yaml ``gaps:`` entry or
+    the filled questions workbook); counted as filled under its role."""
+
+    model_config = _MODEL_CONFIG
+
+    key: str
+    role: str
+    value: str
 
 
 class GoldProposal(BaseModel):
@@ -138,6 +150,9 @@ class GoldColumn(BaseModel):
     source_field: str | None
     description: str | None
     source_format: str | None  # kept as written, a drag-fill suspect included (flagged)
+    target_format: str | None = None  # the document's own target type cell, as written
+    length: str | None = None  # field_length when it is a length; else from target_format
+    length_status: Status | None = None
     target_type: str | None  # from the regional structure: comma stripped, NOT NULL split off
     target_type_status: Status | None = None
     nullable: bool | None = None
@@ -171,11 +186,16 @@ class GoldRegion(BaseModel):
 class GoldFeed(BaseModel):
     model_config = _MODEL_CONFIG
 
-    index: int  # the manifest index: keys say feeds[<index>]
+    # One feed per TARGET TABLE (v2.2: a file whose blocks load different tables
+    # yields one feed per table). ``index`` numbers the feeds over the whole
+    # manifest, in manifest order then first-block order: keys say feeds[<index>].
+    index: int
+    manifest_index: int  # the file's position in _manifest.json
+    blocks: list[int]  # the file's block_index values this feed carries
     json_file: str
     target: GoldTarget
     refresh_schedule: str | None
-    load_mode: Literal["full"] | None
+    load_mode: str | None  # "full" when stated; an answer's text otherwise
     primary_key: list[str]
     scd2_mode: str | None
     sk_strategy: str | None
@@ -186,6 +206,7 @@ class GoldFeed(BaseModel):
     proposals: list[GoldProposal] = Field(default_factory=list)
     questions: list[GoldQuestion] = Field(default_factory=list)
     flags: list[str] = Field(default_factory=list)
+    answered: list[GoldAnswer] = Field(default_factory=list)
 
 
 class GoldContract(BaseModel):

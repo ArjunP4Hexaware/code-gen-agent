@@ -427,7 +427,7 @@ class DocumentIndex:
         download in a daemon thread (a hung transfer is abandoned, never waited
         for), the read in the parser PROCESS (a runaway parse is killed)."""
         timeout = float(self._get_config().inputs.classify_timeout_seconds)
-        deadline = time.monotonic() + timeout
+        started = time.monotonic()
         box: dict = {}
 
         def download() -> None:
@@ -441,6 +441,7 @@ class DocumentIndex:
                                   daemon=True)
         thread.start()
         thread.join(timeout)
+        downloaded_in = time.monotonic() - started
         if thread.is_alive():
             return {"state": UNREADABLE, "facts": None,
                     "reason": f"not read within {timeout:g}s (the download timed out); "
@@ -451,7 +452,11 @@ class DocumentIndex:
             self.ensure_parser("background")            # its own budget, not this file's
         except Exception as exc:  # noqa: BLE001 — every failure is a listed state
             return {"state": UNREADABLE, "facts": None, "reason": str(exc)}
-        return self._parse(doc, box["path"], max(deadline - time.monotonic(), 0.05),
+        # The file's budget is the download + the parse; an interpreter (re)start —
+        # after a stopped parser, the D1 container takes over a second — is not
+        # charged to it (a deadline fixed before ensure_parser was: every healthy
+        # file after a timeout got the 0.05 s floor and was listed unreadable).
+        return self._parse(doc, box["path"], max(timeout - downloaded_in, 0.05),
                            "background")
 
     def _store(self, doc, entry: dict) -> None:

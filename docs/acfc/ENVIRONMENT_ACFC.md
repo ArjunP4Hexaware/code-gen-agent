@@ -329,3 +329,36 @@ HTTP/2 200
 
 All three external hosts are reachable from serverless notebook
 compute. No egress firewall blocks observed for PyPI or GitHub.
+
+## h. The EDH E2E reader profile (`edh_e2e:`, 2026-10-20, post78)
+
+`codegen read-edh-e2e` reads the gold-layer EDH E2E mappings. No EDH E2E document states
+the values below, so the reader takes them from the `edh_e2e:` config section, or asks
+one QUESTION per feed. The section is **empty in the tracked config**. Inside ACFC the
+values go in the ACFC overlay (`codegen-state/overlays/<profile>.yaml`, on the state
+volume), never in git. Counts below are from the v2.2 run (`EDH_E2E_READER_RUN.md`, 12
+feeds).
+
+| Key | Type | Meaning | Closes (QUESTION key) | v2.2 count | Client question |
+| --- | --- | --- | --- | --- | --- |
+| `target_schema` | string | The UC schema the gold targets load into. The documents name only the catalog (`destination_catalog`) and the table | `feeds[<i>].target_schema` | 12 | `OPEN_QUESTIONS.md` §7.1 |
+| `source_catalog_map` | map: source database (as `source_database` spells it) → `"<catalog>.<schema>"` | Where each Facets source database lives in UC. The documents give the database and a bare table name only | `feeds[<i>].source_sets[<b>].sources[<k>].catalog_schema` | 69 | §7.2 |
+| `scd2_mode` | string | How the gold tables keep history (e.g. a type-2 convention and its name) | `feeds[<i>].scd2_mode` | 12 | §7.3 |
+| `sk_strategy` | string | How surrogate keys are made | `feeds[<i>].sk_strategy` | 12 | §7.3 |
+| `function_map` | map: function name → Spark SQL expression | The documents' zero-argument functions (2 names in the real set). An unmapped one makes the whole expression a QUESTION | `feeds[<i>].columns[<j>].expression`, the cells that call a function | 17 | §7.4 |
+
+Shape (placeholders only):
+
+```yaml
+edh_e2e:
+  target_schema: <schema>
+  source_catalog_map:
+    <source_database>: <catalog>.<schema>
+  scd2_mode: <convention>
+  sk_strategy: <strategy>
+  function_map:
+    <FunctionName>: <spark sql expression>
+```
+
+All five filled would close 122 of the 210 v2.2 questions. The rest need a person,
+through the questions workbook (`--questions-xlsx`, then `--answers`).

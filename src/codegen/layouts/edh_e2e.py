@@ -25,6 +25,7 @@ from pathlib import Path
 
 from codegen.config import EdhE2eConfig
 from codegen.contracts.gold import (
+    GoldAnswer,
     GoldColumn,
     GoldContract,
     GoldFeed,
@@ -574,6 +575,8 @@ class _Feed:
     proposals: list[GoldProposal] = field(default_factory=list)
     questions: list[GoldQuestion] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
+    answers: dict[str, str] = field(default_factory=dict)
+    answered: list[GoldAnswer] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -591,7 +594,14 @@ class _Feed:
         quoted: str | None = None,
         where: GoldWhere | None = None,
         candidates: list[str] | None = None,
-    ) -> None:
+    ) -> str | None:
+        """Ask — unless a person already answered ``key`` (``--answers``): then the
+        answer is recorded, counted as filled, and returned for the caller to apply."""
+        answer = self.answers.get(key)
+        if answer is not None and str(answer).strip():
+            self.answered.append(GoldAnswer(key=key, role=role, value=str(answer).strip()))
+            self.filled[role] += 1
+            return str(answer).strip()
         self.questions.append(
             GoldQuestion(
                 key=key,
@@ -602,6 +612,7 @@ class _Feed:
                 candidates=candidates or [],
             )
         )
+        return None
 
     def propose(
         self, key: str, role: str, value: str, basis: str, where: GoldWhere | None = None
@@ -628,9 +639,50 @@ def _region_type(data_type: str | None) -> tuple[str | None, bool | None, bool]:
     return type_text, (not_null is None), False
 
 
-def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> GoldFeed:
-    """One table file -> one :class:`GoldFeed`."""
-    f = _Feed(index, json_file)
+_LENGTH = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*$")
+_TYPE_LENGTH = re.compile(r"\(\s*(\d+(?:\s*,\s*\d+)?)(?:\s+(?:BYTE|CHAR))?\s*\)")
+
+
+def _length(
+    f: _Feed, ck: str, field_length: str | None, target_format: str | None, where: GoldWhere
+) -> tuple[str | None, str | None]:
+    """A column's length: ``field_length`` when it is a length (filled); else the
+    ``(n)`` of a type written in ``field_length`` or ``target_format`` (proposed —
+    derived from the type); a type without one (DATE) has none. Other text is asked."""
+    stated = (field_length or "").strip()
+    if stated and _LENGTH.match(stated):
+        f.filled["length"] += 1
+        return stated, "filled"
+    for cell, name in ((stated, "field_length"), ((target_format or "").strip(), "target_format")):
+        m = _TYPE_LENGTH.search(cell) if cell else None
+        if m:
+            value = re.sub(r"\s+", "", m.group(1))
+            f.propose(f"{ck}.length", "length", value, f"derived from the type in {name}", where)
+            return value, "proposed"
+    if stated and not re.fullmatch(r"[A-Za-z][A-Za-z0-9 ]*", stated):
+        answer = f.ask(
+            f"{ck}.length",
+            "length",
+            "the field_length cell is not a length",
+            quoted=stated,
+            where=where,
+        )
+        return (answer, "filled") if answer else (None, None)
+    return None, None
+
+
+def read_table(
+    index: int,
+    json_file: str,
+    doc: dict,
+    cfg: EdhE2eConfig,
+    *,
+    manifest_index: int | None = None,
+    answers: dict[str, str] | None = None,
+) -> GoldFeed:
+    """One target table -> one :class:`GoldFeed`. ``doc`` is the table file, its
+    ``mappings`` already narrowed to the blocks that load this target (:func:`read_dir`)."""
+    f = _Feed(index, json_file, answers=dict(answers or {}))
     k = f.key
     mappings = doc.get("mappings") or []
 
@@ -642,10 +694,11 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
         f.ask(f"{k}.target_catalog", "target_catalog", "the file states no destination_catalog")
     table = (doc.get("target_table") or "").strip()
     f.filled["target_table"] += 1
-    if cfg.target_schema:
+    target_schema = cfg.target_schema
+    if target_schema:
         f.filled["target_schema"] += 1
     else:
-        f.ask(
+        target_schema = f.ask(
             f"{k}.target_schema",
             "target_schema",
             "the document names the target catalog and table only; set "
@@ -659,14 +712,14 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
         load_mode = "full"
         f.filled["load_mode"] += 1
     elif load_type:
-        f.ask(
+        load_mode = f.ask(
             f"{k}.load_mode",
             "load_mode",
             "the load_type cell is not a full-load statement",
             quoted=load_type,
         )
     else:
-        f.ask(
+        load_mode = f.ask(
             f"{k}.load_mode",
             "load_mode",
             "the document states no load type",
@@ -674,11 +727,12 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
         )
 
     # SCD2 / surrogate keys: never stated by these documents
-    for role, value in (("scd2_mode", cfg.scd2_mode), ("sk_strategy", cfg.sk_strategy)):
+    convention = {"scd2_mode": cfg.scd2_mode, "sk_strategy": cfg.sk_strategy}
+    for role, value in list(convention.items()):
         if value:
             f.filled[role] += 1
         else:
-            f.ask(
+            convention[role] = f.ask(
                 f"{k}.{role}",
                 role,
                 f"no EDH E2E document states it; set edh_e2e.{role} "
@@ -745,14 +799,14 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
             sentinels = len(found) - len(stated)
             types = collections.Counter(t for t, _ in stated)
             if not found:
-                f.ask(
+                ttype = f.ask(
                     f"{ck}.target_type",
                     "target_type",
                     "no regional structure lists the column",
                     where=where,
                 )
             elif not stated:
-                f.ask(
+                ttype = f.ask(
                     f"{ck}.target_type",
                     "target_type",
                     f"every region that lists the column states a sentinel or nothing "
@@ -793,12 +847,18 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
                         where,
                     )
         else:
-            f.ask(
+            ttype = f.ask(
                 f"{ck}.target_type",
                 "target_type",
                 "the file has no regional structures to type the column",
                 where=where,
             )
+        if ttype and tstatus is None:
+            tstatus = "filled"  # a person's answer
+
+        # length: field_length when it is one; a type in either cell -> its (n)
+        target_format = row.get("target_format")
+        length, lstatus = _length(f, ck, row.get("field_length"), target_format, where)
 
         # source
         if src_table:
@@ -823,13 +883,15 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
                     where,
                 )
             else:
-                f.ask(
+                answer = f.ask(
                     f"{ck}.expression",
                     "expression",
                     "no mapping_edits cell, and the source "
                     f"{'field' if not src_field else 'table'} is not stated",
                     where=where,
                 )
+                if answer:
+                    expr, estatus = provenance + answer, "filled"
         elif eclass == "Direct" or (
             eclass == "column reference" and src_field and edit.strip().lower() == src_field.lower()
         ):
@@ -850,13 +912,15 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
                 expr, estatus = provenance + sql, "filled"
                 f.filled["expression"] += 1
             except Untranslatable as exc:
-                f.ask(
+                answer = f.ask(
                     f"{ck}.expression",
                     "expression",
                     f"the mapping_edits cell is outside the translated grammar ({exc})",
                     quoted=edit,
                     where=where,
                 )
+                if answer:
+                    expr, estatus = provenance + answer, "filled"
 
         # keys
         idx = (row.get("indexes") or "").strip()
@@ -866,7 +930,7 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
             if attr not in primary_key:
                 primary_key.append(attr)
         elif idx:
-            f.ask(
+            answer = f.ask(
                 f"{ck}.primary_key",
                 "primary_key",
                 "the indexes cell is not a primary-key marker",
@@ -874,6 +938,10 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
                 where=where,
                 candidates=["primary key", "not a key"],
             )
+            if answer and answer.strip().lower() in ("primary key", "pk", "yes", "y", "true"):
+                is_pk = True
+                if attr not in primary_key:
+                    primary_key.append(attr)
 
         columns.append(
             GoldColumn(
@@ -884,6 +952,9 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
                 source_field=src_field,
                 description=row.get("data_definition"),
                 source_format=fmt,
+                target_format=target_format,
+                length=length,
+                length_status=lstatus,
                 target_type=ttype,
                 target_type_status=tstatus,
                 nullable=nullable,
@@ -916,7 +987,7 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
             if mapped:
                 f.filled["source_catalog_schema"] += 1
             else:
-                f.ask(
+                mapped = f.ask(
                     sk,
                     "source_catalog_schema",
                     "the document names the source database and table, never the UC "
@@ -943,13 +1014,15 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
 
     return GoldFeed(
         index=index,
+        manifest_index=index if manifest_index is None else manifest_index,
+        blocks=sorted({c.block_index for c in columns}),
         json_file=json_file,
-        target=GoldTarget(catalog=catalog, schema=cfg.target_schema, table=table),
+        target=GoldTarget(catalog=catalog, schema=target_schema, table=table),
         refresh_schedule=doc.get("refresh_schedule"),
         load_mode=load_mode,
         primary_key=primary_key,
-        scd2_mode=cfg.scd2_mode,
-        sk_strategy=cfg.sk_strategy,
+        scd2_mode=convention["scd2_mode"],
+        sk_strategy=convention["sk_strategy"],
         columns=columns,
         source_sets=source_sets,
         regions=regions,
@@ -957,6 +1030,7 @@ def read_table(index: int, json_file: str, doc: dict, cfg: EdhE2eConfig) -> Gold
         proposals=f.proposals,
         questions=f.questions,
         flags=f.flags,
+        answered=f.answered,
     )
 
 
@@ -1118,16 +1192,83 @@ def _joins(jc: str, text: str, rows: list[int], where: GoldWhere) -> list[GoldJo
     ]
 
 
-def read_dir(directory: str | Path, cfg: EdhE2eConfig, *, only: int | None = None) -> GoldContract:
-    """The manifest + its table files -> one contract (``only``: one manifest index)."""
+def _targets(doc: dict) -> list[tuple[str, list[int]]]:
+    """``(target_table, [block_index, ...])`` in first-block order: a file whose blocks
+    load different tables (v2.2 ``mixed_target``) yields one entry per table."""
+    order: dict[str, list[int]] = {}
+    for row in doc.get("mappings") or []:
+        target = (row.get("target_table") or doc.get("target_table") or "").strip()
+        block = int(row.get("block_index") or 0)
+        blocks = order.setdefault(target, [])
+        if block not in blocks:
+            blocks.append(block)
+    return list(order.items()) or [((doc.get("target_table") or "").strip(), [0])]
+
+
+def _note_blocks(note: dict) -> list[int]:
+    """The blocks a document note names (v2.2: ``[{block_index, target_table}]``)."""
+    out = []
+    for b in note.get("blocks") or []:
+        value = b.get("block_index") if isinstance(b, dict) else b
+        if isinstance(value, int):
+            out.append(value)
+    return out
+
+
+def _narrow(doc: dict, target: str, blocks: list[int], first: bool) -> dict:
+    """The table file seen from ONE target: its rows, the notes about its blocks (a
+    note goes to the target of the lowest block it names, a note naming none to the
+    file's first target — asked once), the rules on the first."""
+    rows = [
+        r
+        for r in doc.get("mappings") or []
+        if (r.get("target_table") or doc.get("target_table") or "").strip() == target
+        and int(r.get("block_index") or 0) in blocks
+    ]
+    notes = [
+        n
+        for n in doc.get("document_notes") or []
+        if (min(_note_blocks(n)) in blocks if _note_blocks(n) else first)
+    ]
+    return {
+        **doc,
+        "target_table": target,
+        "mappings": rows,
+        "document_notes": notes,
+        "rules": doc.get("rules") if first else None,
+    }
+
+
+def read_dir(
+    directory: str | Path,
+    cfg: EdhE2eConfig,
+    *,
+    only: int | None = None,
+    answers: dict[str, str] | None = None,
+) -> GoldContract:
+    """The manifest + its table files -> one contract, ONE FEED PER TARGET TABLE.
+    Feeds are numbered over the whole manifest (manifest order, then first-block
+    order), so ``feeds[<i>]`` keys are the same whether ``only`` (one manifest
+    index) is given or not."""
     d = Path(directory)
     manifest = json.loads((d / "_manifest.json").read_text(encoding="utf-8"))
     feeds = []
+    index = 0
     for i, entry in enumerate(manifest.get("tables") or []):
-        if only is not None and i != only:
-            continue
         doc = json.loads((d / entry["json_file"]).read_text(encoding="utf-8"))
-        feeds.append(read_table(i, entry["json_file"], doc, cfg))
+        for n, (target, blocks) in enumerate(_targets(doc)):
+            if only is None or i == only:
+                feeds.append(
+                    read_table(
+                        index,
+                        entry["json_file"],
+                        _narrow(doc, target, blocks, first=n == 0),
+                        cfg,
+                        manifest_index=i,
+                        answers=answers,
+                    )
+                )
+            index += 1
     if not feeds:
         raise ValueError(
             f"no table {only} in the manifest"
@@ -1137,6 +1278,90 @@ def read_dir(directory: str | Path, cfg: EdhE2eConfig, *, only: int | None = Non
     return GoldContract(
         contract_name=d.name, extractor_version=manifest.get("extractor_version"), feeds=feeds
     )
+
+
+# ---- the people's side: the questions workbook and the answers that come back ---------------
+
+QUESTION_COLUMNS = (
+    "question_key",
+    "role",
+    "block_index",
+    "source_row",
+    "cell_text",
+    "question",
+    "answer",
+)
+
+
+def questions_workbook(contract: GoldContract) -> tuple[bytes, int]:
+    """One sheet per feed (``feed_<i>``), one row per open QUESTION, columns
+    :data:`QUESTION_COLUMNS` (``answer`` left empty). It QUOTES document cells: the
+    caller writes it outside the repository only. Returns (xlsx bytes, rows)."""
+    import io
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    book = Workbook()
+    book.remove(book.active)
+    rows = 0
+    for feed in contract.feeds:
+        sheet = book.create_sheet(f"feed_{feed.index}")
+        sheet.append(list(QUESTION_COLUMNS))
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+        for q in feed.questions:
+            sheet.append(
+                [
+                    q.key,
+                    q.role,
+                    q.where.block_index if q.where else None,
+                    q.where.source_row if q.where else None,
+                    q.quoted,
+                    q.reason,
+                    None,
+                ]
+            )
+            rows += 1
+        sheet.freeze_panes = "A2"
+    buf = io.BytesIO()
+    book.save(buf)
+    return buf.getvalue(), rows
+
+
+def answers_from_workbook(data: bytes) -> dict[str, str]:
+    """A filled questions workbook -> ``{question_key: answer}`` (blank answers skipped)."""
+    import io
+
+    from openpyxl import load_workbook
+
+    from codegen.answer_keys import canonical_key
+
+    book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    out: dict[str, str] = {}
+    for sheet in book.worksheets:
+        rows = sheet.iter_rows(values_only=True)
+        header = [str(h).strip() if h is not None else "" for h in next(rows, ())]
+        if "question_key" not in header or "answer" not in header:
+            continue
+        k, a = header.index("question_key"), header.index("answer")
+        for row in rows:
+            key = row[k] if k < len(row) else None
+            value = row[a] if a < len(row) else None
+            if key and value is not None and str(value).strip():
+                out[canonical_key(str(key))] = str(value).strip()
+    book.close()
+    return out
+
+
+def answers_from_yaml(path: Path) -> dict[str, str]:
+    """An answers.yaml read by the ingestion path's loader (``gaps:`` / ``inputs:``)."""
+    from codegen.layout.answers import load_answers
+
+    loaded = load_answers(path)
+    out = {key: value["value"] for key, value in loaded.gaps.items()}
+    out.update({key: value for key, value in loaded.inputs.items() if value})
+    return out
 
 
 def role_counts(feed: GoldFeed) -> dict[str, dict[str, int]]:

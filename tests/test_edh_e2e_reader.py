@@ -111,11 +111,16 @@ def test_feed_level_roles_are_filled_or_asked(contract):
 
 
 def test_document_notes_and_rules_are_one_question_each(contract):
-    for feed in contract.feeds:
-        doc = json.loads((FIXTURES / feed.json_file).read_text(encoding="utf-8"))
-        assert len(_keys(feed, "document_note")) == len(doc["document_notes"] or [])
-        assert len(_keys(feed, "rule")) == len(doc["rules"] or [])
-        for q in feed.questions:
+    for name in {f.json_file for f in contract.feeds}:
+        feeds = [f for f in contract.feeds if f.json_file == name]
+        doc = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+        # asked once per FILE, however many target feeds the file yields
+        assert sum(len(_keys(f, "document_note")) for f in feeds) == len(
+            doc["document_notes"] or []
+        )
+        assert len(_keys(feeds[0], "rule")) == len(doc["rules"] or [])
+        assert not any(_keys(f, "rule") for f in feeds[1:])
+        for q in feeds[0].questions:
             if q.role == "rule":
                 assert q.quoted in doc["rules"]
 
@@ -203,10 +208,12 @@ def test_filter_grammar(contract):
 
 
 def test_keys(contract):
-    feed = _feed(contract, "syn_memo")
-    assert feed.primary_key
-    other = [q for q in feed.questions if q.role == "primary_key"]
-    assert other and all(q.quoted for q in other)  # the non-PK indexes text, quoted
+    feeds = [f for f in contract.feeds if f.json_file.startswith("syn_memo")]
+    assert feeds[0].primary_key
+    other = [q for f in feeds for q in f.questions if q.role == "primary_key" and q.quoted]
+    assert len(other) == 2  # the two non-PK indexes cells, quoted
+    no_pk = [f for f in feeds if not f.primary_key]
+    assert all(f"feeds[{f.index}].primary_key" in _keys(f) for f in no_pk)
 
 
 def test_regions_drift_is_a_proposal_and_sentinels_never_fill(contract):
@@ -320,3 +327,152 @@ def test_reader_and_profiler_share_the_grammar():
     assert [(n, rx.pattern) for n, rx in profiler.F_PATTERNS] == [
         (n, rx.pattern) for n, rx in edh_e2e.F_PATTERNS
     ]
+
+
+# ---- v2.2: one feed per target table ------------------------------------------------------
+
+
+def test_a_file_whose_blocks_load_two_tables_yields_two_feeds(contract):
+    split = [f for f in contract.feeds if f.json_file.startswith("syn_split")]
+    assert len(split) == 2
+    assert len({f.manifest_index for f in split}) == 1
+    assert len({f.target.table for f in split}) == 2
+    assert [f.blocks for f in split] == [[0], [1]]
+    assert [len(f.source_sets) for f in split] == [1, 1]
+    # the mixed_target note is asked once, by the feed of the lowest block it names
+    assert [len(_keys(f, "document_note")) for f in split] == [2, 0]
+    indexes = [f.index for f in contract.feeds]
+    assert indexes == list(range(len(contract.feeds)))
+
+
+def test_feed_numbering_is_the_same_for_one_table(contract):
+    split = [f for f in contract.feeds if f.json_file.startswith("syn_split")]
+    alone = read_dir(FIXTURES, EdhE2eConfig(), only=split[0].manifest_index)
+    assert [f.index for f in alone.feeds] == [f.index for f in split]
+    assert [q.key for f in alone.feeds for q in f.questions] == [
+        q.key for f in split for q in f.questions
+    ]
+
+
+def test_lengths_are_proposed_from_target_format(contract):
+    feed = next(f for f in contract.feeds if f.json_file.startswith("syn_split"))
+    lengths = [(c.length, c.length_status) for c in feed.columns]
+    assert lengths == [("12", "proposed"), ("40", "proposed"), (None, None)]  # DATE: none
+    assert len(_proposed(feed, "length")) == 2
+    stated = _feed(contract, "syn_plan_ref")
+    assert all(c.length_status == "filled" for c in stated.columns)
+    assert role_counts(stated)["length"]["filled"] == len(stated.columns)
+
+
+# ---- the questions workbook and the answers that come back ---------------------------------
+
+
+def test_questions_workbook_has_one_sheet_per_feed_and_one_row_per_question(contract):
+    from openpyxl import load_workbook
+
+    data, rows = edh_e2e.questions_workbook(contract)
+    assert rows == sum(len(f.questions) for f in contract.feeds)
+    import io
+
+    book = load_workbook(io.BytesIO(data), read_only=True)
+    assert book.sheetnames == [f"feed_{f.index}" for f in contract.feeds]
+    for feed, sheet in zip(contract.feeds, book.worksheets, strict=True):
+        lines = list(sheet.iter_rows(values_only=True))
+        assert lines[0] == edh_e2e.QUESTION_COLUMNS
+        assert [ln[0] for ln in lines[1:]] == [q.key for q in feed.questions]
+        assert all(ln[-1] is None for ln in lines[1:])  # answers left empty
+
+
+def _fill(data: bytes, answers: dict[str, str]) -> bytes:
+    import io
+
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(data))
+    for sheet in book.worksheets:
+        for row in sheet.iter_rows(min_row=2):
+            if row[0].value in answers:
+                row[6].value = answers[row[0].value]
+    buf = io.BytesIO()
+    book.save(buf)
+    return buf.getvalue()
+
+
+def test_a_filled_workbook_closes_its_questions(contract):
+    feed = _feed(contract, "syn_mbr_dim")
+    k = f"feeds[{feed.index}]"
+    expr_key = next(q.key for q in feed.questions if q.role == "expression")
+    given = {
+        f"{k}.target_schema": "syn_gold",
+        f"{k}.scd2_mode": "syn_type2",
+        expr_key: "upper(`SYN_X`)",
+    }
+    data, _ = edh_e2e.questions_workbook(contract)
+    answers = edh_e2e.answers_from_workbook(_fill(data, given))
+    assert answers == given
+    after = read_dir(FIXTURES, EdhE2eConfig(), answers=answers)
+    again = next(f for f in after.feeds if f.index == feed.index)
+    assert not set(given) & _keys(again)
+    assert {a.key for a in again.answered} == set(given)
+    assert again.target.schema_name == "syn_gold" and again.scd2_mode == "syn_type2"
+    j = int(expr_key.split("columns[")[1].split("]")[0])
+    assert again.columns[j].expression.endswith("*/ upper(`SYN_X`)")
+    assert sum(len(f.questions) for f in after.feeds) == sum(
+        len(f.questions) for f in contract.feeds
+    ) - len(given)
+
+
+def test_answers_yaml_is_read_by_the_ingestion_loader(tmp_path, contract):
+    feed = _feed(contract, "syn_plan_ref")
+    path = tmp_path / "answers.yaml"
+    path.write_text(
+        f'gaps:\n  "feeds[{feed.index}].load_mode": {{value: "full"}}\n', encoding="utf-8"
+    )
+    answers = edh_e2e.answers_from_yaml(path)
+    again = next(
+        f
+        for f in read_dir(FIXTURES, EdhE2eConfig(), answers=answers).feeds
+        if f.index == feed.index
+    )
+    assert again.load_mode == "full"
+    assert f"feeds[{feed.index}].load_mode" not in _keys(again)
+
+
+def test_cli_questions_workbook_is_refused_inside_the_repo_and_read_back(tmp_path):
+    base = [
+        sys.executable,
+        "-m",
+        "codegen.cli",
+        "read-edh-e2e",
+        "--input",
+        str(FIXTURES),
+        "--out",
+        str(tmp_path / "gold.json"),
+    ]
+    inside = subprocess.run(
+        base + ["--questions-xlsx", str(REPO / "q.xlsx")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=REPO,
+    )
+    assert inside.returncode == 1 and not (REPO / "q.xlsx").exists()
+    book = tmp_path / "questions_syn.xlsx"
+    done = subprocess.run(
+        base + ["--questions-xlsx", str(book)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=REPO,
+    )
+    assert done.returncode == 3, done.stderr
+    contract = GoldContract.model_validate_json((tmp_path / "gold.json").read_text("utf-8"))
+    total = sum(len(f.questions) for f in contract.feeds)
+    assert f"questions workbook: {book} ({total} rows)" in done.stdout
+    first = contract.feeds[0]
+    book.write_bytes(_fill(book.read_bytes(), {first.questions[0].key: "syn answer"}))
+    back = subprocess.run(
+        base + ["--answers", str(book)], capture_output=True, text=True, encoding="utf-8", cwd=REPO
+    )
+    assert back.returncode == 3
+    assert "1 answered" in back.stdout

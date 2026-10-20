@@ -1,0 +1,605 @@
+{
+  "$comment": "Stands in for: join grammar J1 (47 + 13 filter-first), J2 (1), J3 alias-qualified equalities with INNER + OUTER `*=` (1); two joined tables (2), a second join column (7); filters F1 equality (73), F2 IN list (17), F3 / F4 / F5 date windows (7 / 2 / 1), free text; 'target_format' in place of field_length (1 of 11) and no comments key (1 of 11); regions that differ (5 of 10); region data_type sentinels (10 of 1963 items); rules present (2 of 11); refresh_schedule null (3 of 11); a region column name with spaces (10 items in 4 of 10 real files).",
+  "document_name": "SYN_EDH_E2E_Mapping_SYN_ELIG_FACT_V1.0",
+  "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN_ELIG_FACT_V1.0.xlsx",
+  "layer": "gold",
+  "destination_catalog": "syn_edh",
+  "target_table": "SYN_ELIG_FACT",
+  "refresh_schedule": null,
+  "load_type": "This is a full SYN load",
+  "mapping_count": 14,
+  "mappings": [
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E1",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_1",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_SRC AND INNER JOIN with SYN_ELIG_SRC table using SYN_MBR_ID column WHERE SYN_STS_CD = 'A'",
+      "mapping_edits": "if SYN_A IS NULL THEN SYN_B[1,4] ELSE SYN_C : '-' : SYN_D[1,4]",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": "PK"
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E2",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_2",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_SRC AND INNER JOIN with SYN_ELIG_SRC & SYN_GRP_SRC tables using SYN_GRP_ID column & SYN_LOB_CD = 'SYN1'",
+      "mapping_edits": "set NULL",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E3",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_3",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_SRC AND INNER JOIN with SYN_ELIG_SRC WHERE SYN_PLAN_CD IN ('P1', 'P2', 'P3') using SYN_MBR_ID & SYN_GRP_ID",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E4",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_4",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_PROV_SRC WHERE SYN_TYP_CD = 'X' AND INNER JOIN with SYN_ADDR_SRC table using SYN_PROV_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E5",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_5",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_PROV_SRC AND INNER JOIN with SYN_ADDR_SRC using SYN_PROV_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E6",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_6",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_SRC AND INNER JOIN with SYN_ELIG_SRC WHERE SYN_PLAN_CD IN ('P1', 'P2') SYN_MBR_ID column & SYN_LOB_CD = 'SYN1'",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E7",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_7",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "INNER join BETWEEN a.SYN_MBR_ID = b.SYN_MBR_ID AND a.SYN_GRP_ID = b.SYN_GRP_ID OUTER JOIN BETWEEN a.SYN_PLAN_ID *= c.SYN_PLAN_ID",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E8",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_8",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "SYN_STS_CD = 'A'",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E9",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_9",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_ELIG_SRC WHERE TRUNC(SYN_EFF_DT) >= sysdate - 30 AND TRUNC(SYN_EFF_DT) <= sysdate",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E10",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_10",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "(SYN_EFF/SYN_TERM >= SYN_ASOF AND SYN_EFF/SYN_TERM <= SYN_ASOF) AND (SYN_EFF2/SYN_TERM2 >= SYN_ASOF AND SYN_EFF2/SYN_TERM2 <= SYN_ASOF)",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E11",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_11",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "SYN_EFF_DT < GETDATE() < SYN_TERM_DT",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E12",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_12",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "NOT SYN_DELETED IN the source",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E13",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_13",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "only SYN_ACTIVE in SYN_REGION 1",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_ELIG_SRC",
+      "source_field": "SYN_E14",
+      "target_table": "SYN_ELIG_FACT",
+      "target_attribute": "SYN_ELIG_ATTR_14",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "if SYN_FLAG = 1 - a.SYN_COL IS NOT blank",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "target_format": "VARCHAR2(20)",
+      "indexes": null
+    }
+  ],
+  "regional_table_structures": {
+    "SYNR1 - LOB (S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_3",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_14",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR2 - LOB (S2001, S2002, S2003)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_3",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_14",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR5 - LOB(S5001, S5002)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_3",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_14",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR6 - LOB(S6001, S6002)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_3",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      }
+    ],
+    "SYNR7 - LOB(S7001)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_3",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_14",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNMC1 - LOB(S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009, S1010)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN ELIG ATTR",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_14",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNEX1 - LOB(S1001, S1002, S1003, S1004, S1005)": [
+      {
+        "column_name": "SYN_ELIG_ATTR_1",
+        "data_type": null
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_2",
+        "data_type": "NOT AVAILABLE"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_3",
+        "data_type": "NOT SUPPLIED"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_4",
+        "data_type": "COLUMN NOT FOUND"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_5",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_6",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_7",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_8",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_9",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_10",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_11",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_12",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_13",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_ELIG_ATTR_14",
+        "data_type": "NUMBER(10,2),"
+      }
+    ]
+  },
+  "rules": [
+    "SYN rule: the SYN_ELIG_SRC & SYN_GRP_SRC feed the table.",
+    "SYN rule: SYN_PLAN_SRC loads the table."
+  ],
+  "summary": null,
+  "extracted_at": "2026-10-20T00:00:00.000000+00:00"
+}

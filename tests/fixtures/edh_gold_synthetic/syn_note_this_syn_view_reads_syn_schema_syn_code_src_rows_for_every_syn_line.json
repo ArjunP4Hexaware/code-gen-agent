@@ -1,0 +1,284 @@
+{
+  "$comment": "Stands in for defects 1-3 (the validator must fail): a prose top-level target_table (2 of 11 real files) from which json_file is slugged; every target_attribute twice (2 of 11 real files: one with all 49 twice, one with 3); 3 distinct mappings[].target_table, one not an identifier (2 of 11 real files); a target_attribute with a space (1 of 11); the variant region key spelling (1 of 11); non-PK indexes cells (2 of 31); drag-filled source_format VARCHAR<n> with n > 2 (7 of 389 real rows).",
+  "document_name": "SYN_EDH_E2E_Mapping_SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line_V1.0",
+  "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line_V1.0.xlsx",
+  "layer": "gold",
+  "destination_catalog": "syn_edh",
+  "target_table": "SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line",
+  "refresh_schedule": null,
+  "load_type": null,
+  "mapping_count": 10,
+  "mappings": [
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C0",
+      "target_table": "SYN_CODE_DIM",
+      "target_attribute": "SYN_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": "Primary key",
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C1",
+      "target_table": "SYN_CODE_DIM",
+      "target_attribute": "SYN_CD_DESC",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C2",
+      "target_table": "SYN_CODE_DIM",
+      "target_attribute": "SYN_EFF_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": null,
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C3",
+      "target_table": "SYN_CODE_VIEW",
+      "target_attribute": "SYN_TERM_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": "Unique Index",
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C4",
+      "target_table": "SYN code view (all lines)",
+      "target_attribute": "SYN LOB",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": "Not NULL",
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C0",
+      "target_table": "SYN_CODE_DIM",
+      "target_attribute": "SYN_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR3",
+      "field_length": "20",
+      "indexes": "Primary key",
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C1",
+      "target_table": "SYN_CODE_DIM",
+      "target_attribute": "SYN_CD_DESC",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR4",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C2",
+      "target_table": "SYN_CODE_DIM",
+      "target_attribute": "SYN_EFF_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR5",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C3",
+      "target_table": "SYN_CODE_VIEW",
+      "target_attribute": "SYN_TERM_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_CODE_SRC",
+      "source_field": "SYN_C4",
+      "target_table": "SYN code view (all lines)",
+      "target_attribute": "SYN LOB",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    }
+  ],
+  "regional_table_structures": {
+    "SYNR1 - LOB (S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ],
+    "SYNR2 - LOB (S2001, S2002, S003)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ],
+    "SYNR5 - LOB(S5001, S5002)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ],
+    "SYNR6 - LOB(S6001, S6002)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ],
+    "SYNR7 - LOB(S7001)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ],
+    "SYNMC1 - LOB(S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009, S1010)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ],
+    "SYNEX1 - LOB(S1001, S1002, S1003, S1004, S1005)": [
+      {
+        "column_name": "SYN_CD",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_CD_DESC",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_EFF_DT",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_TERM_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      }
+    ]
+  },
+  "rules": null,
+  "summary": null,
+  "extracted_at": "2026-10-20T00:00:00.000000+00:00"
+}

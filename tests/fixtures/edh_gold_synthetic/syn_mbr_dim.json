@@ -1,0 +1,627 @@
+{
+  "$comment": "Stands in for: 10 of 11 real files with regional_table_structures (7 regions each), 9 of 10 whose region column names match the target attributes; mapping_edits 175 Direct / 147 other, every non-Direct class (CASE 25, COALESCE-equivalent 27, substring slice 31, literal NULL 16, system value 4, CAST 1, column reference 21) and free text (22); summary present in 4 of 11; PK marker spellings 2 of 4.",
+  "document_name": "SYN_EDH_E2E_Mapping_SYN_MBR_DIM_V1.0",
+  "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN_MBR_DIM_V1.0.xlsx",
+  "layer": "gold",
+  "destination_catalog": "syn_edh",
+  "target_table": "SYN_MBR_DIM",
+  "refresh_schedule": "Daily",
+  "load_type": "This is a full SYN load",
+  "mapping_count": 14,
+  "mappings": [
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_MBR_ID",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_MBR_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "SYN_STS_CD = 'A'",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": "Primary key",
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_GRP_ID",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_GRP_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "SYN_STS_CD = 'A'",
+      "mapping_edits": "SYN_GRP_ID",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": "Primary Key",
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_GRP_ID",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_ALT_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "SYN_ALT_ID",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_STS",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_STS_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "if SYN_STS <> 'X' THEN SYN_STS ELSE 'U'",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_TYP",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_TYP_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "if SYN_TYP = 'A' THEN SYN_A ELSE if SYN_TYP = 'B' THEN 'B1' ELSE 'Z'",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_MID_INIT",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_MID_INIT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "if SYN_MID_INIT IS an empty string THEN SynBlank() ELSE SYN_MID_INIT",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_SFX",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_SFX",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "if ISNULL(SYN_SFX) THEN SynBlank() ELSE TRIM(SYN_SFX)[1,10]",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_ZIP",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_ZIP_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "SYN_ZIP[1,5]",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_NM",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_FULL_NM",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "TRIM(SYN_NM)[1,30]",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_TXT",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_NOTE_TXT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "TRIM(CONVERT('SYN_A', 'SYN_B', s.SYN_TXT))[1,50]",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_TS",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_LOAD_TS",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "current timestamp",
+      "source_format": "DATE",
+      "field_length": null,
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_DEL",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_DEL_DT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "set to NULL",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": "SYN comment."
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": null,
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_AREA_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "only for SYN_REGION .",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_SRC",
+      "source_field": "SYN_AGE",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_AGE_NBR",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": null,
+      "mapping_edits": "SYN_AGE > 0",
+      "source_format": null,
+      "field_length": "20",
+      "indexes": null,
+      "comments": null
+    }
+  ],
+  "regional_table_structures": {
+    "SYNR1 - LOB (S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR2 - LOB (S2001, S2002, S2003)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR5 - LOB(S5001, S5002)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR6 - LOB(S6001, S6002)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNR7 - LOB(S7001)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNMC1 - LOB(S1001, S1002, S1003, S1004, S1005, S1006, S1007, S1008, S1009, S1010)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ],
+    "SYNEX1 - LOB(S1001, S1002, S1003, S1004, S1005)": [
+      {
+        "column_name": "SYN_MBR_ID",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_GRP_ID",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_ALT_ID",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_STS_CD",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_TYP_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_MID_INIT",
+        "data_type": "NUMBER(10,2),"
+      },
+      {
+        "column_name": "SYN_SFX",
+        "data_type": "VARCHAR2(5)"
+      },
+      {
+        "column_name": "SYN_ZIP_CD",
+        "data_type": "DATE               NOT NULL,"
+      },
+      {
+        "column_name": "SYN_FULL_NM",
+        "data_type": "VARCHAR2(20 BYTE),"
+      },
+      {
+        "column_name": "SYN_NOTE_TXT",
+        "data_type": "DATE,"
+      },
+      {
+        "column_name": "SYN_LOAD_TS",
+        "data_type": "NUMBER(10),"
+      },
+      {
+        "column_name": "SYN_DEL_DT",
+        "data_type": "VARCHAR2(10 BYTE)     NOT NULL,"
+      },
+      {
+        "column_name": "SYN_AREA_CD",
+        "data_type": "TIMESTAMP(6),"
+      },
+      {
+        "column_name": "SYN_AGE_NBR",
+        "data_type": "NUMBER(10,2),"
+      }
+    ]
+  },
+  "rules": null,
+  "summary": {
+    "table_name": "SYN_MBR_DIM",
+    "version": "1",
+    "document_name": "SYN_EDH_E2E_Mapping_SYN_MBR_DIM_V1.0",
+    "resource_name": "SYNRES",
+    "bsa": "SYNBSA",
+    "completion_date": "2026-01-01 00:00:00"
+  },
+  "extracted_at": "2026-10-20T00:00:00.000000+00:00"
+}

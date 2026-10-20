@@ -1,0 +1,32 @@
+{
+  "$comment": "Synthetic manifest: same keys as the real _manifest.json (11 tables there, 4 here).",
+  "extracted_at": "2026-10-20T00:00:00.000000+00:00",
+  "source_volume": "/Volumes/syn_cat/syn_schema/syn_inputs",
+  "file_count": 4,
+  "tables": [
+    {
+      "target_table": "SYN_MBR_DIM",
+      "mapping_count": 14,
+      "refresh_schedule": "Daily",
+      "json_file": "syn_mbr_dim.json"
+    },
+    {
+      "target_table": "SYN_PLAN_REF",
+      "mapping_count": 8,
+      "refresh_schedule": "Weekly",
+      "json_file": "syn_plan_ref.json"
+    },
+    {
+      "target_table": "SYN_ELIG_FACT",
+      "mapping_count": 14,
+      "refresh_schedule": null,
+      "json_file": "syn_elig_fact.json"
+    },
+    {
+      "target_table": "SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line",
+      "mapping_count": 10,
+      "refresh_schedule": null,
+      "json_file": "syn_note_this_syn_view_reads_syn_schema_syn_code_src_rows_for_every_syn_line.json"
+    }
+  ]
+}

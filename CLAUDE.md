@@ -1,11 +1,34 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post78)
+## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post79)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-20, after post78) — gold layer, v2.2.** post78:
+**RESTART HERE (2026-10-20, after post79) — pipeline names autoset.** post79 (Venu):
+- **Autoset:** PIPELINE_NAME defaults to the naming convention, written unasked
+  (`conventions.profiles.acfc_prx.pipeline_name_autoset: true` in `acfc_env.yaml`;
+  `input_choices.resolve_feed` gives the flow items kind `profile_default`;
+  `faq_answers` carries them with evidence `choice:profile|…`).
+- **Placeholders:** a `SYN_` template is NEVER written, not even on `use_default`.
+- **New template tokens:** `{source_code}` `{schema_domain}` `{lob}` `{object}`
+  `{object_code}` `{src_format}` `{frequency_code}`, from the IIG's own cells
+  (`input_choices.feed_tokens`).
+- **App:** pipeline names are one line plus a "Change pipeline names" / "Set pipeline
+  names" panel (`InputsNeededBanner.PipelineNames`), never radios per name; `dist`
+  rebuilt (npm ci works here).
+- **Interim templates:** the prod convention, reconstructed from the Pyx golden IIG
+  (`frd_sttm_pairs/pair_11`). They live in the volume overlay
+  (`state/overlays/acfc_prx.yaml`; backup `.bak_20261020_pre_post79`). On pair_11 they
+  give 4 of 8 child names exact; the masters differ only in the frequency code.
+- **Open:**
+  - Venu: EDO Naming Standards (`/Workspace/Users/<me>/standards_docs`) vs prod as
+    ground truth.
+  - The App still can't read the volume (Raj's `USE CATALOG` grant), so it keeps
+    asking.
+  - `pipeline_name_corpus` refuses a name equal to a prod one.
+
+**After post78 (kept for reference) — gold layer, v2.2.** post78:
 - **One feed per target table.** `GoldFeed.manifest_index` / `blocks`; `feeds[<i>]` is
   numbered over the whole manifest, so a `--table` run keeps the same keys.
 - **`length` role:** `field_length`, or the `(n)` of a type → proposal.

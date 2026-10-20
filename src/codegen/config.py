@@ -1243,6 +1243,11 @@ class ConventionsProfileConfig(BaseModel):
         "grand_master": "GRANDMASTER", "master": "MASTER", "file_to_stg": "STG",
         "stg_to_std": "STD"})
     pipeline_name_case: Literal["upper", "keep"] = "upper"
+    # post79: write the rendered PIPELINE_NAME of every flow UNASKED (a profile
+    # default: no INPUT_NEEDED line, no per-name choice; "Change pipeline names"
+    # in the App / an answers-file `choice: naming_standard` overrides one). Only
+    # a real template autosets: a SYN_ placeholder is never written, asked or not.
+    pipeline_name_autoset: bool = False
     # ... the loaded goldens / corpus a proposal must not collide with: folders
     # of IIG .xlsx (every PIPELINE_NAME column), .xlsx files, .txt name lists;
     # relative to the working directory. A colliding proposal is never offered.

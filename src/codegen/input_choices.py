@@ -50,7 +50,11 @@ from pathlib import Path
 
 CHOICES = ("use_default", "naming_standard", "leave_blank")
 SOURCE_OF = {"use_default": "default", "naming_standard": "standard", "leave_blank": "blank"}
-PLACEHOLDERS = ("domain", "subdomain", "source", "frequency", "layer", "load_mode")
+PLACEHOLDERS = ("domain", "subdomain", "source", "frequency", "layer", "load_mode",
+                # post79: the IIG's own cell values, so a template can follow the prod
+                # convention (docs/acfc/OVERLAY_FIELDS.md, pipeline_name_templates)
+                "lob", "object", "object_code", "src_format", "source_code",
+                "schema_domain", "frequency_code")
 FLOWS = ("grand_master", "master", "file_to_stg", "stg_to_std")
 PIPELINE = "pipeline_name"
 PROFILE_DEFAULT = "profile_default"
@@ -207,15 +211,69 @@ def _strategy(value) -> str:
     return str(getattr(value, "value", value) or "")
 
 
-def feed_tokens(spec, tpl, faq=None) -> dict[str, str]:
-    """{domain} {subdomain} {source} {frequency} of ``spec`` (no layer)."""
+def feed_tokens(spec, tpl, faq=None, config=None) -> dict[str, str]:
+    """{domain} {subdomain} {source} {frequency} of ``spec`` (no layer), and
+    (post79) the IIG's own cells a pipeline name may carry: {lob} (the first
+    file's ADLS LOB cell), {object} / {object_code} (its OBJECT_NAME / that
+    name's first word), {src_format} (its file extension), {source_code} (the
+    SOURCE cell's first word), {schema_domain} (the first word the stage and
+    standard schema names share, else the standard schema's first word) and
+    {frequency_code} (the frequency's ``engineering_standards.
+    frequency_abbreviations`` code). A token the run cannot compute is ''."""
     from codegen.metadata_sheet import _feed_from_spec
     from codegen.metadata_template import _frequency, _source_value
 
     feed = _feed_from_spec(spec)
     frequency = str(_frequency(feed, faq, tpl)["value"] or "").strip()
-    return {"domain": spec.domain or "", "subdomain": spec.sub_domain or "",
-            "source": _source_value(feed), "frequency": frequency}
+    tokens = {"domain": spec.domain or "", "subdomain": spec.sub_domain or "",
+              "source": _source_value(feed), "frequency": frequency}
+    tokens.update(_cell_tokens(spec, tpl, config, frequency))
+    tokens["source_code"] = _words(tokens["source"])[0] if _words(tokens["source"]) else ""
+    return tokens
+
+
+def _words(text) -> list[str]:
+    return [w for w in re.split(r"[^A-Za-z0-9]+", str(text or "")) if w]
+
+
+def _schema_domain(stage, standard) -> str:
+    """The word the stage and standard schema names share (the domain code of a
+    ``<x>_<DOM>`` / ``<DOM>_<y>`` pair), else the standard schema's first word."""
+    first = _words(getattr(stage, "schema_name", ""))
+    second = _words(getattr(standard, "schema_name", ""))
+    shared = [w for w in first if w.casefold() in {x.casefold() for x in second}]
+    return shared[0] if shared else (second[0] if second else (first[0] if first else ""))
+
+
+def _cell_tokens(spec, tpl, config, frequency: str) -> dict[str, str]:
+    from pathlib import PurePosixPath
+
+    segments = list(getattr(spec, "segments", None) or [])
+    detail = next((g for g in segments if g.segment == "Detail"), segments[0] if segments else None)
+    out = {"schema_domain": _schema_domain(detail.stage_table if detail else None,
+                                           spec.standard_table),
+           "frequency_code": "", "lob": "", "object": "", "object_code": "", "src_format": ""}
+    if config is not None:
+        codes = {k.casefold(): v for k, v in
+                 config.engineering_standards.frequency_abbreviations.items()}
+        out["frequency_code"] = str(codes.get(frequency.casefold(), "") or "")
+        from codegen.metadata_template import (
+            _feed_files,
+            _file_lob_cell,
+            _object_name,
+            _wildcarded,
+        )
+
+        files = _feed_files(spec, config)
+        if files:
+            pattern = _wildcarded(files[0].pattern, tpl)
+            out["object"] = _object_name(pattern, tpl.object_name_strip_tokens,
+                                         tpl.object_name_bound_tokens)
+            out["object_code"] = (_words(out["object"]) or [""])[0]
+            out["src_format"] = PurePosixPath(pattern).suffix.lstrip(".")
+            lob = _file_lob_cell(tpl, "ADLS_DELTA_INGESTION_DETAILS", files[0], spec)
+            out["lob"] = str(lob.get("value") or "")
+    return out
 
 
 def flow_tokens(base: dict[str, str], spec, profile, flow: str) -> dict[str, str]:
@@ -437,6 +495,12 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
         if not template:
             return Proposal(refused="the conventions profile has no pipeline_name_templates "
                                     f"entry for {item.flow}")
+        if is_placeholder_template(template):
+            # post79: a SYN_ placeholder is never a name to write — not even on
+            # use_default (the Pyx runs wrote SYN_PL_... names that way)
+            return Proposal(template=template, refused=f"{PLACEHOLDER_LABEL}: set "
+                            "conventions.profiles.<profile>.pipeline_name_templates in the "
+                            "ACFC overlay")
         value = render(template, flow_tokens(tokens, spec, profile, item.flow),
                        case=profile.pipeline_name_case)
         if not value:
@@ -469,7 +533,7 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
         return []
     taken = (corpus_pipeline_names(profile.pipeline_name_corpus, base)
              if any(i.flow for i in items) else frozenset())
-    tokens = feed_tokens(spec, tpl, faq)
+    tokens = feed_tokens(spec, tpl, faq, config)
     out: list[Resolved] = []
     for item in items:
         prefixes = (["run."] if item.scope == "run"
@@ -486,20 +550,23 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
         if item.pk and offer.refused and own is None and shared is None:
             continue           # post70: no signal — the blocking QUESTION asks instead
         choice = own or shared
-        if item.kind == PROFILE_DEFAULT and (choice is None or choice.choice == "use_default"):
+        kind = item.kind
+        if item.flow and profile.pipeline_name_autoset and offer.value:
+            kind = PROFILE_DEFAULT      # post79: the convention's name, written unasked
+        if kind == PROFILE_DEFAULT and (choice is None or choice.choice == "use_default"):
             # post61: a profile default — written unanswered, no gate flag (the
             # writer applies the profile's own value), still changeable
             if offer.value:
                 out.append(Resolved(item.name, item.key, "profile", choice is not None,
-                                    offer.value, offer.template, offer, kind=item.kind))
+                                    offer.value, offer.template, offer, kind=kind))
             else:
                 out.append(Resolved(item.name, item.key, "blank", False, proposal=offer,
-                                    kind=item.kind))
+                                    kind=kind))
         elif choice is None:
             out.append(Resolved(item.name, item.key, "blank", False, proposal=offer))
         elif choice.choice == "leave_blank":
             out.append(Resolved(item.name, item.key, "blank", True, proposal=offer,
-                                note="left blank by choice (leave_blank)", kind=item.kind))
+                                note="left blank by choice (leave_blank)", kind=kind))
         elif choice.choice == "use_default":
             if offer.value:
                 out.append(Resolved(item.name, item.key, "default", True, offer.value,
@@ -519,11 +586,11 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
                 out.append(Resolved(item.name, item.key, "standard", True, value, template,
                                     offer, "the naming standard's name collides with a "
                                            "PIPELINE_NAME of the loaded goldens / corpus"
-                                    if clash else "", kind=item.kind))
+                                    if clash else "", kind=kind))
             else:
                 out.append(Resolved(item.name, item.key, "blank", False, proposal=offer,
                                     note="naming_standard chosen without a template that "
-                                         "renders a value", kind=item.kind))
+                                         "renders a value", kind=kind))
     return out
 
 
@@ -532,9 +599,16 @@ def faq_answers(resolved: list[Resolved]) -> dict:
     rides the answers file's own path)."""
     from codegen.faq import FaqAnswer
 
-    return {r.name: FaqAnswer(value=r.value, source="engineer",
-                              evidence=evidence(r.source, r.template))
-            for r in resolved if r.chosen and r.source not in ("answer", "profile")}
+    out = {r.name: FaqAnswer(value=r.value, source="engineer",
+                             evidence=evidence(r.source, r.template))
+           for r in resolved if r.chosen and r.source not in ("answer", "profile")}
+    # post79: an autoset PIPELINE_NAME is written from the FAQ like a chosen one
+    # (the writer fills that column from answers only); evidence "profile"
+    out.update({r.name: FaqAnswer(value=r.value, source="engineer",
+                                  evidence=evidence("profile", r.template))
+                for r in resolved if r.source == "profile" and r.value
+                and r.key.startswith(PIPELINE + ".")})
+    return out
 
 
 def records(resolved: list[Resolved]) -> dict[str, dict]:

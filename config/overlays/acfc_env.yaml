@@ -99,6 +99,13 @@ conventions:
       # post59: the goldens a PIPELINE_NAME proposal must not collide with (every
       # PIPELINE_NAME column of the .xlsx under it; D1 only — empty at home)
       pipeline_name_corpus: [docs/acfc/iig_goldens]
+      # post79 (Venu, 2026-10-20): pipeline names default to the naming convention,
+      # written unasked; "Change pipeline names" (App) / an answers-file
+      # `choice: naming_standard` overrides one. Only a REAL template autosets — the
+      # templates themselves are client conventions and live in the ACFC overlay
+      # (codegen-state/overlays/acfc_prx.yaml, pipeline_name_templates); with only the
+      # shipped SYN_ placeholders every name is still asked, never written.
+      pipeline_name_autoset: true
   # catalog_map / the acfc_prx default_catalog: per environment (environments: above)
   # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the LOB
   # lookup's third source (after the FRD LOB table's plan-id and region
@@ -486,7 +493,7 @@ metadata:
           PIPELINE_NAME: &bsa_pipeline_name
             faq: pipeline_name
             per_flow: true
-            question: "the pipeline name (PIPELINE_NAME) of this flow's row - BSA-assigned (framework owner's rule): never generated"
+            question: "the pipeline name (PIPELINE_NAME) of this flow's row - from the naming convention (pipeline_name_templates, written unasked under pipeline_name_autoset); asked only while no real template is loaded"
         DATA_FACTORY_PIPELINE_SCHEDULE:
           PIPELINE_NAME: *bsa_pipeline_name
           ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}

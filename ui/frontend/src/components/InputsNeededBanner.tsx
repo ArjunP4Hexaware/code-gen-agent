@@ -24,7 +24,13 @@ import {
    EMAIL_TO, the notebook names, the SRC_FILE_NAME style — values the
    conventions profile / the ACFC overlay sets) was WRITTEN (`applied`): it is
    listed as changeable, never counted as an input needed. An agent proposal
-   (PIPELINE_NAME, APPLICATION_NAME) is shown and applied only once confirmed. */
+   (PIPELINE_NAME, APPLICATION_NAME) is shown and applied only once confirmed.
+   post79 (Venu): the pipeline names are never listed name by name. They are set
+   from the naming convention (pipeline_name_autoset: written unasked) and shown
+   as ONE line — "Pipeline names: N set from the naming convention" — with a
+   "Change pipeline names" button that opens every name, pre-filled, in one
+   panel; a changed name is confirmed as naming_standard + that name. While no
+   convention is loaded the line says how many are open ("Set pipeline names"). */
 
 const LABELS: Record<InputChoice, string> = {
   use_default: "Use the default",
@@ -83,10 +89,6 @@ function ChoiceGroup({
     () => Object.fromEntries(items.map((item) => [item.key, initial(item)])));
   const [standard, setStandard] = useState<Record<string, string>>(
     () => Object.fromEntries(items.map((item) => [item.key, confirmed[item.key]?.standard ?? ""])));
-  const pipelines = items.filter(isPipeline);
-  const shared = pipelines.map((p) => confirmed[p.key]?.standard).find(Boolean) ?? "";
-  const [feedStandard, setFeedStandard] = useState<string>(shared);
-  const anyStandard = pipelines.some((p) => choice[p.key] === "naming_standard");
   const done = items.every((item) => confirmed[item.key]);
   const proposals = items.some((item) => !isApplied(item));
 
@@ -94,9 +96,8 @@ function ChoiceGroup({
     const out: Record<string, ConfirmedChoice> = {};
     for (const item of items) {
       const picked = choice[item.key];
-      const text = isPipeline(item) ? feedStandard : standard[item.key];
       out[item.key] = picked === "naming_standard"
-        ? { choice: picked, standard: text } : { choice: picked };
+        ? { choice: picked, standard: standard[item.key] } : { choice: picked };
     }
     onConfirm?.(out);
   };
@@ -122,7 +123,7 @@ function ChoiceGroup({
                 </label>
               ))}
             </div>
-            {choice[item.key] === "naming_standard" && !isPipeline(item) ? (
+            {choice[item.key] === "naming_standard" ? (
               <input
                 aria-label={`standard for ${item.key}`}
                 value={standard[item.key] ?? ""}
@@ -134,25 +135,6 @@ function ChoiceGroup({
           </li>
         ))}
       </ul>
-      {anyStandard ? (
-        <div style={{ marginTop: 4 }}>
-          <input
-            aria-label={`naming standard for ${label}`}
-            value={feedStandard}
-            placeholder="{domain} {subdomain} {source} {frequency} {layer} {load_mode}"
-            onChange={(e) => setFeedStandard(e.target.value)}
-            style={{ width: "60%" }}
-          />
-          <ul aria-label={`preview for ${label}`} className="hint">
-            {pipelines.map((p) => (
-              <li key={p.key}>
-                <code>{p.key.split(".pipeline_name.")[1]}</code>:{" "}
-                <code>{feedStandard ? renderTemplate(feedStandard, p.tokens ?? {}) : "—"}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       {onConfirm ? (
         <button type="button" onClick={confirm} style={{ marginTop: 4 }}>
           Confirm
@@ -171,6 +153,101 @@ function ChoiceGroup({
         <span className="hint"> Profile defaults are applied; change one and confirm.</span>
       )}
     </div>
+  );
+}
+
+function PipelineNames({
+  items,
+  confirmed,
+  onConfirm,
+}: {
+  items: InputNeededItem[];
+  confirmed: Record<string, ConfirmedChoice>;
+  onConfirm?: (choices: Record<string, ConfirmedChoice>) => void;
+}) {
+  const initial = (item: InputNeededItem) =>
+    confirmed[item.key]?.standard ?? item.applied ?? item.proposed ?? "";
+  const [open, setOpen] = useState(false);
+  const [names, setNames] = useState<Record<string, string>>(
+    () => Object.fromEntries(items.map((item) => [item.key, initial(item)])));
+  const [template, setTemplate] = useState("");
+  const set = items.filter(isApplied).length;
+  const missing = items.length - set;
+  const feeds = [...new Set(items.map((item) => item.feed))];
+  const fillAll = (text: string) => {
+    setTemplate(text);
+    if (!text) return;
+    setNames(Object.fromEntries(items.map((item) => [
+      item.key, renderTemplate(text, item.tokens ?? {})])));
+  };
+  const confirm = () => {
+    const out: Record<string, ConfirmedChoice> = {};
+    for (const item of items) {
+      const value = (names[item.key] ?? "").trim();
+      const was = initial(item).trim();
+      if (value === was && isApplied(item)) continue;            // unchanged: the convention
+      if (!value) {
+        if (isApplied(item)) out[item.key] = { choice: "leave_blank" };
+        continue;
+      }
+      out[item.key] = value === (item.proposed ?? "") && !isApplied(item)
+        ? { choice: "use_default" } : { choice: "naming_standard", standard: value };
+    }
+    onConfirm?.(out);
+    setOpen(false);
+  };
+  const summary = missing
+    ? `${missing} of ${items.length} open — no naming convention loaded for them`
+    : `${items.length} set from the naming convention`;
+  return (
+    <section aria-label="pipeline names" style={{ marginTop: 4 }}>
+      <span className="hint">
+        <strong>Pipeline names</strong>: {summary}{" "}
+      </span>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {missing ? "Set pipeline names" : "Change pipeline names"}
+      </button>
+      {open ? (
+        <div role="group" aria-label="pipeline names editor" style={{ marginTop: 4 }}>
+          <div className="hint">
+            Fill all from one template (optional):{" "}
+            <input
+              aria-label="template for all pipeline names"
+              value={template}
+              placeholder="{source_code} {schema_domain} {lob} {object_code} {layer} …"
+              onChange={(e) => fillAll(e.target.value)}
+              style={{ width: "50%" }}
+            />
+          </div>
+          {feeds.map((feed) => (
+            <div key={`pl:${feed}`} aria-label={`pipeline names for ${feed}`}>
+              <div className="hint"><code>{feed || "(unnamed)"}</code></div>
+              <ul className="hint" style={{ margin: 0, paddingLeft: 18 }}>
+                {items.filter((item) => item.feed === feed).map((item) => (
+                  <li key={item.key}>
+                    <code>{item.key.split(".pipeline_name.")[1]}</code>{" "}
+                    <input
+                      aria-label={`name for ${item.key}`}
+                      value={names[item.key] ?? ""}
+                      placeholder="(blank)"
+                      onChange={(e) => setNames({ ...names, [item.key]: e.target.value })}
+                      style={{ width: "60%" }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {onConfirm ? (
+            <button type="button" onClick={confirm} style={{ marginTop: 4 }}>
+              Confirm pipeline names
+            </button>
+          ) : null}
+          <span className="hint"> Applied by the next Generate; unchanged names keep the
+            convention.</span>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -222,9 +299,10 @@ export function InputsNeededBanner({
   const shown = applied
     ? ` · ${applied} profile default${applied === 1 ? "" : "s"} applied (changeable)` : "";
   const run = items.filter((item) => item.scope === "run");
+  const pipelines = items.filter((item) => item.scope !== "run" && isPipeline(item));
   const feeds = new Map<string, InputNeededItem[]>();
   for (const item of items) {
-    if (item.scope === "run") continue;
+    if (item.scope === "run" || isPipeline(item)) continue;
     const list = feeds.get(item.feed) ?? [];
     list.push(item);
     feeds.set(item.feed, list);
@@ -251,6 +329,9 @@ export function InputsNeededBanner({
           </div>
           <Section items={run} confirmed={confirmed} onConfirm={onConfirm} label="run" />
         </section>
+      ) : null}
+      {pipelines.length ? (
+        <PipelineNames items={pipelines} confirmed={confirmed} onConfirm={onConfirm} />
       ) : null}
       {[...feeds.entries()].map(([feed, list]) => (
         <section key={`feed:${feed}`} aria-label={`feed ${feed} inputs`}>

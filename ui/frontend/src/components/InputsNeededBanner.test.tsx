@@ -88,19 +88,23 @@ function type(el: HTMLInputElement, value: string) {
 }
 
 describe("InputsNeededBanner choices (post59)", () => {
-  it("shows each proposal beside its template, the radio on use_default, nothing applied", () => {
+  it("pipeline names are one line with a button, never a radio list per name", () => {
     const sent: unknown[] = [];
     act(() => root.render(
       <InputsNeededBanner items={pipelineItems()} onConfirm={(c) => sent.push(c)} />));
-    const proposal = host.querySelector('[aria-label="proposal for feeds.zq_a.pipeline_name.master"]');
-    expect(proposal?.textContent).toContain("SYN_PL_ZQ_VENDOR_MASTER");
-    expect(proposal?.textContent).toContain("SYN_PL_{source}_{layer}");
-    expect(proposal?.textContent).toContain("no naming standard loaded — placeholder");
-    const checked = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]:checked')];
-    expect(checked.map((r) => r.value)).toEqual(FLOWS.map(() => "use_default"));
-    expect(sent).toEqual([]);                                  // proposed, not applied
-    expect(host.textContent).toContain("Nothing is applied until you confirm");
-    act(() => host.querySelector<HTMLButtonElement>("button")!.click());
+    const section = host.querySelector('[aria-label="pipeline names"]')!;
+    expect(section.textContent).toContain("4 of 4 open");
+    expect(host.querySelectorAll('input[type="radio"]').length).toBe(0);
+    expect(host.querySelector('[aria-label="pipeline names editor"]')).toBeNull();
+    const button = section.querySelector<HTMLButtonElement>("button")!;
+    expect(button.textContent).toBe("Set pipeline names");
+    act(() => button.click());
+    const box = host.querySelector<HTMLInputElement>(
+      '[aria-label="name for feeds.zq_a.pipeline_name.master"]')!;
+    expect(box.value).toBe("SYN_PL_ZQ_VENDOR_MASTER");             // pre-filled: the proposal
+    expect(sent).toEqual([]);                                      // nothing until confirmed
+    act(() => [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "Confirm pipeline names")!.click());
     expect(sent).toEqual([Object.fromEntries(FLOWS.map((f) => [
       `feeds.zq_a.pipeline_name.${f}`, { choice: "use_default" }]))]);
   });
@@ -110,29 +114,65 @@ describe("InputsNeededBanner choices (post59)", () => {
     expect(host.textContent).not.toContain("placeholder");
   });
 
-  it("one naming standard re-renders all four names live and is confirmed for each", () => {
+  it("one template fills all four names live, each confirmed as a naming standard", () => {
     const sent: Record<string, unknown>[] = [];
     act(() => root.render(
       <InputsNeededBanner items={pipelineItems()} onConfirm={(c) => sent.push(c)} />));
-    for (const radio of host.querySelectorAll<HTMLInputElement>('input[value="naming_standard"]')) {
-      act(() => radio.click());
-    }
-    const box = host.querySelector<HTMLInputElement>('[aria-label="naming standard for zq_a"]')!;
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="pipeline names"] button')!.click());
+    const box = host.querySelector<HTMLInputElement>(
+      '[aria-label="template for all pipeline names"]')!;
     act(() => type(box, "acme {source} {layer}"));
-    const preview = host.querySelector('[aria-label="preview for zq_a"]')?.textContent ?? "";
-    for (const flow of FLOWS) expect(preview).toContain(`ACME_ZQ_VENDOR_${LAYER[flow]}`);
-    act(() => host.querySelector<HTMLButtonElement>("button")!.click());
+    for (const flow of FLOWS) {
+      expect(host.querySelector<HTMLInputElement>(
+        `[aria-label="name for feeds.zq_a.pipeline_name.${flow}"]`)!.value)
+        .toBe(`ACME_ZQ_VENDOR_${LAYER[flow]}`);
+    }
+    act(() => [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "Confirm pipeline names")!.click());
     expect(sent[0]["feeds.zq_a.pipeline_name.stg_to_std"]).toEqual(
-      { choice: "naming_standard", standard: "acme {source} {layer}" });
+      { choice: "naming_standard", standard: "ACME_ZQ_VENDOR_STD" });
+  });
+
+  it("autoset names: set from the convention, changed one at a time", () => {
+    // post79: pipeline_name_autoset wrote the four names (profile defaults)
+    const items = normalizeInputsNeeded(FLOWS.map((flow) => ({
+      key: `feeds.zq_a.pipeline_name.${flow}`, question: "the pipeline name", feed: "zq_a",
+      scope: "feed", options: ["use_default", "naming_standard", "leave_blank"],
+      proposed: `PL_ZQ_${LAYER[flow]}`, template: "PL_{source}_{layer}",
+      kind: "profile_default", applied: `PL_ZQ_${LAYER[flow]}`,
+    })));
+    const sent: Record<string, unknown>[] = [];
+    act(() => root.render(<InputsNeededBanner items={items} onConfirm={(c) => sent.push(c)} />));
+    expect(host.textContent).toContain("No inputs needed");
+    expect(host.textContent).toContain("4 profile defaults applied (changeable)");
+    const section = host.querySelector('[aria-label="pipeline names"]')!;
+    expect(section.textContent).toContain("4 set from the naming convention");
+    const button = section.querySelector<HTMLButtonElement>("button")!;
+    expect(button.textContent).toBe("Change pipeline names");
+    act(() => button.click());
+    act(() => type(host.querySelector<HTMLInputElement>(
+      '[aria-label="name for feeds.zq_a.pipeline_name.master"]')!, "SYN_MY_MASTER"));
+    act(() => type(host.querySelector<HTMLInputElement>(
+      '[aria-label="name for feeds.zq_a.pipeline_name.grand_master"]')!, ""));
+    act(() => [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "Confirm pipeline names")!.click());
+    expect(sent).toEqual([{
+      "feeds.zq_a.pipeline_name.master": { choice: "naming_standard", standard: "SYN_MY_MASTER" },
+      "feeds.zq_a.pipeline_name.grand_master": { choice: "leave_blank" },
+    }]);                                                           // the rest keep the convention
   });
 
   it("says when the choices are confirmed", () => {
-    const confirmed = Object.fromEntries(FLOWS.map((f) => [
-      `feeds.zq_a.pipeline_name.${f}`, { choice: "leave_blank" as const }]));
-    act(() => root.render(<InputsNeededBanner items={pipelineItems()} confirmed={confirmed} />));
+    const items = normalizeInputsNeeded([
+      { key: "run.application_name", question: "the app", feed: "", scope: "run",
+        options: ["use_default", "naming_standard", "leave_blank"], proposed: "ZQ",
+        template: "{source}", kind: "agent_proposal" },
+    ]);
+    act(() => root.render(<InputsNeededBanner items={items}
+      confirmed={{ "run.application_name": { choice: "leave_blank" } }} />));
     expect(host.textContent).toContain("Confirmed — applied by the next Generate");
     const checked = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]:checked')];
-    expect(checked.map((r) => r.value)).toEqual(FLOWS.map(() => "leave_blank"));
+    expect(checked.map((r) => r.value)).toEqual(["leave_blank"]);
   });
 
   it("lists an applied profile default as changeable, never as an input needed", () => {
@@ -156,9 +196,10 @@ describe("InputsNeededBanner choices (post59)", () => {
     expect(run?.querySelector('[aria-label="profile default for run.email_statuses"]')
       ?.textContent).toContain("profile default applied Success, Failed");
     expect(run?.textContent).toContain("Profile defaults are applied; change one and confirm");
-    // the feed group mixes nothing applied: proposals only
-    expect(host.querySelector('[aria-label="feed zq_a inputs"]')?.textContent).toContain(
-      "Nothing is applied until you confirm");
+    // post79: the pipeline name is in the one "Pipeline names" line, not a feed group
+    expect(host.querySelector('[aria-label="feed zq_a inputs"]')).toBeNull();
+    expect(host.querySelector('[aria-label="pipeline names"]')?.textContent).toContain(
+      "1 of 1 open");
     act(() => run!.querySelector<HTMLInputElement>('input[value="naming_standard"]')!.click());
     const box = run!.querySelector<HTMLInputElement>('[aria-label="standard for run.email_statuses"]')!;
     expect(box.placeholder).toBe("your value");

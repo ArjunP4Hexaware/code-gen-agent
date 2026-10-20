@@ -16,8 +16,11 @@ records source = default | standard | blank (| answer).
 
 A proposal that collides with a PIPELINE_NAME of the loaded goldens / corpus is
 never offered. The shipped templates are SYNTHETIC (SYN_PL_…; "no naming
-standard loaded — placeholder"); the real ones come from
-codegen-state/overlays/acfc_prx.yaml, per flow. Synthetic fixtures only."""
+standard loaded — placeholder") and post79 never writes one (no proposal, not
+even on use_default); the real ones come from codegen-state/overlays/acfc_prx.yaml,
+per flow — these tests lay a fixture template (TEMPLATES, not SYN_) over them.
+post79: ``pipeline_name_autoset`` writes the rendered names unasked (a profile
+default). Synthetic fixtures only."""
 
 from __future__ import annotations
 
@@ -39,8 +42,28 @@ LAYERS = {"grand_master": "GRANDMASTER", "master": "MASTER", "file_to_stg": "STG
           "stg_to_std": "STD"}
 
 
-def _pair(tmp_path, *overlays: Path):
-    config = _scoped(_acfc(*overlays), tmp_path)
+# post79: a fixture naming convention (not SYN_: a SYN_ placeholder is never written)
+TEMPLATES = {
+    "grand_master": "PL_{domain}_{subdomain}_{source}_{frequency}_{layer}",
+    "master": "PL_{domain}_{subdomain}_{source}_{frequency}_{layer}",
+    "file_to_stg": "PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}",
+    "stg_to_std": "PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}",
+}
+
+
+def _templates_overlay(tmp_path: Path, *, autoset: bool = False, templates=None) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    body = {"conventions": {"profiles": {"acfc_prx": {
+        "pipeline_name_templates": dict(templates or TEMPLATES),
+        "pipeline_name_autoset": autoset}}}}
+    path = tmp_path / "templates_overlay.yaml"
+    path.write_text(yaml.safe_dump(body), encoding="utf-8")
+    return path
+
+
+def _pair(tmp_path, *overlays: Path, templates: bool = True):
+    first = (_templates_overlay(tmp_path),) if templates else ()
+    config = _scoped(_acfc(*first, *overlays), tmp_path)
     contracts = tmp_path / "contracts"
     contracts.mkdir(parents=True)
     specs, _flags = _pair11_specs(FRD, contracts, config)
@@ -86,11 +109,10 @@ def test_an_unanswered_run_writes_blank_names_and_four_proposals(tmp_path, capsy
     for flow, line in zip(FLOWS, lines, strict=True):
         record = records[f"pipeline_name.{flow}"]
         assert record["source"] == "blank" and record["chosen"] is False
-        assert record["proposed"].startswith("SYN_PL_") and LAYERS[flow] in record["proposed"]
-        assert record["template"].startswith("SYN_PL_{domain}") and record["placeholder"]
-        # the line shows the proposal, its template and the placeholder label
-        assert f"proposed {record['proposed']!r} (template {record['template']!r}; " \
-               f"{input_choices.PLACEHOLDER_LABEL})" in line
+        assert record["proposed"].startswith("PL_") and LAYERS[flow] in record["proposed"]
+        assert record["template"] == TEMPLATES[flow] and "placeholder" not in record
+        # the line shows the proposal and its template
+        assert f"proposed {record['proposed']!r} (template {record['template']!r})" in line
         assert "not written until chosen" in line
     assert "frd_unstated:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_NAME" not in _report(
         tmp_path, spec)
@@ -265,8 +287,8 @@ def test_the_app_applies_a_choice_only_after_confirm(tmp_path):
                                     DemoRunner._resolved_inputs(runner, spec, config, frd))
     flow_items = [i for i in items if ".pipeline_name." in i["key"]]
     assert [i["options"] for i in flow_items] == [list(input_choices.CHOICES)] * 4
-    assert all(i["proposed"].startswith("SYN_PL_") and i["template"].startswith("SYN_PL_")
-               and i["placeholder"] == input_choices.PLACEHOLDER_LABEL for i in flow_items)
+    assert all(i["proposed"].startswith("PL_") and i["template"].startswith("PL_")
+               and not i.get("placeholder") for i in flow_items)
     assert flow_items[0]["tokens"]["layer"] == "GRANDMASTER"     # the live preview's values
     assert input_choices.faq_answers(
         DemoRunner._resolved_inputs(runner, spec, config, frd)) == {}   # nothing confirmed
@@ -288,3 +310,73 @@ def test_the_app_applies_a_choice_only_after_confirm(tmp_path):
                for f in run.gate.flags) == 4
     left = DemoRunner._owed_inputs(runner, spec, config, frd, resolved)
     assert not [i for i in left if ".pipeline_name." in i["key"]]   # chosen: no longer open
+
+
+# ---- post79: autoset from the naming convention; a placeholder is never written --------
+
+
+def test_a_placeholder_template_is_never_written_not_even_on_use_default(tmp_path, capsys):
+    config, spec, pair = _pair(tmp_path, templates=False)          # the shipped SYN_ ones
+    answers = _answers(tmp_path, f"inputs:\n  feeds:\n    {spec.feed_id}:\n"
+                                 "      pipeline_name: {choice: use_default}\n")
+    assert _generate(config, pair, only_feed=spec.feed_id, answers_path=answers) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert all(v in (None, "") for v, _b in _names(tmp_path, spec, SCHED))
+    for flow in FLOWS:
+        record = _feed_inputs(tmp_path)[f"pipeline_name.{flow}"]
+        assert (record["source"], record["proposed"]) == ("blank", "")
+        assert input_choices.PLACEHOLDER_LABEL in record["refused"]
+    lines = _pipeline_lines(out, spec.feed_id)
+    assert len(lines) == 4 and all("no proposal:" in ln for ln in lines)
+    assert "SYN_PL_" not in "".join(str(v) for v, _b in _names(tmp_path, spec, SCHED))
+
+
+def test_autoset_writes_the_convention_unasked_and_one_name_can_be_changed(tmp_path, capsys):
+    config, spec, pair = _pair(tmp_path, _templates_overlay(tmp_path / "auto", autoset=True))
+    assert _generate(config, pair, only_feed=spec.feed_id) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    records = _feed_inputs(tmp_path)
+    written = [v for v, _b in _names(tmp_path, spec, SCHED)]
+    assert written == [records[f"pipeline_name.{f}"]["proposed"] for f in FLOWS]
+    assert all(v.startswith("PL_") for v in written)
+    assert all(records[f"pipeline_name.{f}"]["source"] == "profile" for f in FLOWS)
+    assert all(records[f"pipeline_name.{f}"]["kind"] == input_choices.PROFILE_DEFAULT
+               for f in FLOWS)
+    assert _pipeline_lines(out, spec.feed_id) == []                 # nothing asked
+    assert "frd_unstated:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_NAME" not in _report(
+        tmp_path, spec)                                             # no gate flag
+    # "Change pipeline names": one flow overridden, the others keep the convention
+    capsys.readouterr()
+    answers = _answers(tmp_path, f"inputs:\n  feeds:\n    {spec.feed_id}:\n"
+                                 "      pipeline_name.master: {choice: naming_standard, "
+                                 "standard: SYN_CHANGED_MASTER}\n")
+    assert _generate(config, pair, only_feed=spec.feed_id, answers_path=answers) == cli.EXIT_OK
+    again = [v for v, _b in _names(tmp_path, spec, SCHED)]
+    assert again[1] == "SYN_CHANGED_MASTER" and again[0] == written[0] and again[2:] == written[2:]
+    assert _feed_inputs(tmp_path)["pipeline_name.master"]["source"] == "standard"
+
+
+def test_autoset_never_writes_a_placeholder(tmp_path, capsys):
+    overlay = tmp_path / "auto_only.yaml"
+    overlay.write_text("conventions:\n  profiles:\n    acfc_prx:\n"
+                       "      pipeline_name_autoset: true\n", encoding="utf-8")
+    config, spec, pair = _pair(tmp_path, overlay, templates=False)
+    assert _generate(config, pair, only_feed=spec.feed_id) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert all(v in (None, "") for v, _b in _names(tmp_path, spec, SCHED))
+    assert len(_pipeline_lines(out, spec.feed_id)) == 4             # asked instead
+
+
+def test_the_cell_tokens_a_prod_shaped_template_uses(tmp_path):
+    config, spec, _pair_paths = _pair(tmp_path)
+    profile = config.conventions.get("acfc_prx")
+    tpl = config.metadata.templates["iig_v2"]
+    tokens = input_choices.feed_tokens(spec, tpl, None, config)
+    for name in ("lob", "object", "object_code", "src_format", "source_code", "schema_domain"):
+        assert name in tokens and name in input_choices.PLACEHOLDERS
+        assert tokens[name], name                                    # computable on the fixture
+    assert tokens["object_code"] == input_choices._words(tokens["object"])[0]
+    assert tokens["source_code"] == input_choices._words(tokens["source"])[0]
+    name = input_choices.render("PL_MSTR_{source_code}_{schema_domain}_{lob}_{frequency_code}",
+                                input_choices.flow_tokens(tokens, spec, profile, "master"))
+    assert name.startswith("PL_MSTR_") and "__" not in name and "{" not in name

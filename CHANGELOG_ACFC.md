@@ -4,6 +4,66 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post79 — 2026-10-20 (pipeline names: autoset from the naming convention, one "Change pipeline names" button)
+
+Venu: use the naming standards for the defaults, and do not ask about the pipeline names
+during the run; listing every name with its own choice is ugly. The EDO Naming Standards
+and the Pyx prod IIG disagree on the convention, and Venu has been asked which is ground
+truth. Until he answers, the interim default is the prod convention.
+
+1. **Autoset** (`conventions.profiles.<p>.pipeline_name_autoset`, `true` in
+   `acfc_env.yaml`). The rendered PIPELINE_NAME of every flow is written UNASKED, as a
+   profile default:
+   - source `profile` in `CODEGEN_STAGES.json`;
+   - no INPUT_NEEDED line and no `frd_unstated` gate flag;
+   - listed as changeable.
+
+   An answers-file `choice: naming_standard` + `standard: <name>` overrides one flow, and
+   `leave_blank` clears one.
+2. **A `SYN_` placeholder template is never written**, not even on `use_default`. The
+   Pyx App runs had written all 30 PIPELINE_NAME cells as `SYN_PL_…` that way. With no
+   real template the name stays open: "no proposal: no naming standard loaded —
+   placeholder".
+3. **New name tokens**, taken from the IIG's own cells:
+   - `{source_code}`: SOURCE's first word;
+   - `{schema_domain}`: the word the stage and standard schema names share;
+   - `{lob}`: the ADLS LOB cell;
+   - `{object}` / `{object_code}`: OBJECT_NAME / its first word;
+   - `{src_format}`: the file extension;
+   - `{frequency_code}`: `engineering_standards.frequency_abbreviations`.
+
+   See `codegen.input_choices.feed_tokens` and `docs/acfc/OVERLAY_FIELDS.md`.
+4. **App.** Pipeline names are no longer a radio list per name. Each run shows ONE
+   line: "Pipeline names: N set from the naming convention" (or "N of M open — no
+   naming convention loaded"). A **Change pipeline names** / **Set pipeline names**
+   button opens every name, pre-filled, in one panel, with an optional "fill all from
+   one template" box. Confirm sends only the changed names: `naming_standard` + the name,
+   or `leave_blank` for a cleared one. `ui/frontend/dist` is rebuilt.
+5. **Interim templates in the ACFC overlay** (on the state volume, not git):
+   - reconstructed from the Pyx golden IIG by aligning its names with the run's own
+     IIG cells;
+   - the previous overlay is kept as `acfc_prx.yaml.bak_20261020_pre_post79`.
+
+   Mock harness run of pair_11 (`.venv-d1`):
+   - 30 of 30 cells filled; 20 of 20 pipeline inputs from the convention; 0 pipeline
+     INPUT_NEEDED lines; leak gate clean; 5 notebooks;
+   - against the golden: **4 of 8 child names exact**. Both master names match except the
+     frequency code: the FRD's frequency maps to a different code than prod uses. The 4
+     other child names differ only in the object token.
+6. **Caveats:**
+   - The App cannot read the state volume until the `USE CATALOG` grant on `d1_dlk`
+     lands. Until then the App sees only the shipped `SYN_` templates, so it asks, and
+     writes nothing.
+   - `pipeline_name_corpus` (the goldens folder) still refuses a name that collides with
+     a prod one. Re-running an existing prod feed with its goldens loaded asks again
+     instead of reusing its prod names.
+
+**Tests:**
+- `tests/test_pipeline_name_choice.py` now runs on a non-`SYN_` fixture template. New:
+  a placeholder is never written; autoset writes unasked and one name can be changed;
+  autoset never writes a placeholder; the cell tokens.
+- `InputsNeededBanner.test.tsx`: the one line and the panel.
+
 ## 0.5.8.post78 — 2026-10-20 (EDH E2E v2.2: one feed per target; questions workbook; m93 chooser)
 
 1. **One feed per target table.** v2.2 has a file whose blocks load two tables (m10, the

@@ -259,6 +259,14 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
             from codegen.metadata_sheet import _faq_cell as base
 
             cells[header] = base(answer, f"{rule.question} — answered")
+            if chosen is not None and chosen[0] == "profile":
+                # post79: the naming convention's name, written unasked (a profile
+                # default: no NOTE, no gate flag; changeable in the App / answers)
+                cells[header] = _cell(answer.value, "synthetic",
+                                      f"from the naming convention {chosen[1]!r} — "
+                                      f"{rule.question}; change it with \"Change pipeline "
+                                      f"names\" or inputs.feeds.<feed>.{label}")
+                continue
             if chosen is not None:
                 # post59: use_default / naming_standard — taken from other
                 # documents (the conventions profile / the BSA's standard): a flag

@@ -166,6 +166,8 @@ KEY_QUESTION = "the detail table's key (TGT_PRIMARY_KEY)"
 # post61: what a feed-level profile default is (its NOTE line / the panel)
 _PROFILE_QUESTIONS = {
     "notebook_name": "the notebook name (DATABRICKS_NOTEBOOK_NAME) of this leg",
+    "pipeline_name": "the pipeline name (PIPELINE_NAME) of this flow — from the naming "
+                     "convention (pipeline_name_autoset)",
     "src_file_name_style": "the ADLS SRC_FILE_NAME style (pattern | prefix_star | "
                            "prefix_middle)",
 }

@@ -296,3 +296,22 @@ no other sheet links a target column to the logical model.
 15. Are the 14 `No mapping` rows per sheet always the load-populated columns (SCD2 triple, UDFs, audit, lineage), and which of them must CodeGen populate?
 16. What table do the 2 date-role SKs in `F2` reference, and which load populates `D07` / `D08` (collapsed in both models)?
 17. Will the upstream agent keep the column-F criteria as free text, or can it write structured fields (join keys, join type, filter predicate)?
+
+---
+
+## 8. The second input dialect: EDH E2E JSON
+
+The gold-layer EDH E2E mappings arrive as JSON from an extractor, not as this workbook.
+They come from a different document family: Facets → Enterprise Data Hub, 11 tables, 389
+mapping rows. Against §6's five asks they state more:
+- the join type, in every join hint (62 of 62);
+- the primary key, through an `indexes` marker on 29 rows.
+
+They state less in two places:
+- UC source naming: `source_database` + a bare `source_table`, never qualified;
+- SK / SCD2: nothing.
+
+The dialect, with field counts, the three placeholder grammars and their coverage, is in
+`EDH_E2E_JSON_SCHEMA.md`. The defects, split by origin (extractor vs source workbook), are
+in `EDH_E2E_EXTRACTION_DEFECTS.md`. The fabricated fixtures are in
+`tests/fixtures/edh_gold_synthetic/`.

@@ -1,10 +1,10 @@
 {
   "$comment": "Stands in for defects 1-3 (the validator must fail): a prose top-level target_table (2 of 11 real files) from which json_file is slugged; every target_attribute twice (2 of 11 real files: one with all 49 twice, one with 3); 3 distinct mappings[].target_table, one not an identifier (2 of 11 real files); a target_attribute with a space (1 of 11); the variant region key spelling (1 of 11); non-PK indexes cells (2 of 31); drag-filled source_format VARCHAR<n> with n > 2 (7 of 389 real rows).",
-  "document_name": "SYN_EDH_E2E_Mapping_SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line_V1.0",
-  "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line_V1.0.xlsx",
+  "document_name": "SYN_EDH_E2E_Mapping_SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping_V1.0",
+  "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping_V1.0.xlsx",
   "layer": "gold",
   "destination_catalog": "syn_edh",
-  "target_table": "SYN note: this SYN view reads SYN_SCHEMA SYN_CODE_SRC rows for every SYN line",
+  "target_table": "SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping",
   "refresh_schedule": null,
   "load_type": null,
   "mapping_count": 10,

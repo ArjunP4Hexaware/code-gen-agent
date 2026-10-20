@@ -356,8 +356,8 @@ The reader translates it; it does not pass it through.
 | 8 | `target_attribute` is an identifier | 1 of 11 (one value with a space) | (d) |
 | 9 | region `column_name` is an identifier (flag only) | 10 items in 4 of 10 files | (c) |
 
-Defects 1–3 are extractor bugs (a prose cell taken as the table name; two blocks of one
-document both extracted). They are fixed in the extractor, not tolerated by the reader.
+Where each defect comes from (the extractor or the source workbook), checked cell by cell
+against the 11 source workbooks: `EDH_E2E_EXTRACTION_DEFECTS.md`.
 
 ---
 
@@ -366,7 +366,7 @@ document both extracted). They are fixed in the extractor, not tolerated by the 
 `tests/fixtures/edh_gold_synthetic/`: `_manifest.json` + 4 files. (a) `syn_mbr_dim.json` is
 the table with regions whose column names match the target. (b) `syn_plan_ref.json` has no
 regions and no `mapping_edits` key. (c) `syn_elig_fact.json` mixes the selection-criteria
-shapes. (d) `syn_note_…json` carries defects 1–6 and 8. Each file's `$comment` names the real-set
+shapes. (d) `syn_memo_…json` carries defects 1–6 and 8. Each file's `$comment` names the real-set
 counts it stands in for. The same profiler ran on both sets:
 
 | Shape | Real (11 files, 389 rows) | Synthetic (4 files, 46 rows) |
@@ -416,8 +416,11 @@ in both. The fixture adds no shape the real set lacks, except the `$comment` key
 
 ## 6. How the counts were produced
 
-On D1, read-only. Copies of the volume folder sat in a scratch directory outside the repo;
-a profiler there printed keys, types, counts and masked shapes (identifiers → `<x>`,
-literals → `<v>`, numbers → `<n>`); the grammars above are its regular expressions. No
-real cell text was written to the repo or printed in a report. The same profiler, pointed at
-`tests/fixtures/edh_gold_synthetic/`, produced the right-hand column of §5.
+On D1, read-only. Copies of the volume folder sat in a scratch directory outside the repo.
+`scripts/gold/profile_edh.py DIR` prints keys, counts and example coordinates only; the
+grammars above are its regular expressions. No real cell text was written to the repo or
+printed in a report. Pointed at `tests/fixtures/edh_gold_synthetic/`, the same profiler
+produced the right-hand column of §5. `scripts/gold/build_edh_synthetic.py` rebuilds the
+fixtures. `tests/test_gold_profiler.py` asserts two things: the profiler's output shares
+no token longer than 3 characters with the inputs' table names or region keys, and the
+rebuilt fixtures match the tracked bytes.

@@ -4,6 +4,60 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post77 — 2026-10-20 (the EDH E2E gold-mapping reader)
+
+The next phase is the gold layer: CodeGen generates the load SQL from extracted EDH E2E
+mappings (Facets → Enterprise Data Hub; extractor dialect v2.1,
+`docs/acfc/EDH_E2E_JSON_SCHEMA.md`). Nothing in the ingestion path changes.
+
+1. **`codegen read-edh-e2e --input DIR --out FILE [--table N]`** reads `_manifest.json` +
+   the table files into a new gold contract (`codegen.contracts.gold.GoldContract`; the
+   STTM contract has no place for joins, filters, expressions or regions). The rule is
+   the ingestion layouts' one:
+   - **stated → filled**;
+   - **derived → `status: proposed`**, plus an `INPUT_NEEDED` line;
+   - **unstated or free text → `QUESTION feeds[<i>].<role>` /
+     `feeds[<i>].columns[<j>].<role>`**, quoting the cell, exit 3.
+
+   `<i>` is the manifest index. Every translated expression opens with
+   `/* <file> block_index=<b> source_row=<r> */`.
+2. **What it reads** (`codegen.layouts.edh_e2e`):
+   - **Target:** catalog + table.
+   - **Sources:** per block (`source_sets[]`).
+   - **Column types:** from the regional structures (comma stripped, whitespace collapsed,
+     `NOT NULL` → nullability; a sentinel → QUESTION; regions that disagree → proposal).
+   - **Expressions:** Direct, `set NULL`, `current timestamp`, `CAST`, `[a,b]` →
+     `substr(x, a, b-a+1)`, ISNULL / empty-string → `coalesce` / `nullif`,
+     `if/THEN/ELSE` → `CASE`, `:` → `concat`.
+   - **Joins:** J1 / J2 are proposed (same-name column); J3 gives explicit pairs, with
+     `*=` read as LEFT; a second joined table becomes a second join.
+   - **Filters:** F1–F5 become predicates (F4's slash notation is a proposal).
+   - **Keys:** PK spellings → `primary_key`.
+   - **Load:** "full … load" → `load_mode: full`.
+   - **Regions:** keyed on their label; per-region drift is a proposal.
+   - **Notes and rules:** `document_notes` and `rules` → one QUESTION each.
+   - **Flags:** drag-fill and non-identifier region columns.
+3. **Profile `edh_e2e:`** (config section; empty in the tracked config): `target_schema`,
+   `source_catalog_map` (source database → UC `catalog.schema`), `scd2_mode`,
+   `sk_strategy` and `function_map` (the documents' zero-argument functions → Spark SQL).
+   Unset = a QUESTION per table, never a guess. The documents state no SCD2 / SK.
+4. **D1 run on the 11 real v2.1 files** (`docs/acfc/EDH_E2E_READER_RUN.md`, counts only):
+   - no crash; 11 of 11 exit 3;
+   - 1,470 filled, 98 proposed, 200 QUESTION;
+   - 102 of the 200 close with the profile, and 17 more with `function_map`.
+5. **Dialect v2.1 docs + fixtures** (6f9232f): the schema validates 11 of 11 real v2.1
+   files. Fixtures are regenerated (fixture (a) has two blocks). The profiler checks
+   `(block_index, target_attribute)`.
+
+**Inside ACFC:** set the `edh_e2e` values in the ACFC overlay
+(`codegen-state/overlays/<profile>.yaml`), never in the tracked config.
+
+**Tests:**
+- `tests/test_edh_e2e_reader.py`: every grammar class is filled or asked; the two-block
+  fixture yields two source sets; the translator's classes; the CLI's answer lines; the
+  reader and the profiler share their regular expressions.
+- `tests/test_gold_profiler.py` (updated).
+
 ## 0.5.8.post76 — 2026-10-19 (Layer 2: one request per feed, its own stage after emit)
 
 D1 post73 pair_11 (556 s over five feeds): Layer 2 asked one request per unmapped rule

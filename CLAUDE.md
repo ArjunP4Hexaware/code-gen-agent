@@ -1,11 +1,27 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post76)
+## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post77)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-19, after post76).** post76 = Layer 2 as its own stage after the
+**RESTART HERE (2026-10-20, after post77) — gold layer.** post77 = the EDH E2E gold-mapping
+reader: `codegen read-edh-e2e --input DIR --out FILE [--table N]` (`codegen.layouts.edh_e2e`
+-> `codegen.contracts.gold.GoldContract`). Rules: stated = filled, derived = `status:
+proposed` + INPUT_NEEDED, unstated / free text = QUESTION `feeds[<i>].<role>` /
+`feeds[<i>].columns[<j>].<role>` (i = manifest index), cell quoted. Profile = config
+section `edh_e2e:` (target_schema, source_catalog_map, scd2_mode, sk_strategy,
+function_map); empty in the tracked config, values go in the ACFC overlay. Docs:
+`docs/acfc/EDH_E2E_JSON_SCHEMA.md` (dialect v2.1, grammars), `EDH_E2E_EXTRACTION_DEFECTS.md`
+(A extractor / B source document, v2.1 status), `EDH_E2E_READER_RUN.md` (11 real files:
+1,470 filled / 98 proposed / 200 QUESTION, no crash), `GOLD_STTM_SHAPE.md` (the Provider
+Lakehouse STTM, a different family). Synthetic fixtures `tests/fixtures/edh_gold_synthetic/`
+(rebuilt by `scripts/gold/build_edh_synthetic.py`; `scripts/gold/profile_edh.py DIR` =
+counts only). The reader and the profiler share their regexes (a test pins it). Open: v2.1
+retargeted m10's second block (the workbook names another table) and moved m0's types into
+`field_length` — ask the extractor owner; no SQL emit yet (the contract is the input).
+
+**After post76 (kept for reference).** post76 = Layer 2 as its own stage after the
 outcome (`codegen.layer2_stage`, `GenerateRun.layer2` after `finish`): ONE request per feed
 (`complete_batch` / `providers.ask.ask_batch`), `--layer2 now | defer | skip`
 (`reasoning.layer2_cli` now, `reasoning.layer2_app` defer; deferred = `<feed>/candidates/

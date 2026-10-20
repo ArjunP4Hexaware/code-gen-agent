@@ -1568,6 +1568,37 @@ def _question_items(questions, sheet_names: dict | None = None) -> list:
     return items
 
 
+def _read_edh_e2e(args: argparse.Namespace, config: Config) -> int:
+    """``codegen read-edh-e2e``: an EDH E2E extraction folder -> a gold contract JSON.
+    One QUESTION line per unstated / free-text value (exit 3), one INPUT_NEEDED line per
+    proposal, one NOTE per flag."""
+    from codegen.layouts.edh_e2e import read_dir
+
+    folder = Path(args.input)
+    if not (folder / "_manifest.json").is_file():
+        _fail("read-edh-e2e", f"no _manifest.json in {folder}", "input.not_found", path=folder)
+        return EXIT_FAILED
+    contract = read_dir(folder, config.edh_e2e, only=args.table)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(contract.model_dump_json(indent=2, by_alias=True) + "\n", encoding="utf-8",
+                   newline="\n")
+    questions = proposals = 0
+    for feed in contract.feeds:
+        for flag in feed.flags:
+            print(answer_line("NOTE", f"feeds[{feed.index}]", flag))
+        for p in feed.proposals:
+            proposals += 1
+            print(answer_line("INPUT_NEEDED", p.key, f"proposed {p.value} — {p.basis}"))
+        for q in feed.questions:
+            questions += 1
+            cell = f" — cell: {q.quoted!r}" if q.quoted else ""
+            print(answer_line("QUESTION", q.key, q.reason + cell))
+    print(f"read-edh-e2e: {len(contract.feeds)} table(s), {questions} QUESTION, "
+          f"{proposals} INPUT_NEEDED -> {out}")
+    return EXIT_NEEDS_ANSWERS if questions else EXIT_OK
+
+
 def _extract_vdd(args: argparse.Namespace, config: Config) -> int:
     from codegen.extract.vdd import VddExtractionError, contract_to_json, extract_vdd_contract
     from codegen.layout.discover import NoLayoutError
@@ -2204,6 +2235,18 @@ def _parser() -> argparse.ArgumentParser:
                            "every automatic rule; default: pairing_overrides.yaml next to "
                            "the STTM, or inputs.pairing.overrides_file")
 
+    read_edh = subparsers.add_parser(
+        "read-edh-e2e",
+        help="read an EDH E2E gold-mapping extraction (manifest + table JSON) into a gold "
+             "contract",
+    )
+    read_edh.add_argument("--config", default="config/config.yaml")
+    read_edh.add_argument("--input", required=True,
+                          help="the extraction folder (_manifest.json + one JSON per table)")
+    read_edh.add_argument("--out", required=True, help="path for the emitted contract JSON")
+    read_edh.add_argument("--table", type=int,
+                          help="read only this manifest index (keys keep the index)")
+
     extract_vdd = subparsers.add_parser(
         "extract-vdd",
         help="extract a Vendor Data Dictionary contract from a VDD workbook (patterns V1/V2/V3)",
@@ -2395,6 +2438,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _extract_frd(args, config)
     if args.command == "extract-vdd":
         return _extract_vdd(args, config)
+    if args.command == "read-edh-e2e":
+        return _read_edh_e2e(args, config)
     if args.command == "layout":
         return _layout(args, config)
     if args.command == "pair":

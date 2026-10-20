@@ -265,7 +265,7 @@ STAGES = frozenset({
     "codegen", "generate", "generate-all", "layout", "extract-sttm", "extract-frd",
     "extract-vdd", "pair", "sharepoint-fetch", "sharepoint-publish", "databricks-fetch",
     "databricks-publish", "databricks-seed-landing", "demo-source-files",
-    "demo-metadata-sheet", "doctor", "verify", "layer2",
+    "demo-metadata-sheet", "doctor", "verify", "layer2", "read-edh-e2e",
 })
 
 # reason code -> the coordinates tier's phrase. Phrases are fixed text: they may

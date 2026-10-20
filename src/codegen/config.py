@@ -2086,6 +2086,27 @@ class IigReviewConfig(BaseModel):
                 or self.owner_by_reason[reason])  # type: ignore[index]
 
 
+class EdhE2eConfig(BaseModel):
+    """The EDH E2E gold-mapping reader's profile (codegen.layouts.edh_e2e, 2026-10-20).
+
+    Everything here is a value no EDH E2E document states. Unset = the reader asks: a
+    ``QUESTION feeds[<i>].<role>`` per table, never a guess. Client values belong in an
+    overlay, never in the tracked config.yaml."""
+
+    model_config = _MODEL_CONFIG
+
+    # the UC schema every gold target loads into (the documents name catalog + table only)
+    target_schema: str | None = None
+    # source_database (as the documents spell it) -> the UC "catalog.schema" holding it
+    source_catalog_map: dict[str, str] = Field(default_factory=dict)
+    # how history is kept, and how surrogate keys are made — the documents state neither
+    scd2_mode: str | None = None
+    sk_strategy: str | None = None
+    # a zero-argument function of the documents' expression dialect -> its Spark SQL
+    # (e.g. a blank / empty-string function); unmapped = the expression is a QUESTION
+    function_map: dict[str, str] = Field(default_factory=dict)
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -2136,6 +2157,8 @@ class Config(BaseModel):
     # 2026-10-15: the profile schema (required keys + field descriptions)
     environment_schema: EnvironmentSchemaConfig = EnvironmentSchemaConfig()
     run_environment: RunEnvironment | None = None
+    # Optional (2026-10-20): the EDH E2E gold-mapping reader's profile.
+    edh_e2e: EdhE2eConfig = EdhE2eConfig()
 
     @model_validator(mode="after")
     def _one_default_environment(self) -> Config:

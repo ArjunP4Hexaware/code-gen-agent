@@ -1,49 +1,63 @@
-# EDH_E2E_EXTRACTION_REPORT — v2.0.0 extraction results
+# EDH_E2E_EXTRACTION_REPORT — v2.1.0 extraction results
 
 > **Run date**: 2026-10-20  
-> **Extractor version**: 2.0.0  
+> **Extractor version**: 2.1.0  
 > **Source**: `/Volumes/d1_edh/edh_decom/sstm/` (12 EDWH_E2E_Mapping files)  
 > **Output**: `/Volumes/d1_dlk/codegen/codegen_inputs/sttm/edh_gold/` (11 table JSON + manifest)  
 > **Skipped**: `EDWH_CLIENT_SERVICE_LETTER_LOG_V1.0.xls` (no E2E_Mapping sheet)  
 
 ---
 
-## 1. Schema validation: before / after
+## 1. Schema validation: v2.0 / v2.1
 
-| Metric | v1.0 (before) | v2.0 (after) | Change |
+| Metric | v2.0 | v2.1 | Change |
 | --- | --- | --- | --- |
 | Files extracted | 11 | 11 | — |
-| Schema-valid files | 8 / 11 | **11 / 11** | +3 |
-| Total mapping rows | 389 | 371 | −18 (dedupe + header-row filter) |
-| `target_table` not an identifier | 2 files | 0 | fixed (A1) |
-| `target_attribute` not an identifier | 1 file | 0 | fixed (header-row filter) |
-| Duplicated `target_attribute` per file | 2 files | 1 file | −1 (A2 dedupe; remaining is a genuine multi-block doc) |
-| `data_type` trailing comma | 1,770 items | 0 | cleaned (A4) |
-| `data_type` inner padding | 98 items | 0 | cleaned (A4) |
-| Uniform key set (13 keys / row) | 8 / 11 files | 11 / 11 | fixed (A4) |
-| `field_length` / `target_format` split | mixed | all 11 carry both | fixed (A5) |
+| Schema-valid files | 11 / 11 | **11 / 11** | — |
+| Total mapping rows | 371 | 388 | +17 (A2 dedupe removed) |
+| Multi-block files (`block_index > 0`) | 0 | 2 | +2 (AUTHORIZATION, HEQI_CD) |
+| `regional_table_structures` non-empty | 10 / 11 | **11 / 11** | +1 (A3: m2 .xls fixed) |
+| m2 (CLAIMS_UB92) region count | 0 | 28 | fixed (A3) |
+| `data_type` verbatim (B6) | no (cleaned) | **yes** | `data_type_raw` removed |
+| `block_index` + `source_row` per mapping | absent | **all 388 rows** | new required keys |
+| Uniform key set (15 keys / row) | 13 keys | 15 keys | +`block_index`, +`source_row` |
 
-## 2. Fixes applied (list A)
+### Per-file row counts (v2.0 / v2.1)
+
+| File | v2.0 | v2.1 | Blocks | Regions | Notes |
+| --- | --- | --- | --- | --- | --- |
+| FACETS_PROVIDER_TAXONOMY_CD | 11 | 11 | {0} | 7 | 0 |
+| FACETS_AUTHORIZATION | 84 | 98 | {0,1} | 7 | 0 |
+| FACETS_CLAIMS_UB92 | 55 | 55 | {0} | 28 | 1 |
+| FACETS_MEMBER_HM_SPECIAL_NEEDS | 9 | 9 | {0} | 7 | 1 |
+| FACETS_MEMBER_OTHER_INS | 63 | 63 | {0} | 7 | 0 |
+| FACETS_MEMBER_RATE_AREA | 7 | 7 | {0} | 7 | 1 |
+| FACETS_MEMBER | 75 | 75 | {0} | 7 | 1 |
+| FACETS_PCP_TRANSFER | 11 | 11 | {0} | 7 | 0 |
+| FACETS_PROCEDURE_CODE | 4 | 4 | {0} | 7 | 0 |
+| FACETS_PROVIDER | 49 | 49 | {0} | 7 | 2 |
+| FACETS_HEQI_CD | 3 | 6 | {0,1} | 7 | 0 |
+| **Total** | **371** | **388** | | **98** | **6** |
+
+## 2. Fixes applied (v2.0 → v2.1)
 
 | # | Fix | Effect |
 | --- | --- | --- |
-| A1 | `target_table` derived from mapping rows' `Data Table` column (most-common valid identifier), not from title/prose. Stray trailing chars stripped. | 2 files corrected: FACETS_AUTHORIZATION (was full doc name), FACETS_HEQI_CD (was 93-char sentence). |
-| A2 | Dedupe on `(target_attribute, source_field, mapping_edits)`. | FACETS_AUTHORIZATION: 98 → 84 (14 dropped). FACETS_HEQI_CD: 7 → 3 (4 dropped incl. header rows). |
-| A3 | Sub-header rows between mapping blocks filtered by header-value detection. | 1 row removed from FACETS_HEQI_CD (the `Data Attribute` header of the second block). |
-| A4 | Uniform 13-key set on every mapping row; `regional_table_structures` `data_type` cleaned (whitespace collapsed, trailing commas stripped; raw kept in `data_type_raw` where different). | All 11 files now carry all 13 keys. 1,770 trailing commas and 98 padding instances cleaned. |
-| A5 | Second `Data Format` column mapped to `field_length` (was `target_format`). | 10 files now have `field_length`; the 1 file with type values retains them in `field_length` (no `target_format` values in any file). |
-| A6 | Manifest enhanced: `extractor_version`, `source_hashes` (SHA-256), `extracted_at`, per-file `document_notes_count`. | Manifest now self-describing. |
+| A2 undo | Dedupe removed; every mapping row emitted. `block_index` (0-based, per block) and `source_row` (1-based workbook row) added to every mapping. Block boundaries: repeated-header detection (m10) + gap-based detection (m1). | AUTHORIZATION: 84 → 98 (49+49, two blocks). HEQI_CD: 3 → 6 (3+3, two blocks). |
+| A3 | Region detection changed from prefix-matching ("reg"/"medicare"/"exchange") to LOB-token matching. Root cause: m2 (.xls) uses plan-specific labels (MHP, AHM, SHP, etc.) that all contain "LOB" but not the original prefix tokens. | CLAIMS_UB92: 0 → 28 regions (55 columns each). |
+| B6 | `data_type` emitted verbatim (trailing commas, internal padding preserved). `data_type_raw` removed. | Regional `data_type` values like `VARCHAR2(1 BYTE),` now kept as-is. |
+| Schema | `block_index` (integer ≥ 0) and `source_row` (integer ≥ 1) added as required mapping keys. `propertyNames` pattern for regional labels broadened: `^[A-Z][A-Z0-9]* - LOB ?\(.+\)$`. | Reported in EDH_E2E_JSON_SCHEMA.md. |
 
 ## 3. Document notes by kind
 
 | Kind | Files | Total items | Source (defect list) |
 | --- | --- | --- | --- |
-| `dedupe_dropped` | 2 | 2 entries (14 + 4 rows) | A2 |
-| `space_in_name` | 4 | 4 entries (10 regional items) | B2 |
+| `space_in_name` | 4 | 4 entries (regional items) | B2 |
 | `mixed_target` | 1 | 1 entry (2 distinct values) | B3 |
 | `drag_fill` | 1 | 1 entry (7 rows) | B1 |
+| `region_label_nonstandard` | 1 | 1 entry (28 plan-specific labels) | A3/B8 |
 
-Total: 6 files carry `document_notes` (8 entries).
+Total: 6 files carry `document_notes` (7 entries).
 
 ## 4. Grammar counts (§2/§3 from profiler, counts only)
 
@@ -68,11 +82,11 @@ Total: 6 files carry `document_notes` (8 entries).
 
 Per-cell classification: equality 72, date window 10, join only 3, free text 34.
 
-### §3.3 Mapping edits (371 rows)
+### §3.3 Mapping edits (388 rows)
 
 | Class | Count |
 | --- | --- |
-| Direct mapping | 159 |
+| Direct mapping | 176 |
 | substring slice | 31 |
 | COALESCE-equivalent | 27 |
 | CASE | 24 |
@@ -91,15 +105,15 @@ Per-cell classification: equality 72, date window 10, join only 3, free text 34.
 | mapping_count | 11 |
 | refresh_schedule | 8 |
 | load_type | 6 |
-| regional_table_structures | 10 |
+| regional_table_structures | **11** |
 | summary | 4 |
 | rules | 2 |
 | document_notes | 6 |
 
 ### §2 Row-level key presence
 
-All 13 mapping keys present on all 11 files (uniform).
+All 15 mapping keys present on all 11 files (uniform).
 
 ---
 
-*Generated by Genie Code from profile_edh.py output and jsonschema validation.*
+*Generated by Genie Code from jsonschema validation (Draft202012Validator, 11/11 PASS).*

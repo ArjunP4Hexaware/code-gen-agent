@@ -96,7 +96,7 @@ the schema allows it.
     "mappings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/mapping"}},
     "regional_table_structures": {
       "type": "object",
-      "propertyNames": {"pattern": "^[A-Z]+[0-9]+ - LOB ?\\(.+\\)$"},
+      "propertyNames": {"pattern": "^[A-Z][A-Z0-9]* - LOB ?\\(.+\\)$"},
       "additionalProperties": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/region_item"}}
     },
     "rules": {"type": ["array", "null"], "items": {"type": "string", "minLength": 1}},
@@ -122,7 +122,7 @@ the schema allows it.
       "additionalProperties": false,
       "required": ["source_database", "source_table", "source_field", "target_table",
                    "target_attribute", "data_definition", "selection_criteria",
-                   "source_format", "indexes"],
+                   "source_format", "indexes", "block_index", "source_row"],
       "properties": {
         "source_database": {"$ref": "#/$defs/nullable_text"},
         "source_table": {"$ref": "#/$defs/nullable_text"},
@@ -136,7 +136,9 @@ the schema allows it.
         "field_length": {"$ref": "#/$defs/nullable_text"},
         "target_format": {"$ref": "#/$defs/nullable_text"},
         "indexes": {"$ref": "#/$defs/nullable_text"},
-        "comments": {"$ref": "#/$defs/nullable_text"}
+        "comments": {"$ref": "#/$defs/nullable_text"},
+        "block_index": {"type": "integer", "minimum": 0},
+        "source_row": {"type": "integer", "minimum": 1}
       }
     },
     "region_item": {

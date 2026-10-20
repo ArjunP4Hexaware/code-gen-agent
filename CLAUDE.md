@@ -1,6 +1,6 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-19, `feature/multi-table`, post76)
+## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post76)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
@@ -24,6 +24,41 @@ volume + the repo-token dictionary fallback + self-match + hash-only records + t
 approved / held lane). Callers: `tools/iig_diff.py --export-scrubbed --gate-pairs DIR`,
 `scripts/scrub_check.py --leak-gate PAIRS_DIR path ...`, the container runner
 `scripts/container_harness.py`. Client terms never in the repo. Test: `test_leakgate.py`.
+
+**State after the post75 12-pair run (2026-10-20, nothing queued, docs-only note).**
+- Last run: acfc-results `35b8ef8`, `results/approved/run_20261019T223801Z_6b20a1b/` (gate
+  CLEAN, 0 hits). PASS_WITH_OPEN_INPUTS 01 02 04 11 12 (pair_11 notebooks 5/5); NEEDS_ANSWERS
+  07 (2 `sheets[i]/standard/column`), 10 (10 keys: delimiter / lobs / load_strategy for
+  feeds[1..3] — only feeds[0] was answered); FAIL 05 06 08 09 (contract mismatch); CRASHED 03
+  (`STTM data type invalid … [TemplateGapError]` after its load_strategy answer — a bug).
+  pair_01 score 28.8; its scrubbed export fails the shared gate on 1 column_value hit
+  (SELF_CHECK only pushed). pair_11 time = layer2 35 calls / 528 s (answers don't change it).
+- Fix at home (the BSA pass found values the extractor missed): FRD "Truncate & Load"
+  (pair_03), audit columns as plain mapping rows (pair_08), stage load strategy in an STTM
+  summary sheet (pair_09), empty stage type with the standard type in the same row (08, 10),
+  the Pyx FRD's `<landing container>/inbound` root stated in prose (pair_11).
+- Landing convention (step 3): corpus coarse shapes top 50.0% / 30.8% — under 60%, the
+  overlay's `landing_proposal` left as is (the knob is `landing_proposal`, no
+  `paths.landing_template`).
+- How runs happen now: the cluster's pip goes through Nexus and BLOCKS `pip install -e <clone>`,
+  so the 12-pair run is the CONTAINER runner: clone at the head into `/tmp/cgs/clone`, pairs
+  copied from `/Workspace/Users/<me>/frd_sttm_pairs`, state copied from the volume, then
+  `python <clone>/scripts/container_harness.py --pairs-dir … --state-dir … --out … --work …`
+  with `.venv-d1` (never install anything; it lists missing dists). Push: clone acfc-results,
+  copy the run into `results/approved/<run>/`, `scripts/gate_approve.py`, commit as
+  codegen-harness, push. `codegen-watch` runs still die at the pip step (it swallows it).
+- Volume `d1_dlk.codegen.state`: `environments/d1.yaml`, `overlays/acfc_prx.yaml`,
+  `answers/pair_{1,2,3,4,7,8,9,10,11,12}/answers.yaml` (BSA pass: `source:` per answer,
+  `assumed: true` where no document states it), `leakgate/denylist_local.txt`.
+- Open with others: Raj — `GRANT USE CATALOG ON CATALOG d1_dlk` to the App SP (the App's
+  state copy fails PermissionDenied until then; then re-check the picker: storage_account
+  from environments/d1.yaml). Raj / Sarath — which cluster or external location reads the
+  landing container (the CAQH notebook proof's read fails on D1-FSC-ETL-SC-S-16.4-01: no
+  credential; 0 of 16 visible external locations cover the account).
+- Auth in the container: the OAuth profile was saved as `codegen-oaut`, but the environment
+  rewrites `~/.databrickscfg`; use `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg` (profile
+  `codegen-oaut`, auth_type databricks-cli) for `apps logs` / the App URL. The mlflow Stop
+  hook was removed from `/app/python/source_code/.claude/settings.json`.
 
 **Before post75 (kept for reference) (2026-10-19, after post74).** post74 = the post73 12-pair report's items
 (acfc-results `run_20261019T193332Z_fe61bc4`; `CHANGELOG_ACFC.md` lists all 8), one commit

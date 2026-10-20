@@ -156,7 +156,7 @@ def test_notebook_name_none_when_pattern_unset():
 def test_faq_and_standards_flags_never_fail(config):
     faq = apply_contract_prefills(LoadPatternFaq(), _spec())
     gate = compute_verdict(
-        "feed", [], [], [], False, faq=faq, standards=config.engineering_standards
+        "feed", [], [], False, faq=faq, standards=config.engineering_standards
     )
     assert gate.verdict == "PASS_WITH_FLAGS"
     unanswered = [f for f in gate.flags if f.startswith("faq_unanswered:")]
@@ -169,13 +169,13 @@ def test_faq_and_standards_flags_never_fail(config):
     # does, keeping the honest degrade for configs without the section.
     assert not any(f.startswith("standards_stub:") for f in gate.flags)
     default_gate = compute_verdict(
-        "feed", [], [], [], False, standards=EngineeringStandardsConfig()
+        "feed", [], [], False, standards=EngineeringStandardsConfig()
     )
     assert any(f.startswith("standards_stub:") for f in default_gate.flags)
 
 
 def test_no_faq_no_standards_keeps_old_behavior():
-    gate = compute_verdict("feed", [], [], [], False)
+    gate = compute_verdict("feed", [], [], False)
     assert gate.verdict == "PASS"
     assert gate.flags == []
 

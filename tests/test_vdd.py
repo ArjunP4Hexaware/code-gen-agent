@@ -169,7 +169,7 @@ def test_perturbed_vdd_yields_exactly_the_five_flags_citing_cells(config, tmp_pa
     assert not any(f.startswith("vdd_field_count") for f in flags)
     from codegen.gate.verdict import compute_verdict
 
-    gate = compute_verdict("accumulators", [], [], [check], True, extra_flags=flags)
+    gate = compute_verdict("accumulators", [], [check], True, extra_flags=flags)
     assert gate.verdict == "PASS_WITH_FLAGS" and len([f for f in gate.flags if "vdd_" in f]) == 5
 
 
@@ -191,7 +191,7 @@ def test_fixed_width_frd_with_a_position_less_vdd_fails_the_gate(config, tmp_pat
     assert "fixed-width format" in check.details and "Start Position" in check.details
     from codegen.gate.verdict import compute_verdict
 
-    gate = compute_verdict("accumulators", [], [], [check], True, extra_flags=flags)
+    gate = compute_verdict("accumulators", [], [check], True, extra_flags=flags)
     assert gate.verdict == "FAIL"
     # Three sheets of an unrelated dictionary: every STTM field is missing there
     # — ONE vdd_scope_mismatch flag (first real-row scorecard), not one per field.

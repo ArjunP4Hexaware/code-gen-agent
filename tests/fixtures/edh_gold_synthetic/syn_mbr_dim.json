@@ -1,5 +1,5 @@
 {
-  "$comment": "Stands in for: 10 of 11 real files with regional_table_structures (7 regions each), 9 of 10 whose region column names match the target attributes; mapping_edits 175 Direct / 147 other, every non-Direct class (CASE 25, COALESCE-equivalent 27, substring slice 31, literal NULL 16, system value 4, CAST 1, column reference 21) and free text (22); summary present in 4 of 11; PK marker spellings 2 of 4.",
+  "$comment": "Stands in for: regional_table_structures whose column names match the target attributes (10 of 11 real v2.1 files); two mapping blocks for one target (2 of 11), block 1 feeding a subset of the attributes from another source; every non-Direct mapping_edits class and free text (21 free-text of 146 non-Direct real cells); summary present in 4 of 11; PK marker spellings 2 of 4.",
   "document_name": "SYN_EDH_E2E_Mapping_SYN_MBR_DIM_V1.0",
   "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN_MBR_DIM_V1.0.xlsx",
   "layer": "gold",
@@ -7,7 +7,7 @@
   "target_table": "SYN_MBR_DIM",
   "refresh_schedule": "Daily",
   "load_type": "This is a full SYN load",
-  "mapping_count": 14,
+  "mapping_count": 20,
   "mappings": [
     {
       "source_database": "SYNFCT",
@@ -20,8 +20,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": "Primary key",
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 8
     },
     {
       "source_database": "SYNFCT",
@@ -34,8 +37,11 @@
       "mapping_edits": "SYN_GRP_ID",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": "Primary Key",
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 9
     },
     {
       "source_database": "SYNFCT",
@@ -48,8 +54,11 @@
       "mapping_edits": "SYN_ALT_ID",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 10
     },
     {
       "source_database": "SYNFCT",
@@ -62,8 +71,11 @@
       "mapping_edits": "if SYN_STS <> 'X' THEN SYN_STS ELSE 'U'",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 11
     },
     {
       "source_database": "SYNFCT",
@@ -76,8 +88,11 @@
       "mapping_edits": "if SYN_TYP = 'A' THEN SYN_A ELSE if SYN_TYP = 'B' THEN 'B1' ELSE 'Z'",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 12
     },
     {
       "source_database": "SYNFCT",
@@ -90,8 +105,11 @@
       "mapping_edits": "if SYN_MID_INIT IS an empty string THEN SynBlank() ELSE SYN_MID_INIT",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 13
     },
     {
       "source_database": "SYNFCT",
@@ -104,8 +122,11 @@
       "mapping_edits": "if ISNULL(SYN_SFX) THEN SynBlank() ELSE TRIM(SYN_SFX)[1,10]",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 14
     },
     {
       "source_database": "SYNFCT",
@@ -118,8 +139,11 @@
       "mapping_edits": "SYN_ZIP[1,5]",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 15
     },
     {
       "source_database": "SYNFCT",
@@ -132,8 +156,11 @@
       "mapping_edits": "TRIM(SYN_NM)[1,30]",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 16
     },
     {
       "source_database": "SYNFCT",
@@ -146,8 +173,11 @@
       "mapping_edits": "TRIM(CONVERT('SYN_A', 'SYN_B', s.SYN_TXT))[1,50]",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 17
     },
     {
       "source_database": "SYNFCT",
@@ -160,8 +190,11 @@
       "mapping_edits": "current timestamp",
       "source_format": "DATE",
       "field_length": null,
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 18
     },
     {
       "source_database": "SYNFCT",
@@ -174,8 +207,11 @@
       "mapping_edits": "set to NULL",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": "SYN comment."
+      "comments": "SYN comment.",
+      "block_index": 0,
+      "source_row": 19
     },
     {
       "source_database": "SYNFCT",
@@ -188,8 +224,11 @@
       "mapping_edits": "only for SYN_REGION .",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 20
     },
     {
       "source_database": "SYNFCT",
@@ -202,8 +241,113 @@
       "mapping_edits": "SYN_AGE > 0",
       "source_format": null,
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 21
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_ALT_SRC",
+      "source_field": "SYN_ALT_0",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_MBR_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "target_format": null,
+      "indexes": "Primary key",
+      "comments": null,
+      "block_index": 1,
+      "source_row": 30
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_ALT_SRC",
+      "source_field": "SYN_ALT_1",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_GRP_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "target_format": null,
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 31
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_ALT_SRC",
+      "source_field": "SYN_ALT_2",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_ALT_ID",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "target_format": null,
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 32
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_ALT_SRC",
+      "source_field": "SYN_ALT_3",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_STS_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "target_format": null,
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 33
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_ALT_SRC",
+      "source_field": "SYN_ALT_4",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_TYP_CD",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "target_format": null,
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 34
+    },
+    {
+      "source_database": "SYNFCT",
+      "source_table": "SYN_MBR_ALT_SRC",
+      "source_field": "SYN_ALT_5",
+      "target_table": "SYN_MBR_DIM",
+      "target_attribute": "SYN_MID_INIT",
+      "data_definition": "SYN definition of the attribute.",
+      "selection_criteria": "Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column",
+      "mapping_edits": "Direct mapping",
+      "source_format": "VARCHAR2",
+      "field_length": "20",
+      "target_format": null,
+      "indexes": null,
+      "comments": null,
+      "block_index": 1,
+      "source_row": 35
     }
   ],
   "regional_table_structures": {
@@ -623,5 +767,6 @@
     "bsa": "SYNBSA",
     "completion_date": "2026-01-01 00:00:00"
   },
+  "document_notes": null,
   "extracted_at": "2026-10-20T00:00:00.000000+00:00"
 }

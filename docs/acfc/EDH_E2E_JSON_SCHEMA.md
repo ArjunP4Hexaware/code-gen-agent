@@ -7,8 +7,14 @@
 > Companion to `GOLD_STTM_SHAPE.md` (the Provider Lakehouse STTM workbook, a different
 > document family).
 >
+> **Dialect v2.1** (`extractor_version` 2.1.0, 2026-10-20): every mapping row carries
+> `block_index` and `source_row`, every table file `document_notes`, the manifest
+> `extractor_version`, `source_hashes` and `tables[].document_notes_count` (§1). §1 and §5
+> describe v2.1. §2–§3 keep the v2.0 counts (389 rows); the v2.1 deltas are in §2's
+> opening note.
 > **Real set** (read 2026-10-20 on D1, never copied into the repo): the extractor's output
-> volume folder, `_manifest.json` + 11 table files, 389 mapping rows, 1,963 regional items.
+> volume folder, `_manifest.json` + 11 table files. v2.0: 389 mapping rows, 1,963 regional
+> items. v2.1: 388 mapping rows, 3,503 regional items.
 > Source system Facets, target the Enterprise Data Hub gold layer.
 > **This document carries no source_table, target_table, column name, region label, criteria
 > text or expression from that set** — only header/key names, counts, shapes and placeholder
@@ -34,11 +40,18 @@ the schema allows it.
   "$id": "codegen:edh_e2e/manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["extracted_at", "source_volume", "file_count", "tables"],
+  "required": ["extracted_at", "extractor_version", "source_volume", "source_hashes",
+               "file_count", "tables"],
   "properties": {
     "$comment": {"type": "string"},
     "extracted_at": {"type": "string", "format": "date-time"},
+    "extractor_version": {"type": "string", "pattern": "^2\\.1\\.[0-9]+$"},
     "source_volume": {"type": "string", "pattern": "^/Volumes/[^/]+/[^/]+/[^/]+"},
+    "source_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
     "file_count": {"type": "integer", "minimum": 1},
     "tables": {
       "type": "array",
@@ -46,12 +59,14 @@ the schema allows it.
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target_table", "mapping_count", "refresh_schedule", "json_file"],
+        "required": ["target_table", "mapping_count", "refresh_schedule", "json_file",
+                     "document_notes_count"],
         "properties": {
           "target_table": {"type": "string"},
           "mapping_count": {"type": "integer", "minimum": 1},
           "refresh_schedule": {"type": ["string", "null"]},
-          "json_file": {"type": "string", "pattern": "^[a-z0-9_]+\\.json$"}
+          "json_file": {"type": "string", "pattern": "^[a-z0-9_]+\\.json$"},
+          "document_notes_count": {"type": "integer", "minimum": 0}
         }
       }
     }
@@ -60,7 +75,9 @@ the schema allows it.
     "file_count == len(tables)",
     "every tables[].json_file exists beside the manifest",
     "tables[].json_file == slug(tables[].target_table) + '.json' (lower-case, non-alphanumerics -> '_')",
-    "tables[].target_table / mapping_count / refresh_schedule equal the table file's top-level values"
+    "tables[].target_table / mapping_count / refresh_schedule equal the table file's top-level values",
+    "tables[].document_notes_count == len(document_notes or [])",
+    "source_hashes holds one sha256 per source workbook (keys = workbook file names)"
   ]
 }
 ```
@@ -75,7 +92,7 @@ the schema allows it.
   "additionalProperties": false,
   "required": ["document_name", "source_file", "layer", "destination_catalog", "target_table",
                "refresh_schedule", "load_type", "mapping_count", "mappings",
-               "regional_table_structures", "rules", "summary", "extracted_at"],
+               "regional_table_structures", "rules", "summary", "document_notes", "extracted_at"],
   "properties": {
     "$comment": {"type": "string"},
     "document_name": {"type": "string", "minLength": 1},
@@ -111,6 +128,19 @@ the schema allows it.
                    "resource_name": {"type": "string"},
                    "bsa": {"type": "string"},
                    "completion_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"}}}]
+    },
+    "document_notes": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "where", "detail"],
+        "properties": {
+          "kind": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "where": {"type": "string", "minLength": 1},
+          "detail": {"type": "string"}
+        }
+      }
     },
     "extracted_at": {"type": "string", "format": "date-time"}
   },
@@ -154,7 +184,8 @@ the schema allows it.
   "x-codegen-checks": [
     "mapping_count == len(mappings)",
     "every mappings[].target_table == target_table (one target per file)",
-    "mappings[].target_attribute unique within the file",
+    "(block_index, target_attribute) unique within the file",
+    "source_row strictly increasing within a block_index",
     "every regional region's column_name set == the set of mappings[].target_attribute (else a region-drift flag, not a failure)",
     "region keys identical across the manifest's files (same label, same code list)",
     "source_format VARCHAR<n> with n > 2 is a drag-fill suspect (flag, value kept)",
@@ -164,14 +195,37 @@ the schema allows it.
 }
 ```
 
-Validated with `jsonschema` 4.26 (`Draft202012Validator`, format checker on). Real set: both
-manifest and 8 of 11 table files valid. The 3 invalid files fail only on the identifier rule
-for `target_table` / `target_attribute`, i.e. defects 1, 3 and 8 (§4). Synthetic set: the
-manifest and (a), (b), (c) valid; (d) invalid on the same rules.
+Validated with `jsonschema` 4.26 (`Draft202012Validator`, format checker on).
+- **Real v2.1:** the manifest and **11 of 11** table files are valid. This needed the
+  region-key pattern widened to `[A-Z][A-Z0-9]*`, because v2.1 adds 26 non-standard region
+  labels.
+- **v2.0 set:** fails the v2.1 schema by construction (no `block_index` / `source_row` /
+  `document_notes`).
+- **Synthetic set:** the manifest and (a), (b), (c) are valid; (d) is invalid on the
+  identifier rules (defects 1, 3, 8).
+
+Two keys are present on every v2.1 row but stay out of `required`. `field_length` and
+`target_format` are present on all 388 rows, yet `target_format` is null on all of them.
+The one file whose column holds a type now puts that type in `field_length`
+(`EDH_E2E_EXTRACTION_DEFECTS.md` A5).
 
 ---
 
 ## 2. Fields, with counts over the real set
+
+> **v2.0 counts** (389 rows). The v2.1 deltas:
+> - **Rows:** 388; one row was dropped, and the second block of manifest file m10 was
+>   retargeted (see the defects doc, B3).
+> - **Keys:** every row carries the same 15 keys; `target_format` is null on all of them;
+>   `field_length` is non-null on 332 rows.
+> - **Target names:** every top-level and mapping `target_table` is an identifier, with one
+>   target per file; no target attribute has a space.
+> - **Regions:** 11 of 11 files have regions (m2 has 28); 26 region keys are non-standard;
+>   36 distinct keys.
+> - **`document_notes`:** a list in 5 files, null in 6; kinds `space_in_name` 4, `drag_fill`
+>   1, `region_label_nonstandard` 1.
+> - **Free text:** the filter grammar runs on 116 cells and covers 82 (70.7 %, free text 34);
+>   the edit grammar runs on 146 non-Direct cells and covers 125 (85.6 %, free text 21).
 
 "Key" = files whose JSON carries the key; "non-null" = files (top level) or rows (mappings,
 of 389) where the value is non-null and non-empty.
@@ -346,10 +400,13 @@ The reader translates it; it does not pass it through.
 
 ## 4. Validator checks (defects in the real set)
 
+Counts are v2.0. Check 2 (`target_attribute` unique per file) is gone: v2.1 states
+`block_index`, and the check is now `(block_index, target_attribute)` unique (0 of 11 v2.1
+files fail; synthetic (d) does).
+
 | # | Check | Real files failing | Synthetic file built to fail |
 | --- | --- | --- | --- |
 | 1 | top-level `target_table` is an identifier (and the manifest's `json_file` is not slugged from prose) | 2 of 11 | (d) |
-| 2 | `target_attribute` unique per file | 2 of 11 (one file holds all 49 attributes twice, one repeats 3) | (d) |
 | 3 | one `mappings[].target_table` per file, equal to the top-level value, an identifier | 2 of 11 (2–3 distinct values, some prose) | (d) |
 | 4 | region keys identical across files | 1 of 10 (one code spelled without its leading zero) | (d) |
 | 5 | `source_format` not drag-filled (`VARCHAR<n>`, n > 2) | 7 rows | (d) |
@@ -363,56 +420,66 @@ against the 11 source workbooks: `EDH_E2E_EXTRACTION_DEFECTS.md`.
 
 ---
 
-## 5. Synthetic vs real
+## 5. Synthetic vs real (v2.1)
 
-`tests/fixtures/edh_gold_synthetic/`: `_manifest.json` + 4 files. (a) `syn_mbr_dim.json` is
-the table with regions whose column names match the target. (b) `syn_plan_ref.json` has no
-regions and no `mapping_edits` key. (c) `syn_elig_fact.json` mixes the selection-criteria
-shapes. (d) `syn_memo_…json` carries defects 1–6 and 8. Each file's `$comment` names the real-set
-counts it stands in for. The same profiler ran on both sets:
+`tests/fixtures/edh_gold_synthetic/`: `_manifest.json` + 4 files, rebuilt by
+`scripts/gold/build_edh_synthetic.py` with the v2.1 keys.
+- (a) `syn_mbr_dim.json`: regions whose column names match the target, and **two blocks**
+  (block 1 feeds 6 of the 14 attributes from another source table).
+- (b) `syn_plan_ref.json`: no regions, and `mapping_edits` null on every row.
+- (c) `syn_elig_fact.json`: the selection-criteria shapes, non-standard region labels, and
+  two document notes.
+- (d) `syn_memo_…json`: the v2.0 defects the validator must still fail on, plus a
+  `drag_fill` note.
 
-| Shape | Real (11 files, 389 rows) | Synthetic (4 files, 46 rows) |
+Each file's `$comment` names the real-set counts it stands in for. The same profiler ran on
+both sets:
+
+| Shape | Real v2.1 (11 files, 388 rows) | Synthetic (4 files, 52 rows) |
 | --- | --- | --- |
-| top-level keys present (all 13) | 11 / 11 each | 4 / 4 each |
+| top-level keys present (all 14) | 11 / 11 each | 4 / 4 each |
+| `document_notes` non-null / null | 5 / 6 | 2 / 2 |
+| note kinds `space_in_name` / `drag_fill` / `region_label_nonstandard` | 4 / 1 / 1 | 1 / 1 / 1 |
 | `refresh_schedule` non-null | 8 | 2 |
 | `load_type` non-null | 6 | 2 |
-| `regional_table_structures` non-empty | 10 (7 regions each) | 3 (7 regions each) |
-| `rules` non-null | 2 | 1 |
-| `summary` non-null | 4 | 1 |
-| distinct region keys | 8 | 8 |
-| files whose region columns match targets | 9 | 3 |
-| files whose regions differ | 5 | 1 |
+| `regional_table_structures` non-empty | 11 | 3 |
+| files with exactly 7 regions | 10 | 2 |
+| non-standard region keys | 26 | 2 |
+| distinct region keys | 36 | 10 |
+| files whose region columns match targets | 10 | 3 |
+| files whose regions differ | 6 | 1 |
 | region `data_type` sentinel / null | 10 | 4 |
-| row key `mapping_edits` (files) | 10 | 3 |
-| row key `field_length` (files) | 10 | 3 |
-| row key `comments` (files) | 10 | 3 |
-| row key `target_format` (files) | 1 | 1 |
-| rows: `source_table` non-null | 354 / 389 | 45 / 46 |
-| rows: `source_field` non-null | 381 | 45 |
-| rows: `source_format` non-null | 386 | 45 |
-| rows: `data_definition` non-null | 270 | 38 |
-| rows: `indexes` non-null | 31 | 8 |
-| rows: `comments` non-null | 10 | 1 |
-| defect 1 / 2 / 3 files | 2 / 2 / 2 | 1 / 1 / 1 |
-| drag-filled `VARCHAR<n>` rows | 7 | 3 |
-| files with a non-identifier `target_attribute` | 1 | 1 |
+| region `data_type` trailing comma / inner padding | 3,282 / 98 | 233 / 48 |
 | region `column_name` with spaces (items) | 10 | 1 |
-| J1 / J1 filter-first / J2 / J3 / J4 | 47 / 13 / 1 / 1 / 0 | 4 / 1 / 1 / 1 / 0 |
+| row keys (15, every row) | 11 / 11 files | 4 / 4 files |
+| files with > 1 block / blocks in all | 2 / 13 | 1 / 5 |
+| rows without `block_index` / `source_row` | 0 / 0 | 0 / 0 |
+| rows: `source_table` non-null | 353 / 388 | 51 / 52 |
+| rows: `field_length` non-null | 332 | 51 |
+| rows: `target_format` non-null | 0 | 0 |
+| rows: `indexes` non-null / not a PK spelling | 30 / 1 | 9 / 2 |
+| rows: `data_definition` non-null | 269 | 44 |
+| rows: `comments` non-null | 9 | 1 |
+| defects 1 / (block, attribute) dup / 3 / 8 (files) | 0 / 0 / 0 / 0 | 1 / 1 / 1 / 1 |
+| drag-filled `VARCHAR<n>` rows | 7 | 3 |
+| J1 / J1 filter-first / J2 / J3 / J4 | 47 / 13 / 1 / 1 / 0 | 10 / 1 / 1 / 1 / 0 |
 | J1 two joined tables / second join column | 2 / 7 | 1 / 1 |
-| join cells free text | 0 | 0 |
-| filter cells (after join-only) | 117 | 17 |
+| filter cells (after join-only) | 116 | 17 |
 | F1 / F2 / F3 / F4 / F5 (multi-label) | 73 / 17 / 7 / 2 / 1 | 8 / 2 / 1 / 1 / 1 |
-| filter per cell: equality / window / free text | 72 / 10 / 35 | 8 / 3 / 6 |
-| join-only cells | 3 | 2 |
-| `mapping_edits` Direct / other | 175 / 147 | 22 / 15 |
+| filter per cell: equality / window / free text | 72 / 10 / 34 | 8 / 3 / 6 |
+| join-only cells | 3 | 8 |
+| `mapping_edits` Direct / other | 175 / 146 | 28 / 15 |
 | literal NULL / system value / CAST | 16 / 4 / 1 | 2 / 1 / 1 |
 | slice / COALESCE / CASE | 31 / 27 / 25 | 2 / 3 / 2 |
 | column ref (= source) / (other) | 18 / 3 | 1 / 1 |
 | `:` concat inside a cell | 3 | 1 |
-| edit free text | 22 | 2 |
+| edit free text | 21 | 2 |
 
-Every shape counted in the real set has at least one synthetic instance. J4 (table only) is 0
-in both. The fixture adds no shape the real set lacks, except the `$comment` key.
+Every shape counted in the real v2.1 set has at least one synthetic instance. The fixture
+adds three shapes the real v2.1 set no longer has:
+- (b)'s empty regions, which the reader must handle;
+- (d)'s v2.0 defects, which the validator must fail on;
+- the `$comment` key.
 
 ---
 

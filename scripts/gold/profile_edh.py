@@ -23,6 +23,7 @@ LIT = r"(?:'[^']*'|‘[^’]*’|’[^’]*’|\"[^\"]*\"|“[^”]*”|\d+(?:\.
 CONNECTIVES = {"and", "or", "&", "where", "column", "columns", "table", "tables", "the", ",", "."}
 PK_SPELLINGS = {"Primary key", "Primary Key", "PRIMARY KEY", "PK"}
 SENTINELS = {"NOT AVAILABLE", "NOT SUPPLIED", "COLUMN NOT FOUND", "NULL"}
+STANDARD_REGION_KEY = re.compile(r"^[A-Z]+[0-9]+ - LOB ?\(")
 
 # §3.1 join hints
 J_USING = re.compile(
@@ -153,6 +154,8 @@ def profile(directory: str | Path) -> dict:
             "edits",
             "regions",
             "defects",
+            "blocks",
+            "document_notes",
         )
     }
     examples: dict[str, str] = {}
@@ -173,7 +176,21 @@ def profile(directory: str | Path) -> dict:
         c["defects"]["top target_table not an identifier"] += not _is_identifier(
             (doc.get("target_table") or "").strip()
         )
-        c["defects"]["duplicated target_attribute"] += len(attrs) != len(set(attrs))
+        keyed = [(x.get("block_index"), x.get("target_attribute")) for x in mappings]
+        c["defects"]["duplicated (block_index, target_attribute)"] += len(keyed) != len(set(keyed))
+        blocks = {x.get("block_index") for x in mappings}
+        c["blocks"]["files with >1 block"] += len(blocks) > 1
+        c["blocks"]["blocks"] += len(blocks)
+        c["blocks"]["rows without block_index"] += sum(
+            not isinstance(x.get("block_index"), int) for x in mappings
+        )
+        c["blocks"]["rows without source_row"] += sum(
+            not isinstance(x.get("source_row"), int) for x in mappings
+        )
+        notes = doc.get("document_notes")
+        c["document_notes"]["files with document_notes null"] += notes is None
+        for note in notes or []:
+            c["document_notes"]["kind " + str(note.get("kind"))] += 1
         c["defects"][">1 mappings[].target_table"] += len(targets) > 1
         c["defects"]["target_attribute not an identifier"] += any(
             not _is_identifier(a) for a in attrs
@@ -217,6 +234,7 @@ def _profile_regions(regions: dict, mappings: list, counter: collections.Counter
     if not regions:
         return
     counter["files with regions"] += 1
+    counter["non-standard region keys"] += sum(not STANDARD_REGION_KEY.match(k) for k in regions)
     counter["files with 7 regions"] += len(regions) == 7
     shapes = {
         tuple((it.get("column_name"), it.get("data_type")) for it in v) for v in regions.values()

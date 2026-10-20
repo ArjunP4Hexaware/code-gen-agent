@@ -1,5 +1,5 @@
 {
-  "$comment": "Stands in for defects 1-3 (the validator must fail): a prose top-level target_table (2 of 11 real files) from which json_file is slugged; every target_attribute twice (2 of 11 real files: one with all 49 twice, one with 3); 3 distinct mappings[].target_table, one not an identifier (2 of 11 real files); a target_attribute with a space (1 of 11); the variant region key spelling (1 of 11); non-PK indexes cells (2 of 31); drag-filled source_format VARCHAR<n> with n > 2 (7 of 389 real rows).",
+  "$comment": "Stands in for the v2.0 defects 1-3 the validator must still fail on (0 of 11 real v2.1 files carry them): a prose top-level target_table from which json_file is slugged; a target_attribute twice in one block; 3 distinct mappings[].target_table, one not an identifier; a target_attribute with a space. Also the variant region key spelling, non-PK indexes cells (1 real rows), drag-filled source_format VARCHAR<n> with n > 2 (7 real rows) with its drag_fill document note.",
   "document_name": "SYN_EDH_E2E_Mapping_SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping_V1.0",
   "source_file": "SYN Mappings/SYN_EDH_E2E_Mapping_SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping_V1.0.xlsx",
   "layer": "gold",
@@ -20,8 +20,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": "Primary key",
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 3
     },
     {
       "source_database": "SYNFCT",
@@ -34,8 +37,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 4
     },
     {
       "source_database": "SYNFCT",
@@ -48,8 +54,11 @@
       "mapping_edits": null,
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 5
     },
     {
       "source_database": "SYNFCT",
@@ -62,8 +71,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": "Unique Index",
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 6
     },
     {
       "source_database": "SYNFCT",
@@ -76,8 +88,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": "Not NULL",
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 7
     },
     {
       "source_database": "SYNFCT",
@@ -90,8 +105,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR3",
       "field_length": "20",
+      "target_format": null,
       "indexes": "Primary key",
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 11
     },
     {
       "source_database": "SYNFCT",
@@ -104,8 +122,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR4",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 12
     },
     {
       "source_database": "SYNFCT",
@@ -118,8 +139,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR5",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 13
     },
     {
       "source_database": "SYNFCT",
@@ -132,8 +156,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 14
     },
     {
       "source_database": "SYNFCT",
@@ -146,8 +173,11 @@
       "mapping_edits": "Direct mapping",
       "source_format": "VARCHAR2",
       "field_length": "20",
+      "target_format": null,
       "indexes": null,
-      "comments": null
+      "comments": null,
+      "block_index": 0,
+      "source_row": 15
     }
   ],
   "regional_table_structures": {
@@ -280,5 +310,12 @@
   },
   "rules": null,
   "summary": null,
+  "document_notes": [
+    {
+      "kind": "drag_fill",
+      "where": "sheet 1, column I [6, 7, 8]",
+      "detail": "3 cells"
+    }
+  ],
   "extracted_at": "2026-10-20T00:00:00.000000+00:00"
 }

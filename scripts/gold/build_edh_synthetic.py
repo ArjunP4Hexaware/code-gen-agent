@@ -3,12 +3,15 @@
 
     python scripts/gold/build_edh_synthetic.py [OUT_DIR]
 
-Every name is SYN_-prefixed and every value fabricated; only the structure and cardinalities
-follow the real set (docs/acfc/EDH_E2E_JSON_SCHEMA.md §5). Each file's ``$comment`` names the
+Dialect v2.1 (extractor_version 2.1.0): every mapping row carries the same 15 keys, among them
+``block_index`` and ``source_row``; every table file carries ``document_notes``. Every name is
+SYN_-prefixed and every value fabricated; only the structure and cardinalities follow the real
+set (docs/acfc/EDH_E2E_JSON_SCHEMA.md §5). Each file's ``$comment`` names the
 real-set counts it stands in for. Deterministic: tests/test_gold_profiler.py rebuilds the set
 and compares it byte for byte with the tracked files.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -17,6 +20,7 @@ from pathlib import Path
 
 DEFAULT_OUT = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "edh_gold_synthetic"
 STAMP = "2026-10-20T00:00:00.000000+00:00"
+EXTRACTOR_VERSION = "2.1.0"
 
 REGION_SHAPES = [  # (label, code count, space before paren) — the real set's seven shapes
     ("SYNR1", 9, True),
@@ -80,9 +84,12 @@ def row(
     length="20",
     definition="SYN definition of the attribute.",
     comments=None,
-    keys=("mapping_edits", "field_length", "comments"),
+    block=0,
+    source_row=1,
+    target_format=None,
 ):
-    r = {
+    """One v2.1 mapping row: the fixed 15-key set, a missing value is null."""
+    return {
         "source_database": "SYNFCT",
         "source_table": src_tbl,
         "source_field": src_fld,
@@ -90,18 +97,15 @@ def row(
         "target_attribute": tgt_attr,
         "data_definition": definition,
         "selection_criteria": sel,
+        "mapping_edits": edits,
+        "source_format": fmt,
+        "field_length": length,
+        "target_format": target_format,
+        "indexes": idx,
+        "comments": comments,
+        "block_index": block,
+        "source_row": source_row,
     }
-    if "mapping_edits" in keys:
-        r["mapping_edits"] = edits
-    r["source_format"] = fmt
-    if "field_length" in keys:
-        r["field_length"] = length
-    if "target_format" in keys:
-        r["target_format"] = "VARCHAR2(20)"
-    r["indexes"] = idx
-    if "comments" in keys:
-        r["comments"] = comments
-    return r
 
 
 def table(
@@ -114,6 +118,7 @@ def table(
     load="This is a full SYN load",
     rules=None,
     summary=None,
+    notes=None,
 ):
     doc = f"SYN_EDH_E2E_Mapping_{target}_V1.0"
     return {
@@ -130,6 +135,7 @@ def table(
         "regional_table_structures": regional,
         "rules": rules,
         "summary": summary,
+        "document_notes": notes,
         "extracted_at": STAMP,
     }
 
@@ -172,7 +178,10 @@ a_edits = [
     ("SYN_AREA", "only for SYN_REGION .", None),
     ("SYN_AGE", "SYN_AGE > 0", None),
 ]
-a_rows = [row("SYN_MBR_SRC", s, A, c, edits=e, idx=i) for (s, e, i), c in zip(a_edits, a_cols, strict=True)]
+a_rows = [
+    row("SYN_MBR_SRC", s, A, c, edits=e, idx=i, source_row=8 + k)
+    for k, ((s, e, i), c) in enumerate(zip(a_edits, a_cols, strict=True))
+]
 a_rows[0]["selection_criteria"] = "SYN_STS_CD = 'A'"
 a_rows[1]["selection_criteria"] = "SYN_STS_CD = 'A'"
 a_rows[10]["source_format"] = "DATE"
@@ -180,6 +189,13 @@ a_rows[10]["field_length"] = None
 a_rows[11]["comments"] = "SYN comment."
 a_rows[12]["source_field"] = None
 a_rows[13]["source_format"] = None
+# the second block: the same target fed from another source table (6 of the 14 attributes)
+a_rows += [
+    row("SYN_MBR_ALT_SRC", f"SYN_ALT_{k}", A, a_cols[k], block=1, source_row=30 + k,
+        sel="Pull FROM SYN_MBR_ALT_SRC AND INNER JOIN with SYN_GRP_SRC table using SYN_GRP_ID column")
+    for k in range(6)
+]
+a_rows[14]["indexes"] = "Primary key"
 A_DOC = table(
     A,
     a_rows,
@@ -193,11 +209,11 @@ A_DOC = table(
         "completion_date": "2026-01-01 00:00:00",
     },
     comment=(
-        "Stands in for: 10 of 11 real files with regional_table_structures (7 regions each), "
-        "9 of 10 whose region column names match the target attributes; mapping_edits "
-        "175 Direct / 147 other, every non-Direct class (CASE 25, COALESCE-equivalent 27, "
-        "substring slice 31, literal NULL 16, system value 4, CAST 1, column reference 21) "
-        "and free text (22); summary present in 4 of 11; PK marker spellings 2 of 4."
+        "Stands in for: regional_table_structures whose column names match the target "
+        "attributes (10 of 11 real v2.1 files); two mapping blocks for one target "
+        "(2 of 11), block 1 feeding a subset of the attributes from another source; "
+        "every non-Direct mapping_edits class and free text (21 free-text of 146 non-Direct real cells); summary present in 4 of "
+        "11; PK marker spellings 2 of 4."
     ),
 )
 
@@ -209,8 +225,9 @@ b_rows = [
         f"SYN_P{k}",
         B,
         f"SYN_PLAN_ATTR_{k}",
-        keys=("field_length", "comments"),
+        edits=None,
         definition=None,
+        source_row=5 + k,
         idx=("PRIMARY KEY" if k == 1 else None),
     )
     for k in range(1, 9)
@@ -227,10 +244,10 @@ B_DOC = table(
     load=None,
     refresh="Weekly",
     comment=(
-        "Stands in for: the 1 of 11 real files with no mapping_edits key and empty "
-        "regional_table_structures; load_type null (5 of 11); data_definition "
-        "null (119 of 389 rows); free-text selection_criteria (35 of 117 filter "
-        "cells); rows without a source table (35 of 389)."
+        "Stands in for: mapping_edits null on every row and regional_table_structures {} "
+        "(0 of 11 real v2.1 files - kept so the reader has the empty case); load_type null "
+        "(5 of 11); data_definition null; free-text selection_criteria; rows without a "
+        "source table; document_notes null (6 of 11)."
     ),
 )
 
@@ -260,8 +277,9 @@ c_rows = [
         C,
         col,
         sel=s,
-        keys=("mapping_edits", "target_format"),
+        length="VARCHAR2(20)",  # a type in field_length, as the one real file carries it
         idx=("PK" if k == 1 else None),
+        source_row=3 + k,
     )
     for k, (s, col) in enumerate(zip(c_sel, c_cols, strict=True), start=1)
 ]
@@ -269,6 +287,8 @@ c_rows[0]["mapping_edits"] = "if SYN_A IS NULL THEN SYN_B[1,4] ELSE SYN_C : '-' 
 c_rows[1]["mapping_edits"] = "set NULL"
 c_regions = regions(c_cols, differ_in=3, sentinels=True)
 list(c_regions.values())[5][2]["column_name"] = "SYN ELIG ATTR"  # a region column name with a space
+for extra in ("SYNREG - LOB(S0001, S0002)", "SYNREGX - LOB (S0003)"):  # non-standard labels
+    c_regions[extra] = [{"column_name": col, "data_type": "VARCHAR2(20 BYTE),"} for col in c_cols]
 C_DOC = table(
     C,
     c_rows,
@@ -278,14 +298,20 @@ C_DOC = table(
         "SYN rule: the SYN_ELIG_SRC & SYN_GRP_SRC feed the table.",
         "SYN rule: SYN_PLAN_SRC loads the table.",
     ],
+    notes=[
+        {"kind": "space_in_name", "where": "sheet 2, column B", "detail": "1 cell"},
+        {"kind": "region_label_nonstandard", "where": "sheet 2, row 1", "detail": "2 labels (no region number)"},
+    ],
     comment=(
         "Stands in for: join grammar J1 (47 + 13 filter-first), J2 (1), J3 "
         "alias-qualified equalities with INNER + OUTER `*=` (1); two joined tables "
         "(2), a second join column (7); filters F1 equality (73), F2 IN list (17), "
-        "F3 / F4 / F5 date windows (7 / 2 / 1), free text; 'target_format' in "
-        "place of field_length (1 of 11) and no comments key (1 of 11); regions "
-        "that differ (5 of 10); region data_type sentinels (10 of 1963 items); "
-        "rules present (2 of 11); refresh_schedule null (3 of 11); a region column name with spaces (10 items in 4 of 10 real files)."
+        "F3 / F4 / F5 date windows (7 / 2 / 1), free text; field_length holding a type, "
+        "not a length (11 rows of 1 real file; target_format null on all 388 real rows); regions that differ (6 of 11); region data_type "
+        "sentinels (10 real items); non-standard region labels (26 real keys); rules "
+        "present (2 of 11); refresh_schedule null (3 of 11); a region column name with "
+        "spaces (10 real items); document_notes kinds space_in_name and "
+        "region_label_nonstandard."
     ),
 )
 
@@ -293,7 +319,7 @@ C_DOC = table(
 D_PROSE = "SYN memo: SYN_VIEW pulls SYN_SCHEMA SYN_CODE_SRC entries per SYN grouping"
 d_attrs = ["SYN_CD", "SYN_CD_DESC", "SYN_EFF_DT", "SYN_TERM_DT", "SYN LOB"]
 d_rows = []
-for _rep in range(2):
+for rep in range(2):  # both copies in block 0: the (block_index, target_attribute) check fails
     for k, att in enumerate(d_attrs):
         tgt = (
             "SYN_CODE_DIM"
@@ -301,7 +327,8 @@ for _rep in range(2):
             else ("SYN_CODE_VIEW" if k == 3 else "SYN code view (all lines)")
         )
         d_rows.append(
-            row("SYN_CODE_SRC", f"SYN_C{k}", tgt, att, idx=("Primary key" if k == 0 else None))
+            row("SYN_CODE_SRC", f"SYN_C{k}", tgt, att, idx=("Primary key" if k == 0 else None),
+                source_row=3 + 8 * rep + k)
         )
 d_rows[4]["indexes"] = "Not NULL"
 d_rows[3]["indexes"] = "Unique Index"
@@ -314,12 +341,14 @@ D_DOC = table(
     regional=regions(d_attrs[:4], variant=True),
     load=None,
     refresh=None,
+    notes=[{"kind": "drag_fill", "where": "sheet 1, column I [6, 7, 8]", "detail": "3 cells"}],
     comment=(
-        "Stands in for defects 1-3 (the validator must fail): a prose top-level "
-        "target_table (2 of 11 real files) from which json_file is slugged; every "
-        "target_attribute twice (2 of 11 real files: one with all 49 twice, one with 3); 3 distinct "
-        "mappings[].target_table, one not an identifier (2 of 11 real files); a target_attribute with a space (1 of 11); the "
-        "variant region key spelling (1 of 11); non-PK indexes cells (2 of 31); drag-filled source_format VARCHAR<n> with n > 2 (7 of 389 real rows)."
+        "Stands in for the v2.0 defects 1-3 the validator must still fail on (0 of 11 real "
+        "v2.1 files carry them): a prose top-level target_table from which json_file is "
+        "slugged; a target_attribute twice in one block; 3 distinct mappings[].target_table, "
+        "one not an identifier; a target_attribute with a space. Also the variant region key "
+        "spelling, non-PK indexes cells (1 real rows), drag-filled source_format "
+        "VARCHAR<n> with n > 2 (7 real rows) with its drag_fill document note."
     ),
 )
 
@@ -329,9 +358,14 @@ def build(out=DEFAULT_OUT):
     os.makedirs(out, exist_ok=True)
     docs = [A_DOC, B_DOC, C_DOC, D_DOC]
     manifest = {
-        "$comment": "Synthetic manifest: same keys as the real _manifest.json (11 tables there, 4 here).",
+        "$comment": "Synthetic manifest: same keys as the real v2.1 _manifest.json (11 tables there, 4 here).",
         "extracted_at": STAMP,
+        "extractor_version": EXTRACTOR_VERSION,
         "source_volume": "/Volumes/syn_cat/syn_schema/syn_inputs",
+        "source_hashes": {
+            d["source_file"].split("/")[-1]: hashlib.sha256(d["source_file"].encode()).hexdigest()
+            for d in docs
+        },
         "file_count": len(docs),
         "tables": [],
     }
@@ -346,6 +380,7 @@ def build(out=DEFAULT_OUT):
                 "mapping_count": d["mapping_count"],
                 "refresh_schedule": d["refresh_schedule"],
                 "json_file": name,
+                "document_notes_count": len(d["document_notes"] or []),
             }
         )
     with open(os.path.join(out, "_manifest.json"), "w", encoding="utf-8", newline="\n") as fh:

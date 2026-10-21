@@ -118,3 +118,107 @@ describe("the Generate page shows every API error", () => {
     expect(modal.textContent).toContain("the workspace refused the read");
   });
 });
+
+/* post80: a run that stopped at blocking questions sends the person to them (no
+   "View results"), and the layout dialog's Continue works with nothing picked. */
+describe("blocking questions and the layout dialog", () => {
+  function withStatus(extra: Record<string, unknown>) {
+    ROUTES["GET /api/demo/status"] = () => json(200, { ...STATUS, ...extra });
+  }
+  afterEach(() => { ROUTES["GET /api/demo/status"] = () => json(200, STATUS); });
+
+  it("a run with a blocking question shows the redirect, not View results", async () => {
+    withStatus({
+      outcome: "NEEDS_ANSWERS",
+      inputs_needed: [{ key: "run.environment.storage_account", question: "the account",
+                        feed: "", scope: "run", required: true }],
+    });
+    await renderPage();
+    expect(host.textContent).toContain("Complete the blocking questions first.");
+    expect(host.textContent).toContain("stopped at blocking questions");
+    expect(host.textContent).not.toContain("View results");
+    const target = host.querySelector<HTMLElement>("#blocking-questions")!;
+    target.scrollIntoView = vi.fn();
+    await act(async () => { button("Go to the blocking questions").click(); });
+    expect(target.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("a run without one still offers View results", async () => {
+    withStatus({ outcome: "PASS_WITH_OPEN_INPUTS", last_run_label: "demo_x" });
+    await renderPage();
+    expect(host.textContent).toContain("View results");
+    expect(host.textContent).not.toContain("Complete the blocking questions first.");
+  });
+
+  it("Continue is enabled with nothing picked and proceeds like Proceed with unresolved",
+     async () => {
+    const sent: unknown[] = [];
+    ROUTES["POST /api/demo/layout-answers"] = () => json(200, { ...STATUS, state: "done" });
+    withStatus({
+      state: "needs_layout",
+      layout_questions: [{ document: "sttm", key: "sheets[0]/stage/table", sheet: "sheets[0]",
+                           layer: "stage", role: "table", reason: "no header names it",
+                           header: ["A", "B"], candidates: [{ col: 1, header: "A" }] }],
+    });
+    await renderPage();
+    const cont = button("Continue") as HTMLButtonElement;
+    expect(cont.disabled).toBe(false);
+    vi.mocked(fetch).mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const key = `${(init?.method ?? "GET").toUpperCase()} ${String(url).split("?")[0]}`;
+      if (key === "POST /api/demo/layout-answers") sent.push(JSON.parse(String(init?.body)));
+      return (ROUTES[key] ?? (() => json(404, { detail: "not found" })))();
+    });
+    await act(async () => { cont.click(); });
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { proceed: boolean }).proceed).toBe(true);
+    delete ROUTES["POST /api/demo/layout-answers"];
+  });
+});
+
+describe("blocking lines the page lists nowhere else", () => {
+  afterEach(() => { ROUTES["GET /api/demo/status"] = () => json(200, STATUS); });
+
+  it("the alert names them, and still offers the jump for the listed ones", async () => {
+    ROUTES["GET /api/demo/status"] = () => json(200, {
+      ...STATUS, outcome: "NEEDS_ANSWERS",
+      blocking: [{ key: "feeds[0].src_adls_path", scope: "feed", feed: "zq_a" },
+                 { key: "run.environment.storage_account", scope: "run" }],
+      inputs_needed: [{ key: "run.environment.storage_account", question: "the account",
+                        feed: "", scope: "run", required: true }],
+    });
+    await renderPage();
+    const note = host.querySelector('[aria-label="blocking not answerable here"]')!;
+    expect(note.textContent).toContain("feeds[0].src_adls_path");
+    expect(note.textContent).not.toContain("storage_account");
+    expect(host.textContent).toContain("Go to the blocking questions");
+    expect(host.textContent).not.toContain("View results");
+  });
+});
+
+describe("the pause before generating (post80)", () => {
+  afterEach(() => { ROUTES["GET /api/demo/status"] = () => json(200, STATUS); });
+
+  it("asks the run's blocking questions in the dialog, environment first", async () => {
+    ROUTES["GET /api/demo/status"] = () => json(200, {
+      ...STATUS, state: "needs_layout", pause_kind: "before_generate",
+      layout_questions: [
+        { document: "run", key: "run.environment.storage_account", sheet: null, layer: null,
+          role: "run.environment.storage_account", kind: "text", reason: "required",
+          header: [], candidates: [], title: "storage_account of this run's environment" },
+        { document: "frd", key: "feeds[0].src_adls_path", sheet: null, layer: null,
+          role: "feeds[0].src_adls_path", kind: "text", reason: "no document states it",
+          header: [], candidates: [{ value: "/inbound/syn/", source: "convention" }],
+          suggested: 0, title: "the landing (inbound) path of zq_a" },
+      ],
+    });
+    await renderPage();
+    expect(host.textContent).toContain("Paused before generating");
+    expect(host.textContent).not.toContain("the layout needs a human decision");
+    const text = host.textContent ?? "";
+    expect(text.indexOf("This run (environment)")).toBeLessThan(text.indexOf("FRD document"));
+    expect(host.textContent).not.toContain("Re-resolve layout");
+    expect(host.textContent).not.toContain("Ask the model for advice");
+    expect((button("Continue") as HTMLButtonElement).disabled).toBe(false);
+  });
+});

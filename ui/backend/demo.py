@@ -154,6 +154,15 @@ def needs_answer_item(question: dict, *, feed_name: str | None = None,
             "reason": reason or question.get("reason") or "", "question": question}
 
 
+def _unstated_question(unstated) -> dict:
+    """post57: a value no document states, as a typed question (gaps:)."""
+    return {"document": "frd", "key": unstated.key, "sheet": None, "layer": None,
+            "role": unstated.key, "kind": "text", "reason": unstated.reason,
+            "header": [], "candidates": [],
+            "title": f"{unstated.field} of {unstated.feed_id}",
+            "hint": "No document states this value; type it.", "suggested": None}
+
+
 def pending_question(pending, key: str, config) -> dict:
     """The question for a held-back key no layout question carries: a band
     layer (source | stage | standard) or a value no document states (text,
@@ -272,6 +281,13 @@ class DemoRunner:
         # post60: the last App run's generate outcome, read from its
         # CODEGEN_STAGES.json (codegen.generate_run) — never inferred here
         self.outcome: str | None = None
+        # post80: the run's BLOCKING open lines (codegen.generate_run open items) —
+        # a QUESTION the App may not list anywhere else (the landing path), so the
+        # page's "Complete the blocking questions first" can name every one
+        self.blocking_lines: list[dict] = []
+        # post80: which pause the dialog is ("layout" — before any value is read —
+        # or "before_generate": the run's blocking questions, then one generate)
+        self.pause_kind = "layout"
         # post59: the BSA's CONFIRMED input choices (key -> input_choices.Choice):
         # the panel's radio sits on use_default, but only a Confirm records it,
         # and only a recorded choice is applied by the next Generate
@@ -1882,6 +1898,9 @@ class DemoRunner:
             "inputs_needed": list(self.inputs_needed),
             # post60: the run's generate outcome from its CODEGEN_STAGES.json
             "outcome": self.outcome,
+            # post80: every blocking line the last run left open ({key, scope, feed})
+            "blocking": list(self.blocking_lines),
+            "pause_kind": self.pause_kind,
             # post59: the choices the BSA confirmed (applied by the next Generate)
             "input_choices": {key: {"choice": c.choice, "standard": c.standard}
                               for key, c in self.input_choices.items()},
@@ -2078,6 +2097,100 @@ class DemoRunner:
         return [needs_answer_item(q.as_dict()) for q in result.questions
                 if _owed_key(q.document, q.key, q.kind, result.frd_contract)]
 
+    def _resolve_specs(self, frd_path, contract_path, config, vdd_contract_path, gaps,
+                       label: str = "the FRD"):
+        """The contract resolver with the gaps answers: (specs, unstated values) —
+        post57: a value no document states is a question; the feeds that
+        resolved still run."""
+        from codegen.resolve.resolver import ContractUnstatedError
+
+        self._stage("resolving contracts", f"{label} ⋈ extracted contract")
+        try:
+            return resolve_pair(frd_path, contract_path, config, vdd_path=vdd_contract_path,
+                                gaps=gaps or None), []
+        except ContractUnstatedError as exc:
+            return exc.specs, list(exc.questions)
+
+    def _before_generate_questions(self, specs, unstated, config, frd_path) -> list[dict]:
+        """post80: the BLOCKING questions known before anything is generated, in the
+        layout dialog's shape: a required environment value (document ``run``), a
+        value no document states, the LOB per file, and — on a notebook run — the
+        landing (inbound) path no document states (its convention pre-filled)."""
+        from codegen.environments import required_items
+        from codegen.metadata_template import landing_question
+        from codegen.owed_inputs import _template, frd_feed_index
+        from codegen.resolve.resolver import lob_question_item
+
+        out = []
+        for key, reason in required_items(config):
+            out.append({"document": "run", "key": key, "sheet": None, "layer": None,
+                        "role": key, "kind": "text", "reason": reason, "header": [],
+                        "candidates": [], "title": f"{key.rsplit('.', 1)[-1]} of this "
+                        "run's environment", "hint": "A required environment value: it is "
+                        "kept for the next runs too (the environment picker).",
+                        "suggested": None})
+        out += [_unstated_question(u) for u in unstated]
+        for spec in specs:
+            lob = lob_question_item(spec)
+            if lob is not None:
+                out.append(lob)
+        parts = self.effective_output_parts()
+        if "notebook" in parts:
+            tpl = _template(config, parts, self.iig_template)
+            for spec in specs:
+                asked = landing_question(tpl, spec, frd_feed_index(frd_path, spec.feed_id,
+                                                                   config))
+                if asked is None:
+                    continue
+                key, reason, proposal = asked
+                out.append({"document": "frd", "key": key, "sheet": None, "layer": None,
+                            "role": key, "kind": "text", "reason": reason, "header": [],
+                            "candidates": ([{"value": proposal, "source": "convention"}]
+                                           if proposal else []),
+                            "title": f"the landing (inbound) path of {spec.feed_id}",
+                            "hint": "No document states it, and the notebook cannot run "
+                                    "without it: type the container-relative path.",
+                            "suggested": 0 if proposal else None,
+                            "suggested_reason": ("the landing convention's proposal"
+                                                 if proposal else None)})
+        return out
+
+    def _ask_before_generate(self, questions: list[dict]) -> bool:
+        """Pause the run on ``questions`` (the layout dialog). True = answers given
+        (the run re-resolves with them), False = proceed without. A required
+        environment value answered becomes the picker's override for the run."""
+        self.layout_questions = questions
+        self.layout_advice = None
+        self._layout_answers = None
+        self._layout_event.clear()
+        self.pause_kind = "before_generate"
+        self.state = "needs_layout"
+        self._stage("needs answers before generating",
+                    f"{len(questions)} blocking question(s) — answer them and the run "
+                    "generates once")
+        self._wait_for_person()
+        self.state = "running"
+        self.pause_kind = "layout"
+        reply = self._layout_answers or {}
+        self.layout_questions = []
+        if reply.get("cancel"):
+            raise RuntimeError("run cancelled by the user")
+        from codegen.layout.resolve import parse_answers
+
+        parsed = parse_answers(reply.get("answers") or {})
+        env = {key.rsplit(".", 1)[-1]: v["value"] for key, v in parsed["gaps"].items()
+               if key.startswith("run.environment.") and str(v.get("value") or "").strip()}
+        if env:
+            choice = dict(self.environment_choice or {})
+            if choice.get("custom") is not None:
+                choice["custom"] = {**choice["custom"], **env}
+            else:
+                choice["overrides"] = {**(choice.get("overrides") or {}), **env}
+            self.environment_choice = choice
+        self.last_answers = merge_answers(self.last_answers or _empty_answers(), parsed)
+        answered = any(str(v.get("value") or "").strip() for v in parsed["gaps"].values())
+        return answered and not reply.get("proceed")
+
     def start_live(self, *, seed: dict | None = None) -> None:
         """Start a live run. ``seed`` ({inputs, answers}) is a re-run's answers
         (``rerun_with_answers``) for THIS run only; an ordinary Generate
@@ -2232,6 +2345,34 @@ class DemoRunner:
             runs[slug] = result
         self.inputs_needed += [o.as_dict() for o in gen.owed if o.scope == "feed"]
         self.outcome, _code = gen.finish()
+        seen: set[str] = set()
+        self.blocking_lines = []
+        for item in gen.open_items:
+            if item.get("blocking") and item["key"] not in seen:
+                seen.add(item["key"])
+                self.blocking_lines.append({"key": item["key"], "scope": item["scope"],
+                                            "feed": item.get("feed")})
+        # post80: a BLOCKING open landing (the notebook cannot run without it) is
+        # answered here: a typed value posted as gaps: — the next run's resolver
+        # sets the feed's landing from it (the CLI's inputs: / gaps: answer)
+        listed = {i["key"] for i in self._run_items}
+        for asked in gen.landing_asked:
+            if asked["key"] in seen and asked["key"] not in listed:
+                listed.add(asked["key"])
+                self._run_items.append(needs_answer_item(
+                    {"document": "frd", "key": asked["key"], "sheet": None, "layer": None,
+                     "role": asked["key"], "kind": "text", "reason": asked["reason"],
+                     "header": [],
+                     # the convention's proposal pre-fills the box (the person confirms)
+                     "candidates": ([{"value": asked["proposal"], "source": "convention"}]
+                                    if asked["proposal"] else []),
+                     "title": f"the landing (inbound) path of {asked['feed']}",
+                     "hint": ("No document states it, and the notebook cannot run without "
+                              "it: type the container-relative path."),
+                     "suggested": 0 if asked["proposal"] else None,
+                     "suggested_reason": ("the landing convention's proposal"
+                                          if asked["proposal"] else None)},
+                    feed_name=asked["feed"], reason=asked["reason"]))
         # post76: the Layer-2 stage after the outcome — the App defers it by default
         # (reasoning.layer2_app): "review candidates: pending" until the review
         # panel asks (POST /api/demo/layer2)
@@ -2413,6 +2554,7 @@ class DemoRunner:
         self._open_owed = []
         self.inputs_needed = []
         self.outcome = None
+        self.blocking_lines = []
         started = time.monotonic()
         self._waited_for_person = 0.0
         self._run_label = None
@@ -2776,44 +2918,41 @@ class DemoRunner:
         # default — then a non-blocking "inputs needed" item names it). post47:
         # chosen BEFORE resolving — the catalogs are the environment's — and the
         # run-level inputs listed once (scope "run"), never per feed.
-        run_env = self.run_environment(config)
         from codegen.environments import with_environment
+        from codegen.resolve.resolver import lob_question_item
 
+        # post80: every blocking question known BEFORE generating (a required
+        # environment value, a value no document states, the LOB per file, the
+        # landing a notebook needs) is asked ONCE here, in the run's dialog —
+        # then the run generates with the answers. "Proceed with unresolved"
+        # generates without them (they are then listed after the run, as before).
+        asked_before = False
+        while True:
+            run_env = self.run_environment(config)
+            gaps = {key: str(value.get("value") or "")
+                    for key, value in ((self.last_answers or {}).get("gaps") or {}).items()
+                    if isinstance(value, dict) and str(value.get("value") or "").strip()}
+            specs, unstated_values = self._resolve_specs(
+                frd_path, contract_path, with_environment(config, run_env), vdd_contract_path,
+                gaps, frd_label)
+            questions = self._before_generate_questions(
+                specs, unstated_values, with_environment(config, run_env), frd_path)
+            if not questions or asked_before:
+                break
+            asked_before = True
+            if not self._ask_before_generate(questions):
+                break                                      # proceed with unresolved
         self.inputs_needed += self._run_level_inputs(with_environment(config, run_env))
-        self._stage("resolving contracts", f"{frd_label} ⋈ extracted contract")
-        # post47: the gaps answers reach the contract resolver too (the LOB
-        # lookup's per-file answer, feeds[<i>].lob_by_file), and the ones applied
-        # are written to the run folder as an answers file, every value quoted
-        gaps = {key: str(value.get("value") or "")
-                for key, value in ((self.last_answers or {}).get("gaps") or {}).items()
-                if isinstance(value, dict) and str(value.get("value") or "").strip()}
         if gaps:
             from codegen.layout.answers_template import write_applied_answers
 
             write_applied_answers(run_root / "answers.yaml", gaps, stage="this App run")
-        from codegen.resolve.resolver import ContractUnstatedError
-
-        unstated_values: list = []
-        try:
-            specs = resolve_pair(frd_path, contract_path, with_environment(config, run_env),
-                                 vdd_path=vdd_contract_path, gaps=gaps or None)
-        except ContractUnstatedError as exc:
-            # post57: a value no document states is a question (the CLI's
-            # QUESTION line); the feeds that resolved still run
-            specs = exc.specs
-            unstated_values = list(exc.questions)
-            for unstated in exc.questions:
-                self._run_items.append(needs_answer_item(
-                    {"document": "frd", "key": unstated.key, "sheet": None, "layer": None,
-                     "role": unstated.key, "kind": "text", "reason": unstated.reason,
-                     "header": [], "candidates": [],
-                     "title": f"{unstated.field} of {unstated.feed_id}",
-                     "hint": "No document states this value; type it.", "suggested": None},
-                    feed_name=unstated.feed_id, reason=unstated.reason))
+        for unstated in unstated_values:
+            self._run_items.append(needs_answer_item(
+                _unstated_question(unstated), feed_name=unstated.feed_id,
+                reason=unstated.reason))
         # post47: a feed whose files no document keys to ONE LOB asks ONE question
         # (every file a key, the FRD's codes a dropdown) — its LOB cells stay open
-        from codegen.resolve.resolver import lob_question_item
-
         for spec in specs:
             question = lob_question_item(spec)
             if question is not None:

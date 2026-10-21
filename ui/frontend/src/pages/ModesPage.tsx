@@ -481,6 +481,19 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
   }, []);
 
   const running = status?.state === "running" || status?.state === "needs_layout";
+  // post80: a finished run with a blocking question open (a QUESTION line, a required
+  // environment value) is not something to "view": the page sends the person to the
+  // questions instead of the results
+  const blocking = !!status && status.state === "done" && (
+    status.outcome === "NEEDS_ANSWERS"
+    || (status.blocking ?? []).length > 0
+    || (status.needs_answers ?? []).length > 0
+    || (status.inputs_needed ?? []).some((item) => item.required));
+  const blockingRef = useRef<HTMLDivElement | null>(null);
+  // blocking lines no panel lists (the landing path): named in the alert itself
+  const listed = new Set([...(status?.needs_answers ?? []), ...(status?.inputs_needed ?? [])]
+    .map((item) => item.key));
+  const unlisted = (status?.blocking ?? []).filter((b) => !listed.has(b.key));
   // M2.5 layout dialog: one answer per open question (components/
   // LayoutQuestions): a column for an STTM / VDD role, a layer for a band
   // (Chunk A: source | stage | standard), a table cell for an FRD field, a
@@ -836,9 +849,13 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
               <div style={{ marginTop: 14 }}>
                 <div className="hint">
                   {status.state === "running" && "Running — stages appear as they start:"}
-                  {status.state === "needs_layout" &&
+                  {status.state === "needs_layout" && status.pause_kind === "before_generate" &&
+                    "Paused before generating — answer the blocking questions and the run generates once:"}
+                  {status.state === "needs_layout" && status.pause_kind !== "before_generate" &&
                     "Paused — the layout needs a human decision before any value is read:"}
-                  {status.state === "done" &&
+                  {status.state === "done" && blocking &&
+                    "Last live run stopped at blocking questions — complete them first, then run again."}
+                  {status.state === "done" && !blocking &&
                     (status.set_aside?.length
                       ? `Last live run completed with ${status.set_aside.length} feed(s) set aside.`
                       : "Last live run completed.")}
@@ -877,6 +894,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     ) : null}
                   </ErrorCard>
                 ) : null}
+                <div ref={blockingRef} id="blocking-questions">
                 {!running && (status.inputs_needed ?? []).length ? (
                   <InputsNeededBanner
                     items={status.inputs_needed ?? []}
@@ -903,6 +921,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     }}
                   />
                 ) : null}
+                </div>
                 {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
                   <div className="flag-hitl" style={{ padding: "10px 12px", marginTop: 8 }}>
                     {(status.layout_fills ?? []).length ? (
@@ -927,13 +946,15 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                         </ul>
                       </details>
                     ) : null}
-                    {(["sttm", "frd", "vdd"] as const).map((doc) => {
+                    {(["run", "sttm", "frd", "vdd"] as const).map((doc) => {
                       const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
                       if (!qs.length) return null;
                       return (
                         <div key={doc} style={{ marginBottom: 10 }}>
                           <strong>
-                            {doc === "sttm" ? "STTM workbook" : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
+                            {doc === "run" ? "This run (environment)"
+                              : doc === "sttm" ? "STTM workbook"
+                              : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
                           </strong>
                           {qs.map((q) => (
                             <QuestionItem
@@ -950,8 +971,11 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       );
                     })}
                     <div className="decision-row" style={{ marginTop: 10 }}>
-                      <button className="btn" onClick={() => submitLayout(false)}
-                              disabled={countPicks(picks) === 0}>
+                      <button className="btn"
+                              onClick={() => submitLayout(countPicks(picks) === 0)}
+                              title={countPicks(picks) === 0
+                                ? "Nothing picked: continue with the open roles read as empty (gate-flagged) — the same as Proceed with unresolved"
+                                : "Continue with the picks made"}>
                         Continue
                       </button>
                       <button className="btn" onClick={() => submitLayout(true)}
@@ -961,6 +985,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(setError)}>
                         Cancel run
                       </button>
+                      {status.pause_kind !== "before_generate" ? (
+                        <>
                       <button className="btn"
                               title="Resolve the layout again past every cached profile (synonyms, then the model); the cached entries are overwritten and the questions asked afresh"
                               onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(setError)}>
@@ -983,6 +1009,8 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                       >
                         Re-apply the model's picks
                       </button>
+                        </>
+                      ) : null}
                     </div>
                     {advising === "confirm" ? (
                       <div className="flag-hitl" style={{ padding: "8px 10px", marginTop: 8 }}>
@@ -1025,7 +1053,34 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                   ))}
                 </ul>
                 <ModelUsageList usage={status.model_usage} />
-                {status.state === "done" ? (
+                {status.state === "done" && blocking ? (
+                  <div className="flag-hitl" role="alert" style={{ padding: "8px 12px", marginTop: 8 }}>
+                    <strong>Complete the blocking questions first.</strong>{" "}
+                    {unlisted.length < (status.blocking ?? []).length
+                      || !(status.blocking ?? []).length ? (
+                      <button
+                        className="btn primary"
+                        onClick={() => blockingRef.current?.scrollIntoView?.({ behavior: "smooth" })}
+                      >
+                        Go to the blocking questions
+                      </button>
+                    ) : null}
+                    {unlisted.length ? (
+                      <div className="hint" aria-label="blocking not answerable here"
+                           style={{ marginTop: 4 }}>
+                        Not answerable on this page yet — give{" "}
+                        {unlisted.length === 1 ? "it" : "them"} under <code>inputs:</code> in
+                        the answers file and run again:
+                        <ul style={{ margin: "2px 0 0 0", paddingLeft: 18 }}>
+                          {unlisted.map((b) => (
+                            <li key={b.key}><code>{b.key}</code></li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {status.state === "done" && !blocking ? (
                   <button
                     className="btn primary"
                     disabled={loadingSet !== null}

@@ -4,6 +4,52 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post80 — 2026-10-21 (App: blocking questions asked before generating, once)
+
+Soham, on the Pyx runs:
+- "View results" was offered on a run that had stopped at blocking questions;
+- "Continue" could not be clicked with nothing picked;
+- the questions came after the run, followed by a rerun — why not ask them from the start?
+
+1. **The pause before generating.** Every BLOCKING question the App can know before
+   anything is written is asked ONCE, in the run's dialog, after the contracts resolve
+   and before any feed is generated:
+   - a required environment value (a "This run (environment)" group);
+   - a value no document states;
+   - the LOB per file;
+   - on a notebook run, the landing path no document states, with the convention's
+     proposal pre-filled.
+
+   The run re-resolves with the answers and generates once. An environment answer
+   becomes the environment picker's override, so it is kept for the next runs.
+   "Proceed with unresolved" generates without the answers; they are then listed after
+   the run, as before. The status carries `pause_kind: "layout" | "before_generate"`, and
+   the dialog says "Paused before generating — …". Re-resolve layout and the model's
+   advice are hidden during this pause. The code is `DemoRunner._before_generate_questions`
+   / `_ask_before_generate` / `_resolve_specs`.
+2. **No "View results" on a blocked run.** A finished run whose outcome is
+   `NEEDS_ANSWERS`, or with a blocking line open, shows "Complete the blocking
+   questions first" and a "Go to the blocking questions" button instead.
+3. **The status names every blocking line** (`blocking: [{key, scope, feed}]`, from the
+   run's open items). The page lists the ones no panel shows.
+4. **The landing question is answerable after the run too.** When "Proceed with
+   unresolved" left it open, it is a typed `gaps:` answer in "Answers needed"; the
+   re-run's resolver sets the landing from it. Before, the App listed it nowhere and
+   applied no answer: it ran generate with `inputs={}`. `GenerateRun.landing_asked`
+   records what was asked.
+5. **Continue works with nothing picked.** In the dialog, Continue with no pick does
+   what "Proceed with unresolved" does.
+
+Not moved into the pause: the merge-load primary-key QUESTION (`feeds.<feed>.primary_key`)
+is still asked after the run.
+
+**Tests:**
+- `tests/test_app_needs_answers.py`: the pause on a full App run; Proceed lists the
+  questions afterwards; an environment answer becomes the picker's override.
+- `tests/test_generate_entry_point.py`: the status's blocking list; the landing answered
+  in the App writes the notebook.
+- `ModesPage.test.tsx`: the redirect; Continue with nothing picked; the pause's dialog.
+
 ## 0.5.8.post79 — 2026-10-20 (pipeline names: autoset from the naming convention, one "Change pipeline names" button)
 
 Venu: use the naming standards for the defaults, and do not ask about the pipeline names

@@ -507,3 +507,94 @@ def test_rerun_endpoint_guards(client, monkeypatch):
                            json={"answers": {"sttm": {BAND_KEYS[0]: "stage"}},
                                  "confirm": True})
     assert response.status_code == 400 and "unavailable" in response.json()["detail"]
+
+
+# ---- post80: the blocking questions are asked BEFORE generating, once --------------------
+
+
+def _runner_without_landing(tmp_path: Path) -> tuple[DemoRunner, GenerationStore]:
+    runner, store = _runner(tmp_path)
+    frd = tmp_path / "frd.contract.json"
+    contract = json.loads(frd.read_text(encoding="utf-8"))
+    contract["feeds"][0]["landing_location"] = None
+    contract.get("field_provenance", {}).pop("feeds[0].landing_location", None)
+    frd.write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    runner.select_frd(frd, "frd.contract.json")
+    runner.output_parts = ["notebook", "framework"]
+    runner.iig_template = "iig_v2"
+    runner.conventions_profile = "acfc_prx"
+    return runner, store
+
+
+@pytest.fixture()
+def acfc_roles(roles, monkeypatch):
+    """The roles, with the committed ACFC overlay applied as a D1 run loads it
+    (the iig_v2 path cells the landing question rests on are the overlay's)."""
+    monkeypatch.delenv("CODEGEN_SKIP_ENV_OVERLAY", raising=False)
+    return roles
+
+
+def test_a_blocking_question_is_asked_before_generating_and_the_run_generates_once(acfc_roles):
+    roles = acfc_roles
+    runner, store = _runner_without_landing(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    runner.answer_layout({"sttm": dict(BAND_ANSWERS)})              # the layout dialog
+    deadline = time.monotonic() + 300
+    while not (runner.state == "needs_layout"
+               and runner.status().get("pause_kind") == "before_generate"):
+        assert runner.state in ("running", "needs_layout"), (runner.state, runner.error)
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    status = runner.status()
+    landing = [q for q in status["layout_questions"] if q["key"].endswith(".src_adls_path")]
+    assert landing and landing[0]["kind"] == "text" and landing[0]["document"] == "frd"
+    assert not list((roles / "outputs").rglob("*_IIG.xlsx"))         # nothing generated yet
+    runner.answer_layout({"gaps": {landing[0]["key"]: {"value": "/inbound/syn/vendor_k/"}}})
+    assert _wait(runner, "done", "failed", "needs_answers") == "done", (
+        runner.error, runner.stages[-4:])
+    status = runner.status()
+    assert not [b for b in status["blocking"] if b["key"] == landing[0]["key"]]
+    assert sum(s["stage"] == "needs answers before generating" for s in status["stages"]) == 1
+    assert list((roles / "outputs").rglob("*.ipynb"))                # the notebook is written
+
+
+def test_proceed_with_unresolved_generates_and_lists_them_after(acfc_roles):
+    roles = acfc_roles
+    runner, _store = _runner_without_landing(roles)
+    runner.start_live()
+    assert _wait(runner, "needs_layout", "failed", "done") == "needs_layout", runner.error
+    runner.answer_layout({"sttm": dict(BAND_ANSWERS)})
+    deadline = time.monotonic() + 300
+    while runner.status().get("pause_kind") != "before_generate":
+        assert runner.state in ("running", "needs_layout"), (runner.state, runner.error)
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    runner.answer_layout({}, proceed=True)
+    assert _wait(runner, "done", "failed", "needs_answers") == "done", runner.error
+    status = runner.status()
+    assert status["outcome"] == "NEEDS_ANSWERS"
+    assert any(b["key"].endswith(".src_adls_path") for b in status["blocking"])
+    assert any(i["key"].endswith(".src_adls_path") for i in status["needs_answers"])
+
+
+def test_an_environment_value_answered_before_generating_is_kept_for_the_picker(roles):
+    import threading
+
+    runner, _store = _runner(roles)
+    question = {"document": "run", "key": "run.environment.storage_account", "sheet": None,
+                "layer": None, "role": "run.environment.storage_account", "kind": "text",
+                "reason": "required", "header": [], "candidates": [], "title": "t",
+                "hint": "h", "suggested": None}
+    result: dict = {}
+    worker = threading.Thread(
+        target=lambda: result.setdefault("answered", runner._ask_before_generate([question])))
+    worker.start()
+    _wait(runner, "needs_layout")
+    assert runner.status()["pause_kind"] == "before_generate"
+    assert [q["document"] for q in runner.status()["layout_questions"]] == ["run"]
+    runner.answer_layout({"gaps": {"run.environment.storage_account": {"value": "synacct"}}})
+    worker.join(10)
+    assert result["answered"] is True
+    assert runner.environment_choice["overrides"]["storage_account"] == "synacct"
+    assert runner.status()["pause_kind"] == "layout"

@@ -56,6 +56,9 @@ class GenerateRun:
         self._fail = fail
         self._report = report
         self.open_items: list[dict] = []        # the manifest's questions
+        # post80: each open landing asked ({key, reason, proposal, feed}) — the App
+        # lists it as a typed answer (the resolver takes it as a gaps: value)
+        self.landing_asked: list[dict] = []
         self.template_items: list = []          # answers_template.yaml
         self.owed: list = []                    # OwedInput, the App's banner
         self.feed_entries: list[dict] = []
@@ -246,6 +249,8 @@ class GenerateRun:
         if asked is None or any(i["key"] == asked[0] for i in self.open_items):
             return
         key, reason, proposal = asked
+        self.landing_asked.append({"key": key, "reason": reason, "proposal": proposal,
+                                   "feed": spec.feed_id})
         self.say(answer_line("INPUT_NEEDED", key, reason))
         self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
         self.template_items.append(TemplateItem(key, reason, [], INPUTS_SECTION,

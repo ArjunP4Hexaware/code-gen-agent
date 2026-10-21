@@ -1,11 +1,25 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-20, `feature/multi-table`, post79)
+## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post80)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-20, after post79) — pipeline names autoset.** post79 (Venu):
+**RESTART HERE (2026-10-21, after post80) — the App asks before generating.** post80:
+- **The pause before generating:** the App's run asks every blocking question known
+  before generating — required environment values (document `run`), unstated values,
+  LOB per file, the notebook's landing — ONCE in the run's dialog, then generates once
+  (`DemoRunner._before_generate_questions` / `_ask_before_generate`, status
+  `pause_kind`).
+- **Environment answers** become the picker's `overrides`.
+- **"Proceed with unresolved"** leaves them to the post-run list; the landing is
+  answerable there too (`GenerateRun.landing_asked`).
+- **A blocked run** shows "Complete the blocking questions first", not "View results"
+  (status `blocking`).
+- **Continue** works with nothing picked.
+- **Still post-run:** the merge-load primary-key QUESTION.
+
+**After post79 (kept for reference) — pipeline names autoset.** post79 (Venu):
 - **Autoset:** PIPELINE_NAME defaults to the naming convention, written unasked
   (`conventions.profiles.acfc_prx.pipeline_name_autoset: true` in `acfc_env.yaml`;
   `input_choices.resolve_feed` gives the flow items kind `profile_default`;

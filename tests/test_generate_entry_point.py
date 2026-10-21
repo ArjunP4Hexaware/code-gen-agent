@@ -109,3 +109,55 @@ def test_a_gate_fail_is_quarantined_by_the_app_too(app, tmp_path, monkeypatch):
     workbooks = [p for p in runs[spec.feed_slug].written_files if p.endswith(".xlsx")]
     assert workbooks and all(f"/{spec.feed_slug}/quarantine/" in p for p in workbooks)
     assert all(Path(p).is_file() for p in workbooks)
+
+
+def test_the_app_status_names_every_blocking_line(app, tmp_path):
+    """post80: a notebook run whose landing no document states stops at a
+    blocking QUESTION the App lists nowhere else — the status names it, so the
+    Generate page sends the person to it instead of "View results"."""
+    from test_landing_question import _without_landing
+
+    config, spec, (frd, sttm) = _pair(tmp_path / "cli")
+    _without_landing((frd, sttm))                       # the Pyx FRD states no landing
+    app.output_parts = ["notebook", "framework"]
+    _app_run(app, config, frd, sttm, tmp_path)
+    manifest = run_stages.read_stage_manifest(tmp_path / "app")
+    blocking = [q["key"] for q in manifest["questions"] if q["blocking"]]
+    status = app.status()
+    assert status["outcome"] == manifest["stages"]["generate"]["status"]
+    assert blocking, "the fixture pair must leave a blocking line open on a notebook run"
+    assert [b["key"] for b in status["blocking"]] == list(dict.fromkeys(blocking))
+    assert status["outcome"] == "NEEDS_ANSWERS"
+    assert any(k.endswith(".src_adls_path") for k in blocking)
+    # post80: the landing is ANSWERABLE in the App — a typed gaps: answer
+    landing = [b["key"] for b in status["blocking"] if b["key"].endswith(".src_adls_path")]
+    items = {i["key"]: i for i in app._run_items}            # noqa: SLF001 — the run's list
+    for key in landing:
+        item = items[key]
+        assert (item["label"], item["section"], item["answer_as"]) == ("QUESTION", "gaps", "gap")
+        assert item["question"]["kind"] == "text"
+
+
+def test_a_landing_answered_in_the_app_writes_the_notebook(app, tmp_path):
+    """post80: the App's answer to the landing question, posted as gaps: (the
+    shape rerun_with_answers sends), reaches the resolver; the notebook is
+    written and nothing blocks."""
+    from codegen.layout.resolve import parse_answers
+    from test_landing_question import _without_landing
+
+    config, spec, (frd, sttm) = _pair(tmp_path / "cli")
+    _without_landing((frd, sttm))
+    app.output_parts = ["notebook", "framework"]
+    _app_run(app, config, frd, sttm, tmp_path / "first")
+    (key,) = [b["key"] for b in app.status()["blocking"] if b["key"].endswith(".src_adls_path")]
+    posted = parse_answers({"gaps": {key: {"value": "/inbound/syn/vendor_k/"}}})
+    gaps = {k: v["value"] for k, v in posted["gaps"].items()}
+    specs = resolve_pair(frd, sttm, config, gaps=gaps)
+    app._store.config = config                       # noqa: SLF001
+    app._generate_specs(                             # noqa: SLF001 — the App's own path
+        specs, config, run_env=None, frd_path=frd, run_root=tmp_path / "second",
+        reports_root=tmp_path / "second_reports", held=list(pending_answers(sttm)),
+        unstated=[], extra_flags=[], layout_usage=None)
+    assert not [b for b in app.status()["blocking"] if b["key"] == key]
+    assert list((tmp_path / "second" / specs[0].feed_slug).rglob("*.ipynb"))
+

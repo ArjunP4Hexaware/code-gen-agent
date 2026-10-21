@@ -162,7 +162,8 @@ export interface DemoStage {
 }
 
 export interface LayoutQuestion {
-  document: "sttm" | "frd" | "vdd";
+  // post80: "run" = a required environment value asked before generating
+  document: "sttm" | "frd" | "vdd" | "run";
   key: string;
   sheet: string | null;
   layer: string | null;
@@ -295,6 +296,15 @@ export interface DemoStatus {
   inputs_needed?: InputNeededItem[];
   // post59: the input choices the BSA confirmed — key -> {choice, standard}
   input_choices?: Record<string, ConfirmedChoice>;
+  // post60: the run's generate outcome (CODEGEN_STAGES.json): PASS |
+  // PASS_WITH_OPEN_INPUTS | NEEDS_ANSWERS | GATE_FAIL | CRASHED | FAIL
+  outcome?: string | null;
+  // post80: every blocking line the last run left open — some (the landing path)
+  // are listed nowhere else on the page
+  blocking?: { key: string; scope: "run" | "feed"; feed?: string | null }[];
+  // post80: "layout" (before any value is read) | "before_generate" (the run's
+  // blocking questions, asked once, then one generate)
+  pause_kind?: "layout" | "before_generate";
   last_run_label: string | null;
   // feeds the last run set aside (no file for the table, question left unanswered)
   set_aside?: { label: string; error: string }[];

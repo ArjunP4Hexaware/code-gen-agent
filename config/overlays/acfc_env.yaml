@@ -106,15 +106,20 @@ conventions:
       # (codegen-state/overlays/acfc_prx.yaml, pipeline_name_templates); with only the
       # shipped SYN_ placeholders every name is still asked, never written.
       pipeline_name_autoset: true
-      # post81: the interim convention (the Pyx prod IIG's, reconstructed from its
-      # golden; pending Venu's call vs the EDO Naming Standards) is shipped HERE so the
-      # App has it without reading the state volume; the ACFC overlay may override a
-      # flow. Scrub + leak gate clean (format / layer words and tokens only).
+      # post85 (Nikshit, 2026-10-21: "go by the document for now"): the EDO Data
+      # Engineering Naming Standards' patterns, verbatim —
+      #   master: PL_<Pipeline Type>_<Product>_<Sub-Product>_<Sources>_<Domain>_
+      #           <Subdomain>_<Region/LOB>_<Frequency> (type GMSTR / MSTR)
+      #   child:  PL_CHLD_<Product>_<Sub-Product>_<Source>_TO_<Target>_<Load Strategy>,
+      #           Source / Target = the DATA LAYERS (RAW / STG / STD), not tables
+      # through the document's abbreviation tables (engineering_standards:). Replaces
+      # post81's interim prod-reconstructed convention. The ACFC overlay may override a
+      # flow.
       pipeline_name_templates:
-        grand_master: 'PL_GMSTR_{source_code}_{schema_domain}_{lob}_{frequency_code}'
-        master: 'PL_MSTR_{source_code}_{schema_domain}_{lob}_{frequency_code}'
-        file_to_stg: 'PL_FILE_{source_code}_{schema_domain}_{lob}_{object_code}_ADLS_TO_DELTA_INCR'
-        stg_to_std: 'PL_FILE_{source_code}_{schema_domain}_{lob}_{object_code}_DELTA_TO_STD_INCR'
+        grand_master: 'PL_GMSTR_{product_code}_{sub_product_code}_{source_std}_{domain_std}_{subdomain_std}_{lob_std}_{frequency_code}'
+        master: 'PL_MSTR_{product_code}_{sub_product_code}_{source_std}_{domain_std}_{subdomain_std}_{lob_std}_{frequency_code}'
+        file_to_stg: 'PL_CHLD_{product_code}_{sub_product_code}_RAW_TO_STG_{load_std}'
+        stg_to_std: 'PL_CHLD_{product_code}_{sub_product_code}_STG_TO_STD_{load_std}'
       # post81: the key an explicit signal states (STTM Primary Key cells, the FRD's
       # key statement, the FAQ) is written unasked; no signal is still a QUESTION
       primary_key_autoset: true

@@ -877,6 +877,9 @@ class EngineeringStandardsConfig(BaseModel):
     # A feed with no resolvable frequency ships unscheduled, i.e. it runs
     # ad hoc — the EDO abbreviation for that is the honest default.
     unknown_frequency_abbreviation: str = "ADH"
+    # post85: the Naming Standards' Load Strategy table (a child pipeline name's
+    # <Load Strategy>), keyed by the FRD's load-strategy spelling
+    load_strategy_abbreviations: dict[str, str] = Field(default_factory=dict)
     # A feed spanning more than one LOB uses the EDO "All" abbreviation.
     multi_lob_abbreviation: str = "ALL"
     # MVP prerequisite: raw/stage/standard tables already exist in the target

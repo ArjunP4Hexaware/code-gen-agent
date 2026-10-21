@@ -155,16 +155,16 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
     for name, question in owed_questions(tpl, faq, _default_tokens(spec), scope=FEED):
         item = by_key.get(name)
         out.append(_with_choice(OwedInput(feed_key(spec.feed_id, name), question,
-                                          spec.feed_id), item, spec, profile, tpl, faq))
+                                          spec.feed_id), item, spec, profile, tpl, faq, config))
     # post70: TGT_PRIMARY_KEY proposed from an explicit key signal, not chosen
     out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), KEY_QUESTION, spec.feed_id),
-                         r, spec, profile, tpl, faq)
+                         r, spec, profile, tpl, faq, config)
             for r in resolved or [] if r.key == "primary_key" and r.source == "blank"
             and not r.chosen and r.proposal.value]
     # post61: the feed's profile defaults written (notebook names, the
     # SRC_FILE_NAME style) — shown as changeable, not open
     out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), _PROFILE_QUESTIONS.get(
-        r.key.split(".", 1)[0], r.key), spec.feed_id), r, spec, profile, tpl, faq)
+        r.key.split(".", 1)[0], r.key), spec.feed_id), r, spec, profile, tpl, faq, config)
         for r in resolved or [] if r.applied and not _is_run_key(r.key, tpl)]
     return out + landing_items
 
@@ -192,7 +192,7 @@ def _is_run_key(key: str, tpl) -> bool:
     return any(d.key == key and d.scope == RUN for d in ic.defaulted_inputs(tpl))
 
 
-def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq) -> OwedInput:
+def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq, config=None) -> OwedInput:
     """``owed`` carrying ``item``'s proposal and options (post59)."""
     if item is None:
         return owed
@@ -205,10 +205,10 @@ def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq) -> OwedInput:
                                                                 choices.SRC_FILE_NAME_STYLE)))
     tokens: dict[str, str] = {}
     if spec is not None and profile is not None:
-        tokens = choices.feed_tokens(spec, tpl, faq)
+        tokens = choices.feed_tokens(spec, tpl, faq, config)
         flow = item.key.split(".", 1)[1] if item.key.startswith(choices.PIPELINE) else ""
         if flow:
-            tokens = choices.flow_tokens(tokens, spec, profile, flow)
+            tokens = choices.flow_tokens(tokens, spec, profile, flow, config)
     return replace(owed, question=f"{owed.question} — {choices.proposal_text(item)}",
                    options=options, proposed=item.proposal.value,
                    template=item.proposal.template, tokens=tuple(sorted(tokens.items())),

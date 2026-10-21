@@ -1,11 +1,19 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post84)
+## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post85)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-21, after post84; head `5726662`, pushed, nothing queued).**
+**RESTART HERE (2026-10-21, after post85; pushed, nothing queued).** post85 (Nikshit:
+"go by the document"): PIPELINE_NAME = the EDO Naming Standards' patterns
+(`acfc_env.yaml`; master `PL_<GMSTR|MSTR>_{product_code}_{sub_product_code}_{source_std}_
+{domain_std}_{subdomain_std}_{lob_std}_{frequency_code}`, child `PL_CHLD_…_RAW_TO_STG_{load_std}`
+/ `_STG_TO_STD_`; tokens in `input_choices._standards_tokens`, load codes
+`engineering_standards.load_strategy_abbreviations`). The D1 overlay's interim templates
+were removed (volume + workspace copy; backup `.bak_20261021_pre_post85`). On pair_11 the
+child names are identical across the 5 feeds and the masters are long (no table code for the
+source / domain / sub-domain) — for Nikshit / Venu.
 The App must be redeployed to get post81–84; none of them is verified on the deployed
 App yet (the post84 check was the container harness, below).
 
@@ -21,8 +29,9 @@ What post81–post84 did (details: `CHANGELOG_ACFC.md`):
 - **post81: the App reads its state from a workspace folder.** `CODEGEN_STATE_DIR` may
   be a `/Workspace/...` folder (Workspace API copy, `state_mirror`). `app.yaml` points
   it at `/Workspace/Users/<me>/codegen/state/codegen-state`: a copy of the volume's
-  `environments/d1.yaml` (storage account) + `overlays/acfc_prx.yaml` (EMAIL_TO,
-  templates), NOT in git. Until Raj's `USE CATALOG` grant, edit BOTH copies; after it,
+  `environments/d1.yaml` (storage account) + `overlays/acfc_prx.yaml` (notebook names,
+  status sets, per-feed overrides), NOT in git. The overlay does NOT set EMAIL_TO
+  (`<<D1:EMAIL.EMAIL_TO>>`): `run.email_to` stays open either way. Until Raj's `USE CATALOG` grant, edit BOTH copies; after it,
   set `CODEGEN_STATE_DIR` back to `/Volumes/d1_dlk/codegen/state`.
 - **post82: the notebook download.** The feed summary carries `notebook` (feed-relative;
   v2 = `notebook/<slug>.ipynb`, the old `<slug>.ipynb` lookup missed it). The results
@@ -61,7 +70,8 @@ clean, frontend 86 tests, `dist` rebuilt.
 
 Open (none started):
 - TGT_RJT_ADLS_PATH ≠ golden for all 5 pair_11 feeds (the existing reject derivation).
-- Venu: EDO Naming Standards vs the prod IIG as the pipeline-name ground truth.
+- Pipeline names (post85, the document): identical child names across feeds, long masters — Nikshit / Venu to judge.
+- EMAIL_TO: no value anywhere (the overlay's default is a D1 placeholder).
 - Raj: the `USE CATALOG` grant (then `app.yaml` back to the volume).
 - The landing convention matches only ~50% of prod shapes; written defaults may be
   wrong until changed.

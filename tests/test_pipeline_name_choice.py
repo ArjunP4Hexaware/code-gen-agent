@@ -387,3 +387,32 @@ def test_the_cell_tokens_a_prod_shaped_template_uses(tmp_path):
     name = input_choices.render("PL_MSTR_{source_code}_{schema_domain}_{lob}_{frequency_code}",
                                 input_choices.flow_tokens(tokens, spec, profile, "master"))
     assert name.startswith("PL_MSTR_") and "__" not in name and "{" not in name
+
+
+def test_the_shipped_names_follow_the_naming_standards_document(tmp_path):
+    """post85 (Nikshit: "go by the document"): acfc_env.yaml ships the EDO Naming
+    Standards' patterns — master PL_<GMSTR|MSTR>_<product>_<sub-product>_<sources>_
+    <domain>_<subdomain>_<region/LOB>_<frequency>, child PL_CHLD_<product>_
+    <sub-product>_<source layer>_TO_<target layer>_<load strategy> — through the
+    document's abbreviation tables (engineering_standards:)."""
+    config = _scoped(_acfc(), tmp_path)
+    (tmp_path / "contracts").mkdir()
+    specs, _flags = _pair11_specs(FRD, tmp_path / "contracts", config)
+    spec, profile = specs[0], config.conventions.get("acfc_prx")
+    tpl = config.metadata.templates["iig_v2"]
+    tokens = input_choices.feed_tokens(spec, tpl, None, config)
+    names = {flow: input_choices.render(profile.pipeline_name_templates[flow],
+                                        input_choices.flow_tokens(tokens, spec, profile, flow,
+                                                                  config))
+             for flow in FLOWS}
+    standards = config.engineering_standards
+    head = f"{standards.product_code}_{standards.sub_product_code}"
+    assert names["grand_master"].startswith(f"PL_GMSTR_{head}_")
+    assert names["master"] == names["grand_master"].replace("PL_GMSTR_", "PL_MSTR_", 1)
+    assert names["master"].endswith("_" + tokens["frequency_code"]) and tokens["frequency_code"]
+    codes = {k.casefold(): v for k, v in standards.load_strategy_abbreviations.items()}
+    stage = input_choices._strategy(spec.stage_load_strategy).casefold()
+    standard = input_choices._strategy(spec.standard_load_strategy).casefold()
+    assert names["file_to_stg"] == f"PL_CHLD_{head}_RAW_TO_STG_{codes[stage]}"
+    assert names["stg_to_std"] == f"PL_CHLD_{head}_STG_TO_STD_{codes[standard]}"
+    assert set(input_choices.PLACEHOLDERS) >= {"product_code", "load_std", "lob_std"}

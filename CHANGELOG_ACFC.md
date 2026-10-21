@@ -4,6 +4,47 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post85 — 2026-10-21 (pipeline names: the EDO Naming Standards document)
+
+Nikshit (2026-10-21), on the Naming Standards vs the prod IIG: "yes it would [be]
+layer rather than table names. go by the document for now.. we would see how it comes
+out."
+
+1. **The document's patterns, shipped in `acfc_env.yaml`**
+   (`conventions.profiles.acfc_prx.pipeline_name_templates`):
+   - master: `PL_<GMSTR|MSTR>_<Product>_<Sub-Product>_<Sources>_<Domain>_<Subdomain>_<Region/LOB>_<Frequency>`;
+   - child: `PL_CHLD_<Product>_<Sub-Product>_<Source>_TO_<Target>_<Load Strategy>`, with
+     Source / Target = the DATA LAYERS: `RAW_TO_STG` (file → stage) and `STG_TO_STD`.
+
+   They replace post81's interim prod-reconstructed convention.
+2. **New tokens** (`input_choices`), read through the document's abbreviation tables the
+   way the WF job name already reads them (`emit.context._abbreviate`):
+   - `{product_code}` `{sub_product_code}` (DLK / NSP) `{source_std}` `{domain_std}`
+     `{subdomain_std}` `{lob_std}`;
+   - per child flow, `{load_std}`: the document's Load Strategy table, new
+     `engineering_standards.load_strategy_abbreviations` (TRUNC / INSRT / UPSRT / EXTR);
+   - the App's preview tokens now carry the config too.
+3. **The D1 overlay no longer overrides them.** The post79 interim templates were removed
+   from the volume's `overlays/acfc_prx.yaml` and from the App's workspace copy (backup
+   `acfc_prx.yaml.bak_20261021_pre_post85` on the volume).
+
+**How it comes out on pair_11** (mock harness, full state):
+- 30 of 30 names written; outcome PASS_WITH_OPEN_INPUTS; leak gate clean.
+- **The child names are the same for all 5 feeds**, one for RAW_TO_STG and one for
+  STG_TO_STD: the document's child pattern has no feed component.
+- **The master names are long:** the document's tables have no code for this source,
+  domain or sub-domain, so each is spelled out:
+  - the source is the FRD's SOURCE text, a parenthetical included;
+  - the domain is two words;
+  - the sub-domain is the FRD's two sub-domains joined.
+- Both are for Nikshit / Venu.
+
+**Correction to post81:** the overlay does NOT set EMAIL_TO (its default is the
+`<<D1:EMAIL.EMAIL_TO>>` placeholder), so `run.email_to` stays open with or without the
+grant. post81 item 6 said otherwise.
+
+**Tests:** `test_pipeline_name_choice.py::test_the_shipped_names_follow_the_naming_standards_document`.
+
 ## 0.5.8.post84 — 2026-10-21 (the landing: read from the FRD's requirements, else written from the convention)
 
 Soham: the landing (inbound) paths were still asked, one per feed, instead of being

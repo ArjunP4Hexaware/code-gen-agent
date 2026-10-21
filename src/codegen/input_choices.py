@@ -54,7 +54,11 @@ PLACEHOLDERS = ("domain", "subdomain", "source", "frequency", "layer", "load_mod
                 # post79: the IIG's own cell values, so a template can follow the prod
                 # convention (docs/acfc/OVERLAY_FIELDS.md, pipeline_name_templates)
                 "lob", "object", "object_code", "src_format", "source_code",
-                "schema_domain", "frequency_code")
+                "schema_domain", "frequency_code",
+                # post85: the EDO Naming Standards' own components (its abbreviation
+                # tables, engineering_standards:) — the document's pipeline names
+                "product_code", "sub_product_code", "source_std", "domain_std",
+                "subdomain_std", "lob_std", "load_std")
 FLOWS = ("grand_master", "master", "file_to_stg", "stg_to_std")
 PIPELINE = "pipeline_name"
 PROFILE_DEFAULT = "profile_default"
@@ -230,7 +234,31 @@ def feed_tokens(spec, tpl, faq=None, config=None) -> dict[str, str]:
               "source": _source_value(feed), "frequency": frequency}
     tokens.update(_cell_tokens(spec, tpl, config, frequency))
     tokens["source_code"] = _words(tokens["source"])[0] if _words(tokens["source"]) else ""
+    tokens.update(_standards_tokens(spec, config, tokens["source"]))
     return tokens
+
+
+def _standards_tokens(spec, config, source: str) -> dict[str, str]:
+    """post85 (Nikshit: "go by the document"): the EDO Naming Standards'
+    components through its abbreviation tables (``engineering_standards:``), as
+    the job name reads them (``emit.context._abbreviate``): {product_code}
+    {sub_product_code} {source_std} {domain_std} {subdomain_std} {lob_std} (one
+    LOB = its code, several = ``multi_lob_abbreviation``). '' without a config."""
+    if config is None:
+        return {k: "" for k in ("product_code", "sub_product_code", "source_std",
+                                "domain_std", "subdomain_std", "lob_std")}
+    from codegen.emit.context import _abbreviate, _sanitize_name_part
+
+    standards = config.engineering_standards
+    lobs = list(getattr(spec, "lobs", None) or [])
+    lob = (_abbreviate(lobs[0], standards.lob_abbreviations) if len(lobs) == 1
+           else standards.multi_lob_abbreviation if lobs else "")
+    return {"product_code": _sanitize_name_part(standards.product_code),
+            "sub_product_code": _sanitize_name_part(standards.sub_product_code),
+            "source_std": _abbreviate(source or None, standards.source_abbreviations),
+            "domain_std": _abbreviate(spec.domain, standards.domain_abbreviations),
+            "subdomain_std": _abbreviate(spec.sub_domain, standards.domain_abbreviations),
+            "lob_std": lob}
 
 
 def _words(text) -> list[str]:
@@ -277,14 +305,20 @@ def _cell_tokens(spec, tpl, config, frequency: str) -> dict[str, str]:
     return out
 
 
-def flow_tokens(base: dict[str, str], spec, profile, flow: str) -> dict[str, str]:
+def flow_tokens(base: dict[str, str], spec, profile, flow: str,
+                config=None) -> dict[str, str]:
     """``base`` + the flow's {layer} (``pipeline_flow_layers``) and {load_mode}
     (the stage load strategy for file_to_stg, the standard one for stg_to_std;
-    none for the master rows)."""
+    none for the master rows); post85: {load_std} = that strategy's Naming
+    Standards code (``engineering_standards.load_strategy_abbreviations``)."""
     load = (spec.stage_load_strategy if flow == "file_to_stg" else
             spec.standard_load_strategy if flow == "stg_to_std" else "")
+    codes = ({k.casefold(): v for k, v in
+              config.engineering_standards.load_strategy_abbreviations.items()}
+             if config is not None else {})
     return {**base, "layer": profile.pipeline_flow_layers.get(flow, ""),
-            "load_mode": _strategy(load)}
+            "load_mode": _strategy(load),
+            "load_std": str(codes.get(_strategy(load).casefold(), "") or "")}
 
 
 _CORPUS_CACHE: dict[tuple, frozenset[str]] = {}
@@ -502,7 +536,7 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
             return Proposal(template=template, refused=f"{PLACEHOLDER_LABEL}: set "
                             "conventions.profiles.<profile>.pipeline_name_templates in the "
                             "ACFC overlay")
-        value = render(template, flow_tokens(tokens, spec, profile, item.flow),
+        value = render(template, flow_tokens(tokens, spec, profile, item.flow, config),
                        case=profile.pipeline_name_case)
         if not value:
             return Proposal(template=template, refused="the template renders empty")
@@ -580,7 +614,7 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
                                          f"{offer.refused}"))
         else:
             template = choice.standard or (shared.standard if shared is not None else "")
-            values = flow_tokens(tokens, spec, profile, item.flow) if item.flow else tokens
+            values = flow_tokens(tokens, spec, profile, item.flow, config) if item.flow else tokens
             value = (render(template, {**tpl.corpus_tokens, **values},
                             name=bool(item.flow) and not item.pk,
                             case=profile.pipeline_name_case) if template else "")

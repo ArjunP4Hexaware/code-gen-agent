@@ -744,6 +744,15 @@ engineering_standards:
     history: HST
   # No resolvable frequency => the job ships unscheduled, i.e. ad hoc.
   unknown_frequency_abbreviation: ADH
+  # post85: the Naming Standards' Load Strategy table (Truncate & Load / Append /
+  # Update Else Insert / Extracts), keyed by the FRD's spellings of the strategy
+  load_strategy_abbreviations:
+    "Truncate and Load": TRUNC
+    "Truncate & Load": TRUNC
+    Append: INSRT
+    Upsert: UPSRT
+    "Update Else Insert": UPSRT
+    Extracts: EXTR
   multi_lob_abbreviation: ALL
   # MVP prerequisite: raw/stage/standard tables already exist. DDL files are
   # emitted as REFERENCE only; the notebook lists prerequisite tables instead

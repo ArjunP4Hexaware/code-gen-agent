@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FrameworkSummary } from "./api";
-import { APPROVAL_NOTE, layer2Line, presentedArtefacts, reviewSummary } from "./artefacts";
+import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts, reviewSummary } from "./artefacts";
 
 describe("presentedArtefacts", () => {
   it("shows exactly the DDL, the IIG, the IIG review copy and ADDITION.md", () => {
@@ -105,5 +105,31 @@ describe("layer2Line", () => {
     expect(layer2Line({ mode: "now", review_candidates: "done", rules: 7 })).toBeNull();
     expect(layer2Line({ mode: "defer", review_candidates: "pending", rules: 0 })).toBeNull();
     expect(layer2Line(null)).toBeNull();
+  });
+});
+
+describe("blankIdColumns", () => {
+  it("says the shared columns once and nothing per feed when every feed agrees", () => {
+    const ids = ["GROUP_ID", "OBJECT_ID", "PIPELINE_ID"];
+    expect(blankIdColumns([ids, [...ids], [...ids]])).toEqual({
+      common: ids,
+      extra: [[], [], []],
+    });
+  });
+
+  it("keeps a feed's own extra column under that feed only", () => {
+    const out = blankIdColumns([["GROUP_ID", "OBJECT_ID"], ["GROUP_ID", "OBJECT_ID", "TEMPLATE_ID"]]);
+    expect(out.common).toEqual(["GROUP_ID", "OBJECT_ID"]);
+    expect(out.extra).toEqual([[], ["TEMPLATE_ID"]]);
+  });
+
+  it("never drops a column a feed lists", () => {
+    const lists = [["A", "B"], ["B", "C"]];
+    const { common, extra } = blankIdColumns(lists);
+    lists.forEach((l, i) => expect(new Set([...common, ...extra[i]])).toEqual(new Set(l)));
+  });
+
+  it("is empty with no feeds", () => {
+    expect(blankIdColumns([])).toEqual({ common: [], extra: [] });
   });
 });

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
-import { APPROVAL_NOTE, layer2Line, presentedArtefacts, reviewSummary } from "../artefacts";
+import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts, reviewSummary } from "../artefacts";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { StatTile } from "../components/StatTile";
@@ -140,6 +140,8 @@ export function Dashboard({
   const feeds = data?.feeds ?? [];
   const byVerdict = (v: string) => feeds.filter((f) => f.verdict === v).length;
   const pending = feeds.reduce((n, f) => n + f.candidates_pending, 0);
+  const framed = feeds.filter((f) => f.framework);
+  const blankIds = blankIdColumns(framed.map((f) => f.framework!.flagged_blank_columns));
   const notebooks = feeds.filter((f) => f.notebook);
   const deferred = feeds.filter(
     (f) => f.layer2?.review_candidates === "pending" && f.layer2.rules,
@@ -294,35 +296,38 @@ export function Dashboard({
             <span className="hint">{APPROVAL_NOTE}</span>
           </div>
           <div className="panel-body">
-            {feeds
-              .filter((f) => f.framework)
-              .map((f) => (
-                <div key={f.feed_slug} style={{ marginBottom: 14 }}>
-                  <div style={{ fontWeight: 650, marginBottom: 4 }}>
-                    <code>{f.feed_slug}</code>{" "}
-                    <span className="hint">{reviewSummary(f.framework!)}</span>
-                  </div>
-                  {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
-                      ADDITION.md — the other files are still written, not listed */}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                    {presentedArtefacts(f.framework!.files).map((name) => (
-                      <a
-                        key={name}
-                        className="btn"
-                        href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
-                        download
-                      >
-                        {name}
-                      </a>
-                    ))}
-                  </div>
-                  <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
-                    Framework-assigned IDs left blank:{" "}
-                    {f.framework!.flagged_blank_columns.join(", ") || "none"} — the
-                    agent never invents them.
-                  </div>
+            {/* post87: said once for the run, not under every feed */}
+            <div className="hint" style={{ marginBottom: 12, fontSize: 11 }}>
+              Framework-assigned IDs left blank: {blankIds.common.join(", ") || "none"} — the
+              agent never invents them.
+            </div>
+            {framed.map((f, i) => (
+              <div key={f.feed_slug} style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 650, marginBottom: 4 }}>
+                  <code>{f.feed_slug}</code>{" "}
+                  <span className="hint">{reviewSummary(f.framework!)}</span>
                 </div>
-              ))}
+                {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
+                    ADDITION.md — the other files are still written, not listed */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                  {presentedArtefacts(f.framework!.files).map((name) => (
+                    <a
+                      key={name}
+                      className="btn"
+                      href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
+                      download
+                    >
+                      {name}
+                    </a>
+                  ))}
+                </div>
+                {blankIds.extra[i].length ? (
+                  <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
+                    Also left blank for this feed: {blankIds.extra[i].join(", ")}
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
         </div>
       ) : null}

@@ -53,3 +53,15 @@ export function layer2Line(layer2: Layer2State | null | undefined): string | nul
 /* The one approval sentence: the artefacts panel's subtitle (2026-10-16, post63). */
 export const APPROVAL_NOTE =
   "The BSA-annotated IIG is the approval artefact; the CI/CD pipeline applies the DDL after approval.";
+
+/* post87: the framework-assigned ID columns left blank, said ONCE for the run —
+   `common` = the columns every feed leaves blank (the panel's one line), `extra`
+   = per feed, only the columns that feed alone adds (usually none). */
+export function blankIdColumns(lists: string[][]): {
+  common: string[];
+  extra: string[][];
+} {
+  if (!lists.length) return { common: [], extra: [] };
+  const common = lists[0].filter((c) => lists.every((l) => l.includes(c)));
+  return { common, extra: lists.map((l) => l.filter((c) => !common.includes(c))) };
+}

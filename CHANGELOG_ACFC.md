@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post87 — 2026-10-21 (App: the framework-assigned IDs said once)
+
+Soham: the Dashboard's Framework artefacts panel repeated "Framework-assigned IDs left
+blank: … — the agent never invents them." under every feed.
+- **Said once:** the line now sits at the top of the panel and lists the columns every
+  feed leaves blank (`artefacts.ts blankIdColumns`).
+- **Per feed:** a feed shows "Also left blank for this feed: …" only when it leaves
+  blank a column the others don't (usually never); no column a feed lists is dropped.
+- **Unchanged:** the backend field (`framework.flagged_blank_columns`) and each feed's
+  ADDITION.md, which still lists its own IDs (every download stands alone).
+
+**Tests:** `artefacts.test.ts` `blankIdColumns` (frontend 90 tests); `dist` rebuilt.
+
 ## 0.5.8.post86 — 2026-10-21 (path families: a source's own path convention)
 
 The pair_11 TGT_RJT_ADLS_PATH gap (open since post84) was a convention, not a bug:

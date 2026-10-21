@@ -269,6 +269,27 @@ metadata:
           SRC_ADLS_ARCHVL_PATH: *stgstd
           TGT_ADLS_PATH: *stgstd
           TGT_RJT_ADLS_PATH: *stgstd
+      # post86: path conventions other than path_patterns above (= family
+      # "default": the SD prod rows, the SFMC reference IIG). per_table = one
+      # folder per table under Processed / Reject / Recycle, with a trailing slash,
+      # and the stage -> standard leg's archive inside the table's Processed folder
+      # (all 4 rows of the pair_11 prod golden IIG on D1, both sheets). Which feeds
+      # use a family: path_family_by_source / feed_overrides.<feed>.path_family -
+      # the source names are client terms, so they live in the ACFC overlay
+      # (codegen-state/overlays/acfc_prx.yaml), never here.
+      path_families:
+        per_table:
+          citation: "the pair_11 prod golden IIG (D1 frd_sttm_pairs/pair_11): ADLS_DELTA + STGDELTA rows, 4 of 4"
+          path_patterns:
+            ADLS_DELTA_INGESTION_DETAILS:
+              TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}/"
+              TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{stage_table}/"
+              RECYCL_ADLS_PATH: "/{domain_path}Recycle/{stage_table}/"
+            STGDELTA_STDDELTA_INGESTION_DET:
+              SRC_ADLS_PATH: "/{domain_path}Processed/{stage_table}/"
+              SRC_ADLS_ARCHVL_PATH: "/{domain_path}Processed/{stage_table}/Archive/"
+              TGT_ADLS_PATH: "/{domain_path}Processed/{stage_table}/"
+              TGT_RJT_ADLS_PATH: "/{domain_path}Reject/{stage_table}/"
       # Round 4 (2026-10-12): one notebook row per leg, the framework's generic
       # notebooks, named as TWO independent references name them: the SFMC IIG
       # (fixtures/reference/SFMC_IIG.xlsx DATABRICKS_NOTEBOOK_DETAILS!L2 / L3) and the

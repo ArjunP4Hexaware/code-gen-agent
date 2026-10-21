@@ -5,7 +5,20 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-21, after post85; pushed, nothing queued).** post85 (Nikshit:
+**RESTART HERE (2026-10-21, after post86).** post86 = path families: the pair_11
+golden writes one folder per table (`Reject/<t>/`, `Processed/<t>/`, the stage →
+standard archive inside it), the SD rows / SFMC `Reject/<t>_reject` + `Processed/`.
+`acfc_env.yaml` `path_families.per_table` (shapes + citation); feeds pick it via the
+overlay's `path_family_by_source.<source words>` (client names: overlay only) or
+`feed_overrides.<feed>.path_family`; `metadata_template.with_path_family` in
+`template_tab_rows` + `notebook_paths`; tooltips name the family. The D1 overlay (both
+copies; backup `.bak_20261021_pre_post86`) maps pair_11's source to `per_table`. pair_11:
+the 6 path columns 4 / 4 exact, TOTAL 28.5 → 29.7 (30.0 with the full overlay). CAUTION:
+the overlay key makes post85-or-older code refuse the overlay (extra="forbid"). Still
+open: RECYCL_ADLS_PATH (golden states a recycle no document does); which convention is
+standard — Venu / Nikshit or the corpus shares. Test: `test_path_families.py`.
+
+**After post85 (kept for reference).** post85 (Nikshit:
 "go by the document"): PIPELINE_NAME = the EDO Naming Standards' patterns
 (`acfc_env.yaml`; master `PL_<GMSTR|MSTR>_{product_code}_{sub_product_code}_{source_std}_
 {domain_std}_{subdomain_std}_{lob_std}_{frequency_code}`, child `PL_CHLD_…_RAW_TO_STG_{load_std}`
@@ -69,7 +82,7 @@ Verified at post84: `.venv-d1` full suite 1715 passed / 116 skipped / 0 failed; 
 clean, frontend 86 tests, `dist` rebuilt.
 
 Open (none started):
-- TGT_RJT_ADLS_PATH ≠ golden for all 5 pair_11 feeds (the existing reject derivation).
+- TGT_RJT_ADLS_PATH ≠ golden: done in post86 (path families).
 - Pipeline names (post85, the document): identical child names across feeds, long masters — Nikshit / Venu to judge.
 - EMAIL_TO: no value anywhere (the overlay's default is a D1 placeholder).
 - Raj: the `USE CATALOG` grant (then `app.yaml` back to the volume).

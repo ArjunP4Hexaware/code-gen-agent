@@ -30,6 +30,8 @@ under `metadata.templates.iig_v2.`
 | `feed_overrides.<feed_id>.email_statuses` | That feed's status set; wins over the default and the run's answer for that feed. |
 | `feed_overrides.<feed_id>.src_file_name` | That feed's ADLS `SRC_FILE_NAME` style (below); wins over `family_conventions.src_file_name`. |
 | `feed_overrides.<feed_id>.schema_drift_flag` | post70: that feed's ADLS `SCHEMA_DRIFT_FLAG` (`Y` / `N`); wins over `family_conventions.schema_drift_flag` (the ACFC overlay's default is `N`, post71). Set `Y` where the feed's golden says Y. |
+| `path_family_by_source.<source words>` | post86: the path family (a key of `path_families` in `acfc_env.yaml`, or `default`) for every feed whose FRD source BEGINS with these words (case-insensitive, whole words; the longest key wins). Source names are client terms: they belong here, never in the repo. `per_table` = one folder per table (`Reject/<table>/`, `Processed/<table>/`, the stage → standard archive inside it); `default` = the template's `path_patterns` (SD / SFMC). Each path cell's tooltip names the family used and why. |
+| `feed_overrides.<feed_id>.path_family` | post86: that feed's path family; wins over `path_family_by_source`. |
 | `family_conventions.src_file_name` | The profile's `SRC_FILE_NAME` style: `pattern` (the file pattern as stated), `prefix_star` (the suffix wildcard: name prefix + `*`), `prefix_middle` (leading and middle wildcards: `*` + the name core + `*` + the extension — the leading date-token segments and everything from the first wildcard on dropped). |
 
 `<feed_id>` is the run's feed id (`normalize_feed_name` of the FRD feed name; the

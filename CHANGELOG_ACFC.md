@@ -4,6 +4,55 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post86 — 2026-10-21 (path families: a source's own path convention)
+
+The pair_11 TGT_RJT_ADLS_PATH gap (open since post84) was a convention, not a bug:
+- **pair_11's prod golden** writes one folder per table, on 4 of 4 rows:
+  - `Processed/<table>/` and `Reject/<table>/`;
+  - the stage → standard leg's archive at `Processed/<table>/Archive/`.
+- **The SD prod rows and the SFMC reference IIG** write `Reject/<table>_reject`, and
+  `Processed/` + `Archive/` on the stage → standard leg (round 6).
+- **The pair-1 PRX golden** has a third shape again (`Processed/<table>_reject`).
+
+Changing the shipped shapes would have broken SD to fix pair_11.
+
+1. **`path_families`** (`metadata.templates.<t>.path_families.<name>`: `path_patterns`
+   + a required `citation`):
+   - the shapes a family writes differently; every other cell keeps the template's
+     `path_patterns` (family `default`, reserved);
+   - `acfc_env.yaml` ships `per_table`, from the pair_11 golden.
+2. **Which feeds use one:**
+   - `path_family_by_source.<words>`: the FRD source begins with those words
+     (case-insensitive, whole words; the longest key wins);
+   - `feed_overrides.<feed>.path_family` wins over it;
+   - source names are client terms, so they go in the ACFC overlay only.
+   - An unknown family, a reserved name, a sheet the template lacks, or an empty
+     citation fails when the config loads.
+3. **Applied once per feed** (`metadata_template.with_path_family`), in
+   `template_tab_rows` (every IIG sheet) and `notebook_paths` (the notebook's reject
+   path follows). When a template has families, every path cell's tooltip names the
+   family and why, `default` included.
+4. **The D1 overlay** (volume + the App's workspace copy) maps pair_11's source to
+   `per_table`.
+
+**On pair_11** (mock container harness, state = environments + the post86 overlay
+line only):
+- **The fixed cells:** ADLS TGT_ADLS_PATH / TGT_RJT_ADLS_PATH and STGDELTA SRC_ADLS_PATH
+  / SRC_ADLS_ARCHVL_PATH / TGT_ADLS_PATH / TGT_RJT_ADLS_PATH are 4 / 4 exact (were 16
+  mismatched + 8 normalized).
+- **Score and outcome:** TOTAL 28.5 → 29.7; outcome and open lines unchanged
+  (`run.email_to` only); leak gate clean.
+- **Without the overlay line** the feeds get `default`, the shapes as before.
+
+**Still open:**
+- RECYCL_ADLS_PATH (4 rows): the golden states a recycle that no document we read
+  does, so the cell is NA (recycle detection, not a shape).
+- A new feed of a source the overlay does not map gets `default`; its tooltip says so.
+- Which convention is the standard (or whether it varies by source) is for
+  Venu / Nikshit; the corpus's shares (D1 `patterns.json`) would answer it too.
+
+**Tests:** `test_path_families.py`.
+
 ## 0.5.8.post85 — 2026-10-21 (pipeline names: the EDO Naming Standards document)
 
 Nikshit (2026-10-21), on the Naming Standards vs the prod IIG: "yes it would [be]

@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from codegen.config import Config, MetadataTemplateConfig, is_placeholder
+from codegen.config import PATH_FAMILY_DEFAULT, Config, MetadataTemplateConfig, is_placeholder
 from codegen.contracts.frd import FrdFeed
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
@@ -637,6 +637,7 @@ def notebook_paths(tpl: MetadataTemplateConfig,
     from codegen.emit.notebook_env import LANDING_TAB, PATHS
 
     stage = _detail_group(_table_groups(spec)).stage
+    tpl = with_path_family(tpl, spec.feed_id, spec.source_system)
     cells = _paths(tpl, LANDING_TAB, _LandingOnly(spec.landing_location), stage.table,
                    _reject_table(tpl, spec, stage.table))
     consts = tpl.constants.get(LANDING_TAB, {})
@@ -1051,6 +1052,52 @@ def _feed_override(tpl: MetadataTemplateConfig, feed_id: str | None):
     if not feed_id:
         return None
     return next((o for k, o in tpl.feed_overrides.items() if k.lower() == feed_id.lower()), None)
+
+
+def _source_starts_with(source: str | None, words: str) -> bool:
+    """``words`` begin ``source`` (case-insensitive, ending on a word boundary)."""
+    pattern = r"\s*" + r"\s+".join(re.escape(w) for w in words.split()) + r"(?![A-Za-z0-9])"
+    return bool(words.strip()) and re.match(pattern, source or "", re.IGNORECASE) is not None
+
+
+def path_family(tpl: MetadataTemplateConfig, feed_id: str | None,
+                source: str | None) -> tuple[str, str]:
+    """post86: (family, why) for a feed's path cells — its
+    ``feed_overrides.<feed>.path_family``, else the longest
+    ``path_family_by_source`` key that begins the FRD's source, else the
+    template's own path_patterns (``default``)."""
+    override = _feed_override(tpl, feed_id)
+    if override is not None and override.path_family is not None:
+        return override.path_family, f"feed_overrides.{feed_id}.path_family"
+    matches = [k for k in tpl.path_family_by_source if _source_starts_with(source, k)]
+    if matches:
+        key = max(matches, key=len)
+        return tpl.path_family_by_source[key], "path_family_by_source (the FRD's source)"
+    return PATH_FAMILY_DEFAULT, "no feed override or source names another"
+
+
+def with_path_family(tpl: MetadataTemplateConfig, feed_id: str | None,
+                     source: str | None) -> MetadataTemplateConfig:
+    """post86: ``tpl`` with the feed's path family applied: the family's shapes
+    over ``path_patterns``, and every path cell's citation naming the family and
+    why. Unchanged when the template configures no path families."""
+    if not tpl.path_families:
+        return tpl
+    name, why = path_family(tpl, feed_id, source)
+    family = tpl.path_families.get(name)
+    patterns = {tab: dict(shapes) for tab, shapes in tpl.path_patterns.items()}
+    citations: dict[str, dict[str, str]] = {}
+    for tab, shapes in patterns.items():
+        for header in shapes:
+            base = tpl.path_citations.get(tab, {}).get(header) or tpl.citation
+            citations.setdefault(tab, {})[header] = f"{base} — path family {name} ({why})"
+    if family is not None:
+        for tab, shapes in family.path_patterns.items():
+            for header, shape in shapes.items():
+                patterns.setdefault(tab, {})[header] = shape
+                citations.setdefault(tab, {})[header] = (
+                    f"path family {name} ({why}): {family.citation}")
+    return tpl.model_copy(update={"path_patterns": patterns, "path_citations": citations})
 
 
 def _prefix_middle(pattern: str, tokens: list[str] | None, bound: list[str] | None) -> str:
@@ -2604,6 +2651,7 @@ def template_tab_rows(tab: str, feed: FrdFeed, config: Config, spec: ResolvedFee
         from codegen.environments import apply_environment
 
         tpl = apply_environment(tpl, config)
+    tpl = with_path_family(tpl, _feed_key(feed, spec), feed.source_system)
     if builder is _stg_std:
         return builder(tab, feed, config, spec, faq, tpl, profile=profile)
     return builder(tab, feed, config, spec, faq, tpl)

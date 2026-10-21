@@ -1594,6 +1594,26 @@ class FeedOverrideConfig(BaseModel):
     # post70: the ADLS SCHEMA_DRIFT_FLAG for this feed (a golden that says N where
     # the family default is Y, or the other way round); None = the family's.
     schema_drift_flag: Literal["Y", "N"] | None = None
+    # post86: the path family this feed's path cells use (a key of the template's
+    # path_families); wins over path_family_by_source. None = by source, else default.
+    path_family: str | None = None
+
+
+# post86: the name of the template's own path_patterns as a path family.
+PATH_FAMILY_DEFAULT = "default"
+
+
+class PathFamilyConfig(BaseModel):
+    """post86: one path convention (``metadata.templates.<t>.path_families.<name>``)
+    - the path shapes a source family writes differently from the template's
+    ``path_patterns`` ({tab: {header: shape}}, same placeholders); a header it
+    does not name keeps the template's shape. ``citation`` = where the
+    convention was seen (required: a shape is never a guess)."""
+
+    model_config = _MODEL_CONFIG
+
+    path_patterns: dict[str, dict[str, str]]
+    citation: str = Field(min_length=1)
 
 
 class RunEnvironment(BaseModel):
@@ -1723,6 +1743,13 @@ class MetadataTemplateConfig(BaseModel):
     # tab -> header -> path shape with {landing} {stage_table} {reject_table}
     # (the golden spells the archive path differently per sheet).
     path_patterns: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # post86: path conventions other than path_patterns (the default), by name,
+    # and which feeds use one: path_family_by_source maps the leading words of
+    # the FRD's source (case-insensitive, whole words; the longest match wins)
+    # to a family; feed_overrides.<feed>.path_family wins over it. The source
+    # names are client terms - they go in the ACFC overlay, never here.
+    path_families: dict[str, PathFamilyConfig] = Field(default_factory=dict)
+    path_family_by_source: dict[str, str] = Field(default_factory=dict)
     # post74 (D1 post73 pair_11): the landing a document does not state - the
     # family's convention over {domain} {sub_domain} {source}, container-relative
     # as SRC_ADLS_PATH is written. An agent_proposal: SHOWN with the
@@ -1826,6 +1853,26 @@ class MetadataTemplateConfig(BaseModel):
             if both:
                 raise ValueError(f"open_offers.{tab}: {', '.join(both)} also a constant — an "
                                  "offered (open) cell is never filled")
+        return self
+
+    @model_validator(mode="after")
+    def _path_families_known(self) -> MetadataTemplateConfig:
+        if PATH_FAMILY_DEFAULT in self.path_families:
+            raise ValueError(f"path_families.{PATH_FAMILY_DEFAULT}: reserved - the default is "
+                             "the template's own path_patterns")
+        names = set(self.path_families) | {PATH_FAMILY_DEFAULT}
+        for name, family in self.path_families.items():
+            unknown = sorted(set(family.path_patterns) - set(self.tabs))
+            if unknown:
+                raise ValueError(f"path_families.{name}: {', '.join(unknown)} not a sheet of "
+                                 "this template")
+        named = [(f"path_family_by_source.{k}", v) for k, v in self.path_family_by_source.items()]
+        named += [(f"feed_overrides.{k}.path_family", o.path_family)
+                  for k, o in self.feed_overrides.items() if o.path_family is not None]
+        for where, value in named:
+            if value not in names:
+                raise ValueError(f"{where}: {value!r} is not a path family "
+                                 f"({', '.join(sorted(names))})")
         return self
 
 

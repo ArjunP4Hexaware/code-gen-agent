@@ -1,9 +1,13 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post82)
+## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post83)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
+
+**post83 (2026-10-21):** every status-returning POST (`input-choices`, `run-live`,
+`layout-answers`, `layout-refresh`) returns `main.demo_status()` — the bare runner status
+lacked mode / label, so "View results" fell back to `load-live-run` (a full re-run).
 
 **post82 (2026-10-21):** the App's feed summary carries `notebook` (feed-relative path;
 v2 = `notebook/<slug>.ipynb`, the old `<slug>.ipynb` lookup missed it); the results page

@@ -520,7 +520,7 @@ def run_live(req: LiveRunRequest) -> dict:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:  # nothing selected under Output
         raise HTTPException(400, str(exc)) from exc
-    return _require_runner().status()
+    return demo_status()
 
 
 class VddSelectRequest(BaseModel):
@@ -582,7 +582,7 @@ def layout_answers(req: LayoutAnswersRequest) -> dict:
         raise HTTPException(400, str(exc)) from exc
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
-    return runner.status()
+    return demo_status()
 
 
 class InputChoicesRequest(BaseModel):
@@ -595,11 +595,13 @@ def confirm_input_choices(req: InputChoicesRequest) -> dict:
     key>": {"choice": "use_default" | "naming_standard" | "leave_blank",
     "standard": "<template>"} | null}}``. Recorded, never applied until the next
     Generate (proposed is not applied). 400 on an unknown choice / placeholder."""
-    runner = _require_runner()
+    # post83: the FULL status (mode / label included), as GET /api/demo/status —
+    # the bare runner status made "View results" fall back to load-live-run (a re-run)
     try:
-        return runner.confirm_input_choices(req.choices)
+        _require_runner().confirm_input_choices(req.choices)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    return demo_status()
 
 
 class Layer2Request(BaseModel):
@@ -668,7 +670,7 @@ def layout_refresh(req: LayoutRefreshRequest) -> dict:
         runner.set_layout_refresh(req.enabled)
     except LiveRunInProgress as exc:
         raise HTTPException(409, str(exc)) from exc
-    return runner.status()
+    return demo_status()
 
 
 class LayoutAdviceRequest(BaseModel):

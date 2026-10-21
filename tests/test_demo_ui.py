@@ -255,6 +255,20 @@ def test_re_resolve_layout_is_a_one_shot_refresh_before_a_run_and_from_the_dialo
     assert calls[2]["refresh"] is True and calls[2]["answers"]["sttm"] == {}
 
 
+def test_status_returning_posts_carry_the_full_status(client):
+    """post83: a POST that answers with the status returns the SAME shape as
+    GET /api/demo/status — mode / label included. Confirm on the inputs panel
+    returned the runner's bare status, so "View results" (keyed on mode +
+    label) fell back to load-live-run: a full re-run, seconds of lag."""
+    full = client.get("/api/demo/status").json()
+    for path, body in (("/api/demo/input-choices", {"choices": {}}),
+                       ("/api/demo/layout-refresh", {"enabled": False})):
+        got = client.post(path, json=body)
+        assert got.status_code == 200, path
+        assert set(got.json()) == set(full), path
+        assert (got.json()["mode"], got.json()["label"]) == (full["mode"], full["label"])
+
+
 def test_layout_refresh_endpoint(client):
     r = client.post("/api/demo/layout-refresh", json={"enabled": True})
     assert r.status_code == 200 and r.json()["layout_refresh"] is True

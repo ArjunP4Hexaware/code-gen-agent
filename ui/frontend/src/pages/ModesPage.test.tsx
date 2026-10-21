@@ -143,6 +143,19 @@ describe("blocking questions and the layout dialog", () => {
     expect(target.scrollIntoView).toHaveBeenCalled();
   });
 
+  it("View results on the run just adopted navigates without reloading it (post83)",
+    async () => {
+      withStatus({ outcome: "PASS_WITH_OPEN_INPUTS", last_run_label: "demo_x",
+                   label: "demo_x", mode: "live" });
+      ROUTES["GET /api/feeds"] = () => json(200, { feeds: [], failures: [], mode: "live",
+                                                    label: "demo_x" });
+      await renderPage();
+      await act(async () => { button("View results →").click(); });
+      const posts = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+      expect(posts.some((u) => u.includes("/api/demo/load-live-run"))).toBe(false);
+      delete ROUTES["GET /api/feeds"];
+    });
+
   it("a run without one still offers View results", async () => {
     withStatus({ outcome: "PASS_WITH_OPEN_INPUTS", last_run_label: "demo_x" });
     await renderPage();

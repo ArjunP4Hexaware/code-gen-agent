@@ -4,6 +4,26 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post83 — 2026-10-21 (View results no longer re-runs the run after a Confirm)
+
+Soham: "View results" lagged several seconds. The App logs showed it calling
+`POST /api/demo/load-live-run` (≈3 s: the run rebuilt from disk, every feed regenerated)
+instead of showing the run already in memory.
+
+- "View results" takes the fast path only when the page's status says `mode: live` and
+  `label == last_run_label`. `POST /api/demo/input-choices` (the Confirm of "Change
+  defaults" / "Change pipeline names") returned the runner's bare status, without
+  `mode` / `label` (only `GET /api/demo/status` added them). Polling has stopped once the
+  run is done, so the page kept that status and the next click fell back to
+  `load-live-run`. It showed up now because post79 / post81 put those Confirm buttons on
+  the finished-run screen.
+- Fix: `input-choices`, `run-live`, `layout-answers` and `layout-refresh` all return the
+  same full status as `GET /api/demo/status` (`ui/backend/main.demo_status`).
+
+**Tests:** `test_demo_ui.py` (every status-returning POST has the GET's shape, mode /
+label included), `ModesPage.test.tsx` (View results on the adopted run never calls
+`load-live-run`).
+
 ## 0.5.8.post82 — 2026-10-21 (the notebook one click from the results, never behind Layer 2)
 
 Soham: the App's notebook could be reached only through the feed page, beside the

@@ -140,6 +140,7 @@ export function Dashboard({
   const feeds = data?.feeds ?? [];
   const byVerdict = (v: string) => feeds.filter((f) => f.verdict === v).length;
   const pending = feeds.reduce((n, f) => n + f.candidates_pending, 0);
+  const notebooks = feeds.filter((f) => f.notebook);
   const deferred = feeds.filter(
     (f) => f.layer2?.review_candidates === "pending" && f.layer2.rules,
   );
@@ -233,14 +234,37 @@ export function Dashboard({
         />
       </div>
 
+      {/* post81: the notebooks one click from the results — never behind Layer 2 */}
+      {notebooks.length ? (
+        <div className="panel" style={{ marginTop: 18 }} aria-label="notebooks">
+          <div className="panel-head">
+            <h2>Notebooks</h2>
+            <span className="hint">ready to download — the Layer-2 review is optional</span>
+          </div>
+          <div className="panel-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {notebooks.map((f) => (
+              <a
+                key={f.feed_slug}
+                className="btn"
+                href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(f.notebook!)}`}
+                download
+              >
+                {f.notebook!.slice(f.notebook!.lastIndexOf("/") + 1)}
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {deferred.length ? (
         <div className="panel" style={{ marginTop: 18 }}>
           <div className="panel-head">
             <h2>Layer-2 review</h2>
             <span className="hint">
               review candidates: pending — {deferred.reduce((n, f) => n + f.layer2!.rules, 0)}{" "}
-              unmapped rule(s) over {deferred.length} feed(s); the outcome and files are already
-              written
+              unmapped rule(s) over {deferred.length} feed(s). Optional: the notebooks, DDL and
+              IIG are already written and downloadable; asking adds the model's review
+              candidates (and the notebook's trailing review cell)
             </span>
           </div>
           <div className="panel-body">

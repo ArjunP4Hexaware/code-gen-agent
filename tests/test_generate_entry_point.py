@@ -161,3 +161,20 @@ def test_a_landing_answered_in_the_app_writes_the_notebook(app, tmp_path):
     assert not [b for b in app.status()["blocking"] if b["key"] == key]
     assert list((tmp_path / "second" / specs[0].feed_slug).rglob("*.ipynb"))
 
+
+
+def test_the_summary_names_the_notebook_where_it_was_written():
+    """post81: the App's feed summary carries the notebook's feed-relative path —
+    v2 writes notebook/<slug>.ipynb, which the old <slug>.ipynb lookup missed."""
+    from types import SimpleNamespace
+
+    pytest.importorskip("fastapi")
+    from ui.backend.main import _notebook_path
+
+    def run(*files):
+        return SimpleNamespace(spec=SimpleNamespace(feed_slug="syn_a"), written_files=list(files))
+
+    assert _notebook_path(run("out/syn_a/notebook/syn_a.py",
+                              "out/syn_a/notebook/syn_a.ipynb")) == "notebook/syn_a.ipynb"
+    assert _notebook_path(run("/tmp/x/syn_a/syn_a.ipynb")) == "syn_a.ipynb"     # v1
+    assert _notebook_path(run("out/syn_a/framework/SYN_DDL.txt")) is None

@@ -250,6 +250,18 @@ def _decision_for(feed_slug: str, index: int, decisions: dict) -> dict:
     return entry if entry else {"decision": "pending", "note": None}
 
 
+def _notebook_path(run: FeedRun) -> str | None:
+    """post81: the written notebook, relative to the feed dir (what the file /
+    download routes take) — v1 ``<slug>.ipynb``, v2 ``notebook/<slug>.ipynb``;
+    None when none was written (framework only, or a blocking line withheld it)."""
+    marker = f"/{run.spec.feed_slug}/"
+    for path in run.written_files:
+        at = path.find(marker)
+        if path.endswith(".ipynb") and at >= 0:
+            return path[at + len(marker):]
+    return None
+
+
 def _summary(run: FeedRun, decisions: dict) -> dict:
     spec, gate = run.spec, run.gate
     counts = Counter(o.classification for o in run.outcomes)
@@ -276,6 +288,8 @@ def _summary(run: FeedRun, decisions: dict) -> dict:
         "candidate_count": len(run.candidates),
         "candidates_pending": pending,
         "files_written": len(run.written_files),
+        # post81: where the notebook is (the dashboard links it; no Layer-2 step)
+        "notebook": _notebook_path(run),
         "framework": run.framework,
         # post76: {mode, review_candidates: pending | done | skipped | none, rules}
         "layer2": run.layer2,

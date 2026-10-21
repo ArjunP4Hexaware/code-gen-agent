@@ -65,7 +65,9 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
   if (!feed) return <div className="empty">Loading…</div>;
 
   // Framework mode emits no notebook — hide the tab rather than 404 it.
-  const hasNotebook = feed.written_files.some((f) => f.endsWith(".ipynb"));
+  // post81: the path the run wrote (v2 = notebook/<slug>.ipynb), from the backend
+  const notebook = feed.notebook ?? null;
+  const hasNotebook = notebook !== null;
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "rules", label: "Rules", count: feed.rule_total },
@@ -118,7 +120,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
       {tab === "candidates" && (
         <CandidatesTab feed={feed} onDecided={() => { load(); onFeedsChanged(); }} />
       )}
-      {tab === "notebook" && <NotebookTab slug={feed.feed_slug} />}
+      {tab === "notebook" && notebook && <NotebookTab slug={feed.feed_slug} path={notebook} />}
       {tab === "code" && <CodeTab feed={feed} />}
       {tab === "report" && <ReportTab slug={feed.feed_slug} />}
     </>
@@ -492,31 +494,32 @@ function CandidatesTab({ feed, onDecided }: { feed: FeedDetail; onDecided: () =>
 
 /* ---------- Notebook ---------- */
 
-function NotebookTab({ slug }: { slug: string }) {
+function NotebookTab({ slug, path }: { slug: string; path: string }) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     setContent(null);
     api
-      .file(slug, `${slug}.ipynb`)
+      .file(slug, path)
       .then((r) => setContent(r.content))
       .catch((e) => setError(e));
-  }, [slug]);
+  }, [slug, path]);
   if (error) return <ErrorCard error={error} title="This view could not be loaded." />;
   if (content === null) return <div className="empty">Loading notebook…</div>;
   return (
     <div className="panel">
       <div className="panel-head">
         <h2>
-          <code>{slug}.ipynb</code>
+          <code>{name}</code>
         </h2>
         <span className="hint">
           the whole pipeline as one runnable Databricks notebook — the module files stay canonical
         </span>
         <DownloadButton
-          href={downloadHref(slug, `${slug}.ipynb`)}
+          href={downloadHref(slug, path)}
           label="Download .ipynb"
-          title={`Download ${slug}.ipynb — the whole pipeline as one notebook`}
+          title={`Download ${name} — the whole pipeline as one notebook`}
         />
       </div>
       <div className="panel-body">
@@ -566,17 +569,17 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
     dirs.set(dir, [...(dirs.get(dir) ?? []), f]);
   }
 
-  const hasNotebook = feed.written_files.some((f) => f.endsWith(".ipynb"));
+  const notebook = feed.notebook ?? null;
 
   return (
     <div className="panel">
       <div className="code-toolbar">
         <span className="hint">{files.length} file(s)</span>
-        {hasNotebook ? (
+        {notebook ? (
           <DownloadButton
-            href={downloadHref(feed.feed_slug, `${feed.feed_slug}.ipynb`)}
+            href={downloadHref(feed.feed_slug, notebook)}
             label="Download .ipynb"
-            title={`Download ${feed.feed_slug}.ipynb — the whole pipeline as one notebook`}
+            title={`Download ${notebook} — the whole pipeline as one notebook`}
           />
         ) : null}
       </div>

@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post82 — 2026-10-21 (the notebook one click from the results, never behind Layer 2)
+
+Soham: the App's notebook could be reached only through the feed page, beside the
+"Layer-2 review" tab and under an "Ask the model (5 request(s))" panel — so deferring
+Layer 2 looked like deferring the notebooks too.
+
+1. **The notebook tab looked in the wrong place.** Notebook v2 (acfc_prx) writes
+   `<feed>/notebook/<slug>.ipynb`; the feed page's Notebook tab and both "Download
+   .ipynb" buttons asked for `<slug>.ipynb` at the feed root (v1's place), so they
+   could not find it. The App's feed summary now carries `notebook` (the path the run
+   wrote, relative to the feed dir; `ui/backend/main._notebook_path`), and the page
+   uses it.
+2. **A "Notebooks" panel on the results page**: one download per written notebook,
+   above the Layer-2 panel ("ready to download — the Layer-2 review is optional").
+3. **The Layer-2 panel says it is optional**: the notebooks, DDL and IIG are already
+   written; asking adds the review candidates and the notebook's trailing review cell
+   (nothing else in the notebook changes — `notebook_v2.with_review`).
+
+**Tests:** `Dashboard.test.tsx` (the panel and its path), `test_generate_entry_point.py`
+(`_notebook_path` for v1 / v2 / none).
+
 ## 0.5.8.post81 — 2026-10-21 (defaults written unasked; one "Change defaults" button)
 
 Soham, after the deployed post80 App run of the Pyx pair asked 32 questions: those should

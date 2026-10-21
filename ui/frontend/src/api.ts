@@ -35,6 +35,9 @@ export interface FeedSummary {
   candidate_count: number;
   candidates_pending: number;
   files_written: number;
+  // post81: the written notebook relative to the feed dir (v2: notebook/<slug>.ipynb);
+  // null when none was written
+  notebook?: string | null;
   framework: FrameworkSummary | null;
   // post76: the Layer-2 stage (after the outcome); review_candidates "pending"
   // until the review panel asks (POST /api/demo/layer2)

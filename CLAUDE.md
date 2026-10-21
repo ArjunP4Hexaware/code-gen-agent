@@ -5,8 +5,11 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**After post89 (2026-10-21; pushed, nothing queued) — App clean-up, details in
-`CHANGELOG_ACFC.md`.** post87: the framework-assigned-IDs line once per run
+**After post90 (2026-10-21; pushed, nothing queued) — App clean-up, details in
+`CHANGELOG_ACFC.md`.** post90: `GET /api/notebooks.zip` + a "Download all" button
+(each notebook as-is + README.txt naming feeds without one); a wrapper notebook was
+assessed and NOT built (client master pipelines own orchestration; mixed frequencies;
+re-run duplicates). post87: the framework-assigned-IDs line once per run
 (`artefacts.ts blankIdColumns`). post88: the sidebar hides / shows
 (`components/CollapsibleSidebar.tsx`, localStorage `codegen.sidebar.open`). post89: no
 per-feed summary line in the Framework artefacts panel; REVIEW_SUMMARY gets one row per

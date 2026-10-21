@@ -14,7 +14,8 @@ overlay's `path_family_by_source.<source words>` (client names: overlay only) or
 `template_tab_rows` + `notebook_paths`; tooltips name the family. The D1 overlay (both
 copies; backup `.bak_20261021_pre_post86`) maps pair_11's source to `per_table`. pair_11:
 the 6 path columns 4 / 4 exact, TOTAL 28.5 → 29.7 (30.0 with the full overlay). CAUTION:
-the overlay key makes post85-or-older code refuse the overlay (extra="forbid"). Still
+the overlay key makes post85-or-older code refuse the overlay (extra="forbid") - the next
+App redeploy must be post86 or later. Still
 open: RECYCL_ADLS_PATH (golden states a recycle no document does); which convention is
 standard — Venu / Nikshit or the corpus shares. Test: `test_path_families.py`.
 
@@ -82,7 +83,6 @@ Verified at post84: `.venv-d1` full suite 1715 passed / 116 skipped / 0 failed; 
 clean, frontend 86 tests, `dist` rebuilt.
 
 Open (none started):
-- TGT_RJT_ADLS_PATH ≠ golden: done in post86 (path families).
 - Pipeline names (post85, the document): identical child names across feeds, long masters — Nikshit / Venu to judge.
 - EMAIL_TO: no value anywhere (the overlay's default is a D1 placeholder).
 - Raj: the `USE CATALOG` grant (then `app.yaml` back to the volume).

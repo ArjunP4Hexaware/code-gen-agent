@@ -5,6 +5,17 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
+**After post89 (2026-10-21; pushed, nothing queued) — App clean-up, details in
+`CHANGELOG_ACFC.md`.** post87: the framework-assigned-IDs line once per run
+(`artefacts.ts blankIdColumns`). post88: the sidebar hides / shows
+(`components/CollapsibleSidebar.tsx`, localStorage `codegen.sidebar.open`). post89: no
+per-feed summary line in the Framework artefacts panel; REVIEW_SUMMARY gets one row per
+sheet empty by rule (`iig_review.empty_by_rule_*`). A browser check works in this
+container: Chromium in `/tmp/pw` + its libs unpacked in `/tmp/pwlibs` (LD_LIBRARY_PATH,
+no root; session scratch). `test_storage_ui.py::test_an_unreachable_root_is_reported_not_fatal`
+failed once with both suites run in parallel and passes alone (timing). The App must be
+redeployed at post86+ to show any of post81–89.
+
 **RESTART HERE (2026-10-21, after post86).** post86 = path families: the pair_11
 golden writes one folder per table (`Reject/<t>/`, `Processed/<t>/`, the stage →
 standard archive inside it), the SD rows / SFMC `Reject/<t>_reject` + `Processed/`.

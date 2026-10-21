@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post89 — 2026-10-21 (App: no per-feed summary line; empty sheets explained in the review copy)
+
+Soham: the line after each feed name in the Framework artefacts panel ("8 sheets · 15
+rows · 2 open inputs (0 blocking) · empty by rule: FILE_ADLS (MFT), FIXED_WIDTH
+(delimited)") need not be visible to the client. Assessment:
+- the sheet / row counts decide nothing (every iig_v2 feed has 8 sheets);
+- the open-input count added the run-level lines to EVERY feed (one `run.email_to`
+  counted once per feed: the post66 open item), and the inputs are answered in the
+  inputs panel and listed in the review copy anyway;
+- only "empty by rule" helps, and the review copy the BSA approves did not carry it (its
+  summary lists open cells; an empty sheet has none).
+
+1. **The App:** the line is gone (`artefacts.ts reviewSummary` and its tests removed); a
+   feed shows its name and its downloads. The API fields (`framework.open`,
+   `framework.empty_by_rule`) are unchanged.
+2. **The review copy:** `REVIEW_SUMMARY` gets one row per sheet left empty by rule:
+   - the columns: sheet, `empty by rule (no rows expected)`, owner `no action`, 0 cells,
+     and the reason in plain words;
+   - the wording: config `iig_review.empty_by_rule_label` / `empty_by_rule_owner` /
+     `empty_by_rule_reasons`;
+   - the reasons: MFT landing → FILE_ADLS; delimited file → the fixed-width handler.
+   ADDITION.md's description of the review copy says so. The clean IIG is unchanged.
+
+**On pair_11** (mock harness): both rows are written for every feed; outcome, open lines
+and leak gate unchanged.
+
+**Tests:** `test_review_summary.py::test_the_review_copy_says_why_a_sheet_is_empty`;
+`test_iig_review.py`'s open-cell inventory skips the new rows; frontend 90 tests;
+`dist` rebuilt.
+
 ## 0.5.8.post88 — 2026-10-21 (App: the sidebar can be hidden and shown again)
 
 Soham: a button to collapse the dark sidebar and another to bring it back

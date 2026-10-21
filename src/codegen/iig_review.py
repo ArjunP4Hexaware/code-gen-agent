@@ -185,9 +185,12 @@ def clean_workbook(payload: dict) -> Workbook:
     return workbook
 
 
-def review_workbook(payload: dict, cells: list[OpenCell], config: Config) -> Workbook:
+def review_workbook(payload: dict, cells: list[OpenCell], config: Config,
+                    empty_by_rule: dict[str, str] | None = None) -> Workbook:
     """Summary sheet first, then the template sheets with open cells
-    highlighted by owner and commented (reason, citation, owner)."""
+    highlighted by owner and commented (reason, citation, owner). post89: a
+    sheet in ``empty_by_rule`` ({sheet: reason}) gets one summary row saying why
+    it has no rows."""
     review = config.iig_review
     workbook = _new_workbook()
     summary = workbook.create_sheet(title=review.summary_sheet)
@@ -198,6 +201,9 @@ def review_workbook(payload: dict, cells: list[OpenCell], config: Config) -> Wor
         summary.append([group["sheet"], group["column"], review.reason_labels[group["reason"]],
                         review.owner_labels[group["owner"]], group["cells"],
                         group["example_cell"], group["example_citation"]])
+    for sheet, reason in (empty_by_rule or {}).items():
+        summary.append([sheet, "", review.empty_by_rule_label, review.empty_by_rule_owner, 0,
+                        "", review.empty_by_rule_reasons.get(reason, reason)])
     _template_sheets(workbook, payload)
     for cell in cells:
         target = workbook[cell.sheet].cell(row=cell.row, column=cell.col)
@@ -211,8 +217,9 @@ def review_workbook(payload: dict, cells: list[OpenCell], config: Config) -> Wor
 
 
 def write_iig_workbooks(payload: dict, always_blank: list[str], config: Config,
-                        framework_dir: Path, feed: str,
-                        template: str) -> tuple[Path, Path, list[OpenCell]]:
+                        framework_dir: Path, feed: str, template: str,
+                        empty_by_rule: dict[str, str] | None = None,
+                        ) -> tuple[Path, Path, list[OpenCell]]:
     """Write the review copy and the clean copy; return their paths + the
     open cells (for the report / tests)."""
     from codegen.metadata_sheet import stable_workbook_bytes
@@ -221,7 +228,8 @@ def write_iig_workbooks(payload: dict, always_blank: list[str], config: Config,
     cells = open_cells(payload, always_blank, config, template)
     review_path = framework_dir / review.review_file_pattern.format(feed=feed)
     clean_path = framework_dir / review.clean_file_pattern.format(feed=feed)
-    review_path.write_bytes(stable_workbook_bytes(review_workbook(payload, cells, config)))
+    review_path.write_bytes(stable_workbook_bytes(review_workbook(payload, cells, config,
+                                                                  empty_by_rule)))
     clean_path.write_bytes(stable_workbook_bytes(clean_workbook(payload)))
     return review_path, clean_path, cells
 

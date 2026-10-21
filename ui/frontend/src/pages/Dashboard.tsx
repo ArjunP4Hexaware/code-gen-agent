@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
-import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts, reviewSummary } from "../artefacts";
+import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts } from "../artefacts";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { StatTile } from "../components/StatTile";
@@ -304,8 +304,7 @@ export function Dashboard({
             {framed.map((f, i) => (
               <div key={f.feed_slug} style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 650, marginBottom: 4 }}>
-                  <code>{f.feed_slug}</code>{" "}
-                  <span className="hint">{reviewSummary(f.framework!)}</span>
+                  <code>{f.feed_slug}</code>
                 </div>
                 {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
                     ADDITION.md — the other files are still written, not listed */}

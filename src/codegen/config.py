@@ -2130,6 +2130,16 @@ class IigReviewConfig(BaseModel):
         "template_constant": "template constant (confirm against the framework)",
         "flagged_note": "flagged by the derivation (see note)",
         "additional_dq_rules": "additional DQ rules (not generated)"})
+    # post89: a sheet left EMPTY by rule (headers only) gets one summary row, so the
+    # BSA reading the review copy knows the empty sheet is expected:
+    # [sheet, "", empty_by_rule_label, empty_by_rule_owner, 0, "", the reason's text].
+    # Keys of empty_by_rule_reasons = the reasons framework.py records.
+    empty_by_rule_label: str = "empty by rule (no rows expected)"
+    empty_by_rule_owner: str = "no action"
+    empty_by_rule_reasons: dict[str, str] = Field(default_factory=lambda: {
+        "MFT": "the file lands by MFT; MFT-landed feeds have no FILE_ADLS rows",
+        "delimited": "a delimited file; the fixed-width handler applies only to "
+                     "fixed-width files"})
 
     @model_validator(mode="after")
     def _complete(self) -> IigReviewConfig:

@@ -79,6 +79,8 @@ def _owner_totals(dirs: list[Path]) -> tuple[dict, int]:
     for framework in dirs:
         summary = load_workbook(_only(framework, "_IIG_REVIEW.xlsx"))["REVIEW_SUMMARY"]
         for row in summary.iter_rows(min_row=2, values_only=True):
+            if row[2] == IigReviewConfig().empty_by_rule_label:
+                continue                    # post89: an empty sheet's row, not open cells
             totals[row[3]] += row[4]
             groups += 1
     return dict(totals), groups

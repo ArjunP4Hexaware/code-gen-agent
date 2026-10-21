@@ -939,7 +939,8 @@ def emit_framework(
         from codegen.iig_review import write_iig_workbooks
 
         review_path, clean_path, _open = write_iig_workbooks(
-            payload, blank_list, config, framework_dir, spec.feed_slug, template_name)
+            payload, blank_list, config, framework_dir, spec.feed_slug, template_name,
+            empty_by_rule)
         files.extend([review_path, clean_path])
         review_name, clean_name = review_path.name, clean_path.name
         iig_rows = _iig_addition_rows(review_name, clean_name, config)
@@ -1019,7 +1020,8 @@ def _iig_addition_rows(review_name: str, clean_name: str, config: Config) -> str
         "only — the file the BSA certifies and the CI/CD pipeline loads. |"
         f"\n| `{review_name}` | The BSA's review copy of the IIG: sheet "
         f"`{config.iig_review.summary_sheet}` first (one row per sheet / column / "
-        "reason / owner group), then the template sheets with every open cell "
+        "reason / owner group, and one row per sheet left empty by rule saying why), "
+        "then the template sheets with every open cell "
         "highlighted by owner and commented with its reason, citation and owner. |"
     )
 

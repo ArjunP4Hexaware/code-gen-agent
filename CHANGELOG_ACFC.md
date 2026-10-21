@@ -4,6 +4,38 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post90 — 2026-10-21 (App: download every notebook in one zip)
+
+Soham asked for a final notebook wrapping every feed. Assessed first:
+- orchestration belongs to the client's master pipelines (`PL_GMSTR` / `PL_MSTR`; "the
+  master notebook is ACFC's own");
+- the feeds don't share a schedule (pair_11: 3 Weekly, 2 Monthly);
+- a failed wrapper re-run would re-load the feeds that had succeeded (append = duplicate
+  rows);
+- withheld notebooks would go unseen;
+- pasting the notebooks together would let one feed's names overwrite another's;
+- a wrapper has no contract of its own to put in a provenance banner.
+
+His choice: a zip of the notebooks, which needs none of those decisions.
+
+1. **`GET /api/notebooks.zip`** (`ui/backend/main.py notebooks_zip_bytes`):
+   - every written `.ipynb` of the loaded run, at the zip root, byte-identical to the
+     generated file, in feed order;
+   - plus `README.txt`, listing them and naming each feed that has no notebook
+     (framework only, or withheld by a blocking question);
+   - fixed entry timestamps (the same run gives the same bytes); 404 when the run wrote
+     no notebook.
+2. **The Notebooks panel:** a "Download all (<n>) .zip" button before the per-feed
+   buttons, when there is more than one notebook.
+
+**Checked:**
+- pair_11's 5 real notebooks zipped: each entry is valid nbformat and identical to its
+  generated file;
+- the panel screenshotted in headless Chromium.
+
+**Tests:** `test_notebooks_zip.py` (4); `Dashboard.test.tsx` (zip button); frontend
+91 tests; `dist` rebuilt.
+
 ## 0.5.8.post89 — 2026-10-21 (App: no per-feed summary line; empty sheets explained in the review copy)
 
 Soham: the line after each feed name in the Framework artefacts panel ("8 sheets · 15

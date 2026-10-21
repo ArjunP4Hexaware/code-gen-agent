@@ -53,4 +53,20 @@ describe("Dashboard notebooks (post81)", () => {
       "/api/feeds/syn_a/download?path=notebook%2Fsyn_a.ipynb");
     expect(host.textContent).toContain("Optional: the notebooks, DDL and");
   });
+
+  it("offers every notebook in one zip when there is more than one (post90)", () => {
+    const data = { feeds: [feed("syn_a", "notebook/syn_a.ipynb"), feed("syn_b", null),
+                           feed("syn_c", "notebook/syn_c.ipynb")],
+                   failures: [], mode: "mock", label: null } as never;
+    act(() => root.render(
+      <MemoryRouter>
+        <Dashboard data={data} generating={false} onGenerateAll={() => undefined}
+                   onFeedsChanged={() => undefined} />
+      </MemoryRouter>));
+    const links = [...host.querySelector('[aria-label="notebooks"]')!.querySelectorAll("a")];
+    expect(links.map((a) => a.textContent)).toEqual(
+      ["Download all (2) .zip", "syn_a.ipynb", "syn_c.ipynb"]);
+    expect(links[0].getAttribute("href")).toBe("/api/notebooks.zip");
+    expect(links[0].hasAttribute("download")).toBe(true);
+  });
 });

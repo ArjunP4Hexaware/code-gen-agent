@@ -13,7 +13,9 @@ Two run modes (see ui/README.md):
 
 from __future__ import annotations
 
+import io
 import os
+import zipfile
 from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -1101,6 +1103,53 @@ def download_generated_file(slug: str, path: str) -> Response:
         content=payload,
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+# post90: every notebook of the loaded run in one zip (the Notebooks panel's
+# "Download all"). The notebooks stay separate files - nothing is merged or
+# wrapped; a feed without one (framework only, or withheld by a blocking line)
+# is named in README.txt so the bundle never looks more complete than it is.
+# Fixed entry timestamps: the same run gives the same bytes.
+_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+
+def notebooks_zip_bytes(runs) -> tuple[bytes, int]:
+    """(the zip, how many notebooks) for ``runs`` (feed slug -> run)."""
+    buffer = io.BytesIO()
+    included, missing = [], []
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for slug in sorted(runs):
+            path = _notebook_path(runs[slug])
+            if path is None:
+                missing.append(slug)
+                continue
+            name = Path(path).name
+            info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, _require_store().read_generated_bytes(slug, path))
+            included.append(name)
+        lines = ["Notebooks generated in this run, one per feed (each runs on its own):", ""]
+        lines += [f"  {name}" for name in included]
+        if missing:
+            lines += ["", "Feeds with no notebook in this run (framework artefacts only, or",
+                      "withheld until a blocking question is answered):", ""]
+            lines += [f"  {slug}" for slug in missing]
+        info = zipfile.ZipInfo("README.txt", date_time=_ZIP_DATE)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        archive.writestr(info, "\n".join(lines) + "\n")
+    return buffer.getvalue(), len(included)
+
+
+@app.get("/api/notebooks.zip")
+def download_all_notebooks() -> Response:
+    payload, count = notebooks_zip_bytes(_require_store().runs)
+    if not count:
+        raise HTTPException(404, "no notebook was generated in this run")
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="notebooks.zip"'},
     )
 
 

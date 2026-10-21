@@ -244,6 +244,12 @@ export function Dashboard({
             <span className="hint">ready to download — the Layer-2 review is optional</span>
           </div>
           <div className="panel-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {/* post90: every notebook in one zip - still one file per feed inside */}
+            {notebooks.length > 1 ? (
+              <a className="btn primary" href="/api/notebooks.zip" download>
+                Download all ({notebooks.length}) .zip
+              </a>
+            ) : null}
             {notebooks.map((f) => (
               <a
                 key={f.feed_slug}

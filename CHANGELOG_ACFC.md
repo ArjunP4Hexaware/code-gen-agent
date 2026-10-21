@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post88 — 2026-10-21 (App: the sidebar can be hidden and shown again)
+
+Soham: a button to collapse the dark sidebar and another to bring it back
+(`components/CollapsibleSidebar.tsx`, used by `App.tsx`).
+- **Hide:** an icon button in the sidebar's top-right corner. The sidebar is then not
+  displayed but stays in the DOM.
+- **Show:** a small dark tab fixed at the top-left. The main area gets a wider left
+  gutter while it shows, so the tab never covers content; modals (z-index 50) sit above
+  it.
+- **Accessibility:** real `<button>`s with `aria-label`, `aria-controls` (the sidebar's
+  id) and `aria-expanded`, and a visible focus ring. After each toggle, focus moves to
+  the button that undoes it; nothing moves focus on page load.
+- **Remembered per browser:** `localStorage` key `codegen.sidebar.open`. Blocked or empty
+  storage = shown, and the toggle still works for the page.
+
+**Tests:** `CollapsibleSidebar.test.tsx` (4); frontend 94 tests; `dist` rebuilt. Not
+checked in a real browser here (no browser binary in the container).
+
 ## 0.5.8.post87 — 2026-10-21 (App: the framework-assigned IDs said once)
 
 Soham: the Dashboard's Framework artefacts panel repeated "Framework-assigned IDs left

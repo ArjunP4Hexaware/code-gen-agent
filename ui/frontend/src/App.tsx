@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
+import { CollapsibleSidebar, useSidebarOpen } from "./components/CollapsibleSidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ErrorCard } from "./components/ErrorCard";
 import { usageSummary } from "./components/ModelUsage";
@@ -21,6 +22,7 @@ export function App() {
   const [data, setData] = useState<FeedsResponse | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [generating, setGenerating] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useSidebarOpen();
 
   const refresh = useCallback(async () => {
     try {
@@ -58,8 +60,8 @@ export function App() {
   }, [data, doGenerateAll]);
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
+    <div className={`shell${sidebarOpen ? "" : " sidebar-collapsed"}`}>
+      <CollapsibleSidebar open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <div className="sidebar-brand">
           <div className="product">CodeGen · Data Engineer Agent</div>
           <div className="org">Contracts → Databricks pipelines</div>
@@ -105,7 +107,7 @@ export function App() {
           <br />
           Gate verdict computed in code, never by judgment.
         </div>
-      </aside>
+      </CollapsibleSidebar>
 
       <main className="main">
         {error ? <ErrorCard error={error} title="The backend did not answer." /> : null}

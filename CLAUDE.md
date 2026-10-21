@@ -5,8 +5,19 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**After post90 (2026-10-21; pushed, nothing queued) — App clean-up, details in
-`CHANGELOG_ACFC.md`.** post90: `GET /api/notebooks.zip` + a "Download all" button
+**After post91 (2026-10-21; pushed, nothing queued).** post91: ONE set per run and
+STTM in `<out>/combined/` (`codegen.run_artefacts`, config `combined:`): `<STTM>_IIG.xlsx`,
+`_IIG_REVIEW.xlsx`, `_DDL.txt`, `_LOG.md` (ADDITION.md's content once); per-feed files
+still written (harness / iig_diff / manifest read them; run_round + iig_fill_rate skip
+`combined/`). Rows merge by content ONLY on `combined.dedup_sheets` (EMAIL_TEMPLATE_CONFIG):
+the pair_11 golden keeps every schedule / notebook row distinct per feed. Manifest
+`combined`; App `/api/combined/{name}` + one "<STTM> DDL and IIG" block. **Notebooks are
+OFF in the App: `output.app_options: [framework]` in config/config.yaml — set
+`[notebook, framework]` to turn them back on** (CLI unaffected; tests of the App's
+notebook behaviour use the conftest fixture `notebooks_in_app` / `offer_notebooks`).
+iig_diff scores depend on the `--agent` file order (sort the list).
+
+**After post90 — App clean-up, details in `CHANGELOG_ACFC.md`.** post90: `GET /api/notebooks.zip` + a "Download all" button
 (each notebook as-is + README.txt naming feeds without one); a wrapper notebook was
 assessed and NOT built (client master pipelines own orchestration; mixed frequencies;
 re-run duplicates). post87: the framework-assigned-IDs line once per run
@@ -17,7 +28,7 @@ sheet empty by rule (`iig_review.empty_by_rule_*`). A browser check works in thi
 container: Chromium in `/tmp/pw` + its libs unpacked in `/tmp/pwlibs` (LD_LIBRARY_PATH,
 no root; session scratch). `test_storage_ui.py::test_an_unreachable_root_is_reported_not_fatal`
 failed once with both suites run in parallel and passes alone (timing). The App must be
-redeployed at post86+ to show any of post81–90. State change (no code): the D1
+redeployed at post86+ to show any of post81–91. State change (no code): the D1
 `storage_account` in `environments/d1.yaml` (volume + workspace copy) is the demo value
 Nikshit gave (2026-10-21; backup `d1.yaml.bak_20261021_pre_storage_account`). It has
 hyphens, which Azure account names never do, so the notebooks' abfss:// URIs may not

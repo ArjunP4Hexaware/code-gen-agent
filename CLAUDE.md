@@ -17,7 +17,7 @@ sheet empty by rule (`iig_review.empty_by_rule_*`). A browser check works in thi
 container: Chromium in `/tmp/pw` + its libs unpacked in `/tmp/pwlibs` (LD_LIBRARY_PATH,
 no root; session scratch). `test_storage_ui.py::test_an_unreachable_root_is_reported_not_fatal`
 failed once with both suites run in parallel and passes alone (timing). The App must be
-redeployed at post86+ to show any of post81–89.
+redeployed at post86+ to show any of post81–90.
 
 **RESTART HERE (2026-10-21, after post86).** post86 = path families: the pair_11
 golden writes one folder per table (`Reject/<t>/`, `Processed/<t>/`, the stage →

@@ -186,24 +186,21 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
                    ("STAGE", f"{domain} {freq} File Pipeline Incremental Load to STAGE"),
                    ("STANDARD", f"{application} {domain} Regular STANDARD Load")]
     for row in rows:
-        # framework owner's rule 1: PIPELINE_NAME is BSA-assigned — blank, owed
+        # framework owner's rule 1: no name without the run's choices (this direct
+        # emit has none; the CLI / App write the convention — test_open_inputs_outcome)
         assert row["PIPELINE_NAME"][0] in (None, "") and row["PIPELINE_NAME"][1] == OPEN
         assert row["DAY_OF_SCHEDULE"][0] in (None, "")       # not Weekly: blank
         assert row["DAY_OF_SCHEDULE"][1] == DECIDED          # decided, not open
-        assert row["ACTIVE_START_DATE"][0] in (None, "")
-        assert row["ACTIVE_START_DATE"][1] == OPEN
+        assert row["ACTIVE_START_DATE"][0] == "2026-01-02 00:00:00"   # post81: run date
         assert row["PROCESS_NAME"][0] in (None, "") and row["SUBPROCESS_NAME"][0] in (None, "")
-        # APPLICATION_NAME: the feed's SOURCE is PROPOSED, never written unanswered
-        # (post59: proposed is not applied) — the cell open, the INPUT_NEEDED owed
-        assert row["APPLICATION_NAME"][0] in (None, "") and row["APPLICATION_NAME"][1] == OPEN
-        assert application in str(row["APPLICATION_NAME"][2])     # the proposal, named
+        # APPLICATION_NAME: post81 a profile default — the feed's SOURCE, written
+        assert row["APPLICATION_NAME"][0] == application
         assert row["NO_OF_CYCLE_PER_DAY"][0] in ("1", 1)
     flags = _notes(gate)
-    assert any(f.startswith("iig_owed:DATA_FACTORY_PIPELINE_SCHEDULE.ACTIVE_START_DATE")
-               for f in flags)
-    assert any(f.startswith("iig_owed_run:DATA_FACTORY_PIPELINE_SCHEDULE.APPLICATION_NAME")
-               and f"= '{application}'" in f and "INPUT_NEEDED run.application_name" in f
-               for f in flags)
+    # post81: both written by default — no owed-cell flag
+    assert not any(f.startswith(("iig_owed:DATA_FACTORY_PIPELINE_SCHEDULE.ACTIVE_START_DATE",
+                                 "iig_owed_run:DATA_FACTORY_PIPELINE_SCHEDULE.APPLICATION_NAME"))
+                   for f in flags)
     assert any(f.startswith("iig_corpus:DATA_FACTORY_PIPELINE_SCHEDULE.PIPELINE_DESCRIPTION")
                and "1.7%" in f and f"alternative (the short corpus form): '{application} "
                "Standard Load' ('G1 Standard Load' 64.0% of 10 514 rows) — not written" in f
@@ -339,11 +336,13 @@ def _generate(config, pair, **kw) -> int:
 # post47b: + D1's storage-account placeholder — 2026-10-15: a REQUIRED value, a
 # QUESTION when unset; the suite's D1 profile (tests/environment_profiles/d1.yaml)
 # states it, so it is not owed here
-RUN_KEYS = ["run.environment", "run.application_name", "run.email_to"]
+RUN_KEYS = ["run.environment", "run.email_to"]   # post81: application_name written
 # post61: the email status set (all four) is a profile default — written, a NOTE line
 # + framework owner's rule 1: PIPELINE_NAME, BSA-assigned, one per flow row
 FLOWS = ["grand_master", "master", "file_to_stg", "stg_to_std"]
-OWED_KEYS = [*(f"pipeline_name.{flow}" for flow in FLOWS), "active_start_date"]
+# post81: the pipeline names (shipped convention) and ACTIVE_START_DATE (run date) are
+# profile defaults — no feed-level input is owed on pair_11
+OWED_KEYS: list[str] = []
 
 
 def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
@@ -361,31 +360,27 @@ def test_only_input_needed_exits_0_and_writes_the_workbook(tmp_path, capsys):
     every = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED")]
     run = [ln[15:].split(" — ", 1)[0] for ln in every if ln[15:].startswith("run.")]
     assert run == RUN_KEYS
-    assert every[:3] == [ln for ln in every if ln[15:].startswith("run.")]   # the block first
+    assert every[:2] == [ln for ln in every if ln[15:].startswith("run.")]   # the block first
     assert any(ln.startswith("NOTE           run.email_statuses — ") and
                "profile default applied: FilesNotReceived, New Files to Process, Success, "
                "Failed" in ln for ln in out.splitlines())
     lines = [ln for ln in every if ln.startswith(f"INPUT_NEEDED   feeds.{feed}.")]
     keys = [ln[15:].split(" — ", 1)[0] for ln in lines]
     assert [k[len(f"feeds.{feed}."):] for k in keys] == OWED_KEYS
-    app_line = next(ln for ln in every if "run.application_name — " in ln)
-    assert "proposed per feed: the template '{source}'" in app_line
-    assert "use_default / naming_standard / leave_blank" in app_line
     xlsx = tmp_path / "out" / specs[0].feed_slug / "framework" / "config_rows.xlsx"
     assert xlsx.is_file()
-    assert all(r["ACTIVE_START_DATE"][0] in (None, "") for r in _rows(xlsx, SCHED))
+    assert all(r["ACTIVE_START_DATE"][0] == "2026-01-02 00:00:00" for r in _rows(xlsx, SCHED))
     template = (tmp_path / "out" / "answers_template.yaml").read_text(encoding="utf-8")
     # post61: the email status set, notebook names and SRC_FILE_NAME style are
     # listed (changeable) but written — not counted as needed
-    assert "0 open question(s), 8 input(s) needed" in template
+    assert "0 open question(s), 2 input(s) needed" in template
     assert "gaps: {}" in template
     assert '\n  run:\n    "environment":' in template
-    assert f'\n  feeds:\n    "{feed}":\n      "pipeline_name.grand_master":' in template
-    assert '\n      "active_start_date":' in template
+    assert '"pipeline_name.grand_master":' in template and '"active_start_date":' in template
     # the report: the run-level block at the top, the feed's own counted apart
     report = (tmp_path / "reports" / f"{specs[0].feed_slug}.md").read_text(encoding="utf-8")
-    assert "**Run inputs needed: 3**" in report       # post61: the status set is written
-    assert "**Answers owed** — questions: 0, inputs needed: 5" in report
+    assert "**Run inputs needed: 2**" in report       # post61 / post81: defaults written
+    assert "**Answers owed**" not in report        # post81: nothing owed by the feed
     answers = tmp_path / "answers.yaml"
     answers.write_text(
         "inputs:\n  run:\n    environment: {value: D1}\n"
@@ -441,7 +436,8 @@ def test_the_same_feed_plus_one_question_exits_3(tmp_path, capsys):
     assert code == cli.EXIT_NEEDS_ANSWERS
     labels = [ln.split()[0] for ln in out.splitlines()
               if ln.startswith(("QUESTION", "INPUT_NEEDED")) and not ln[15:].startswith("run.")]
-    assert labels[0] == "QUESTION" and set(labels[1:]) == {"INPUT_NEEDED"}
+    # post81: pair_11's feed owes no INPUT_NEEDED any more (defaults written)
+    assert labels[0] == "QUESTION" and set(labels[1:]) <= {"INPUT_NEEDED"}
 
 
 def test_the_harness_regex_never_reads_an_input_needed_line():
@@ -469,7 +465,10 @@ def test_the_app_lists_inputs_needed_as_a_banner_item(tmp_path):
                              iig_template="iig_v2", conventions_profile="acfc_prx",
                              input_choices={})
     items = DemoRunner._owed_inputs(runner, specs[0], config, frd)
-    assert [i["key"] for i in items] == [f"feeds.{specs[0].feed_id}.{k}" for k in OWED_KEYS]
+    # post81: the App lists the per-flow names + the start date (written by default,
+    # changeable in the panel); none is open
+    keys = [i["key"] for i in items]
+    assert {f"feeds.{specs[0].feed_id}.pipeline_name.{f}" for f in FLOWS} <= set(keys)
     assert items[0]["feed"] == specs[0].feed_id and items[0]["question"]
     assert {i["scope"] for i in items} == {"feed"}       # the run-level ones: _run_level_inputs
     # post68: one input set — a notebook run owes the same inputs

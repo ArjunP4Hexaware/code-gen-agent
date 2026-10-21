@@ -170,3 +170,26 @@ def test_the_sdk_config_dump_never_reaches_the_state_line(volume, monkeypatch):
     assert "error code PERMISSION_DENIED" in line
     for leaked in ("Config:", "host=", "client_id", "auth_type", "syn.example"):
         assert leaked not in line
+
+
+def test_a_workspace_folder_state_dir_is_copied_the_same_way(tmp_path, monkeypatch):
+    """post81: CODEGEN_STATE_DIR=/Workspace/... is copied through the Workspace API
+    (no Unity Catalog grant needed): the environment profile's storage account
+    reaches the resolver, nothing is written to the folder."""
+    folder = "/Users/u/shared/codegen-state"
+    monkeypatch.delenv("CODEGEN_ENVIRONMENTS_DIR", raising=False)
+    monkeypatch.delenv("CODEGEN_STATE_OVERLAYS_DIR", raising=False)
+    monkeypatch.setenv("CODEGEN_STATE_DIR", f"/Workspace{folder}")
+    monkeypatch.setenv(state_mirror.MIRROR_DIR_ENV, str(tmp_path / "mirror"))
+    monkeypatch.setattr(state_mirror, "_status", None)
+    monkeypatch.setattr(config_module, "_STATE_MIRRORS", {})
+    fake = FakeWorkspaceClient()
+    fake.ws.dirs |= {folder, f"{folder}/environments"}
+    fake.ws.files[f"{folder}/environments/d1.yaml"] = f"storage_account: {ACCOUNT}\n".encode()
+    result = state_mirror.refresh(client=fake)
+    assert result.error is None and result.files == 1
+    assert state_root() == result.local
+    env = resolve(load_config(CONFIG, overlays=[ACFC_OVERLAY]))
+    assert env.entry.storage_account == ACCOUNT
+    assert "(CODEGEN_STATE_DIR; workspace folder)" in state_dirs_line()
+    assert [c for c in fake.ws.calls if c[0] in WRITES] == []

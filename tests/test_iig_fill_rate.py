@@ -59,8 +59,8 @@ D1_PLACEHOLDER = {EMAIL: ["SENDER_EMAIL"]}
 # the home goldens fill these; the corpus does not (DAY_OF_SCHEDULE blank unless
 # Weekly), or no document does (ACTIVE_START_DATE owed), or the value is scrubbed
 # (SENDER_EMAIL, EMAIL_TO; BODY: 1 of the 4 status bodies carries the word G564)
-OPEN_GAPS = {SCHED: ["PIPELINE_NAME", "DAY_OF_SCHEDULE", "ACTIVE_START_DATE",
-                    "APPLICATION_NAME"],
+# post81: ACTIVE_START_DATE (run date) and APPLICATION_NAME (SOURCE) are written
+OPEN_GAPS = {SCHED: ["PIPELINE_NAME", "DAY_OF_SCHEDULE"],
              NB: ["PIPELINE_NAME"],
              EMAIL: ["BODY", "SENDER_EMAIL", "EMAIL_TO"]}
 
@@ -128,7 +128,7 @@ def test_the_fill_rate_tool_finds_only_the_documented_gap(generated, tmp_path, c
     # corpus values are production text: withheld unless --show-values
     assert all(c["dominant_value"] is None for s in report.values()
                for c in s["columns"].values())
-    assert ("GAPS (4): PIPELINE_NAME, DAY_OF_SCHEDULE, ACTIVE_START_DATE, APPLICATION_NAME"
+    assert ("GAPS (2): PIPELINE_NAME, DAY_OF_SCHEDULE"
             in capsys.readouterr().out)
 
 

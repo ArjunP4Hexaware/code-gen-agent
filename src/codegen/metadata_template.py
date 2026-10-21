@@ -263,9 +263,9 @@ def _owed(tpl: MetadataTemplateConfig, tab: str, cells: dict, faq,
                 # post79: the naming convention's name, written unasked (a profile
                 # default: no NOTE, no gate flag; changeable in the App / answers)
                 cells[header] = _cell(answer.value, "synthetic",
-                                      f"from the naming convention {chosen[1]!r} — "
-                                      f"{rule.question}; change it with \"Change pipeline "
-                                      f"names\" or inputs.feeds.<feed>.{label}")
+                                      f"set by default from {chosen[1]!r} — "
+                                      f"{rule.question}; change it in the App (\"Change "
+                                      f"…\") or under inputs.feeds.<feed>.{label}")
                 continue
             if chosen is not None:
                 # post59: use_default / naming_standard — taken from other
@@ -317,11 +317,22 @@ def _profile_default(rule) -> bool:
     return bool(rule.default) and default_kind(rule) == PROFILE_DEFAULT
 
 
+def run_date() -> str:
+    """post81: the {run_date} token — ``CODEGEN_RUN_DATE`` (YYYY-MM-DD, set by a
+    test or a reproducible run), else today's date."""
+    import datetime
+    import os
+
+    return (os.environ.get("CODEGEN_RUN_DATE") or "").strip() or datetime.date.today().isoformat()
+
+
 def _owed_default(rule, tokens: dict) -> str:
     """The owed rule's default with its tokens filled ('' when a token has no
-    value; a placeholder stays a placeholder)."""
+    value; a placeholder stays a placeholder). post81: {run_date} is always known."""
     if not rule.default:
         return ""
+    if "{run_date}" in rule.default and not tokens.get("run_date"):
+        tokens = {**tokens, "run_date": run_date()}
     if any(not str(tokens.get(t) or "").strip() for t in _DERIVED_TOKEN_RE.findall(rule.default)):
         return ""
     return _DERIVED_TOKEN_RE.sub(lambda m: str(tokens[m.group(1)]).strip(), rule.default)
@@ -365,6 +376,8 @@ def owed_questions(tpl: MetadataTemplateConfig, faq,
                 value = _owed_default(rule, {**tpl.corpus_tokens, **(tokens or {})})
                 if value and not is_placeholder(value):
                     continue        # post61: written with the profile's value
+                if tokens is None and _DERIVED_TOKEN_RE.search(str(rule.default)):
+                    continue        # post81: a per-feed token default — each feed writes it
             question = rule.question
             if rule.default:
                 # post59: a proposal, never written until chosen

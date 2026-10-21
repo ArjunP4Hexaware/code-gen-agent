@@ -175,52 +175,68 @@ describe("InputsNeededBanner choices (post59)", () => {
     expect(checked.map((r) => r.value)).toEqual(["leave_blank"]);
   });
 
-  it("lists an applied profile default as changeable, never as an input needed", () => {
-    // post61: the overlay's status set was written; PIPELINE_NAME is still a proposal
+  it("puts every applied default on one line with a Change defaults button (post81)", () => {
     const items = normalizeInputsNeeded([
       { key: "run.email_statuses", question: "the status set", feed: "", scope: "run",
         options: ["use_default", "naming_standard"], proposed: "Success, Failed",
         template: "Success, Failed (email_status_default)", kind: "profile_default",
         applied: "Success, Failed" },
+      { key: "feeds.zq_a.active_start_date", question: "the date", feed: "zq_a",
+        scope: "feed", options: ["use_default", "naming_standard"],
+        proposed: "2026-10-21 00:00:00", template: "{run_date} 00:00:00",
+        kind: "profile_default", applied: "2026-10-21 00:00:00" },
       { key: "feeds.zq_a.pipeline_name.master", question: "the name", feed: "zq_a",
         scope: "feed", options: ["use_default", "naming_standard", "leave_blank"],
         proposed: "SYN_PL_X", template: "SYN_PL_{source}", kind: "agent_proposal" },
     ]);
     expect(items[0].applied).toBe("Success, Failed");
-    expect(items[1].applied).toBeUndefined();
+    expect(items[2].applied).toBeUndefined();
     const sent: Record<string, unknown>[] = [];
     act(() => root.render(<InputsNeededBanner items={items} onConfirm={(c) => sent.push(c)} />));
     expect(host.textContent).toContain("1 input needed");
-    expect(host.textContent).toContain("1 profile default applied (changeable)");
-    const run = host.querySelector('[aria-label="run inputs"]');
-    expect(run?.querySelector('[aria-label="profile default for run.email_statuses"]')
-      ?.textContent).toContain("profile default applied Success, Failed");
-    expect(run?.textContent).toContain("Profile defaults are applied; change one and confirm");
-    // post79: the pipeline name is in the one "Pipeline names" line, not a feed group
+    expect(host.textContent).toContain("2 profile defaults applied (changeable)");
+    // no per-item radio list for a default, no run / feed group for them
+    expect(host.querySelector('[aria-label="run inputs"]')).toBeNull();
     expect(host.querySelector('[aria-label="feed zq_a inputs"]')).toBeNull();
+    const panel = host.querySelector('[aria-label="defaults"]')!;
+    expect(panel.textContent).toContain("2 set by default (email_statuses, active_start_date)");
     expect(host.querySelector('[aria-label="pipeline names"]')?.textContent).toContain(
       "1 of 1 open");
-    act(() => run!.querySelector<HTMLInputElement>('input[value="naming_standard"]')!.click());
-    const box = run!.querySelector<HTMLInputElement>('[aria-label="standard for run.email_statuses"]')!;
-    expect(box.placeholder).toBe("your value");
-    act(() => type(box, "Success"));
-    act(() => run!.querySelector<HTMLButtonElement>("button")!.click());
-    expect(sent[0]["run.email_statuses"]).toEqual({ choice: "naming_standard", standard: "Success" });
+    act(() => panel.querySelector<HTMLButtonElement>("button")!.click());
+    const box = panel.querySelector<HTMLInputElement>(
+      '[aria-label="name for feeds.zq_a.active_start_date"]')!;
+    expect(box.value).toBe("2026-10-21 00:00:00");
+    act(() => type(box, "2026-11-01 00:00:00"));
+    const confirm = [...panel.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "Confirm defaults")!;
+    act(() => confirm.click());
+    expect(sent[0]["feeds.zq_a.active_start_date"]).toEqual(
+      { choice: "naming_standard", standard: "2026-11-01 00:00:00" });
+    expect(sent[0]["run.email_statuses"]).toBeUndefined();
   });
 
-  it("says a mixed group's profile defaults are already written", () => {
+  it("clears a default only where the item offers leave_blank", () => {
     const items = normalizeInputsNeeded([
-      { key: "run.email_to", question: "the DL", feed: "", scope: "run",
-        options: ["use_default", "naming_standard", "leave_blank"], proposed: "syn@x.example",
-        template: "syn@x.example", kind: "profile_default", applied: "syn@x.example" },
+      { key: "run.email_statuses", question: "the status set", feed: "", scope: "run",
+        options: ["use_default", "naming_standard"], proposed: "Success",
+        template: "Success", kind: "profile_default", applied: "Success" },
       { key: "run.application_name", question: "the app", feed: "", scope: "run",
-        options: ["use_default", "naming_standard", "leave_blank"], proposed: "",
-        template: "{source}", kind: "agent_proposal" },
+        options: ["use_default", "naming_standard", "leave_blank"], proposed: "APP",
+        template: "{source}", kind: "profile_default", applied: "APP" },
     ]);
-    act(() => root.render(<InputsNeededBanner items={items} onConfirm={() => undefined} />));
-    expect(host.textContent).toContain(
-      "Proposals are applied only once you confirm; profile defaults are already written");
-    expect(host.textContent).not.toContain("Nothing is applied until you confirm");
+    const sent: Record<string, unknown>[] = [];
+    act(() => root.render(<InputsNeededBanner items={items} onConfirm={(c) => sent.push(c)} />));
+    expect(host.textContent).toContain("No inputs needed");
+    const panel = host.querySelector('[aria-label="defaults"]')!;
+    act(() => panel.querySelector<HTMLButtonElement>("button")!.click());
+    for (const key of ["run.email_statuses", "run.application_name"]) {
+      act(() => type(panel.querySelector<HTMLInputElement>(`[aria-label="name for ${key}"]`)!, ""));
+    }
+    const confirm = [...panel.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "Confirm defaults")!;
+    act(() => confirm.click());
+    expect(sent[0]["run.application_name"]).toEqual({ choice: "leave_blank" });
+    expect(sent[0]["run.email_statuses"]).toBeUndefined();
   });
 
   it("renders a template as the backend does", () => {

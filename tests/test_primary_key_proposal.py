@@ -131,9 +131,39 @@ def test_no_signal_never_falls_back_to_the_faq_dedup_or_not_null(tmp_path):
 # --------------------------------------------- the run: proposal, question
 
 
-def test_a_proposal_is_shown_and_written_only_when_chosen(tmp_path, monkeypatch, capsys):
+def _no_autoset(tmp_path: Path) -> Path:
+    path = tmp_path / "no_pk_autoset.yaml"
+    path.write_text("conventions:\n  profiles:\n    acfc_prx:\n"
+                    "      primary_key_autoset: false\n", encoding="utf-8")
+    return path
+
+
+def test_autoset_writes_the_signals_key_unasked(tmp_path, monkeypatch, capsys):
+    """post81: acfc_env.yaml sets primary_key_autoset — the STTM's Primary Key
+    cells are written as a profile default (a NOTE, not an open input)."""
     monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
     config = fx.acfc_config(tmp_path, fx.PAIR1_OVERLAY)
+    assert config.conventions.get("acfc_prx").primary_key_autoset is True
+    frd, sttm = _keyed_pair1(tmp_path, config, ("CARDHOLDER_ID", "PLAN_ID"))
+    (spec,) = resolve_pair(frd, sttm, config)
+    feed = spec.feed_id
+    _run(config, [(frd, sttm)], parts=("framework",))
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if f"feeds.{feed}.primary_key" in ln]
+    assert lines and all(ln.startswith("NOTE") for ln in lines)
+    detail = {f.source_column: f.stage_column for f in spec.detail_segment.fields}
+    wanted = f"{detail['CARDHOLDER_ID']},{detail['PLAN_ID']}"
+    assert {r["TGT_PRIMARY_KEY"] for r in _iig_rows(
+        tmp_path / "out", "ADLS_DELTA_INGESTION_DETAILS")} == {wanted}
+    (record,) = [f["inputs"]["primary_key"] for f in
+                 run_stages.read_stage_manifest(tmp_path / "out")["feeds"]]
+    assert record["source"] == "profile"
+
+
+def test_a_proposal_is_shown_and_written_only_when_chosen(tmp_path, monkeypatch, capsys):
+    """Without primary_key_autoset (post70): proposed, written only when chosen."""
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    config = fx.acfc_config(tmp_path, fx.PAIR1_OVERLAY, _no_autoset(tmp_path))
     frd, sttm = _keyed_pair1(tmp_path, config, ("CARDHOLDER_ID", "PLAN_ID"))
     (spec,) = resolve_pair(frd, sttm, config)
     feed = spec.feed_id

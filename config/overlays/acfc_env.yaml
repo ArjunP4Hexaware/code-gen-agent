@@ -106,6 +106,18 @@ conventions:
       # (codegen-state/overlays/acfc_prx.yaml, pipeline_name_templates); with only the
       # shipped SYN_ placeholders every name is still asked, never written.
       pipeline_name_autoset: true
+      # post81: the interim convention (the Pyx prod IIG's, reconstructed from its
+      # golden; pending Venu's call vs the EDO Naming Standards) is shipped HERE so the
+      # App has it without reading the state volume; the ACFC overlay may override a
+      # flow. Scrub + leak gate clean (format / layer words and tokens only).
+      pipeline_name_templates:
+        grand_master: 'PL_GMSTR_{source_code}_{schema_domain}_{lob}_{frequency_code}'
+        master: 'PL_MSTR_{source_code}_{schema_domain}_{lob}_{frequency_code}'
+        file_to_stg: 'PL_FILE_{source_code}_{schema_domain}_{lob}_{object_code}_ADLS_TO_DELTA_INCR'
+        stg_to_std: 'PL_FILE_{source_code}_{schema_domain}_{lob}_{object_code}_DELTA_TO_STD_INCR'
+      # post81: the key an explicit signal states (STTM Primary Key cells, the FRD's
+      # key statement, the FAQ) is written unasked; no signal is still a QUESTION
+      primary_key_autoset: true
   # catalog_map / the acfc_prx default_catalog: per environment (environments: above)
   # 2026-10-14 (D1 pair_12): the client-wide plan id -> LOB code table, the LOB
   # lookup's third source (after the FRD LOB table's plan-id and region
@@ -496,15 +508,23 @@ metadata:
             question: "the pipeline name (PIPELINE_NAME) of this flow's row - from the naming convention (pipeline_name_templates, written unasked under pipeline_name_autoset); asked only while no real template is loaded"
         DATA_FACTORY_PIPELINE_SCHEDULE:
           PIPELINE_NAME: *bsa_pipeline_name
-          ACTIVE_START_DATE: {faq: active_start_date, question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"}
+          ACTIVE_START_DATE:
+            faq: active_start_date
+            question: "the go-live date of this RFC's pipelines (ACTIVE_START_DATE, 'YYYY-MM-DD 00:00:00' as the corpus writes it): no document states it and no corpus value dominates (19.4%)"
+            # post81 (Soham): the run date by default, written unasked; changed in the
+            # App ("Change defaults") or under inputs.feeds.<feed>.active_start_date
+            default: "{run_date} 00:00:00"
+            default_share: "the run date"
+            default_kind: profile_default
           APPLICATION_NAME:
             faq: application_name
             scope: run
             question: "the application name (APPLICATION_NAME, the {application} of every PIPELINE_DESCRIPTION / PROCESS_NAME): the corpus's G1, 27 values, the dominant 38.8%"
             default: "{source}"
             default_share: "the feed's SOURCE, the vendor / source system the FRD states"
-            # post61: derived by the agent - shown, never written until chosen
-            default_kind: agent_proposal
+            # post81 (Soham): written unasked by default (post61 had it proposal-only);
+            # changed in the App ("Change defaults") or under inputs.run.application_name
+            default_kind: profile_default
         EMAIL_TEMPLATE_CONFIG:
           EMAIL_TO:
             faq: email_to

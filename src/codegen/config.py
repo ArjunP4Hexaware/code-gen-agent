@@ -1248,6 +1248,10 @@ class ConventionsProfileConfig(BaseModel):
     # in the App / an answers-file `choice: naming_standard` overrides one). Only
     # a real template autosets: a SYN_ placeholder is never written, asked or not.
     pipeline_name_autoset: bool = False
+    # post81: the same for TGT_PRIMARY_KEY — a key proposed from an explicit signal
+    # (an STTM Primary Key cell, the FRD's key statement, the FAQ) is written unasked;
+    # no signal stays a QUESTION
+    primary_key_autoset: bool = False
     # ... the loaded goldens / corpus a proposal must not collide with: folders
     # of IIG .xlsx (every PIPELINE_NAME column), .xlsx files, .txt name lists;
     # relative to the working directory. A colliding proposal is never offered.

@@ -55,18 +55,20 @@ def test_only_non_blocking_inputs_is_pass_with_open_inputs_and_exit_0(tmp_path, 
     questions = manifest["questions"]
     assert {q["line"] for q in questions} == {"INPUT_NEEDED"}
     assert not any(q["blocking"] for q in questions)
-    # the run-level block (post61: the email status set is a profile default, not open)
-    assert [q["scope"] for q in questions].count("run") == 3
-    assert [q["scope"] for q in questions].count("feed") == len(FLOWS) + 1
+    # the run-level block (post61: the email status set is a profile default, not open;
+    # post81: application_name too): the environment + EMAIL_TO. No feed-level one —
+    # the pipeline names (shipped convention) and ACTIVE_START_DATE are written
+    assert sorted(q["key"] for q in questions) == ["run.email_to", "run.environment"]
+    assert [q["scope"] for q in questions].count("feed") == 0
     assert all(set(q) == {"line", "key", "scope", "blocking"} for q in questions)
     (feed,) = manifest["feeds"]
     assert feed["written"] is True
     assert feed["status"] in ("PASS", "PASS_WITH_FLAGS")             # the gate verdict
-    assert feed["open"] == {"blocking": 0, "non_blocking": len(FLOWS) + 1}
+    assert feed["open"] == {"blocking": 0, "non_blocking": 0}
     assert manifest["stages"]["iig_emit"] == {"status": "PASS"}
     outcome = [ln for ln in out.splitlines() if ln.startswith("OUTCOME")]
     assert outcome == ["OUTCOME         generate — PASS_WITH_OPEN_INPUTS: 1 feed(s) written; "
-                       "8 input(s) still open, none blocking (answers_template.yaml); exit 0"]
+                       "2 input(s) still open, none blocking (answers_template.yaml); exit 0"]
     steps = {"layout": 0, "extract-sttm": 0, "generate": code}
     assert run_stages.pair_outcome(steps, tmp_path / "out") == "PASS_WITH_OPEN_INPUTS"
 

@@ -128,14 +128,15 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     # post47: the run-level block at the top; the feed's own below it. 2026-10-15:
     # the required storage account is a run QUESTION (blocking), not an input
     # post61: the email status set is a profile default (written), not an input needed
-    assert (report.index("**Run questions: 1**") < report.index("**Run inputs needed: 3**")
-            < report.index("**Answers owed**"))
+    # post81: application_name is written by default — 2 run inputs (environment, EMAIL_TO)
+    assert report.index("**Run questions: 1**") < report.index("**Run inputs needed: 2**")
     assert report.index("- `run.environment.storage_account`") < report.index(
-        "**Run inputs needed: 3**")
+        "**Run inputs needed: 2**")
     assert "- `run.email_statuses`" not in report
-    for key in ("run.environment", "run.application_name", "run.email_to"):
+    for key in ("run.environment", "run.email_to"):
         assert f"- `{key}`" in report
-    assert "**Answers owed** — questions: 0, inputs needed: 5" in report   # 4 pipeline names
+    # post81: the pipeline names (shipped convention) and the start date are written
+    assert "**Answers owed**" not in report
     assert (f"iig_env:{ADLS}.TGT_CONTAINER_NAME — '{d1.containers['stage']}' from environment "
             "D1 (default): containers.stage") in report
     # post47: answers_template.yaml groups them: inputs.run once, inputs.feeds.<feed>
@@ -146,7 +147,7 @@ def test_a_default_run_uses_d1_and_says_so_with_an_input_needed_line(tmp_path, c
     path = tmp_path / "out" / "answers_template.yaml"
     inputs = yaml.safe_load(path.read_text(encoding="utf-8"))["inputs"]
     assert list(inputs["run"]) == ["environment.storage_account", "environment",
-                                   "application_name", "email_to", "email_statuses"]
+                                   "email_to", "application_name", "email_statuses"]
     assert list(inputs["feeds"]) == [spec.feed_id]
     assert list(inputs["feeds"][spec.feed_id]) == [
         *(f"pipeline_name.{flow}" for flow in ("grand_master", "master", "file_to_stg",
@@ -379,8 +380,9 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monk
                                  "connection_ids.target"]
     # post47: the run-level items, scope "run", once (environment + the run-scoped cells)
     items = runner._run_level_inputs(with_environment(config, runner.run_environment()))
+    # post81: application_name is a profile default — listed after the open ones
     assert [i["key"] for i in items] == ["run.environment.storage_account", "run.environment",
-                                         "run.application_name", "run.email_to",
+                                         "run.email_to", "run.application_name",
                                          "run.email_statuses"]
     assert items[0]["required"] is True and "required" not in items[1]
     assert {i["scope"] for i in items} == {"run"} and "assumed D1" in items[1]["question"]

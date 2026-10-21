@@ -74,22 +74,38 @@ def test_the_overlay_status_set_is_written_when_unanswered(tmp_path, capsys):
 
 
 def test_agent_proposals_stay_blank_in_the_same_run(tmp_path, capsys):
-    """PIPELINE_NAME and APPLICATION_NAME are agent proposals: blank, open,
-    kind agent_proposal — beside the profile default written above."""
+    """PIPELINE_NAME without pipeline_name_autoset is an agent proposal: blank,
+    open. post81: APPLICATION_NAME (the feed's SOURCE) and ACTIVE_START_DATE
+    (the run date) are profile defaults, written beside it."""
     config, spec, pair = _pair(tmp_path, _write_overlay(tmp_path, TWO))
     _generate(config, pair, only_feed=spec.feed_id)
     capsys.readouterr()
+    source = str(_rows(_xlsx(tmp_path, spec), "ADLS_DELTA_INGESTION_DETAILS")[0]["SOURCE"][0])
     for row in _rows(_xlsx(tmp_path, spec), SCHED):
         assert row["PIPELINE_NAME"][:2] == (None, OPEN)
-        assert row["APPLICATION_NAME"][0] in (None, "")
+        assert row["APPLICATION_NAME"][0] == source
+        assert row["ACTIVE_START_DATE"][0] == "2026-01-02 00:00:00"   # conftest's run date
     records = _feed_inputs(tmp_path)
-    assert records["application_name"]["kind"] == "agent_proposal"
-    assert records["application_name"]["source"] == "blank"
+    for name in ("application_name", "active_start_date"):
+        assert (records[name]["kind"], records[name]["source"]) == ("profile_default",
+                                                                    "profile")
     assert records["pipeline_name.master"]["kind"] == "agent_proposal"
     keys = _open_keys(tmp_path)
-    assert "run.application_name" in keys
+    assert "run.application_name" not in keys
+    assert f"feeds.{spec.feed_id}.active_start_date" not in keys
     assert f"feeds.{spec.feed_id}.pipeline_name.master" in keys
-    assert f"feeds.{spec.feed_id}.active_start_date" in keys      # no default at all
+
+
+def test_the_run_date_default_is_today_unless_pinned(monkeypatch):
+    """post81: {run_date} = CODEGEN_RUN_DATE, else today's date (ISO)."""
+    import datetime
+
+    from codegen.metadata_template import run_date
+
+    monkeypatch.delenv("CODEGEN_RUN_DATE", raising=False)
+    assert run_date() == datetime.date.today().isoformat()
+    monkeypatch.setenv("CODEGEN_RUN_DATE", "2026-11-01")
+    assert run_date() == "2026-11-01"
 
 
 def test_a_literal_overlay_default_is_a_profile_default(tmp_path, capsys):

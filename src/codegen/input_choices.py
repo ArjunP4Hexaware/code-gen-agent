@@ -105,6 +105,7 @@ def default_kind(rule) -> str:
     return AGENT_PROPOSAL if _PLACEHOLDER_RE.search(default) else PROFILE_DEFAULT
 
 
+_PK_KEY = "primary_key"         # codegen.primary_key.KEY (post81: autoset like a name)
 SYNTHETIC_PREFIX = "SYN_"
 PLACEHOLDER_LABEL = "no naming standard loaded — placeholder"
 
@@ -553,6 +554,8 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
         kind = item.kind
         if item.flow and profile.pipeline_name_autoset and offer.value:
             kind = PROFILE_DEFAULT      # post79: the convention's name, written unasked
+        if item.pk and profile.primary_key_autoset and offer.value:
+            kind = PROFILE_DEFAULT      # post81: the signal's key, written unasked
         if kind == PROFILE_DEFAULT and (choice is None or choice.choice == "use_default"):
             # post61: a profile default — written unanswered, no gate flag (the
             # writer applies the profile's own value), still changeable
@@ -607,7 +610,7 @@ def faq_answers(resolved: list[Resolved]) -> dict:
     out.update({r.name: FaqAnswer(value=r.value, source="engineer",
                                   evidence=evidence("profile", r.template))
                 for r in resolved if r.source == "profile" and r.value
-                and r.key.startswith(PIPELINE + ".")})
+                and (r.key.startswith(PIPELINE + ".") or r.key == _PK_KEY)})
     return out
 
 

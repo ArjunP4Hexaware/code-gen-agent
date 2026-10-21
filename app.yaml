@@ -85,6 +85,9 @@ env:
   - name: CODEGEN_STORAGE_OUTPUTS
     value: "workspace:/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/outputs"
   # post72: codegen-state (environments/<name>.yaml, overlays/<profile>.yaml) on a UC
-  # volume; the App's service principal needs USE CATALOG / USE SCHEMA / READ VOLUME
+  # volume needs USE CATALOG / USE SCHEMA / READ VOLUME for the App's service principal.
+  # post81: until that grant lands, a copy of the volume's environments/ + overlays/
+  # in the App's workspace state folder (Workspace API, no UC grant). Back to
+  # "/Volumes/d1_dlk/codegen/state" once the grant is in place.
   - name: CODEGEN_STATE_DIR
-    value: "/Volumes/d1_dlk/codegen/state"
+    value: "/Workspace/Users/admz-sb65923@amerihealthcaritas.com/codegen/state/codegen-state"

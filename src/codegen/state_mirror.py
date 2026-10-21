@@ -35,6 +35,9 @@ from pathlib import Path
 from codegen.config import STATE_DIR_ENV, register_state_mirror
 
 VOLUME_PREFIX = "/Volumes/"
+# post81: a workspace folder is copied the same way (Workspace API) — the App reads a
+# folder shared with its service principal without any Unity Catalog grant
+WORKSPACE_PREFIX = "/Workspace/"
 MIRROR_DIR_ENV = "CODEGEN_STATE_MIRROR_DIR"     # where the copies go (default <tmp>)
 CURRENT = "current"
 
@@ -82,7 +85,7 @@ def volume_state_dir() -> str | None:
     """The ``CODEGEN_STATE_DIR`` value when it names a volume this process
     cannot read as a folder; None otherwise (unset, local, or mounted)."""
     value = (os.environ.get(STATE_DIR_ENV) or "").strip()
-    if not value.startswith(VOLUME_PREFIX) or Path(value).is_dir():
+    if not value.startswith((VOLUME_PREFIX, WORKSPACE_PREFIX)) or Path(value).is_dir():
         return None
     return value.rstrip("/")
 
@@ -144,7 +147,7 @@ def refresh(*, client=None, client_factory: Callable | None = None) -> MirrorSta
     is not an unmounted volume path. Never raises: a failure is the status's
     ``error`` and the previous copy stays in effect."""
     global _status
-    from codegen.storage.remote import VolumeBackend
+    from codegen.storage.remote import VolumeBackend, WorkspaceBackend
 
     volume = volume_state_dir()
     if volume is None:
@@ -153,8 +156,9 @@ def refresh(*, client=None, client_factory: Callable | None = None) -> MirrorSta
         previous = _status if _status is not None and _status.volume == volume else None
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:
-            backend = VolumeBackend(volume, client=client,
-                                    client_factory=client_factory or _default_factory())
+            kind = WorkspaceBackend if volume.startswith(WORKSPACE_PREFIX) else VolumeBackend
+            backend = kind(volume, client=client,
+                           client_factory=client_factory or _default_factory())
             if not backend.exists():
                 raise StateDirNotFound(volume)
             files = {rel: backend.read_bytes(rel) for rel, _entry in backend.walk()}
@@ -185,7 +189,8 @@ def describe() -> str | None:
         return None
     if current is None or current.volume != volume:
         return f"{volume} ({STATE_DIR_ENV}; volume, not copied yet) [MISSING]"
-    text = f"{volume} ({STATE_DIR_ENV}; volume)"
+    text = (f"{volume} ({STATE_DIR_ENV}; "
+            f"{'workspace folder' if volume.startswith(WORKSPACE_PREFIX) else 'volume'})")
     if current.local is not None:
         text += (f" -> local copy {current.local.as_posix()} ({current.files} files, "
                  f"copied {current.copied_at})")

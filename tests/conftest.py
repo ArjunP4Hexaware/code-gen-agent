@@ -37,6 +37,9 @@ os.environ.pop("CODEGEN_CONFIG_OVERLAYS", None)
 # points CODEGEN_ENVIRONMENTS_DIR at an empty folder (no_environment_profiles).
 os.environ["CODEGEN_ENVIRONMENTS_DIR"] = str(REPO / "tests" / "environment_profiles")
 os.environ["CODEGEN_STATE_OVERLAYS_DIR"] = str(REPO / "tests" / "_no_state_overlays")
+# post81: ACTIVE_START_DATE defaults to the run date; the suite pins it so emitted
+# workbooks stay byte-stable (test_run_date_default unsets it)
+os.environ["CODEGEN_RUN_DATE"] = "2026-01-02"
 
 # 2026-10-13: the suite NEVER opens a live model connection. Every live call
 # site (codegen.reasoning.mode.guard_live_call) raises LiveModelBlocked while

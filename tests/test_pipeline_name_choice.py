@@ -50,6 +50,9 @@ TEMPLATES = {
     "stg_to_std": "PL_{domain}_{subdomain}_{source}_{layer}_{load_mode}",
 }
 
+# post81: acfc_env.yaml ships the interim convention; the placeholder tests pass these
+SYN_TEMPLATES = {flow: f"SYN_PL_{{source}}_{flow.upper()}" for flow in FLOWS}
+
 
 def _templates_overlay(tmp_path: Path, *, autoset: bool = False, templates=None) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -62,7 +65,7 @@ def _templates_overlay(tmp_path: Path, *, autoset: bool = False, templates=None)
 
 
 def _pair(tmp_path, *overlays: Path, templates: bool = True):
-    first = (_templates_overlay(tmp_path),) if templates else ()
+    first = (_templates_overlay(tmp_path, templates=TEMPLATES if templates else SYN_TEMPLATES),)
     config = _scoped(_acfc(*first, *overlays), tmp_path)
     contracts = tmp_path / "contracts"
     contracts.mkdir(parents=True)
@@ -203,25 +206,28 @@ def test_a_proposal_that_collides_with_the_corpus_is_never_offered(tmp_path, cap
     assert clash not in out                                        # the corpus name never printed
 
 
-def test_application_name_is_proposed_until_chosen(tmp_path, capsys):
+def test_application_name_is_written_by_default_and_can_be_cleared(tmp_path, capsys):
+    """post81: APPLICATION_NAME is a profile default (the feed's SOURCE), written
+    unasked; leave_blank clears it."""
     config, spec, pair = _pair(tmp_path)
     _generate(config, pair, only_feed=spec.feed_id)
+    out = capsys.readouterr().out
     xlsx = tmp_path / "out" / spec.feed_slug / "framework" / "config_rows.xlsx"
-    assert {r["APPLICATION_NAME"][0] for r in _rows(xlsx, SCHED)} <= {None, ""}
-    capsys.readouterr()
-    answers = _answers(tmp_path, "inputs:\n  run:\n    application_name: {choice: use_default}\n")
-    _generate(config, pair, only_feed=spec.feed_id, answers_path=answers)
     source = str(_rows(xlsx, "ADLS_DELTA_INGESTION_DETAILS")[0]["SOURCE"][0])
     assert {r["APPLICATION_NAME"][0] for r in _rows(xlsx, SCHED)} == {source}
-    assert _feed_inputs(tmp_path)["application_name"]["source"] == "default"
-    assert "frd_unstated:DATA_FACTORY_PIPELINE_SCHEDULE.APPLICATION_NAME source_used:the " \
-           "conventions profile's proposal" in _report(tmp_path, spec)
-    assert "INPUT_NEEDED   run.application_name" not in capsys.readouterr().out
+    record = _feed_inputs(tmp_path)["application_name"]
+    assert (record["kind"], record["source"]) == (input_choices.PROFILE_DEFAULT, "profile")
+    assert "INPUT_NEEDED   run.application_name" not in out
+    assert "frd_unstated:DATA_FACTORY_PIPELINE_SCHEDULE.APPLICATION_NAME" not in _report(
+        tmp_path, spec)
+    answers = _answers(tmp_path, "inputs:\n  run:\n    application_name: {choice: leave_blank}\n")
+    _generate(config, pair, only_feed=spec.feed_id, answers_path=answers)
+    assert {r["APPLICATION_NAME"][0] for r in _rows(xlsx, SCHED)} <= {None, ""}
 
 
 def test_the_state_overlay_replaces_a_synthetic_template_per_flow(tmp_path, monkeypatch):
-    """The real templates come from codegen-state/overlays/acfc_prx.yaml, one flow
-    at a time; the flows it leaves alone keep the SYN_ placeholder."""
+    """The state overlay (codegen-state/overlays/acfc_prx.yaml) overrides one flow
+    at a time; the flows it leaves alone keep the shipped convention (post81)."""
     state = tmp_path / "state_overlays"
     state.mkdir()
     (state / "acfc_prx.yaml").write_text(
@@ -236,11 +242,12 @@ def test_the_state_overlay_replaces_a_synthetic_template_per_flow(tmp_path, monk
     templates = load_config(REPO / "config" / "config.yaml").conventions.get(
         "acfc_prx").pipeline_name_templates
     assert templates["file_to_stg"] == "ACME_{source}_{layer}_{load_mode}"
-    assert [input_choices.is_placeholder_template(templates[f]) for f in FLOWS] == [
-        True, True, False, True]
     monkeypatch.delenv("CODEGEN_STATE_OVERLAYS_DIR")
+    # post81: acfc_env.yaml ships the interim convention for every flow (none SYN_)
     shipped = _acfc().conventions.get("acfc_prx").pipeline_name_templates
-    assert all(t.startswith("SYN_PL_") for t in shipped.values())
+    assert [templates[f] == shipped[f] for f in FLOWS] == [True, True, False, True]
+    assert sorted(shipped) == sorted(FLOWS)
+    assert not any(input_choices.is_placeholder_template(t) for t in shipped.values())
 
 
 @pytest.mark.parametrize(("entry", "problem"), [
@@ -316,7 +323,7 @@ def test_the_app_applies_a_choice_only_after_confirm(tmp_path):
 
 
 def test_a_placeholder_template_is_never_written_not_even_on_use_default(tmp_path, capsys):
-    config, spec, pair = _pair(tmp_path, templates=False)          # the shipped SYN_ ones
+    config, spec, pair = _pair(tmp_path, templates=False)          # SYN_ placeholders
     answers = _answers(tmp_path, f"inputs:\n  feeds:\n    {spec.feed_id}:\n"
                                  "      pipeline_name: {choice: use_default}\n")
     assert _generate(config, pair, only_feed=spec.feed_id, answers_path=answers) == cli.EXIT_OK

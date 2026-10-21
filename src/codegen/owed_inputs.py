@@ -168,6 +168,8 @@ _PROFILE_QUESTIONS = {
     "notebook_name": "the notebook name (DATABRICKS_NOTEBOOK_NAME) of this leg",
     "pipeline_name": "the pipeline name (PIPELINE_NAME) of this flow — from the naming "
                      "convention (pipeline_name_autoset)",
+    "primary_key": "the detail table's key (TGT_PRIMARY_KEY) — from the stated key "
+                   "signal (primary_key_autoset)",
     "src_file_name_style": "the ADLS SRC_FILE_NAME style (pattern | prefix_star | "
                            "prefix_middle)",
 }

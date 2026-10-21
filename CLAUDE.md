@@ -1,11 +1,26 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post80)
+## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post81)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-21, after post80) — the App asks before generating.** post80:
+**RESTART HERE (2026-10-21, after post81) — defaults written unasked.** post81 (Soham:
+"defaults unless I press the button"):
+- `acfc_env.yaml` ships the interim `pipeline_name_templates` (the App can't read the
+  volume overlay before Raj's grant); APPLICATION_NAME + ACTIVE_START_DATE
+  (`{run_date}` = `CODEGEN_RUN_DATE` else today; conftest pins it) are profile defaults;
+  `primary_key_autoset` writes a signal's key (no signal = the blocking QUESTION).
+- App: one "Defaults" line + "Change defaults" (`InputsNeededBanner` `DefaultsPanel`);
+  pipeline names keep their own button.
+- Pair_11 with no overlay / no answers: 6 open lines (5 landing, asked in the pause;
+  `run.email_to` until the grant). The App needs a redeploy.
+- `CODEGEN_STATE_DIR` may be a `/Workspace/...` folder (Workspace API copy). `app.yaml`
+  points it at `<me>/codegen/state/codegen-state` (a copy of the volume's d1.yaml +
+  acfc_prx.yaml, storage account included, NOT git) until Raj's grant; then back to
+  `/Volumes/d1_dlk/codegen/state`. Edit BOTH copies until then.
+
+**After post80 (kept for reference) — the App asks before generating.** post80:
 - **The pause before generating:** the App's run asks every blocking question known
   before generating — required environment values (document `run`), unstated values,
   LOB per file, the notebook's landing — ONCE in the run's dialog, then generates once

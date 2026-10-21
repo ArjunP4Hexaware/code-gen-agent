@@ -4,6 +4,61 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post81 — 2026-10-21 (defaults written unasked; one "Change defaults" button)
+
+Soham, after the deployed post80 App run of the Pyx pair asked 32 questions: those should
+run as defaults unless the button is pressed; ACTIVE_START_DATE defaults to the run date.
+The 32 were 20 pipeline names (the App cannot read the state volume's overlay until the
+`USE CATALOG` grant, so it had only the `SYN_` placeholders), 5 primary keys, 5 active
+start dates, application_name and email_to.
+
+1. **The interim pipeline-name convention ships in `config/overlays/acfc_env.yaml`**
+   (`conventions.profiles.acfc_prx.pipeline_name_templates`, the four flows — tokens and
+   format / layer words only; scrub + leak gate clean). The state overlay still overrides
+   a flow. It stays the interim convention until Venu says which is ground truth (EDO
+   Naming Standards vs the prod IIG).
+2. **APPLICATION_NAME is a profile default** (`default_kind: profile_default`, the feed's
+   SOURCE), written unasked. A run-level default with a per-feed token is no longer asked
+   once for the run (`metadata_template.owed_questions`): each feed writes its own value.
+3. **ACTIVE_START_DATE = the run date** (`default: "{run_date} 00:00:00"`, profile
+   default). `{run_date}` = `CODEGEN_RUN_DATE`, else today (`metadata_template.run_date`);
+   the suite pins `CODEGEN_RUN_DATE` (conftest) so workbooks stay byte-stable.
+4. **TGT_PRIMARY_KEY autoset** (`conventions.profiles.<p>.primary_key_autoset`, `true`
+   in `acfc_env.yaml`): a key an explicit signal states (STTM Primary Key cells, the FRD
+   key statement, FAQ `natural_key_columns`, corpus row) is written as a profile default.
+   No signal on a merge load is still the blocking `QUESTION feeds.<feed>.primary_key`.
+5. **App: one "Defaults" line + a "Change defaults" button.** Every applied profile
+   default other than the pipeline names (application name, active start date, primary
+   key, email statuses, notebook names, SRC_FILE_NAME style) is no longer a radio list:
+   "Defaults: N set by default (…)", and the button opens every value pre-filled; Confirm
+   sends only the changed ones (`naming_standard` + the value; a cleared value is
+   `leave_blank` only where the item offers it). Pipeline names keep their own line and
+   button (post79). `ui/frontend/dist` is rebuilt.
+6. **The storage account in the App, without the volume grant.** The App's picker
+   showed `storage_account` blank: the account is in the volume's
+   `environments/d1.yaml`, and the App cannot read the volume until the `USE CATALOG`
+   grant (the picker's own override is in memory, lost on a redeploy).
+   `CODEGEN_STATE_DIR` may now name a WORKSPACE folder (`/Workspace/...`), copied
+   read-only through the Workspace API like the volume (`codegen.state_mirror`; the
+   state line says "workspace folder"). The volume's `environments/d1.yaml` and
+   `overlays/acfc_prx.yaml` were copied into the App's workspace state folder
+   (`<App state folder>/codegen-state/`, not git), and `app.yaml` points
+   `CODEGEN_STATE_DIR` there until the grant lands; then it goes back to the volume.
+   This also gives the App the overlay's EMAIL_TO, so `run.email_to` is no longer open.
+
+Pair_11 mock harness (`.venv-d1`), state = the environments only (no overlay, no answers
+— what the App sees today): 6 open lines (post80 App run: 32) — the 5 landing paths
+(blocking, notebook run; asked in the pre-generate pause with the proposal pre-filled) and
+`run.email_to` (non-blocking; the overlay's value once the grant lands). Every pipeline
+name, application name, active start date and primary key is written (source `profile`);
+leak gate clean.
+
+**Tests:** `test_pipeline_name_choice.py` (placeholder tests pass `SYN_` templates
+explicitly; the shipped convention; application_name written and cleared),
+`test_default_kinds.py` (the run date), `test_primary_key_proposal.py` (autoset writes the
+signal's key; without it, proposed as before), `test_open_inputs_outcome.py`,
+`InputsNeededBanner.test.tsx` (the Defaults line and panel).
+
 ## 0.5.8.post80 — 2026-10-21 (App: blocking questions asked before generating, once)
 
 Soham, on the Pyx runs:

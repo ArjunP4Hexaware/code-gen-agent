@@ -145,7 +145,7 @@ def test_notebook_and_framework_runs_show_the_same_open_lines(tmp_path):
     assert by_mode["notebook"] == by_mode["framework"]
     lines, counts = by_mode["notebook"]
     assert ("INPUT_NEEDED", "run.environment") in lines          # the environment assumed
-    assert counts[0]["non_blocking"] > 0                          # the owed feed inputs
+    assert counts[0] == {"blocking": 0, "non_blocking": 0}        # post81: defaults written
 
 
 def test_the_answers_file_environment_applies_on_a_notebook_run(

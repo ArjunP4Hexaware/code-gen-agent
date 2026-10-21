@@ -156,14 +156,21 @@ function ChoiceGroup({
   );
 }
 
-function PipelineNames({
+// post81: what a default's row is called in the panel
+const shortLabel = (item: InputNeededItem) =>
+  isPipeline(item) ? item.key.split(".pipeline_name.")[1]
+    : item.key.replace(/^run\./, "").replace(/^feeds\.[^.]+\./, "");
+
+function DefaultsPanel({
   items,
   confirmed,
   onConfirm,
+  kind,
 }: {
   items: InputNeededItem[];
   confirmed: Record<string, ConfirmedChoice>;
   onConfirm?: (choices: Record<string, ConfirmedChoice>) => void;
+  kind: "pipeline" | "defaults";
 }) {
   const initial = (item: InputNeededItem) =>
     confirmed[item.key]?.standard ?? item.applied ?? item.proposed ?? "";
@@ -187,7 +194,9 @@ function PipelineNames({
       const was = initial(item).trim();
       if (value === was && isApplied(item)) continue;            // unchanged: the convention
       if (!value) {
-        if (isApplied(item)) out[item.key] = { choice: "leave_blank" };
+        if (isApplied(item) && (item.options ?? []).includes("leave_blank")) {
+          out[item.key] = { choice: "leave_blank" };
+        }
         continue;
       }
       out[item.key] = value === (item.proposed ?? "") && !isApplied(item)
@@ -196,19 +205,24 @@ function PipelineNames({
     onConfirm?.(out);
     setOpen(false);
   };
-  const summary = missing
-    ? `${missing} of ${items.length} open — no naming convention loaded for them`
-    : `${items.length} set from the naming convention`;
+  const pipeline = kind === "pipeline";
+  const what = pipeline ? "pipeline names" : "defaults";
+  const summary = pipeline
+    ? (missing
+      ? `${missing} of ${items.length} open — no naming convention loaded for them`
+      : `${items.length} set from the naming convention`)
+    : `${items.length} set by default (${[...new Set(items.map(shortLabel))].join(", ")})`;
   return (
-    <section aria-label="pipeline names" style={{ marginTop: 4 }}>
+    <section aria-label={what} style={{ marginTop: 4 }}>
       <span className="hint">
-        <strong>Pipeline names</strong>: {summary}{" "}
+        <strong>{pipeline ? "Pipeline names" : "Defaults"}</strong>: {summary}{" "}
       </span>
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {missing ? "Set pipeline names" : "Change pipeline names"}
+        {pipeline ? (missing ? "Set pipeline names" : "Change pipeline names") : "Change defaults"}
       </button>
       {open ? (
-        <div role="group" aria-label="pipeline names editor" style={{ marginTop: 4 }}>
+        <div role="group" aria-label={`${what} editor`} style={{ marginTop: 4 }}>
+          {pipeline ? (
           <div className="hint">
             Fill all from one template (optional):{" "}
             <input
@@ -219,13 +233,14 @@ function PipelineNames({
               style={{ width: "50%" }}
             />
           </div>
+          ) : null}
           {feeds.map((feed) => (
-            <div key={`pl:${feed}`} aria-label={`pipeline names for ${feed}`}>
-              <div className="hint"><code>{feed || "(unnamed)"}</code></div>
+            <div key={`pl:${feed}`} aria-label={`${what} for ${feed || "the run"}`}>
+              <div className="hint"><code>{feed || "the run"}</code></div>
               <ul className="hint" style={{ margin: 0, paddingLeft: 18 }}>
                 {items.filter((item) => item.feed === feed).map((item) => (
                   <li key={item.key}>
-                    <code>{item.key.split(".pipeline_name.")[1]}</code>{" "}
+                    <code>{shortLabel(item)}</code>{" "}
                     <input
                       aria-label={`name for ${item.key}`}
                       value={names[item.key] ?? ""}
@@ -240,11 +255,11 @@ function PipelineNames({
           ))}
           {onConfirm ? (
             <button type="button" onClick={confirm} style={{ marginTop: 4 }}>
-              Confirm pipeline names
+              {pipeline ? "Confirm pipeline names" : "Confirm defaults"}
             </button>
           ) : null}
-          <span className="hint"> Applied by the next Generate; unchanged names keep the
-            convention.</span>
+          <span className="hint"> Applied by the next Generate; unchanged values keep
+            their default.</span>
         </div>
       ) : null}
     </section>
@@ -298,11 +313,14 @@ export function InputsNeededBanner({
     : "No inputs needed";
   const shown = applied
     ? ` · ${applied} profile default${applied === 1 ? "" : "s"} applied (changeable)` : "";
-  const run = items.filter((item) => item.scope === "run");
+  // post81: a default is never listed item by item — pipeline names and every other
+  // applied default each get ONE line with a "Change …" button
   const pipelines = items.filter((item) => item.scope !== "run" && isPipeline(item));
+  const defaults = items.filter((item) => isApplied(item) && !isPipeline(item));
+  const run = items.filter((item) => item.scope === "run" && !isApplied(item));
   const feeds = new Map<string, InputNeededItem[]>();
   for (const item of items) {
-    if (item.scope === "run" || isPipeline(item)) continue;
+    if (item.scope === "run" || isPipeline(item) || isApplied(item)) continue;
     const list = feeds.get(item.feed) ?? [];
     list.push(item);
     feeds.set(item.feed, list);
@@ -331,7 +349,12 @@ export function InputsNeededBanner({
         </section>
       ) : null}
       {pipelines.length ? (
-        <PipelineNames items={pipelines} confirmed={confirmed} onConfirm={onConfirm} />
+        <DefaultsPanel items={pipelines} confirmed={confirmed} onConfirm={onConfirm}
+                       kind="pipeline" />
+      ) : null}
+      {defaults.length ? (
+        <DefaultsPanel items={defaults} confirmed={confirmed} onConfirm={onConfirm}
+                       kind="defaults" />
       ) : null}
       {[...feeds.entries()].map(([feed, list]) => (
         <section key={`feed:${feed}`} aria-label={`feed ${feed} inputs`}>

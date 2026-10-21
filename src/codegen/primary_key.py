@@ -237,6 +237,14 @@ def key_cell(tab: str, table: TableKey, spec, faq, offer: KeyProposal, *,
             cell["badge_entry"]["note"] = (f"iig_owed_blank:{where} — left blank: the BSA chose "
                                            f"leave_blank for {KEY}")
             return cell
+        if kind == "profile":
+            # post81: primary_key_autoset — the explicit signal's key, written unasked
+            # (a profile default: no gate NOTE; changeable in the App / answers file)
+            if not offer:
+                return None
+            return _cell(offer.value, {"sttm": "from_sttm", "frd": "from_frd",
+                                       "faq": "from_faq"}.get(offer.kind, "synthetic"),
+                         f"set by default from {offer.source} (primary_key_autoset)")
         if kind == "default":
             if not offer:
                 return None

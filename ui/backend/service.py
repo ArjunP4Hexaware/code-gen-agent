@@ -321,7 +321,7 @@ class GenerationStore:
                     for sheet, reason in artefacts.empty_by_rule.items()],
             }
         return FeedRun(
-            spec=spec,
+            spec=result.spec or spec,          # post84: with a profile landing applied
             outcomes=result.outcomes,
             candidates=result.candidates,
             gate=result.gate,

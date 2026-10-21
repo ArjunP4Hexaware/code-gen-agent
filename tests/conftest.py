@@ -329,3 +329,15 @@ def pair1_payload(pair1_config, pair1_spec, tmp_path_factory):
         "feeds": [feed], "system_interfaces": [], "open_items": []}), encoding="utf-8")
     return metadata_sheet_payload(pair1_config, REPO, specs=[spec], frd_path=frd,
                                   template="iig_v2", conventions_profile="acfc_prx")
+
+
+@pytest.fixture
+def landing_autoset_off(tmp_path, monkeypatch):
+    """post84: acfc_env.yaml writes the landing convention by default
+    (landing_autoset); a test of the landing QUESTION turns that off with an
+    overlay applied last (CODEGEN_CONFIG_OVERLAYS)."""
+    path = tmp_path / "landing_autoset_off.yaml"
+    path.write_text("metadata:\n  templates:\n    iig_v2:\n      landing_autoset: false\n",
+                    encoding="utf-8")
+    monkeypatch.setenv("CODEGEN_CONFIG_OVERLAYS", str(path))
+    return path

@@ -2434,6 +2434,15 @@ class DemoRunner:
         return {"feeds": changed, "rules": sum(r["rules"] for r in block["feeds"]),
                 "calls": sum(r["calls"] for r in block["feeds"])}
 
+    def _landing_choices(self) -> dict[str, str]:
+        """post84: the confirmed landing paths (``<feed key>.src_adls_path`` with
+        ``naming_standard`` + the path) as gaps: answers."""
+        from codegen.metadata_template import LANDING_KEY
+
+        return {key: choice.standard.strip() for key, choice in self.input_choices.items()
+                if key.endswith("." + LANDING_KEY) and choice.choice == "naming_standard"
+                and (choice.standard or "").strip()}
+
     def confirm_input_choices(self, choices: dict) -> dict:
         """post59: record the BSA's confirmed choices — ``{key: {choice,
         standard?}}`` (``null`` withdraws one). Applied by the next Generate
@@ -2932,6 +2941,9 @@ class DemoRunner:
             gaps = {key: str(value.get("value") or "")
                     for key, value in ((self.last_answers or {}).get("gaps") or {}).items()
                     if isinstance(value, dict) and str(value.get("value") or "").strip()}
+            # post84: a landing changed in "Change defaults" (input-choices) sets the
+            # feed's landing — the profile's convention is then not applied
+            gaps.update(self._landing_choices())
             specs, unstated_values = self._resolve_specs(
                 frd_path, contract_path, with_environment(config, run_env), vdd_contract_path,
                 gaps, frd_label)

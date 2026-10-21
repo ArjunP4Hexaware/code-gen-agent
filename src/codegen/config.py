@@ -415,6 +415,11 @@ class FrdExtractorConfig(BaseModel):
     solution_requirement_required_labels: list[str] = Field(default_factory=lambda: [
         "Business Requirement", "Functional Requirement"])
     solution_requirement_min_labels: int = Field(default=5, ge=2)
+    # post84 (pair_11): the labels a Solution Requirement row states its file's landing
+    # under ("<label> : <path>", the path on the same line or the next one) — read per
+    # requirement (its Name row) when the metadata's ADLS Location cell lists several
+    requirement_landing_labels: list[str] = Field(default_factory=lambda: [
+        "Raw ADLS Location", "ADLS Location"])
     inline_pair_separators: list[str] = Field(default_factory=lambda: [";"])
     list_separators: list[str] = Field(default_factory=lambda: [",", ";", "\n"])
     domain_separators: list[str] = Field(default_factory=lambda: ["/", ","])
@@ -1721,6 +1726,10 @@ class MetadataTemplateConfig(BaseModel):
     # feeds[<i>].src_adls_path question, never written unanswered. "" = none.
     landing_proposal: str = ""
     landing_proposal_citation: str = ""
+    # post84: the proposal WRITTEN unasked (a profile default, changeable in the App's
+    # "Change defaults" or under inputs.feeds[<i>].src_adls_path); a stated landing
+    # always wins; no rendered proposal = still the question
+    landing_autoset: bool = False
     # The family's path-case convention for the INPUT-derived segments of a
     # path cell (the FRD landing, table names); the shapes' own literals
     # ("Processed/") are written as configured. "preserve" = as stated.

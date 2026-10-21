@@ -379,6 +379,9 @@ extractor:
                                   "Related Requirements", "IS Owner"]
     solution_requirement_required_labels: ["Business Requirement", "Functional Requirement"]
     solution_requirement_min_labels: 5
+    # post84 (pair_11, the label as the client FRD writes it): a requirement's own
+    # landing line, read per requirement when the ADLS Location cell lists several
+    requirement_landing_labels: ["Raw ADLS Location", "ADLS Location"]
     inline_pair_separators: [";"]
     list_separators: [",", ";", "\n"]
     # 2026-10-14 (D1 pair_12): a LOB cell holding a Region / LOB table (nested,

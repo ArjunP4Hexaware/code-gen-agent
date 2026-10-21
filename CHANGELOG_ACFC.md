@@ -4,6 +4,47 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post84 — 2026-10-21 (the landing: read from the FRD's requirements, else written from the convention)
+
+Soham: the landing (inbound) paths were still asked, one per feed, instead of being
+written by default with a button to change them.
+
+1. **The Pyx FRD states every feed's landing; the reader missed it.** Its metadata
+   "ADLS Location" cell lists two paths on two lines, so the reader refused it as
+   multiline, and every feed's landing came out unstated. Each Solution Requirement
+   states its own file's landing ("Raw ADLS Location : <path>", on the same line or the
+   next). `frd_docx.requirement_landings` reads them (labels:
+   `extractor.frd.requirement_landing_labels`, as the client FRD writes them).
+   - **Per-feed matching:** they become per-file blocks for the unstated landing, and
+     `layout.resolve.resolve_structured_fields` gives each derived feed its own.
+   - **The key:** each block is keyed by the requirement's Name plus the `word_word`
+     identifiers only that requirement names. A descriptive Name still reaches its feed
+     through the file it names; anything unmatched stays unstated.
+   - **On pair_11** (mock harness, no overlay, no answers): 5 of 5 feeds get their stated
+     landing, and SRC_ADLS_PATH and SRC_ADLS_ARCHVL_PATH equal the prod golden's for all
+     5. TGT_RJT_ADLS_PATH differs from the golden for all 5; that is the existing reject
+     derivation, not touched here (open).
+   - **The run:** the outcome is PASS_WITH_OPEN_INPUTS (was NEEDS_ANSWERS); 5 notebooks
+     written; the only open line is `run.email_to`.
+2. **Else, the convention is written** (`metadata.templates.<t>.landing_autoset`, `true`
+   in `acfc_env.yaml`). When no document states a landing and `landing_proposal` renders:
+   - **Written unasked:** the IIG's path cells and the notebook's paths
+     (`metadata_template.with_landing_default`, applied in `cli.generate_feed_result` and
+     `notebook_env`);
+   - **Flagged:** one flag `landing_from_convention:`;
+   - **One NOTE line:** "profile default applied", with no question;
+   - **The App:** a profile-default item in the "Change defaults" panel.
+
+   A change there is the next run's `gaps:` answer (`DemoRunner._landing_choices`), and
+   the CLI's `inputs: feeds[<i>].src_adls_path` still sets it. A stated landing always
+   wins. No rendered proposal (an unstated domain / source) = the question, as before.
+   CAUTION: the corpus's top landing shape is only ~50% of rows.
+
+**Tests:** `test_requirement_landing.py` (the reader, synthetic); `test_landing_question.py`
+(autoset writes the convention, the notebook is not withheld, a stated landing wins, the
+App's item and its change); the question-path tests run under the new
+`landing_autoset_off` fixture (conftest).
+
 ## 0.5.8.post83 — 2026-10-21 (View results no longer re-runs the run after a Confirm)
 
 Soham: "View results" lagged several seconds. The App logs showed it calling

@@ -159,7 +159,7 @@ function ChoiceGroup({
 // post81: what a default's row is called in the panel
 const shortLabel = (item: InputNeededItem) =>
   isPipeline(item) ? item.key.split(".pipeline_name.")[1]
-    : item.key.replace(/^run\./, "").replace(/^feeds\.[^.]+\./, "");
+    : item.key.replace(/^run\./, "").replace(/^feeds(\.[^.]+|\[\d+\])\./, "");
 
 function DefaultsPanel({
   items,

@@ -1,9 +1,16 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post83)
+## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post84)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
+
+**post84 (2026-10-21):** landing = the FRD's per-requirement "Raw ADLS Location" lines
+(`frd_docx.requirement_landings` → per-file blocks → `resolve_structured_fields`; pair_11
+5/5 = golden SRC_ADLS_PATH), else the convention written under
+`metadata.templates.iig_v2.landing_autoset` (`metadata_template.with_landing_default`,
+flag `landing_from_convention:`; App "Change defaults" → `_landing_choices` gaps). Question
+tests use the `landing_autoset_off` fixture. Open: TGT_RJT_ADLS_PATH ≠ golden on pair_11.
 
 **post83 (2026-10-21):** every status-returning POST (`input-choices`, `run-live`,
 `layout-answers`, `layout-refresh`) returns `main.demo_status()` — the bare runner status

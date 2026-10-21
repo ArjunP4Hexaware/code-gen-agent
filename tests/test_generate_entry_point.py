@@ -111,7 +111,7 @@ def test_a_gate_fail_is_quarantined_by_the_app_too(app, tmp_path, monkeypatch):
     assert all(Path(p).is_file() for p in workbooks)
 
 
-def test_the_app_status_names_every_blocking_line(app, tmp_path):
+def test_the_app_status_names_every_blocking_line(app, tmp_path, landing_autoset_off):
     """post80: a notebook run whose landing no document states stops at a
     blocking QUESTION the App lists nowhere else — the status names it, so the
     Generate page sends the person to it instead of "View results"."""
@@ -138,7 +138,7 @@ def test_the_app_status_names_every_blocking_line(app, tmp_path):
         assert item["question"]["kind"] == "text"
 
 
-def test_a_landing_answered_in_the_app_writes_the_notebook(app, tmp_path):
+def test_a_landing_answered_in_the_app_writes_the_notebook(app, tmp_path, landing_autoset_off):
     """post80: the App's answer to the landing question, posted as gaps: (the
     shape rerun_with_answers sends), reaches the resolver; the notebook is
     written and nothing blocks."""

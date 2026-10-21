@@ -26,6 +26,7 @@ sourced field records its table/row/col and the label seen. No python-docx.
 
 from __future__ import annotations
 
+import itertools
 import re
 import zipfile
 from dataclasses import dataclass
@@ -273,6 +274,54 @@ def sr_signal(index: int, rows: list[list[str]], content: DocxContent,
         return f"header-row fingerprint ({len(found)} labels)" + (" + caption" if caption
                                                                   else "")
     return "caption" if caption else None
+
+
+_PATH_RE = re.compile(r"^[^\s:]+(?:/[^\s]+)+/?$")
+
+
+def _labelled_path(text: str, labels: set[str]) -> str | None:
+    """The path a cell states under one of ``labels``: ``<label> : <path>`` on
+    one line, or the label line followed by the path line; None otherwise."""
+    lines = [line.strip() for line in text.split("\n")]
+    for at, line in enumerate(lines):
+        pair = _PAIR_RE.match(line)
+        if pair is None or normalize_label(pair.group(1)) not in labels:
+            continue
+        value = pair.group(2).strip() or next((n for n in lines[at + 1:] if n), "")
+        if _PATH_RE.match(value):
+            return value
+    return None
+
+
+_IDENT_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b")
+
+
+def requirement_landings(content: DocxContent, config: FrdExtractorConfig
+                         ) -> list[tuple[str, str, int, int]]:
+    """post84 (pair_11): ``(key, path, table, row)`` per Solution Requirement
+    table whose Name row names the requirement and ONE row states one landing
+    under :attr:`FrdExtractorConfig.requirement_landing_labels` (a table stating
+    two different paths is skipped — never a pick). ``key`` = the Name plus the
+    ``word_word`` identifiers only THIS requirement's text names (a descriptive
+    Name — "Full member roster …" — still names its file / table there)."""
+    labels = {normalize_label(label) for label in config.requirement_landing_labels}
+    out = []
+    for index, rows in enumerate(content.tables):
+        if sr_signal(index, rows, content, config) is None:
+            continue
+        name = next((row[1].strip() for row in rows
+                     if len(row) > 1 and normalize_label(row[0]) == "name" and row[1].strip()),
+                    "")
+        found = {(path, row_index) for row_index, row in enumerate(rows) for cell in row[1:]
+                 if (path := _labelled_path(cell, labels))}
+        if name and len({path for path, _r in found}) == 1:
+            path, row_index = min(found, key=lambda f: f[1])
+            idents = {m.lower() for row in rows for cell in row[1:]
+                      for m in _IDENT_RE.findall(cell) if "/" not in m}
+            out.append((name, path, index, row_index, idents))
+    common = {ident for a, b in itertools.combinations(out, 2) for ident in a[4] & b[4]}
+    return [(" ".join([name, *sorted(idents - common)]), path, index, row_index)
+            for name, path, index, row_index, idents in out]
 
 
 def _first_cell(row: list[str]) -> tuple[int, str] | None:
@@ -1250,9 +1299,36 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         layout=FrdLayoutSummary(family=profile.family, source=profile.source,
                                 fingerprint=profile.fingerprint,
                                 unresolved=[f"{u.field}: {u.reason}" for u in profile.unresolved]),
-        structured=structured,
+        structured=_requirement_landing_blocks(content, frd_config, structured, feeds,
+                                               ambiguities),
         extraction_flags=flags,
     )
+
+
+def _requirement_landing_blocks(content: DocxContent, config: FrdExtractorConfig,
+                                structured: dict, feeds: list, ambiguities: list) -> dict:
+    """post84 (pair_11): ONE feed whose landing is unstated (its ADLS Location
+    cell lists several paths, or none) gets the Solution Requirements' own
+    landing lines as per-file blocks — the layout stage then gives every
+    derived feed the block whose requirement Name names it
+    (``layout.resolve.resolve_structured_fields``); nothing is picked here."""
+    key = "feeds[0].landing_location"
+    current = structured.get(key)
+    if len(feeds) != 1 or feeds[0].landing_location or (
+            current is not None and current.kind != "multiline"):
+        return structured
+    found = requirement_landings(content, config)
+    if not found:
+        return structured
+    from codegen.contracts.frd import StructuredRow, StructuredValue
+
+    _name, _path, table, row = found[0]
+    ambiguities.append(f"frd_requirement_landing:{key} — {len(found)} Solution Requirement(s) "
+                       "state their own landing; given per derived feed by requirement name")
+    return {**structured, key: StructuredValue(
+        kind="per_file_blocks", table=table, row=row, col=1,
+        label=config.requirement_landing_labels[0],
+        rows=[StructuredRow(key=name, values={"path": path}) for name, path, _t, _r in found])}
 
 
 def _names_one_file(value: str) -> bool:

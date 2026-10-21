@@ -66,7 +66,12 @@ def notebook_environment(spec, config, iig_template: str | None = None,
     own shape is missing."""
     from codegen import environments as envs
     from codegen.gate.derivations import location_scheme
-    from codegen.metadata_template import landing_key, landing_question, notebook_paths
+    from codegen.metadata_template import (
+        landing_key,
+        landing_question,
+        notebook_paths,
+        with_landing_default,
+    )
 
     try:
         env = envs.run_environment(config)
@@ -101,6 +106,7 @@ def notebook_environment(spec, config, iig_template: str | None = None,
          f"the notebook's paths: {where} states no storage_account")
     tpl = config.metadata.templates.get(iig_template or config.metadata.template)
     tpl = envs.apply_environment(tpl, config) if tpl is not None else None
+    spec = with_landing_default(tpl, spec)   # post84: the convention, when it is written
     paths = notebook_paths(tpl, spec) if tpl is not None else {}
     where_index = index if index is not None else spec.feed_id
     landing_open = landing_question(tpl, spec, where_index)

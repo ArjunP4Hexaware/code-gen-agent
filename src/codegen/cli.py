@@ -75,6 +75,8 @@ class FeedResult:
     # post76: the feed's Layer-2 work when the caller runs the stage itself
     # (layer2="later"; codegen.layer2_stage.run_stage after the run's outcome)
     layer2_job: object | None = None
+    # post84: the spec the feed was generated from (a profile landing applied)
+    spec: object | None = None
 
 
 def generate_feed_result(
@@ -116,6 +118,12 @@ def generate_feed_result(
     out_root = Path(out_root) if out_root is not None else Path(config.output.dir)
     reports_dir = (Path(reports_dir) if reports_dir is not None
                    else Path(config.output.reports_dir))
+    # post84: a landing no document states, written from the profile's
+    # convention under landing_autoset (one NOTE flag; a stated landing wins)
+    from codegen.metadata_template import with_landing_default
+    from codegen.owed_inputs import _template as _owed_template
+
+    spec = with_landing_default(_owed_template(config, output_mode, iig_template), spec)
     feed_dir = out_root / spec.feed_slug
     stage = on_stage or (lambda _detail: None)
 
@@ -336,7 +344,7 @@ def generate_feed_result(
             if usage.all_failed:
                 print(f"{'WARNING':<15} {all_failed_line(usage)}")
     return FeedResult(gate, outcomes, candidates, written, framework_artefacts, model_usage,
-                      layer2_job=job)
+                      layer2_job=job, spec=spec)
 
 
 def _generate_feed(

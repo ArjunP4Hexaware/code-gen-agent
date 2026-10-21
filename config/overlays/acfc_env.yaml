@@ -219,8 +219,12 @@ metadata:
       # leaves SRC_ADLS_PATH / SRC_ADLS_ARCHVL_PATH / TGT_RJT_ADLS_PATH open: ONE
       # question per feed, feeds[<i>].src_adls_path (workbook and notebook alike), with
       # this convention shown as the agent's proposal - never written unanswered.
+      # post84 (Soham): WRITTEN by default (landing_autoset), changeable in the App's
+      # "Change defaults" or under inputs.feeds[<i>].src_adls_path; a stated landing
+      # always wins. CAUTION: the corpus's top landing shape is only ~50% of rows.
       # TODO D1: confirm against the corpus's SRC_ADLS_PATH values (patterns.json).
       landing_proposal: "/inbound/{domain}/{sub_domain}/{source}/"
+      landing_autoset: true
       landing_proposal_citation: "the landing convention the FRD Structural Metadata states (demo.source_files.landing_root_template: <landing container>/inbound/<domain>/<sub domain>/<source>), container-relative"
       path_patterns:
         ADLS_DELTA_INGESTION_DETAILS:

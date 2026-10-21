@@ -137,11 +137,19 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
     that names owed cells (post68: any output mode). post59: ``resolved``
     (codegen.input_choices.resolve_feed) adds each defaulted input's proposal
     and its options."""
-    from codegen.metadata_template import owed_questions
+    from codegen.metadata_template import landing_default, landing_key, owed_questions
 
     tpl = _template(config, output_mode, iig_template)
+    # post84: the landing written from the convention — changeable, not open
+    landing = landing_default(tpl, spec)
+    landing_items = [OwedInput(
+        landing_key(index if index is not None else "", spec.feed_id),
+        f"{LANDING_QUESTION} — profile default applied: {landing!r}", spec.feed_id,
+        options=("use_default", "naming_standard"), proposed=landing,
+        template=tpl.landing_proposal, kind="profile_default",
+        applied=landing)] if landing else []
     if tpl is None or not tpl.owed_cells:
-        return []
+        return landing_items
     by_key = {r.key: r for r in resolved or []}
     out = []
     for name, question in owed_questions(tpl, faq, _default_tokens(spec), scope=FEED):
@@ -158,9 +166,12 @@ def owed_inputs(spec, config, *, index: int | str | None = None, faq, output_mod
     out += [_with_choice(OwedInput(feed_key(spec.feed_id, r.key), _PROFILE_QUESTIONS.get(
         r.key.split(".", 1)[0], r.key), spec.feed_id), r, spec, profile, tpl, faq)
         for r in resolved or [] if r.applied and not _is_run_key(r.key, tpl)]
-    return out
+    return out + landing_items
 
 
+LANDING_QUESTION = ("the landing (inbound) path, container-relative (SRC_ADLS_PATH; the "
+                    "notebook's landing / archive / reject paths) — from the landing convention "
+                    "(landing_autoset)")
 KEY_QUESTION = "the detail table's key (TGT_PRIMARY_KEY)"
 
 # post61: what a feed-level profile default is (its NOTE line / the panel)

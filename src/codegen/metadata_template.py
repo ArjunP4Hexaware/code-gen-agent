@@ -568,6 +568,40 @@ def landing_proposal(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec) -> str
     return "/" + "/".join(segments) + "/" if segments else ""
 
 
+LANDING_DEFAULT_FLAG = "landing_from_convention"
+
+
+def landing_default(tpl: MetadataTemplateConfig | None, spec: ResolvedFeedSpec) -> str:
+    """post84: the landing the profile writes for ``spec`` ('' = none): the
+    rendered ``landing_proposal`` when ``landing_autoset`` is on and no document
+    states a landing — or the value already applied (the spec carries
+    :data:`LANDING_DEFAULT_FLAG`)."""
+    if any(f.startswith(LANDING_DEFAULT_FLAG + ":") for f in spec.provenance_flags):
+        return spec.landing_location or ""
+    if tpl is None or not tpl.landing_autoset or (spec.landing_location or "").strip():
+        return ""
+    from codegen.emit.notebook_env import LANDING_TAB
+
+    if "SRC_ADLS_PATH" not in tpl.path_patterns.get(LANDING_TAB, {}):
+        return ""
+    return landing_proposal(tpl, spec)
+
+
+def with_landing_default(tpl: MetadataTemplateConfig | None,
+                         spec: ResolvedFeedSpec) -> ResolvedFeedSpec:
+    """post84: ``spec`` with the profile's landing applied (one NOTE flag naming
+    it), else ``spec`` unchanged."""
+    value = landing_default(tpl, spec)
+    if not value or (spec.landing_location or "").strip():
+        return spec
+    flag = (f"{LANDING_DEFAULT_FLAG}:feeds.{spec.feed_id}.{LANDING_KEY} — no document states "
+            f"the inbound path; the landing convention {value!r} written "
+            f"({tpl.landing_proposal_citation or 'the template landing_proposal'}; "
+            "landing_autoset) — change it in the App or under inputs")
+    return spec.model_copy(update={"landing_location": value,
+                                   "provenance_flags": [*spec.provenance_flags, flag]})
+
+
 def landing_question(tpl: MetadataTemplateConfig | None, spec: ResolvedFeedSpec,
                      index: int | str) -> tuple[str, str, str] | None:
     """post74 (D1 post73 pair_11): (key, reason, proposal) when no document
@@ -581,6 +615,8 @@ def landing_question(tpl: MetadataTemplateConfig | None, spec: ResolvedFeedSpec,
         return None
     if "SRC_ADLS_PATH" not in tpl.path_patterns.get(LANDING_TAB, {}):
         return None
+    if landing_default(tpl, spec):
+        return None              # post84: written by default (landing_autoset)
     proposal = landing_proposal(tpl, spec)
     reason = ("no document states the inbound path: the IIG's SRC_ADLS_PATH (and the "
               "SRC_ADLS_ARCHVL_PATH / TGT_RJT_ADLS_PATH derived from it) and the notebook's "

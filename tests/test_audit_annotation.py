@@ -100,5 +100,9 @@ def test_the_app_default_output_for_acfc_prx_is_framework():
     config = load_config("config/config.yaml")
     assert config.output.mode == ["notebook"]                    # the CLI default is unchanged
     assert config.output.default_parts("acfc_prx") == ["framework"]
-    assert config.output.default_parts("edo_sfmc") == ["notebook"]
-    assert config.output.default_parts(None) == ["notebook"]
+    # post91: the App offers framework only (output.app_options), whatever the profile
+    assert config.output.app_options == ["framework"]
+    assert config.output.default_parts("edo_sfmc") == ["framework"]
+    both = config.output.model_copy(update={"app_options": ["notebook", "framework"]})
+    assert both.default_parts("edo_sfmc") == ["notebook"]     # notebooks back on
+    assert both.default_parts(None) == ["notebook"]

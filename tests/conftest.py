@@ -98,6 +98,36 @@ def _validate_every_emitted_notebook(monkeypatch):
     yield
 
 
+def offer_notebooks(config):
+    """post91: ``config`` with notebooks offered in the App again
+    (output.app_options both) - what turning them back on does."""
+    return config.model_copy(update={"output": config.output.model_copy(
+        update={"app_options": ["notebook", "framework"]})})
+
+
+@pytest.fixture
+def notebooks_in_app(monkeypatch):
+    """post91: the App with notebooks offered again, for the tests of its notebook
+    behaviour - so it keeps working while the shipped config hides it. Every config
+    the App loads offers them, and so does the App's already-loaded store."""
+    import contextlib
+    import sys
+
+    import codegen.config as config_mod
+
+    real = config_mod.load_config
+
+    def offering(*args, **kwargs):
+        return offer_notebooks(real(*args, **kwargs))
+
+    monkeypatch.setattr(config_mod, "load_config", offering)
+    with contextlib.suppress(ImportError, AttributeError):
+        monkeypatch.setattr("ui.backend.service.load_config", offering)
+    main = sys.modules.get("ui.backend.main")
+    if main is not None and getattr(main, "store", None) is not None:
+        monkeypatch.setattr(main.store, "config", offer_notebooks(main.store.config))
+
+
 @pytest.fixture
 def no_environment_profiles(tmp_path, monkeypatch):
     """No profile file: the overlay blocks alone (D1's storage account a placeholder)."""

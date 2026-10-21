@@ -298,14 +298,18 @@ def open_counts(items: list[dict]) -> dict[str, int]:
 
 def write_stage_manifest(out_root: Path, *, command: str, exit_code: int,
                          statuses: dict[str, dict[str, str]], feeds: list[dict],
-                         questions: list[dict] | None = None) -> Path:
+                         questions: list[dict] | None = None,
+                         combined: list[dict] | None = None) -> Path:
     """``<out_root>/CODEGEN_STAGES.json`` — rewritten by every generate run.
-    post58: ``questions`` = every open line, ``{line, key, scope, blocking}``."""
+    post58: ``questions`` = every open line, ``{line, key, scope, blocking}``.
+    post91: ``combined`` = the run's combined set per STTM (only when written)."""
     out_root.mkdir(parents=True, exist_ok=True)
     path = out_root / STAGES_FILE
     payload = {"command": command, "exit": exit_code, "stages": statuses, "feeds": feeds,
                "questions": [{k: v for k, v in item.items() if k != "feed"}
                              for item in questions or []]}
+    if combined:
+        payload["combined"] = combined
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return path
 

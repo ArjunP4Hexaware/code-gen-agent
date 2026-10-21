@@ -87,7 +87,8 @@ def test_two_feeds_with_different_rows_count_differently(one_table, segmented):
 @pytest.mark.parametrize("which", ["one_table", "segmented"])
 def test_template_blanks_is_the_old_used_range_count(which, request):
     root, _done, feed = request.getfixturevalue(which)
-    (clean,) = [p for p in (root / "out").rglob("*_IIG.xlsx")]
+    # post91: the per-feed IIG (the run's combined/ copy holds the same rows)
+    (clean,) = [p for p in (root / "out").rglob("*_IIG.xlsx") if "combined" not in p.parts]
     old = used_range_blanks(clean)
     cells = feed["iig_cells"]["sheets"]
     assert {sheet: c["template_blanks"] for sheet, c in cells.items()} == old

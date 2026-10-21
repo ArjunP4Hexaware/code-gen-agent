@@ -380,8 +380,9 @@ class Round:
         tool = [sys.executable, str(ROOT / "tools" / "iig_diff.py")]
         structure = _run([*tool, "--golden", str(golden), "--golden-structure",
                           "--out", str(self.out)], env)
+        # post91: the per-feed IIGs only - the run's combined/ copy holds the same rows
         agents = sorted(p for p in (self.work / "out").rglob("*_IIG.xlsx")
-                        if not p.name.endswith("_REVIEW.xlsx"))
+                        if not p.name.endswith("_REVIEW.xlsx") and "combined" not in p.parts)
         if structure.returncode or not agents:
             self.section("Diff", [f"golden-structure exit {structure.returncode}; "
                                   f"agent IIG workbooks: {len(agents)} — STOP"])

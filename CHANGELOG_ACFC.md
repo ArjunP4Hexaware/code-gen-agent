@@ -4,6 +4,69 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post91 — 2026-10-21 (one IIG / DDL / review / log per run; notebooks off in the App)
+
+Soham: one IIG, one DDL, one IIG review per run (overlaps skipped), ADDITION.md merged
+as `<STTM>_LOG.md`, one "<STTM> DDL and IIG" heading, and notebook generation out of the
+App, easy to turn back on. Plan tested adversarially before building; the main finding
+changed the overlap rule (below).
+
+1. **The combined set** (`codegen.run_artefacts`, config `combined:`). Each generate
+   run writes `<out>/combined/<STTM>_IIG.xlsx`, `_IIG_REVIEW.xlsx`, `_DDL.txt` and
+   `_LOG.md` beside the per-feed files (which the harness, iig_diff and the manifest
+   keep reading).
+   - **STTM name:** the workbook the extracted contract names (`generated_from_workbook`),
+     upload prefix / `(n)` dropped, made file-safe; the same in the CLI and the App, whose
+     manifests stay byte-identical.
+   - **Overlaps:** rows merge by content ONLY on `combined.dedup_sheets`
+     (`[EMAIL_TEMPLATE_CONFIG]`). On pair_11 a merge-any-equal-row rule would have
+     dropped 26 of 73 rows (12 / 20 schedule, 8 / 10 notebook, 6 / 10 email), but the prod
+     golden keeps every schedule and notebook row distinct per feed (and 5 DQ rows that
+     differ only by IDs) while it has 2 email rows for the whole run. Look-alike rows
+     elsewhere are kept and counted in the log.
+   - **The DDL:** an identical table block is written once; two different blocks for one
+     table are both kept under a `-- CONFLICT` line (listed in the log; never chosen).
+   - **The review copy:** each feed's first row is commented with its sheet rows; an
+     in-feed "PIPELINE_ID of row N" reference is moved to the merged row.
+   - **The gate:** the IIG checks (derivations, single-line, single-value) run on the
+     combined workbook; a failure is listed in the log and the manifest.
+   - **Which feeds:** kept feeds only. GATE_FAIL (quarantined), CRASHED and held-back
+     feeds are listed in the log as left out, with the reason. A `--feed` run writes no
+     combined set; `combined.enabled: false` turns it off.
+   - **The log:** inputs (contract names + sha256), the files, the feeds, sheet rows per
+     feed, merged / kept counts, conflicts, the framework-assigned IDs once, the review
+     flow once.
+   - **The manifest:** `CODEGEN_STAGES.json` gains `combined` (only when written).
+   - **Tools:** `scripts/run_round.py` and `tools/iig_fill_rate.py` skip `combined/`.
+2. **The App:** GET /api/feeds carries `combined` (from the run's manifest; files that
+   exist); GET /api/combined/{name} serves a listed file only. The Framework artefacts
+   panel shows one block "<STTM> DDL and IIG" with the four files; a run without a set
+   (older runs, startup feeds) keeps the per-feed blocks.
+3. **Notebooks off in the App:** `output.app_options` (config.yaml: `[framework]`; to
+   show notebooks again: `[notebook, framework]`). The output options, the parts a run
+   may select (a hidden one is refused, a stale saved one dropped), the App's default,
+   and the startup / Regenerate generations follow it. With one option the Output toggle
+   row is hidden; the Notebooks panel, the zip button, the feed page's Notebook tab and
+   `.ipynb` download, and the notebook wording in the Layer-2 hint go when notebook is
+   not offered. The CLI is not affected.
+   - Framework-only App runs ask fewer before-generate questions (a notebook's open
+     landing / cells block only notebook runs).
+
+**On pair_11** (mock container harness):
+- 4 combined files; 67 rows (73 − 6 email rows merged); schedule 12 and notebook 8
+  look-alikes kept; 10 DDL blocks, no conflicts; the combined gate checks pass;
+- outcome PASS_WITH_OPEN_INPUTS and gate CLEAN, unchanged; the per-feed IIGs are
+  cell-for-cell identical to post90's;
+- iig_diff on the per-feed files: 30.0 (unchanged). An unsorted `--agent` list scored
+  30.3: iig_diff depends on the file order (pre-existing; run_round sorts).
+
+**Tests:** `test_run_artefacts.py`, `test_combined_route.py`, `test_app_options.py`,
+`appOptions.test.ts`, `Dashboard.test.tsx` (combined panel, notebooks off); updated
+`test_generate_entry_point.py` (the App passes its contract, as the real caller does),
+`test_audit_annotation.py`, `test_model_usage_and_outputs.py`. Frontend 95 tests;
+`dist` rebuilt. Screenshots: the combined panel; the Generate page without the Output
+row.
+
 ## 0.5.8.post90 — 2026-10-21 (App: download every notebook in one zip)
 
 Soham asked for a final notebook wrapping every feed. Assessed first:

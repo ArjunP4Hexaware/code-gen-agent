@@ -1091,9 +1091,12 @@ class DemoRunner:
     def effective_output_parts(self) -> list[str]:
         """The selection, else the config default for the run's conventions
         profile (output.profile_mode — acfc_prx: framework, 2026-10-13)."""
-        if self.output_parts is not None:
-            return list(self.output_parts)
         config = self._store.config
+        if self.output_parts is not None:
+            # post91: a saved choice the App no longer offers is dropped
+            chosen = config.output.app_parts(self.output_parts)
+            if chosen or not self.output_parts:
+                return chosen
         return config.output.default_parts(self.conventions_profile
                                            or config.conventions.profile)
 
@@ -1106,7 +1109,7 @@ class DemoRunner:
                 )
         # A retired mode maps (with a notice); an unknown one is a ValueError.
         self.output_parts = (None if mode is None
-                             else output_parts(mode, source="output-mode request"))
+                             else self._offered(output_parts(mode, source="output-mode request")))
 
     def select_output_parts(self, parts: list[str] | None) -> None:
         """The UI's toggles: any subset of OUTPUT_PARTS, empty allowed
@@ -1119,7 +1122,15 @@ class DemoRunner:
         if parts is None:
             self.output_parts = None
             return
-        self.output_parts = output_parts(parts, source="output-parts request")
+        self.output_parts = self._offered(output_parts(parts, source="output-parts request"))
+
+    def _offered(self, parts: list[str]) -> list[str]:
+        """post91: a part the App does not offer (output.app_options) is refused."""
+        hidden = [p for p in parts if p not in self._store.config.output.app_options]
+        if hidden:
+            raise ValueError(f"output {', '.join(hidden)} is not offered in the App "
+                             "(config output.app_options)")
+        return parts
 
     def select_generation_options(self, *, conventions_profile: str | None = None,
                                   iig_template: str | None = None,
@@ -2320,7 +2331,7 @@ class DemoRunner:
             run_config, {}, output_mode=parts, iig_template=self.iig_template,
             choices={k: c for k, c in self.input_choices.items() if k.startswith("run.")}))
         gen.unstated(unstated)          # the CLI's order: unstated, then held back
-        gen.held_back(held)
+        gen.held_back(held, sttm_path)
         runs: dict[str, FeedRun] = {}
         failures: list[FailedRun] = []
         jobs: dict = {}                    # post76: each feed's Layer-2 work
@@ -2328,6 +2339,7 @@ class DemoRunner:
             slug = spec.feed_slug
             result = gen.feed(
                 spec, feed_no, len(specs), frd_path=frd_path, reraise=False,
+                sttm_path=sttm_path,
                 produce=lambda faq_answers, spec=spec, slug=slug: self._store._generate_feed(  # noqa: SLF001
                     spec, dry_run=False, skip_tests=True, out_root=run_root,
                     reports_dir=reports_root,
@@ -2337,7 +2349,7 @@ class DemoRunner:
                     iig_template=self.iig_template, playbook_template=self.playbook_template,
                     layout_usage=layout_usage, environment=run_env, faq_answers=faq_answers,
                     frd_path=frd_path, sttm_path=sttm_path, layer2="later",
-                    layer2_jobs=jobs))
+                    layer2_jobs=jobs, framework_out=gen.framework))
             if result is None:
                 failures.append(FailedRun(label=slug, error=gen.errors.get(spec.feed_id, "")))
                 continue

@@ -140,8 +140,10 @@ def workbooks(paths: list[Path]) -> list[Path]:
     for path in paths:
         if path.is_dir():
             # a run folder: its IIGs only (never config_rows / config_inserts)
+            # post91: never the run's combined/ copy (the same rows as the feeds')
             books = sorted(p for p in path.rglob("*.xlsx") if not p.name.startswith("~$")
-                           and not p.name.endswith("_REVIEW.xlsx"))
+                           and not p.name.endswith("_REVIEW.xlsx")
+                           and "combined" not in p.relative_to(path).parts)
             iigs = [p for p in books if p.name.upper().endswith("_IIG.XLSX")]
             out += iigs or books
             out += sorted(path.rglob("*.csv")) if not iigs else []

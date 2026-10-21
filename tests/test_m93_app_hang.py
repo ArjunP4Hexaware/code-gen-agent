@@ -115,6 +115,7 @@ def _wait_job(client, job_id: int, limit: float) -> dict:
 # --------------------------------------------------------------- the regression (addendum item 3)
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_a_download_and_an_upstream_call_that_never_return_hang_nothing(monkeypatch, ws,
                                                                        upstream):
     """A fake backend whose download blocks indefinitely AND a fake upstream

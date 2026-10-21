@@ -36,6 +36,11 @@ output:
   # The App's default output per conventions profile (over `mode`; the CLI keeps
   # `mode`). acfc_prx = framework: every scored ACFC run used it (2026-10-13).
   profile_mode: {acfc_prx: framework}
+  # post91 (Soham, 2026-10-21): what the App offers - notebooks are OFF in the App
+  # (no toggle, no notebook runs, no notebook panels). To show them again:
+  #   app_options: [notebook, framework]
+  # The CLI (mode / --output-mode) is not affected.
+  app_options: [framework]
 
 framework:
   # Option B knobs. The row layout is NOT here — demo.metadata_sheet is the
@@ -1255,6 +1260,18 @@ dml:
     host_column: HOST_NAME
     root_column: ROOT_PATH
     source_type_column: SOURCE_TYPE
+
+combined:
+  # post91 (Soham, 2026-10-21): one IIG / IIG review / DDL / log per run and STTM,
+  # in <out root>/combined/<STTM>_IIG.xlsx ... <STTM>_LOG.md, beside the per-feed files
+  # (which the harness, iig_diff and the manifest keep reading). Rows are merged by
+  # content ONLY on dedup_sheets - sheets that are run-level by design: the prod golden
+  # of pair_11 carries 2 email rows for the whole run, while every pipeline / notebook
+  # row there is distinct per feed (equal-looking agent rows differ once the framework
+  # assigns the IDs).
+  enabled: true
+  dir: combined
+  dedup_sheets: [EMAIL_TEMPLATE_CONFIG]
 
 iig_review:
   # IIG-first (2026-10-02, M3): every framework run writes TWO IIG workbooks

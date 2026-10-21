@@ -756,6 +756,7 @@ def _run_pairs(
                       conventions_profile=conventions_profile, inputs=inputs, choices=choices,
                       say=print, fail=_fail, report=report_error)
     run.run_level(questions, items)
+    run.partial = only_feed is not None      # post91: no combined set for some feeds only
     for pair_no, (frd_path, sttm_path) in enumerate(pairs, 1):
         try:
             specs = resolve_pair(frd_path, sttm_path, config, vdd_path=vdd_path, gaps=gaps)
@@ -779,7 +780,7 @@ def _run_pairs(
                  and _pending_feed(p, config) == only_feed]
         shown = asked if only_feed is not None else pending
         _print_needs_answers(shown)
-        run.held_back(shown)
+        run.held_back(shown, sttm_path)
         if asked:
             run.matched_feed = True
         for feed_no, spec in enumerate(specs, 1):
@@ -787,7 +788,7 @@ def _run_pairs(
                 continue
             # post76: every feed's files without a model call; the Layer-2 stage
             # runs after the outcome (below)
-            run.feed(spec, feed_no, len(specs), frd_path=frd_path,
+            run.feed(spec, feed_no, len(specs), frd_path=frd_path, sttm_path=sttm_path,
                      produce=lambda faq_answers, spec=spec, frd_path=frd_path,
                      sttm_path=sttm_path: generate_feed_result(
                          spec, config, dry_run=dry_run, skip_tests=skip_tests,

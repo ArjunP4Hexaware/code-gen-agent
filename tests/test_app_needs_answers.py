@@ -534,6 +534,7 @@ def acfc_roles(roles, monkeypatch):
     return roles
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_a_blocking_question_is_asked_before_generating_and_the_run_generates_once(
         acfc_roles, landing_autoset_off):
     roles = acfc_roles
@@ -560,6 +561,7 @@ def test_a_blocking_question_is_asked_before_generating_and_the_run_generates_on
     assert list((roles / "outputs").rglob("*.ipynb"))                # the notebook is written
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_proceed_with_unresolved_generates_and_lists_them_after(acfc_roles, landing_autoset_off):
     roles = acfc_roles
     runner, _store = _runner_without_landing(roles)

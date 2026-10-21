@@ -14,6 +14,7 @@ import { lobLabel } from "../lobs";
 import { CodeView } from "../components/CodeView";
 import { DownloadButton } from "../components/DownloadButton";
 import { NotebookView } from "../components/NotebookView";
+import { notebooksOffered } from "../appOptions";
 import { VerdictChip } from "../components/VerdictChip";
 
 type TabId = "overview" | "rules" | "candidates" | "notebook" | "code" | "report";
@@ -66,7 +67,8 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
 
   // Framework mode emits no notebook — hide the tab rather than 404 it.
   // post81: the path the run wrote (v2 = notebook/<slug>.ipynb), from the backend
-  const notebook = feed.notebook ?? null;
+  // post91: no notebook surface when the App does not offer notebooks
+  const notebook = notebooksOffered(feed.app_options) ? feed.notebook ?? null : null;
   const hasNotebook = notebook !== null;
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
@@ -569,7 +571,7 @@ function CodeTab({ feed }: { feed: FeedDetail }) {
     dirs.set(dir, [...(dirs.get(dir) ?? []), f]);
   }
 
-  const notebook = feed.notebook ?? null;
+  const notebook = notebooksOffered(feed.app_options) ? feed.notebook ?? null : null;
 
   return (
     <div className="panel">

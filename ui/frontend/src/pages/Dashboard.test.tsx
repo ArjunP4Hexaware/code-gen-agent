@@ -70,3 +70,50 @@ describe("Dashboard notebooks (post81)", () => {
     expect(links[0].hasAttribute("download")).toBe(true);
   });
 });
+
+describe("Dashboard framework artefacts (post91)", () => {
+  const framed = (slug: string) => ({
+    ...feed(slug, null),
+    framework: { files: [`${slug}_IIG.xlsx`], groups: {}, row_counts: {}, coverage: {},
+                 flagged_blank_columns: ["GROUP_ID"] },
+  }) as FeedSummary;
+  const render = (data: unknown) => act(() => root.render(
+    <MemoryRouter>
+      <Dashboard data={data as never} generating={false} onGenerateAll={() => undefined}
+                 onFeedsChanged={() => undefined} />
+    </MemoryRouter>));
+
+  it("shows the run's one set under '<STTM> DDL and IIG', not a block per feed", () => {
+    render({ feeds: [framed("syn_a"), framed("syn_b")], failures: [], mode: "mock",
+             label: null, combined: [{ sttm: "STTM_Syn", files: [
+               "STTM_Syn_DDL.txt", "STTM_Syn_IIG.xlsx", "STTM_Syn_IIG_REVIEW.xlsx",
+               "STTM_Syn_LOG.md"] }] });
+    expect(host.textContent).toContain("STTM_Syn DDL and IIG");
+    const links = [...host.querySelectorAll('a[href^="/api/combined/"]')];
+    expect(links.map((a) => a.textContent)).toEqual([
+      "STTM_Syn_DDL.txt", "STTM_Syn_IIG.xlsx", "STTM_Syn_IIG_REVIEW.xlsx", "STTM_Syn_LOG.md"]);
+    expect(host.querySelector('a[href^="/api/feeds/syn_a/download"]')).toBeNull();
+  });
+
+  it("falls back to one block per feed for a run without a combined set", () => {
+    render({ feeds: [framed("syn_a")], failures: [], mode: "mock", label: null });
+    expect(host.querySelector('a[href^="/api/feeds/syn_a/download"]')).not.toBeNull();
+    expect(host.querySelector('a[href^="/api/combined/"]')).toBeNull();
+  });
+});
+
+describe("Dashboard with notebooks off in the App (post91)", () => {
+  it("shows no Notebooks panel and no notebook wording", () => {
+    const data = { feeds: [feed("syn_a", "notebook/syn_a.ipynb"), feed("syn_b", "notebook/syn_b.ipynb")],
+                   failures: [], mode: "mock", label: null, app_options: ["framework"] } as never;
+    act(() => root.render(
+      <MemoryRouter>
+        <Dashboard data={data} generating={false} onGenerateAll={() => undefined}
+                   onFeedsChanged={() => undefined} />
+      </MemoryRouter>));
+    expect(host.querySelector('[aria-label="notebooks"]')).toBeNull();
+    expect(host.querySelector('a[href="/api/notebooks.zip"]')).toBeNull();
+    expect(host.textContent).toContain("Optional: the DDL and IIG are already written");
+    expect(host.textContent).not.toContain("the notebooks, DDL");
+  });
+});

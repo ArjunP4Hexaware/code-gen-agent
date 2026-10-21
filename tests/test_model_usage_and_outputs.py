@@ -197,15 +197,26 @@ def test_a_layout_the_mock_answers_says_mock_and_why(config):
 # ------------------------------------------------------------------ the outputs
 
 
-def test_output_options_endpoint_returns_exactly_notebook_and_framework(monkeypatch):
+def test_output_options_endpoint_returns_what_the_app_offers(monkeypatch):
+    """post91: the outputs (codegen.output_modes) narrowed to output.app_options -
+    the shipped config offers framework only; listing notebook again shows both."""
     pytest.importorskip("httpx")
     pytest.importorskip("fastapi")   # the ui extra (absent in the D1 venv)
+    from types import SimpleNamespace
+
     from fastapi.testclient import TestClient
     from ui.backend import main
 
-    reply = TestClient(main.app).get("/api/demo/output-options")
-    assert reply.status_code == 200
-    assert reply.json() == ["notebook", "framework"] == list(OUTPUT_OPTIONS)
+    config = load_config(REPO / "config" / "config.yaml")
+    assert config.output.app_options == ["framework"]
+    monkeypatch.setattr(main, "store", SimpleNamespace(config=config))
+    client = TestClient(main.app)
+    assert client.get("/api/demo/output-options").json() == ["framework"]
+    both = config.model_copy(update={"output": config.output.model_copy(
+        update={"app_options": ["notebook", "framework"]})})
+    monkeypatch.setattr(main, "store", SimpleNamespace(config=both))
+    assert client.get("/api/demo/output-options").json() == list(OUTPUT_OPTIONS) == [
+        "notebook", "framework"]
 
 
 def test_cli_offers_exactly_the_two_outputs(capsys):

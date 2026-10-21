@@ -18,6 +18,8 @@ export interface GateCheck {
 }
 
 export interface FeedSummary {
+  /* post91: on the feed detail response — what the App offers */
+  app_options?: string[];
   feed_slug: string;
   feed_id: string;
   feed_name: string;
@@ -149,6 +151,15 @@ export interface FeedsResponse {
   mode: RunMode;
   label: string | null;
   model_usage?: StageUsage[];
+  /* post91: the run's combined framework artefacts, one set per STTM */
+  combined?: CombinedSet[];
+  /* post91: what the App offers (output.app_options) */
+  app_options?: string[];
+}
+
+export interface CombinedSet {
+  sttm: string | null;
+  files: string[];
 }
 
 export interface ReplaySet {

@@ -34,7 +34,8 @@ def _run(config, pairs, answers: Path | None = None, parts=("notebook", "framewo
 
 
 def _iig_rows(out: Path, tab: str) -> list[dict]:
-    (book,) = [p for p in out.rglob("*_IIG.xlsx") if "quarantine" not in p.parts]
+    (book,) = [p for p in out.rglob("*_IIG.xlsx")
+               if "quarantine" not in p.parts and "combined" not in p.parts]
     # from its bytes: openpyxl keeps a read-only workbook's file open (Windows)
     rows = list(openpyxl.load_workbook(BytesIO(book.read_bytes()), read_only=True)[tab]
                 .iter_rows(values_only=True))

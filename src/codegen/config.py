@@ -78,6 +78,10 @@ class OutputConfig(BaseModel):
     # App's toggles still select any part; the CLI keeps `mode` / --output-mode.
     profile_mode: dict[str, list[Literal["notebook", "framework"]]] = Field(
         default_factory=dict)
+    # post91: the outputs the App OFFERS (its toggles, its runs, its panels); the
+    # CLI is not affected. [framework] = no notebook anywhere in the App - add
+    # notebook back to show it again.
+    app_options: list[Literal["notebook", "framework"]] = ["notebook", "framework"]
 
     @field_validator("mode", mode="before")
     @classmethod
@@ -97,9 +101,24 @@ class OutputConfig(BaseModel):
         return {profile: output_parts(parts, source=f"config output.profile_mode.{profile}")
                 for profile, parts in (value or {}).items()}
 
+    @field_validator("app_options")
+    @classmethod
+    def _some_app_option(cls, value):
+        if not value:
+            raise ValueError("output.app_options names no output; expected notebook and / "
+                             "or framework")
+        return value
+
     def default_parts(self, profile: str | None) -> list[str]:
-        """The App's default output for a conventions profile."""
-        return list(self.profile_mode.get(profile or "", self.mode))
+        """The App's default output for a conventions profile (only what the
+        App offers; every offered part when the default names none of them)."""
+        parts = [p for p in self.profile_mode.get(profile or "", self.mode)
+                 if p in self.app_options]
+        return parts or list(self.app_options)
+
+    def app_parts(self, parts) -> list[str]:
+        """``parts`` narrowed to what the App offers."""
+        return [p for p in parts if p in self.app_options]
 
 
 class FrameworkConfig(BaseModel):
@@ -2185,6 +2204,24 @@ class EdhE2eConfig(BaseModel):
     function_map: dict[str, str] = Field(default_factory=dict)
 
 
+class CombinedConfig(BaseModel):
+    """post91: ONE set of framework artefacts per run and STTM, in
+    ``<out root>/<dir>/`` beside the per-feed files (codegen.run_artefacts):
+    the IIG, its review copy, the DDL and the log. Rows are never merged by
+    content except on ``dedup_sheets`` (sheets that are run-level by design),
+    where a row equal to an earlier one on every column is written once."""
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = True
+    dir: str = "combined"
+    iig_file_pattern: str = "{sttm}_IIG.xlsx"
+    review_file_pattern: str = "{sttm}_IIG_REVIEW.xlsx"
+    ddl_file_pattern: str = "{sttm}_DDL.txt"
+    log_file_pattern: str = "{sttm}_LOG.md"
+    dedup_sheets: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -2224,6 +2261,7 @@ class Config(BaseModel):
     dml: DmlConfig = DmlConfig()
     # Optional (IIG-first M3): the review / clean IIG workbooks + owner table.
     iig_review: IigReviewConfig = IigReviewConfig()
+    combined: CombinedConfig = CombinedConfig()
     # Optional (M8): storage backends per role + extra input roots.
     storage: StorageConfig = StorageConfig()
     inputs: InputsConfig = InputsConfig()

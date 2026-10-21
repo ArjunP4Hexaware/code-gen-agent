@@ -18,6 +18,7 @@ import pytest
 
 from codegen import run_stages
 from codegen.resolve.resolver import pending_answers, resolve_pair
+from conftest import offer_notebooks
 from test_iig_corpus_cells import _generate
 from test_pipeline_name_choice import _pair
 
@@ -52,7 +53,7 @@ def _app_run(runner, config, frd: Path, sttm: Path, root: Path, *, choices=None)
     return runner._generate_specs(                    # noqa: SLF001 — the App's own path
         specs, config, run_env=None, frd_path=frd, run_root=root / "app",
         reports_root=root / "app_reports", held=list(pending_answers(sttm)), unstated=[],
-        extra_flags=[], layout_usage=None)
+        extra_flags=[], layout_usage=None, sttm_path=sttm)   # the App passes its contract
 
 
 def test_the_app_and_the_cli_write_the_same_manifest(app, tmp_path):
@@ -111,6 +112,7 @@ def test_a_gate_fail_is_quarantined_by_the_app_too(app, tmp_path, monkeypatch):
     assert all(Path(p).is_file() for p in workbooks)
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_the_app_status_names_every_blocking_line(app, tmp_path, landing_autoset_off):
     """post80: a notebook run whose landing no document states stops at a
     blocking QUESTION the App lists nowhere else — the status names it, so the
@@ -118,6 +120,7 @@ def test_the_app_status_names_every_blocking_line(app, tmp_path, landing_autoset
     from test_landing_question import _without_landing
 
     config, spec, (frd, sttm) = _pair(tmp_path / "cli")
+    config = offer_notebooks(config)                 # post91: notebooks off in the App
     _without_landing((frd, sttm))                       # the Pyx FRD states no landing
     app.output_parts = ["notebook", "framework"]
     _app_run(app, config, frd, sttm, tmp_path)
@@ -138,6 +141,7 @@ def test_the_app_status_names_every_blocking_line(app, tmp_path, landing_autoset
         assert item["question"]["kind"] == "text"
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_a_landing_answered_in_the_app_writes_the_notebook(app, tmp_path, landing_autoset_off):
     """post80: the App's answer to the landing question, posted as gaps: (the
     shape rerun_with_answers sends), reaches the resolver; the notebook is
@@ -146,6 +150,7 @@ def test_a_landing_answered_in_the_app_writes_the_notebook(app, tmp_path, landin
     from test_landing_question import _without_landing
 
     config, spec, (frd, sttm) = _pair(tmp_path / "cli")
+    config = offer_notebooks(config)                 # post91: notebooks off in the App
     _without_landing((frd, sttm))
     app.output_parts = ["notebook", "framework"]
     _app_run(app, config, frd, sttm, tmp_path / "first")

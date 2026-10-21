@@ -706,20 +706,25 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                 </span>
               ))}
             </p>
-            <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
-            <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <OutputSelector
-                options={outputOptions}
-                selected={outputParts}
-                disabled={running}
-                onToggle={toggleOutputPart}
-              />
-              {outputParts.size === 0 ? (
-                <span className="hint" style={{ alignSelf: "center" }}>
-                  choose at least one output
-                </span>
-              ) : null}
-            </p>
+            {/* post91: one output offered (output.app_options) = nothing to choose */}
+            {outputOptions.length > 1 ? (
+              <>
+                <div className="panel-subhead" style={{ marginTop: 12 }}>Output</div>
+                <p style={{ margin: "6px 0 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <OutputSelector
+                    options={outputOptions}
+                    selected={outputParts}
+                    disabled={running}
+                    onToggle={toggleOutputPart}
+                  />
+                  {outputParts.size === 0 ? (
+                    <span className="hint" style={{ alignSelf: "center" }}>
+                      choose at least one output
+                    </span>
+                  ) : null}
+                </p>
+              </>
+            ) : null}
             {(status?.output_notices ?? []).map((notice) => (
               <p key={notice} className="hint" style={{ margin: "2px 0" }}>
                 {notice}

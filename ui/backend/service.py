@@ -279,6 +279,7 @@ class GenerationStore:
         sttm_path: Path | None = None,
         layer2: str = "now",
         layer2_jobs: dict | None = None,
+        framework_out: dict | None = None,
     ) -> FeedRun:
         # post76: ``layer2="later"`` leaves the Layer-2 stage to the run (its job
         # lands in ``layer2_jobs`` by feed_id — DemoRunner runs it after the outcome).
@@ -307,6 +308,8 @@ class GenerationStore:
             layer2_jobs[spec.feed_id] = result.layer2_job
         framework_summary = None
         artefacts = result.framework_artefacts
+        if framework_out is not None and artefacts is not None:
+            framework_out[spec.feed_id] = artefacts     # post91: the run's combined set
         if artefacts is not None:
             framework_summary = {
                 "files": [p.name for p in artefacts.files],

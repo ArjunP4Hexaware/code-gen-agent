@@ -72,6 +72,15 @@ class GenerateRun:
         self.matched_feed = False
         self.layer2_jobs: list = []             # post76: the stage's work, feed by feed
         self.layer2_block: dict | None = None
+        # post91: the combined set per STTM (codegen.run_artefacts) - each kept
+        # feed's framework artefacts (the App's produce fills ``framework`` by
+        # feed_id; the CLI's result carries them), the feeds left out and why;
+        # ``partial`` (a --feed run) writes none.
+        self.framework: dict[str, Any] = {}
+        self.kept_feeds: list[tuple[str | None, Any, Any]] = []
+        self.excluded: list[tuple[str | None, str, str]] = []
+        self.partial = False
+        self.combined: list[dict] = []
 
     # -- lines before any feed ---------------------------------------------------
 
@@ -107,13 +116,18 @@ class GenerateRun:
         if questions:
             self.matched_feed = True
 
-    def held_back(self, pending: list) -> None:
+    def held_back(self, pending: list, sttm_path: Path | None = None) -> None:
         """Each held-back feed's lines (QUESTION / UNRESOLVED, blocking)."""
         from codegen.cli import _pending_feed, _pending_key, _pending_label
+        from codegen.run_artefacts import sttm_name
 
         self.open_items += [run_stages.open_item(_pending_label(p), _pending_key(p),
                                                  feed=_pending_feed(p, self.config))
                             for p in pending]
+        sttm = sttm_name(sttm_path)
+        for feed in dict.fromkeys(_pending_feed(p, self.config) for p in pending):
+            if feed:
+                self.excluded.append((sttm, feed, "held back: a blocking question is open"))
 
     def hard_fail(self) -> None:
         """A failure before anything is written (a mismatch, no --feed match)."""
@@ -126,7 +140,8 @@ class GenerateRun:
     # -- one feed ------------------------------------------------------------------
 
     def feed(self, spec, feed_no: int, of: int, *, frd_path: Path | None,
-             produce: Callable[[dict], Any], reraise: bool = True) -> Any:
+             produce: Callable[[dict], Any], reraise: bool = True,
+             sttm_path: Path | None = None) -> Any:
         """Generate ``spec`` through ``produce(faq_answers)`` (its result has a
         ``gate``, or is the GateResult) and record it. ``reraise``: an uncaught
         error propagates after the manifest says CRASHED (the CLI); else it is
@@ -200,6 +215,7 @@ class GenerateRun:
             self.feed_entries.append(run_stages.feed_entry(
                 self.out_root, feed_no, of, "CRASHED", {}, removed))
             self.crashed = True
+            self._exclude(sttm_path, spec, "crashed: no files written")
             if reraise:
                 run_stages.write_stage_manifest(
                     self.out_root, command=self.command, exit_code=1,
@@ -212,6 +228,8 @@ class GenerateRun:
         withheld, nothing_written = self._withhold_notebook(spec, feed_dir, before)
         if gate.verdict == "FAIL":
             self._gate_fail(spec, gate, feed_no, of, feed_dir, before, where)
+            self._exclude(sttm_path, spec, "gate verdict FAIL: its files are quarantined, "
+                                           "review only")
             return result
         written = run_stages.written_since(feed_dir, before)
         for stage, paths in written.items():
@@ -221,7 +239,43 @@ class GenerateRun:
             withheld=withheld, nothing_written=nothing_written))
         self.entry_of[spec.feed_id] = self.feed_entries[-1]
         self.keep_layer2(spec, getattr(result, "layer2_job", None), feed_no, of)
+        artefacts = (getattr(result, "framework_artefacts", None)
+                     or self.framework.get(spec.feed_id))
+        if artefacts is not None:
+            from codegen.run_artefacts import KeptFeed, sttm_name
+
+            self.kept_feeds.append((sttm_name(sttm_path), spec,
+                                    KeptFeed(spec.feed_slug, gate.verdict, artefacts)))
         return result
+
+    def _exclude(self, sttm_path: Path | None, spec, reason: str) -> None:
+        from codegen.run_artefacts import sttm_name
+
+        self.excluded.append((sttm_name(sttm_path), spec.feed_slug, reason))
+
+    def write_combined(self) -> list[dict]:
+        """post91: the combined set of each STTM with a kept feed (none for a
+        partial run, or when ``combined.enabled`` is off)."""
+        from codegen.run_artefacts import write_combined
+
+        if self.partial or not self.config.combined.enabled:
+            return []
+        profile = self.config.conventions.get(self.conventions_profile)
+        blocks = []
+        for sttm in dict.fromkeys(s for s, _spec, _k in self.kept_feeds):
+            if not sttm:
+                continue
+            feeds = [(spec, k) for s, spec, k in self.kept_feeds if s == sttm]
+            first = feeds[0][0]
+            provenance = [("FRD contract", f"{first.frd_contract_name} "
+                                           f"(sha256 {first.frd_contract_sha256})"),
+                          ("STTM contract", f"{first.sttm_contract_name} "
+                                            f"(sha256 {first.sttm_contract_sha256})")]
+            blocks.append(write_combined(
+                self.out_root, sttm, [k for _spec, k in feeds],
+                [(slug, reason) for s, slug, reason in self.excluded if s == sttm],
+                self.config, provenance, profile))
+        return blocks
 
     def keep_layer2(self, spec, job, feed_no: int, of: int) -> None:
         """post76: a written feed's Layer 2 waits for the run's outcome; a
@@ -386,9 +440,10 @@ class GenerateRun:
                      f"question(s) open, {counts['non_blocking']} input(s); "
                      f"{len(self.entry_of)} feed(s) written for review, not deployable until "
                      "answered (CODEGEN_STAGES.json written: true); exit 3")
+        self.combined = self.write_combined()
         run_stages.write_stage_manifest(self.out_root, command=self.command, exit_code=code,
                                         statuses=statuses, feeds=self.feed_entries,
-                                        questions=self.open_items)
+                                        questions=self.open_items, combined=self.combined)
         return outcome, code
 
     def layer2(self, mode: str, *, dry_run: bool, build=None, console: bool = True) -> dict:

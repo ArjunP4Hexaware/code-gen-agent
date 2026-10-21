@@ -202,7 +202,8 @@ async def lifespan(app: FastAPI):
         print(f"UI starting with EMPTY STATE — {startup_error}")
     else:
         try:
-            store.generate(dry_run=True, skip_tests=True)
+            store.generate(dry_run=True, skip_tests=True,
+                           output_mode=_app_default_parts(store.config))
         except Exception as exc:  # noqa: BLE001 — startup must not crash the app
             print(f"Startup generation failed — UI starts empty; POST /api/generate retries: {exc}")
     yield
@@ -349,7 +350,58 @@ def list_feeds() -> dict:
         "label": store.label,
         # Per stage, what the served run did with a model (label included).
         "model_usage": store.model_usage,
+        # post91: the run's combined set per STTM (codegen.run_artefacts)
+        "combined": _combined_sets(store),
+        # post91: what the App offers (config output.app_options) - no notebook
+        # panel / tab when notebook is not offered
+        "app_options": list(store.config.output.app_options),
     }
+
+
+# post91: the order the combined files are offered in
+_COMBINED_ORDER = ("ddl", "iig", "review", "log")
+
+
+def _combined_sets(served) -> list[dict]:
+    """The served run's combined sets ({sttm, files}) from its manifest — only
+    files that exist; [] for a run without one (an older run, startup feeds)."""
+    from codegen.run_stages import read_stage_manifest
+
+    try:
+        blocks = read_stage_manifest(served.out_root).get("combined") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    sets = []
+    for block in blocks:
+        folder = served.out_root / block.get("dir", "combined")
+        files = [block["files"][kind] for kind in _COMBINED_ORDER
+                 if kind in block.get("files", {}) and (folder / block["files"][kind]).is_file()]
+        if files:
+            sets.append({"sttm": block.get("sttm"), "files": files})
+    return sets
+
+
+@app.get("/api/combined/{name}")
+def download_combined(name: str) -> Response:
+    """post91: one file of the served run's combined set — only a name the
+    manifest lists, read from the run's combined folder."""
+    served = _require_store()
+    for block in _combined_sets(served):
+        if name in block["files"]:
+            from codegen.run_stages import read_stage_manifest
+
+            folder = next(served.out_root / b.get("dir", "combined")
+                          for b in read_stage_manifest(served.out_root)["combined"]
+                          if name in b.get("files", {}).values())
+            media = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                if name.endswith(".xlsx")
+                else "text/markdown; charset=utf-8" if name.endswith(".md")
+                else "text/plain; charset=utf-8"
+            )
+            return Response(content=(folder / name).read_bytes(), media_type=media,
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    raise HTTPException(404, f"no combined file named {name!r} in this run")
 
 
 @app.get("/api/feeds/{slug}")
@@ -361,6 +413,7 @@ def feed_detail(slug: str) -> dict:
     spec = run.spec
     return {
         **_summary(run, decisions),
+        "app_options": list(_require_store().config.output.app_options),   # post91
         "delimiter": spec.delimiter,
         "file_name_patterns": spec.file_name_patterns,
         "landing_location": spec.landing_location,
@@ -401,6 +454,12 @@ class GenerateRequest(BaseModel):
     skip_tests: bool = True
 
 
+def _app_default_parts(config) -> list[str]:
+    """post91: what the App's own (startup / Regenerate) generations write -
+    the profile's App default, never a part the App does not offer."""
+    return config.output.default_parts(config.conventions.profile)
+
+
 @app.post("/api/generate")
 def generate(req: GenerateRequest) -> dict:
     # Always mock here regardless of the request body: with a real key in the
@@ -409,7 +468,8 @@ def generate(req: GenerateRequest) -> dict:
     _refresh_state()
     try:
         _require_store().generate(
-            only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests
+            only_slug=req.feed_slug, dry_run=True, skip_tests=req.skip_tests,
+            output_mode=_app_default_parts(_require_store().config),
         )
     except NothingToGenerateError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -731,6 +791,8 @@ def demo_status() -> dict:
             else _require_runner().effective_output_parts()
         ),
         "output_parts": _require_runner().effective_output_parts(),
+        # post91: what the App offers (config output.app_options)
+        "app_options": list(_require_store().config.output.app_options),
         # M4/M5 generation options a run would use (override or config default).
         "conventions_profile": (_require_runner().conventions_profile
                                 or _require_store().config.conventions.profile),
@@ -982,10 +1044,12 @@ def clear_past_runs(req: ClearRunsRequest) -> dict:
 
 @app.get("/api/demo/output-options")
 def output_options() -> list[str]:
-    """The outputs a run can produce — exactly these (codegen.output_modes)."""
+    """The outputs a run can produce — exactly these (codegen.output_modes),
+    narrowed to what the App offers (post91: output.app_options)."""
     from codegen.output_modes import OUTPUT_OPTIONS
 
-    return list(OUTPUT_OPTIONS)
+    offered = _require_store().config.output.app_options
+    return [o for o in OUTPUT_OPTIONS if o in offered]
 
 
 class OutputModeRequest(BaseModel):

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
 import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts } from "../artefacts";
+import { notebooksOffered } from "../appOptions";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
 import { StatTile } from "../components/StatTile";
@@ -141,8 +142,10 @@ export function Dashboard({
   const byVerdict = (v: string) => feeds.filter((f) => f.verdict === v).length;
   const pending = feeds.reduce((n, f) => n + f.candidates_pending, 0);
   const framed = feeds.filter((f) => f.framework);
+  const combined = data?.combined ?? [];
   const blankIds = blankIdColumns(framed.map((f) => f.framework!.flagged_blank_columns));
-  const notebooks = feeds.filter((f) => f.notebook);
+  // post91: no notebook panel when the App does not offer notebooks
+  const notebooks = notebooksOffered(data?.app_options) ? feeds.filter((f) => f.notebook) : [];
   const deferred = feeds.filter(
     (f) => f.layer2?.review_candidates === "pending" && f.layer2.rules,
   );
@@ -270,9 +273,13 @@ export function Dashboard({
             <h2>Layer-2 review</h2>
             <span className="hint">
               review candidates: pending — {deferred.reduce((n, f) => n + f.layer2!.rules, 0)}{" "}
-              unmapped rule(s) over {deferred.length} feed(s). Optional: the notebooks, DDL and
-              IIG are already written and downloadable; asking adds the model's review
-              candidates (and the notebook's trailing review cell)
+              unmapped rule(s) over {deferred.length} feed(s).{" "}
+              {notebooksOffered(data?.app_options)
+                ? "Optional: the notebooks, DDL and IIG are already written and downloadable; " +
+                  "asking adds the model's review candidates (and the notebook's trailing " +
+                  "review cell)"
+                : "Optional: the DDL and IIG are already written and downloadable; asking " +
+                  "adds the model's review candidates"}
             </span>
           </div>
           <div className="panel-body">
@@ -307,7 +314,27 @@ export function Dashboard({
               Framework-assigned IDs left blank: {blankIds.common.join(", ") || "none"} — the
               agent never invents them.
             </div>
-            {framed.map((f, i) => (
+            {/* post91: one set per STTM when the run wrote one; else per feed */}
+            {combined.map((set) => (
+              <div key={set.sttm ?? "run"} style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 650, marginBottom: 6 }}>
+                  {set.sttm ?? "This run"} DDL and IIG
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {set.files.map((name) => (
+                    <a
+                      key={name}
+                      className="btn"
+                      href={`/api/combined/${encodeURIComponent(name)}`}
+                      download
+                    >
+                      {name}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {(combined.length ? [] : framed).map((f, i) => (
               <div key={f.feed_slug} style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 650, marginBottom: 4 }}>
                   <code>{f.feed_slug}</code>

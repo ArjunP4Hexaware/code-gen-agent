@@ -727,6 +727,7 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
         vdd.unlink(missing_ok=True)
 
 
+@pytest.mark.usefixtures("notebooks_in_app")   # post91: notebooks off in the shipped App
 def test_output_parts_are_independent_and_empty_refuses_a_run(client, monkeypatch):
     """The Output toggles are a real multi-select over exactly Notebook and
     Framework artefacts: any subset, none allowed (run-live then 400); a

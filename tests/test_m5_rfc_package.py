@@ -392,6 +392,11 @@ def test_ui_runner_maps_retired_modes_to_notebook_and_framework():
     runner._lock = threading.Lock()
     runner.state = "idle"
     runner.output_parts = None
+    # post91: an App that offers both outputs (output.app_options) - the mapping is
+    # what this test pins; tests/test_app_options.py covers a hidden part
+    from types import SimpleNamespace
+    runner._store = SimpleNamespace(config=SimpleNamespace(output=SimpleNamespace(
+        app_options=["notebook", "framework"])))
     # A retired mode is never an error: it selects both outputs.
     for retired in ("rfc", "all", "both"):
         runner.select_output_mode(retired)

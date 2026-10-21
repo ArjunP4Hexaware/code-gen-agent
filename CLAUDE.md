@@ -5,35 +5,72 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**post84 (2026-10-21):** landing = the FRD's per-requirement "Raw ADLS Location" lines
-(`frd_docx.requirement_landings` → per-file blocks → `resolve_structured_fields`; pair_11
-5/5 = golden SRC_ADLS_PATH), else the convention written under
-`metadata.templates.iig_v2.landing_autoset` (`metadata_template.with_landing_default`,
-flag `landing_from_convention:`; App "Change defaults" → `_landing_choices` gaps). Question
-tests use the `landing_autoset_off` fixture. Open: TGT_RJT_ADLS_PATH ≠ golden on pair_11.
+**RESTART HERE (2026-10-21, after post84; head `5726662`, pushed, nothing queued).**
+The App must be redeployed to get post81–84; none of them is verified on the deployed
+App yet (the post84 check was the container harness, below).
 
-**post83 (2026-10-21):** every status-returning POST (`input-choices`, `run-live`,
-`layout-answers`, `layout-refresh`) returns `main.demo_status()` — the bare runner status
-lacked mode / label, so "View results" fell back to `load-live-run` (a full re-run).
+What post81–post84 did (details: `CHANGELOG_ACFC.md`):
+- **post81: defaults written unasked, one "Change defaults" button.**
+  - What is written: the interim `pipeline_name_templates` (shipped in `acfc_env.yaml`),
+    APPLICATION_NAME (the feed's SOURCE), ACTIVE_START_DATE (`{run_date}` =
+    `CODEGEN_RUN_DATE`, else today; conftest pins `2026-01-02`), and TGT_PRIMARY_KEY
+    from an explicit signal (`primary_key_autoset`). No signal on a merge load = the
+    blocking QUESTION.
+  - App: one "Defaults" line + panel (`InputsNeededBanner` `DefaultsPanel`); pipeline
+    names keep their own button.
+- **post81: the App reads its state from a workspace folder.** `CODEGEN_STATE_DIR` may
+  be a `/Workspace/...` folder (Workspace API copy, `state_mirror`). `app.yaml` points
+  it at `/Workspace/Users/<me>/codegen/state/codegen-state`: a copy of the volume's
+  `environments/d1.yaml` (storage account) + `overlays/acfc_prx.yaml` (EMAIL_TO,
+  templates), NOT in git. Until Raj's `USE CATALOG` grant, edit BOTH copies; after it,
+  set `CODEGEN_STATE_DIR` back to `/Volumes/d1_dlk/codegen/state`.
+- **post82: the notebook download.** The feed summary carries `notebook` (feed-relative;
+  v2 = `notebook/<slug>.ipynb`, the old `<slug>.ipynb` lookup missed it). The results
+  page has a "Notebooks" panel above the Layer-2 one, which says it is optional. Layer 2
+  stays deferred in the App (`reasoning.layer2_app: defer`).
+- **post83: View results lag.** Every status-returning POST (`input-choices`,
+  `run-live`, `layout-answers`, `layout-refresh`) returns `main.demo_status()`. The bare
+  runner status lacked mode / label, so "View results" fell back to `load-live-run` (a
+  ≈3 s full re-run). `load-live-run` itself is still a re-run (only for opening old runs).
+- **post84: the landing.**
+  - From the FRD: each Solution Requirement's "Raw ADLS Location" line
+    (`frd_docx.requirement_landings`) becomes per-file blocks, given per derived feed by
+    `resolve_structured_fields`. The key is the requirement's Name plus the identifiers
+    only it names.
+  - Else the convention, written (`metadata.templates.iig_v2.landing_autoset`,
+    `metadata_template.with_landing_default`, flag `landing_from_convention:`).
+  - A change in the App's "Change defaults" is the next run's gaps answer
+    (`DemoRunner._landing_choices`).
+  - Tests of the landing QUESTION use the `landing_autoset_off` fixture (conftest).
 
-**post82 (2026-10-21):** the App's feed summary carries `notebook` (feed-relative path;
-v2 = `notebook/<slug>.ipynb`, the old `<slug>.ipynb` lookup missed it); the results page
-has a "Notebooks" download panel above the optional Layer-2 one.
+State of pair_11 (mock container harness, `.venv-d1`, state = environments only, no
+overlay / answers — what the App had before post81's workspace copy):
+- outcome PASS_WITH_OPEN_INPUTS; 5 notebooks; the only open line is `run.email_to`;
+  leak gate CLEAN;
+- SRC_ADLS_PATH and SRC_ADLS_ARCHVL_PATH = golden for 5 / 5; pipeline names: 4 of 8
+  child names exact (post79).
+- Recipe: copy `/tmp/pyx/state/{environments,leakgate}` into a fresh state dir, then
+  `PYTHONUTF8=1 .venv-d1/bin/python scripts/container_harness.py --pairs-dir /tmp/pyx/pairs
+  --state-dir <dir> --out <dir>/out --work <dir>/work --pairs 11 --dry-run --output-mode
+  notebook --output-mode framework` (the /tmp copies are session scratch — re-copy pairs
+  from `/Workspace/Users/<me>/frd_sttm_pairs` and state from the volume if they are gone).
 
-**RESTART HERE (2026-10-21, after post81) — defaults written unasked.** post81 (Soham:
-"defaults unless I press the button"):
-- `acfc_env.yaml` ships the interim `pipeline_name_templates` (the App can't read the
-  volume overlay before Raj's grant); APPLICATION_NAME + ACTIVE_START_DATE
-  (`{run_date}` = `CODEGEN_RUN_DATE` else today; conftest pins it) are profile defaults;
-  `primary_key_autoset` writes a signal's key (no signal = the blocking QUESTION).
-- App: one "Defaults" line + "Change defaults" (`InputsNeededBanner` `DefaultsPanel`);
-  pipeline names keep their own button.
-- Pair_11 with no overlay / no answers: 6 open lines (5 landing, asked in the pause;
-  `run.email_to` until the grant). The App needs a redeploy.
-- `CODEGEN_STATE_DIR` may be a `/Workspace/...` folder (Workspace API copy). `app.yaml`
-  points it at `<me>/codegen/state/codegen-state` (a copy of the volume's d1.yaml +
-  acfc_prx.yaml, storage account included, NOT git) until Raj's grant; then back to
-  `/Volumes/d1_dlk/codegen/state`. Edit BOTH copies until then.
+Verified at post84: `.venv-d1` full suite 1715 passed / 116 skipped / 0 failed; dev
+`.venv` full suite 2006 passed with 1 failure, since fixed (that file re-run green). Ruff
+clean, frontend 86 tests, `dist` rebuilt.
+
+Open (none started):
+- TGT_RJT_ADLS_PATH ≠ golden for all 5 pair_11 feeds (the existing reject derivation).
+- Venu: EDO Naming Standards vs the prod IIG as the pipeline-name ground truth.
+- Raj: the `USE CATALOG` grant (then `app.yaml` back to the volume).
+- The landing convention matches only ~50% of prod shapes; written defaults may be
+  wrong until changed.
+- Deployed-App checks after the redeploy: storage account pre-filled, no pipeline-name /
+  landing questions, the Notebooks panel downloads, View results instant after a Confirm.
+
+**After post81 (kept for reference).** As above. On the post80 App run, the 32 questions
+were 20 pipeline names (only the shipped `SYN_` templates), 5 primary keys, 5 start
+dates, application_name and email_to.
 
 **After post80 (kept for reference) — the App asks before generating.** post80:
 - **The pause before generating:** the App's run asks every blocking question known

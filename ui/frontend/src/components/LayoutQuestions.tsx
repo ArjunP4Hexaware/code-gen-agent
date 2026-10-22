@@ -248,7 +248,13 @@ function whyLine(q: LayoutQuestion): string {
     return "No document value uniquely names this — pick the one the source team confirms; "
       + "proceeding without it leaves the feed with no file and the run stops at extraction.";
   }
-  if (q.kind === "text") return "No document states it — type it, or leave it empty.";
+  if (q.kind === "text") {
+    // post96: a typed question with a proposal (a blank stage type) - never
+    // "no document states it" next to a suggestion read from the sheet
+    return q.candidates.length
+      ? "Pick the suggestion below, or type your own value, or leave it empty."
+      : "No document states it — type it, or leave it empty.";
+  }
   if (q.kind === "files") {
     return "Pick each file's value from the list; a file left unanswered stays open "
       + "(its cells are written empty).";

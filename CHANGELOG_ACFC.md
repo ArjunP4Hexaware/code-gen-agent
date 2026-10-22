@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post96 — 2026-10-22 (App: the wording of a question that carries a suggestion)
+
+Checked on the redeployed App (post95, pair_08 live): the blank-stage-type questions offer
+`STRING` as one unselected click. Their text still said "No document states this value …
+the agent never guesses a target" and "No document states it — type it, or leave it
+empty", which reads oddly next to a suggestion.
+- **Backend:** `ui/backend/demo.pending_question` — with a proposal, the hint reads "This
+  row leaves the value blank. The suggestion below comes from the sheet's other rows —
+  pick it, or type the value the source team confirms. Nothing is filled in until you
+  answer."
+- **Frontend:** `LayoutQuestions.whyLine` — with a proposal, "Pick the suggestion below, or
+  type your own value, or leave it empty."
+- **Unchanged:** questions without a suggestion keep their wording.
+
+**Tests:** `test_post94_extraction.py` (the hint); `LayoutQuestions.test.tsx` (the
+unselected radio, the line, the plain case); frontend 97 tests; `dist` rebuilt.
+
 ## 0.5.8.post95 — 2026-10-22 (the blank-stage-type proposal: spellings, and one click in the App)
 
 The first live runs on the redeployed App (post94; Soham approved, pairs 08 / 10 / 03 / 11)

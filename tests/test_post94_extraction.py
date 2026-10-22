@@ -125,6 +125,11 @@ def test_the_app_offers_the_proposal_as_one_click_never_preselected():
     assert q["kind"] == "text"
     assert [c["value"] for c in q["candidates"]] == ["STRING"]
     assert q["suggested"] is None
+    # post96: the wording matches a suggestion (never "no document states" / "never guesses")
+    assert q["hint"].startswith("This row leaves the value blank. The suggestion below comes "
+                                "from the sheet's other rows")
+    assert "never guesses" not in q["hint"]
     plain = pending_question(SimpleNamespace(reason="r", candidates=[]),
                              "feeds[0].columns[1].target_type", load_config("config/config.yaml"))
     assert plain["candidates"] == []
+    assert "No document states this value" in plain["hint"]

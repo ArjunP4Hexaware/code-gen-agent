@@ -269,3 +269,31 @@ describe("the file-to-LOB question (post47): one block, a dropdown per file", ()
     expect(rerun.disabled).toBe(true);
   });
 });
+
+describe("a typed question with a suggestion (post95 / post96)", () => {
+  const typed = (candidates: LayoutQuestion["candidates"]): LayoutQuestion => ({
+    document: "frd", key: "feeds[0].columns[87].target_type", sheet: null, layer: null,
+    role: "feeds[0].columns[87].target_type", kind: "text", reason: "the stage cell is empty",
+    header: [], candidates, title: "Columns[87] → target type", hint: "h", suggested: null,
+  });
+
+  it("offers the suggestion as one unselected click, and says so", () => {
+    render(<Dialog questions={[typed([{ value: "STRING", source: "proposed",
+                                         cell: "what this sheet's other rows use" }])]}
+                   initial={emptyPicks()} />);
+    const [radio] = radios();
+    expect(radio.value).toBe("STRING");
+    expect(radio.checked).toBe(false);
+    expect(host.textContent).toContain(
+      "Pick the suggestion below, or type your own value, or leave it empty.");
+    expect(host.textContent).not.toContain("No document states it");
+    act(() => radio.click());
+    expect(latest.gaps["feeds[0].columns[87].target_type"]?.value).toBe("STRING");
+  });
+
+  it("without a suggestion keeps the plain wording", () => {
+    render(<Dialog questions={[typed([])]} initial={emptyPicks()} />);
+    expect(radios()).toHaveLength(0);
+    expect(host.textContent).toContain("No document states it — type it, or leave it empty.");
+  });
+});

@@ -193,6 +193,12 @@ def pending_question(pending, key: str, config) -> dict:
     candidates = [{"value": value, "source": "proposed",
                    "cell": "what this sheet's other rows use - confirm it"}
                   for value in getattr(pending, "candidates", None) or []]
+    if candidates:
+        # post96: the wording matches - the row's own cell is blank, the suggestion
+        # comes from the sheet's other rows, nothing is filled in without the person
+        hint = ("This row leaves the value blank. The suggestion below comes from the "
+                "sheet's other rows — pick it, or type the value the source team confirms. "
+                "Nothing is filled in until you answer.")
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
         title=title, hint=hint, candidates=candidates).as_dict()

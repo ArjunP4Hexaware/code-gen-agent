@@ -438,11 +438,27 @@ def _base_type(dtype: str | None) -> str:
 
 
 def _named_sources(fields: list[SttmField]) -> bool:
-    """Every STTM source column is a real header (not blank, not 'col<N>')."""
-    return bool(fields) and all(
-        (f.source_column or "").strip()
-        and not re.fullmatch(r"col_?\d+", f.source_column.strip(), re.IGNORECASE)
-        for f in fields)
+    """Every STTM source column is a real header (not blank, not 'col<N>') and
+    names one field only (post93, pair_03: a repeated name - 10 x Qualifier - is
+    no identifier, so SRC_COLUMNS falls back to the positional col<i>)."""
+    names = [(f.source_column or "").strip() for f in fields]
+    return bool(fields) and len(set(names)) == len(names) and all(
+        name and not re.fullmatch(r"col_?\d+", name, re.IGNORECASE) for name in names)
+
+
+def _src_columns_cell(src_columns: str, fields: list[SttmField]) -> dict:
+    """The ADLS SRC_COLUMNS cell; post93: a NOTE when it is positional because the
+    source layout repeats a name."""
+    from codegen.gate.source_names import repeated_names
+
+    cell = _cell(src_columns, "from_sttm")
+    repeated = repeated_names(fields)
+    if repeated:
+        names = ", ".join(f"{name} x{n}" for name, n in repeated.items())
+        cell["badge_entry"]["note"] = (
+            f"iig_src_columns_positional: the source layout repeats {names} - a repeated "
+            "name identifies no field, so SRC_COLUMNS is col<i>:<stage column> by position")
+    return cell
 
 
 def _recase(value: str, like: str | None) -> str:
@@ -1593,7 +1609,7 @@ def _adls_delta(tab, feed, config, spec, faq, tpl) -> list[dict]:
                 tpl, pattern, file.template,
                 "from_frd" if feed.file_name_patterns else "from_sttm", _feed_key(feed, spec),
                 faq),
-            "SRC_COLUMNS": _cell(src_columns, "from_sttm"),
+            "SRC_COLUMNS": _src_columns_cell(src_columns, fields),
             "SRC_DATA_TYPE": src_type_cell,
             "TGT_DATABASE_NAME": _cell(stage.schema_name, "from_frd"),
             "TGT_TABLE_NAME": _cell(stage.table, "from_frd"),

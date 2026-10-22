@@ -4,6 +4,42 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post93 — 2026-10-22 (pair_03: a source layout that repeats column names)
+
+After post92, pair_03 reached its gate and failed `ruff` on the scratch pipeline's test
+fixtures. The cause: its source layout repeats column names (10 × Qualifier, 10 × Type, a
+repeating group; the stage / standard names are unique). That also left the IIG's
+SRC_COLUMNS ambiguous (`Qualifier:Qualifier` ten times), which notebook v2's reader and
+the client's framework map by name, and the generated pipeline's `F.col("Qualifier")`
+select ambiguous.
+
+Soham's choice (of: pipeline-only suffixes, leave at GATE_FAIL, ask the BSA, the
+existing positional fallback): a repeated name identifies no field, so the existing rule
+applies.
+1. **The IIG:** `metadata_template._named_sources` also requires every source name to
+   be unique, so SRC_COLUMNS takes the rule's own positional form `col<i>:<stage column>`.
+   The cell carries an `iig_src_columns_positional` NOTE naming the repeats. (Not
+   `STAGE:STAGE`: that is the rule-4 reading reverted pending the D1 golden cells.)
+2. **The pipeline:** `emit.context.pipeline_source_names` — a file without a header row
+   (fixed width, or segmented) whose source names repeat names its fields `col<i>` by
+   position, for slicing, positions, the mapping and the test fixtures. A file WITH a
+   header row keeps its header's names (not covered; the flag says so). The fixed-width
+   test is now one function, `emit.context.is_fixed_width`.
+3. **The flag:** `gate.source_names.repeated_source_name_flags` — one non-blocking
+   `source_names_repeated:<segment>` flag per segment naming the repeated columns.
+4. Feeds with unique source names are unchanged.
+
+**On pair_03** (mock container harness, notebook + framework): GATE_FAIL →
+**PASS_WITH_OPEN_INPUTS**.
+- SRC_COLUMNS: 331 positional pairs, unique on both sides.
+- Notebook v2: valid and compiles.
+- Combined set: written.
+- Leak gate: CLEAN.
+- Flags: 5 `decimal_no_precision`, 1 `source_names_repeated`.
+
+**Tests:** `test_repeated_source_names.py` (including a fixed-width synthetic feed with
+two Detail fields renamed alike: its gate passes).
+
 ## 0.5.8.post92 — 2026-10-22 (pair_03: a DECIMAL with no precision no longer crashes the feed)
 
 pair_03 CRASHED since post75 with "STTM data type invalid … [TemplateGapError]". The

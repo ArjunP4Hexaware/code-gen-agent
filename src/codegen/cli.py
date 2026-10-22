@@ -79,6 +79,14 @@ class FeedResult:
     spec: object | None = None
 
 
+def _headerless(spec, config) -> bool:
+    """post93: the generated pipeline reads this file without a header row (fixed
+    width, or a segmented file) - emit.context's own reader choice."""
+    from codegen.emit.context import is_fixed_width
+
+    return spec.is_segmented or is_fixed_width(spec, config)
+
+
 def generate_feed_result(
     spec: ResolvedFeedSpec,
     config: Config,
@@ -161,6 +169,7 @@ def generate_feed_result(
     from codegen.gate.decimal_precision import decimal_no_precision_flags
     from codegen.gate.derivations import sibling_type_flags
     from codegen.gate.drag_fill import drag_fill_flags
+    from codegen.gate.source_names import repeated_source_name_flags
     from codegen.gate.vdd_check import vdd_cross_check
 
     vdd_flags, vdd_check = vdd_cross_check(spec, config)
@@ -171,6 +180,7 @@ def generate_feed_result(
     # contract the layout stage wrote carries the same ones — M9.3)
     extra_flags = [*dict.fromkeys([*(extra_flags or []), *spec.provenance_flags]),
                    *drag_fill_flags(spec), *decimal_no_precision_flags(spec),
+                   *repeated_source_name_flags(spec, headerless=_headerless(spec, config)),
                    *sibling_type_flags(spec, config), *vdd_flags]
     stage("emitting code")
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus

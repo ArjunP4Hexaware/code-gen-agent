@@ -309,6 +309,27 @@ def resolve_notebook_name(
     return _collapse_name(standards.notebook_name_pattern.format(**components))
 
 
+def is_fixed_width(spec: ResolvedFeedSpec, config: Config) -> bool:
+    """No delimiter, or a fixed-width token in the file format (the reader the
+    generated pipeline uses)."""
+    return spec.delimiter == "" or any(
+        token.lower() in (spec.file_format or "").lower()
+        for token in config.extractor.vdd.fixed_width_tokens)
+
+
+def pipeline_source_names(fields, *, headerless: bool) -> list[str]:
+    """post93: the names the generated pipeline gives a segment's source fields -
+    the STTM source names, or, in a file without a header row (fixed width, or a
+    segmented file) whose source names repeat (pair_03: 10 x Qualifier), ``col<i>``
+    by position: the IIG's own positional SRC_COLUMNS fallback
+    (metadata_template._named_sources). A file WITH a header row keeps the names
+    its header carries."""
+    names = [f.source_column for f in fields]
+    if headerless and len(set(names)) < len(names):
+        return [f"col{i}" for i in range(1, len(names) + 1)]
+    return names
+
+
 def _segment_number(spec: ResolvedFeedSpec, segment: SegmentSpec) -> int | None:
     """1-based position of ``segment`` in the feed (an error's coordinate)."""
     return next((i for i, s in enumerate(spec.segments, 1) if s is segment), None)
@@ -334,9 +355,10 @@ def _segment_context(
             raise located(TemplateGapError(
                 f"no record_type value configured for segment '{segment.segment}'"
             ), Coord("contract", segment=_segment_number(spec, segment)), "template.gap")
+    names = pipeline_source_names(segment.fields, headerless=fixed_width or spec.is_segmented)
     positions: list[tuple[str, int, int]] = []
     if fixed_width:
-        for f in segment.fields:
+        for name, f in zip(names, segment.fields, strict=True):
             start = _as_int(f.source_start)
             # M9.2: the RESOLVED byte width (codegen.resolve.widths) — an integer
             # STTM length, else the STTM span, the VDD span or the person's
@@ -355,7 +377,7 @@ def _segment_context(
                     Coord("contract", segment=_segment_number(spec, segment),
                           field=segment.fields.index(f) + 1),
                     "answers.missing")
-            positions.append((f.source_column, start, length))
+            positions.append((name, start, length))
     not_null_stage = [
         f.stage_column for f in segment.fields if f.stage_column in set(spec.not_null_columns)
     ]
@@ -371,10 +393,10 @@ def _segment_context(
             if segment.audit_columns is not None
             else [(a.column, sql_type(a.datatype)) for a in spec.audit_columns]
         ),
-        "source_columns": [f.source_column for f in segment.fields],
+        "source_columns": names,
         "stage_columns": [f.stage_column for f in segment.fields],
         "not_null_stage_columns": not_null_stage,
-        "column_samples": _column_samples(segment, spec),
+        "column_samples": _column_samples(segment, spec, names),
         **({"positions": positions,
             "record_length": max(s + n - 1 for _c, s, n in positions)} if positions else {}),
     }
@@ -411,11 +433,11 @@ def _merge_shared_tables(segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     return out
 
 
-def _column_samples(segment: SegmentSpec,
-                    spec: ResolvedFeedSpec) -> list[tuple[str, str]]:
+def _column_samples(segment: SegmentSpec, spec: ResolvedFeedSpec,
+                    names: list[str]) -> list[tuple[str, str]]:
     samples = [
-        (f.source_column, f.sample_value if f.sample_value is not None else "x")
-        for f in segment.fields
+        (name, f.sample_value if f.sample_value is not None else "x")
+        for name, f in zip(names, segment.fields, strict=True)
     ]
     # Derived record identification: the trailer's first field carries the
     # STTM-stated static marker, so generated test fixtures classify the way
@@ -442,9 +464,7 @@ def build_context(
     # No file read here — callers load the FAQ (codegen.faq.faq_for_spec) so
     # rendering stays a pure function of its arguments. None → all defaults.
     faq = faq if faq is not None else LoadPatternFaq()
-    fixed_width = spec.delimiter == "" or any(
-        token.lower() in (spec.file_format or "").lower()
-        for token in config.extractor.vdd.fixed_width_tokens)
+    fixed_width = is_fixed_width(spec, config)
     segments = [_segment_context(s, spec, config, faq, fixed_width) for s in spec.segments]
     detail = next(s for s in segments if s["is_detail"])
     # DDL tables: segments sharing one stage table render as one table.
@@ -464,7 +484,9 @@ def build_context(
     # The resolver keeps the natural key inside the Detail segment (by
     # (segment, field name), flagging any key it drops); a key column a
     # hand-built spec names outside it has no Detail source to sample.
-    detail_fields_by_stage = {f.stage_column: f.source_column for f in spec.detail_segment.fields}
+    # post93: the pipeline's own source names (col<i> when a headerless file repeats them)
+    detail_fields_by_stage = dict(zip(detail["stage_columns"], detail["source_columns"],
+                                      strict=True))
     # post70: the v1 pipeline keys its MERGE / rejects / tests on the not-null
     # list as it always did (docs/acfc/OPEN_QUESTIONS.md) — now named as such.
     detail_natural_key_source_columns = [

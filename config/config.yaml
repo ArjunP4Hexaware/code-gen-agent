@@ -121,6 +121,10 @@ extractor:
   recycle_header_prefix: "recycle flag"
   # Source-side cell values (normalized) marking a trailing audit row.
   audit_source_markers: ["na"]
+  # post94 (pair_08): a row with no source field name whose stage column is one of
+  # these is an audit row even when a description cell fills its source band. The
+  # framework's audit columns (the ACFC goldens); LOB stays out - it is often mapped.
+  audit_column_names: [SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME]
   # M9.2 (docs/acfc/HANDOVER_GENIE.md §4 error 3): target-column cell texts
   # (normalized) by which an STTM marks a source field as NOT mapped. The
   # field is left out of stage and standard and counted in the feed's
@@ -163,6 +167,9 @@ extractor:
   # tables are M2.5's job (model/user resolution) and are deliberately NOT
   # widened here.
   discovery:
+    # post94: a blank stage type's question proposes what the sheet's other rows
+    # unanimously use with that standard type, over at least this many rows
+    stage_type_proposal_min_rows: 3
     scan_rows: 40
     band_tokens:
       source: ["source"]
@@ -325,6 +332,10 @@ extractor:
   # the contract has no slot for (owners, stewards, SLA …) are logged, not
   # mapped; fields no listed label covers stay unresolved (M2.5's job).
   frd:
+    # post94 (pair_03): the FRD's own spelling (the EDO Naming Standards' Load Strategy
+    # table writes it so too - engineering_standards.load_strategy_abbreviations)
+    load_strategy_synonyms:
+      "Truncate & Load": "Truncate and Load"
     section_titles:
       descriptive: ["Descriptive Metadata"]
       structural: ["Structural Metadata"]

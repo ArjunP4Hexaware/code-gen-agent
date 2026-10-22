@@ -4,6 +4,54 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post94 — 2026-10-22 (extraction gaps the BSA pass answered by hand)
+
+The post75 BSA answers record where each value was (`source:`). Three values a document
+states that the extractor missed (Soham's choices, one each):
+
+1. **pair_03 — "Truncate & Load (Delete existing records and perform a full data
+   reload)"** was left null (only "Truncate and Load" matched).
+   - `extractor.frd.load_strategy_synonyms` (`"Truncate & Load": "Truncate and Load"`,
+     the EDO Naming Standards' spelling too); values typed to the three strategies.
+   - A trailing parenthetical explanation is ignored when matching.
+   - pair_03 now completes with NO answers file: PASS_WITH_OPEN_INPUTS (mock container
+     harness).
+2. **pair_08 — audit rows written as mapping rows.** Rows 444–446 (SRC_FILE_NAME,
+   REC_CREATION_TIME, REC_UPDATED_TIME) carry a description in the source band ("Data
+   Definition"), so they read as neither audit nor mapping rows; the feed asked for its
+   audit columns.
+   - A row with NO source field name whose stage column is in the new
+     `extractor.audit_column_names` (`[SRC_FILE_NAME, REC_CREATION_TIME,
+     REC_UPDATED_TIME]`; LOB left out — often mapped) is an audit row.
+   - Both conditions must hold (blank source field alone could be a derived column; a
+     name alone could be a real mapped field).
+3. **pairs 08 / 10 — a stage type left empty while the row's standard band types it**
+   (8 columns). Not copied from the standard band:
+   - In pair_08 every standard INT row is STRING in stage (39 of 39), likewise DECIMAL
+     13/13 and DOUBLE 3/3; copying would have typed one stage column INT.
+   - The blocking question stays and now PROPOSES the stage type the same sheet's other
+     rows unanimously pair with that standard type, with the count (`candidates`, the
+     reason).
+   - The proposal needs at least `extractor.discovery.stage_type_proposal_min_rows` (3)
+     agreeing rows; with a split or too few, no proposal. Never written unasked.
+
+**Not done (deferred, Soham's choice):**
+- pair_09's per-table load strategies in its STTM Summary sheet. 36 tables, 3
+  strategies; the contract holds one per feed and the pair FAILs on "35 tables only in
+  FRD" anyway — waits on the multi-table / contract-mismatch decision.
+- pair_10's FRD prose values (file format, load strategy, LOBs). The paragraphs are not
+  in feed order, so attributing them is a layout-model task, not a reader rule.
+
+**For the BSA (reported, not changed):** the volume's pair_08 answer for
+`feeds[0].columns[87].target_type` is `INT`; by the sheet's own convention (INT in
+standard = STRING in stage, 39 of 39) it is probably `STRING`.
+
+**Not shown on pairs 08 / 10 here:** in the container's mock run they stop at the layout
+step (no cached layout profile; D1 resolves it with the live model). Items 2 and 3 are
+pinned on synthetic Family E workbooks.
+
+**Tests:** `test_load_strategy_spelling.py`, `test_post94_extraction.py`.
+
 ## 0.5.8.post93 — 2026-10-22 (pair_03: a source layout that repeats column names)
 
 After post92, pair_03 reached its gate and failed `ruff` on the scratch pipeline's test

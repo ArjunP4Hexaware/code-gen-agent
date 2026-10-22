@@ -351,6 +351,12 @@ class DiscoveryConfig(BaseModel):
 
     model_config = _ALIASED_MODEL_CONFIG
 
+    # post94 (pairs 08 / 10): a row whose stage data type is empty while its standard
+    # band types it - the blocking question proposes the stage type the SAME sheet's
+    # other rows pair with that standard type, when they agree on it unanimously over
+    # at least this many rows (else no proposal). Never written unasked.
+    stage_type_proposal_min_rows: int = 3
+
     # How many leading rows are scanned for band / header / meta rows.
     scan_rows: int = Field(default=40, gt=0)
     # layer -> band-label tokens (normalized substring match).
@@ -416,6 +422,11 @@ class FrdExtractorConfig(BaseModel):
 
     section_titles: dict[str, list[str]] = Field(default_factory=dict)
     labels: dict[str, list[str]] = Field(default_factory=dict)
+    # post94 (pair_03: "Truncate & Load (Delete existing records ...)"): spellings of a
+    # load strategy the FRD writes, beyond the canonical three. A trailing
+    # parenthetical explanation is ignored when matching.
+    load_strategy_synonyms: dict[str, Literal["Truncate and Load", "Append", "Upsert"]] = Field(
+        default_factory=dict)
     # Rows 1-3 of every F1 section table (and the F2 SR rows) by label.
     fixed_rows: dict[str, list[str]] = Field(default_factory=dict)
     solution_requirement_prefix: str = "Solution Requirement"
@@ -526,6 +537,10 @@ class ExtractorConfig(BaseModel):
     table_block_headers: list[str] = Field(min_length=4, max_length=4)
     recycle_header_prefix: str
     audit_source_markers: list[str] = Field(min_length=1)
+    # post94 (pair_08: the audit rows written as mapping rows, a description cell in
+    # the source band): a row with NO source field name whose stage column is one
+    # of these names is an audit row too. Empty = only the markers above.
+    audit_column_names: list[str] = Field(default_factory=list)
     # M9.2: target-column cell texts (normalized) by which an STTM says a
     # source field is NOT mapped ("Do Not Map"). Such a field is left out of
     # both layers and counted in the feed's skipped_rows flag, citing the cell

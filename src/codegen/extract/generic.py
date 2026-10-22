@@ -207,6 +207,7 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
     stage_type_col = stage.column(Role.TARGET_TYPE) if stage is not None else None
     segments = _segment_lookup(disc)
     audit_markers = {normalize(m) for m in config.extractor.audit_source_markers}
+    audit_names = {normalize(n) for n in config.extractor.audit_column_names}
 
     meta: dict[str, str] = {}
     meta_raw: list[tuple[str, str | None]] = []
@@ -267,7 +268,10 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
             segment_raw = current_segment_raw
         is_audit = (field_name is not None and normalize(field_name) in audit_markers) or (
             field_name is None and stage_column is not None
-            and all(normalize(v) in audit_markers for v in source_values))
+            and (all(normalize(v) in audit_markers for v in source_values)
+                 # post94: no source field + an audit column name (a description cell
+                 # in the source band does not make it a mapping row)
+                 or normalize(stage_column) in audit_names))
         if is_audit:
             if stage_column is None:
                 data.skipped.append(f"row {row_number}: audit marker without a stage column; "
@@ -310,6 +314,43 @@ def _cell(cells: list[str | None], col: int | None) -> str | None:
 
 class GenericExtractionError(ValueError):
     """The generic IR cannot be paired/emitted as a contract; names the spot."""
+
+
+def _type_base(datatype: str) -> str:
+    """'Decimal(17,2)' -> 'DECIMAL': the type keyword a tally groups by."""
+    return re.sub(r"\(.*", "", datatype).strip().upper()
+
+
+def _stage_type_by_standard(sheet: SheetData) -> dict[str, dict[str, int]]:
+    """post94: per standard type keyword, the stage types the sheet's rows that
+    state BOTH pair with it, as written, with their counts."""
+    tally: dict[str, dict[str, int]] = {}
+    for row in sheet.fields:
+        stage, standard = _first(row, "stage.target_type"), _first(row, "standard.target_type")
+        if stage and standard:
+            counts = tally.setdefault(_type_base(standard), {})
+            counts[stage.strip()] = counts.get(stage.strip(), 0) + 1
+    return tally
+
+
+def _stage_type_proposal(row: FieldRow, tally: dict[str, dict[str, int]],
+                         disc: DiscoveryConfig) -> tuple[str | None, str]:
+    """post94 (pairs 08 / 10): for a row with no stage type, the stage type the
+    sheet's other rows unanimously pair with this row's standard type (at least
+    ``stage_type_proposal_min_rows`` of them) - a proposal shown with the
+    question, never written; (None, "") when there is none."""
+    standard = _first(row, "standard.target_type")
+    if not standard:
+        return None, ""
+    base = _type_base(standard)
+    counts = tally.get(base, {})
+    total = sum(counts.values())
+    if len(counts) != 1 or total < disc.stage_type_proposal_min_rows:
+        return None, ""
+    (proposal,) = counts
+    return proposal, (f"; proposed {proposal!r}: this sheet's other rows typed {base} in "
+                      f"the standard band are {proposal!r} in the stage band ({total} of "
+                      f"{total}) - confirm it")
 
 
 def _yes(value: str | None, disc: DiscoveryConfig) -> bool:
@@ -1018,6 +1059,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     marked: list[str] = []
     unnamed: list[str] = []
     row_index = {r.row: j for j, r in enumerate(sheet.fields)}
+    stage_by_standard = _stage_type_by_standard(sheet)
     for row in sheet.fields:
         field_name = _first(row, "source.field_name")
         assert field_name is not None
@@ -1062,11 +1104,13 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             where = _at(ir, name, row.row, _role_col(sp, "stage.target_type"))
             answer = (cell_answers or {}).get(key)
             if not answer:
+                proposal, why = _stage_type_proposal(row, stage_by_standard, disc)
                 questions.append(PendingAnswer(
                     feed_name=feed.feed_name, sheet=name, key=key,
                     reason=f"the stage data type cell at {where} is empty while the row names "
                            "a stage column; answer the column's data type (the column is left "
-                           "out of the contract until then)"))
+                           f"out of the contract until then){why}",
+                    candidates=[proposal] if proposal else []))
                 continue
             stage_type = answer
             flags.append(f"answered_cell:{key} — {where} is empty; the person answered "

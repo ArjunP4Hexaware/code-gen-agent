@@ -1218,9 +1218,11 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                 rules.append(f"{source.label}: {value}" if source.labelled_rule else value)
             n += 1
         stage_strategy = _strategy(get(f"{prefix}.stage_target.load_strategy"),
-                                   f"{prefix}.stage_target.load_strategy", ambiguities)
+                                   f"{prefix}.stage_target.load_strategy", ambiguities,
+                                   frd_config.load_strategy_synonyms)
         std_strategy = _strategy(get(f"{prefix}.standard_target.load_strategy"),
-                                 f"{prefix}.standard_target.load_strategy", ambiguities)
+                                 f"{prefix}.standard_target.load_strategy", ambiguities,
+                                 frd_config.load_strategy_synonyms)
         lobs, lob_table = _lobs_and_table(content, profile, prefix, get(f"{prefix}.lobs"),
                                           frd_config, flags, cell_of)
         feeds.append(FrdFeed(
@@ -1446,12 +1448,25 @@ def is_unnamed_feed(feed_name: str) -> bool:
     return feed_name.endswith(_UNNAMED_SUFFIX)
 
 
-def _strategy(value: str, path: str, ambiguities: list[str]):
+_TRAILING_PARENTHETICAL = re.compile(r"\s*\([^()]*\)\s*$")
+
+
+def _strategy(value: str, path: str, ambiguities: list[str],
+              synonyms: dict[str, str] | None = None):
+    """The cell's load strategy: one of the canonical three or a configured
+    synonym (post94), the cell as written or without a trailing parenthetical
+    explanation ('Truncate & Load (Delete existing records ...)')."""
     if not value:
         return None
-    for literal in _LOAD_STRATEGIES:
-        if normalize_label(value) == normalize_label(literal):
-            return literal
+    spelled = {normalize_label(k): v for k, v in (synonyms or {}).items()}
+    stripped = _TRAILING_PARENTHETICAL.sub("", value).strip()
+    for text in dict.fromkeys([value, stripped]):
+        label = normalize_label(text)
+        for literal in _LOAD_STRATEGIES:
+            if label == normalize_label(literal):
+                return literal
+        if label in spelled:
+            return spelled[label]
     ambiguities.append(f"{path}: load strategy {value!r} is not one of {list(_LOAD_STRATEGIES)}; "
                        "left null")
     return None

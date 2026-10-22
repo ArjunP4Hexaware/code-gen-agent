@@ -74,3 +74,11 @@ def test_the_shipped_app_hides_the_iig_review_workbook():
     config = load_config(REPO / "config" / "config.yaml")
     assert config.output.app_files == ["ddl", "iig", "addition", "log"]
     assert "iig_review" in type(config.output).model_fields["app_files"].default
+
+
+def test_the_shipped_app_names_only_the_ids_the_engineer_assigns():
+    """post101 (Soham): the panel's blank-IDs line names PIPELINE_ID,
+    PARENT_PIPELINE_ID and GROUP_ID only; the default (empty) keeps the full list."""
+    config = load_config(REPO / "config" / "config.yaml")
+    assert list(config.output.app_assign_ids) == ["PIPELINE_ID", "PARENT_PIPELINE_ID", "GROUP_ID"]
+    assert type(config.output).model_fields["app_assign_ids"].default_factory() == {}

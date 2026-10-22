@@ -31,7 +31,8 @@ def client(monkeypatch, tmp_path):
                             label="demo_x", model_usage=[], load_decisions=lambda: {},
                             config=SimpleNamespace(output=SimpleNamespace(
                                 app_options=["framework"],
-                                app_files=["ddl", "iig", "iig_review", "addition", "log"])))
+                                app_files=["ddl", "iig", "iig_review", "addition", "log"],
+                                app_assign_ids={})))
     monkeypatch.setattr(main, "store", store)
     return TestClient(main.app)
 

@@ -87,6 +87,11 @@ class OutputConfig(BaseModel):
     # hide it, add it back to show it again.
     app_files: list[Literal["ddl", "iig", "iig_review", "addition", "log"]] = [
         "ddl", "iig", "iig_review", "addition", "log"]
+    # post101: the blank IDs the App's artefacts panel tells the engineer to assign,
+    # each with a short hint (column -> hint), shown only when a feed leaves it
+    # blank. Empty = every framework-assigned blank column (the old long line). The
+    # combined _LOG.md and the review workbook still list / mark every blank column.
+    app_assign_ids: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("mode", mode="before")
     @classmethod

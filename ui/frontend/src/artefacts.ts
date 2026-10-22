@@ -45,3 +45,17 @@ export function blankIdColumns(lists: string[][]): {
   const common = lists[0].filter((c) => lists.every((l) => l.includes(c)));
   return { common, extra: lists.map((l) => l.filter((c) => !common.includes(c))) };
 }
+
+/* post101: the blank IDs the panel tells the engineer to assign — only the
+   configured columns (backend output.app_assign_ids, column -> hint) that some
+   feed leaves blank, in config order. null = nothing configured (the old line). */
+export function idsToAssign(
+  lists: string[][],
+  hints: Record<string, string> | undefined,
+): { column: string; hint: string }[] | null {
+  if (!hints || !Object.keys(hints).length) return null;
+  const blank = new Set(lists.flat());
+  return Object.entries(hints)
+    .filter(([column]) => blank.has(column))
+    .map(([column, hint]) => ({ column, hint }));
+}

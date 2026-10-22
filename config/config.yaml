@@ -46,6 +46,14 @@ output:
   # written. To show it again:
   #   app_files: [ddl, iig, iig_review, addition, log]
   app_files: [ddl, iig, addition, log]
+  # post101 (Soham, 2026-10-22): the artefacts panel names only the IDs the data
+  # engineer assigns (METADATA_DB_SEMANTICS.md §1-2); the rest (load timestamps,
+  # the Databricks workspace / cluster settings, columns of empty sheets, OBJECT_ID
+  # now filled) are left to the _LOG.md and the review workbook.
+  app_assign_ids:
+    PIPELINE_ID: "each pipeline row, unique"
+    PARENT_PIPELINE_ID: "each child row: its master's PIPELINE_ID"
+    GROUP_ID: "one unique per feed"
 
 framework:
   # Option B knobs. The row layout is NOT here — demo.metadata_sheet is the

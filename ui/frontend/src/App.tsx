@@ -166,7 +166,12 @@ export function App() {
                 />
               }
             />
-            <Route path="/modes" element={<ModesPage onFeedsChanged={refresh} />} />
+            <Route
+              path="/modes"
+              element={
+                <ModesPage onFeedsChanged={refresh} onViewResults={() => setSidebarOpen(false)} />
+              }
+            />
             <Route
               path="/feeds/:slug"
               element={<FeedDetailPage onFeedsChanged={refresh} />}

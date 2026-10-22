@@ -75,7 +75,14 @@ function GovernanceChip({ status }: { status: GovernanceStatus }) {
   return <span className={`pill gc-${status}`}>{GC_LABELS[status]}</span>;
 }
 
-export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Promise<void> }) {
+export function ModesPage({
+  onFeedsChanged,
+  onViewResults,
+}: {
+  onFeedsChanged: () => void | Promise<void>;
+  /* post101: "View results" hides the sidebar (the results get the width) */
+  onViewResults?: () => void;
+}) {
   const navigate = useNavigate();
   const [liveAvailable, setLiveAvailable] = useState<boolean | null>(null);
   const [liveProvider, setLiveProvider] = useState<string | null>(null);
@@ -1090,6 +1097,7 @@ export function ModesPage({ onFeedsChanged }: { onFeedsChanged: () => void | Pro
                     className="btn primary"
                     disabled={loadingSet !== null}
                     onClick={async () => {
+                      onViewResults?.();
                       // A just-finished run's results are ALREADY adopted in
                       // the store — navigate straight there instead of
                       // reloading from disk.

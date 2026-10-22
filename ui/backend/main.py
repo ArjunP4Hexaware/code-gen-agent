@@ -358,6 +358,8 @@ def list_feeds() -> dict:
         "app_options": list(store.config.output.app_options),
         # post98: which framework files the App lists (config output.app_files)
         "app_files": list(store.config.output.app_files),
+        # post101: the blank IDs the panel tells the engineer to assign ({} = all)
+        "assign_ids": dict(store.config.output.app_assign_ids),
     }
 
 

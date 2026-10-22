@@ -159,6 +159,8 @@ export interface FeedsResponse {
   app_options?: string[];
   /* post98: which framework files the App lists (output.app_files) */
   app_files?: string[];
+  /* post101: the blank IDs the panel names, column -> hint ({} / absent = all) */
+  assign_ids?: Record<string, string>;
 }
 
 export interface CombinedSet {

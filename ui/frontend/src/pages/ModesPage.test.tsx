@@ -72,9 +72,11 @@ async function settle() {
   for (let i = 0; i < 5; i++) await act(async () => { await Promise.resolve(); });
 }
 
-async function renderPage() {
+async function renderPage(onViewResults?: () => void) {
   await act(async () => {
-    root.render(<MemoryRouter><ModesPage onFeedsChanged={() => {}} /></MemoryRouter>);
+    root.render(<MemoryRouter>
+      <ModesPage onFeedsChanged={() => {}} onViewResults={onViewResults} />
+    </MemoryRouter>);
   });
   await settle();
 }
@@ -149,8 +151,10 @@ describe("blocking questions and the layout dialog", () => {
                    label: "demo_x", mode: "live" });
       ROUTES["GET /api/feeds"] = () => json(200, { feeds: [], failures: [], mode: "live",
                                                     label: "demo_x" });
-      await renderPage();
+      const hide = vi.fn();
+      await renderPage(hide);
       await act(async () => { button("View results →").click(); });
+      expect(hide).toHaveBeenCalledTimes(1);          // post101: the sidebar collapses
       const posts = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
       expect(posts.some((u) => u.includes("/api/demo/load-live-run"))).toBe(false);
       delete ROUTES["GET /api/feeds"];

@@ -102,6 +102,49 @@ describe("Dashboard framework artefacts (post91)", () => {
   });
 });
 
+describe("Dashboard sections and the IDs to assign (post101)", () => {
+  const framed = (slug: string) => ({
+    ...feed(slug, null),
+    framework: { files: [`${slug}_IIG.xlsx`], groups: {}, row_counts: {}, coverage: {},
+                 flagged_blank_columns: ["GROUP_ID", "PIPELINE_ID", "CREATED_DATE",
+                                         "DATABRICKS_CLUSTERID"] },
+  }) as FeedSummary;
+  const show = (extra: Record<string, unknown>) => act(() => root.render(
+    <MemoryRouter>
+      <Dashboard data={{ feeds: [framed("syn_a"), framed("syn_b")], failures: [], mode: "mock",
+                         label: null, ...extra } as never}
+                 generating={false} onGenerateAll={() => undefined}
+                 onFeedsChanged={() => undefined} />
+    </MemoryRouter>));
+
+  it("starts with the run summary and the feed cards collapsed", () => {
+    show({});
+    for (const name of ["run summary", "feeds"]) {
+      const section = host.querySelector<HTMLDetailsElement>(`details[aria-label="${name}"]`)!;
+      expect(section.open).toBe(false);
+    }
+    expect(host.querySelector('details[aria-label="feeds"] summary')!.textContent).toContain(
+      "Feeds (2)");
+    expect(host.textContent).toContain("Framework artefacts");
+  });
+
+  it("names only the configured IDs some feed leaves blank, with their hints", () => {
+    show({ assign_ids: { PIPELINE_ID: "each pipeline row, unique",
+                         PARENT_PIPELINE_ID: "its master's PIPELINE_ID",
+                         GROUP_ID: "one unique per feed" } });
+    const line = host.querySelector('[aria-label="ids to assign"]')!.textContent;
+    expect(line).toBe("Assign before loading: PIPELINE_ID (each pipeline row, unique) · "
+      + "GROUP_ID (one unique per feed)");
+    expect(host.textContent).not.toContain("DATABRICKS_CLUSTERID");
+    expect(host.textContent).not.toContain("Framework-assigned IDs left blank");
+  });
+
+  it("keeps the full line when no list is configured", () => {
+    show({});
+    expect(host.textContent).toContain("Framework-assigned IDs left blank");
+  });
+});
+
 describe("Dashboard with notebooks off in the App (post91)", () => {
   it("shows no Notebooks panel and no notebook wording", () => {
     const data = { feeds: [feed("syn_a", "notebook/syn_a.ipynb"), feed("syn_b", "notebook/syn_b.ipynb")],

@@ -409,6 +409,17 @@ code, pre { font-family: var(--mono); }
 .panel-head .hint { font-size: 12px; color: var(--muted); }
 .panel-body { padding: 16px 18px; }
 
+/* post101: the Dashboard's collapsed sections (run summary, feed cards) */
+.dash-section {
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+}
+.dash-section > summary { cursor: pointer; font-size: 14px; }
+.dash-section > summary .hint { font-size: 12px; color: var(--muted); }
+.dash-section[open] > summary { margin-bottom: 12px; }
+
 table.data {
   width: 100%;
   border-collapse: collapse;

@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post101 — 2026-10-22 (App: a shorter IDs line; the run summary and feed cards collapsed; the sidebar hides on View results)
+
+Soham: the results page should lead with the Framework artefacts, and say only what the
+data engineer acts on.
+- **IDs to assign:** `output.app_assign_ids` (config.yaml: PIPELINE_ID, PARENT_PIPELINE_ID,
+  GROUP_ID, each with a hint) replaces the panel's long "Framework-assigned IDs left blank:
+  …" line with "Assign before loading: …", naming only the configured columns some feed
+  leaves blank (`artefacts.idsToAssign`; `/api/feeds` `assign_ids`). Left out of the panel:
+  OBJECT_ID (filled since post100), the load timestamps, the Databricks workspace / cluster
+  settings, TEMPLATE_ID, and the columns of sheets with no rows. The combined `_LOG.md` and
+  the review workbook still list / mark every blank column. An empty `app_assign_ids` brings
+  the old line back.
+- **Collapsed sections:** the stat tiles + the Layer-2 review panel are a "Run summary"
+  `<details>`, the feed cards a "Feeds (n)" one, both closed at first, each summary line
+  carrying the counts.
+- **Sidebar:** "View results" hides it (`ModesPage` `onViewResults`; the show tab brings it
+  back, and the choice is remembered as before).
+
+**Tests:** `Dashboard.test.tsx` (3 new), `ModesPage.test.tsx` (View results hides the
+sidebar), `test_app_options.py` (assign ids).
+
 ## 0.5.8.post100 — 2026-10-22 (the combined set: no "STTM_" in its name; OBJECT_ID numbered across the run)
 
 - **Name** (Soham: confusing): the combined files and the App's "<name> DDL and IIG"

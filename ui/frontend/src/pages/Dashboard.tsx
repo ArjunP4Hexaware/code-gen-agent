@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Classification, type FeedsResponse, type FeedSummary } from "../api";
-import { APPROVAL_NOTE, blankIdColumns, layer2Line, presentedArtefacts } from "../artefacts";
+import { APPROVAL_NOTE, blankIdColumns, idsToAssign, layer2Line, presentedArtefacts } from "../artefacts";
 import { notebooksOffered } from "../appOptions";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
@@ -144,6 +144,8 @@ export function Dashboard({
   const framed = feeds.filter((f) => f.framework);
   const combined = data?.combined ?? [];
   const blankIds = blankIdColumns(framed.map((f) => f.framework!.flagged_blank_columns));
+  // post101: only the IDs the engineer assigns (null = no list configured)
+  const assign = idsToAssign(framed.map((f) => f.framework!.flagged_blank_columns), data?.assign_ids);
   // post91: no notebook panel when the App does not offer notebooks
   const notebooks = notebooksOffered(data?.app_options) ? feeds.filter((f) => f.notebook) : [];
   const deferred = feeds.filter(
@@ -220,6 +222,19 @@ export function Dashboard({
         </div>
       ) : null}
 
+      {/* post101: the run summary and the feed cards start collapsed, so the
+          Framework artefacts are the first thing on the page */}
+      <details className="dash-section" aria-label="run summary">
+        <summary>
+          <strong>Run summary</strong>
+          <span className="hint">
+            {" "}
+            {feeds.length} feed(s) · {byVerdict("PASS")} pass, {byVerdict("PASS_WITH_FLAGS")} with
+            flags, {byVerdict("FAIL")} failed · {rules ? `${deterministic}/${rules}` : "—"} rules
+            compiled
+            {deferred.length ? " · Layer-2 review pending" : ""}
+          </span>
+        </summary>
       <div className="tiles">
         <StatTile label="Feeds" value={feeds.length} hint="from configured contract pairs" />
         <StatTile
@@ -291,15 +306,32 @@ export function Dashboard({
           </div>
         </div>
       ) : null}
+      </details>
 
       {feeds.length === 0 ? (
         <div className="empty">No feeds generated yet — the backend generates on startup.</div>
       ) : (
-        <div className="card-grid">
-          {feeds.map((f) => (
-            <FeedCard key={f.feed_slug} feed={f} />
-          ))}
-        </div>
+        <details className="dash-section" aria-label="feeds">
+          <summary>
+            <strong>Feeds ({feeds.length})</strong>
+            <span className="hint">
+              {" "}
+              {[
+                ["PASS", "pass"],
+                ["PASS_WITH_FLAGS", "with flags"],
+                ["FAIL", "failed"],
+              ]
+                .filter(([v]) => byVerdict(v))
+                .map(([v, label]) => `${byVerdict(v)} ${label}`)
+                .join(" · ")}
+            </span>
+          </summary>
+          <div className="card-grid">
+            {feeds.map((f) => (
+              <FeedCard key={f.feed_slug} feed={f} />
+            ))}
+          </div>
+        </details>
       )}
 
       {feeds.some((f) => f.framework) ? (
@@ -310,10 +342,24 @@ export function Dashboard({
           </div>
           <div className="panel-body">
             {/* post87: said once for the run, not under every feed */}
-            <div className="hint" style={{ marginBottom: 12, fontSize: 11 }}>
-              Framework-assigned IDs left blank: {blankIds.common.join(", ") || "none"} — the
-              agent never invents them.
-            </div>
+            {assign ? (
+              assign.length ? (
+                <div className="hint" aria-label="ids to assign" style={{ marginBottom: 12 }}>
+                  <strong>Assign before loading:</strong>{" "}
+                  {assign.map((a, i) => (
+                    <span key={a.column}>
+                      {i ? " · " : ""}
+                      <code>{a.column}</code> ({a.hint})
+                    </span>
+                  ))}
+                </div>
+              ) : null
+            ) : (
+              <div className="hint" style={{ marginBottom: 12, fontSize: 11 }}>
+                Framework-assigned IDs left blank: {blankIds.common.join(", ") || "none"} — the
+                agent never invents them.
+              </div>
+            )}
             {/* post91: one set per STTM when the run wrote one; else per feed */}
             {combined.map((set) => (
               <div key={set.sttm ?? "run"} style={{ marginBottom: 14 }}>
@@ -354,7 +400,7 @@ export function Dashboard({
                     </a>
                   ))}
                 </div>
-                {blankIds.extra[i].length ? (
+                {!assign && blankIds.extra[i].length ? (
                   <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
                     Also left blank for this feed: {blankIds.extra[i].join(", ")}
                   </div>

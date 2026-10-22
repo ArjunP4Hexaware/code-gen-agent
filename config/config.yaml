@@ -1298,6 +1298,10 @@ combined:
   # log names them.
   dedup_rows:
     DATA_FACTORY_PIPELINE_SCHEDULE: {column: PIPELINE_NAME, prefixes: [PL_GMSTR_, PL_MSTR_]}
+  # post99 (Nikshit via Soham, 2026-10-22): OBJECT_ID numbered 1..n across the run's
+  # feeds in the combined IIG (each feed's rows shifted alike); "group" = 1..n per
+  # feed, as the per-feed IIGs and the prod goldens have it (GROUP_ID tells them apart)
+  object_ids: run
 
 iig_review:
   # IIG-first (2026-10-02, M3): every framework run writes TWO IIG workbooks

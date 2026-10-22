@@ -2259,6 +2259,11 @@ class CombinedConfig(BaseModel):
     # every feed's IIG repeats). Child rows never match; rows that share a name
     # but differ in any cell are kept and named in the log.
     dedup_rows: dict[str, CombinedRowDedup] = Field(default_factory=dict)
+    # post99: OBJECT_ID in the combined IIG - "group" keeps each feed's 1..n (the
+    # framework's position within the group); "run" numbers the objects across the
+    # run's feeds (feed 2's objects follow feed 1's), every sheet of a feed shifted
+    # alike so its DQ / STGDELTA rows still name their object.
+    object_ids: Literal["group", "run"] = "group"
 
 
 class Config(BaseModel):

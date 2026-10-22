@@ -38,8 +38,13 @@ def test_the_sttm_name_is_the_workbook_stem_made_safe(tmp_path):
     contract = tmp_path / "sttm.contract.json"
     contract.write_text('{"generated_from_workbook": "1787853350398_STTM Syn Feed (2).xlsx"}',
                         encoding="utf-8")
-    assert sttm_name(contract) == "STTM_Syn_Feed"
-    assert sttm_name(tmp_path / "STTM_Syn.xlsx") == "STTM_Syn"
+    # post99: the STTM role token at either end is dropped (Soham: confusing on
+    # the run's DDL / IIG); a workbook named only "STTM" keeps it
+    assert sttm_name(contract) == "Syn_Feed"
+    assert sttm_name(tmp_path / "STTM_Syn.xlsx") == "Syn"
+    assert sttm_name(tmp_path / "Syn Feed - sttm.xlsx") == "Syn_Feed"
+    assert sttm_name(tmp_path / "STTMSyn.xlsx") == "STTMSyn"
+    assert sttm_name(tmp_path / "STTM.xlsx") == "STTM"
     assert sttm_name(None) is None
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
@@ -110,6 +115,26 @@ def test_the_masters_are_written_once_and_children_follow_them():
     assert all("row 2 (master)" in t for t in tips[2:])
     assert merged.same_name == {"S": ["PL_CHLD_SYN"]}
     assert merged.ranges["S"] == [("feed_a", 2, 4), ("feed_b", 5, 5), ("feed_c", 6, 6)]
+
+
+def test_object_ids_are_numbered_across_the_run_and_keep_their_links():
+    """post99 (Nikshit): OBJECT_ID 1..n across the feeds in the combined IIG; a
+    feed's rows on every sheet move alike, so a DQ row still names its object."""
+    def feed(objects):
+        return _payload({
+            "ADLS": [_row(OBJECT_ID=str(i), NAME=f"f{i}") for i in range(1, objects + 1)],
+            "DQ": [_row(OBJECT_ID=str(i), RULE="r") for i in range(1, objects + 1)
+                   for _ in range(2)]})
+    merged = merge_payloads([("a", feed(2)), ("b", feed(1)), ("c", feed(1))], [],
+                            object_ids="run")
+    tabs = merged.payload["tabs"]
+    assert [r["values"]["OBJECT_ID"] for r in tabs["ADLS"]["rows"]] == ["1", "2", "3", "4"]
+    assert [r["values"]["OBJECT_ID"] for r in tabs["DQ"]["rows"]] == [
+        "1", "1", "2", "2", "3", "3", "4", "4"]
+    assert "object 3" in tabs["ADLS"]["rows"][2]["badges"]["OBJECT_ID"]["tooltip"]
+    # the default keeps each feed's own numbering
+    plain = merge_payloads([("a", feed(1)), ("b", feed(1))], [])
+    assert [r["values"]["OBJECT_ID"] for r in plain.payload["tabs"]["ADLS"]["rows"]] == ["1", "1"]
 
 
 # --- the DDL ----------------------------------------------------------------

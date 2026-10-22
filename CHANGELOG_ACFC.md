@@ -4,6 +4,26 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post100 — 2026-10-22 (the combined set: no "STTM_" in its name; OBJECT_ID numbered across the run)
+
+- **Name** (Soham: confusing): the combined files and the App's "<name> DDL and IIG"
+  heading came from the workbook's stem as is (`STTM_Pyx_…_IIG.xlsx`). `run_artefacts.
+  sttm_name` now drops a leading / trailing `STTM` token (`STTM_Pyx_X` -> `Pyx_X`,
+  `X - sttm` -> `X`); a name that is only `STTM` keeps it.
+- **OBJECT_ID** (Nikshit via Soham): every row read 1 - each feed is its own group with one
+  file (the framework's 1..n within the group; the pair_11 golden has 1 everywhere too,
+  told apart by GROUP_ID, which the agent leaves blank). `combined.object_ids: run`
+  (config.yaml) numbers the objects across the run's feeds in the combined IIG: feed 2's
+  objects follow feed 1's, and every sheet of a feed moves alike, so its STGDELTA and DQ
+  rows still name their object; the cell note says so. The per-feed IIGs keep 1..n;
+  `object_ids: group` turns it off.
+- **On pair_11** (mock container harness): `Pyx_Care_Management_Data_MI_DSNP_{DDL.txt,
+  IIG.xlsx, IIG_REVIEW.xlsx, LOG.md}`; ADLS_DELTA 1–5, STGDELTA 1–5 (same tables), DQ rows
+  their feed's number; gate clean.
+
+**Tests:** `test_run_artefacts.py` (`sttm_name`;
+`test_object_ids_are_numbered_across_the_run_and_keep_their_links`).
+
 ## 0.5.8.post99 — 2026-10-22 (the combined IIG writes the master pipelines once; where each environment value came from)
 
 **The grand master / master pipeline rows are written once** (Soham, against the pair_11

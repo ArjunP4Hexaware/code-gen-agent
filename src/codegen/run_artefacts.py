@@ -36,6 +36,9 @@ from codegen.config import Config
 _UPLOAD_PREFIX = re.compile(r"^\d+_")
 _COPY_SUFFIX = re.compile(r"\s*\(\d+\)$")
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+# post99: the document-role token at either end of the workbook name ("STTM_Pyx…",
+# "…_STTM") - the combined files are the run's DDL / IIG, not an STTM
+_ROLE_TOKEN = re.compile(r"^STTM[._-]+|[._-]+STTM$", re.IGNORECASE)
 _ROW_REF = re.compile(r"(the PIPELINE_ID of row )(\d+)")
 _CREATE = re.compile(r"^\s*CREATE\b.*$", re.IGNORECASE | re.MULTILINE)
 
@@ -44,7 +47,9 @@ def sttm_name(path: Path | str | None) -> str | None:
     """The STTM's name for the combined files: the workbook the extracted
     contract names (``generated_from_workbook``; a non-JSON path is the
     workbook itself), its stem without an upload prefix / ``(n)`` copy suffix,
-    unsafe characters as ``_``. None when there is nothing to name it by."""
+    unsafe characters as ``_``, a leading / trailing ``STTM`` token dropped
+    (post99: ``STTM_Pyx_X.xlsx`` -> ``Pyx_X``). None when there is nothing to
+    name it by."""
     if path is None:
         return None
     path = Path(path)
@@ -57,7 +62,7 @@ def sttm_name(path: Path | str | None) -> str | None:
     stem = Path(name).stem if name else ""
     stem = _COPY_SUFFIX.sub("", _UPLOAD_PREFIX.sub("", stem)).strip()
     stem = _UNSAFE.sub("_", stem).strip("._")
-    return stem or None
+    return _ROLE_TOKEN.sub("", stem).strip("._") or stem or None
 
 
 @dataclass
@@ -83,15 +88,51 @@ def _key(row: dict, headers: list[str]) -> tuple:
     return tuple(str(row["values"].get(h, "")) for h in headers)
 
 
+def _object_count(payload: dict) -> int:
+    """The highest numeric OBJECT_ID a feed's IIG states (0 = none)."""
+    ids = [int(v) for tab in payload["tabs"].values() for r in tab["rows"]
+           if str(v := r["values"].get("OBJECT_ID", "")).strip().isdigit()]
+    return max(ids, default=0)
+
+
+def _shift_object_ids(payload: dict, offset: int) -> dict:
+    """post99: a feed's IIG with every numeric OBJECT_ID moved by ``offset``
+    (every sheet alike, so the rows naming an object keep naming it)."""
+    if not offset:
+        return payload
+    tabs = {}
+    for sheet, tab in payload["tabs"].items():
+        rows = []
+        for row in tab["rows"]:
+            value = str(row["values"].get("OBJECT_ID", "")).strip()
+            if value.isdigit():
+                badge = dict(row.get("badges", {}).get("OBJECT_ID") or {})
+                new = str(int(value) + offset)
+                badge["tooltip"] = ((badge.get("tooltip") or "") + f" — in the combined IIG "
+                                    f"numbered across the run's feeds: object {new}").lstrip(" —")
+                row = {**row, "values": {**row["values"], "OBJECT_ID": new},
+                       "badges": {**row.get("badges", {}), "OBJECT_ID": badge}}
+            rows.append(row)
+        tabs[sheet] = {**tab, "rows": rows}
+    return {**payload, "tabs": tabs}
+
+
 def merge_payloads(feeds: list[tuple[str, dict]], dedup_sheets: list[str],
-                   dedup_rows: dict | None = None) -> _Merge:
+                   dedup_rows: dict | None = None, object_ids: str = "group") -> _Merge:
     """The feeds' IIG payloads as one: sheets in the first payload's order, each
     feed's rows together in feed order; a row equal on every column to an
     earlier one is dropped on ``dedup_sheets`` only (counted elsewhere).
     post99: on a ``dedup_rows`` sheet, also a row whose named column starts with
     one of its prefixes (the run-level masters); rows sharing that column's value
-    but differing elsewhere are kept and listed in ``same_name``."""
+    but differing elsewhere are kept and listed in ``same_name``.
+    ``object_ids="run"``: OBJECT_ID numbered across the feeds, in feed order."""
     dedup_rows = dedup_rows or {}
+    if object_ids == "run":
+        shifted, offset = [], 0
+        for slug, payload in feeds:
+            shifted.append((slug, _shift_object_ids(payload, offset)))
+            offset += _object_count(payload)
+        feeds = shifted
     first = feeds[0][1]
     tabs: dict[str, dict] = {}
     result = _Merge(payload={**first, "tabs": tabs})
@@ -231,7 +272,7 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
     failed_checks: list[str] = []
     if with_payload:
         merge = merge_payloads([(k.slug, k.artefacts.payload) for k in with_payload],
-                               cfg.dedup_sheets, cfg.dedup_rows)
+                               cfg.dedup_sheets, cfg.dedup_rows, cfg.object_ids)
         payload = merge.payload
         template = payload.get("template") or config.metadata.template
         blank_list = _always_blank(config, template)

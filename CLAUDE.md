@@ -1,58 +1,125 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-21, `feature/multi-table`, post85)
+## NEWEST — IIG validation (state as of 2026-10-22, `feature/multi-table`, post96 + c503417)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**After post95 (2026-10-22; pushed, nothing queued).** The deployed App CAN be driven from this container: `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks auth token -p codegen-oaut` gives an OAuth token the App's API accepts (a PAT does not); the App runs LIVE (`CODEGEN_PROVIDER=live`), so a run sends client documents to the model — only with Soham's go-ahead (given 2026-10-22 for pairs 08 / 10 / 03 / 11). Flow: POST /api/demo/workbook {name} → run-live {confirm} → layout-answers {proceed | answers} / rerun-with-answers {answers: {gaps}, confirm}. Live results (post94 App): pair_03 and pair_11 PASS_WITH_OPEN_INPUTS; pair_08 audit fix + proposals confirmed, then FAIL on the multi-table mismatch; pair_10 waits for the BSA's delimiters / feeds 1-3 answers. post95: the proposal groups spellings case-insensitively and is a one-click candidate in the App (needs a redeploy to show).
+**RESTART HERE (2026-10-22, after post96; everything pushed, tree clean).**
+- **Head:** `c503417` (a test-only fix after post96). The App is deployed at **post95**;
+  post96 (the question wording) needs one more redeploy to show.
+- **Working rule** (memory `test-runs-targeted-then-full-once`):
+  - run the affected test files while working;
+  - run the full suite in BOTH venvs ONCE, on the locally committed tree;
+  - READ the result before `git push`, never chain the push.
+  - Full runs: d1 ≈ 9 min, dev ≈ 14.5 min. Run them in parallel with each job doing
+    its own `cd`, or one after the other.
+- **Driving the deployed App from this container:**
+  - Token: `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks auth token -p
+    codegen-oaut` gives an OAuth token the App's API accepts (a PAT does not). URL
+    `https://codegen-agent-4812116803419068.8.azure.databricksapps.com`.
+  - The App runs LIVE (`CODEGEN_PROVIDER=live` in app.yaml): a run sends client documents
+    to the model, so ask Soham first. He approved pairs 08 / 10 / 03 / 11 on 2026-10-22.
+  - Flow: `POST /api/demo/workbook {name}` (202, poll status `selection_job`) →
+    `/api/demo/run-live {confirm: true}` → while paused, `/api/demo/layout-answers
+    {answers, proceed | cancel}` or `/api/demo/rerun-with-answers {answers: {gaps},
+    confirm: true}`.
+  - Only one run at a time: cancel a paused one first.
+  - A throwaway client was `/tmp/rjt/app_client.py` (session scratch; rewrite if gone).
+- **Live App results (post94/95):**
+  - **pair_03:** PASS_WITH_OPEN_INPUTS with NO answers.
+  - **pair_11:** PASS_WITH_OPEN_INPUTS (answer the VDD question with "none"); combined set
+    of 67 rows, per-table reject paths.
+  - **pair_08:** the live layout resolves the STTM; the audit columns are no longer asked;
+    7 blank stage types carry a proposal; then FAIL on the multi-table mismatch (the FRD
+    names 4 stage tables in one cell).
+  - **pair_10:** stops before generating on the delimiter of all 4 feeds and the load
+    strategy / LOBs of feeds 1–3 (the BSA answered feed 0 only).
+- **Container harness:** pairs in `/Workspace/Users/<me>/frd_sttm_pairs/pair_<n>`, answers
+  in `/Volumes/d1_dlk/codegen/state/answers/pair_<n>`, copied into a /tmp state dir, then
+  `PYTHONUTF8=1 .venv-d1/bin/python scripts/container_harness.py --pairs-dir <dir>
+  --state-dir <dir> --out <dir> --work <dir> --pairs 3,8,9,10 --dry-run --output-mode
+  framework`.
+  - `--pairs` is comma-separated.
+  - It is mock: pairs 08 / 10 stop at the layout step (no cached layout profile; the live
+    App resolves it).
+  - Never run the CLI from the repo root with outputs in `out/`; use the harness or a
+    scratch output dir.
+- **Browser checks:** Chromium in `/tmp/pw` + libs unpacked in `/tmp/pwlibs` (`apt-get
+  download` + `dpkg -x`, no root), `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:
+  /tmp/pwlibs/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>`. Stub
+  `/api/feeds` or `/api/demo/status` with `page.route`. Session scratch — re-download if
+  gone.
 
-**After post94 (2026-10-22).** post94 = three BSA-answered extraction gaps: FRD `Truncate & Load (…)` (`extractor.frd.load_strategy_synonyms`, trailing parenthetical ignored; pair_03 now passes with NO answers); audit rows with a description in the source band (no source field name + `extractor.audit_column_names`; pair_08); a blank stage type's question PROPOSES the stage type the sheet unanimously pairs with that standard type (`stage_type_proposal_min_rows`, never written; pair_08: INT→STRING 39/39). Deferred: pair_09 per-table load strategies (Summary sheet; waits on the multi-table decision), pair_10 FRD prose values (a layout-model task). For the BSA: pair_08 `columns[87].target_type` answered INT, probably STRING. Pairs 08 / 10 stop at the layout step in the container (mock, no cached profile) — D1 resolves it live.
+**post86–post96 at a glance** (details: `CHANGELOG_ACFC.md`):
+- **post86 — path families:** `acfc_env.yaml` `path_families.per_table` (pair_11:
+  `Reject/<t>/`, `Processed/<t>/`); feeds pick it via the overlay's `path_family_by_source`
+  or `feed_overrides.<feed>.path_family`.
+- **post87–89 — App clean-up:**
+  - post87: the blank-IDs line once per run;
+  - post88: a collapsible sidebar;
+  - post89: no per-feed summary line; REVIEW_SUMMARY rows for sheets empty by rule.
+- **post90 — the notebooks zip:** `GET /api/notebooks.zip` + "Download all". A wrapper
+  notebook was assessed and NOT built.
+- **post91 — one set per run and STTM** in `<out>/combined/` (`codegen.run_artefacts`):
+  `<STTM>_IIG.xlsx`, `_IIG_REVIEW.xlsx`, `_DDL.txt`, `_LOG.md`.
+  - The per-feed files are still written.
+  - Rows merge by content ONLY on `combined.dedup_sheets` (EMAIL_TEMPLATE_CONFIG).
+  - App: `/api/combined/{name}`.
+  - **Notebooks OFF in the App: `output.app_options: [framework]` in config.yaml**
+    (`[notebook, framework]` turns them back on). Tests of the App's notebook behaviour
+    use the conftest `notebooks_in_app` / `offer_notebooks`.
+- **post92 — a bare `DECIMAL`** is written as stated (Databricks DECIMAL(10,0)) + a
+  `decimal_no_precision` flag per column (pair_03's crash).
+- **post93 — repeated source names** (pair_03: 10 × Qualifier / Type):
+  - SRC_COLUMNS positional `col<i>:<stage>`;
+  - a headerless file's pipeline uses `col<i>`;
+  - a `source_names_repeated` flag;
+  - not STAGE:STAGE (rule 4 is still pending).
+- **post94 — three extraction gaps:**
+  - `extractor.frd.load_strategy_synonyms` ("Truncate & Load (…)");
+  - audit rows = no source field name + `extractor.audit_column_names`;
+  - a blank stage type's question PROPOSES what the sheet unanimously pairs with that
+    standard type (`stage_type_proposal_min_rows: 3`; never written).
+- **post95 — the proposal:** case-insensitive spellings; a one-click candidate in the App
+  (never pre-selected).
+- **post96 — wording:** a question with a suggestion says it comes from the sheet's other
+  rows.
+- **c503417 — test-only:** `test_storage_ui`'s runner without the index warm-up (the
+  full-run flake was the warm-up racing the test).
 
-**After post93 (2026-10-22).** pair_03 fixed: CRASHED → PASS_WITH_OPEN_INPUTS. post92: a bare `DECIMAL` (no precision) is written as stated (Databricks DECIMAL(10,0)) + one `decimal_no_precision` flag per column (`gate.decimal_precision`); never derived. post93: repeated source names (pair_03: 10 × Qualifier / Type) make SRC_COLUMNS positional `col<i>:<stage>` (`_named_sources` requires unique names; NOTE `iig_src_columns_positional`), a headerless file's pipeline names fields `col<i>` (`emit.context.pipeline_source_names`), flag `source_names_repeated`; a delimited file WITH a header that repeats names is not covered. Not STAGE:STAGE (rule 4 still pending the D1 cells).
+**Open — codeable here:**
+- **`tools/iig_diff.py` depends on the `--agent` file order** (30.0 sorted vs 30.3
+  unsorted; run_round sorts). Sort internally.
+- **`test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_vdd`** fails when a stale
+  `ui/backend/state/document_index.json` exists (isolation gap).
+- **STGDELTA SRC_ADLS_PATH** uses the standard table's name. Wrong only when stage ≠
+  standard names; no such pair found yet, so wait for one.
+- **RECYCL_ADLS_PATH on pair_11 (4 cells):** the golden states a recycle no document
+  does. Ask where prod got it.
 
-**After post91 (2026-10-21).** post91: ONE set per run and
-STTM in `<out>/combined/` (`codegen.run_artefacts`, config `combined:`): `<STTM>_IIG.xlsx`,
-`_IIG_REVIEW.xlsx`, `_DDL.txt`, `_LOG.md` (ADDITION.md's content once); per-feed files
-still written (harness / iig_diff / manifest read them; run_round + iig_fill_rate skip
-`combined/`). Rows merge by content ONLY on `combined.dedup_sheets` (EMAIL_TEMPLATE_CONFIG):
-the pair_11 golden keeps every schedule / notebook row distinct per feed. Manifest
-`combined`; App `/api/combined/{name}` + one "<STTM> DDL and IIG" block. **Notebooks are
-OFF in the App: `output.app_options: [framework]` in config/config.yaml — set
-`[notebook, framework]` to turn them back on** (CLI unaffected; tests of the App's
-notebook behaviour use the conftest fixture `notebooks_in_app` / `offer_notebooks`).
-iig_diff scores depend on the `--agent` file order (sort the list).
-
-**After post90 — App clean-up, details in `CHANGELOG_ACFC.md`.** post90: `GET /api/notebooks.zip` + a "Download all" button
-(each notebook as-is + README.txt naming feeds without one); a wrapper notebook was
-assessed and NOT built (client master pipelines own orchestration; mixed frequencies;
-re-run duplicates). post87: the framework-assigned-IDs line once per run
-(`artefacts.ts blankIdColumns`). post88: the sidebar hides / shows
-(`components/CollapsibleSidebar.tsx`, localStorage `codegen.sidebar.open`). post89: no
-per-feed summary line in the Framework artefacts panel; REVIEW_SUMMARY gets one row per
-sheet empty by rule (`iig_review.empty_by_rule_*`). A browser check works in this
-container: Chromium in `/tmp/pw` + its libs unpacked in `/tmp/pwlibs` (LD_LIBRARY_PATH,
-no root; session scratch). `test_storage_ui.py::test_an_unreachable_root_is_reported_not_fatal`
-failed once with both suites run in parallel and passes alone (timing). The App must be
-redeployed at post86+ to show any of post81–95. State change (no code): the D1
-`storage_account` in `environments/d1.yaml` (volume + workspace copy) is the demo value
-Nikshit gave (2026-10-21; backup `d1.yaml.bak_20261021_pre_storage_account`). It has
-hyphens, which Azure account names never do, so the notebooks' abfss:// URIs may not
-resolve; it varies per environment. Only the notebooks carry it (`STORAGE_ACCOUNT`).
-
-**RESTART HERE (2026-10-21, after post86).** post86 = path families: the pair_11
-golden writes one folder per table (`Reject/<t>/`, `Processed/<t>/`, the stage →
-standard archive inside it), the SD rows / SFMC `Reject/<t>_reject` + `Processed/`.
-`acfc_env.yaml` `path_families.per_table` (shapes + citation); feeds pick it via the
-overlay's `path_family_by_source.<source words>` (client names: overlay only) or
-`feed_overrides.<feed>.path_family`; `metadata_template.with_path_family` in
-`template_tab_rows` + `notebook_paths`; tooltips name the family. The D1 overlay (both
-copies; backup `.bak_20261021_pre_post86`) maps pair_11's source to `per_table`. pair_11:
-the 6 path columns 4 / 4 exact, TOTAL 28.5 → 29.7 (30.0 with the full overlay). CAUTION:
-the overlay key makes post85-or-older code refuse the overlay (extra="forbid") - the next
-App redeploy must be post86 or later. Still
-open: RECYCL_ADLS_PATH (golden states a recycle no document does); which convention is
-standard — Venu / Nikshit or the corpus shares. Test: `test_path_families.py`.
+**Open — needs others:**
+- **Soham:** the multi-table / contract-mismatch decision (blocks pairs 05 / 06 / 08 / 09,
+  and pair_09's per-table load strategies from its STTM Summary sheet).
+- **The BSA:**
+  - pair_10's delimiters (4 feeds) and feeds 1–3 load strategy / LOBs;
+  - pair_08 `columns[87].target_type` is answered INT, probably STRING (INT in standard =
+    STRING in stage, 39 of 39). Reported, not changed.
+- **Nikshit / Venu:**
+  - the post85 pipeline names (identical child names across feeds — also why those IIG
+    rows look alike);
+  - which path convention is standard.
+- **Nikshit / Raj:** the demo `storage_account` `z-use-d1-dlk-std-02` (in both state
+  copies; backup `d1.yaml.bak_20261021_pre_storage_account`) has hyphens, which no Azure
+  account name has.
+- **EMAIL_TO:** no value anywhere.
+- **Raj:** the `USE CATALOG` grant (then app.yaml back to the volume; until then edit
+  BOTH state copies: the volume and `/Workspace/Users/<me>/codegen/state/codegen-state`).
+- **D1 / Genie:** the golden SRC_COLUMNS cells (rule 4), the PIPELINE_DESCRIPTION dump,
+  the workspace-folder token.
+- **Aruna:** OPEN_QUESTIONS §4–6.
+- **Deferred by Soham:** pair_10's FRD prose values (file format / load strategy / LOBs in
+  paragraphs, not in feed order) — a layout-model task.
 
 **After post85 (kept for reference).** post85 (Nikshit:
 "go by the document"): PIPELINE_NAME = the EDO Naming Standards' patterns
@@ -116,15 +183,6 @@ overlay / answers — what the App had before post81's workspace copy):
 Verified at post84: `.venv-d1` full suite 1715 passed / 116 skipped / 0 failed; dev
 `.venv` full suite 2006 passed with 1 failure, since fixed (that file re-run green). Ruff
 clean, frontend 86 tests, `dist` rebuilt.
-
-Open (none started):
-- Pipeline names (post85, the document): identical child names across feeds, long masters — Nikshit / Venu to judge.
-- EMAIL_TO: no value anywhere (the overlay's default is a D1 placeholder).
-- Raj: the `USE CATALOG` grant (then `app.yaml` back to the volume).
-- The landing convention matches only ~50% of prod shapes; written defaults may be
-  wrong until changed.
-- Deployed-App checks after the redeploy: storage account pre-filled, no pipeline-name /
-  landing questions, the Notebooks panel downloads, View results instant after a Confirm.
 
 **After post81 (kept for reference).** As above. On the post80 App run, the 32 questions
 were 20 pipeline names (only the shipped `SYN_` templates), 5 primary keys, 5 start
@@ -297,7 +355,7 @@ Soham; nothing is queued at home. Open:
 - Verification is D1 via Genie (MIDS, Pyx, CAQH + one imported notebook); no home live
   SD run.
 
-**RESTART HERE (2026-10-19, after post73).** post73 = the refresh error is exception types + error code only (no SDK config dump). post72 = `CODEGEN_STATE_DIR` on the UC
+**After post73 (2026-10-19, kept for reference).** post73 = the refresh error is exception types + error code only (no SDK config dump). post72 = `CODEGEN_STATE_DIR` on the UC
 volume `d1_dlk.codegen.state` (`app.yaml`). An App has no `/Volumes` mount:
 `codegen.state_mirror` copies it read-only via the Files API at import and before each
 generate request (`main._refresh_state`, config reloaded on change);

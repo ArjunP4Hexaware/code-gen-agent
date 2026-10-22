@@ -181,7 +181,10 @@ def test_schedule_descriptions_application_name_layer_day_and_owed_start_date(tm
     got = [(r["LAYER_NAME"][0], r["PIPELINE_DESCRIPTION"][0]) for r in rows]
     # framework owner's rule 2: the DETAILED corpus shapes (no LOB fan-out: the LOB
     # segment omitted); the short forms only in the NOTE
-    assert got == [(None, f"{domain} {freq} Grand Master Pipeline"),
+    # post102: the grand master / master run Daily for the whole run (the pair_11
+    # golden); the children keep the feed's own frequency
+    assert [r["PIPELINE_FREQUENCY"][0] for r in rows] == ["Daily", "Daily", freq, freq]
+    assert got == [(None, f"{domain} Daily Grand Master Pipeline"),
                    (None, f"{domain} Master Pipeline for RAW to Stage Regular load"),
                    ("STAGE", f"{domain} {freq} File Pipeline Incremental Load to STAGE"),
                    ("STANDARD", f"{application} {domain} Regular STANDARD Load")]

@@ -306,11 +306,14 @@ def _cell_tokens(spec, tpl, config, frequency: str) -> dict[str, str]:
 
 
 def flow_tokens(base: dict[str, str], spec, profile, flow: str,
-                config=None) -> dict[str, str]:
+                config=None, tpl=None) -> dict[str, str]:
     """``base`` + the flow's {layer} (``pipeline_flow_layers``) and {load_mode}
     (the stage load strategy for file_to_stg, the standard one for stg_to_std;
     none for the master rows); post85: {load_std} = that strategy's Naming
-    Standards code (``engineering_standards.load_strategy_abbreviations``)."""
+    Standards code (``engineering_standards.load_strategy_abbreviations``).
+    post102: a pipeline role with its own ``frequency`` (the run-level masters)
+    sets {frequency} / {frequency_code} to it."""
+    base = _role_frequency(base, tpl, flow, config)
     load = (spec.stage_load_strategy if flow == "file_to_stg" else
             spec.standard_load_strategy if flow == "stg_to_std" else "")
     codes = ({k.casefold(): v for k, v in
@@ -319,6 +322,19 @@ def flow_tokens(base: dict[str, str], spec, profile, flow: str,
     return {**base, "layer": profile.pipeline_flow_layers.get(flow, ""),
             "load_mode": _strategy(load),
             "load_std": str(codes.get(_strategy(load).casefold(), "") or "")}
+
+
+def _role_frequency(tokens: dict[str, str], tpl, flow: str, config) -> dict[str, str]:
+    from codegen.metadata_template import role_frequency
+
+    frequency = role_frequency(tpl, flow)
+    if not frequency:
+        return tokens
+    codes = ({k.casefold(): v for k, v in
+              config.engineering_standards.frequency_abbreviations.items()}
+             if config is not None else {})
+    return {**tokens, "frequency": frequency,
+            "frequency_code": str(codes.get(frequency.casefold(), "") or "")}
 
 
 _CORPUS_CACHE: dict[tuple, frozenset[str]] = {}
@@ -536,7 +552,7 @@ def proposal(item: Defaulted, spec, profile, tpl, tokens: dict[str, str],
             return Proposal(template=template, refused=f"{PLACEHOLDER_LABEL}: set "
                             "conventions.profiles.<profile>.pipeline_name_templates in the "
                             "ACFC overlay")
-        value = render(template, flow_tokens(tokens, spec, profile, item.flow, config),
+        value = render(template, flow_tokens(tokens, spec, profile, item.flow, config, tpl),
                        case=profile.pipeline_name_case)
         if not value:
             return Proposal(template=template, refused="the template renders empty")
@@ -614,7 +630,8 @@ def resolve_feed(spec, *, profile, tpl, inputs: dict[str, str],
                                          f"{offer.refused}"))
         else:
             template = choice.standard or (shared.standard if shared is not None else "")
-            values = flow_tokens(tokens, spec, profile, item.flow, config) if item.flow else tokens
+            values = (flow_tokens(tokens, spec, profile, item.flow, config, tpl) if item.flow
+                      else tokens)
             value = (render(template, {**tpl.corpus_tokens, **values},
                             name=bool(item.flow) and not item.pk,
                             case=profile.pipeline_name_case) if template else "")

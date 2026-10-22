@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post102 — 2026-10-22 (one Daily grand master + master per run, as the pair_11 golden has it)
+
+Soham, against the pair_11 golden IIG (`DATA_FACTORY_PIPELINE_SCHEDULE`: one
+`PL_GMSTR_…_DLY` + one `PL_MSTR_…_DLY`, both DAILY, then a stage and a standard child per
+feed, each child on its feed's own schedule and parented to that one master). The agent
+gave the masters each feed's frequency, so a run with weekly and monthly feeds had a
+master pair per frequency (post99 merged identical copies, leaving one pair per frequency).
+- **`pipeline_roles[].frequency`** (acfc_env.yaml: grand_master / master `Daily`): the
+  role's `PIPELINE_FREQUENCY` cell (a cited template constant), its description's `{freq}`
+  and its name's `{frequency}` / `{frequency_code}` (`input_choices.flow_tokens`, `tpl`
+  passed by every caller; `metadata_template.role_frequency`). Children keep the feed's.
+- With the masters equal across feeds, `combined.dedup_rows` writes them once and every
+  child's "row n" parent reference points at the one master.
+- **On pair_11** (mock container harness): 12 rows = 1 grand master + 1 master (Daily) +
+  2 children × 5 feeds (Weekly / Monthly), every child parented to row 2 — the golden's
+  shape (its 10 rows = 4 feeds). Child names stay the naming document's pattern (Nikshit:
+  follow the document), so feeds' children still share a name; the log lists them.
+
+**Tests:** `test_pipeline_name_choice.py::test_the_masters_names_carry_the_run_frequency_
+the_children_their_feeds`, `test_iig_corpus_cells.py` (the schedule rows' frequencies).
+
 ## 0.5.8.post101 — 2026-10-22 (App: a shorter IDs line; the run summary and feed cards collapsed; the sidebar hides on View results)
 
 Soham: the results page should lead with the Framework artefacts, and say only what the

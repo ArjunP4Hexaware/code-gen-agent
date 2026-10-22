@@ -1422,11 +1422,17 @@ def _pipeline_roles(tab, feed, faq, tpl, extra: dict | None = None) -> list[dict
                            f"{position[role.parent]} ({role.parent}) — the parent by position")
         parent["badge_entry"]["convention"] = True
         cells["PARENT_PIPELINE_ID"] = parent
-        cells["PIPELINE_FREQUENCY"] = _frequency(feed, faq, tpl)
+        cells["PIPELINE_FREQUENCY"] = (
+            _cell(role.frequency, "synthetic",
+                  f"template constant — {citation}: the {role.role} pipeline runs "
+                  f"{role.frequency} for the whole run; each child keeps its feed's schedule")
+            if role.frequency else _frequency(feed, faq, tpl))
         process = _process_name(faq)
         if process is not None:
             cells["APPLICATION_NAME"] = process
         context = {**_row_context(feed, faq, cells, role.role), **(extra or {})}
+        if role.frequency:
+            context["freq"] = role.frequency[:1].upper() + role.frequency[1:].lower()
         _derive(tpl, tab, cells, context)
         rows.append(_with_constants(tpl, tab, cells, context, faq))
     return rows
@@ -2075,6 +2081,15 @@ def _notebook_path_root(tpl: MetadataTemplateConfig, row: dict) -> dict:
 # patterns report names the flow (tools/iig_fill_rate.py, iig_keys.yaml flow).
 _ROLE_FLOWS = {"file_to_stage": "file_to_stg", "stage_to_standard": "stg_to_std",
                "grand_master": "grand_master", "master": "master"}
+
+
+def role_frequency(tpl: MetadataTemplateConfig | None, role_or_flow: str) -> str | None:
+    """post102: the run-level schedule of a pipeline role (``pipeline_roles[].
+    frequency``), by role or by its flow name; None = the feed's frequency."""
+    for role in (tpl.pipeline_roles if tpl is not None else []):
+        if role_or_flow in (role.role, _ROLE_FLOWS.get(role.role)) and role.frequency:
+            return role.frequency
+    return None
 
 
 def _notebook_kind(flow: str, feed: FrdFeed, spec: ResolvedFeedSpec | None,

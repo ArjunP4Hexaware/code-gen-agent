@@ -539,8 +539,11 @@ metadata:
       # such column), one feed-level INPUT_NEEDED feeds.<feed>.pipeline_name.<flow>
       # per flow row (per_flow; the notebook row of a flow takes the same answer).
       pipeline_roles:
-        - {role: grand_master, description: "Grand master"}
-        - {role: master, description: "Master", parent: grand_master}
+        # post102 (Soham, the pair_11 golden): ONE Daily grand master + master per
+        # run; the children keep their feed's schedule (identical master rows are
+        # then written once in the combined IIG, combined.dedup_rows)
+        - {role: grand_master, description: "Grand master", frequency: Daily}
+        - {role: master, description: "Master", parent: grand_master, frequency: Daily}
         - {role: file_to_stage, description: "File to Stage", parent: master}
         - {role: stage_to_standard, description: "Stage to Standard", parent: master}
       owed_cells:

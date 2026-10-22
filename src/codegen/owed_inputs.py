@@ -208,7 +208,7 @@ def _with_choice(owed: OwedInput, item, spec, profile, tpl, faq, config=None) ->
         tokens = choices.feed_tokens(spec, tpl, faq, config)
         flow = item.key.split(".", 1)[1] if item.key.startswith(choices.PIPELINE) else ""
         if flow:
-            tokens = choices.flow_tokens(tokens, spec, profile, flow, config)
+            tokens = choices.flow_tokens(tokens, spec, profile, flow, config, tpl)
     return replace(owed, question=f"{owed.question} — {choices.proposal_text(item)}",
                    options=options, proposed=item.proposal.value,
                    template=item.proposal.template, tokens=tuple(sorted(tokens.items())),

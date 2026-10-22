@@ -1473,6 +1473,11 @@ class PipelineRoleConfig(BaseModel):
     name: str | None = None
     description: str
     parent: str | None = None
+    # post102: a schedule the role runs on for the WHOLE run, whatever the feed's
+    # own frequency (the pair_11 golden: one Daily grand master + master, the
+    # children each on their feed's schedule) - the row's PIPELINE_FREQUENCY and
+    # the {frequency} / {frequency_code} of its name. None = the feed's frequency.
+    frequency: str | None = None
 
 
 D1_PLACEHOLDER_RE = re.compile(r"<<D1:[^>]*>>")

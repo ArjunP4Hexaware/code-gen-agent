@@ -416,3 +416,24 @@ def test_the_shipped_names_follow_the_naming_standards_document(tmp_path):
     assert names["file_to_stg"] == f"PL_CHLD_{head}_RAW_TO_STG_{codes[stage]}"
     assert names["stg_to_std"] == f"PL_CHLD_{head}_STG_TO_STD_{codes[standard]}"
     assert set(input_choices.PLACEHOLDERS) >= {"product_code", "load_std", "lob_std"}
+
+
+def test_the_masters_names_carry_the_run_frequency_the_children_their_feeds():
+    """post102 (the pair_11 golden): one Daily grand master + master per run -
+    their {frequency} / {frequency_code} come from the role, a child's from its
+    feed."""
+    from types import SimpleNamespace
+
+    config = _acfc()
+    tpl = config.metadata.templates["iig_v2"]
+    profile = config.conventions.profiles["acfc_prx"]
+    spec = SimpleNamespace(stage_load_strategy="", standard_load_strategy="")
+    feed = {"frequency": "Weekly", "frequency_code": "WKL"}
+    for flow in ("grand_master", "master"):
+        tokens = input_choices.flow_tokens(feed, spec, profile, flow, config, tpl)
+        assert (tokens["frequency"], tokens["frequency_code"]) == ("Daily", "DLY")
+    tokens = input_choices.flow_tokens(feed, spec, profile, "file_to_stg", config, tpl)
+    assert tokens["frequency_code"] == "WKL"
+    # without the template (an older caller) the feed's own frequency, as before
+    assert input_choices.flow_tokens(feed, spec, profile, "master", config)[
+        "frequency_code"] == "WKL"

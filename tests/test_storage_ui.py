@@ -55,7 +55,11 @@ def remote(monkeypatch, tmp_path):
 @pytest.fixture
 def runner():
     store = GenerationStore(str(REPO / "config" / "config.yaml"))
-    return store, DemoRunner(store, work=lambda: None)
+    # post97: no background index warm-up - it lists the input roots on its own
+    # thread and caches the listing (inputs.listing_ttl_seconds), so under load it
+    # could list BEFORE a test swaps in a failing listing and serve the cached rows
+    # (test_an_unreachable_root_is_reported_not_fatal failed that way in full runs)
+    return store, DemoRunner(store, work=lambda: None, index_warmup=False)
 
 
 def test_chooser_lists_extra_root_at_depth_one(remote, runner):

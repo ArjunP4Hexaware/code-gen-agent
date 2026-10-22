@@ -1594,6 +1594,10 @@ class EnvironmentConfig(BaseModel):
     default_catalog: dict[str, str] = Field(default_factory=dict)
     connection_ids: dict[str, str] = Field(default_factory=dict)
     values: dict[str, str] = Field(default_factory=dict)
+    # post99: per flat key, where this environment's value came from and why
+    # (plain English, display only - the App's "Where these values come from").
+    # Never a value that must stay out of git (the storage account).
+    provenance: dict[str, str] = Field(default_factory=dict)
 
 
 class EnvironmentSchemaConfig(BaseModel):
@@ -2224,6 +2228,15 @@ class EdhE2eConfig(BaseModel):
     function_map: dict[str, str] = Field(default_factory=dict)
 
 
+class CombinedRowDedup(BaseModel):
+    """post99: which rows of one sheet are run-level (``CombinedConfig.dedup_rows``)."""
+
+    model_config = _MODEL_CONFIG
+
+    column: str
+    prefixes: list[str]
+
+
 class CombinedConfig(BaseModel):
     """post91: ONE set of framework artefacts per run and STTM, in
     ``<out root>/<dir>/`` beside the per-feed files (codegen.run_artefacts):
@@ -2240,6 +2253,12 @@ class CombinedConfig(BaseModel):
     ddl_file_pattern: str = "{sttm}_DDL.txt"
     log_file_pattern: str = "{sttm}_LOG.md"
     dedup_sheets: list[str] = Field(default_factory=list)
+    # post99: rows written once on an otherwise per-feed sheet - a row whose
+    # ``column`` starts with one of ``prefixes`` and that equals an earlier feed's
+    # row on EVERY column (the run-level grand master / master pipelines, which
+    # every feed's IIG repeats). Child rows never match; rows that share a name
+    # but differ in any cell are kept and named in the log.
+    dedup_rows: dict[str, CombinedRowDedup] = Field(default_factory=dict)
 
 
 class Config(BaseModel):

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { EnvironmentChoice, EnvironmentOptions } from "../api";
-import { EnvironmentSelector, OTHER, parseEnvironmentText } from "./EnvironmentSelector";
+import { EnvironmentSelector, OTHER, parseEnvironmentText, provenanceLines } from "./EnvironmentSelector";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -260,5 +260,42 @@ describe("EnvironmentSelector", () => {
 
   it("parses key: value lines, skipping blanks and comments", () => {
     expect(parseEnvironmentText("# x\n a : b \n\nnope\nc: d:e")).toEqual({ a: "b", c: "d:e" });
+  });
+
+  it("lists where each value came from, the same text said once (post99)", () => {
+    const withHistory = {
+      ...D1,
+      options: [{ ...D1.options[0], provenance: {
+        "containers.landing": "Copied from real rows.",
+        "catalog_map.PR_DLK": "The multi-table rule.",
+        "catalog_map.PR_STD": "The multi-table rule.",
+      } }],
+    };
+    act(() => root.render(<EnvironmentSelector options={withHistory} onChoose={() => undefined} />));
+    const items = [...host.querySelectorAll('ul[aria-label="environment provenance"] li')].map(
+      (li) => li.textContent,
+    );
+    expect(items).toEqual([
+      "containers.landing: Copied from real rows.",
+      "catalog_map.PR_DLK, catalog_map.PR_STD: The multi-table rule.",
+    ]);
+  });
+
+  it("says a value edited in the App is edited, keeping the profile's text", () => {
+    expect(
+      provenanceLines(
+        ["storage_account", "containers.stage"],
+        { storage_account: "From the state file.", "containers.stage": "From real rows." },
+        { storage_account: "the App form", "containers.stage": "overlay environments.D1" },
+        {},
+      ),
+    ).toEqual([
+      { keys: ["storage_account"], text: "Edited in the App for this run. The profile's value: From the state file." },
+      { keys: ["containers.stage"], text: "From real rows." },
+    ]);
+    // an edit typed but not applied yet reads the same
+    expect(provenanceLines(["x"], {}, {}, { x: "v" })).toEqual([
+      { keys: ["x"], text: "Edited in the App for this run." },
+    ]);
   });
 });

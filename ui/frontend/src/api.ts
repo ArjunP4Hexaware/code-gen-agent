@@ -116,6 +116,8 @@ export interface EnvironmentOption {
   // post56: per field, where its value comes from (codegen.environments.resolve)
   sources?: Record<string, string>;
   missing_required?: string[];
+  // post99: per field, where this environment's value came from and why
+  provenance?: Record<string, string>;
 }
 
 export interface EnvironmentOptions {

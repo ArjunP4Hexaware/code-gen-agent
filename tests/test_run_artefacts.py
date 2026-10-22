@@ -82,6 +82,36 @@ def test_rows_stay_together_per_feed_and_row_references_move():
     assert merged.ranges["S"] == [("feed_a", 2, 3), ("feed_b", 4, 5)]
 
 
+def test_the_masters_are_written_once_and_children_follow_them():
+    """post99 (Soham, the pair_11 golden): the grand master / master rows every
+    feed repeats are written once; a child row is never merged, and its "row n"
+    reference follows its master to the kept row. Children that share a name but
+    differ are kept and named."""
+    from codegen.config import CombinedRowDedup
+
+    def schedule(child_text):
+        gm = _row(PIPELINE_NAME="PL_GMSTR_SYN", PARENT_PIPELINE_ID="0")
+        master = _row(PIPELINE_NAME="PL_MSTR_SYN", PARENT_PIPELINE_ID="")
+        master["badges"]["PARENT_PIPELINE_ID"]["tooltip"] = (
+            "the PIPELINE_ID of row 1 (grand_master)")
+        child = _row(PIPELINE_NAME="PL_CHLD_SYN", PARENT_PIPELINE_ID=child_text)
+        child["badges"]["PARENT_PIPELINE_ID"]["tooltip"] = "the PIPELINE_ID of row 2 (master)"
+        return [gm, master, child]
+
+    rule = {"S": CombinedRowDedup(column="PIPELINE_NAME", prefixes=["PL_GMSTR_", "PL_MSTR_"])}
+    merged = merge_payloads([("feed_a", _payload({"S": schedule("")})),
+                             ("feed_b", _payload({"S": schedule("")})),
+                             ("feed_c", _payload({"S": schedule("x")}))], [], rule)
+    rows = merged.payload["tabs"]["S"]["rows"]
+    assert [r["values"]["PIPELINE_NAME"] for r in rows] == [
+        "PL_GMSTR_SYN", "PL_MSTR_SYN", "PL_CHLD_SYN", "PL_CHLD_SYN", "PL_CHLD_SYN"]
+    assert merged.merged == {"S": 4} and merged.look_alike == {"S": 1}
+    tips = [r["badges"]["PARENT_PIPELINE_ID"].get("tooltip", "") for r in rows]
+    assert all("row 2 (master)" in t for t in tips[2:])
+    assert merged.same_name == {"S": ["PL_CHLD_SYN"]}
+    assert merged.ranges["S"] == [("feed_a", 2, 4), ("feed_b", 5, 5), ("feed_c", 6, 6)]
+
+
 # --- the DDL ----------------------------------------------------------------
 
 def _block(banner: str, table: str, cols: str = "A STRING") -> str:

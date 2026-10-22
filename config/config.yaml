@@ -1288,6 +1288,16 @@ combined:
   enabled: true
   dir: combined
   dedup_sheets: [EMAIL_TEMPLATE_CONFIG]
+  # post99 (Soham, 2026-10-22): the grand master / master pipelines are one per run
+  # (pair_11 golden: 1 + 1, then a stage and a standard child per feed), but every
+  # feed's IIG carries them. A row whose PIPELINE_NAME has the EDO Naming Standards'
+  # grand master / master prefix (Pipeline Type table: GMSTR, MSTR) and equals an
+  # earlier feed's row on every column is written once. Child rows are never
+  # merged: under the naming document's child pattern (no feed token) several
+  # feeds' children share a name, so same-name rows that differ are kept and the
+  # log names them.
+  dedup_rows:
+    DATA_FACTORY_PIPELINE_SCHEDULE: {column: PIPELINE_NAME, prefixes: [PL_GMSTR_, PL_MSTR_]}
 
 iig_review:
   # IIG-first (2026-10-02, M3): every framework run writes TWO IIG workbooks

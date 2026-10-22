@@ -369,6 +369,12 @@ def test_the_app_offers_the_environments_and_takes_a_choice_or_other_values(monk
     assert options["required"] == ["storage_account", "containers.landing",
                                    "containers.stage", "containers.standard"]
     assert options["options"][0]["origin"] == "overlay environments.D1"
+    # post99: every D1 field says where its value came from; never the storage
+    # account's value (it stays out of git)
+    d1 = options["options"][0]
+    assert set(d1["provenance"]) == set(options["fields"])
+    assert "Nikshit" in d1["provenance"]["storage_account"]
+    assert options["options"][1]["provenance"] == {}                  # A2 states none
     assert options["options"][0]["missing_required"] == ["storage_account"]
     assert options["banner"] == ("D1 (1 required missing: storage_account, from overlay "
                                  "environments.D1; default)")

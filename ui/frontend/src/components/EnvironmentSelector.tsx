@@ -19,7 +19,9 @@ import type { EnvironmentChoice, EnvironmentOption, EnvironmentOptions } from ".
    each row with a plain-English line. A layer's catalog_map entry and its
    default_catalog that hold the same value show as ONE row (an edit writes both
    keys, so the run resolves exactly as before). A source is shown only where it
-   differs from the other fields'. */
+   differs from the other fields'.
+   post99: "Where these values come from" lists each value's provenance (the
+   overlay's environments.<name>.provenance), an edited value said to be edited. */
 
 export const OTHER = "__other__";
 
@@ -61,6 +63,30 @@ export function shortSource(source: string): string {
   const profile = /^profile (.+)$/.exec(source);
   if (profile) return `the workspace state file (${profile[1].split("/").pop()})`;
   return source;
+}
+
+/* post99: the "Where these values come from" lines. A value edited in the App
+   (this run's form, or an edit not yet applied) is said to be edited — the
+   profile's text describes the value it replaced. */
+export function provenanceLines(
+  keys: string[],
+  provenance: Record<string, string>,
+  sources: Record<string, string>,
+  edits: Record<string, string>,
+): { keys: string[]; text: string }[] {
+  const out: { keys: string[]; text: string }[] = [];
+  for (const key of keys) {
+    const base = provenance[key];
+    const edited = key in edits || (sources[key] ?? "").startsWith("the App form");
+    const text = edited
+      ? `Edited in the App for this run.${base ? ` The profile's value: ${base}` : ""}`
+      : base;
+    if (!text) continue;
+    const last = out[out.length - 1];
+    if (last && last.text === text) last.keys.push(key);
+    else out.push({ keys: [key], text });
+  }
+  return out;
 }
 
 type Row =
@@ -185,6 +211,9 @@ export function EnvironmentSelector({
         .map((key) => ({ kind: "field", key })),
     },
   ];
+  // post99: where each value came from and why (the profile's provenance), in row
+  // order; consecutive keys with the same text are said once
+  const history = provenanceLines(keys, option?.provenance ?? {}, sources, edits);
   const fieldValue = (k: string) => (fields[k] ?? "").trim();
   const catalogOf = (layer: string) =>
     fieldValue(`default_catalog.${layer}`) || "not set";
@@ -326,6 +355,21 @@ export function EnvironmentSelector({
                 : "Each row names its own source."}
               {options.profiles_dir ? ` Profiles are read from ${options.profiles_dir}.` : ""}
             </div>
+            {history.length ? (
+              <ul aria-label="environment provenance" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {history.map((h) => (
+                  <li key={h.keys.join(",")}>
+                    {h.keys.map((k, i) => (
+                      <span key={k}>
+                        {i ? ", " : ""}
+                        <code>{k}</code>
+                      </span>
+                    ))}
+                    : {h.text}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </details>
           <button
             type="button"

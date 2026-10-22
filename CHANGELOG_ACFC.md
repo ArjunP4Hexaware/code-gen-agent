@@ -4,6 +4,37 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post99 — 2026-10-22 (the combined IIG writes the master pipelines once; where each environment value came from)
+
+**The grand master / master pipeline rows are written once** (Soham, against the pair_11
+golden: 1 grand master + 1 master for the run, then a stage and a standard child per feed;
+the combined IIG had 4 rows per feed, 20 in all). `combined.dedup_rows`
+(`DATA_FACTORY_PIPELINE_SCHEDULE: {column: PIPELINE_NAME, prefixes: [PL_GMSTR_, PL_MSTR_]}`,
+the EDO Naming Standards' grand master / master types): a row with one of those prefixes
+that equals an earlier feed's row on every column is dropped
+(`run_artefacts.merge_payloads`).
+- **Children are never merged.** Under the naming document's child pattern (no feed token)
+  several feeds' children share a name; Soham: do not deviate from the document. Rows that
+  share a PIPELINE_NAME but differ in any cell are kept, and the combined `_LOG.md` names
+  them ("Same PIPELINE_NAME, different cells … check before approving").
+- **"row n" references follow** (`_remap_refs`): a child whose master was merged away now
+  points at the kept master.
+- **On pair_11** (mock container harness): 20 rows -> 14 (one grand master + master per
+  frequency: weekly and monthly), every child kept, each child's parent its own frequency's
+  master. The per-feed IIGs are unchanged.
+
+**Where each environment value came from** (App): `environments.<name>.provenance` (per
+field, plain English; D1's in `acfc_env.yaml`, never a value that stays out of git) is
+listed under the panel's "Where these values come from"; a value edited in the App says so.
+Display only.
+
+**State (no code):** the D1 profile `environments/d1.yaml` (volume + workspace copy) no
+longer says "the suite's synthetic D1 profile"; the value is unchanged (backups
+`d1.yaml.bak_20261022_pre_comment`).
+
+**Tests:** `test_run_artefacts.py::test_the_masters_are_written_once_and_children_follow_them`,
+`test_environments.py` (provenance), `EnvironmentSelector.test.tsx` (2 new).
+
 ## 0.5.8.post98 — 2026-10-22 (App: the environment values as a collapsible; the IIG review workbook hidden)
 
 Soham: the environment panel listed 11 technical keys, each with a long "from …" line

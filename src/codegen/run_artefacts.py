@@ -75,16 +75,23 @@ class _Merge:
     ranges: dict[str, list[tuple[str, int, int]]] = field(default_factory=dict)
     merged: dict[str, int] = field(default_factory=dict)          # sheet -> rows written once
     look_alike: dict[str, int] = field(default_factory=dict)      # sheet -> kept look-alikes
+    # post99: sheet -> names shared by rows that differ in some cell (kept, logged)
+    same_name: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _key(row: dict, headers: list[str]) -> tuple:
     return tuple(str(row["values"].get(h, "")) for h in headers)
 
 
-def merge_payloads(feeds: list[tuple[str, dict]], dedup_sheets: list[str]) -> _Merge:
+def merge_payloads(feeds: list[tuple[str, dict]], dedup_sheets: list[str],
+                   dedup_rows: dict | None = None) -> _Merge:
     """The feeds' IIG payloads as one: sheets in the first payload's order, each
     feed's rows together in feed order; a row equal on every column to an
-    earlier one is dropped on ``dedup_sheets`` only (counted elsewhere)."""
+    earlier one is dropped on ``dedup_sheets`` only (counted elsewhere).
+    post99: on a ``dedup_rows`` sheet, also a row whose named column starts with
+    one of its prefixes (the run-level masters); rows sharing that column's value
+    but differing elsewhere are kept and listed in ``same_name``."""
+    dedup_rows = dedup_rows or {}
     first = feeds[0][1]
     tabs: dict[str, dict] = {}
     result = _Merge(payload={**first, "tabs": tabs})
@@ -95,31 +102,57 @@ def merge_payloads(feeds: list[tuple[str, dict]], dedup_sheets: list[str]) -> _M
                 raise ValueError(f"combined IIG: sheet {sheet} has different headers in "
                                  f"feed {slug}")
             # only EARLIER feeds' rows count: a feed's own rows are never merged
-            earlier = {_key(r, target["headers"]) for r in target["rows"]}
+            earlier: dict[tuple, int] = {}
+            for i, r in enumerate(target["rows"], start=1):
+                earlier.setdefault(_key(r, target["headers"]), i)
             start = len(target["rows"])
-            for row in tab["rows"]:
-                if _key(row, target["headers"]) in earlier:
-                    if sheet in dedup_sheets:
+            rule = dedup_rows.get(sheet)
+            # post99: the feed's row n -> its row in the merged sheet (a dropped
+            # row -> the earlier row it equals), so "row n" references follow it
+            where: dict[int, int] = {}
+            keep = []
+            for n, row in enumerate(tab["rows"], start=1):
+                key = _key(row, target["headers"])
+                if key in earlier:
+                    named = str(row["values"].get(rule.column, "")) if rule else ""
+                    if sheet in dedup_sheets or (rule and named.startswith(tuple(rule.prefixes))):
                         result.merged[sheet] = result.merged.get(sheet, 0) + 1
+                        where[n] = earlier[key]
                         continue
                     result.look_alike[sheet] = result.look_alike.get(sheet, 0) + 1
-                target["rows"].append(_offset_refs(row, start))
+                keep.append(row)
+                where[n] = start + len(keep)
+            for row in keep:
+                target["rows"].append(_remap_refs(row, where))
             if len(target["rows"]) > start:
                 result.ranges.setdefault(sheet, []).append(
                     (slug, start + 2, len(target["rows"]) + 1))     # sheet rows (header = 1)
+    for sheet, rule in dedup_rows.items():
+        versions: dict[str, set] = {}
+        tab = tabs.get(sheet)
+        for row in (tab or {}).get("rows", []):
+            name = str(row["values"].get(rule.column, "")).strip()
+            if name:
+                versions.setdefault(name, set()).add(_key(row, tab["headers"]))
+        shared = [n for n, v in versions.items() if len(v) > 1]
+        if shared:
+            result.same_name[sheet] = shared
     return result
 
 
-def _offset_refs(row: dict, offset: int) -> dict:
-    """A row whose in-feed row references point at the merged rows."""
-    if not offset:
+def _remap_refs(row: dict, where: dict[int, int]) -> dict:
+    """A row whose in-feed row references point at the merged rows (``where``:
+    the feed's row n -> its merged row; post99: a merged-away row -> the earlier
+    row it equals)."""
+    if all(k == v for k, v in where.items()):
         return row
     badges = {}
     for header, entry in row.get("badges", {}).items():
         tooltip = (entry or {}).get("tooltip")
         if tooltip and _ROW_REF.search(tooltip):
             entry = {**entry, "tooltip": _ROW_REF.sub(
-                lambda m: f"{m.group(1)}{int(m.group(2)) + offset}", tooltip)}
+                lambda m: f"{m.group(1)}{where.get(int(m.group(2)), int(m.group(2)))}",
+                tooltip)}
         badges[header] = entry
     return {**row, "badges": badges}
 
@@ -198,7 +231,7 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
     failed_checks: list[str] = []
     if with_payload:
         merge = merge_payloads([(k.slug, k.artefacts.payload) for k in with_payload],
-                               cfg.dedup_sheets)
+                               cfg.dedup_sheets, cfg.dedup_rows)
         payload = merge.payload
         template = payload.get("template") or config.metadata.template
         blank_list = _always_blank(config, template)
@@ -311,11 +344,17 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
                       for slug, first, last in spans]
         lines += ["", "## Merged and kept", ""]
         merged = [f"- {sheet}: {n} row(s) equal to an earlier feed's written once "
-                  "(a run-level sheet)" for sheet, n in merge.merged.items()]
+                  + ("(run-level rows: the grand master / master pipelines)"
+                     if sheet in config.combined.dedup_rows else "(a run-level sheet)")
+                  for sheet, n in merge.merged.items()]
         alike = [f"- {sheet}: {n} row(s) equal to an earlier feed's on every column, KEPT — "
                  "distinct rows once the framework assigns their IDs" for sheet, n in
                  merge.look_alike.items()]
         lines += merged + alike or ["- nothing merged"]
+        for sheet, shared in merge.same_name.items():
+            lines += ["", f"**Same {config.combined.dedup_rows[sheet].column}, different "
+                      f"cells ({sheet}) - kept, check before approving:**", ""]
+            lines += [f"- `{name}`" for name in shared]
     if ddl_skipped:
         lines.append(f"- DDL: {ddl_skipped} identical table block(s) written once")
     lines += ["", "## Conflicts", ""]

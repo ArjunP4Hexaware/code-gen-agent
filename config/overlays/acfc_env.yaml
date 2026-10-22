@@ -78,6 +78,19 @@ environments:
     # the framework's connection ids as the real ADLS_DELTA_INGESTION_DETAILS rows
     # carry them (SRC_ADLS / METADATA / TGT_CONNECTION_ID)
     connection_ids: {src_adls: "7", metadata: "4", target: "2"}
+    # post99: shown in the App under "Where these values come from" (display only)
+    provenance:
+      containers.landing: "Copied from real D1 production IIG rows (the file -> stage row's source container: the SD prod rows, the SFMC reference IIG, the pair-1 golden). In the repo since 2026-10-14."
+      containers.stage: "Copied from real D1 production IIG rows (the file -> stage row's target container: the SD prod rows, the SFMC reference IIG, the pair-1 golden). In the repo since 2026-10-14."
+      containers.standard: "From the round-7 pair_2 results (the stage -> standard row's target container). In the repo since 2026-10-14."
+      storage_account: "Not in the repo: set per workspace in the state file environments/d1.yaml (volume + workspace copy). D1's value is the demo value Nikshit gave on 2026-10-21, being re-confirmed; the earlier value is kept in d1.yaml.bak_20261021_pre_storage_account."
+      catalog_map.PR_DLK: "The owners' multi-table rule (2026-10-07): STTMs name the production catalogs (PR_DLK, PR_STD) and each environment maps them to its own; D1's catalogs are d1_dlk and d1_std."
+      catalog_map.PR_STD: "The owners' multi-table rule (2026-10-07): STTMs name the production catalogs (PR_DLK, PR_STD) and each environment maps them to its own; D1's catalogs are d1_dlk and d1_std."
+      default_catalog.stage: "The same D1 stage catalog, used when an STTM leaves the Catalog cell blank (multi-table rule, 2026-10-07)."
+      default_catalog.standard: "The same D1 standard catalog, used when an STTM leaves the Catalog cell blank (multi-table rule, 2026-10-07)."
+      connection_ids.src_adls: "Copied from real D1 ADLS_DELTA_INGESTION_DETAILS rows (SRC_ADLS_CONNECTION_ID). In the repo since 2026-10-07."
+      connection_ids.metadata: "Copied from real D1 ADLS_DELTA_INGESTION_DETAILS rows (METADATA_CONNECTION_ID). In the repo since 2026-10-07."
+      connection_ids.target: "Copied from real D1 ADLS_DELTA_INGESTION_DETAILS rows (TGT_CONNECTION_ID). In the repo since 2026-10-07."
   A2:
     description: "A2 — values not known yet"
     containers: {landing: "<<A2:CONTAINER.landing>>", stage: "<<A2:CONTAINER.stage>>", standard: "<<A2:CONTAINER.standard>>"}

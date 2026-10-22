@@ -1223,6 +1223,8 @@ class DemoRunner:
             resolved = resolve(config, name=name, live=False)
             profiles.append({"name": name, "default": entry.default,
                              "description": entry.description,
+                             # post99: where each value came from (display only)
+                             "provenance": dict(entry.provenance),
                              "values": flat_values(resolved.entry),
                              "origin": resolved.origin,
                              "sources": dict(resolved.sources),

@@ -41,6 +41,11 @@ output:
   #   app_options: [notebook, framework]
   # The CLI (mode / --output-mode) is not affected.
   app_options: [framework]
+  # post98 (Soham, 2026-10-22): the framework files the App lists - the IIG review
+  # workbook (<STTM>_IIG_REVIEW.xlsx / <feed>_IIG_REVIEW.xlsx) is HIDDEN; it is still
+  # written. To show it again:
+  #   app_files: [ddl, iig, iig_review, addition, log]
+  app_files: [ddl, iig, addition, log]
 
 framework:
   # Option B knobs. The row layout is NOT here — demo.metadata_sheet is the

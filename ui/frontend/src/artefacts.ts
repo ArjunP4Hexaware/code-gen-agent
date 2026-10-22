@@ -4,17 +4,21 @@ import type { Layer2State } from "./api";
    exactly <FEED>_DDL.txt, <feed>_IIG.xlsx, <feed>_IIG_REVIEW.xlsx and
    ADDITION.md, in that order. The generator still writes metadata_inserts.sql,
    config_rows.xlsx and config_inserts.xlsx (the CLI, the harness and the DML
-   stage use them); the App just does not list them. */
+   stage use them); the App just does not list them.
+   post98: `shown` = the backend's output.app_files (the kinds the App lists; the
+   IIG review workbook is hidden as shipped); absent = every kind. */
 
-const PRESENTED: ((name: string) => boolean)[] = [
-  (name) => name.endsWith("_DDL.txt"),
-  (name) => name.endsWith("_IIG.xlsx"),
-  (name) => name.endsWith("_IIG_REVIEW.xlsx"),
-  (name) => name === "ADDITION.md",
+const PRESENTED: [string, (name: string) => boolean][] = [
+  ["ddl", (name) => name.endsWith("_DDL.txt")],
+  ["iig", (name) => name.endsWith("_IIG.xlsx")],
+  ["iig_review", (name) => name.endsWith("_IIG_REVIEW.xlsx")],
+  ["addition", (name) => name === "ADDITION.md"],
 ];
 
-export function presentedArtefacts(files: string[]): string[] {
-  return PRESENTED.flatMap((matches) => files.filter(matches));
+export function presentedArtefacts(files: string[], shown?: string[]): string[] {
+  return PRESENTED.filter(([kind]) => !shown || shown.includes(kind)).flatMap(([, matches]) =>
+    files.filter(matches),
+  );
 }
 
 /* post76: where a feed's Layer-2 review stands (null once its candidates are in,

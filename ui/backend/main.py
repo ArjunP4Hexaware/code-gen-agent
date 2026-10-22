@@ -351,20 +351,27 @@ def list_feeds() -> dict:
         # Per stage, what the served run did with a model (label included).
         "model_usage": store.model_usage,
         # post91: the run's combined set per STTM (codegen.run_artefacts)
-        "combined": _combined_sets(store),
+        # post98: narrowed to the files the App lists (config output.app_files)
+        "combined": _combined_sets(store, shown=store.config.output.app_files),
         # post91: what the App offers (config output.app_options) - no notebook
         # panel / tab when notebook is not offered
         "app_options": list(store.config.output.app_options),
+        # post98: which framework files the App lists (config output.app_files)
+        "app_files": list(store.config.output.app_files),
     }
 
 
 # post91: the order the combined files are offered in
 _COMBINED_ORDER = ("ddl", "iig", "review", "log")
+# post98: a combined-set kind -> its output.app_files name
+_COMBINED_APP_FILE = {"ddl": "ddl", "iig": "iig", "review": "iig_review", "log": "log"}
 
 
-def _combined_sets(served) -> list[dict]:
+def _combined_sets(served, shown=None) -> list[dict]:
     """The served run's combined sets ({sttm, files}) from its manifest — only
-    files that exist; [] for a run without one (an older run, startup feeds)."""
+    files that exist; [] for a run without one (an older run, startup feeds).
+    post98: ``shown`` (output.app_files) narrows the list the App DISPLAYS; the
+    download route passes none, so a hidden file is still served by name."""
     from codegen.run_stages import read_stage_manifest
 
     try:
@@ -375,7 +382,8 @@ def _combined_sets(served) -> list[dict]:
     for block in blocks:
         folder = served.out_root / block.get("dir", "combined")
         files = [block["files"][kind] for kind in _COMBINED_ORDER
-                 if kind in block.get("files", {}) and (folder / block["files"][kind]).is_file()]
+                 if kind in block.get("files", {}) and (folder / block["files"][kind]).is_file()
+                 and (shown is None or _COMBINED_APP_FILE[kind] in shown)]
         if files:
             sets.append({"sttm": block.get("sttm"), "files": files})
     return sets

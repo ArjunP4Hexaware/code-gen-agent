@@ -20,6 +20,18 @@ describe("presentedArtefacts", () => {
     ]);
   });
 
+  it("lists only the kinds output.app_files names (post98: the review copy hidden)", () => {
+    const written = ["ADDITION.md", "CV_RISK_DDL.txt", "cv_risk_IIG_REVIEW.xlsx", "cv_risk_IIG.xlsx"];
+    expect(presentedArtefacts(written, ["ddl", "iig", "addition", "log"])).toEqual([
+      "CV_RISK_DDL.txt",
+      "cv_risk_IIG.xlsx",
+      "ADDITION.md",
+    ]);
+    expect(presentedArtefacts(written, ["ddl", "iig", "iig_review", "addition"])).toContain(
+      "cv_risk_IIG_REVIEW.xlsx",
+    );
+  });
+
   it("lists what exists, never a file that was not written", () => {
     expect(presentedArtefacts(["ADDITION.md", "config_rows.xlsx"])).toEqual(["ADDITION.md"]);
   });

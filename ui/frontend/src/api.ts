@@ -155,6 +155,8 @@ export interface FeedsResponse {
   combined?: CombinedSet[];
   /* post91: what the App offers (output.app_options) */
   app_options?: string[];
+  /* post98: which framework files the App lists (output.app_files) */
+  app_files?: string[];
 }
 
 export interface CombinedSet {

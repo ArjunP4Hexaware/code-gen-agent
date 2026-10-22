@@ -65,3 +65,12 @@ def test_listing_notebook_again_turns_it_back_on(runner):
     _offering(runner, ["notebook", "framework"])
     runner.select_output_parts(["notebook", "framework"])
     assert runner.effective_output_parts() == ["notebook", "framework"]
+
+
+def test_the_shipped_app_hides_the_iig_review_workbook():
+    """post98 (Soham): the App does not list the IIG review workbook; adding
+    iig_review back to output.app_files shows it again. The model default lists
+    every kind, so a config without the line changes nothing."""
+    config = load_config(REPO / "config" / "config.yaml")
+    assert config.output.app_files == ["ddl", "iig", "addition", "log"]
+    assert "iig_review" in type(config.output).model_fields["app_files"].default

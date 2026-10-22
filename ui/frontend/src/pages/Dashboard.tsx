@@ -340,9 +340,10 @@ export function Dashboard({
                   <code>{f.feed_slug}</code>
                 </div>
                 {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
-                    ADDITION.md — the other files are still written, not listed */}
+                    ADDITION.md — the other files are still written, not listed;
+                    post98: narrowed to output.app_files (review copy hidden) */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                  {presentedArtefacts(f.framework!.files).map((name) => (
+                  {presentedArtefacts(f.framework!.files, data?.app_files).map((name) => (
                     <a
                       key={name}
                       className="btn"

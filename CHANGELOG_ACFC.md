@@ -4,6 +4,37 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post98 — 2026-10-22 (App: the environment values as a collapsible; the IIG review workbook hidden)
+
+Soham: the environment panel listed 11 technical keys, each with a long "from …" line
+(`catalog_map.PR_DLK` next to `default_catalog.stage`, the framework connection ids).
+Display only (`ui/frontend/src/components/EnvironmentSelector.tsx`); how a run resolves
+its environment, the answer keys and the CLI are unchanged.
+- **Collapsible:** the fields sit behind one summary line (storage account · catalogs ·
+  required values set / N missing); it opens by itself while a required value is missing.
+- **Groups:** Storage (the required keys) · Catalogs · Framework connection IDs (a nested,
+  closed section) · Other values.
+- **Catalogs:** a layer's `default_catalog` and the `catalog_map` entries with the same
+  value show as ONE row ("Stage catalog", "Standard catalog"); an edit writes every merged
+  key. Values that differ, or are unset (A2 / PR), stay separate rows.
+- **Plain English:** every row carries a one-line explanation (`explainField`).
+- **Sources:** shown only where a row's source differs from the one most fields share,
+  shortened (`shortSource`), the full text as the tooltip; the shared source and the
+  profiles folder moved into a closed "Where these values come from" section.
+
+**The IIG review workbook is hidden in the App** (Soham): `output.app_files` (config.yaml
+`[ddl, iig, addition, log]`) is what the artefacts panel and the combined set LIST
+(`/api/feeds` `combined` + `app_files`; `artefacts.presentedArtefacts(files, shown)`).
+The workbook is still written and `/api/combined/<name>` still serves it by name; the
+CLI is not affected. **To show it again:** `app_files: [ddl, iig, iig_review, addition,
+log]` (the model default lists every kind).
+
+**Also:** `docs/acfc/STANDARDS_DEPRECATION_REVIEW.md` — which agent rules came from the
+deprecated ADF coding-standards section, and the decisions still open.
+
+**Tests:** `EnvironmentSelector.test.tsx` (5 new; the source test updated);
+`test_app_options.py`, `test_combined_route.py`, `artefacts.test.ts` (app_files).
+
 ## 0.5.8.post97 — 2026-10-22 (the combined DDL: every stage table first, then every standard table)
 
 Soham: the combined `<STTM>_DDL.txt` (post91) placed each feed's stage and standard tables

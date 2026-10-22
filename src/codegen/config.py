@@ -82,6 +82,11 @@ class OutputConfig(BaseModel):
     # CLI is not affected. [framework] = no notebook anywhere in the App - add
     # notebook back to show it again.
     app_options: list[Literal["notebook", "framework"]] = ["notebook", "framework"]
+    # post98: the framework files the App LISTS (its artefacts panel and combined
+    # set); every file is still written and the CLI is not affected. Drop a kind to
+    # hide it, add it back to show it again.
+    app_files: list[Literal["ddl", "iig", "iig_review", "addition", "log"]] = [
+        "ddl", "iig", "iig_review", "addition", "log"]
 
     @field_validator("mode", mode="before")
     @classmethod

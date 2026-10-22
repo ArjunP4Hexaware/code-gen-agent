@@ -4,6 +4,29 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post92 — 2026-10-22 (pair_03: a DECIMAL with no precision no longer crashes the feed)
+
+pair_03 CRASHED since post75 with "STTM data type invalid … [TemplateGapError]". The
+cause was not its load_strategy answer: five standard-layer columns of its STTM are
+typed `DECIMAL` with no precision (stage STRING, source numeric length 5), and
+`emit.context.sql_type` knew `DECIMAL(p,s)` and plain types only.
+
+1. **Written as stated** (Soham's choice): a bare `DECIMAL` maps to `DECIMAL` (valid
+   Databricks SQL, read as DECIMAL(10,0) — no fractional digits). No precision is derived
+   (a source length is a byte width).
+2. **Flagged:** `gate.decimal_precision.decimal_no_precision_flags` — one non-blocking
+   `decimal_no_precision:<layer> — <table>.<column>` flag per such column (STTM row,
+   "confirm the precision with the STTM author"), joined with the drag-fill flags in
+   `cli.generate_feed_result`.
+
+**On pair_03** (mock container harness): CRASHED → GATE_FAIL. The gate now reaches its
+checks and fails `ruff` on the scratch pipeline's test fixtures. That is the next defect,
+not this one: the source repeats column names (10 × Qualifier, 10 × Type; the stage /
+standard names are unique), which also makes the IIG's SRC_COLUMNS ambiguous. That is
+the next version (the stage names when source names repeat).
+
+**Tests:** `test_decimal_no_precision.py`.
+
 ## 0.5.8.post91 — 2026-10-21 (one IIG / DDL / review / log per run; notebooks off in the App)
 
 Soham: one IIG, one DDL, one IIG review per run (overlaps skipped), ADDITION.md merged

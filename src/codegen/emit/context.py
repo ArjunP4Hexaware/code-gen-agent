@@ -52,6 +52,9 @@ _SQL_TYPES = {
     "double": "DOUBLE",
     "float": "FLOAT",
     "boolean": "BOOLEAN",
+    # post92 (pair_03): DECIMAL with no precision, written as stated (Databricks:
+    # DECIMAL(10,0)); gate.decimal_precision flags each such column
+    "decimal": "DECIMAL",
 }
 _DECIMAL_RE = re.compile(r"^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
 

@@ -158,6 +158,7 @@ def generate_feed_result(
     # a fixed-width FRD with no VDD positions is a failed gate check.
     # M4: resolver provenance flags (facts taken from the STTM because the
     # FRD named none) and the drag-fill detector ride the same list.
+    from codegen.gate.decimal_precision import decimal_no_precision_flags
     from codegen.gate.derivations import sibling_type_flags
     from codegen.gate.drag_fill import drag_fill_flags
     from codegen.gate.vdd_check import vdd_cross_check
@@ -169,7 +170,7 @@ def generate_feed_result(
     # (de-duplicated: the UI passes the layout stage's flags, and the FRD
     # contract the layout stage wrote carries the same ones — M9.3)
     extra_flags = [*dict.fromkeys([*(extra_flags or []), *spec.provenance_flags]),
-                   *drag_fill_flags(spec),
+                   *drag_fill_flags(spec), *decimal_no_precision_flags(spec),
                    *sibling_type_flags(spec, config), *vdd_flags]
     stage("emitting code")
     # Three-input model: file answers (fixtures/faq/<slug>.faq.yaml) plus

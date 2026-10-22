@@ -5,7 +5,9 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**After post91 (2026-10-21; pushed, nothing queued).** post91: ONE set per run and
+**After post93 (2026-10-22; pushed, nothing queued).** pair_03 fixed: CRASHED → PASS_WITH_OPEN_INPUTS. post92: a bare `DECIMAL` (no precision) is written as stated (Databricks DECIMAL(10,0)) + one `decimal_no_precision` flag per column (`gate.decimal_precision`); never derived. post93: repeated source names (pair_03: 10 × Qualifier / Type) make SRC_COLUMNS positional `col<i>:<stage>` (`_named_sources` requires unique names; NOTE `iig_src_columns_positional`), a headerless file's pipeline names fields `col<i>` (`emit.context.pipeline_source_names`), flag `source_names_repeated`; a delimited file WITH a header that repeats names is not covered. Not STAGE:STAGE (rule 4 still pending the D1 cells).
+
+**After post91 (2026-10-21).** post91: ONE set per run and
 STTM in `<out>/combined/` (`codegen.run_artefacts`, config `combined:`): `<STTM>_IIG.xlsx`,
 `_IIG_REVIEW.xlsx`, `_DDL.txt`, `_LOG.md` (ADDITION.md's content once); per-feed files
 still written (harness / iig_diff / manifest read them; run_round + iig_fill_rate skip
@@ -28,7 +30,7 @@ sheet empty by rule (`iig_review.empty_by_rule_*`). A browser check works in thi
 container: Chromium in `/tmp/pw` + its libs unpacked in `/tmp/pwlibs` (LD_LIBRARY_PATH,
 no root; session scratch). `test_storage_ui.py::test_an_unreachable_root_is_reported_not_fatal`
 failed once with both suites run in parallel and passes alone (timing). The App must be
-redeployed at post86+ to show any of post81–91. State change (no code): the D1
+redeployed at post86+ to show any of post81–93. State change (no code): the D1
 `storage_account` in `environments/d1.yaml` (volume + workspace copy) is the demo value
 Nikshit gave (2026-10-21; backup `d1.yaml.bak_20261021_pre_storage_account`). It has
 hyphens, which Azure account names never do, so the notebooks' abfss:// URIs may not

@@ -1,14 +1,20 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-22, `feature/multi-table`, post97)
+## NEWEST — IIG validation (state as of 2026-10-22, `feature/multi-table`, post102)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-22, after post97; everything pushed, tree clean).**
-- **Head:** post97 (`83af5b8`), and the App is deployed at **post97**. Verified on the App:
-  the one-click suggestion with its new wording (pair_08), and the combined DDL by layer
-  (pair_11: stage ×5, then standard ×5).
+**RESTART HERE (2026-10-22, after post102; everything pushed, tree clean).**
+- **Head:** post102 (`fa1f3b2`), and the App is deployed at **post102** (`/api/health`).
+  Verified on the App: the environment panel (post98/99, screenshots). NOT yet seen on an
+  App run (the restarted App had no run loaded; checked by tests + the pair_11 mock
+  harness): the combined set without `STTM_`, OBJECT_ID 1..n, the one Daily master pair,
+  the collapsed Dashboard sections, the short IDs line, the sidebar hiding on View results.
+- **Deploying the App:** it builds from GitHub, not a staged tree: push, then
+  `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks apps deploy codegen-agent -p
+  codegen-oaut --json '{"mode":"SNAPSHOT","git_source":{"branch":"feature/multi-table"}}'`
+  (prints the resolved commit). Soham also deploys this way himself.
 - **Working rule** (memory `test-runs-targeted-then-full-once`):
   - run the affected test files while working;
   - run the full suite in BOTH venvs ONCE, on the locally committed tree;
@@ -36,8 +42,9 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
     names 4 stage tables in one cell).
   - **pair_10:** stops before generating on the delimiter of all 4 feeds and the load
     strategy / LOBs of feeds 1–3 (the BSA answered feed 0 only).
-- **Container harness:** pairs in `/Workspace/Users/<me>/frd_sttm_pairs/pair_<n>`, answers
-  in `/Volumes/d1_dlk/codegen/state/answers/pair_<n>`, copied into a /tmp state dir, then
+- **Container harness:** pairs in `/Workspace/Users/<me>/frd_sttm_pairs/pair_<n>`; for the
+  App's own state copy `environments/`, `overlays/`, `leakgate/` and `answers/pair_<n>` from
+  `dbfs:/Volumes/d1_dlk/codegen/state/` into a /tmp state dir (`databricks fs cp -r`), then
   `PYTHONUTF8=1 .venv-d1/bin/python scripts/container_harness.py --pairs-dir <dir>
   --state-dir <dir> --out <dir> --work <dir> --pairs 3,8,9,10 --dry-run --output-mode
   framework`.
@@ -51,6 +58,46 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   /tmp/pwlibs/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>`. Stub
   `/api/feeds` or `/api/demo/status` with `page.route`. Session scratch — re-download if
   gone.
+
+**post98–post102 at a glance** (details: `CHANGELOG_ACFC.md`):
+- **post98 — App:** the environment panel is a collapsible (summary line; Storage /
+  Catalogs / Framework connection IDs; a layer's `catalog_map` + `default_catalog` with the
+  same value shown as ONE row, an edit writes both keys; a plain-English line per row).
+  The IIG review workbook is hidden in the App: `output.app_files` (`[ddl, iig, addition,
+  log]`; add `iig_review` back to show it — still written, still served by name).
+- **post99 — the combined IIG writes the grand master / master once**
+  (`combined.dedup_rows`: `PL_GMSTR_` / `PL_MSTR_` rows equal on every column); children
+  are never merged; same-name rows that differ are listed in the `_LOG.md`; "row n" parent
+  references follow the kept row (`run_artefacts._remap_refs`). App: each environment
+  value's provenance (`environments.<name>.provenance` in acfc_env.yaml) under "Where these
+  values come from".
+- **post100 — the combined set's name drops a leading / trailing `STTM` token**
+  (`run_artefacts.sttm_name`: `STTM_Pyx_X` -> `Pyx_X`). **OBJECT_ID numbered 1..n across the
+  run** in the combined IIG (`combined.object_ids: run`; every sheet of a feed shifted
+  alike, so DQ / STGDELTA rows keep their object; per-feed IIGs keep 1..n). Nikshit's ask.
+- **post101 — App:** the artefacts panel says only "Assign before loading: PIPELINE_ID ·
+  PARENT_PIPELINE_ID · GROUP_ID" (`output.app_assign_ids`, column -> hint; empty = the old
+  long line); the `_LOG.md` keeps the full list (Soham: the log can be verbose, the UI not).
+  The Run summary (tiles + Layer-2) and the feed cards are collapsed `<details>`, so the
+  Framework artefacts lead. "View results" hides the sidebar (`ModesPage onViewResults`).
+- **post102 — one Daily grand master + master per run** (the pair_11 golden):
+  `pipeline_roles[].frequency: Daily` on grand_master / master (acfc_env.yaml) sets their
+  PIPELINE_FREQUENCY, description and name frequency code (`input_choices.flow_tokens(...,
+  tpl)`, `metadata_template.role_frequency`); children keep their feed's. pair_11 mock:
+  12 rows = 1 + 1 + 2 × 5 feeds, every child under row 2 (golden: 10 = 4 feeds).
+- **Decided by Soham (2026-10-22), not built:** the four Databricks workspace / cluster
+  columns of DATABRICKS_NOTEBOOK_DETAILS stay blank and out of the panel (not needed);
+  TEMPLATE_ID out of the IDs line.
+- **State change (no code):** `environments/d1.yaml` (volume + workspace copy) no longer
+  claims to be the suite's synthetic profile; value unchanged; backups
+  `d1.yaml.bak_20261022_pre_comment`.
+- **Docs:** `docs/acfc/HEDIS_CONSUMPTION_STTM_SHAPE.md` (the 9 HEDIS Stage -> Consumption
+  STTMs, structure only, 5 families, feasibility, owner questions §6);
+  `docs/acfc/STANDARDS_DEPRECATION_REVIEW.md` (which agent rules came from the deprecated
+  ADF coding-standards section; Soham's keep/drop table still blank).
+- **Reaching SharePoint:** memory `sharepoint-via-uc-connection` (read_files +
+  `d1_dlk_sharepoint` on the Serverless Starter Warehouse). The 9 HEDIS workbooks are in
+  `/Volumes/d1_dlk/codegen/state/hedis/stage_to_consumption/`.
 
 **post86–post97 at a glance** (details: `CHANGELOG_ACFC.md`):
 - **post86 — path families:** `acfc_env.yaml` `path_families.per_table` (pair_11:
@@ -117,12 +164,25 @@ standard than stage tables.
   - pair_08 `columns[87].target_type` is answered INT, probably STRING (INT in standard =
     STRING in stage, 39 of 39). Reported, not changed.
 - **Nikshit / Venu:**
-  - the post85 pipeline names (identical child names across feeds — also why those IIG
-    rows look alike);
+  - child pipeline names: Nikshit says follow the EDO Naming Standards, whose child pattern
+    `PL_CHLD_<Product>_<Sub-Product>_<Source>_TO_<Target>_<Load Strategy>` has NO feed slot,
+    so every feed's children share a name (the `_LOG.md` lists them). The pair_11 golden
+    uses an older pattern (`PL_File_PYX_CM_MIDS_<feed>_ADLS_To_Delta_Incr`: no product /
+    sub-product codes, `File` not `CHLD`, `ADLS_To_Delta`, `Incr`). Tell Nikshit the
+    document cannot give unique child names; do NOT deviate without his word;
   - which path convention is standard.
-- **Nikshit / Raj:** the demo `storage_account` `z-use-d1-dlk-std-02` (in both state
-  copies; backup `d1.yaml.bak_20261021_pre_storage_account`) has hyphens, which no Azure
-  account name has.
+- **Nikshit (Soham asking 2026-10-22):** re-confirm the D1 `storage_account`
+  `z-use-d1-dlk-std-02` (he gave it 2026-10-21; hyphens are invalid in an Azure account
+  name and it looks like a container; the earlier value, which has a valid account
+  name's shape, is in `d1.yaml.bak_20261021_pre_storage_account`, volume only). If it changes: both state
+  copies + the `storage_account` provenance text in acfc_env.yaml.
+- **Soham — standards:** the keep/drop decisions in `docs/acfc/STANDARDS_DEPRECATION_
+  REVIEW.md` (alerts, timeout, default DQ on upsert, DBR 15.4 + Photon); then rewrite
+  `docs/EDO_STANDARDS_ALIGNMENT.md`, `print` -> logging in the v2 notebook templates, the
+  `engineering_standards.status` line (byte-pinned outputs: one bump + snapshots).
+- **HEDIS owners (via Soham):** what prod deploys for one Stage -> Consumption load + one
+  deployed XREF and one claims example (`HEDIS_CONSUMPTION_STTM_SHAPE.md` §6); nothing to
+  build before that.
 - **EMAIL_TO:** no value anywhere.
 - **Raj:** the `USE CATALOG` grant (then app.yaml back to the volume; until then edit
   BOTH state copies: the volume and `/Workspace/Users/<me>/codegen/state/codegen-state`).

@@ -321,15 +321,17 @@ def _type_base(datatype: str) -> str:
     return re.sub(r"\(.*", "", datatype).strip().upper()
 
 
-def _stage_type_by_standard(sheet: SheetData) -> dict[str, dict[str, int]]:
+def _stage_type_by_standard(sheet: SheetData) -> dict[str, dict[str, dict[str, int]]]:
     """post94: per standard type keyword, the stage types the sheet's rows that
-    state BOTH pair with it, as written, with their counts."""
-    tally: dict[str, dict[str, int]] = {}
+    state BOTH pair with it - post95: grouped by type (case-insensitive, pair_10
+    writes string / String / STRING), each with its spellings and counts."""
+    tally: dict[str, dict[str, dict[str, int]]] = {}
     for row in sheet.fields:
         stage, standard = _first(row, "stage.target_type"), _first(row, "standard.target_type")
         if stage and standard:
-            counts = tally.setdefault(_type_base(standard), {})
-            counts[stage.strip()] = counts.get(stage.strip(), 0) + 1
+            types = tally.setdefault(_type_base(standard), {})
+            spellings = types.setdefault(stage.strip().upper(), {})
+            spellings[stage.strip()] = spellings.get(stage.strip(), 0) + 1
     return tally
 
 
@@ -343,11 +345,15 @@ def _stage_type_proposal(row: FieldRow, tally: dict[str, dict[str, int]],
     if not standard:
         return None, ""
     base = _type_base(standard)
-    counts = tally.get(base, {})
-    total = sum(counts.values())
-    if len(counts) != 1 or total < disc.stage_type_proposal_min_rows:
+    types = tally.get(base, {})
+    if len(types) != 1:
         return None, ""
-    (proposal,) = counts
+    (spellings,) = types.values()
+    total = sum(spellings.values())
+    if total < disc.stage_type_proposal_min_rows:
+        return None, ""
+    # the sheet's most common spelling of it (first seen on a tie)
+    proposal = max(spellings, key=spellings.__getitem__)
     return proposal, (f"; proposed {proposal!r}: this sheet's other rows typed {base} in "
                       f"the standard band are {proposal!r} in the stage band ({total} of "
                       f"{total}) - confirm it")

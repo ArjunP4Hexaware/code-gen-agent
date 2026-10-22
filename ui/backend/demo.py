@@ -188,9 +188,14 @@ def pending_question(pending, key: str, config) -> dict:
         hint = ("No document states this value. Type it as the source team confirms it — it "
                 "is used with source = you and gate-flagged; the agent never guesses a "
                 "target. Several tables: separate them with ';'.")
+    # post95: the extractor's proposal (a blank stage type: what the sheet pairs with
+    # the row's standard type) - one click, never pre-selected; typing still works
+    candidates = [{"value": value, "source": "proposed",
+                   "cell": "what this sheet's other rows use - confirm it"}
+                  for value in getattr(pending, "candidates", None) or []]
     return LayoutQuestion(
         document="frd", sheet=None, layer=None, role=key, kind="text", reason=pending.reason,
-        title=title, hint=hint).as_dict()
+        title=title, hint=hint, candidates=candidates).as_dict()
 
 
 def layout_feed_key(key: str, run_feeds: list, layout_feeds: list) -> str:

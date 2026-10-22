@@ -91,3 +91,40 @@ def test_no_proposal_when_the_sheet_disagrees_or_has_too_few_rows(config, tmp_pa
     (question,) = extract_contract(few, frd(tmp_path / "frd2.json"), config,
                                    generated_date=DATE).needs_answers
     assert question.candidates == []                   # 1 row < stage_type_proposal_min_rows
+
+
+def test_spellings_of_one_type_agree_and_the_commonest_is_proposed(config, tmp_path):
+    """post95 (pair_10: string x157, String x3, STRING x3): case is not a disagreement."""
+    workbook = mapping_workbook(tmp_path / "p10.xlsx", {
+        0: {"standard_type": "Int", "stage_type": "string"},
+        1: {"standard_type": "Int", "stage_type": "string"},
+        3: {"standard_type": "Int", "stage_type": "STRING"},
+        2: {"stage_type": None, "standard_type": "Int"}})
+    (question,) = extract_contract(workbook, frd(tmp_path / "frd.json"), config,
+                                   generated_date=DATE).needs_answers
+    assert question.candidates == ["string"]
+    assert "(3 of 3)" in question.reason
+
+
+def test_the_app_offers_the_proposal_as_one_click_never_preselected():
+    """post95: the App's question for such a key carries the proposal as a candidate
+    (typing a different value still works; nothing is pre-selected)."""
+    import pytest
+
+    pytest.importorskip("fastapi")
+    from types import SimpleNamespace
+
+    from ui.backend.demo import pending_question
+
+    from codegen.config import load_config
+
+    pending = SimpleNamespace(reason="the stage data type cell is empty …",
+                              candidates=["STRING"])
+    q = pending_question(pending, "feeds[0].columns[87].target_type",
+                         load_config("config/config.yaml"))
+    assert q["kind"] == "text"
+    assert [c["value"] for c in q["candidates"]] == ["STRING"]
+    assert q["suggested"] is None
+    plain = pending_question(SimpleNamespace(reason="r", candidates=[]),
+                             "feeds[0].columns[1].target_type", load_config("config/config.yaml"))
+    assert plain["candidates"] == []

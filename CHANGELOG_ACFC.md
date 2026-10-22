@@ -4,6 +4,37 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post95 — 2026-10-22 (the blank-stage-type proposal: spellings, and one click in the App)
+
+The first live runs on the redeployed App (post94; Soham approved, pairs 08 / 10 / 03 / 11)
+showed two gaps in post94's proposal:
+1. **Spellings:** pair_10's sheet writes the stage type of its STRING columns `string` ×157,
+   `String` ×3, `STRING` ×3; the tally counted them as a disagreement, so no proposal. Stage
+   types now group case-insensitively; the sheet's most common spelling is proposed.
+2. **One click in the App:** `ui/backend/demo.pending_question` built the question as a
+   free-text box only. It now carries the extractor's proposal as a candidate (source
+   `proposed`): one click, never pre-selected; typing another value still works.
+
+**The live App runs** (post94 on the App; CODEGEN_PROVIDER=live):
+- **pair_03:** PASS_WITH_OPEN_INPUTS with NO answers (post92–94).
+- **pair_11:** PASS_WITH_OPEN_INPUTS (no VDD — answered "none"). One combined set, 67 IIG rows,
+  per-table reject paths (post86 / post91).
+- **pair_08:**
+  - the live layout model resolves the STTM;
+  - the audit columns are no longer asked (post94 item 2);
+  - all 7 blank stage types carry a proposal — column 87 `STRING`, "INT in standard =
+    STRING in stage, 39 of 39";
+  - the run then FAILs on the known contract mismatch (the FRD names 4 stage tables in one
+    cell): the multi-table decision.
+- **pair_10:** stops before generating on the delimiter of all 4 feeds and the load
+  strategy / LOBs of feeds 1–3 (the BSA answered feed 0 only), as in the post75 report.
+- **Redeploy checks:**
+  - the storage account is pre-filled with the demo value;
+  - framework only (no notebook in the App);
+  - the combined set downloads (DDL / IIG / IIG review / LOG).
+
+**Tests:** `test_post94_extraction.py` (mixed spellings; the App candidate).
+
 ## 0.5.8.post94 — 2026-10-22 (extraction gaps the BSA pass answered by hand)
 
 The post75 BSA answers record where each value was (`source:`). Three values a document

@@ -4,6 +4,28 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post97 — 2026-10-22 (the combined DDL: every stage table first, then every standard table)
+
+Soham: the combined `<STTM>_DDL.txt` (post91) placed each feed's stage and standard tables
+next to each other (stage A, standard A, stage B, standard B, …).
+- **Now by layer** (`run_artefacts.merge_ddl`): every stage table, then every standard
+  table — the order one feed's own DDL already uses for several tables
+  (`emit.framework._combined_ddl_text`: each layer in turn), and the client reference
+  DDL's layout. It also matches the deployment: stage and standard sit in different
+  catalogs / schemas, and stage loads first.
+- **Order inside a layer:** within a layer the tables keep feed order; a block's layer is
+  its banner line.
+- **Unchanged:**
+  - each block keeps its own banner;
+  - an identical block is still written once;
+  - a conflict's versions still sit together under the `-- CONFLICT` line;
+  - the per-feed DDL files (byte-compared to the golden).
+
+**On pair_11** (mock container harness): stage ×5, then standard ×5; 10 blocks (= the
+per-feed total); outcome and gate unchanged.
+
+**Tests:** `test_run_artefacts.py::test_all_stage_tables_come_first_then_all_standard_tables`.
+
 ## 0.5.8.post96 — 2026-10-22 (App: the wording of a question that carries a suggestion)
 
 Checked on the redeployed App (post95, pair_08 live): the blank-stage-type questions offer

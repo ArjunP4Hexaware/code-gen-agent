@@ -137,9 +137,16 @@ def _blocks(text: str, banners: tuple[str, ...]) -> list[str]:
 
 def merge_ddl(texts: list[tuple[str, str]], banners: tuple[str, ...]
               ) -> tuple[str, int, list[str]]:
-    """(the combined DDL, blocks written once, conflicting table names)."""
+    """(the combined DDL, blocks written once, conflicting table names).
+
+    post97: every stage table first, then every standard table - the order one
+    feed's own DDL already uses for several tables (``emit.framework.
+    _combined_ddl_text``: each layer in turn), never feed by feed. A block's layer
+    is its banner line (``banners`` = stage banner, standard banner); within a
+    layer the tables keep feed order. A block with no known banner goes last."""
     order: list[str] = []
     by_table: dict[str, list[str]] = {}
+    layer_of: dict[str, int] = {}
     skipped = 0
     for _slug, text in texts:
         for block in _blocks(text, banners):
@@ -151,7 +158,10 @@ def merge_ddl(texts: list[tuple[str, str]], banners: tuple[str, ...]
                 continue
             if not versions:
                 order.append(table)
+                first = block.split("\n", 1)[0].strip()
+                layer_of[table] = banners.index(first) if first in banners else len(banners)
             versions.append(block)
+    order = sorted(order, key=lambda t: layer_of[t])      # stable: feed order kept
     conflicts = [t for t in order if len(by_table[t]) > 1]
     parts = []
     for table in order:

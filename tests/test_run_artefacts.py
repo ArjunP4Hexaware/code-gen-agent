@@ -160,3 +160,17 @@ def test_switched_off_there_is_no_combined_set(tmp_path):
         update={"enabled": False})})
     _generate(off, pair, only_feed=None)
     assert not (tmp_path / "out" / config.combined.dir).exists()
+
+
+def test_all_stage_tables_come_first_then_all_standard_tables():
+    """post97: by layer, as one feed's own DDL orders several tables - never feed by
+    feed (stage A, standard A, stage B, standard B)."""
+    a = "\n\n".join([_block(STG, "c.s.a"), _block(STD, "c.d.a")])
+    b = "\n\n".join([_block(STG, "c.s.b"), _block(STD, "c.d.b")])
+    shared = _block(STG, "c.s.a")                        # feed C repeats feed A's stage table
+    text, skipped, _conflicts = merge_ddl([("a", a), ("b", b), ("c", shared)], (STG, STD))
+    tables = [line.split()[-1] for line in text.splitlines() if line.startswith("CREATE")]
+    assert tables == ["c.s.a", "c.s.b", "c.d.a", "c.d.b"]
+    assert skipped == 1
+    # every block keeps its own banner, in the client's format
+    assert text.count(STG) == 2 and text.count(STD) == 2

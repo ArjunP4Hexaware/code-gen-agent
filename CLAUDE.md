@@ -1,13 +1,13 @@
 # CodeGen / Data Engineer Agent — working notes
 
-## NEWEST — IIG validation (state as of 2026-10-22, `feature/multi-table`, post96 + c503417)
+## NEWEST — IIG validation (state as of 2026-10-22, `feature/multi-table`, post97)
 
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-22, after post96; everything pushed, tree clean).**
-- **Head:** `c503417` (a test-only fix after post96). The App is deployed at **post95**;
-  post96 (the question wording) needs one more redeploy to show.
+**RESTART HERE (2026-10-22, after post97; everything pushed, tree clean).**
+- **Head:** post97. The App is deployed at **post95**; post96 (the question wording)
+  and post97 (the combined DDL order) need one more redeploy to show.
 - **Working rule** (memory `test-runs-targeted-then-full-once`):
   - run the affected test files while working;
   - run the full suite in BOTH venvs ONCE, on the locally committed tree;
@@ -51,7 +51,7 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   `/api/feeds` or `/api/demo/status` with `page.route`. Session scratch — re-download if
   gone.
 
-**post86–post96 at a glance** (details: `CHANGELOG_ACFC.md`):
+**post86–post97 at a glance** (details: `CHANGELOG_ACFC.md`):
 - **post86 — path families:** `acfc_env.yaml` `path_families.per_table` (pair_11:
   `Reject/<t>/`, `Processed/<t>/`); feeds pick it via the overlay's `path_family_by_source`
   or `feed_overrides.<feed>.path_family`.
@@ -85,6 +85,8 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   (never pre-selected).
 - **post96 — wording:** a question with a suggestion says it comes from the sheet's other
   rows.
+- **post97 — the combined DDL by layer:** every stage table, then every standard table
+  (as one feed's DDL already orders several tables); within a layer, feed order.
 - **c503417 — test-only:** `test_storage_ui`'s runner without the index warm-up (the
   full-run flake was the warm-up racing the test).
 

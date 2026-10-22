@@ -6,8 +6,9 @@ Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD)
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
 **RESTART HERE (2026-10-22, after post97; everything pushed, tree clean).**
-- **Head:** post97. The App is deployed at **post95**; post96 (the question wording)
-  and post97 (the combined DDL order) need one more redeploy to show.
+- **Head:** post97 (`83af5b8`), and the App is deployed at **post97**. Verified on the App:
+  the one-click suggestion with its new wording (pair_08), and the combined DDL by layer
+  (pair_11: stage ×5, then standard ×5).
 - **Working rule** (memory `test-runs-targeted-then-full-once`):
   - run the affected test files while working;
   - run the full suite in BOTH venvs ONCE, on the locally committed tree;
@@ -26,7 +27,7 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
     confirm: true}`.
   - Only one run at a time: cancel a paused one first.
   - A throwaway client was `/tmp/rjt/app_client.py` (session scratch; rewrite if gone).
-- **Live App results (post94/95):**
+- **Live App results (post94–97):**
   - **pair_03:** PASS_WITH_OPEN_INPUTS with NO answers.
   - **pair_11:** PASS_WITH_OPEN_INPUTS (answer the VDD question with "none"); combined set
     of 67 rows, per-table reject paths.
@@ -89,6 +90,14 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   (as one feed's DDL already orders several tables); within a layer, feed order.
 - **c503417 — test-only:** `test_storage_ui`'s runner without the index warm-up (the
   full-run flake was the warm-up racing the test).
+
+**Open — with Soham right now:** he reported the pair_11 combined DDL as "4 stage + 5
+standard tables from 3 feeds". The App's pair_11 runs (3 today, all 5 feeds) give 5 + 5,
+one pair per feed, with merged = the per-feed files added up. Still to learn: which file
+or run he counted (an older pre-post97 download? a comparison with the golden, which has
+4 feeds — no Engagement Billing?). Mock runs of pairs 01 / 02 / 04 / 12 are consistent
+too. 4 + 5 would be correct only if two feeds share a stage table or a feed has more
+standard than stage tables.
 
 **Open — codeable here:**
 - **`tools/iig_diff.py` depends on the `--agent` file order** (30.0 sorted vs 30.3

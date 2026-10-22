@@ -83,6 +83,37 @@ describe("CollapsibleSidebar", () => {
     expect(document.activeElement).not.toBe(button("Show sidebar")); // no focus on load
   });
 
+  it("does not remember a hide the App makes (View results) - a reload shows it", () => {
+    let hideForThem: (() => void) | null = null;
+    function AppHarness() {
+      const [open, setOpen] = useSidebarOpen();
+      hideForThem = () => setOpen(false, false);
+      return (
+        <CollapsibleSidebar open={open} onOpenChange={setOpen}>
+          <div>brand</div>
+        </CollapsibleSidebar>
+      );
+    }
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root.render(<AppHarness />));
+    act(() => hideForThem!());
+    expect(aside().hidden).toBe(true);                       // hidden for this page
+    expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBeNull();
+    act(() => root.unmount());
+    host.remove();
+
+    mount();
+    expect(aside().hidden).toBe(false);                      // a fresh visit shows it
+  });
+
+  it("ignores the hide post101 saved under the old key", () => {
+    window.localStorage.setItem("codegen.sidebar.open", "false");
+    mount();
+    expect(aside().hidden).toBe(false);
+  });
+
   it("works when storage throws (shown, toggles for the page)", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");

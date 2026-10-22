@@ -4,6 +4,16 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post103 — 2026-10-22 (App: the sidebar's auto-hide on View results is not remembered)
+
+Soham: after post101 the sidebar was hidden even on a fresh visit. post88 remembers the
+sidebar's state per browser, and post101's "View results" hide was saved like the
+person's own toggle. Now only the sidebar's own button is remembered
+(`useSidebarOpen` setter `(open, remember = true)`; App passes `remember = false` for View
+results), and the key is `codegen.sidebar.open.v2`, so the "false" post101 saved is ignored.
+
+**Tests:** `CollapsibleSidebar.test.tsx` (2 new).
+
 ## 0.5.8.post102 — 2026-10-22 (one Daily grand master + master per run, as the pair_11 golden has it)
 
 Soham, against the pair_11 golden IIG (`DATA_FACTORY_PIPELINE_SCHEDULE`: one

@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /* post88: the sidebar can be hidden and shown again. Hidden = the aside is not
    displayed (it stays in the DOM, so the buttons' aria-controls resolve); a
    small tab at the top-left brings it back. The choice is remembered per
-   browser (localStorage; a blocked or empty store = shown). */
+   browser (localStorage; a blocked or empty store = shown).
+   post103: only the person's own toggle is remembered. The App hiding it for them
+   ("View results", post101) passes remember = false, so a fresh visit shows the
+   sidebar again. The key was renamed so the "false" post101 saved is ignored. */
 
 export const SIDEBAR_ID = "app-sidebar";
-export const SIDEBAR_STORAGE_KEY = "codegen.sidebar.open";
+export const SIDEBAR_STORAGE_KEY = "codegen.sidebar.open.v2";
 
 function readOpen(): boolean {
   try {
@@ -16,16 +19,18 @@ function readOpen(): boolean {
   }
 }
 
-export function useSidebarOpen(): [boolean, (open: boolean) => void] {
+export function useSidebarOpen(): [boolean, (open: boolean, remember?: boolean) => void] {
   const [open, setOpen] = useState(readOpen);
-  useEffect(() => {
+  const set = useCallback((next: boolean, remember = true) => {
+    setOpen(next);
+    if (!remember) return;
     try {
-      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(open));
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
     } catch {
       /* storage unavailable: the choice lasts for this page only */
     }
-  }, [open]);
-  return [open, setOpen];
+  }, []);
+  return [open, set];
 }
 
 function PanelIcon({ collapse }: { collapse: boolean }) {

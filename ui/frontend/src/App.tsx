@@ -169,7 +169,7 @@ export function App() {
             <Route
               path="/modes"
               element={
-                <ModesPage onFeedsChanged={refresh} onViewResults={() => setSidebarOpen(false)} />
+                <ModesPage onFeedsChanged={refresh} onViewResults={() => setSidebarOpen(false, false)} />
               }
             />
             <Route

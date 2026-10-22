@@ -5,7 +5,9 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**After post93 (2026-10-22; pushed, nothing queued).** pair_03 fixed: CRASHED → PASS_WITH_OPEN_INPUTS. post92: a bare `DECIMAL` (no precision) is written as stated (Databricks DECIMAL(10,0)) + one `decimal_no_precision` flag per column (`gate.decimal_precision`); never derived. post93: repeated source names (pair_03: 10 × Qualifier / Type) make SRC_COLUMNS positional `col<i>:<stage>` (`_named_sources` requires unique names; NOTE `iig_src_columns_positional`), a headerless file's pipeline names fields `col<i>` (`emit.context.pipeline_source_names`), flag `source_names_repeated`; a delimited file WITH a header that repeats names is not covered. Not STAGE:STAGE (rule 4 still pending the D1 cells).
+**After post94 (2026-10-22; pushed, nothing queued).** post94 = three BSA-answered extraction gaps: FRD `Truncate & Load (…)` (`extractor.frd.load_strategy_synonyms`, trailing parenthetical ignored; pair_03 now passes with NO answers); audit rows with a description in the source band (no source field name + `extractor.audit_column_names`; pair_08); a blank stage type's question PROPOSES the stage type the sheet unanimously pairs with that standard type (`stage_type_proposal_min_rows`, never written; pair_08: INT→STRING 39/39). Deferred: pair_09 per-table load strategies (Summary sheet; waits on the multi-table decision), pair_10 FRD prose values (a layout-model task). For the BSA: pair_08 `columns[87].target_type` answered INT, probably STRING. Pairs 08 / 10 stop at the layout step in the container (mock, no cached profile) — D1 resolves it live.
+
+**After post93 (2026-10-22).** pair_03 fixed: CRASHED → PASS_WITH_OPEN_INPUTS. post92: a bare `DECIMAL` (no precision) is written as stated (Databricks DECIMAL(10,0)) + one `decimal_no_precision` flag per column (`gate.decimal_precision`); never derived. post93: repeated source names (pair_03: 10 × Qualifier / Type) make SRC_COLUMNS positional `col<i>:<stage>` (`_named_sources` requires unique names; NOTE `iig_src_columns_positional`), a headerless file's pipeline names fields `col<i>` (`emit.context.pipeline_source_names`), flag `source_names_repeated`; a delimited file WITH a header that repeats names is not covered. Not STAGE:STAGE (rule 4 still pending the D1 cells).
 
 **After post91 (2026-10-21).** post91: ONE set per run and
 STTM in `<out>/combined/` (`codegen.run_artefacts`, config `combined:`): `<STTM>_IIG.xlsx`,
@@ -30,7 +32,7 @@ sheet empty by rule (`iig_review.empty_by_rule_*`). A browser check works in thi
 container: Chromium in `/tmp/pw` + its libs unpacked in `/tmp/pwlibs` (LD_LIBRARY_PATH,
 no root; session scratch). `test_storage_ui.py::test_an_unreachable_root_is_reported_not_fatal`
 failed once with both suites run in parallel and passes alone (timing). The App must be
-redeployed at post86+ to show any of post81–93. State change (no code): the D1
+redeployed at post86+ to show any of post81–94. State change (no code): the D1
 `storage_account` in `environments/d1.yaml` (volume + workspace copy) is the demo value
 Nikshit gave (2026-10-21; backup `d1.yaml.bak_20261021_pre_storage_account`). It has
 hyphens, which Azure account names never do, so the notebooks' abfss:// URIs may not

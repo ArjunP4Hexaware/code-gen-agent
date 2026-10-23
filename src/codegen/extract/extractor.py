@@ -621,7 +621,7 @@ def _build_feed(sheet: SheetIR, frd_feed: FrdFeed, ir: WorkbookIR, config: Confi
             audit_columns=[
                 AuditColumn(column=clean_audit_column(
                     a.column, "audit_columns", f"sheet {sheet.sheet_name!r} audit row", flags),
-                    datatype=a.datatype)
+                    datatype=a.datatype, description=a.description)
                 for a in sheet.audit
             ],
             field_count=len(fields),

@@ -28,7 +28,7 @@ def _block(ddl: str, banner: str) -> list[str]:
     start = ddl.index(banner)
     end = ddl.find("--", start + len(banner))
     # post104: a column line's COMMENT '<text>' is not part of its name / type
-    return [re.sub(r" COMMENT '(?:[^']|'')*'", "", line.strip().rstrip(","))
+    return [re.sub(r" COMMENT '(?:[^'\\]|\\.)*'", "", line.strip().rstrip(","))
             for line in ddl[start:end if end != -1 else None].splitlines()]
 
 

@@ -127,6 +127,9 @@ class MappingRow:
 class AuditRow:
     column: str
     datatype: str  # normalized: "String" | "Timestamp"
+    # post104: the row's source Description (the DDL COMMENT); None when it
+    # states none or only the audit marker ("NA")
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -599,7 +602,10 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
         source_column = row[source_cols["source_column"]]
 
         if _norm(source_column) in audit_markers:
-            audit.append(_parse_audit_row(ws, row_number, row, stage_cols))
+            description = _text(row[source_cols["description"]])
+            audit.append(_parse_audit_row(
+                ws, row_number, row, stage_cols,
+                None if _norm(description) in audit_markers else description))
             continue
 
         source_text = _required_text(ws, row_number, source_column, "source column")
@@ -705,7 +711,8 @@ def _parse_mapping_sheet(ws: Worksheet, config: ExtractorConfig,
 
 
 def _parse_audit_row(
-    ws: Worksheet, row_number: int, row: tuple, stage_cols: dict[str, int]
+    ws: Worksheet, row_number: int, row: tuple, stage_cols: dict[str, int],
+    description: str | None = None,
 ) -> AuditRow:
     column = _text(row[stage_cols["columnname"]])
     if column is None or _norm(column) == "na":
@@ -724,7 +731,7 @@ def _parse_audit_row(
             f"{raw_datatype!r}; {audit_expectation(column, None)}"
         ), Coord.in_sheet("STTM", ws, row=row_number, col=stage_cols["datatype"] + 1), "sttm.audit",
             role="audit_column", type_text=raw_datatype)
-    return AuditRow(column=column, datatype=datatype)
+    return AuditRow(column=column, datatype=datatype, description=description)
 
 
 # ------------------------------------------------------------------- recycle

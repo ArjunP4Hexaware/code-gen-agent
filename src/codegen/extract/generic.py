@@ -76,6 +76,7 @@ class AuditRow:
     table: str | None
     col: int | None = None          # the stage column cell (citation only)
     rule: str | None = None         # the row's load rule / transformation cell
+    description: str | None = None  # post104: the row's description (never Comments)
 
 
 @dataclass
@@ -282,7 +283,8 @@ def _read_mapping_sheet(ws, sp: SheetProfile, disc: DiscoveryConfig, config: Con
                 segment=segments.get(normalize(segment_raw)) if segment_raw else None,
                 column=stage_column, datatype_raw=_cell(cells, stage_type_col) or "",
                 table=_cell(cells, stage_table_col), col=stage_column_col,
-                rule=_audit_rule(sp, cells)))
+                rule=_audit_rule(sp, cells),
+                description=_audit_description(sp, cells, audit_markers)))
             continue
         if field_name is None:
             reason = ("field_name role unresolved" if field_col is None
@@ -373,6 +375,20 @@ def _first(row: FieldRow, *keys: str) -> str | None:
 
 _AUDIT_RULE_ROLES = ("rules.load_rule", "source.load_rule", "stage.transformation",
                      "source.business_rule")
+
+
+_AUDIT_DESCRIPTION_ROLES = ("stage.field_description", "standard.field_description",
+                            "source.description", "rules.data_definition")
+
+
+def _audit_description(sp, cells, audit_markers: set[str]) -> str | None:
+    """post104: an audit row's description, in SttmField.ddl_description's
+    order (a Comments cell is rule text, never read); an audit marker ("NA",
+    what makes the row an audit row) is no description. None = none stated."""
+    values = {f"{band.layer}.{role}": _cell(cells, col)
+              for band in sp.bands for role, col in band.roles.items()}
+    return next((values[k] for k in _AUDIT_DESCRIPTION_ROLES
+                 if values.get(k) and normalize(values[k]) not in audit_markers), None)
 
 
 def _audit_rule(sp, cells) -> str | None:
@@ -1227,7 +1243,8 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             seen.add(column)
             audit.append(AuditColumn(column=column, datatype=datatype,  # type: ignore[arg-type]
                                      value_spec=entry.rule,
-                                     datatype_format=split_type(entry.datatype_raw).attribute))
+                                     datatype_format=split_type(entry.datatype_raw).attribute,
+                                     description=entry.description))
     if not audit:
         # Chunk B (cold drill): the STTM lists no audit row. The framework's
         # audit set is never added silently: the feed waits for the person's

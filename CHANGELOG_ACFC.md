@@ -29,11 +29,22 @@ Nikshit's review (2026-10-23), decided with Soham: the `acfc_prx` combined DDL
   `ddl_description` property; generic + segmented extractors fill them. `description`
   itself is unchanged.
 - The pair-1 fixture overlay switches all four off: `ACCUM_DDL.txt` is still the golden
-  byte for byte. `edo_sfmc` is untouched.
+  byte for byte. `edo_sfmc` keeps its own COMMENT logic.
+- **Checked against ACFC's prod DDLs** (`/Volumes/d1_dlk/stg_ddls/ddls/`, 5 STTMs, structure
+  only): every standard file carries exactly these 13 properties, same values and order.
+- **Audit columns are commented too** (prod comments them): `AuditColumn.description`,
+  read by all three STTM readers (`generic.py`, `segmented.py`, the `MAPPING-` reader
+  `workbook.py`) in the same order, never Comments, and never the audit marker (`NA`)
+  that makes the row an audit row. Only audit columns still without one are flagged.
+- **Quote escaping (both profiles):** a COMMENT's `'` is written `\'` (backslashes
+  first), the Databricks SQL escape the prod DDLs use. `''` is no escape there: Databricks
+  Runtime 18+ reads `'a''b'` as two chained literals, "ab". The `sql_literals` gate now
+  reads backslash escapes and fails a doubled quote by name.
 
-**Tests:** `test_ddl_comments.py` (11 new, incl. pair 1 with the knobs on = the golden
+**Tests:** `test_ddl_comments.py` (12 new, incl. pair 1 with the knobs on = the golden
 plus the additions only); the block parsers of `test_metadata_inserts.py` and
-`test_ddl_standard_types.py` strip COMMENTs / skip the table-level lines.
+`test_ddl_standard_types.py` strip COMMENTs / skip the table-level lines;
+`test_derivations.py` (the doubled-quote failure).
 
 ## 0.5.8.post103 — 2026-10-22 (App: the sidebar's auto-hide on View results is not remembered)
 

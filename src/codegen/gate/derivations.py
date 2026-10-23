@@ -103,8 +103,11 @@ def join_location(uri: str, *parts: str | None) -> str:
     base = uri.strip().rstrip("/")
     tail = join_path(*parts)
     return f"{base}/{tail}" if tail else base + "/"
-_LITERAL_RE = re.compile(r"(COMMENT|LOCATION)\s+'((?:[^']|'')*)'", re.IGNORECASE)
-_TBLPROP_RE = re.compile(r"'((?:[^']|'')*)'\s*=\s*'((?:[^']|'')*)'")
+# post104: a Databricks SQL literal escapes with a backslash (\' \\); a doubled
+# quote is matched too, so the check below can name it (it is no escape there).
+_LITERAL = r"'((?:[^'\\]|\\.|'')*)'"
+_LITERAL_RE = re.compile(r"(COMMENT|LOCATION)\s+" + _LITERAL, re.IGNORECASE)
+_TBLPROP_RE = re.compile(_LITERAL + r"\s*=\s*" + _LITERAL)
 
 
 def _truncate(value: str, limit: int = 80) -> str:
@@ -557,7 +560,10 @@ def literal_violations(literal: str, *, is_path: bool, cfg: DerivationsConfig,
         problems.append("line break")
     if literal != literal.strip():
         problems.append("leading/trailing whitespace")
-    if literal.replace("''", "").count("'"):
+    unescaped = re.sub(r"\\.", "", literal)
+    if "''" in unescaped:
+        problems.append("doubled quote (no escape in Databricks SQL; write \\')")
+    elif unescaped.count("'"):
         problems.append("unbalanced quote")
     if is_path:
         problems.extend(uri_violations(literal, cfg.path_max_length)

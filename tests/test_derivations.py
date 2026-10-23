@@ -104,9 +104,12 @@ def test_sql_literal_with_a_newline_fails_citing_the_literal(config):
     assert not check.passed
     assert "t.txt: COMMENT literal" in check.details and "line break" in check.details
     assert "LOCATION literal" in check.details and "whitespace" in check.details
-    clean = check_sql_literals([("t.txt", "COMMENT 'it''s fine' LOCATION 'abfss://c@a/x/y'")],
+    clean = check_sql_literals([("t.txt", "COMMENT 'it\\'s fine' LOCATION 'abfss://c@a/x/y'")],
                                config)
     assert clean.passed
+    # post104: '' is no escape in Databricks SQL ('a''b' = two chained literals)
+    doubled = check_sql_literals([("t.txt", "COMMENT 'it''s not'")], config)
+    assert not doubled.passed and "doubled quote" in doubled.details
 
 
 def test_iig_cells_single_line_charset_and_path_rules(config):

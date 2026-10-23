@@ -97,6 +97,11 @@ class AuditColumn(BaseModel):
     # verbatim ("YYYY-MM-DD HH:MM:SS" of "timestamp(YYYY-MM-DD HH:MM:SS)");
     # the datatype is the keyword. None when the cell has none.
     datatype_format: str | None = None
+    # post104: the audit row's description, read as a field's ddl_description
+    # is (Field Description, else Description / Data Definition; never
+    # Comments) — the DDL COMMENT, as ACFC's prod DDLs comment audit columns.
+    # None (the JSON leaves it out) when the row states none.
+    description: str | None = None
 
 
 # ---- segmented-extraction block (v2 dialect; corrected 2026-09-01) ---------

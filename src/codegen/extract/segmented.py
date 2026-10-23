@@ -375,7 +375,7 @@ def extract_segmented_contract(
 
     # ---- group rows by segment; per-segment audit rows ---------------------
     fields_by_segment: dict[str, list[_SegRow]] = {}
-    audit_by_segment: dict[str, list[tuple[str, str, str | None]]] = {}
+    audit_by_segment: dict[str, list[tuple[str, str, str | None, str | None]]] = {}
     annotation_flags: list[str] = []   # audit_column_annotated (audit_names)
     row_counts: dict[str, int] = {}
     segments_found: list[str] = []
@@ -409,7 +409,13 @@ def extract_segmented_contract(
         # 2026-10-14 (D1 post44 item 5): the row's transformation cell rides on
         # the audit column ("Default to 'CAQH'" — the DQ AddCustomColumnsRule).
         rule = _cell(row, blocks.stage.get("transformations/data quality"))
-        audit_by_segment.setdefault(current_segment, []).append((column, datatype, rule))
+        # post104: the row's Field Description (the DDL COMMENT; never Comments);
+        # an audit marker ("NA") is no description
+        description = _cell(row, blocks.stage.get("field description"))
+        if _norm(description) in {_norm(m) for m in config.extractor.audit_source_markers}:
+            description = None
+        audit_by_segment.setdefault(current_segment, []).append(
+            (column, datatype, rule, description))
 
     if "Detail" not in fields_by_segment:
         raise located(
@@ -548,7 +554,8 @@ def extract_segmented_contract(
         provenance_notes=provenance_notes,
         # Per-segment audit columns exactly as the STTM lists them.
         segment_audit={
-            segment: [AuditColumn(column=c, datatype=d, value_spec=r) for c, d, r in columns]
+            segment: [AuditColumn(column=c, datatype=d, value_spec=r, description=t)
+                      for c, d, r, t in columns]
             for segment, columns in audit_by_segment.items()
         },
     )
@@ -601,8 +608,8 @@ def extract_segmented_contract(
                 phi_columns=phi_sources,
                 recycle=recycle,
             ),
-            audit_columns=[AuditColumn(column=c, datatype=d, value_spec=r)
-                           for c, d, r in detail_audit],
+            audit_columns=[AuditColumn(column=c, datatype=d, value_spec=r, description=t)
+                           for c, d, r, t in detail_audit],
             field_count=len(fields),
             fields=fields,
             segmented=segmented,

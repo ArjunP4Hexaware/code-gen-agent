@@ -50,8 +50,8 @@ def _block(ddl: str, banner: str) -> str:
 
 
 def _strip_additions(ddl: str) -> str:
-    ddl = re.sub(r" COMMENT '(?:[^']|'')*'", "", ddl)
-    ddl = re.sub(r"\nCOMMENT '(?:[^']|'')*'", "", ddl)
+    ddl = re.sub(r" COMMENT '(?:[^'\\]|\\.)*'", "", ddl)
+    ddl = re.sub(r"\nCOMMENT '(?:[^'\\]|\\.)*'", "", ddl)
     return re.sub(r"\nTBLPROPERTIES \((?:\n  '[^']*' = '[^']*'[,)])+", "", ddl)
 
 
@@ -101,7 +101,7 @@ def test_audit_columns_without_a_description_are_flagged_per_table(pair11):
     assert [f.split(" — ")[0] for f in blank] == [
         "ddl_comment_blank:stage:cat_syn.stg_dom_a.vc_disenrollment",
         "ddl_comment_blank:standard:cat_syn.dom_a.vc_disenrollment"]
-    assert all("SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME" in f for f in blank)
+    assert all("for SRC_FILE_NAME, REC_CREATION_TIME, REC_UPDATED_TIME (" in f for f in blank)
 
 
 def test_primary_key_cells_are_noted_and_missing_descriptions_flagged(pair4_config,
@@ -128,7 +128,9 @@ def test_pair1_with_the_knobs_on_is_the_golden_plus_the_additions(pair1_config, 
         update={k: getattr(on, k) for k in PROFILE_KNOBS})
     ddl = _combined_ddl_text(pair1_spec, profile, [], pair1_config)
     assert ddl != GOLDEN_DDL.read_text(encoding="utf-8")
-    assert ddl.count(" COMMENT '") == 2 * 21                         # 21 columns, both layers
+    # 21 business + 3 audit columns (their STTM rows read 'Audit column'), both layers
+    assert ddl.count(" COMMENT '") == 2 * (21 + 3)
+    assert ddl.count("\nSRC_FILE_NAME STRING COMMENT 'Audit column',\n") == 2
     assert _strip_additions(ddl).encode("utf-8") == GOLDEN_DDL.read_bytes()
 
 
@@ -166,12 +168,13 @@ def test_the_primary_key_note_follows_each_layers_cell(shipped):
 def test_a_quote_in_a_description_is_escaped(pair11, shipped):
     spec, _ddl, _flags = pair11
     segment = spec.segments[0]
-    fields = [segment.fields[0].model_copy(update={"description": "Member's id\n  (stated)"}),
+    fields = [segment.fields[0].model_copy(update={"description": "Member's id\n  (C:\\x)"}),
               *segment.fields[1:]]
     quoted = spec.model_copy(update={"segments": [segment.model_copy(update={"fields": fields}),
                                                   *spec.segments[1:]]})
     ddl = _combined_ddl_text(quoted, shipped.conventions.get("acfc_prx"), [], shipped)
-    assert "MEMBER_ID String COMMENT 'Member''s id (stated)'," in ddl
+    # the Databricks SQL escape (ACFC's prod DDLs: \'), backslashes first
+    assert "MEMBER_ID String COMMENT 'Member\\'s id (C:\\\\x)'," in ddl
 
 
 def test_the_comments_marker_is_written_only_when_it_says_something():
@@ -180,3 +183,36 @@ def test_the_comments_marker_is_written_only_when_it_says_something():
     dumped = _field(description="Source text").model_dump(exclude_defaults=True)
     assert "field_description" not in dumped and "description_from_comments" not in dumped
     assert F.model_fields["description_from_comments"].default is False
+
+
+def test_audit_columns_are_commented_from_their_own_sttm_rows(shipped, tmp_path, monkeypatch):
+    """C (Soham, 2026-10-23): ACFC's prod DDLs comment the audit columns too. A
+    copy of pair 11 whose SRC_FILE_NAME audit row states a Description: that
+    text is its COMMENT on both layers; the other two audit columns stay flagged."""
+    import openpyxl
+
+    import test_derivations
+
+    book = openpyxl.load_workbook(test_derivations.STTM)
+    sheet = book["MAPPING-VC_DISENROLLMENT"]
+    header = next(r for r in sheet.iter_rows() if any(c.value == "Description" for c in r))
+    column = next(c.column for c in header if c.value == "Description")
+    (audit_row,) = [r[0].row for r in sheet.iter_rows(min_row=header[0].row + 1)
+                    if any(c.value == "SRC_FILE_NAME" for c in r)]
+    assert sheet.cell(audit_row, column).value == "NA"     # the audit marker: no description
+    sheet.cell(audit_row, column).value = "Name of the file the row was read from"
+    copy = tmp_path / "pair_11.xlsx"
+    book.save(copy)
+    monkeypatch.setattr(test_derivations, "STTM", copy)
+    specs, _ = _pair11_specs(FRD_CATALOG, tmp_path, shipped)
+    (spec,) = [s for s in specs if s.feed_slug == "vc_disenrollment"]
+    assert [a.description for a in spec.audit_columns][0] == (
+        "Name of the file the row was read from")
+    flags: list[str] = []
+    ddl = _combined_ddl_text(spec, shipped.conventions.get("acfc_prx"), flags, shipped)
+    assert ddl.count("\nSRC_FILE_NAME STRING COMMENT 'Name of the file the row was read "
+                     "from',\n") == 2
+    blank = [f for f in flags if f.startswith("ddl_comment_blank:")]
+    assert len(blank) == 2
+    assert all("REC_CREATION_TIME, REC_UPDATED_TIME" in f and "SRC_FILE_NAME" not in f
+               for f in blank)

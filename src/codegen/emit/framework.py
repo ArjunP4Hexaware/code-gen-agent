@@ -309,19 +309,13 @@ def _column_comment(f, layer: str, profile) -> str | None:
     return profile.column_comment_separator.join(parts) or None
 
 
-def _comment_blank_flag(layer: str, table: str, blank: list[str],
-                        audit: tuple[tuple[str, str], ...]) -> str:
-    """One flag per table block: the columns the DDL leaves without a COMMENT."""
-    parts = []
-    if blank:
-        parts.append("the STTM states no Field Description / Column Description / "
-                     f"Description / Data Definition for {', '.join(blank)} (a Comments "
-                     "cell is rule text, never a description)")
-    if audit:
-        parts.append("the STTM contract carries no description for the audit column(s) "
-                     f"{', '.join(name for name, _type in audit)}")
-    return (f"ddl_comment_blank:{layer}:{table} — {len(blank) + len(audit)} column(s) "
-            f"without a COMMENT: {'; '.join(parts)}")
+def _comment_blank_flag(layer: str, table: str, blank: list[str]) -> str:
+    """One flag per table block: the columns (audit ones included) the DDL
+    leaves without a COMMENT."""
+    return (f"ddl_comment_blank:{layer}:{table} — {len(blank)} column(s) without a COMMENT: "
+            "the STTM states no Field Description / Column Description / Description / "
+            f"Data Definition for {', '.join(blank)} (a Comments cell is rule text, never a "
+            "description)")
 
 
 def _load_strategy_comment(profile, strategy, layer_label: str) -> str | None:
@@ -398,29 +392,37 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
         else:
             audit_rows = list(spec.audit_columns)
         seen: dict[str, str] = {}
+        audit_descriptions: dict[str, str | None] = {}
         for a in audit_rows:
             seen.setdefault(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
+            if not audit_descriptions.get(a.column):
+                audit_descriptions[a.column] = a.description
         audit = tuple(seen.items())
+        # post104: audit columns are commented from their own STTM rows
+        audit_comments = {c: d for c, d in audit_descriptions.items()
+                          if d and profile.column_comments}
+        audit_blank = ([c for c, d in audit_descriptions.items() if not d]
+                       if profile.column_comments else [])
         stage = TableBlock(
             layer="stage", table=group.stage,
             qualified=_qualify(group.stage, "stage", profile, spec, flags, config),
             business=tuple(stage_columns), audit=audit,
-            comments=tuple(stage_comments.items()),
+            comments=(*stage_comments.items(), *audit_comments.items()),
             table_comment=_load_strategy_comment(profile, spec.stage_load_strategy, "STG"))
-        if profile.column_comments and (stage_blank or audit):
-            flags.append(_comment_blank_flag("stage", stage.label, stage_blank, audit))
+        if stage_blank or audit_blank:
+            flags.append(_comment_blank_flag("stage", stage.label, stage_blank + audit_blank))
         standard = None
         if group.standard is not None:
             standard = TableBlock(
                 layer="standard", table=group.standard,
                 qualified=_qualify(group.standard, "standard", profile, spec, flags, config),
                 business=tuple(standard_columns), audit=audit,
-                comments=tuple(standard_comments.items()),
+                comments=(*standard_comments.items(), *audit_comments.items()),
                 table_comment=_load_strategy_comment(profile, spec.standard_load_strategy,
                                                      "STD"))
-            if profile.column_comments and (standard_blank or audit):
-                flags.append(_comment_blank_flag("standard", standard.label, standard_blank,
-                                                 audit))
+            if standard_blank or audit_blank:
+                flags.append(_comment_blank_flag("standard", standard.label,
+                                                 standard_blank + audit_blank))
         out.append(TableDefinition(segments=tuple(s.segment for s in group.segments),
                                    stage=stage, standard=standard))
     return out
@@ -583,8 +585,11 @@ def _parse_ddl_statement(statement: str) -> tuple[str, list[tuple[str, str]]]:
 
 def _sql_comment(text: str) -> str:
     # Single-line comment literals (the reference goldens' style): collapse
-    # any embedded newlines/whitespace runs, escape quotes.
-    return re.sub(r"\s+", " ", text).strip().replace("'", "''")
+    # any embedded newlines/whitespace runs, escape quotes. post104: the
+    # Databricks SQL escape is a backslash (O\'Connell), as ACFC's prod DDLs
+    # write it; a doubled quote is no escape there (DBR 18 reads 'a''b' as two
+    # chained literals, "ab"), so backslashes are escaped first, then quotes.
+    return re.sub(r"\s+", " ", text).strip().replace("\\", "\\\\").replace("'", "\\'")
 
 
 def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:

@@ -1235,6 +1235,22 @@ class ConventionsProfileConfig(BaseModel):
     block_using_prefix: dict[str, str] = Field(default_factory=dict)
     # Audit-column type spelling in the DDL (contract enum -> as written).
     audit_type_casing: dict[str, str] = Field(default_factory=dict)
+    # post104 (Nikshit's review, 2026-10-23) — combined layout only; each off
+    # reproduces the pair-1 golden's bare shape:
+    # a per-column COMMENT = the STTM field description (SttmField
+    # .ddl_description); a column with none gets no COMMENT and one
+    # ddl_comment_blank flag per table names it;
+    column_comments: bool = False
+    # appended to the COMMENT of a column the layer's STTM Primary Key cell
+    # marks (None = no note); joined to the description by the separator;
+    primary_key_note: str | None = None
+    column_comment_separator: str = "; "
+    # a table COMMENT naming the layer's FRD Load Strategy, a template over
+    # {strategy} (the FRD's words) and {layer} (STG / STD); None = none;
+    load_strategy_comment: str | None = None
+    # the standard tables' TBLPROPERTIES, in order (None = none; an overlay
+    # switches them off with null - an empty mapping merges as no change).
+    standard_tblproperties: dict[str, str] | None = None
     # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
     # datatypes extract-sttm accepts (workbook spelling, normalized). Every
     # audit column: audit_datatypes; a column ending in one of

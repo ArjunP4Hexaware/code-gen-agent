@@ -469,6 +469,13 @@ def extract_segmented_contract(
             fields.append(SttmField(
                 source_column=field_name,
                 description=_cell(row, blocks.source.get("comments")),
+                # post104: the DDL COMMENT reads the band's Field Description,
+                # never the Comments cell (rule text).
+                field_description=(
+                    _cell(row, blocks.stage.get("field description"))
+                    or (_cell(row, blocks.standard.get("field description"))
+                        if blocks.standard is not None else None)),
+                description_from_comments=_cell(row, blocks.source.get("comments")) is not None,
                 sample_value=None,
                 source_datatype=_cell(row, blocks.source.get("datatype")) or "unstated",
                 nullable=not (mandatory or primary_key),

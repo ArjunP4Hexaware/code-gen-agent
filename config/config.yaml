@@ -965,7 +965,9 @@ conventions:
   # stage band's is written normalised, e.g. Date -> DATE; one that matches
   # keeps the stage text; blank -> stage type + flag standard_type_blank;
   # unmappable -> as stated + flag standard_type_unmapped), no LOCATION /
-  # CLUSTER BY / TBLPROPERTIES / TAGS / COMMENTs. Whitespace knobs are data:
+  # CLUSTER BY / TAGS; post104: column / table COMMENTs and the standard
+  # TBLPROPERTIES are knobs (on here; the golden has none, so the pair-1
+  # fixture overlay switches them off). Whitespace knobs are data:
   # the golden opens with a blank line, has a lone-space line before the
   # standard block's USING clause, and ends WITHOUT a trailing newline.
   # CLI: codegen generate --profile <name>.
@@ -999,6 +1001,35 @@ conventions:
       trailing_newline: false
       block_using_prefix: {stage: "", standard: " "}
       audit_type_casing: {String: STRING, Timestamp: TIMESTAMP}
+      # post104 (Nikshit's review, 2026-10-23; Soham: on for ACFC). All off = the
+      # pair-1 golden's bare shape (its fixture overlay switches them off).
+      # Column COMMENT = the STTM's Field Description, else its source Description /
+      # Column Description / Data Definition (never Comments); none = no COMMENT +
+      # a ddl_comment_blank flag.
+      column_comments: true
+      # The STTM Primary Key cell (Yes / blank), per layer, noted in the COMMENT.
+      primary_key_note: "Primary key (STTM Primary Key)"
+      column_comment_separator: "; "
+      # Table COMMENT: the layer's FRD Load Strategy, in the FRD's words.
+      load_strategy_comment: "Load strategy: {strategy} (FRD Load Strategy {layer})"
+      # Standard-table TBLPROPERTIES, transcribed in order from ACFC's own
+      # production standard DDL for the SFMC feed
+      # (fixtures/reference/SFMC_standard_table_creation.txt, scrubbed). Open with
+      # Nikshit (2026-10-23): ACFC's standard, or a SHOW CREATE TABLE dump?
+      standard_tblproperties:
+        delta.autoOptimize.autoCompact: "true"
+        delta.autoOptimize.optimizeWrite: "true"
+        delta.checkpoint.writeStatsAsJson: "false"
+        delta.checkpoint.writeStatsAsStruct: "true"
+        delta.checkpointPolicy: "v2"
+        delta.enableDeletionVectors: "true"
+        delta.enableRowTracking: "true"
+        delta.feature.appendOnly: "supported"
+        delta.feature.deletionVectors: "supported"
+        delta.feature.invariants: "supported"
+        delta.feature.rowTracking: "supported"
+        delta.feature.v2Checkpoint: "supported"
+        delta.parquet.compression.codec: "zstd"
       # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
       # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
       # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.

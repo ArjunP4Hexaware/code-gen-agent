@@ -288,6 +288,23 @@ class SttmField(BaseModel):
     # varchar(50)) stays in the datatype. None = the cell states no format.
     stage_datatype_format: str | None = None
     standard_datatype_format: str | None = None
+    # post104 (Nikshit's review, 2026-10-23: the DDL column COMMENT is the STTM's
+    # field description). The target band's Field Description, kept only when
+    # ``description`` is not already that text; and whether ``description`` was
+    # read from a Comments cell (rule text, never a column description). Both
+    # are written only when they say something, so existing contracts are
+    # byte-identical. ``ddl_description`` is what the DDL COMMENT uses.
+    field_description: str | None = None
+    description_from_comments: bool = False
+
+    @property
+    def ddl_description(self) -> str | None:
+        """The column's description for a DDL COMMENT: the target band's
+        Field Description, else the source Description / Column Description /
+        Data Definition — never a Comments cell. None = the STTM states none."""
+        if self.field_description is not None:
+            return self.field_description
+        return None if self.description_from_comments else self.description
 
     @property
     def byte_width(self) -> int | None:

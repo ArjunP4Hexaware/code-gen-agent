@@ -37,3 +37,12 @@ metadata:
 # themselves (identity) — the map is applied, the golden stays byte-identical.
 conventions:
   catalog_map: {pr_dlk_vnd_p: pr_dlk_vnd_p, pr_std_vnd_p: pr_std_vnd_p}
+  # post104: the client golden's DDL predates Nikshit's review - no column /
+  # table COMMENTs, no TBLPROPERTIES; switched off so ACCUM_DDL.txt stays the
+  # golden byte for byte (the enriched shape: tests/test_ddl_comments.py).
+  profiles:
+    acfc_prx:
+      column_comments: false
+      primary_key_note: null
+      load_strategy_comment: null
+      standard_tblproperties: null

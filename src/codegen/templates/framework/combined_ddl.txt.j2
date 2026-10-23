@@ -6,7 +6,10 @@
     line naming the table by its MAPPED three-part name, '(', one bare
     'name type' line per column (',' after all but the last), ')', the
     per-layer prefix line and the USING clause; blocks are separated by one
-    blank line. No LOCATION / CLUSTER BY / TAGS / comments.
+    blank line. No LOCATION / CLUSTER BY / TAGS. post104: under the profile's
+    knobs a column line may end in COMMENT '<text>', and the USING clause may
+    be followed by a table COMMENT line and (standard blocks) a TBLPROPERTIES
+    block; with every knob off the output is the golden's bare shape.
     Whitespace is data here: every blank line, the optional leading newline,
     the per-block prefix before the USING clause and the absence of a
     trailing newline reproduce the client golden byte for byte
@@ -16,9 +19,17 @@
 {%- for block in blocks -%}
 {{- "\n\n" if not loop.first else "" -}}
 {{- block.banner ~ "\n\n" ~ ddl.create_statement ~ " " ~ block.qualified ~ "\n(\n" -}}
-{%- for name, dtype in block.columns -%}
-{{- name ~ " " ~ dtype ~ ("," if not loop.last else "") ~ "\n" -}}
+{%- for name, dtype, comment in block.columns -%}
+{{- name ~ " " ~ dtype ~ (" COMMENT '" ~ comment ~ "'" if comment else "")
+    ~ ("," if not loop.last else "") ~ "\n" -}}
 {%- endfor -%}
 {{- ")\n" ~ block.using_prefix ~ "\n" ~ ddl.using_clause -}}
+{{- "\nCOMMENT '" ~ block.table_comment ~ "'" if block.table_comment else "" -}}
+{%- if block.tblproperties -%}
+{{- "\nTBLPROPERTIES (" -}}
+{%- for key, value in block.tblproperties -%}
+{{- "\n  '" ~ key ~ "' = '" ~ value ~ "'" ~ ("," if not loop.last else ")") -}}
+{%- endfor -%}
+{%- endif -%}
 {%- endfor -%}
 {{- "\n" if ddl.trailing_newline else "" -}}

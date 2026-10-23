@@ -14,6 +14,7 @@ Before the fix the standard block copied the stage types (both ``String``).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,9 @@ from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 def _block(ddl: str, banner: str) -> list[str]:
     start = ddl.index(banner)
     end = ddl.find("--", start + len(banner))
-    return [line.strip().rstrip(",") for line in ddl[start:end if end != -1 else None].splitlines()]
+    # post104: a column line's COMMENT '<text>' is not part of its name / type
+    return [re.sub(r" COMMENT '(?:[^']|'')*'", "", line.strip().rstrip(","))
+            for line in ddl[start:end if end != -1 else None].splitlines()]
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +59,7 @@ def test_stage_types_and_the_column_order_are_unchanged(disenrollment):
     assert "REPORT_DT String" in stage and "RISK_SCORE String" in stage   # L7 / L5
     names = lambda block: [line.split()[0] for line in block   # noqa: E731
                            if line and line.split()[0].isupper() and " " in line
-                           and not line.startswith("CREATE")]
+                           and not line.startswith(("CREATE", "COMMENT", "TBLPROPERTIES"))]
     assert names(stage) == names(standard)
 
 

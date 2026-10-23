@@ -268,6 +268,10 @@ class TableBlock:
     qualified: str | None
     business: tuple[tuple[str, str], ...]    # (column, type), STTM order
     audit: tuple[tuple[str, str], ...]
+    # post104: column -> its DDL COMMENT text (unescaped; a column absent has
+    # none) and the table COMMENT, under the profile's comment knobs.
+    comments: tuple[tuple[str, str], ...] = ()
+    table_comment: str | None = None
 
     @property
     def label(self) -> str:
@@ -289,6 +293,41 @@ class TableDefinition:
     segments: tuple[str, ...]
     stage: TableBlock
     standard: TableBlock | None
+
+
+def _column_comment(f, layer: str, profile) -> str | None:
+    """post104: a column's DDL COMMENT text under the profile's knobs - the
+    STTM field description (``column_comments``), then ``primary_key_note``
+    when the layer's Primary Key cell marks the column; None = nothing."""
+    parts = []
+    if profile.column_comments and f.ddl_description:
+        parts.append(f.ddl_description)
+    key = (f.standard_primary_key if layer == "standard" and f.standard_primary_key is not None
+           else f.primary_key)
+    if key and profile.primary_key_note:
+        parts.append(profile.primary_key_note)
+    return profile.column_comment_separator.join(parts) or None
+
+
+def _comment_blank_flag(layer: str, table: str, blank: list[str],
+                        audit: tuple[tuple[str, str], ...]) -> str:
+    """One flag per table block: the columns the DDL leaves without a COMMENT."""
+    parts = []
+    if blank:
+        parts.append("the STTM states no Field Description / Column Description / "
+                     f"Description / Data Definition for {', '.join(blank)} (a Comments "
+                     "cell is rule text, never a description)")
+    if audit:
+        parts.append("the STTM contract carries no description for the audit column(s) "
+                     f"{', '.join(name for name, _type in audit)}")
+    return (f"ddl_comment_blank:{layer}:{table} — {len(blank) + len(audit)} column(s) "
+            f"without a COMMENT: {'; '.join(parts)}")
+
+
+def _load_strategy_comment(profile, strategy, layer_label: str) -> str | None:
+    if not profile.load_strategy_comment or not strategy:
+        return None
+    return profile.load_strategy_comment.format(strategy=strategy, layer=layer_label)
 
 
 def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
@@ -325,6 +364,10 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
     for group in _table_groups(spec):
         stage_columns: list[tuple[str, str]] = []
         standard_columns: list[tuple[str, str]] = []
+        stage_comments: dict[str, str] = {}
+        standard_comments: dict[str, str] = {}
+        stage_blank: list[str] = []
+        standard_blank: list[str] = []
         # A table NONE of whose rows carries a Standard band (the standard
         # table named by the FRD only) keeps the standard_from_stage
         # convention as it was: the stage list, typed per column.
@@ -332,14 +375,19 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
         for f in group.fields:
             stage_type = f.stage_datatype if profile.typed_stage else "STRING"
             stage_columns.append((f.stage_column, stage_type))
+            _note_comment(f, "stage", f.stage_column, profile, stage_comments, stage_blank)
             if group.standard is None:
                 continue    # Chunk B: a stage-only table (no standard flags for it)
             if no_band and profile.standard_from_stage:
                 standard_columns.append(
                     (f.stage_column, _standard_from_stage_type(f, stage_type, flags)))
+                _note_comment(f, "standard", f.stage_column, profile, standard_comments,
+                              standard_blank)
                 continue
             if f.standard_column is None:
                 continue
+            _note_comment(f, "standard", f.standard_column, profile, standard_comments,
+                          standard_blank)
             if profile.standard_from_stage:
                 standard_columns.append(
                     (f.standard_column, _standard_from_stage_type(f, stage_type, flags)))
@@ -356,16 +404,39 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
         stage = TableBlock(
             layer="stage", table=group.stage,
             qualified=_qualify(group.stage, "stage", profile, spec, flags, config),
-            business=tuple(stage_columns), audit=audit)
+            business=tuple(stage_columns), audit=audit,
+            comments=tuple(stage_comments.items()),
+            table_comment=_load_strategy_comment(profile, spec.stage_load_strategy, "STG"))
+        if profile.column_comments and (stage_blank or audit):
+            flags.append(_comment_blank_flag("stage", stage.label, stage_blank, audit))
         standard = None
         if group.standard is not None:
             standard = TableBlock(
                 layer="standard", table=group.standard,
                 qualified=_qualify(group.standard, "standard", profile, spec, flags, config),
-                business=tuple(standard_columns), audit=audit)
+                business=tuple(standard_columns), audit=audit,
+                comments=tuple(standard_comments.items()),
+                table_comment=_load_strategy_comment(profile, spec.standard_load_strategy,
+                                                     "STD"))
+            if profile.column_comments and (standard_blank or audit):
+                flags.append(_comment_blank_flag("standard", standard.label, standard_blank,
+                                                 audit))
         out.append(TableDefinition(segments=tuple(s.segment for s in group.segments),
                                    stage=stage, standard=standard))
     return out
+
+
+def _note_comment(f, layer: str, column: str, profile, comments: dict[str, str],
+                  blank: list[str]) -> None:
+    """Record one column's COMMENT (first row of a column wins, as the column
+    list does) and, under ``column_comments``, a column without a description."""
+    if column in comments or column in blank:
+        return
+    text = _column_comment(f, layer, profile)
+    if text:
+        comments[column] = text
+    if profile.column_comments and not f.ddl_description:
+        blank.append(column)
 
 
 def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
@@ -394,9 +465,16 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
             block = definition.stage if layer == "stage" else definition.standard
             if block is None or not block.qualified:
                 continue
-            blocks.append({"banner": banner, "qualified": block.qualified,
-                           "columns": block.columns,
-                           "using_prefix": profile.block_using_prefix.get(layer, "")})
+            comments = dict(block.comments)
+            blocks.append({
+                "banner": banner, "qualified": block.qualified,
+                "columns": [(name, dtype, _sql_comment(comments[name]) if name in comments
+                             else None) for name, dtype in block.columns],
+                "using_prefix": profile.block_using_prefix.get(layer, ""),
+                "table_comment": (_sql_comment(block.table_comment) if block.table_comment
+                                  else None),
+                "tblproperties": (list((profile.standard_tblproperties or {}).items())
+                                  if layer == "standard" else [])})
     if not blocks:
         return None
     template = _environment().get_template("framework/combined_ddl.txt.j2")

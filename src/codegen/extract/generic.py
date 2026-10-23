@@ -1156,10 +1156,20 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         # keyword + a format kept on the column (codegen.extract.type_format)
         stage_parts = split_type(stage_type)
         standard_parts = split_type(_first(row, "standard.target_type")) if has_standard else None
+        source_description = _first(row, "source.description", "rules.data_definition")
+        comments = _first(row, "source.comments")
+        description = _first(row, "source.description", "rules.data_definition",
+                             "source.comments", "stage.field_description")
+        # post104: the target band's Field Description (the DDL COMMENT), kept
+        # apart when description is other text; a Comments cell is rule text.
+        field_description = _first(row, "stage.field_description",
+                                   "standard.field_description")
         fields.append(SttmField(
             source_column=field_name,
-            description=_first(row, "source.description", "rules.data_definition",
-                               "source.comments", "stage.field_description"),
+            description=description,
+            field_description=(field_description if field_description != description
+                               else None),
+            description_from_comments=source_description is None and comments is not None,
             sample_value=_first(row, "source.sample_value", "source.example_value"),
             source_datatype=_first(row, "source.source_type") or "unstated",
             nullable=not (not_null or mandatory),

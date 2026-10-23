@@ -4,6 +4,37 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post104 — 2026-10-23 (DDL: column COMMENTs, primary-key notes, the load strategy, standard TBLPROPERTIES)
+
+Nikshit's review (2026-10-23), decided with Soham: the `acfc_prx` combined DDL
+(`<ABBREV>_DDL.txt` and the run's `combined/<STTM>_DDL.txt`) gains four
+`conventions.profiles.acfc_prx` knobs, ON in config.yaml:
+- **`column_comments`**: `<col> <type> COMMENT '<text>'` = the STTM's Field Description
+  (target band), else its source Description / Column Description / Data Definition.
+  Never a Comments cell (rule text). A column with none gets no COMMENT; one
+  `ddl_comment_blank:<layer>:<table>` flag per table names the columns, audit columns
+  included (the contract keeps no description for audit rows).
+- **`primary_key_note`** (`Primary key (STTM Primary Key)`): added to the COMMENT of a
+  column the layer's STTM Primary Key cell marks (`primary_key` / `standard_primary_key`).
+  A note only, not a constraint.
+- **`load_strategy_comment`**: a table COMMENT after `USING delta`, `Load strategy:
+  <FRD words> (FRD Load Strategy STG|STD)`, from the same resolved strategy the IIG's
+  `TGT_LOAD_OPTION` reads.
+- **`standard_tblproperties`**: the standard blocks' TBLPROPERTIES, the 13 properties of
+  ACFC's own production SFMC standard DDL (`fixtures/reference/
+  SFMC_standard_table_creation.txt`), in its order. Open with Nikshit: ACFC's standard,
+  or a `SHOW CREATE TABLE` dump? Stage blocks carry none.
+- STTM contract: `SttmField.field_description` and `description_from_comments` (written
+  only when they say something, so existing contracts are byte-identical) and the
+  `ddl_description` property; generic + segmented extractors fill them. `description`
+  itself is unchanged.
+- The pair-1 fixture overlay switches all four off: `ACCUM_DDL.txt` is still the golden
+  byte for byte. `edo_sfmc` is untouched.
+
+**Tests:** `test_ddl_comments.py` (11 new, incl. pair 1 with the knobs on = the golden
+plus the additions only); the block parsers of `test_metadata_inserts.py` and
+`test_ddl_standard_types.py` strip COMMENTs / skip the table-level lines.
+
 ## 0.5.8.post103 — 2026-10-22 (App: the sidebar's auto-hide on View results is not remembered)
 
 Soham: after post101 the sidebar was hidden even on a fresh visit. post88 remembers the

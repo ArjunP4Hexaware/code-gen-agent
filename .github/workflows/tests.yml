@@ -1,0 +1,91 @@
+# CI (2026-10-23): the offline suite in BOTH environments CLAUDE.md requires before a
+# push, the frontend checks, and the pre-push version guard — off the developer's box.
+# Offline by design: no secrets, no network beyond the package installs; the suite blocks
+# every live model call itself (tests/conftest.py) and runs on its synthetic D1 profile.
+name: tests
+
+on:
+  push:
+    branches: [feature/multi-table, feature/iig-first, backup/ddl-only]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: pytest (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # .venv: every extra the container uses
+          - env: full
+            extras: dev,ui,live,databricks
+            constraints: ""
+          # .venv-d1: ACFC's D1 environment (pydantic 2.8.2 / openpyxl 3.1.2 / ruff 0.17.0 …)
+          - env: d1
+            extras: dev,databricks
+            constraints: constraints/acfc_d1.txt
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: |
+          uv venv .venv
+          if [ -n "${{ matrix.constraints }}" ]; then
+            uv pip install --python .venv/bin/python -e ".[${{ matrix.extras }}]" -c "${{ matrix.constraints }}"
+          else
+            uv pip install --python .venv/bin/python -e ".[${{ matrix.extras }}]"
+          fi
+      - name: Ruff
+        run: .venv/bin/ruff check src/ tests/
+      - name: Pytest (parallel; tests/conftest.py groups the App-state modules on one worker)
+        env:
+          PYTHONUTF8: "1"
+        run: .venv/bin/python -m pytest -q -n auto --dist loadgroup
+
+  frontend:
+    name: frontend (vitest + typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ui/frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/frontend/package-lock.json
+      - run: npm ci
+      - run: node node_modules/vitest/vitest.mjs run
+      - run: node node_modules/typescript/bin/tsc -b
+
+  version-guard:
+    # The repo's pre-push guard, on the pushed range: a code change to a deploy branch must
+    # carry a new version marker, a frontend change a rebuilt dist (scripts/git-hooks/pre-push).
+    name: version guard
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: scripts/git-hooks/pre-push on the pushed range
+        run: |
+          printf '%s %s %s %s\n' "${{ github.ref }}" "${{ github.event.after }}" \
+            "${{ github.ref }}" "${{ github.event.before }}" \
+            | sh scripts/git-hooks/pre-push origin "${{ github.server_url }}/${{ github.repository }}"

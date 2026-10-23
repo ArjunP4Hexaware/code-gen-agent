@@ -57,6 +57,10 @@ only; the load strategy in the table COMMENT. Still open:
   deployed table); `q1` vs our `A2`; table COMMENT = description, load strategy or both.
   The Pharmacy EDH RFC DDLs are warehouse dims (identity key, NOT NULL, `ADD CONSTRAINT
   PRIMARY KEY`, CDF), a different pattern. Structure only was read; no values copied.
+  Re-score with `tools/ddl_shape.py --reference <prod DDL dir> --agent <agent DDL>`
+  (structure only; prod files to a /tmp scratch dir, deleted after). 2026-10-23: acfc_prx
+  post104 (pair_11) matches 6/12 stage and 6/11 standard features; the SFMC files
+  (edo_sfmc's format) 9/12 and 10/11 — left: `IF NOT EXISTS`, stage CLUSTER BY / LOCATION.
 - Keep the stage DDL (Nikshit thinks the framework doesn't need it; do not deprecate).
 - The segmented extractor (`extract/segmented.py`) reads the Primary Key cell but never
   stores `primary_key` on the field (the resolver reads it as a key signal), so that
@@ -113,6 +117,10 @@ filled with the feed's own values (target table, real location):
   container's global hook (its `post-commit` syncs the Workspace).
 
 **Codeable here:**
+- CI: `.github/workflows/tests.yml` (both venvs' suites in parallel, vitest + tsc, the
+  pre-push version guard on the pushed range) is committed, not pushed — it starts on the
+  first push; Actions minutes bill the GitHub repo owner. Reproduced in a clean clone
+  2026-10-23: same counts as the container (2087 / 1780 passed).
 - `tools/iig_diff.py` depends on the `--agent` file order (30.0 sorted vs 30.3
   unsorted; run_round sorts). Sort internally.
 - STGDELTA SRC_ADLS_PATH uses the standard table's name — wrong only when stage ≠

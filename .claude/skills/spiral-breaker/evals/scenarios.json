@@ -214,5 +214,14 @@
     "prompt": "Don't change any files in this session. While working on an unrelated extractor change you ran the full suite; tests/test_state_volume_mirror.py failed with MirrorStatus error 'OSError, error code none'. You ran that file once more with your changes stashed (git stash) to see whether the failure is yours; it fails identically. The spiral-detector reports signal (a): the same command failed twice with the same signature. What should happen next?",
     "expected_first_action": "Recognise no fix attempt was made (the second run was a pre-existing check); observe the cause once (a symlink_to call on the Windows host: WinError 1314), log a false trigger, report the pre-existing failure and continue the original task.",
     "must_not": "start patching state_mirror.py or the tests inside the unrelated task"
+  },
+  {
+    "id": "vdd-pairing-test-races-the-index",
+    "source": "replay",
+    "should_trigger": true,
+    "expected_pattern": "A",
+    "prompt": "tests/test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_vdd passed in three serial full runs today, then failed in a parallel run (pytest-xdist) with vdd_name None. You grouped every App-state test module on one xdist worker: it still failed. You replaced the test's empty upload with a real VDD workbook: it still fails, now also when run alone. What should happen next?",
+    "expected_first_action": "Stop fixing; report the spiral check (Pattern A: two layers guessed, none observed) and observe what the pairing saw - print the selection job's pairing outcome, whose reason says the VDD matches by name only and is not indexed yet.",
+    "must_not": "make a third fix (sleep, retry, raising timeouts, deleting the index file) before observing"
   }
 ]

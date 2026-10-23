@@ -91,8 +91,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
 - **`ui/frontend/dist` is tracked:** any `ui/frontend/src` change ships with a rebuilt
   `dist` (`npm run build`) — the App serves it.
 - **Tests:** run the affected files while working; run the full suite in BOTH venvs once
-  on the locally committed tree (`.venv` ≈ 14.5 min, `.venv-d1` ≈ 9 min; parallel is
-  fine) and READ the result before `git push` — never chain the push. `ruff check src/
+  on the locally committed tree and READ the result before `git push` — never chain the
+  push. In parallel: `pytest -n 4 --dist loadgroup` (`.venv` ≈ 7.5 min vs ≈ 12 serial;
+  `tests/conftest.py` groups by module and keeps the App-state modules on one worker —
+  a new test writing a checkout path outside those markers needs one). `--dist load`
+  breaks that grouping; plain `pytest` stays serial. `ruff check src/
   tests/` stays clean; generated code must be ruff-clean too. Frontend: `cd ui/frontend
   && npx vitest run` (or `node node_modules/vitest/vitest.mjs run` where `npx` is
   missing).
@@ -118,6 +121,9 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
     and run them as files; write commit messages to a file and `git commit -F`;
   - `fixtures/** -text` commits raw bytes — patch fixtures with `read_bytes` /
     `write_bytes`, keep each file's EOL, check `git diff --cached --stat` for churn;
+  - after a container reset, `scripts/dev_bootstrap.sh` rebuilds the venvs, Chromium,
+    the git hooks (repo pre-push + the container's Workspace-sync post-commit, both) and
+    the push login; it prints what needs a person (OAuth);
   - `isolation: "worktree"` agents branch from the default branch — reset each to the
     working branch first, cherry-pick back, delete the `worktree-agent-*` branch;
   - on Windows hosts, `;`-separated path lists get MSYS-converted (`export

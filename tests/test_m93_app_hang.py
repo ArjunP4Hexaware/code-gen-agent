@@ -226,6 +226,7 @@ def test_a_parse_that_never_answers_is_killed_and_the_app_keeps_answering(monkey
     selection fails visibly and the next request is served."""
     hang = [sys.executable, "-c",
             "import sys, time; print('{\"ready\": true}', flush=True); time.sleep(3600)"]
+    real_command = docindex.worker_command
     monkeypatch.setattr(docindex, "worker_command", lambda config, base: hang)
     ws.pairs("pair_1")
     client, runner = _api(monkeypatch, ws)
@@ -241,6 +242,9 @@ def test_a_parse_that_never_answers_is_killed_and_the_app_keeps_answering(monkey
                                          "request")
     assert request_parser.kills >= 1 and not request_parser.alive
     assert client.get("/api/demo/status").json()["selection"]["sttm"] is None
+    # 2026-10-23: the real parser back before the fixture drains the index worker,
+    # which otherwise keeps starting the hanging child (teardown waited 60 s)
+    monkeypatch.setattr(docindex, "worker_command", real_command)
 
 
 def test_the_parser_process_answers_and_restarts_after_a_kill(tmp_path, config):

@@ -43,8 +43,20 @@ off so the golden stays byte-identical). Decided with Soham 2026-10-23: "Fill
 Description" = the STTM's Field Description (target band), else the source Description;
 never Comments; the primary key = the STTM Primary Key cell (Yes / blank), a COMMENT note
 only; the load strategy in the table COMMENT. Still open:
-- **Nikshit:** is the SFMC standard table's TBLPROPERTIES block (the 13 properties now
-  written, `standard_tblproperties`) ACFC's standard, or a `SHOW CREATE TABLE` dump?
+- TBLPROPERTIES: answered by the prod DDLs (below) and accepted by Soham 2026-10-23.
+- **Format (Soham asked for depth; not decided):** ACFC's file-ingestion prod DDLs
+  (`/Volumes/d1_dlk/stg_ddls/ddls/`: 6 STTMs × d1 / q1 / pr × stage + standard = 36
+  files, generated 2026-08-24 – 10-16; plus SFMC) all follow ONE template, and it is
+  `edo_sfmc`'s, not `acfc_prx`'s (the pair-1 PRX RFC is the one bare outlier): one file
+  per layer, `CREATE TABLE IF NOT EXISTS`, every column COMMENTed (audit too), a 10–14
+  word table COMMENT naming the layer, standard typed / stage all STRING, `CLUSTER BY
+  AUTO`, stage 4 TBLPROPERTIES (autoCompact, optimizeWrite, minReader 1, minWriter 2) /
+  standard our 13, `SET TAGS (DOMAIN, SUBDOMAIN)`, `;`; no PK, no NOT NULL, no load
+  strategy anywhere. Open with Soham: who generates `stg_ddls` and is the agent's DDL
+  run, matched or reference only (if run: `IF NOT EXISTS` first — `OR REPLACE` empties a
+  deployed table); `q1` vs our `A2`; table COMMENT = description, load strategy or both.
+  The Pharmacy EDH RFC DDLs are warehouse dims (identity key, NOT NULL, `ADD CONSTRAINT
+  PRIMARY KEY`, CDF), a different pattern. Structure only was read; no values copied.
 - Keep the stage DDL (Nikshit thinks the framework doesn't need it; do not deprecate).
 - The segmented extractor (`extract/segmented.py`) reads the Primary Key cell but never
   stores `primary_key` on the field (the resolver reads it as a key signal), so that
@@ -96,16 +108,13 @@ filled with the feed's own values (target table, real location):
 - 106 `scripts/scrub_check.py` hits over tracked files on this branch (2026-10-23):
   mostly `docs/acfc/review/*.xlsx` and `IIG test cells.xlsx`, plus emails / ADLS hosts
   in a few tests and `app.yaml`. Keep or clean.
-- This container's git uses the global `core.hooksPath=/app/python/source_code/.githooks`
-  (its `post-commit` syncs to the Workspace), so the repo's `scripts/git-hooks/pre-push`
-  does NOT run here. Pointing the clone at `scripts/git-hooks` would drop the Workspace
-  sync — decide how to run both.
+- Git hooks: solved 2026-10-23 — `scripts/dev_bootstrap.sh` points the clone at
+  `.git/codegen-hooks/` (untracked wrappers): the repo's `pre-push` guard, then the
+  container's global hook (its `post-commit` syncs the Workspace).
 
 **Codeable here:**
 - `tools/iig_diff.py` depends on the `--agent` file order (30.0 sorted vs 30.3
   unsorted; run_round sorts). Sort internally.
-- `test_demo_ui.py::test_choosing_an_sttm_auto_pairs_its_vdd` fails when a stale
-  `ui/backend/state/document_index.json` exists (isolation gap).
 - STGDELTA SRC_ADLS_PATH uses the standard table's name — wrong only when stage ≠
   standard names; no such pair found yet, so wait for one.
 - RECYCL_ADLS_PATH on pair_11 (4 cells): the golden states a recycle no document does.
@@ -178,7 +187,10 @@ filled with the feed's own values (target table, real location):
 
 ## After a container reset
 
-Venvs, `/tmp`, the OAuth profile and possibly `~/.gitconfig` are gone.
+Venvs, `/tmp`, the OAuth profile and possibly `~/.gitconfig` are gone. Run
+`scripts/dev_bootstrap.sh` (idempotent; `--no-d1` / `--no-browser` / `--no-hooks`): it
+does the venv, Chromium, hooks and push-login steps below and prints the rest. The
+manual recipe stays here for when it fails.
 
 - **Venvs** via uv (pip's isolated pyspark build failed 2026-10-23):
   - `uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e

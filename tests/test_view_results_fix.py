@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import uuid
 from pathlib import Path
 
 import pytest
@@ -35,8 +36,9 @@ def _store() -> GenerationStore:
 def runs_root():
     """Run dirs must live under the repo (written_files are repo-relative),
     exactly as real runs under out/ do. Cleaned up afterwards."""
-    root = REPO / "out" / "_pytest_view_results"
-    shutil.rmtree(root, ignore_errors=True)
+    # 2026-10-23: one folder per test (a parallel run once found the shared folder
+    # re-created between rmtree and mkdir — FileExistsError at setup)
+    root = REPO / "out" / f"_pytest_view_results_{uuid.uuid4().hex[:12]}"
     root.mkdir(parents=True)
     yield root
     shutil.rmtree(root, ignore_errors=True)

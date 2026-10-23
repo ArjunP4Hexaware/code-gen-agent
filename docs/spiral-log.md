@@ -198,3 +198,21 @@
 - Approx. time lost: ~5 minutes
 - Permanent fix: none here (out of scope of post74) - reported to Soham: skip on Windows
   without symlink privilege, or fall back to a pointer file.
+
+## 2026-10-23: test_choosing_an_sttm_auto_pairs_its_vdd flips (parallel-suite session)
+- Actual cause: the test raced the background document index. A VDD that matches the
+  STTM by name only is "likely, not decided" until the index has read it
+  (`DemoRunner._repair_vdd_once` decides then); the test wrote the file straight to
+  `inputs/uploads` and asserted right after selecting. It passed whenever the index
+  happened to get there first, so the serial suite was green and the first parallel runs
+  (slower workers) and every run alone after them were red.
+- Pattern: A (wrong layer) - both fixes guessed at a layer (cross-worker collision, then the
+  empty workbook's content class) without looking at what the pairing saw; the pairing's
+  own outcome (`job["pairing"]["vdd"]["reason"]`) named the cause in one print.
+- Caught by skill: yes (after attempt 2: xdist groups, then a real VDD fixture)
+- Earliest signal that would have revealed it: printing the selection job's pairing reason
+  ("matches by name only and is not indexed yet - likely, not decided").
+- Approx. time lost: ~25 minutes
+- Permanent fix: the test lists, waits for the index (`_index_idle()`), then selects -
+  what the App's chooser does. RESTART.md's "stale document_index.json" note was the same
+  race, misattributed.

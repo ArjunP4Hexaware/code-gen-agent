@@ -141,3 +141,14 @@ Entry format:
 - Pattern: A (wrong layer - the host OS)
 - Seen: 2026-10-19
 - Permanent fix: none yet (candidate: skip on Windows without the privilege).
+## A UI test that asserts before the background document index has read a file
+- Signature: an App test (`tests/test_demo_ui.py`, chooser / pairing) passes in one run and
+  fails in another - alone, in parallel, or after other tests - with a pairing / kind field
+  None; often blamed on a stale `ui/backend/state/document_index.json`.
+- Usual cause: the decision waits for the background index (by design: a name-only match is
+  "likely, not decided" until the file is indexed), and the test asserts first.
+- Check: print the selection job's pairing outcome (`status["selection_job"]["pairing"]`,
+  its `reason` / `not_indexed`); "not indexed yet" = this cause.
+- Pattern: A (wrong layer - timing of a background worker, not the code under test)
+- Seen: 2026-10-23
+- Permanent fix: list, then `_index_idle()` before selecting (the chooser's order).

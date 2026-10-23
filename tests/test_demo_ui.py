@@ -708,6 +708,12 @@ def test_choosing_an_sttm_auto_pairs_its_vdd(client):
     buf = io.BytesIO()
     Workbook().save(buf)
     vdd.write_bytes(buf.getvalue())
+    # 2026-10-23: a VDD that matches by name only is "likely, not decided" until the
+    # background index has read it (DemoRunner._repair_vdd_once decides then), so the
+    # assert below raced the index. As the chooser does: list (which queues the new
+    # file for the index), wait for the index, then choose.
+    client.get("/api/demo/workbooks")
+    _index_idle()
     try:
         status = select_sttm(client, "demo_sttm_cv_golden.xlsx")
         assert status["vdd_name"] == "VDD_demo_cv_golden.xlsx"

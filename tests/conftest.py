@@ -50,6 +50,32 @@ os.environ["CODEGEN_RUN_DATE"] = "2026-01-02"
 os.environ["CODEGEN_BLOCK_LIVE_MODEL"] = "1"
 
 
+# 2026-10-23 (parallel runs, `pytest -n 4 --dist loadgroup`): every test module
+# is its own xdist group (loadscope: module fixtures built once), except the
+# modules that drive the App backend or the checkout's inputs/ — they share
+# REPO-level files (ui/backend/state/, inputs/uploads/), so they form ONE group
+# and run one after another on one worker. Without xdist the marks are inert.
+_SHARED_STATE_MARKERS = ("ui.backend", '"inputs"', "inputs/uploads")
+_shared_state_by_module: dict[str, bool] = {}
+
+
+def _uses_shared_state(path: Path) -> bool:
+    key = str(path)
+    if key not in _shared_state_by_module:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        _shared_state_by_module[key] = any(m in text for m in _SHARED_STATE_MARKERS)
+    return _shared_state_by_module[key]
+
+
+def pytest_collection_modifyitems(config, items):
+    if not config.pluginmanager.hasplugin("xdist"):
+        return
+    for item in items:
+        path = Path(str(item.fspath))
+        group = "repo_shared_state" if _uses_shared_state(path) else path.stem
+        item.add_marker(pytest.mark.xdist_group(group))
+
+
 # post68: EVERY notebook a test emits is validated (nbformat.validate) as it is
 # built or resynced; an invalid one fails that test. Counted per session for
 # tests/test_notebook_validation.py. Without nbformat (an install that predates

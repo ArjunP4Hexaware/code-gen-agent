@@ -5,12 +5,29 @@
 Scoring the agent's IIG workbooks against prod "golden" IIG rows — pair_2 (SD) first, for Venu.
 Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playbook out of scope).
 
-**RESTART HERE (2026-10-22, after post102; everything pushed, tree clean).**
-- **Head:** post102 (`fa1f3b2`), and the App is deployed at **post102** (`/api/health`).
-  Verified on the App: the environment panel (post98/99, screenshots). NOT yet seen on an
-  App run (the restarted App had no run loaded; checked by tests + the pair_11 mock
-  harness): the combined set without `STTM_`, OBJECT_ID 1..n, the one Daily master pair,
-  the collapsed Dashboard sections, the short IDs line, the sidebar hiding on View results.
+**RESTART HERE (2026-10-23, post103; everything pushed, tree clean).**
+- **Head:** post103 (`31b46ed`), and the App is deployed at **post103** (`/api/health`;
+  redeployed from GitHub 2026-10-23 12:56 UTC).
+- **post98–103 verified on the App (2026-10-23)** on the pair_11 live run
+  `demo_20261023_132913` (artefacts via `/api/combined/…` + a Playwright pass):
+  - the combined set named `Pyx_Care_Management_Data_MI_DSNP_*` (no `STTM_`);
+  - OBJECT_ID 1..5 across the run;
+  - 12 pipeline rows = 1 grand master + 1 master, both Daily `_DLY`, + 2 × 5 children;
+  - the `_LOG.md` merge / kept lists; the short IDs line; IIG_REVIEW hidden;
+  - Run summary + Feeds collapsed; View results hides the sidebar for the page only.
+  - Noted: that run made NO model call (layout from the documents, `--layer2 defer`,
+    35 rules pending review). PARENT_PIPELINE_ID is blank on master + children (IDs are
+    the framework's), so the parent links only show in the review copy.
+- **After a container reset** (venvs, `/tmp` and the OAuth profile are gone):
+  - venvs via uv (pip's isolated pyspark build failed 2026-10-23): `uv venv --python 3.12
+    .venv && uv pip install --python .venv/bin/python -e ".[dev,ui,live,databricks]"`;
+    `.venv-d1` the same with `-e ".[dev,databricks]" -c constraints/acfc_d1.txt`.
+  - OAuth: the login's `localhost:8020` callback listens IN the container. Start
+    `BROWSER=echo DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks auth login --host
+    <the DEFAULT profile's host, `databricks auth profiles`> --profile codegen-oaut` in the
+    background, Soham opens the printed URL and pastes back the `localhost:8020/?code=…`
+    URL, `curl` that URL inside the container. A code only works for the login that
+    issued it.
 - **Deploying the App:** it builds from GitHub, not a staged tree: push, then
   `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks apps deploy codegen-agent -p
   codegen-oaut --json '{"mode":"SNAPSHOT","git_source":{"branch":"feature/multi-table"}}'`
@@ -57,7 +74,17 @@ Deliverables: DDL / `metadata_inserts.sql` + the IIG workbook (runbook / playboo
   download` + `dpkg -x`, no root), `LD_LIBRARY_PATH=/tmp/pwlibs/usr/lib/x86_64-linux-gnu:
   /tmp/pwlibs/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node <script>`. Stub
   `/api/feeds` or `/api/demo/status` with `page.route`. Session scratch — re-download if
-  gone.
+  gone. Rebuild (2026-10-23):
+  - `cd ui/frontend && npm ci`, then (no `npx` in the container)
+    `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw node node_modules/playwright/cli.js install
+    chromium-headless-shell`; a script `require`s that `node_modules/playwright` by path.
+  - Libs: `apt-get download` + `dpkg -x … /tmp/pwlibs` of libglib2.0-0 libnspr4 libnss3
+    libatk1.0-0 libatk-bridge2.0-0 libdbus-1-3 libxcomposite1 libxdamage1 libxfixes3
+    libxrandr2 libgbm1 libxkbcommon0 libasound2 libatspi2.0-0 libwayland-server0 libdrm2
+    libxi6 libxrender1 libxext6 libx11-6 libxcb1 libxau6 libxdmcp6 libbsd0 libmd0
+    libxcb-randr0; `ldd …/chrome-headless-shell | grep "not found"` must print nothing.
+  - Against the deployed App: `newContext({extraHTTPHeaders: {Authorization: "Bearer
+    <OAuth token>"}})`.
 
 **post98–post102 at a glance** (details: `CHANGELOG_ACFC.md`):
 - **post98 — App:** the environment panel is a collapsible (summary line; Storage /

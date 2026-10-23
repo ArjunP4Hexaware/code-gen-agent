@@ -4,10 +4,10 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-23, post103)
+## State (2026-10-23, post104)
 
-- **Branch** `feature/multi-table`, head post103 (`31b46ed`) + docs-only commits. Pushed,
-  tree clean.
+- **Branch** `feature/multi-table`, head post104 (the DDL refinement; CHANGELOG_ACFC.md).
+  The App still runs post103 until redeployed.
 - **App** `codegen-agent` deployed at post103 from GitHub (2026-10-23 12:56 UTC).
   `/api/health` reports `0.5.8.post103`.
 - **Current work:** scoring the agent's IIG workbooks against prod "golden" IIG rows —
@@ -38,17 +38,17 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
 ## Next up — Nikshit's review (2026-10-23)
 
-**DDL** (start here — Nikshit: refine the DDL metadata first; test cases separately):
-- Column COMMENT = the STTM's field description ("Fill Description").
-- A column the STTM / FRD marks as primary key: say so at column level.
-- The load strategy (Truncate / Load / Upsert) appears in the DDL.
-- Standard tables are managed: use table properties in the standard DDL.
+**DDL** — built in post104 (four `acfc_prx` knobs, on; the pair-1 overlay switches them
+off so the golden stays byte-identical). Decided with Soham 2026-10-23: "Fill
+Description" = the STTM's Field Description (target band), else the source Description;
+never Comments; the primary key = the STTM Primary Key cell (Yes / blank), a COMMENT note
+only; the load strategy in the table COMMENT. Still open:
+- **Nikshit:** is the SFMC standard table's TBLPROPERTIES block (the 13 properties now
+  written, `standard_tblproperties`) ACFC's standard, or a `SHOW CREATE TABLE` dump?
 - Keep the stage DDL (Nikshit thinks the framework doesn't need it; do not deprecate).
-- **Check first:** `edo_sfmc` (`templates/framework/table_creation.txt.j2`) already emits
-  per-column COMMENTs + TBLPROPERTIES. The `acfc_prx` combined DDL ACFC uses
-  (`combined_ddl.txt.j2`) deliberately has none, and the pair-1 golden pins it byte for
-  byte (`tests/test_m4_acceptance.py`). This needs a profile knob or a deliberate golden
-  change — decide with Soham before editing.
+- The segmented extractor (`extract/segmented.py`) reads the Primary Key cell but never
+  stores `primary_key` on the field (the resolver reads it as a key signal), so that
+  dialect gets no PK notes. Left as is.
 
 **DDL test cases** (later): a generic best-practice set, chosen at runtime per feed,
 filled with the feed's own values (target table, real location):

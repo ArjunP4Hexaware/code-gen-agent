@@ -258,3 +258,42 @@ def test_mids_pair_resolves_standalone_from_the_docx(tmp_path):
     keys = [q.key for q in pair.questions]
     assert not any("stage_target" in k for k in keys)
     assert any(f.startswith("frd_feeds_split_from_sttm:") for f in pair.flags)
+
+
+def _f1_pair2_with_target_schema(tmp_path: Path, schema: str) -> Path:
+    """The F1 pair-2 FRD (Load Strategy STD = Upsert) with its Target Schema cell
+    rewritten in the document XML."""
+    import io
+    import zipfile
+
+    source = zipfile.ZipFile(io.BytesIO(frd_fixtures.build_f1_pair2()))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename == "word/document.xml":
+                assert data.count(b"stg_vendor_b / vendor_b") == 2
+                data = data.replace(b"stg_vendor_b / vendor_b", schema.encode())
+            target.writestr(item, data)
+    path = tmp_path / "frd.docx"
+    path.write_bytes(out.getvalue())
+    return path
+
+
+def test_a_stated_std_load_strategy_makes_the_feed_two_layer(tmp_path):
+    # post118 (codeflow audit #1, CLAUDE.md: layer scope comes from Load Strategy,
+    # never from which schemas a Target Schema block names) - a Target Schema
+    # naming only the stage schema used to make the feed stage-only
+    from codegen.extract.frd_docx import read_frd
+
+    config = load_config_for_tests()
+    content = read_docx(_f1_pair2_with_target_schema(tmp_path, "stg_vendor_b"))
+    contract = read_frd(content, discover_frd(content, config.extractor.frd), config,
+                        document_name="frd.docx", generated_date="2026-01-01")
+    for feed in contract.feeds:
+        assert feed.standard_target.load_strategy == "Upsert"
+        assert feed.standard_target.tables == feed.stage_target.tables != []
+    flags = [f for f in contract.extraction_flags
+             if f.startswith("frd_standard_from_load_strategy:")]
+    assert len(flags) == len(contract.feeds) == 2
+    assert all("'Upsert'" in f for f in flags)

@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post118 — 2026-10-26 (.docx FRD: Load Strategy STD makes the feed two-layer)
+
+Codeflow audit #1 (medium), verified. CLAUDE.md: "Layer scope comes from Load Strategy,
+never from which schemas a Target Schema block names". The `.docx` FRD reader set a
+feed's standard tables only when the Target Schema block named a standard schema
+(`standard_tables = list(tables) if std_schema or std_catalog else []`). A feed whose
+Load Strategy STD states a load, but whose Target Schema names only the stage schema,
+was therefore read as stage-only.
+- `extract/frd_docx.read_frd`: a stated standard load strategy now also gives the
+  standard layer the stage table names (the existing convention of that line), with a
+  `frd_standard_from_load_strategy:<feed>` flag citing the Load Strategy STD cell. A
+  Target Schema that names a standard schema behaves as before.
+- Regression check, all 12 real pairs (mock harness, old vs new code): the same
+  outcomes. Three pairs' FRD contracts now carry the standard tables their Load Strategy
+  STD implies (0 to 4). Every DDL and IIG file is byte-identical, because the resolver
+  already filled those tables from the STTM. Only the contract hash in
+  `metadata_inserts.sql`'s comment banner changes. For one more pair the rule fires
+  where a later step already set the same table names, which adds a flag only.
+
 ## 0.5.8.post117 — 2026-10-26 (the recycle-column question can be answered)
 
 Codeflow audit #3 (medium), verified. When a recycle rule's column is not a source

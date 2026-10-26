@@ -1223,6 +1223,17 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
         std_strategy = _strategy(get(f"{prefix}.standard_target.load_strategy"),
                                  f"{prefix}.standard_target.load_strategy", ambiguities,
                                  frd_config.load_strategy_synonyms)
+        if std_strategy is not None and tables and not standard_tables:
+            # post118 (codeflow audit #1): layer scope comes from Load Strategy
+            # (CLAUDE.md) — an STD load strategy makes the feed two-layer even when
+            # the Target Schema block names no standard schema (it used to be
+            # read as stage-only)
+            standard_tables = list(tables)
+            flags.append(f"frd_standard_from_load_strategy:{prefix} — the FRD "
+                         f"{cell_of(f'{prefix}.standard_target.load_strategy')} states the "
+                         f"standard load strategy {std_strategy!r} while the Target Schema "
+                         "block names no standard schema; the standard layer carries the "
+                         "stage table names")
         lobs, lob_table = _lobs_and_table(content, profile, prefix, get(f"{prefix}.lobs"),
                                           frd_config, flags, cell_of)
         feeds.append(FrdFeed(

@@ -17,7 +17,8 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 - **App** `codegen-agent` deployed 2026-10-26 from `34699db`; `/api/health` reports
   `0.5.8.post104`. The DDL comments / PK notes / load strategy / standard TBLPROPERTIES
   are live (the 2026-10-26 morning redeploy was still post103: nothing had been pushed).
-- **Suite on the post105 commit:** see the commit's session note below; ruff clean.
+- **Suite on the post105 commit `bcb1bd1`:** `.venv` 2106 passed, `.venv-d1` 1799 passed
+  (parallel, `-n 4 --dist loadgroup`); ruff clean in both.
 - **Current work:** the run-safe DDL is built (post105); waiting on the push and on
   Soham's answers to the three DDL questions below. Then IIG scoring vs prod goldens
   (pair_2 first, for Venu).

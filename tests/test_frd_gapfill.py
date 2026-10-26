@@ -269,3 +269,26 @@ def test_resolver_fallbacks_and_remaining_hard_stops(tmp_path):
     (tmp_path / "sttm2.json").write_text(json.dumps(data2), encoding="utf-8")
     with pytest.raises(ContractMismatchError, match="no source states the file format"):
         resolve_contracts(frd_json, tmp_path / "sttm2.json", config)
+
+
+@pytest.mark.parametrize("answer", ["Bananas", "full refresh-ish"])
+def test_an_answer_that_names_no_load_strategy_is_refused(answer, tmp_path, monkeypatch):
+    # post115 (codeflow audit #17): it used to be written into the contract as
+    # typed, an invalid LoadStrategy literal that crashed a later re-validation
+    import notebook_v2_fixtures as fx
+    from codegen.contracts.frd import FrdContract
+    from codegen.layout.answers import AnswersFileError
+    from codegen.resolve.resolver import _answered_unstated
+
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    config = fx.acfc_config(tmp_path, fx.PAIR1_OVERLAY)
+    frd, _sttm, _vdd = fx.prx_pair(tmp_path, config)
+    contract = FrdContract.model_validate_json(Path(frd).read_text(encoding="utf-8"))
+    feed = contract.feeds[0]
+    feed = feed.model_copy(update={"stage_target": feed.stage_target.model_copy(
+        update={"load_strategy": None})})
+    with pytest.raises(AnswersFileError, match="is not a load strategy") as caught:
+        _answered_unstated(feed, {"feeds[0].stage_target.load_strategy": answer}, 0, [])
+    assert caught.value.reason == "answers.file"
+    filled = _answered_unstated(feed, {"feeds[0].stage_target.load_strategy": "append"}, 0, [])
+    assert filled.stage_target.load_strategy == "Append"           # a real one still fills

@@ -201,7 +201,17 @@ def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_inde
         if kind == "list":
             value = [v.strip() for v in re.split(r"[,;\n]+", answer) if v.strip()]
         elif kind == "strategy":
-            value = canonical_strategy(answer) or answer
+            # post115 (codeflow audit #17): an answer that names no load strategy
+            # used to be written as typed - an invalid literal in the contract
+            value = canonical_strategy(answer)
+            if value is None:
+                from codegen.layout.answers import AnswersFileError
+                from codegen.resolve.gapfill import LOAD_STRATEGIES
+
+                raise located(AnswersFileError(
+                    f"answers gaps: feeds[{feed_index}].{field} = {answer!r} is not a load "
+                    f"strategy — answer one of {list(LOAD_STRATEGIES)}"),
+                    Coord("answers"), "answers.file")
         else:
             value = answer
         frd_feed = _feed_set(frd_feed, target, value)

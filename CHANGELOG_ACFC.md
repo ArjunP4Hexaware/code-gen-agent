@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post115 — 2026-10-26 (an answered load strategy must name one)
+
+Codeflow audit #17 (medium), verified by a probe. A `gaps:` answer for an unstated stage
+load strategy went through `canonical_strategy(answer) or answer`. An answer naming no
+strategy ("Bananas") was therefore written into the FRD contract as typed, with a
+normal-looking `frd_unstated` fill flag. That is an invalid `LoadStrategy` literal: any
+later re-validation crashes with a `ValidationError`, and anything that doesn't
+re-validate carries the text into the artefacts.
+- `resolve/resolver._answered_unstated` refuses it with an answers-file error
+  (`answers.file`, coordinates `answers`) naming the key and listing the strategies
+  (`Truncate and Load`, `Append`, `Upsert`). Any spelling `canonical_strategy` knows
+  ("append", the aliases) still fills.
+
 ## 0.5.8.post114 — 2026-10-26 (pairing: a document name matches on word boundaries)
 
 Codeflow audit #20 (medium), verified. `pairing._name_match` decides whether an FRD feed

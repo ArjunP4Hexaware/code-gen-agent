@@ -271,3 +271,18 @@ def test_pair1_raises_no_derivation_flags(pair1_config, pair1_spec):
     """Pair 1 under the strict profile: no suffix group mixes, every name
     three-part, every literal single-line — zero new flags or failed checks."""
     assert sibling_type_flags(pair1_spec, pair1_config) == []
+
+
+def test_edo_sfmc_tags_escape_a_quote_in_the_domain(config, pair11_catalog, tmp_path):
+    # post119 (codeflow audit #37): the two-file DDL wrote the FRD's Domain /
+    # Sub-Domain into SET TAGS unescaped - a quote ended the literal
+    specs, _flags = pair11_catalog
+    spec = specs[2].model_copy(update={"domain": "Member's Care", "sub_domain": "O'Neil"})
+    gate = cli._generate_feed(spec, _scoped(config, tmp_path), dry_run=True, skip_tests=True,
+                              output_mode="framework", conventions_profile="edo_sfmc",
+                              iig_template="iig_v1")
+    parse = next(c for c in gate.checks if c.name == "ddl_parses")
+    assert parse.passed, parse.details
+    stage_txt = (tmp_path / "out" / spec.feed_slug / "framework"
+                 / f"{spec.feed_slug}_stage_table_creation.txt").read_text(encoding="utf-8")
+    assert "SET TAGS ('DOMAIN' = 'Member\\'s Care', 'SUBDOMAIN' = 'O\\'Neil')" in stage_txt

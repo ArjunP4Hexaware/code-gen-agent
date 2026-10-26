@@ -4,6 +4,14 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post119 — 2026-10-26 (edo_sfmc: tag values escaped)
+
+Codeflow audit #37 (low), verified. The two-file (`edo_sfmc`) DDL wrote the FRD's Domain
+/ Sub-Domain into `ALTER TABLE … SET TAGS (…)` unescaped. A quote in either ("Member's
+Care") ended the string literal. Since post107 the `ddl_parses` gate fails such a file
+rather than letting it ship; now the values are escaped as every other literal is
+(`\'`), as `acfc_prx`'s tags already were.
+
 ## 0.5.8.post118 — 2026-10-26 (.docx FRD: Load Strategy STD makes the feed two-layer)
 
 Codeflow audit #1 (medium), verified. CLAUDE.md: "Layer scope comes from Load Strategy,

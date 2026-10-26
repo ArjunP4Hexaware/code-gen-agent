@@ -698,7 +698,9 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
             "location": (_synthetic_location(spec, config, qualified.rsplit(".", 1)[-1],
                                              flags)
                          if layer == "stage" else None),
-            "tags": ((spec.domain, spec.sub_domain)
+            # post119 (codeflow audit #37): escaped as every literal is (a quote
+            # in a domain name ended the string literal)
+            "tags": ((_sql_comment(spec.domain), _sql_comment(spec.sub_domain))
                      if spec.domain and spec.sub_domain else None),
         })
     banner_lines = [f"{key}: {value}" for key, value in banner

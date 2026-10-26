@@ -35,9 +35,11 @@ from test_derivations import FRD_CATALOG, REPO, _pair11_specs, _scoped
 # pair 1's 4 ADLS TGT_PRIMARY_KEY cells are blank and open when no Primary Key cell states
 # one (BSA +4; the golden is blank there too) and its STGDELTA OBJECT_NAME is the family's
 # transcribed literal (Engineer (confirm) +1); pair 11's three ADLS TGT_PRIMARY_KEY cells
-# likewise (BSA +3).
+# likewise (BSA +3). post120 (codeflow audit #30): pair 1's family-convention N in
+# RECYCL_ENBL_FLG (4 ADLS rows) is badged synthetic, no longer from_frd — Engineer
+# (confirm) +4.
 INVENTORY = {
-    "pair1": {"BSA": 96, "Engineer": 145, "Engineer (confirm)": 143, "Set at load (CI/CD)": 52},
+    "pair1": {"BSA": 96, "Engineer": 145, "Engineer (confirm)": 147, "Set at load (CI/CD)": 52},
     # 2026-10-08 (first real-row scorecard): +3 Engineer (confirm) — the shipped
     # family leaves RECYCL_* open (9 cells) instead of writing the NA constants
     # (6 cells). (FREQUENCY = the run cadence since post22: pair 11's FRD states

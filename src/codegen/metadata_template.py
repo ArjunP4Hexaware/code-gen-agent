@@ -1707,7 +1707,9 @@ def _recycle_cells(tpl: MetadataTemplateConfig, tab: str, feed: FrdFeed,
                 _path_tooltip(tpl, tab, "RECYCL_ADLS_PATH", shape))
         return cells
     if tpl.family_conventions.recycle_unstated == "N":
-        return {"RECYCL_ENBL_FLG": _cell("N", "from_frd", "no document states a recycle; the "
+        # post120 (codeflow audit #30): a family convention, not an FRD statement —
+        # badged synthetic, as the schema_drift_flag convention is
+        return {"RECYCL_ENBL_FLG": _cell("N", "synthetic", "no document states a recycle; the "
                                          "family writes N (family convention recycle_unstated: "
                                          f"N; {_family_citation(tpl)})")}
     offer = (f"no document states a recycle (FRD reprocessing / recycle rule, STTM Recycle "

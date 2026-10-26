@@ -4,6 +4,15 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post120 — 2026-10-26 (IIG: the unstated-recycle N is badged a convention)
+
+Codeflow audit #30 (low), verified. Under a family whose convention writes `N` when no
+document states a recycle (`family_conventions.recycle_unstated: N`, the pair-1
+family), the RECYCL_ENBL_FLG cell was badged `from_frd`, as if the FRD said so. The
+review copy, which surfaces non-document cells, therefore never showed it to the BSA.
+It is now badged `synthetic` with the convention's citation, as the
+`schema_drift_flag` convention already is. The cell value is unchanged.
+
 ## 0.5.8.post119 — 2026-10-26 (edo_sfmc: tag values escaped)
 
 Codeflow audit #37 (low), verified. The two-file (`edo_sfmc`) DDL wrote the FRD's Domain

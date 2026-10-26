@@ -92,3 +92,14 @@ def test_table_name_object_name_is_available(pair4_config, pair4_spec):
 def test_a_literal_object_name_needs_its_value():
     with pytest.raises(ValidationError, match="needs stgdelta_object_name_literal"):
         FamilyConventionsConfig(stgdelta_object_name="literal")
+
+
+def test_the_unstated_recycle_n_is_badged_as_a_convention(pair4_config, pair4_spec):
+    # post120 (codeflow audit #30): the family's N for an unstated recycle was badged
+    # from_frd, as if the FRD said it, so the BSA review copy never surfaced it
+    switched = _payload_with(pair4_config, pair4_spec, PAIR1_FAMILY)
+    rows = switched["tabs"]["ADLS_DELTA_INGESTION_DETAILS"]["rows"]
+    entries = [r["badges"]["RECYCL_ENBL_FLG"] for r in rows
+               if r["values"]["RECYCL_ENBL_FLG"] == "N"]
+    assert entries and all(e["badge"] == "synthetic" for e in entries)
+    assert all("family convention recycle_unstated: N" in e["tooltip"] for e in entries)

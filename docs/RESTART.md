@@ -4,7 +4,24 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-26, post105 deployed)
+## State (2026-10-26, post107 pushed; App still on post105)
+
+- **post106** (PK note joined with " — ", not "; ") and **post107** (notebook v2 never
+  `partitionBy` — clustered tables; gate check `ddl_parses`, sqlglot now a base
+  dependency; the pair-1 overlay turns that gate off: its golden is unterminated) are
+  pushed at `05a9f12`; suites `.venv` 2116 / `.venv-d1` 1809. NOT deployed — waiting on
+  Soham's go.
+- **DDL review page for Nikshit:** `/tmp/ddl_review/ddl-review.html` (synthetic examples
+  only); not published — the Artifact tool needs a claude.ai login (this session runs
+  on `ANTHROPIC_AUTH_TOKEN`). Its questions: framework `TGT_PARTITION_COLUMN` handling,
+  stage STRING vs typed, the protocol / 13 standard properties, PHI tag key + PK RELY,
+  stage written by name or ADLS path.
+- **Codeflow audit (2026-10-26, in progress):** Phase-1 tool facts in /tmp/trace (static
+  graph, coverage with test contexts: 91 functions never run, 153 CLI-only / 112
+  App-only src functions; 62 tests skip, 33+ for fixtures removed 2026-08-22), then an
+  adversarially verified multi-agent pass. /tmp is lost on a container reset.
+
+### Earlier today (post105)
 
 - **Branch** `feature/multi-table`, pushed (`e216588` + this note). The `gh` login has
   the `workflow` scope since 2026-10-26; CI (`.github/workflows/tests.yml`) ran green on

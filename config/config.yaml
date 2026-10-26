@@ -1015,7 +1015,9 @@ conventions:
       column_comments: true
       # The STTM Primary Key cell (Yes / blank), per layer, noted in the COMMENT.
       primary_key_note: "Primary key (STTM Primary Key)"
-      column_comment_separator: "; "
+      # post106 (Soham, 2026-10-26): an em dash, not "; " - a deployment script that
+      # splits the DDL on ';' must not cut a COMMENT literal in two.
+      column_comment_separator: " — "
       # Table COMMENT: the layer's FRD Load Strategy, in the FRD's words.
       load_strategy_comment: "Load strategy: {strategy} (FRD Load Strategy {layer})"
       # Standard-table TBLPROPERTIES, transcribed in order from ACFC's own

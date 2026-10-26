@@ -4,6 +4,15 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post106 — 2026-10-26 (DDL: the primary-key note joined with " — ")
+
+Seen on the App's live pair_11 run (post105): the PK note was joined to the column
+description with `"; "`, so two COMMENT literals held a `;`, and a deployment script
+that splits the DDL on `;` would cut those statements in two. Soham: use `" — "`.
+`conventions.profiles.acfc_prx.column_comment_separator` (and the model default) is now
+`" — "`. The pair-1 golden is unaffected: its overlay turns the note off. A `;` inside an
+STTM description itself is still written as stated.
+
 ## 0.5.8.post105 — 2026-10-26 (DDL: run-safe — IF NOT EXISTS, terminators, CLUSTER BY, stage TBLPROPERTIES, tags)
 
 Soham, 2026-10-26: the engineer RUNS the agent's DDL, against tables that may already

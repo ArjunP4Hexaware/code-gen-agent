@@ -158,8 +158,8 @@ def test_the_primary_key_note_follows_each_layers_cell(shipped):
     profile = shipped.conventions.get("acfc_prx")
     note = profile.primary_key_note
     both = _field(description="Member id", primary_key=True)
-    assert _column_comment(both, "stage", profile) == f"Member id; {note}"
-    assert _column_comment(both, "standard", profile) == f"Member id; {note}"
+    assert _column_comment(both, "stage", profile) == f"Member id — {note}"
+    assert _column_comment(both, "standard", profile) == f"Member id — {note}"
     stage_only = _field(primary_key=True, standard_primary_key=False)
     assert _column_comment(stage_only, "stage", profile) == note
     assert _column_comment(stage_only, "standard", profile) is None

@@ -1244,7 +1244,7 @@ class ConventionsProfileConfig(BaseModel):
     # appended to the COMMENT of a column the layer's STTM Primary Key cell
     # marks (None = no note); joined to the description by the separator;
     primary_key_note: str | None = None
-    column_comment_separator: str = "; "
+    column_comment_separator: str = " — "
     # a table COMMENT naming the layer's FRD Load Strategy, a template over
     # {strategy} (the FRD's words) and {layer} (STG / STD); None = none;
     load_strategy_comment: str | None = None

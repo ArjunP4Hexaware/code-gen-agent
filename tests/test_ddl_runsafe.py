@@ -131,3 +131,19 @@ def test_the_pair1_overlay_switches_the_run_safe_knobs_off(pair1_config):
     assert profile.statement_terminator == ""
     assert profile.cluster_by is None and profile.stage_tblproperties is None
     assert profile.domain_tags is False
+
+
+def test_a_naive_split_on_the_terminator_never_cuts_a_literal(pair11, shipped):
+    # post106: the primary-key note joins the description with " — ", not "; " —
+    # a deployment script splitting on ';' gets exactly the statements
+    spec, _ddl, _flags = pair11
+    assert shipped.conventions.get("acfc_prx").column_comment_separator == " — "
+    segment = spec.segments[0]
+    keyed = segment.model_copy(update={"fields": [
+        segment.fields[0].model_copy(update={"primary_key": True}), *segment.fields[1:]]})
+    ddl = _combined_ddl_text(spec.model_copy(update={"segments": [keyed, *spec.segments[1:]]}),
+                             shipped.conventions.get("acfc_prx"), [], shipped)
+    assert " — Primary key (STTM Primary Key)'" in ddl
+    literals = re.findall(r"'(?:[^'\\]|\\.)*'", ddl)
+    assert not [lit for lit in literals if ";" in lit]
+    assert [s.split()[0] for s in _statements(ddl)] == ["CREATE", "ALTER"] * 2

@@ -360,3 +360,27 @@ def test_synthetic_fixture_passes_the_scrub_denylist(pair):
                        REPO / "fixtures" / "workbooks" /
                        "synthetic_segmented_golden.xlsx"])
     assert hits == [], hits
+
+
+# -- post109 (codeflow audit #3): the metadata block's File Type delimiter -------- #
+
+
+@pytest.mark.parametrize(("file_type", "expected"), [
+    ("Pipe delimited (|)", "|"),          # was "(" - the first character after "delimited"
+    ("Comma delimited file", ","),        # was "f"
+    ("txt (pipe delimited |)", "|"),
+    ("Tab delimited text", "\t"),
+])
+def test_the_file_type_delimiter_is_the_stated_character(pair, tmp_path, file_type, expected):
+    workbook_path, frd_path, scoped, _ = pair
+    frd = json.loads(frd_path.read_text(encoding="utf-8"))
+    frd["feeds"][0]["delimiter"] = None            # the docx FRD reader never states one
+    frd_path.write_text(json.dumps(frd), encoding="utf-8")
+    book = build_workbook()
+    (cell,) = [c for row in book.active.iter_rows() for c in row
+               if isinstance(c.value, str) and c.value.strip().lower() == "file type"]
+    book.active.cell(cell.row, cell.column + 1).value = file_type
+    edited = tmp_path / "file_type.xlsx"
+    book.save(edited)
+    contract = extract_contract(edited, frd_path, scoped, generated_date="2026-01-01")
+    assert contract.feeds[0].source_file.delimiter == expected

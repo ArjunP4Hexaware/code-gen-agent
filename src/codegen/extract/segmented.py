@@ -55,11 +55,10 @@ from codegen.extract.audit_types import expectation as audit_expectation
 from codegen.extract.workbook import SegmentedWorkbookError, WorkbookParseError, _norm, _text
 from codegen.faq import load_faq
 from codegen.layout.profile import LayoutProfile, SheetProfile
-from codegen.resolve.resolver import _FORMAT_DELIMITERS, normalize_feed_name
+from codegen.resolve.resolver import _FORMAT_DELIMITERS, delimiter_char, normalize_feed_name
 from codegen.run_errors import Coord, located
 
 _YES_VALUES = {"yes", "y", "true"}
-_DELIMITER_RE = re.compile(r"delimited\s*(\S)")
 # The STTM trailer "Record Type" comment states the static marker, e.g.
 # "Static text identifying the record as the trailer record.\nContains the
 # value ******" — the derivation quotes this cell verbatim as its citation.
@@ -578,8 +577,9 @@ def extract_segmented_contract(
         )
 
     file_pattern = _match_file_pattern(facts["files"], frd_feed, workbook_path.name)
-    delimiter = frd_feed.delimiter or _metadata_delimiter(facts) or \
-        _FORMAT_DELIMITERS.get(frd_feed.file_format.lower())
+    delimiter = (frd_feed.delimiter
+                 or _metadata_delimiter(facts, config.extractor.delimiter_words)
+                 or _FORMAT_DELIMITERS.get(frd_feed.file_format.lower()))
     if delimiter is None:
         raise located(ExtractionError(
             f"feed {frd_feed.feed_name!r}: no delimiter in the FRD, the metadata "
@@ -773,11 +773,16 @@ def _match_file_pattern(files_value: str, frd_feed: FrdFeed, name: str) -> str:
     ), Coord("STTM"), "contract.mismatch")
 
 
-def _metadata_delimiter(facts: dict[str, str]) -> str | None:
-    match = _DELIMITER_RE.search(facts.get("file_type", ""))
-    if match and match.group(1) not in (")",):
-        return match.group(1)
-    return None
+def _metadata_delimiter(facts: dict[str, str], words: dict[str, str]) -> str | None:
+    """The delimiter a metadata block's File Type states ("Pipe delimited (|)",
+    "Comma delimited file"), read as ``resolver.delimiter_char`` reads any stated
+    delimiter: the quoted character, else the delimiter word. None when the text
+    says nothing about a delimiter or names none. post109 (codeflow audit #3): it
+    took the first character after "delimited" - "(" or "f" above."""
+    text = facts.get("file_type", "")
+    if "delimit" not in text.lower():
+        return None
+    return delimiter_char(text, words)
 
 
 __all__ = ["SegmentedWorkbookError", "extract_segmented_contract"]

@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post109 — 2026-10-26 (segmented: the File Type delimiter is the stated character)
+
+Codeflow audit #3, verified by a probe. The segmented reader took the delimiter from
+the metadata block's File Type as "the first non-space character after `delimited`".
+"Pipe delimited (|)" therefore gave `(` and "Comma delimited file" gave `f`. That source
+decides whenever the FRD states no delimiter, which is every pair with a `.docx` FRD,
+because its reader never states one. The wrong character went to the contract, the
+IIG's SRC_FILE_DELIMITER and the notebook's read options.
+- `extract/segmented._metadata_delimiter` now reads the File Type text with
+  `resolver.delimiter_char`, the reader every other stated delimiter goes through: a
+  quoted character, else a delimiter word (`extractor.delimiter_words`). Text that
+  doesn't mention a delimiter, or names none, gives None, and the format-implied
+  delimiter applies as before.
+- No test had run this function: the segmented fixture's FRD states `|` itself. New
+  tests blank the FRD delimiter and vary the File Type text. Three of the four phrases
+  failed on the old code.
+
 ## 0.5.8.post108 — 2026-10-26 (TGT_PRIMARY_KEY: a key only the Standard band marks)
 
 Codeflow audit #11, verified by a probe. The feed's `primary_key` input was built from

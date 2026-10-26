@@ -4,6 +4,29 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post111 — 2026-10-26 (layout model: no cells of a sheet without a header row)
+
+Codeflow audit #9, verified. The layout model is meant to see header regions only,
+never a data row. A sheet with no row of 3+ filled cells within its first 25 rows (a
+two-column lookup, valid-values or member list) has no header region, so its region is
+"capped". The request then carried every non-empty cell of its first 25 rows, which can
+be data, for every sheet of the workbook, on any live layout call.
+- `layout/fingerprint.model_region`: the region the MODEL sees. A capped sheet sends its
+  summary line only (name, size, merged ranges, `(capped, cells withheld)`); a bounded
+  sheet is unchanged. `layout/resolve` builds the model request from it.
+- The fingerprint, which is the layout-profile cache key, still hashes the full region,
+  so no cached profile is invalidated.
+- Trade-off: a role on a capped sheet is no longer placed by the model. Synonyms place
+  it, or the run asks the user.
+- `docs/LAYOUT_RECOGNITION.md` said both "a data row never enters" and "capped at 25
+  rows". It now describes the capped case.
+- Test: a canary in a lookup sheet's data row leaks to the recorded request on the old
+  call path and not on the new one.
+- Not changed, noted: `header_bound`'s band rule (a header of at most 5 labels over a
+  WIDER next row takes the next row as the header) can still let one data row through,
+  when a data row has more cells than its header. That's rare and needs a header-shape
+  decision.
+
 ## 0.5.8.post110 — 2026-10-26 (generic reader: the recycle rule behind an N cell)
 
 Codeflow audit #1, verified. The generic (content-path) reader built the recycle rule

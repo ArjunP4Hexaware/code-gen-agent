@@ -31,11 +31,16 @@ The guarantee is structural, not a convention:
 Only the **fingerprint material** (`layout/fingerprint.py`): sheet names,
 merged ranges, row/column counts and the cells of each sheet's header
 region — meta rows, the band row and the header row, bounded at the header
-row by a cheap structural scan (a data row never enters; when the region
-cannot be bounded it is capped at 25 rows and marked `capped`). The same
-rendering is hashed into the fingerprint, so the cache key and the prompt
-material are one and the same. A test places a canary in a data row and
-checks the recorded provider request body.
+row by a cheap structural scan (a data row never enters). When the region
+cannot be bounded (no row of 3+ cells within 25 rows: a two-column lookup,
+valid-values or member list) it is capped at 25 rows and marked `capped`. The
+fingerprint hashes that capped region, but the MODEL gets only the sheet's
+summary line, `(capped, cells withheld)`, because those rows may be data
+(`fingerprint.model_region`, post111). A role on such a sheet is placed by
+synonyms or asked of the user, never by the model. For every bounded sheet the
+cache key and the prompt material are the same rendering. Two tests place a
+canary in a data row (a mapping sheet, and a capped lookup sheet) and check the
+recorded provider request body.
 
 For a document: table titles and the label texts of each table (the
 section-prefix column and the label column), never a value cell.

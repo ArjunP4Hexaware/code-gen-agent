@@ -176,6 +176,36 @@ def test_model_request_carries_header_regions_only(pre_m9, no_cache, tmp_path):
     assert "header_region=1..15" in body
 
 
+def test_a_sheet_without_a_header_row_sends_no_cells_to_the_model(pre_m9, no_cache, tmp_path):
+    # post111 (codeflow audit #9): a two-column lookup sheet has no row of 3+ cells,
+    # so its region is capped - and its first 25 rows (data) used to reach the model
+    from codegen.layout.fingerprint import fingerprint, model_region, sheet_region
+
+    wb = load_workbook(STTM / "pair_1_family_a.xlsx")
+    lookup = wb.create_sheet("SYN_Lookup")
+    lookup.append(["Code", "Description"])
+    canary = "LOOKUP_ROW_CANARY_9d4b"
+    for i in range(30):
+        lookup.append([f"C{i:02d}", canary if i == 4 else f"value {i}"])
+    path = tmp_path / "pair_1_lookup.xlsx"
+    wb.save(path)
+    recorder = MockLayoutProvider([MOCK, PROFILES])
+    doc, _ = resolve_workbook(path, pre_m9, provider=recorder, cache_dirs=no_cache)
+    assert recorder.requests, "the layout model was not asked"
+    body = json.dumps(recorder.requests[0])
+    assert canary not in body and "C04" not in body
+    assert "sheet 'SYN_Lookup' rows=31 cols=2 header_region=1..25 (capped, cells withheld)" in body
+    assert "Target_Column_Name_in_DL" in body             # a bounded sheet is unchanged
+    # the cache key is the full region, as before: only the model's copy is withheld
+    reloaded = load_workbook(path)
+    assert sheet_region(reloaded["SYN_Lookup"]).cells and not model_region(
+        reloaded["SYN_Lookup"]).cells
+    assert model_region(reloaded["FEED_1_MAPPING"]) == sheet_region(reloaded["FEED_1_MAPPING"])
+    before = fingerprint(reloaded)
+    reloaded["SYN_Lookup"].cell(row=6, column=2, value="changed")   # a capped-region cell
+    assert fingerprint(reloaded) != before
+
+
 # ------------------------------------------------- (c) adversarial answers are rejected
 
 

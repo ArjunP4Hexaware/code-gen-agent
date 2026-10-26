@@ -5,13 +5,16 @@ ranges, row/column counts and the first ``header_rows`` rows of every sheet
 as text with cell coordinates. Data rows below the header region never
 enter it, so two workbooks with the same layout and different content share
 a fingerprint (the layout-profile cache key), and a header change breaks
-it. In M2.5 this rendering is also the ONLY workbook content a model sees.
+it. In M2.5 this rendering is also the workbook content a model sees — with
+one exception (post111): a CAPPED region (no header row found within
+``header_rows``) may be data rows, so the model gets that sheet's summary line
+only (``model_region``); the fingerprint still hashes the full capped region.
 """
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from openpyxl.utils import get_column_letter
 
@@ -30,6 +33,7 @@ class SheetRegion:
     cells: tuple[tuple[str, str], ...]   # (coordinate, text) for non-empty header-region cells
     last_row: int                        # the region's last row (the header row when bounded)
     capped: bool                         # header region not bounded within HEADER_ROWS
+    withheld: bool = False               # model_region: a capped region's cells not sent
 
 
 def header_bound(ws, header_rows: int = HEADER_ROWS) -> tuple[int, bool]:
@@ -73,12 +77,25 @@ def sheet_region(ws, header_rows: int = HEADER_ROWS) -> SheetRegion:
     )
 
 
+def model_region(ws, header_rows: int = HEADER_ROWS) -> SheetRegion:
+    """What the layout MODEL sees of one sheet: its header region, except a
+    capped one. A sheet with no header row within ``header_rows`` (a two-column
+    lookup, valid-values or member list) has no header region, and its first rows
+    may be data rows, so none of its cells are sent - only the summary line
+    (name, size, merged ranges). post111 (codeflow audit #9): up to 25 rows of such
+    a sheet used to reach the model."""
+    region = sheet_region(ws, header_rows)
+    return replace(region, cells=(), withheld=True) if region.capped else region
+
+
 def render_region(region: SheetRegion) -> str:
     """The canonical text of one sheet's header region (hash input and, in
     M2.5, prompt material)."""
     lines = [
         f"sheet {region.name!r} rows={region.rows} cols={region.cols} "
-        f"header_region=1..{region.last_row}" + (" (capped)" if region.capped else ""),
+        f"header_region=1..{region.last_row}"
+        + ((" (capped, cells withheld)" if region.withheld else " (capped)")
+           if region.capped else ""),
         "merged: " + (", ".join(region.merged) or "-"),
     ]
     lines += [f"{coordinate}: {text}" for coordinate, text in region.cells]
@@ -94,5 +111,5 @@ def fingerprint(workbook, header_rows: int = HEADER_ROWS) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["HEADER_ROWS", "SheetRegion", "fingerprint", "header_bound", "render_region",
-           "sheet_region"]
+__all__ = ["HEADER_ROWS", "SheetRegion", "fingerprint", "header_bound", "model_region",
+           "render_region", "sheet_region"]

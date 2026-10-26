@@ -59,7 +59,7 @@ from codegen.layout.discover import (
     text,
 )
 from codegen.layout.extent import load_document
-from codegen.layout.fingerprint import fingerprint, render_region, sheet_region
+from codegen.layout.fingerprint import fingerprint, model_region, render_region, sheet_region
 from codegen.layout.frd_profile import (
     FrdFieldSource,
     FrdLayoutProfile,
@@ -784,7 +784,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     role_gaps = [u for u in profile.unresolved
                  if not (BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE)]
     if role_gaps and provider is not None and model_allowed:
-        regions = [render_region(sheet_region(workbook[name])) for name in workbook.sheetnames]
+        regions = [render_region(model_region(workbook[name])) for name in workbook.sheetnames]
         request = build_sttm_request(digest, regions, profile, role_gaps, config)
         if document == "vdd":
             request["kind"] = "vdd_layout"

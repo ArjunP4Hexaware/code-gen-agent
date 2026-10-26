@@ -202,6 +202,10 @@ def _column_among(entry: dict, columns: dict[int, str], sheet: str | None) -> in
             f"header {text!r} names {len(by_header)} columns on sheet {sheet!r} "
             f"({sorted(by_header)}) — give the column index instead"),
             Coord("answers"), "answers.file")
+    if text.isdigit():
+        # post116 (codeflow audit #21): the answers template writes `column: ""`,
+        # so an index filled in between the quotes arrives as text
+        return int(text) if int(text) >= 1 else None
     if text.isalpha() and len(text) <= 3:            # a column letter
         return column_index_from_string(text.upper())
     return None

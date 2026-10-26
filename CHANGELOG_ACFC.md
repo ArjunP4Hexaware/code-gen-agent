@@ -4,6 +4,16 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post116 — 2026-10-26 (answers file: a quoted column index is an index)
+
+Codeflow audit #21 (low), verified. The answers template writes `column: ""` with the
+comment "header text | 1-based index | letter". An index typed between the quotes
+(`column: "3"`) is text, and `layout/answers._column_among` accepted only an integer, a
+header or a letter, so it refused the answer as "neither a header …, an index nor a
+column letter".
+- A digit string is now read as the 1-based index. A header literally named "3" still
+  wins (headers are matched first). "0" and "" name no column, as before.
+
 ## 0.5.8.post115 — 2026-10-26 (an answered load strategy must name one)
 
 Codeflow audit #17 (medium), verified by a probe. A `gaps:` answer for an unstated stage

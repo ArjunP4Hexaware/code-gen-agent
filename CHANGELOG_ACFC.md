@@ -4,6 +4,30 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post113 — 2026-10-26 (delimiter agreement: compared as characters)
+
+Codeflow audit #8 (high) and the medium #8, one root cause, verified. Agreement
+between documents goes through `discover.normalize`, which turns a punctuation-only
+value (`|`, `,`) into `''`. As a result:
+- `gapfill.same_value('|', '|')` was False. Two documents stating the same delimiter
+  "disagreed": the layout dialog asked a blocking choice between `|` and `|`, and the
+  CLI resolver filled nothing (no `frd_unstated:delimiter` flag).
+- The layout cross-check tested `'' in value`, so ANY two punctuation delimiters
+  "agreed". A `,` vs `|` conflict between the FRD and the STTM / VDD went unseen.
+
+The fix:
+- `same_value(a, b, words)` / `distinct(statements, words)`: when either side is
+  punctuation-only, compare as written, or, with `extractor.delimiter_words`, as the
+  delimiter CHARACTER each side states (`|` = `Pipe` = `Pipe delimited (|)`, never `,`).
+  Text values compare as before.
+- Passed `words` in the resolver's `others_for`, the layout dialog's statement loop,
+  and the cross-check, which now uses `same_value` instead of its own copy of the
+  comparison.
+- Regression check, all 12 real pairs (mock harness, old vs new code): the same outcome
+  per pair, identical SRC_FILE_DELIMITER cells in all 12 IIG workbooks, and the same
+  flags. None of them hits the bug's shape in mock mode; `tests/test_same_value.py`
+  carries it.
+
 ## 0.5.8.post112 — 2026-10-26 (edo_sfmc DDL run-safe; the gate fails CREATE OR REPLACE)
 
 Codeflow audit #12 / #15, verified. Only `acfc_prx` had become run-safe (post105).

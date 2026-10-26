@@ -1329,6 +1329,8 @@ def _frd_citation(contract: FrdContract, index: int, field_name: str) -> str:
 
 def cross_check(contract: FrdContract, sttm_profile: LayoutProfile, workbook, config: Config,
                 vdd_profile: LayoutProfile | None = None, vdd_workbook=None) -> list[CrossCheck]:
+    from codegen.resolve.gapfill import same_value
+
     facts = _sttm_facts(sttm_profile, workbook, config)
     vdd = _vdd_facts(vdd_profile, vdd_workbook)
     checks: list[CrossCheck] = []
@@ -1378,9 +1380,10 @@ def cross_check(contract: FrdContract, sttm_profile: LayoutProfile, workbook, co
                                          ", ".join(c for _, c in candidates) or "no value",
                                          "one side states none"))
                 continue
+            # post113 (codeflow audit #8): same_value, so two punctuation
+            # delimiters agree only when they are the same character
             matches = [(v, cit) for v, cit in candidates
-                       if normalize(v) == normalize(value) or normalize(v) in normalize(value)
-                       or normalize(value) in normalize(v)]
+                       if same_value(v, value, config.extractor.delimiter_words)]
             checks.append(CrossCheck(
                 key, "agree" if matches else "disagree", _frd_citation(contract, index, key),
                 matches[0][1] if matches else ", ".join(c for _, c in candidates),
@@ -2882,14 +2885,16 @@ class _FeedGapFiller:
                     others if _feed_get(feed, dotted) is None
                     else [self.frd_stmt(dotted, _feed_get(feed, dotted)), *others])
                 others = [o for o in others if o.source != "FRD"]
-            others = distinct(others)
+            words = self.config.extractor.delimiter_words
+            others = distinct(others, words)
             current = _feed_get(feed, dotted)
             if current is not None:
-                disagreeing = [o for o in others if not same_value(current, o.value)]
+                disagreeing = [o for o in others if not same_value(current, o.value, words)]
                 if disagreeing:
                     self.ask(dotted, "choice",
                              [{"value": s.value, "source": s.source, "cell": s.cell}
-                              for s in distinct([self.frd_stmt(dotted, current), *disagreeing])],
+                              for s in distinct([self.frd_stmt(dotted, current), *disagreeing],
+                                                words)],
                              "the documents disagree — choose the value to use")
                 continue
             if len(others) == 1:

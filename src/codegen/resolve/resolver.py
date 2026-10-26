@@ -491,7 +491,7 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
             value = getattr(f, vdd_attr, None)
             if value:
                 out.append(Statement(value, "VDD", f"FILES row {f.row}"))
-        return distinct(out)
+        return distinct(out, config.extractor.delimiter_words)
 
     if feed.file_format is None:
         others = distinct(format_statements(others_for("file_format", "format")))

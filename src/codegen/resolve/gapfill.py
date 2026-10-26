@@ -160,10 +160,34 @@ def format_delimiter(text: str | None, words: dict[str, str]) -> str | None:
     return delimiter_in_format(text, words)
 
 
-def same_value(a: str | None, b: str | None) -> bool:
-    """Agreement as the cross-checks judge it: equal or one contains the other."""
+def _delimiter_of(text: str, words: dict[str, str]) -> str | None:
+    """The delimiter character a value states: a single character as is, a
+    delimiter word ("Pipe"), or a phrase ("Pipe delimited (|)")."""
+    text = text.strip()
+    if len(text) == 1:
+        return text
+    return words.get(text.lower()) or delimiter_in_format(text, words)
+
+
+def same_value(a: str | None, b: str | None, words: dict[str, str] | None = None) -> bool:
+    """Agreement as the cross-checks judge it: equal or one contains the other.
+
+    post113 (codeflow audit #8): a punctuation-only value ('|', ',') normalizes to
+    '' — it used to disagree with an identical value, and to "agree" with any
+    other ('' is in every string). Such a value is compared as written, or, with
+    ``words`` (``extractor.delimiter_words``), as the delimiter character each
+    side states ('|' = 'Pipe' = 'pipe delimited', never ',')."""
     na, nb = normalize(a), normalize(b)
-    return bool(na) and bool(nb) and (na == nb or na in nb or nb in na)
+    if not na or not nb:
+        ta, tb = str(a or "").strip(), str(b or "").strip()
+        if not ta or not tb:
+            return False
+        if words:
+            da, db = _delimiter_of(ta, words), _delimiter_of(tb, words)
+            if da is not None or db is not None:
+                return da == db
+        return ta == tb
+    return na == nb or na in nb or nb in na
 
 
 _BARE_EXTENSION_RE = re.compile(r"^\.?[A-Za-z0-9]{2,5}$")
@@ -186,11 +210,13 @@ def format_statements(statements: list[Statement]) -> list[Statement]:
     return real or statements
 
 
-def distinct(statements: list[Statement]) -> list[Statement]:
-    """Statements with pairwise-different values (first spelling kept)."""
+def distinct(statements: list[Statement],
+             words: dict[str, str] | None = None) -> list[Statement]:
+    """Statements with pairwise-different values (first spelling kept); ``words``
+    as in ``same_value``."""
     out: list[Statement] = []
     for s in statements:
-        if not any(same_value(s.value, o.value) for o in out):
+        if not any(same_value(s.value, o.value, words) for o in out):
             out.append(s)
     return out
 

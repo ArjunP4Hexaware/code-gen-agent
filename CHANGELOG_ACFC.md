@@ -4,6 +4,26 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post110 — 2026-10-26 (generic reader: the recycle rule behind an N cell)
+
+Codeflow audit #1, verified. The generic (content-path) reader built the recycle rule
+from the FIRST non-empty Recycle Flag cell alone. An `N` on a row above the
+`Y ( <validation> )` row therefore dropped the rule silently: no recycle step, RECYCL_*
+cells `N`, no flag. A second flagged row was never read. One real pair has this shape:
+462 `N` cells and one `Y (…)` rule (counts only).
+- `extract/generic._recycle`: a cell reading an `extractor.discovery.no_values` word
+  (N, No, …) is an unflagged row. Every other non-empty cell must be a `Y (…)` flag, as
+  the classic reader requires. Several flagged rows with the same rule are one rule (the
+  first row's column).
+- Now loud instead of silent, as the classic reader already is: flagged rows with
+  different rules (`sttm.conflict`), a cell that is neither a no-word nor a flag
+  (`sttm.value`), and a flag with no validation text (`sttm.missing`). Each error names
+  the sheet and row.
+- Regression check on five real pairs (mock, container harness, old code vs new): the
+  same outcome per pair and identical RECYCL_* cells in all 9 IIG workbooks. The pair
+  with the bug's shape stops at NEEDS_ANSWERS in mock, so the unit tests carry that
+  case (`tests/test_generic_recycle.py`: 5 of 6 fail on the old code).
+
 ## 0.5.8.post109 — 2026-10-26 (segmented: the File Type delimiter is the stated character)
 
 Codeflow audit #3, verified by a probe. The segmented reader took the delimiter from

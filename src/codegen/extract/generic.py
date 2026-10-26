@@ -778,21 +778,46 @@ def _file_details_row(feed: FrdFeed, ir: GenericIR) -> dict[str, str] | None:
 
 
 def _recycle(sheet: SheetData, config: Config, disc: DiscoveryConfig) -> RecycleSpec | None:
+    """The sheet's recycle rule from its per-row Recycle Flag cells.
+
+    post110 (codeflow audit #1): a cell reading a ``no_values`` word (N, No) is
+    an unflagged row; every other non-empty cell must be a ``Y ( <validation> )``
+    flag, as the classic reader (``workbook.parse_recycle_text``) requires. The
+    first flagged cell used to decide alone, so an N above the Y row dropped the
+    rule silently. Several flagged rows stating the SAME rule are one rule (the
+    first row's column); rules that differ, a cell that is neither, or a flag with
+    no validation text stop the extraction (never a silent drop, never a guess)."""
     # The recycle column is per row; the band that carries it is a layout detail.
     flagged = [(row, value) for row in sheet.fields
                if (value := _first(row, "rules.recycle_flag", "standard.recycle_flag",
                                    "stage.recycle_flag", "source.recycle_flag"))]
-    if not flagged:
+    no_words = {normalize(v) for v in disc.no_values}
+    rules: list[tuple[FieldRow, str, int]] = []
+    for row, raw in flagged:
+        if normalize(raw) in no_words:
+            continue
+        where = f"sheet {sheet.profile.name!r} row {row.row}"
+        match = _RECYCLE_FLAG_RE.search(raw)
+        if match is None:
+            raise located(GenericExtractionError(
+                f"{where}: the Recycle Flag cell is neither a no-value nor a 'Y (...)' flag: "
+                f"{raw!r}"), Coord("STTM", row=row.row), "sttm.value")
+        validation = raw[match.end():].strip().rstrip(")").rstrip()
+        if not validation:
+            raise located(GenericExtractionError(
+                f"{where}: the recycle flag carries no validation text: {raw!r}"),
+                Coord("STTM", row=row.row), "sttm.missing", role="recycle_validation")
+        window = _WINDOW_DAYS_RE.search(raw)
+        rules.append((row, validation,
+                      int(window.group(1)) if window else config.defaults.recycle_window_days))
+    if not rules:
         return None
-    row, raw = flagged[0]
-    match = _RECYCLE_FLAG_RE.search(raw or "")
-    if match is None:
-        return None
-    validation = raw[match.end():].strip().rstrip(")").rstrip()
-    if not validation:
-        return None
-    window = _WINDOW_DAYS_RE.search(raw)
-    days = int(window.group(1)) if window else config.defaults.recycle_window_days
+    if len({(validation, days) for _row, validation, days in rules}) > 1:
+        raise located(GenericExtractionError(
+            f"sheet {sheet.profile.name!r}: {len(rules)} rows carry different recycle rules "
+            f"(rows {[r.row for r, _v, _d in rules]}); expected one"),
+            Coord("STTM"), "sttm.conflict")
+    row, validation, days = rules[0]
     return RecycleSpec(
         applies_to=_first(row, "source.field_name") or "",
         enabled=True,

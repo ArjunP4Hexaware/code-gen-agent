@@ -2817,3 +2817,45 @@ one-line copy above or below with its § pointer. From the first pass:
     FAIL on the multi-table mismatch (the FRD names 4 stage tables in one cell).
   - pair_10: stops before generating on the delimiter of all 4 feeds and the load
     strategy / LOBs of feeds 1–3 (the BSA answered feed 0 only).
+
+
+## §[H11] RESTART.md State blocks, post105–107 (moved verbatim 2026-10-27)
+
+### State (2026-10-26, post107 pushed; App still on post105)
+
+- **post106** (PK note joined with " — ", not "; ") and **post107** (notebook v2 never
+  `partitionBy` — clustered tables; gate check `ddl_parses`, sqlglot now a base
+  dependency; the pair-1 overlay turns that gate off: its golden is unterminated) are
+  pushed at `05a9f12`; suites `.venv` 2116 / `.venv-d1` 1809. NOT deployed — waiting on
+  Soham's go.
+- **DDL review page for Nikshit:** `/tmp/ddl_review/ddl-review.html` (synthetic examples
+  only); not published — the Artifact tool needs a claude.ai login (this session runs
+  on `ANTHROPIC_AUTH_TOKEN`). Its questions: framework `TGT_PARTITION_COLUMN` handling,
+  stage STRING vs typed, the protocol / 13 standard properties, PHI tag key + PK RELY,
+  stage written by name or ADLS path.
+- **Codeflow audit (2026-10-26, in progress):** Phase-1 tool facts in /tmp/trace (static
+  graph, coverage with test contexts: 91 functions never run, 153 CLI-only / 112
+  App-only src functions; 62 tests skip, 33+ for fixtures removed 2026-08-22), then an
+  adversarially verified multi-agent pass. /tmp is lost on a container reset.
+
+#### Earlier today (post105)
+
+- **Branch** `feature/multi-table`, pushed (`e216588` + this note). The `gh` login has
+  the `workflow` scope since 2026-10-26; CI (`.github/workflows/tests.yml`) ran green on
+  its first push (pytest full + d1, vitest + tsc, version guard).
+- **App** `codegen-agent` deployed 2026-10-26 from `e216588`; `/api/health` reports
+  `0.5.8.post105`. Browser smoke (Chromium in /tmp, `/` and `/modes`): no page errors, no
+  failed API calls. The sidebar badge reads MOCK while the Dashboard holds no runs (it is
+  `/api/feeds` `mode`, the served runs' mode, not the provider) — misleading after
+  every deploy; not changed.
+- **Suite on the post105 commit `bcb1bd1`:** `.venv` 2106 passed, `.venv-d1` 1799 passed
+  (parallel, `-n 4 --dist loadgroup`); ruff clean in both.
+- **Current work:** the run-safe DDL is live (post105); waiting on Soham's answers to
+  the DDL questions below. Then IIG scoring vs prod goldens
+  (pair_2 first, for Venu).
+- **Today 2026-10-26:** the session with Rama (child pipelines: parallel vs sequential,
+  children per feed) — the child-pipeline item waits for his answers.
+- **Decided by Soham (2026-10-22), not built:** the four Databricks workspace / cluster
+  columns of DATABRICKS_NOTEBOOK_DETAILS stay blank and out of the panel; TEMPLATE_ID
+  out of the IDs line.
+

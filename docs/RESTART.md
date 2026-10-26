@@ -4,53 +4,79 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-26, post107 pushed; App still on post105)
+## State (2026-10-27 ~00:45 UTC, post122 deployed)
 
-- **post106** (PK note joined with " — ", not "; ") and **post107** (notebook v2 never
-  `partitionBy` — clustered tables; gate check `ddl_parses`, sqlglot now a base
-  dependency; the pair-1 overlay turns that gate off: its golden is unterminated) are
-  pushed at `05a9f12`; suites `.venv` 2116 / `.venv-d1` 1809. NOT deployed — waiting on
-  Soham's go.
-- **DDL review page for Nikshit:** `/tmp/ddl_review/ddl-review.html` (synthetic examples
-  only); not published — the Artifact tool needs a claude.ai login (this session runs
-  on `ANTHROPIC_AUTH_TOKEN`). Its questions: framework `TGT_PARTITION_COLUMN` handling,
-  stage STRING vs typed, the protocol / 13 standard properties, PHI tag key + PK RELY,
-  stage written by name or ADLS path.
-- **Codeflow audit (2026-10-26, in progress):** Phase-1 tool facts in /tmp/trace (static
-  graph, coverage with test contexts: 91 functions never run, 153 CLI-only / 112
-  App-only src functions; 62 tests skip, 33+ for fixtures removed 2026-08-22), then an
-  adversarially verified multi-agent pass. /tmp is lost on a container reset.
+- **Branch** `feature/multi-table` at `2ad00eb` (post122) + this note, pushed; CI green
+  through post121 (post122's run started on push). Suites on post122: `.venv` 2163,
+  `.venv-d1` 1856 passed.
+- **App** `codegen-agent` deployed from `2ad00eb`, `/api/health` = `0.5.8.post122`. A
+  fresh LIVE pair_11 run is loaded (dashboard badge LIVE): outcome GATE_FAIL — 4 feeds
+  PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM
+  Standard-band column name with a stray space ("Word _Word", column 8 of that feed's
+  standard table). The agent copies names as stated, so that invalid column was in the
+  DDL since the feed was first generated (also in the post105 DDL shown to Nikshit);
+  `ddl_parses` (post107) caught it, post122 names it. Fix belongs in the STTM (BSA).
+  The combined DDL on the dashboard = the 4 good feeds: 8 CREATE IF NOT EXISTS, 8 SET
+  TAGS, no OR REPLACE.
+- **Today's versions (2026-10-26, one bump per fix, each with a test that fails without
+  it; details in CHANGELOG_ACFC.md):** post104–105 DDL comments + run-safe DDL;
+  post106 PK-note separator " — "; post107 notebook v2 never `partitionBy` + gate
+  `ddl_parses`; then codeflow-audit fixes — post108 Standard-band-only key gets its
+  input (#11), post109 segmented File Type delimiter (#3), post110 generic recycle rule
+  behind an N cell (#1), post111 the layout model gets no cells of a header-less sheet
+  (#9, privacy), post112 edo_sfmc run-safe + the gate fails CREATE OR REPLACE (#12/#15),
+  post113 delimiter agreement compared as characters (#8 + medium #8), post114 pairing
+  name match on word boundaries, post115 an answered load strategy must name one,
+  post116 a quoted column index in the answers file, post117 the recycle-column
+  question can be answered, post118 .docx FRD Load Strategy STD makes the feed
+  two-layer (doctrine), post119 edo_sfmc tags escaped, post120 the unstated-recycle N
+  badged a convention, post121 acfc_run.py honours `pairing:`, post122 gate
+  `ddl_identifiers`.
+- **Real-pair regression checks** (mock container harness, all 12 pairs, old vs new code,
+  client copies in /tmp deleted after): run for post110, post113, post114, post118 —
+  same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
+  standard tables their Load Strategy STD implies; artefacts unchanged).
+- **Newly seen flake:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_never_
+  block_the_list_and_are_listed_unreadable` — a healthy STTM gets a 0.4 s classify
+  timeout; under `-n 4` load it once took longer (passes alone, 3/3; the full rerun was
+  green). Widen its timeout margin if it recurs.
+- **Lesson (this session):** a push was once chained after a suite with 1 failure (the
+  flake above; the tree was green on rerun) — read the result, then push, never chained.
 
-### Earlier today (post105)
+## Codeflow audit (2026-10-26) — where it stands
 
-- **Branch** `feature/multi-table`, pushed (`e216588` + this note). The `gh` login has
-  the `workflow` scope since 2026-10-26; CI (`.github/workflows/tests.yml`) ran green on
-  its first push (pytest full + d1, vitest + tsc, version guard).
-- **App** `codegen-agent` deployed 2026-10-26 from `e216588`; `/api/health` reports
-  `0.5.8.post105`. Browser smoke (Chromium in /tmp, `/` and `/modes`): no page errors, no
-  failed API calls. The sidebar badge reads MOCK while the Dashboard holds no runs (it is
-  `/api/feeds` `mode`, the served runs' mode, not the provider) — misleading after
-  every deploy; not changed.
-- **Suite on the post105 commit `bcb1bd1`:** `.venv` 2106 passed, `.venv-d1` 1799 passed
-  (parallel, `-n 4 --dist loadgroup`); ruff clean in both.
-- **Current work:** the run-safe DDL is live (post105); waiting on Soham's answers to
-  the DDL questions below. Then IIG scoring vs prod goldens
-  (pair_2 first, for Venu).
-- **Today 2026-10-26:** the session with Rama (child pipelines: parallel vs sequential,
-  children per feed) — the child-pipeline item waits for his answers.
-- **Decided by Soham (2026-10-22), not built:** the four Databricks workspace / cluster
-  columns of DATABRICKS_NOTEBOOK_DETAILS stay blank and out of the panel; TEMPLATE_ID
-  out of the IDs line.
+- Phase 1 (deterministic, /tmp/trace — lost on a container reset): static graph,
+  coverage with per-test contexts (91 functions never run; 153 CLI-only / 112 App-only
+  src functions), vulture, config-knob audit (6 knobs never read, 55 defaults absent
+  from the YAML), 62 skipped tests (33+ for fixtures removed 2026-08-22).
+- Phase 2: a multi-agent workflow was STOPPED at 7 of 18 finders (1.7M tokens — no
+  budget set; do not rerun it without one). Its 62 findings were verified BY HAND: 15
+  high (13 real, 1 minor, 1 duplicate) and 29 of 47 medium/low triaged. Fixed: high
+  #11 #3 #1 #9 #12/#15 #8; medium #8 #20 #21 #17 #3 #1 #37 #30 #19 #43/#44.
+- **Open — needs Soham:** high #4 (multi-file FRD split renames standard tables to the
+  stage names and pairs files by name guess, silently; both the classic and the .docx
+  copy) — tied to the multi-table decision; medium #29 ACTIVE_START_DATE = run date
+  (post81, intended) vs the byte-stable rule; #12 any "as is" FRD rule turns every
+  column STRING in both layers, unflagged; #13 the rule classifier stops at its first
+  match.
+- **Open — codeable later:** #36 notebook v2 drops fixed-width columns whose start /
+  length is not a digit, unflagged; #35 notebook v2 several ADLS rows into one stage
+  table overwrite each other (needs Spark to prove); #33 `<<COLUMN#n>>` placeholders
+  repeat across sheets; #27 / blind spots: 23 of 25 notebook v2 tests skip (fixtures
+  removed); dead code `_reject_segmented_family`, `_frd_required`, `band_layer_answers`
+  (#5 #11 #26); #42 `ddl_parses` checks framework `.txt` only; #7 width questions
+  keyed by sheet index; 18 medium/low still unverified. The CLI/App flag differences
+  (#40 #41) are partly by design.
+- The 11 audit areas never searched (config, edges, App runner / API, frontend, the
+  cross-cutting lenses) — if resumed: one area at a time, inline or with a hard budget.
 
 ## Next up — Nikshit's review (2026-10-23)
 
 **DDL — run-safe: DEPLOYED (post105, 2026-10-26).** Verified on the App: a live pair_11
 run (PASS_WITH_OPEN_INPUTS, 5 feeds PASS_WITH_FLAGS) gave a combined DDL of 10 CREATE
 (all `IF NOT EXISTS`, CLUSTER BY AUTO, 4 / 13 TBLPROPERTIES, table COMMENT) each followed
-by its SET TAGS, 20 statements all terminated, no conflicts, no `''`. Two `;` sit inside
-COMMENT literals (the PK note's `column_comment_separator: "; "`): fine for a quote-aware
-runner (SQL editor, notebook), would break a naive split on `;` — ask Soham whether to
-change the separator. Soham, 2026-10-26: the
+by its SET TAGS, 20 statements all terminated, no conflicts, no `''`. The PK note's
+separator is " — " since post106 (Soham), so no `;` sits inside a COMMENT the agent writes. Soham, 2026-10-26: the
 agent's DDL GETS RUN. post104 (column COMMENTs, PK notes, load strategy, standard
 TBLPROPERTIES, `\'` escapes) is deployed; post105 adds five `acfc_prx` knobs (on in
 config.yaml, off in the pair-1 overlay — golden byte-identical): `CREATE TABLE IF NOT

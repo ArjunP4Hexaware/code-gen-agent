@@ -225,8 +225,22 @@ for kind, found in (("frd", frds), ("vdd", vdds)):
     wanted = overrides.lookup(sttm.name, kind)
     if wanted and (local_pair / wanted).is_file():
         found.setdefault(wanted, local_pair / wanted)
-frd_name = pair_by_content("frd", sttm, frds, config, REPO, overrides=overrides).chosen
-vdd_name = pair_by_content("vdd", sttm, vdds, config, REPO, overrides=overrides).chosen
+# post121 (codeflow audit, medium #19): the answers file's `pairing:` choice for
+# this STTM wins, as it does for `codegen pair` above - the message below has always
+# told the user to add it, but only a pairing_overrides.yaml was read here
+from codegen.layout.answers import load_answers  # noqa: E402
+
+chosen = (load_answers(local_pair / ANSWERS_NAME).pairing.get(sttm.name, {})
+          if ANSWERS_NAME else {})
+for kind, found in (("frd", frds), ("vdd", vdds)):
+    if chosen.get(kind):
+        assert (local_pair / chosen[kind]).is_file(), (
+            f"answers file pairing: {chosen[kind]!r} ({kind}) is not in the pair folder")
+        found.setdefault(chosen[kind], local_pair / chosen[kind])
+frd_name = (chosen.get("frd")
+            or pair_by_content("frd", sttm, frds, config, REPO, overrides=overrides).chosen)
+vdd_name = (chosen.get("vdd")
+            or pair_by_content("vdd", sttm, vdds, config, REPO, overrides=overrides).chosen)
 assert frd_name, "no FRD paired — add `pairing:` to the answers file (see the output above)"
 frd = frds[frd_name]
 vdd = vdds.get(vdd_name) if vdd_name else None

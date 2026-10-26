@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post121 — 2026-10-26 (acfc_run.py honours the answers file's pairing:)
+
+Codeflow audit, medium #19, verified by reading. `acfc_run.py` (the one-pair notebook
+fallback) calls `codegen pair --answers …`, which applies the answers file's `pairing:`
+choice. It then worked out the FRD / VDD pairing a second time from content and a
+`pairing_overrides.yaml` only, ignoring that choice, while its own failure message
+says "add `pairing:` to the answers file".
+- The answers file's `pairing: {<STTM>: {frd, vdd}}` choice for this STTM now wins, as
+  in `codegen pair`. A named file missing from the pair folder stops with its name.
+  Content pairing is the fallback, as before.
+- Not covered by a test: the notebook needs `dbutils` (the repo's CLI suite covers
+  `codegen pair`'s handling). The file's 6 pre-existing ruff findings are unchanged.
+
 ## 0.5.8.post120 — 2026-10-26 (IIG: the unstated-recycle N is badged a convention)
 
 Codeflow audit #30 (low), verified. Under a family whose convention writes `N` when no

@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post112 — 2026-10-26 (edo_sfmc DDL run-safe; the gate fails CREATE OR REPLACE)
+
+Codeflow audit #12 / #15, verified. Only `acfc_prx` had become run-safe (post105).
+`edo_sfmc`'s two-file template hardcoded `CREATE OR REPLACE TABLE`, the code default of
+`create_statement` was also the destructive form, and no check enforced the rule. The
+App offers `edo_sfmc` as a selectable profile. An engineer re-running that profile's
+DDL against deployed tables would empty them.
+- `templates/framework/table_creation.txt.j2` takes the CREATE wording from the
+  profile's `create_statement`, as the combined template does.
+- `ConventionsProfileConfig.create_statement` now defaults to `CREATE TABLE IF NOT
+  EXISTS`. Only the pair-1 fixture overlay pins `CREATE OR REPLACE TABLE`, for its
+  golden. `acfc_prx` output is unchanged.
+- Gate `ddl_parses` also FAILs any `CREATE OR REPLACE` statement (sqlglot's `replace`
+  flag). The run-safe rule is now enforced, not only documented. The pair-1 overlay
+  already runs with that check off.
+- `edo_sfmc` output now deviates from its scrubbed SFMC reference files in this one
+  clause, deliberately. Those reference files fail the run-safe check (recorded in
+  `tests/test_ddl_parse_gate.py`). The current prod D1 set is `IF NOT EXISTS`.
+
 ## 0.5.8.post111 — 2026-10-26 (layout model: no cells of a sheet without a header row)
 
 Codeflow audit #9, verified. The layout model is meant to see header regions only,

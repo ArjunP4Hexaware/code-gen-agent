@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from codegen.config import Config
+from codegen.config import Config, ConventionsProfileConfig
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
 from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
 from codegen.emit.metadata_inserts import emit_metadata_inserts
@@ -707,7 +707,9 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                         "tables (create_tables: false).")
     banner_lines.extend(extra_banner_lines or [])
     template = _environment().get_template("framework/table_creation.txt.j2")
-    return template.render(layer=layer, tables=tables, banner_lines=banner_lines)
+    create_statement = (profile or ConventionsProfileConfig()).create_statement
+    return template.render(layer=layer, tables=tables, banner_lines=banner_lines,
+                           create_statement=create_statement)
 
 
 # -- config_inserts.sql -------------------------------------------------------- #

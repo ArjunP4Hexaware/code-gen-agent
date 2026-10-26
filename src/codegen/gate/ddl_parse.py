@@ -6,6 +6,11 @@ every DDL text is parsed with sqlglot under ``gate.ddl_parse_dialect``
 ``Command`` (it did not recognise the statement), fails the check. Offline: no
 warehouse, no EXPLAIN.
 
+post112 (codeflow audit #15): the same check enforces the run-safe rule — a
+``CREATE OR REPLACE`` empties a deployed table when the engineer re-runs the
+file, so it fails the check (the pair-1 golden, which needs it, runs with the
+check off).
+
 sqlglot not installed where the gate runs: a ``sqlglot_unavailable`` flag, never
 a FAIL (the ``ruff_unavailable`` rule). ``ddl_parse_dialect: null`` = no check.
 """
@@ -42,6 +47,10 @@ def check_ddl_parses(ddl_texts: list[tuple[str, str]], dialect: str) -> GateChec
             if isinstance(node, exp.Command):
                 problems.append(f"{name}: statement {index} not recognised by sqlglot "
                                 f"{dialect} (kept as a raw command)")
+            elif isinstance(node, exp.Create) and node.args.get("replace"):
+                problems.append(f"{name}: statement {index} is CREATE OR REPLACE — not safe "
+                                "to re-run against a deployed table (use the profile's "
+                                "create_statement: CREATE TABLE IF NOT EXISTS)")
     if problems:
         return GateCheck(name=NAME, passed=False, details="; ".join(problems))
     return GateCheck(name=NAME, passed=True,

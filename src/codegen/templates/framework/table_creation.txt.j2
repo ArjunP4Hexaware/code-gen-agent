@@ -1,6 +1,8 @@
 {# One deployment-team .txt DDL file (stage OR standard layer), conformant to
    the client's reference style (fixtures/reference/SFMC_*_table_creation.txt):
-   "--<catalog>.<schema>.<table>" header line, CREATE OR REPLACE TABLE with
+   "--<catalog>.<schema>.<table>" header line, the profile's create_statement
+   (post112: CREATE TABLE IF NOT EXISTS - the reference goldens' CREATE OR
+   REPLACE would empty a deployed table when the engineer re-runs it) with
    per-column COMMENTs, table-level COMMENT, stage LOCATION / standard
    CLUSTER BY AUTO, the layer's TBLPROPERTIES block, trailing SET TAGS.
    Plain SQL comments only — no markdown, no fences. #}
@@ -15,7 +17,7 @@
 
 --{{ t.qualified }}
 
-CREATE OR REPLACE TABLE {{ t.qualified }} (
+{{ create_statement }} {{ t.qualified }} (
 {% for col in t.columns %}
   {{ col.name }} {{ col.dtype }}{% if col.comment %} COMMENT '{{ col.comment }}'{% endif %}{{ ")" if loop.last else "," }}
 {% endfor %}

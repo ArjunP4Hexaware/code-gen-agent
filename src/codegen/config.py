@@ -1228,7 +1228,11 @@ class ConventionsProfileConfig(BaseModel):
     # the stage rows that carry a Standard band, in stage order, named by that
     # band; a table none of whose rows carries one keeps the stage list.
     standard_from_stage: bool = False
-    create_statement: str = "CREATE OR REPLACE TABLE"
+    # post112 (codeflow audit #12): the CREATE wording of BOTH layouts (the
+    # combined file and edo_sfmc's two files). The engineer RUNS the DDL, so the
+    # default is the re-runnable form; only a golden that needs OR REPLACE pins it
+    # (the pair-1 fixture overlay).
+    create_statement: str = "CREATE TABLE IF NOT EXISTS"
     using_clause: str = "USING delta"
     stage_banner: str = "--stage table"
     standard_banner: str = "--standard table"

@@ -51,11 +51,16 @@ def test_the_pair1_golden_is_not_runnable_as_one_script_so_its_overlay_skips_the
     assert pair1_config.gate.ddl_parse_dialect is None
 
 
-def test_the_sfmc_reference_files_parse():
+def test_the_sfmc_reference_files_parse_but_are_not_run_safe():
+    # they parse; their only finding is the CREATE OR REPLACE (post112), the very
+    # form the agent no longer copies from them
     files = [(p.name, p.read_text(encoding="utf-8")) for p in SFMC if p.is_file()]
     if not files:
         pytest.skip("SFMC reference DDLs absent")
-    assert check_ddl_parses(files, "databricks").passed
+    check = check_ddl_parses(files, "databricks")
+    problems = check.details.split("; ")
+    assert not check.passed and len(problems) == len(files)
+    assert all("statement 1 is CREATE OR REPLACE" in p for p in problems)
 
 
 @pytest.mark.parametrize("break_it", [
@@ -79,3 +84,11 @@ def test_without_sqlglot_it_is_a_flag_never_a_fail(pair11_ddl, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", no_sqlglot)
     check = check_ddl_parses([("VC_DDL.txt", pair11_ddl)], "databricks")
     assert check.passed and check.not_run and check.flag == SQLGLOT_UNAVAILABLE
+
+
+def test_create_or_replace_fails_the_gate(pair11_ddl):
+    # post112 (codeflow audit #15): the run-safe rule, enforced
+    unsafe = pair11_ddl.replace("CREATE TABLE IF NOT EXISTS", "CREATE OR REPLACE TABLE", 1)
+    check = check_ddl_parses([("VC_DDL.txt", unsafe)], "databricks")
+    assert not check.passed
+    assert "statement 1 is CREATE OR REPLACE" in check.details

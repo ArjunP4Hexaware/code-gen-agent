@@ -189,7 +189,9 @@ def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
     """Structural conformance to the client's scrubbed reference goldens:
     clause presence/order, LOCATION on stage only, CLUSTER BY AUTO on
     standard only, TBLPROPERTIES key sets, trailing SET TAGS — never value
-    equality (different feed, different columns)."""
+    equality (different feed, different columns). One deliberate deviation
+    (post112): CREATE TABLE IF NOT EXISTS where the goldens write CREATE OR
+    REPLACE — the DDL is re-run against deployed tables."""
     golden_stage = (_REF / "SFMC_stage_table_creation.txt").read_text(encoding="utf-8")
     golden_standard = (_REF / "SFMC_standard_table_creation.txt").read_text(encoding="utf-8")
     tmp, results = framework_run
@@ -199,11 +201,13 @@ def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
         standard = standard_path.read_text(encoding="utf-8")
 
         for text in (stage, standard):
-            assert "CREATE OR REPLACE TABLE " in text
+            # post112: re-runnable against deployed tables, unlike the goldens'
+            # CREATE OR REPLACE (codeflow audit #12)
+            assert "CREATE TABLE IF NOT EXISTS " in text
+            assert "OR REPLACE" not in text
             assert " COMMENT '" in text          # per-column COMMENT clauses
             assert "USING delta" in text
             assert "SET TAGS ('DOMAIN' = " in text
-            assert "CREATE TABLE IF NOT EXISTS" not in text
 
         # LOCATION on stage only; CLUSTER BY AUTO on standard only.
         assert "LOCATION '" in stage and "LOCATION '" not in standard
@@ -218,11 +222,11 @@ def test_ddl_txt_style_conforms_to_reference_goldens(framework_run):
 
         # Clause order within the first table section mirrors the goldens.
         for text, has_location in ((stage, True), (standard, False)):
-            create = text.index("CREATE OR REPLACE TABLE ")
+            create = text.index("CREATE TABLE IF NOT EXISTS ")
             using = text.index("USING delta")
             props = text.index("TBLPROPERTIES (")
             tags = text.index("SET TAGS (")
-            assert text.index(f"--{text[create:].split()[4]}") < create
+            assert text.index(f"--{text[create:].split()[5]}") < create
             assert create < using < props < tags
             if has_location:
                 assert using < text.index("LOCATION '") < props

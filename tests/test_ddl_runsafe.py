@@ -147,3 +147,13 @@ def test_a_naive_split_on_the_terminator_never_cuts_a_literal(pair11, shipped):
     literals = re.findall(r"'(?:[^'\\]|\\.)*'", ddl)
     assert not [lit for lit in literals if ";" in lit]
     assert [s.split()[0] for s in _statements(ddl)] == ["CREATE", "ALTER"] * 2
+
+
+def test_every_profile_is_run_safe_by_default(shipped):
+    # post112 (codeflow audit #12): the model default and both shipped profiles;
+    # only the pair-1 fixture overlay pins OR REPLACE (its golden)
+    from codegen.config import ConventionsProfileConfig
+
+    assert ConventionsProfileConfig().create_statement == "CREATE TABLE IF NOT EXISTS"
+    for name, profile in shipped.conventions.profiles.items():
+        assert profile.create_statement == "CREATE TABLE IF NOT EXISTS", name

@@ -4,23 +4,20 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-26, post105 built, not pushed)
+## State (2026-10-26, post105 deployed)
 
-- **Branch** `feature/multi-table`. GitHub is at `34699db` (post104 + the test
-  tooling). THREE local commits are NOT pushed: `5010c50` (the CI workflow +
-  `tools/ddl_shape.py`), `d0eb5f6` (docs) and the post105 commit (run-safe DDL).
-  GitHub refuses the push: the container's `gh` login lacks the `workflow` scope,
-  which any push adding `.github/workflows/` needs (re-checked 2026-10-26: scopes
-  `gist, read:org, repo`). Soham runs `gh auth refresh -h github.com -s workflow`
-  (interactive), then `git push`, then the deploy (below). Do not work around it (no
-  moving the file, no other token).
-- **App** `codegen-agent` deployed 2026-10-26 from `34699db`; `/api/health` reports
-  `0.5.8.post104`. The DDL comments / PK notes / load strategy / standard TBLPROPERTIES
-  are live (the 2026-10-26 morning redeploy was still post103: nothing had been pushed).
+- **Branch** `feature/multi-table`, pushed (`e216588` + this note). The `gh` login has
+  the `workflow` scope since 2026-10-26; CI (`.github/workflows/tests.yml`) ran green on
+  its first push (pytest full + d1, vitest + tsc, version guard).
+- **App** `codegen-agent` deployed 2026-10-26 from `e216588`; `/api/health` reports
+  `0.5.8.post105`. Browser smoke (Chromium in /tmp, `/` and `/modes`): no page errors, no
+  failed API calls. The sidebar badge reads MOCK while the Dashboard holds no runs (it is
+  `/api/feeds` `mode`, the served runs' mode, not the provider) — misleading after
+  every deploy; not changed.
 - **Suite on the post105 commit `bcb1bd1`:** `.venv` 2106 passed, `.venv-d1` 1799 passed
   (parallel, `-n 4 --dist loadgroup`); ruff clean in both.
-- **Current work:** the run-safe DDL is built (post105); waiting on the push and on
-  Soham's answers to the three DDL questions below. Then IIG scoring vs prod goldens
+- **Current work:** the run-safe DDL is live (post105); waiting on Soham's answers to
+  the DDL questions below. Then IIG scoring vs prod goldens
   (pair_2 first, for Venu).
 - **Today 2026-10-26:** the session with Rama (child pipelines: parallel vs sequential,
   children per feed) — the child-pipeline item waits for his answers.
@@ -30,7 +27,13 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
 ## Next up — Nikshit's review (2026-10-23)
 
-**DDL — run-safe: BUILT (post105, 2026-10-26), not pushed.** Soham, 2026-10-26: the
+**DDL — run-safe: DEPLOYED (post105, 2026-10-26).** Verified on the App: a live pair_11
+run (PASS_WITH_OPEN_INPUTS, 5 feeds PASS_WITH_FLAGS) gave a combined DDL of 10 CREATE
+(all `IF NOT EXISTS`, CLUSTER BY AUTO, 4 / 13 TBLPROPERTIES, table COMMENT) each followed
+by its SET TAGS, 20 statements all terminated, no conflicts, no `''`. Two `;` sit inside
+COMMENT literals (the PK note's `column_comment_separator: "; "`): fine for a quote-aware
+runner (SQL editor, notebook), would break a naive split on `;` — ask Soham whether to
+change the separator. Soham, 2026-10-26: the
 agent's DDL GETS RUN. post104 (column COMMENTs, PK notes, load strategy, standard
 TBLPROPERTIES, `\'` escapes) is deployed; post105 adds five `acfc_prx` knobs (on in
 config.yaml, off in the pair-1 overlay — golden byte-identical): `CREATE TABLE IF NOT

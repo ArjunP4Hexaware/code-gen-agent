@@ -235,3 +235,87 @@ def test_the_v2_notebook_stops_on_an_open_merge_key():
     row["values"]["TGT_LOAD_OPTION"] = "Append"
     notebook_v2._standards(payload, opened)
     assert not any("TGT_PRIMARY_KEY" in c for c in opened.cells)
+
+
+# ------------------------------- post108: a key only the Standard band marks
+
+
+def _standard_keyed_pair1(tmp_path: Path, config) -> tuple[Path, Path, tuple[str, ...]]:
+    """Pair 1 with an Upsert standard leg whose key ONLY the Standard band's
+    Primary Key cells mark (CARDHOLDER_ID / PLAN_ID: primary_key False,
+    standard_primary_key True — what generic.py writes when only that band says
+    Y), and no FRD key statement. Returns the keyed standard columns too."""
+    frd, sttm, _vdd = fx.prx_pair(tmp_path, config)
+    frd_json = json.loads(Path(frd).read_text(encoding="utf-8"))
+
+    def drop_key_statements(node):
+        if isinstance(node, dict):
+            for key in node:
+                if key == "key_statement":
+                    node[key] = None
+                else:
+                    drop_key_statements(node[key])
+        elif isinstance(node, list):
+            for item in node:
+                drop_key_statements(item)
+    drop_key_statements(frd_json)
+    frd_json["feeds"][0]["standard_target"]["load_strategy"] = "Upsert"
+    frd = tmp_path / "std_keyed.frd.contract.json"
+    frd.write_text(json.dumps(frd_json), encoding="utf-8")
+    sttm_json = json.loads(Path(sttm).read_text(encoding="utf-8"))
+    keyed = []
+    for field in sttm_json["feeds"][0]["fields"]:
+        if (field["source_column"] in ("CARDHOLDER_ID", "PLAN_ID")
+                and field.get("record_segment") in (None, "Detail")):
+            field["primary_key"] = False
+            field["standard_primary_key"] = True
+            keyed.append(field["standard_column"])
+    sttm = tmp_path / "std_keyed.sttm.contract.json"
+    sttm.write_text(json.dumps(sttm_json), encoding="utf-8")
+    return frd, sttm, tuple(keyed)
+
+
+def test_a_standard_only_key_is_written_by_autoset_on_the_standard_row(tmp_path,
+                                                                        monkeypatch, capsys):
+    # post108 (codeflow audit #11): the feed's key input was built from the STAGE
+    # table's signal only, so a key only the Standard band marks had no input,
+    # no question, and the Upsert leg shipped with a blank key, exit 0
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    config = fx.acfc_config(tmp_path, fx.PAIR1_OVERLAY)
+    assert config.conventions.get("acfc_prx").primary_key_autoset is True
+    frd, sttm, keyed = _standard_keyed_pair1(tmp_path, config)
+    (spec,) = resolve_pair(frd, sttm, config)
+    assert len(keyed) == 2 and primary_key.merge_legs(spec) == ["standard"]
+    assert primary_key.feed_proposal(spec).kind == "sttm"
+    assert _run(config, [(frd, sttm)], parts=("framework",)) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if f"feeds.{spec.feed_id}.primary_key" in ln]
+    assert lines and all(ln.startswith("NOTE") for ln in lines)
+    (std_row,) = _iig_rows(tmp_path / "out", "STGDELTA_STDDELTA_INGESTION_DET")
+    assert std_row["TGT_PRIMARY_KEY"] == ",".join(keyed)
+    # the stage (ADLS) rows: no stage signal, an append leg — no key written there
+    assert all(not r["TGT_PRIMARY_KEY"]
+               for r in _iig_rows(tmp_path / "out", "ADLS_DELTA_INGESTION_DETAILS"))
+
+
+def test_a_standard_only_key_is_an_input_and_written_on_use_default(tmp_path,
+                                                                    monkeypatch, capsys):
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    config = fx.acfc_config(tmp_path, fx.PAIR1_OVERLAY, _no_autoset(tmp_path))
+    frd, sttm, keyed = _standard_keyed_pair1(tmp_path, config)
+    (spec,) = resolve_pair(frd, sttm, config)
+    feed = spec.feed_id
+    _run(config, [(frd, sttm)], parts=("framework",))
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if f"feeds.{feed}.primary_key" in ln)
+    assert line.startswith("INPUT_NEEDED") and "Standard band" in line
+    (std_row,) = _iig_rows(tmp_path / "out", "STGDELTA_STDDELTA_INGESTION_DET")
+    assert not std_row["TGT_PRIMARY_KEY"]                        # proposed, not applied
+
+    answers = tmp_path / "answers.yaml"
+    answers.write_text(f"inputs:\n  feeds:\n    {feed}:\n      primary_key:\n"
+                       "        choice: use_default\n", encoding="utf-8")
+    shutil.rmtree(tmp_path / "out")
+    _run(config, [(frd, sttm)], answers, parts=("framework",))
+    (std_row,) = _iig_rows(tmp_path / "out", "STGDELTA_STDDELTA_INGESTION_DET")
+    assert std_row["TGT_PRIMARY_KEY"] == ",".join(keyed)

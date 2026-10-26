@@ -202,8 +202,14 @@ def detail_table(spec, layer: str = "stage") -> TableKey:
 
 
 def feed_proposal(spec, faq=None, corpus=None) -> KeyProposal:
-    """The feed's proposal: the detail table's, stage columns (the input's value)."""
-    return proposal(detail_table(spec, "stage"), spec, faq, corpus)
+    """The feed's proposal: the detail table's, stage columns (the input's value);
+    post108: the standard detail table's when the stage table has no signal (a key
+    only the Standard band marks), so the feed's input exists for every keyed leg —
+    each row's cell still writes its own table's key (``key_cell``)."""
+    offer = proposal(detail_table(spec, "stage"), spec, faq, corpus)
+    if offer or spec.standard_table is None:
+        return offer
+    return proposal(detail_table(spec, "standard"), spec, faq, corpus)
 
 
 def answered(faq) -> tuple[str, str, str] | None:

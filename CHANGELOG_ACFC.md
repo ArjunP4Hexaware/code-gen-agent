@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post108 — 2026-10-26 (TGT_PRIMARY_KEY: a key only the Standard band marks)
+
+Codeflow audit #11, verified by a probe. The feed's `primary_key` input was built from
+the stage detail table's key signal only. If only the STTM's Standard band marked the
+key (stage band unkeyed) and the standard leg was an Upsert, the run got no
+INPUT_NEEDED line, no QUESTION, no answers-template entry and no manifest record. The
+STGDELTA row's `TGT_PRIMARY_KEY` shipped blank with exit 0, and the framework cannot
+merge without a key.
+- `primary_key.feed_proposal` now falls back to the standard detail table's signal when
+  the stage table has none. Under `primary_key_autoset` (on in acfc_env.yaml) the
+  standard row is written unasked, with a NOTE. Without autoset the feed gets its
+  INPUT_NEEDED line, and `use_default` writes it. Each row still writes its own table's
+  key: the ADLS (stage) rows stay blank, because the stage table has no signal.
+- Not changed, noted: `question()` asks only when NO merge leg has a signal. A stage key
+  with the standard band explicitly `N` on an Upsert standard leg still gets no
+  question. That shape is rare: the standard leg inherits the stage cells unless its own
+  band says otherwise.
+
 ## 0.5.8.post107 — 2026-10-26 (notebook v2: no partitionBy on clustered tables; the DDL parse gate)
 
 From the DDL / Databricks-capabilities review (2026-10-26):

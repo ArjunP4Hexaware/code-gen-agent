@@ -5,9 +5,9 @@ elsewhere:
 - **Where the work is now** (state, next up, open items, container recipes):
   `docs/RESTART.md` — read it first, update it at the end of a session.
 - **What each version did:** `CHANGELOG_ACFC.md`.
-- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H9]; §[H9] = everything
-  this file carried before the 2026-10-23 clean-up). The pre-clean-up file itself:
-  `git show fa79a28:CLAUDE.md`.
+- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H10]; §[H9] = everything
+  this file carried before the 2026-10-23 clean-up, §[H10] = retired RESTART.md blocks).
+  The pre-clean-up file itself: `git show fa79a28:CLAUDE.md`.
 
 A new rule earns a line here only if it stays true across sessions; a dated "after postNN"
 note goes in RESTART.md and then into the history, never here.
@@ -86,8 +86,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   the App caches its env on requirements.txt and `/api/health` must never name two trees
   with one version. The next version is the last `CHANGELOG_ACFC.md` entry + 1, never
   from a prompt. Docs-only pushes need no bump. The pre-push guard is
-  `scripts/git-hooks/pre-push` (`git config core.hooksPath scripts/git-hooks`; see
-  RESTART.md for this container's hooks).
+  `scripts/git-hooks/pre-push`; `scripts/dev_bootstrap.sh` installs it next to this
+  container's global hooks (CI runs it too).
+- **Pushing:** the App deploys from GitHub, so an unpushed commit never reaches it —
+  after a deploy, `/api/health` must name the pushed version. A push that adds or
+  changes `.github/workflows/` needs the `workflow` scope on the `gh` login (`gh auth
+  refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
+- **CI** (`.github/workflows/tests.yml`): both venvs' suites, vitest + tsc and the
+  version guard on every push; offline, no secrets. It never replaces the local
+  full-suite run before a push.
 - **`ui/frontend/dist` is tracked:** any `ui/frontend/src` change ships with a rebuilt
   `dist` (`npm run build`) — the App serves it.
 - **Tests:** run the affected files while working; run the full suite in BOTH venvs once
@@ -155,8 +162,9 @@ fixtures/      synthetic / scrubbed only, each path re-included deliberately in 
                workbooks/synthetic_segmented_golden.xlsx
 tests/         offline, no Spark; fixture-driven tests SKIP with a reason when files are
                absent (conftest `require_fixture_files`)
-tools/ scripts/  iig_diff.py, iig_fill_rate.py, notebook_parity.py; container_harness.py,
-               scrub_check.py, bump_version.py, build_acfc_shapes.py, git-hooks/
+tools/ scripts/  iig_diff.py, iig_fill_rate.py, notebook_parity.py, ddl_shape.py;
+               container_harness.py, scrub_check.py, bump_version.py,
+               build_acfc_shapes.py, dev_bootstrap.sh, git-hooks/
 docs/          RESTART.md, DESIGN.md, WORKFLOW.md (verdict semantics), LAYOUT_RECOGNITION.md,
                SEGMENTED_MODE_DESIGN.md, EDO_STANDARDS_ALIGNMENT.md, ACFC_DEPLOY.md
                (incl. CLI exit codes), ACFC_APP_ENV.md, acfc/ (SHAPES_FOR_PORT.md,
@@ -297,11 +305,22 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
 - **Conventions profiles** (`conventions.profile`; default `edo_sfmc`): `edo_sfmc` = two
   `.txt` DDL files with per-column COMMENTs, CLUSTER BY AUTO + TBLPROPERTIES;
   `acfc_prx` = ONE combined `<ABBREV>_DDL.txt`, stage columns typed as the STTM states,
-  every whitespace quirk of the pair-1 golden a knob, compared byte for byte. To add a
+  every whitespace quirk of the pair-1 golden a knob, compared byte for byte; its column
+  / table COMMENT, primary-key note and standard TBLPROPERTIES are knobs too (on in
+  config.yaml, off in the pair-1 overlay so that golden stays exact). To add a
   profile: a key under `conventions.profiles`, a golden under
   `fixtures/acfc_shapes/<pair>/golden/`, a byte-identity test like
   `tests/test_m4_acceptance.py`. A DDL column identifier must match
   `^[A-Za-z_][A-Za-z0-9_]*$` (`gate/ddl_names.py`).
+- **The DDL is RUN by the engineer** (Soham, 2026-10-26), not a reference only: every
+  statement must be safe to re-run against deployed tables (`CREATE TABLE IF NOT EXISTS`,
+  never `CREATE OR REPLACE` there) and terminated. ACFC's prod DDL template is the
+  target; `tools/ddl_shape.py` scores the agent's DDL structure against it (counts and
+  property names only — prod files read into a scratch dir, never the repo).
+- **DDL string literals** escape a quote with a backslash (`\'`); `''` is no escape in
+  Databricks SQL (DBR 18+ reads `'a''b'` as two chained literals). The `sql_literals`
+  gate fails a doubled quote. A COMMENT is the STTM's description, never a Comments
+  cell (rule text) and never an audit marker (`NA`).
 - **IIG templates** (`metadata.template`): `iig_v1` = the 7-tab SFMC reference; `iig_v2`
   = the PRX 8-sheet layout, rows from `metadata_template.py`. Every cell is transcribed
   from an input, a cited constant or an answer; the rest is blank and flagged

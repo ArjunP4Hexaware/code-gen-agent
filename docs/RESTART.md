@@ -4,67 +4,57 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-23, post104)
+## State (2026-10-26, post104)
 
-- **Branch** `feature/multi-table`, head post104 (the DDL refinement; CHANGELOG_ACFC.md).
-  The App still runs post103 until redeployed.
-- **App** `codegen-agent` deployed at post103 from GitHub (2026-10-23 12:56 UTC).
-  `/api/health` reports `0.5.8.post103`.
-- **Current work:** scoring the agent's IIG workbooks against prod "golden" IIG rows —
-  pair_2 (SD) first, for Venu. Deliverables: DDL / `metadata_inserts.sql` + the IIG
-  workbook (runbook / playbook out of scope).
-- **post98–103 verified on the App** on the pair_11 live run `demo_20261023_132913`
-  (artefacts via `/api/combined/…` + a Playwright pass):
-  - the combined set is `Pyx_Care_Management_Data_MI_DSNP_*` (no `STTM_`);
-  - OBJECT_ID 1..5 across the run;
-  - 12 pipeline rows = 1 grand master + 1 master (both Daily, `_DLY`) + 2 × 5 children;
-  - the `_LOG.md` merged / kept lists; the short IDs line; IIG_REVIEW hidden;
-  - Run summary + Feeds collapsed; View results hides the sidebar for the page only.
-  - That run made NO model call: layout from the documents, `--layer2 defer`, 35 rules
-    pending review.
-  - PARENT_PIPELINE_ID is blank on the master + children (the framework assigns IDs),
-    so the parent links show only in the review copy.
-- **Live App results (post94–97):**
-  - pair_03: PASS_WITH_OPEN_INPUTS with no answers.
-  - pair_11: PASS_WITH_OPEN_INPUTS (answer the VDD question "none"); 67 combined rows,
-    per-table reject paths.
-  - pair_08: the live layout resolves the STTM; 7 blank stage types carry a proposal; then
-    FAIL on the multi-table mismatch (the FRD names 4 stage tables in one cell).
-  - pair_10: stops before generating on the delimiter of all 4 feeds and the load
-    strategy / LOBs of feeds 1–3 (the BSA answered feed 0 only).
+- **Branch** `feature/multi-table`. GitHub is at `34699db` (post104 + the test
+  tooling). ONE local commit is NOT pushed: `5010c50` (the CI workflow +
+  `tools/ddl_shape.py`) — GitHub refused it: the container's `gh` login lacks the
+  `workflow` scope, which any push adding `.github/workflows/` needs. Soham runs
+  `gh auth refresh -h github.com -s workflow` (interactive), then `git push`. Do not
+  work around it (no moving the file, no other token).
+- **App** `codegen-agent` deployed 2026-10-26 from `34699db`; `/api/health` reports
+  `0.5.8.post104`. The DDL comments / PK notes / load strategy / standard TBLPROPERTIES
+  are live (the 2026-10-26 morning redeploy was still post103: nothing had been pushed).
+- **Suite on the pushed tree:** `.venv` 2093 passed, `.venv-d1` 1786 passed (parallel,
+  `-n 4 --dist loadgroup`); ruff clean.
+- **Current work:** the DDL must be RUN-SAFE (below, first item). Then IIG scoring vs
+  prod goldens (pair_2 first, for Venu).
+- **Today 2026-10-26:** the session with Rama (child pipelines: parallel vs sequential,
+  children per feed) — the child-pipeline item waits for his answers.
 - **Decided by Soham (2026-10-22), not built:** the four Databricks workspace / cluster
   columns of DATABRICKS_NOTEBOOK_DETAILS stay blank and out of the panel; TEMPLATE_ID
   out of the IDs line.
 
 ## Next up — Nikshit's review (2026-10-23)
 
-**DDL** — built in post104 (four `acfc_prx` knobs, on; the pair-1 overlay switches them
-off so the golden stays byte-identical). Decided with Soham 2026-10-23: "Fill
-Description" = the STTM's Field Description (target band), else the source Description;
-never Comments; the primary key = the STTM Primary Key cell (Yes / blank), a COMMENT note
-only; the load strategy in the table COMMENT. Still open:
-- TBLPROPERTIES: answered by the prod DDLs (below) and accepted by Soham 2026-10-23.
-- **Format (Soham asked for depth; not decided):** ACFC's file-ingestion prod DDLs
-  (`/Volumes/d1_dlk/stg_ddls/ddls/`: 6 STTMs × d1 / q1 / pr × stage + standard = 36
-  files, generated 2026-08-24 – 10-16; plus SFMC) all follow ONE template, and it is
-  `edo_sfmc`'s, not `acfc_prx`'s (the pair-1 PRX RFC is the one bare outlier): one file
-  per layer, `CREATE TABLE IF NOT EXISTS`, every column COMMENTed (audit too), a 10–14
-  word table COMMENT naming the layer, standard typed / stage all STRING, `CLUSTER BY
-  AUTO`, stage 4 TBLPROPERTIES (autoCompact, optimizeWrite, minReader 1, minWriter 2) /
-  standard our 13, `SET TAGS (DOMAIN, SUBDOMAIN)`, `;`; no PK, no NOT NULL, no load
-  strategy anywhere. Open with Soham: who generates `stg_ddls` and is the agent's DDL
-  run, matched or reference only (if run: `IF NOT EXISTS` first — `OR REPLACE` empties a
-  deployed table); `q1` vs our `A2`; table COMMENT = description, load strategy or both.
-  The Pharmacy EDH RFC DDLs are warehouse dims (identity key, NOT NULL, `ADD CONSTRAINT
-  PRIMARY KEY`, CDF), a different pattern. Structure only was read; no values copied.
-  Re-score with `tools/ddl_shape.py --reference <prod DDL dir> --agent <agent DDL>`
-  (structure only; prod files to a /tmp scratch dir, deleted after). 2026-10-23: acfc_prx
-  post104 (pair_11) matches 6/12 stage and 6/11 standard features; the SFMC files
-  (edo_sfmc's format) 9/12 and 10/11 — left: `IF NOT EXISTS`, stage CLUSTER BY / LOCATION.
+**DDL — make it run-safe (start here).** Soham, 2026-10-26: the agent's DDL GETS RUN
+(not a reference only). post104 (four `acfc_prx` knobs: column COMMENT = the STTM Field
+Description, else the source Description, never Comments, audit rows too; PK note from
+the STTM Primary Key cell; the load strategy in the table COMMENT; the 13 standard
+TBLPROPERTIES; quotes escaped `\'`) is deployed. Still to build, from ACFC's prod
+template (`/Volumes/d1_dlk/stg_ddls/ddls/`: 6 STTMs × d1 / q1 / pr × stage + standard =
+36 files, plus SFMC — all one template, `edo_sfmc`'s, not the pair-1 PRX outlier):
+- `CREATE TABLE IF NOT EXISTS` (not `CREATE OR REPLACE`: rerunning would empty a
+  deployed table) and a `;` after every statement — the two that make it runnable;
+- `CLUSTER BY AUTO` (standard; stage too unless it has a LOCATION), the 4 stage
+  TBLPROPERTIES (autoCompact, optimizeWrite, minReaderVersion 1, minWriterVersion 2),
+  `ALTER TABLE … SET TAGS ('DOMAIN', 'SUBDOMAIN')` from the FRD's domain / sub-domain
+  (blank = no tag + a flag, as `edo_sfmc` does);
+- one file per layer or the combined file: prod is one per layer; keep the combined
+  file behind a knob the pair-1 overlay pins (its golden stays byte-identical).
+- **Two questions asked 2026-10-23, unanswered (the session ended):** (1) stage column
+  types: all STRING like prod (recommended — the notebook lands stage as STRING too) or
+  as the STTM states; (2) table COMMENT: description + load strategy (recommended),
+  description only (prod), or load strategy only (post104).
+- Score after building: `tools/ddl_shape.py --reference <prod DDL dir> --agent <agent
+  DDL>` (structure only; copy the prod files to a /tmp scratch dir, delete after).
+  2026-10-23: acfc_prx post104 = 6/12 stage, 6/11 standard features; the SFMC files
+  (edo_sfmc) 9/12 and 10/11. Prod has no PK and no load strategy; `q1` there vs our `A2`
+  (ask Soham). The Pharmacy EDH RFC DDLs are warehouse dims (identity key, NOT NULL,
+  `ADD CONSTRAINT PRIMARY KEY`, CDF) — a different pattern, not the target.
 - Keep the stage DDL (Nikshit thinks the framework doesn't need it; do not deprecate).
-- The segmented extractor (`extract/segmented.py`) reads the Primary Key cell but never
-  stores `primary_key` on the field (the resolver reads it as a key signal), so that
-  dialect gets no PK notes. Left as is.
+- The segmented extractor reads the Primary Key cell but never stores `primary_key`, so
+  that dialect gets no PK notes. Left as is.
 
 **DDL test cases** (later): a generic best-practice set, chosen at runtime per feed,
 filled with the feed's own values (target table, real location):
@@ -118,9 +108,9 @@ filled with the feed's own values (target table, real location):
 
 **Codeable here:**
 - CI: `.github/workflows/tests.yml` (both venvs' suites in parallel, vitest + tsc, the
-  pre-push version guard on the pushed range) is committed, not pushed — it starts on the
-  first push; Actions minutes bill the GitHub repo owner. Reproduced in a clean clone
-  2026-10-23: same counts as the container (2087 / 1780 passed).
+  pre-push version guard on the pushed range) — in the unpushed `5010c50`; starts on its
+  first push (needs the `workflow` scope, State above). Actions minutes bill the GitHub
+  repo owner. Reproduced in a clean clone: the container's counts.
 - `tools/iig_diff.py` depends on the `--agent` file order (30.0 sorted vs 30.3
   unsorted; run_round sorts). Sort internally.
 - STGDELTA SRC_ADLS_PATH uses the standard table's name — wrong only when stage ≠

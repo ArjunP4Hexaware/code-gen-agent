@@ -2796,3 +2796,24 @@ one-line copy above or below with its § pointer. From the first pass:
   plainly; `_Workspace.release()` drains every runner thread.
 - A rebuilt `ui/frontend/dist` must ship with any `ui/frontend/src` change (pre-push).
 
+## §[H10] RESTART.md State blocks, post94–103 (moved verbatim 2026-10-26)
+
+- **post98–103 verified on the App** on the pair_11 live run `demo_20261023_132913`
+  (artefacts via `/api/combined/…` + a Playwright pass):
+  - the combined set is `Pyx_Care_Management_Data_MI_DSNP_*` (no `STTM_`);
+  - OBJECT_ID 1..5 across the run;
+  - 12 pipeline rows = 1 grand master + 1 master (both Daily, `_DLY`) + 2 × 5 children;
+  - the `_LOG.md` merged / kept lists; the short IDs line; IIG_REVIEW hidden;
+  - Run summary + Feeds collapsed; View results hides the sidebar for the page only.
+  - That run made NO model call: layout from the documents, `--layer2 defer`, 35 rules
+    pending review.
+  - PARENT_PIPELINE_ID is blank on the master + children (the framework assigns IDs),
+    so the parent links show only in the review copy.
+- **Live App results (post94–97):**
+  - pair_03: PASS_WITH_OPEN_INPUTS with no answers.
+  - pair_11: PASS_WITH_OPEN_INPUTS (answer the VDD question "none"); 67 combined rows,
+    per-table reject paths.
+  - pair_08: the live layout resolves the STTM; 7 blank stage types carry a proposal; then
+    FAIL on the multi-table mismatch (the FRD names 4 stage tables in one cell).
+  - pair_10: stops before generating on the delimiter of all 4 feeds and the load
+    strategy / LOBs of feeds 1–3 (the BSA answered feed 0 only).

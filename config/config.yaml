@@ -809,6 +809,10 @@ gate:
     - "print('DEBUG"
   # How many trailing pytest output lines the gate keeps in check details.
   pytest_tail_lines: 15
+  # 2026-10-26: the engineer RUNS the DDL - every emitted DDL file must parse
+  # under this sqlglot dialect (codegen.gate.ddl_parse: a parse error or an
+  # unrecognised statement FAILs; sqlglot absent = sqlglot_unavailable flag).
+  ddl_parse_dialect: databricks
   # M7 (2026-09-18) derivation gate — codegen.gate.derivations. Every IIG
   # cell single-line; identifier columns charset + cap; path columns no
   # whitespace / empty segment / punctuation-ended segment / doubled

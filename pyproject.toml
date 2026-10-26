@@ -3,7 +3,7 @@ name = "codegen-data-engineer-agent"
 # Bump on every Apps redeploy that changes src/ — the Apps pip install
 # reuses its cached wheel for an unchanged version, silently deploying
 # stale code against fresh config (bitten 2026-08-28).
-version = "0.5.8.post106"
+version = "0.5.8.post107"
 description = "Generates Databricks ingestion pipelines (PySpark + Delta) from approved machine-readable contracts"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,6 +17,10 @@ dependencies = [
     # (`.`, `.[ui]`, `.[databricks]`) carries it. Absent anyway -> the
     # `ruff_unavailable` flag, never a silent FAIL.
     "ruff>=0.5",
+    # 2026-10-26: the gate parses every emitted DDL file (codegen.gate.ddl_parse,
+    # databricks dialect) and the DML (tsql) — CLI, App and harness alike, so the
+    # verdicts match. Absent anyway -> sqlglot_unavailable, never a FAIL.
+    "sqlglot>=25",
 ]
 
 [project.optional-dependencies]
@@ -26,9 +30,6 @@ dev = [
     # are set in tests/conftest.py). Plain `pytest` stays serial.
     "pytest-xdist>=3.5",
     "ruff>=0.5",
-    # M7: validates the emitted T-SQL DML (tsql dialect); the emitter degrades
-    # to a structural check when it is absent.
-    "sqlglot>=25",
     # Needed only to run the tests generated for the emitted pipelines.
     "pyspark>=3.5,<4.0",
     "delta-spark>=3.2,<4.0",

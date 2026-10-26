@@ -34,11 +34,13 @@ def write_table(df: DataFrame, target: str, row: dict) -> None:
     if option not in ("overwrite", "append"):
         raise ValueError(f"{target}: TGT_LOAD_OPTION {row['load_option']!r} is not handled")
     writer = df.write.format("delta").mode(option)
-    if row["partition_column"]:
-        writer = writer.partitionBy(row["partition_column"])
-        if option == "overwrite" and row["partition_value"] not in ("", "NA"):
-            where = f"{row['partition_column']} = '{row['partition_value']}'"
-            writer = writer.option("replaceWhere", where)
+    # TGT_PARTITION_COLUMN / _VALUE scope an overwrite to the file's rows
+    # (replaceWhere on a data column); never partitionBy: the DDL clusters the
+    # table, and Delta clustering is not compatible with partitioning
+    if (row["partition_column"] and option == "overwrite"
+            and row["partition_value"] not in ("", "NA")):
+        where = f"{row['partition_column']} = '{row['partition_value']}'"
+        writer = writer.option("replaceWhere", where)
     writer.saveAsTable(target)
     tally(f"written ({row['load_option']})", target, df.count())
 

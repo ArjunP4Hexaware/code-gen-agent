@@ -160,3 +160,52 @@ def test_the_overlay_default_is_n_and_a_feed_override_sets_y(tmp_path):
     assert {r["values"]["SCHEMA_DRIFT_FLAG"] for r in payload["tabs"][ADLS]["rows"]} == {"Y"}
     _c, _f, cells, by_id = _render(spec, config, payload, frd)
     assert "drift" in by_id
+
+
+class _RecordingWriter:
+    """df.write stand-in: records every builder call, saveAsTable included."""
+
+    def __init__(self, calls: list):
+        self.calls = calls
+
+    def __getattr__(self, name):
+        def call(*args, **kwargs):
+            self.calls.append((name, args))
+            return self
+        return call
+
+
+def test_a_per_lob_overwrite_is_scoped_by_replace_where_never_partitioned(tmp_path,
+                                                                         monkeypatch):
+    # 2026-10-26: the DDL creates every table CLUSTER BY AUTO, and Delta
+    # clustering is not compatible with partitioning - TGT_PARTITION_COLUMN /
+    # _VALUE scope an overwrite with replaceWhere, never partitionBy
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    config = fx.acfc_config(tmp_path, fx.PAIR1_OVERLAY)
+    frd, sttm, _vdd = fx.prx_pair(tmp_path, config)
+    spec, config, payload, frd = _payload(tmp_path, (frd, sttm), config)
+    _context, _f, _cells, by_id = _render(spec, config, payload, frd)
+    (source,) = [s for s in by_id.values() if "def write_table(" in s]
+    assert ".partitionBy(" not in "".join(by_id.values())
+    start = source.index("def write_table(")
+    end = source.find("\ndef ", start + 1)
+    calls: list = []
+    namespace = {"DataFrame": object, "tally": lambda *a: None}
+    exec(source[start:end if end != -1 else None], namespace)       # noqa: S102
+
+    class Frame:
+        write = _RecordingWriter(calls)
+
+        def count(self):
+            return 0
+
+    write_table, df = namespace["write_table"], Frame()
+    row = {"load_option": "Overwrite", "partition_column": "LOB", "partition_value": "01",
+           "primary_key": []}
+    write_table(df, "c.s.t", row)
+    assert calls == [("format", ("delta",)), ("mode", ("overwrite",)),
+                     ("option", ("replaceWhere", "LOB = '01'")), ("saveAsTable", ("c.s.t",))]
+    for other in ({**row, "load_option": "Append"}, {**row, "partition_value": "NA"}):
+        calls.clear()
+        write_table(df, "c.s.t", other)
+        assert [name for name, _args in calls] == ["format", "mode", "saveAsTable"]

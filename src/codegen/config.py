@@ -999,6 +999,9 @@ class GateConfig(BaseModel):
     # M7: derived names / paths / SQL literals + sibling types (defaults so an
     # older config still loads).
     derivations: DerivationsConfig = DerivationsConfig()
+    # 2026-10-26: the sqlglot dialect every emitted DDL text must parse under
+    # (codegen.gate.ddl_parse); None = the check is not run.
+    ddl_parse_dialect: str | None = None
 
 
 class JobConfig(BaseModel):

@@ -38,6 +38,7 @@ from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
 from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
 from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
+from codegen.gate.ddl_parse import check_ddl_parses
 from codegen.gate.derivations import (
     check_iig_derivations,
     check_iig_workbooks_single_line,
@@ -994,6 +995,8 @@ def emit_framework(
                                 details="; ".join(unqualified)))
     ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files if p.suffix == ".txt"]
     checks.append(check_sql_literals(ddl_texts, config, path_whitespace))
+    if config.gate.ddl_parse_dialect:
+        checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect))
     checks.append(check_iig_derivations(payload, config, path_whitespace))
 
     rows_workbook = build_workbook(payload)

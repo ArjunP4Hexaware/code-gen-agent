@@ -4,6 +4,29 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post107 — 2026-10-26 (notebook v2: no partitionBy on clustered tables; the DDL parse gate)
+
+From the DDL / Databricks-capabilities review (2026-10-26):
+- **notebook v2 never calls `partitionBy`.** The DDL creates every table `CLUSTER BY
+  AUTO`, and Delta clustering is not compatible with partitioning, so a per-LOB file's
+  `TGT_PARTITION_COLUMN` (LOB) write against a table created from the DDL would fail.
+  `TGT_PARTITION_COLUMN` / `_VALUE` now only scope an Overwrite with `replaceWhere`
+  (`<col> = '<value>'`, unchanged). An Append, or a value of `NA`, writes plainly. The
+  IIG cells are unchanged. Open with Nikshit: what ACFC's own framework notebook does
+  with `TGT_PARTITION_COLUMN`.
+- **Gate check `ddl_parses`** (`codegen.gate.ddl_parse`, `gate.ddl_parse_dialect:
+  databricks`): every emitted DDL file is parsed with sqlglot. A parse error or an
+  unrecognised statement FAILs the feed, and the details name the file. sqlglot absent:
+  a `sqlglot_unavailable` flag, never a FAIL. sqlglot moved from the `dev` extra to the
+  base dependencies (as ruff did), so the App runs the check too. Checked: sqlglot 25 to
+  30 all parse the run-safe shape.
+- The pair-1 golden FAILS the parse: its two CREATEs carry no `;` and run together as
+  one statement, so it is not runnable as a single script. Its fixture overlay sets
+  `gate.ddl_parse_dialect: null`.
+- Found on the way: 23 of the 25 notebook v2 tests skip in this checkout (the SFMC
+  contracts they need were removed 2026-08-22). The new partition test renders from the
+  PRX pair, which is present.
+
 ## 0.5.8.post106 — 2026-10-26 (DDL: the primary-key note joined with " — ")
 
 Seen on the App's live pair_11 run (post105): the PK note was joined to the column

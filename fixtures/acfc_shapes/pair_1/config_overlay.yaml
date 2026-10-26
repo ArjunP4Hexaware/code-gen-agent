@@ -53,3 +53,8 @@ conventions:
       cluster_by: null
       stage_tblproperties: null
       domain_tags: false
+# 2026-10-26: the golden is not runnable as one script - its two CREATEs carry no
+# ';' and parse as one unrecognised statement - so the DDL parse gate is off here
+# (tests/test_ddl_parse_gate.py records the golden failing it).
+gate:
+  ddl_parse_dialect: null

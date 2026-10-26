@@ -441,6 +441,14 @@ def _note_comment(f, layer: str, column: str, profile, comments: dict[str, str],
         blank.append(column)
 
 
+def _tags_blank_flag(spec: ResolvedFeedSpec) -> str:
+    """post105: the FRD states no Domain or no Sub-Domain - no SET TAGS."""
+    unstated = [label for label, value in (("Domain", spec.domain),
+                                           ("Sub-Domain", spec.sub_domain)) if not value]
+    return (f"ddl_tags_blank:{spec.feed_slug} — the FRD states no {' / '.join(unstated)}; "
+            "the DDL carries no ALTER TABLE ... SET TAGS ('DOMAIN', 'SUBDOMAIN') statement")
+
+
 def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
                        config: Config | None = None,
                        definitions: list[TableDefinition] | None = None) -> str | None:
@@ -460,6 +468,12 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
 
     if definitions is None:
         definitions = table_definitions(spec, profile, flags, config)
+    tags = None
+    if profile.domain_tags:
+        if spec.domain and spec.sub_domain:
+            tags = (_sql_comment(spec.domain), _sql_comment(spec.sub_domain))
+        elif flags is not None:
+            flags.append(_tags_blank_flag(spec))
     blocks = []
     for layer, banner in (("stage", profile.stage_banner),
                           ("standard", profile.standard_banner)):
@@ -475,8 +489,10 @@ def _combined_ddl_text(spec: ResolvedFeedSpec, profile, flags: list[str] | None 
                 "using_prefix": profile.block_using_prefix.get(layer, ""),
                 "table_comment": (_sql_comment(block.table_comment) if block.table_comment
                                   else None),
-                "tblproperties": (list((profile.standard_tblproperties or {}).items())
-                                  if layer == "standard" else [])})
+                "cluster_by": (profile.cluster_by or {}).get(layer),
+                "tblproperties": list(((profile.standard_tblproperties if layer == "standard"
+                                        else profile.stage_tblproperties) or {}).items()),
+                "tags": tags})
     if not blocks:
         return None
     template = _environment().get_template("framework/combined_ddl.txt.j2")

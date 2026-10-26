@@ -82,16 +82,19 @@ def test_the_table_comment_names_each_layers_frd_load_strategy(pair11):
             "(FRD Load Strategy STD)'") in standard
 
 
-def test_tblproperties_only_on_the_standard_table_in_config_order(pair11, shipped):
+def test_tblproperties_per_layer_in_config_order(pair11, shipped):
+    # post105: the stage tables carry their own (shorter) set; each set closes
+    # its CREATE statement
     _spec, ddl, _flags = pair11
-    assert "TBLPROPERTIES" not in _block(ddl, "--stage table")
-    standard = _block(ddl, "--standard table")
-    props = shipped.conventions.get("acfc_prx").standard_tblproperties
-    lines = [f"  '{k}' = '{v}'" for k, v in props.items()]
-    expected = "TBLPROPERTIES (\n" + ",\n".join(lines) + ")"
-    assert standard.endswith(expected)
-    assert list(props)[0] == "delta.autoOptimize.autoCompact"
-    assert props["delta.parquet.compression.codec"] == "zstd"
+    profile = shipped.conventions.get("acfc_prx")
+    for banner, props in (("--stage table", profile.stage_tblproperties),
+                          ("--standard table", profile.standard_tblproperties)):
+        lines = [f"  '{k}' = '{v}'" for k, v in props.items()]
+        expected = "TBLPROPERTIES (\n" + ",\n".join(lines) + ");\n"
+        assert expected in _block(ddl, banner)
+    assert list(profile.standard_tblproperties)[0] == "delta.autoOptimize.autoCompact"
+    assert profile.standard_tblproperties["delta.parquet.compression.codec"] == "zstd"
+    assert "delta.minWriterVersion" in profile.stage_tblproperties
 
 
 def test_audit_columns_without_a_description_are_flagged_per_table(pair11):
@@ -111,7 +114,7 @@ def test_primary_key_cells_are_noted_and_missing_descriptions_flagged(pair4_conf
     ddl = _combined_ddl_text(pair4_spec, profile, flags, pair4_config)
     keyed = [f.stage_column for s in pair4_spec.segments for f in s.fields if f.primary_key]
     assert keyed == ["MEMBER_ID", "OTHER_CARRIER_ID", "COB_EFF_DATE"]
-    dtl = _block(ddl, "CREATE OR REPLACE TABLE d1_dlk.stg_nb_cob.nb_cob_report_dtl")
+    dtl = _block(ddl, "CREATE TABLE IF NOT EXISTS d1_dlk.stg_nb_cob.nb_cob_report_dtl")
     for column in keyed:
         assert f"\n{column} String COMMENT 'Primary key (STTM Primary Key)',\n" in dtl
     assert "\nSUBSCRIBER_ID String,\n" in dtl                         # no description, no key

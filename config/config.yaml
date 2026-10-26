@@ -958,16 +958,17 @@ conventions:
   # edo_sfmc is TODAY'S output exactly (two .txt files conformant to the SFMC
   # reference goldens). acfc_prx is the pair-1 RFC package shape
   # (docs/acfc/rfc_capture/.../goldens/pair_1/ACCUM_DDL.txt): one combined
-  # file, '--stage table' / '--standard table' banners, CREATE OR REPLACE,
+  # file, '--stage table' / '--standard table' banners,
   # stage columns TYPED as the STTM stage band states them, audit columns in
   # upper-case types, standard = the stage column list and order with each
   # column typed from the STTM STANDARD band (a type that differs from the
   # stage band's is written normalised, e.g. Date -> DATE; one that matches
   # keeps the stage text; blank -> stage type + flag standard_type_blank;
-  # unmappable -> as stated + flag standard_type_unmapped), no LOCATION /
-  # CLUSTER BY / TAGS; post104: column / table COMMENTs and the standard
-  # TBLPROPERTIES are knobs (on here; the golden has none, so the pair-1
-  # fixture overlay switches them off). Whitespace knobs are data:
+  # unmappable -> as stated + flag standard_type_unmapped), no LOCATION;
+  # post104: column / table COMMENTs and the standard
+  # TBLPROPERTIES are knobs, and post105 the run-safe shape (IF NOT EXISTS,
+  # ';', CLUSTER BY, stage TBLPROPERTIES, tags) - all on here; the golden
+  # (CREATE OR REPLACE, none of them) gets them from the pair-1 fixture overlay. Whitespace knobs are data:
   # the golden opens with a blank line, has a lone-space line before the
   # standard block's USING clause, and ends WITHOUT a trailing newline.
   # CLI: codegen generate --profile <name>.
@@ -993,7 +994,12 @@ conventions:
       ddl_file_name_pattern: "{feed_abbrev}_DDL.txt"
       typed_stage: true
       standard_from_stage: true
-      create_statement: "CREATE OR REPLACE TABLE"
+      # post105 (Soham, 2026-10-26): the engineer RUNS this DDL, against tables
+      # that may already be deployed - IF NOT EXISTS (OR REPLACE would empty a
+      # deployed table) and every statement terminated. The pair-1 golden's
+      # CREATE OR REPLACE / no ';' live in its fixture overlay.
+      create_statement: "CREATE TABLE IF NOT EXISTS"
+      statement_terminator: ";"
       using_clause: "USING delta"
       stage_banner: "--stage table"
       standard_banner: "--standard table"
@@ -1030,6 +1036,18 @@ conventions:
         delta.feature.rowTracking: "supported"
         delta.feature.v2Checkpoint: "supported"
         delta.parquet.compression.codec: "zstd"
+      # post105: the rest of ACFC's production DDL template (the same SFMC files:
+      # fixtures/reference/SFMC_{stage,standard}_table_creation.txt, scrubbed) -
+      # CLUSTER BY AUTO on both layers (this profile writes no LOCATION), the
+      # stage TBLPROPERTIES in order, and the DOMAIN / SUBDOMAIN tags from the
+      # FRD (either blank: no tag statement + a ddl_tags_blank flag).
+      cluster_by: {stage: "CLUSTER BY AUTO", standard: "CLUSTER BY AUTO"}
+      stage_tblproperties:
+        delta.autoOptimize.autoCompact: "true"
+        delta.autoOptimize.optimizeWrite: "true"
+        delta.minReaderVersion: "1"
+        delta.minWriterVersion: "2"
+      domain_tags: true
       # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
       # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
       # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.

@@ -474,11 +474,13 @@ def test_an_unconfirmed_name_from_framework_tables_says_so_not_the_sheet_name(
 
 
 def _create_blocks(ddl: str) -> list[tuple[str, list[str]]]:
-    # post104: a column line's COMMENT '<text>' is not part of its name / type
+    # post105: either CREATE spelling (run-safe IF NOT EXISTS / the golden's OR
+    # REPLACE). post104: a column line's COMMENT '<text>' is not part of its name / type
     return [(name, [re.sub(r" COMMENT '(?:[^'\\]|\\.)*'", "", line.rstrip(","))
                     for line in body.splitlines()])
-            for name, body in re.findall(r"CREATE OR REPLACE TABLE (\S+)\n\(\n(.*?)\n\)",
-                                         ddl, re.DOTALL)]
+            for name, body in re.findall(
+                r"CREATE (?:OR REPLACE )?TABLE (?:IF NOT EXISTS )?(\S+)\n\(\n(.*?)\n\)",
+                ddl, re.DOTALL)]
 
 
 def test_pair4_create_reference_one_block_per_table(pair4_config, pair4_spec, pair4_golden):

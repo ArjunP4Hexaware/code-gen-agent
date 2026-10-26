@@ -1251,6 +1251,20 @@ class ConventionsProfileConfig(BaseModel):
     # the standard tables' TBLPROPERTIES, in order (None = none; an overlay
     # switches them off with null - an empty mapping merges as no change).
     standard_tblproperties: dict[str, str] | None = None
+    # post105 (Soham, 2026-10-26: the DDL is RUN by the engineer, so every
+    # statement must be safe to re-run) — combined layout only; each off / null
+    # reproduces the pair-1 golden's bare shape. The text ending every statement
+    # ("" = none, the golden's);
+    statement_terminator: str = ""
+    # the clause after the table COMMENT, per layer (e.g. CLUSTER BY AUTO; a
+    # layer absent gets none; None = none at all);
+    cluster_by: dict[str, str] | None = None
+    # the stage tables' TBLPROPERTIES, in order (None = none);
+    stage_tblproperties: dict[str, str] | None = None
+    # an ALTER TABLE ... SET TAGS ('DOMAIN', 'SUBDOMAIN') after each CREATE, from
+    # the FRD's Domain / Sub-Domain; either blank = no tag statement + one
+    # ddl_tags_blank flag per feed.
+    domain_tags: bool = False
     # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
     # datatypes extract-sttm accepts (workbook spelling, normalized). Every
     # audit column: audit_datatypes; a column ending in one of

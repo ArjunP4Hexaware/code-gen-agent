@@ -212,8 +212,8 @@ def test_pair11_with_catalog_emits_three_part_ddl_and_own_paths(config, pair11_c
     framework_dir = tmp_path / "out" / "vc_individual_risk" / "framework"
     (ddl,) = list(framework_dir.glob("*_DDL.txt"))
     text = ddl.read_text(encoding="utf-8")
-    assert "CREATE OR REPLACE TABLE cat_syn.stg_dom_b.vc_individual_risk" in text
-    assert "CREATE OR REPLACE TABLE cat_syn.dom_b.vc_individual_risk" in text
+    assert "CREATE TABLE IF NOT EXISTS cat_syn.stg_dom_b.vc_individual_risk" in text
+    assert "CREATE TABLE IF NOT EXISTS cat_syn.dom_b.vc_individual_risk" in text
     assert "\n\n\n" not in text.replace("\n\n--", "")
     # reference two-file layout on the same feed: LOCATION is this feed's own path, one line
     gate2 = cli._generate_feed(specs[2], _scoped(config, tmp_path / "two"), dry_run=True,

@@ -65,6 +65,20 @@ def test_the_sfmc_reference_files_take_their_layer_from_the_file_name():
     assert stage["column_comment_share"] == 1.0 and stage["terminated"]
 
 
+@pytest.mark.parametrize(("name", "layer"), [
+    ("d1_DLK_Doc_STTM_STG_STD_Synthetic_Mapping_Document_20260101.txt", "stage"),
+    ("q1_STD_Doc_STTM_STG_STD_Synthetic_Mapping_Document_20260101.txt", "standard"),
+    ("pr_dlk_STTM_Synthetic_Ingestion_20260101.txt", "stage"),
+    ("/tmp/x/d1_std_STTM_Synthetic_Ingestion_20260101.txt", "standard"),
+    ("SFMC_stage_table_creation.txt", "stage"),
+])
+def test_the_env_layer_prefix_wins_over_layer_words_in_the_title(name, layer):
+    # 2026-10-26: the deployed set is <env>_<layer>_<document title>, and a title
+    # may read 'STTM_STG_STD' - the prefix decides (5 of 6 stage files were
+    # scored as standard before)
+    assert ddl_shape._layer_from_name(name) == layer
+
+
 def test_literals_comments_and_constraints_do_not_confuse_the_shape():
     t1, t2 = ddl_shape.profile_text(PROD_LIKE, "pr_std_x.txt")
     assert t1["create"] == "CREATE IF NOT EXISTS" and t2["create"] == "CREATE"

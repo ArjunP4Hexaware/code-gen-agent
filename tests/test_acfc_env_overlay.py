@@ -66,7 +66,7 @@ def test_overlay_clears_the_catalog_fail_and_fills_the_environment_cells(tmp_pat
     (ddl,) = (tmp_path / "acfc" / "out" / specs[0].feed_slug / "framework").glob("*_DDL.txt")
     creates = [line for line in ddl.read_text(encoding="utf-8").splitlines()
                if line.startswith("CREATE")]
-    assert creates and all(line.split()[4].count(".") == 2 for line in creates)
+    assert creates and all(line.split()[-1].count(".") == 2 for line in creates)
     assert any(" d1_dlk." in line for line in creates)
     assert any(" d1_std." in line for line in creates)
     for values, tooltips in _adls_rows(tmp_path / "acfc", specs[0].feed_slug):
@@ -103,8 +103,8 @@ def test_cv_golden_pair_passes_with_the_overlay(tmp_path):
     assert not [f for f in gate.flags if f.startswith("catalog_unstated")]
     framework = tmp_path / "out" / spec.feed_slug / "framework"
     ddl = (framework / "CV_COMMUNITY_DEMOGRAPHIC_RISK_DDL.txt").read_text(encoding="utf-8")
-    assert "CREATE OR REPLACE TABLE d1_dlk.stg_sdh.cv_community_demographic_risk" in ddl
-    assert "CREATE OR REPLACE TABLE d1_std.sdh.cv_community_demographic_risk" in ddl
+    assert "CREATE TABLE IF NOT EXISTS d1_dlk.stg_sdh.cv_community_demographic_risk" in ddl
+    assert "CREATE TABLE IF NOT EXISTS d1_std.sdh.cv_community_demographic_risk" in ddl
 
 
 def _catalogs(config) -> dict:

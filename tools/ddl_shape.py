@@ -108,7 +108,12 @@ def _split_columns(body: str) -> list[str]:
 
 
 def _layer_from_name(name: str) -> str:
-    low = name.lower()
+    low = Path(name).name.lower() if name else ""
+    # the deployed sets are named <env>_<layer>_<document title>: that prefix wins
+    # over a layer word inside the title ('..._STTM_STG_STD_...' is not a layer)
+    prefix = re.match(r"[a-z0-9]+_(dlk|stg|std)_", low)
+    if prefix:
+        return "standard" if prefix.group(1) == "std" else "stage"
     if re.search(r"(^|[^a-z])(std|standard)([^a-z]|$)", low):
         return "standard"
     if re.search(r"(^|[^a-z])(dlk|stg|stage)([^a-z]|$)", low):

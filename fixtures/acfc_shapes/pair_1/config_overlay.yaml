@@ -46,3 +46,10 @@ conventions:
       primary_key_note: null
       load_strategy_comment: null
       standard_tblproperties: null
+      # post105: nor is it run-safe - CREATE OR REPLACE, no ';', no CLUSTER BY /
+      # stage TBLPROPERTIES / tags (the run-safe shape: tests/test_ddl_runsafe.py)
+      create_statement: "CREATE OR REPLACE TABLE"
+      statement_terminator: ""
+      cluster_by: null
+      stage_tblproperties: null
+      domain_tags: false

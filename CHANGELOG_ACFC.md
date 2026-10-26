@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post105 — 2026-10-26 (DDL: run-safe — IF NOT EXISTS, terminators, CLUSTER BY, stage TBLPROPERTIES, tags)
+
+Soham, 2026-10-26: the engineer RUNS the agent's DDL, against tables that may already
+be deployed. The `acfc_prx` combined DDL (`<ABBREV>_DDL.txt` and `combined/<STTM>_DDL.txt`)
+gains five `conventions.profiles.acfc_prx` knobs, ON in config.yaml, transcribed from
+ACFC's production template:
+- **`create_statement: CREATE TABLE IF NOT EXISTS`** (was `CREATE OR REPLACE TABLE`:
+  re-running that would empty a deployed table) and **`statement_terminator: ";"`**
+  after every statement, CREATE and ALTER.
+- **`cluster_by`**: `CLUSTER BY AUTO` on both layers, after the table COMMENT (the
+  profile writes no LOCATION; prod's stage tables are the same).
+- **`stage_tblproperties`**: the stage blocks' 4 properties (autoCompact, optimizeWrite,
+  minReaderVersion 1, minWriterVersion 2), prod's order.
+- **`domain_tags`**: `ALTER TABLE <table> SET TAGS ('DOMAIN' = …, 'SUBDOMAIN' = …);`
+  after each CREATE, from the FRD's Domain / Sub-Domain (quotes `\'`-escaped). Either
+  blank: no tag statement + one `ddl_tags_blank:<feed>` flag.
+- The pair-1 fixture overlay switches all five off: `ACCUM_DDL.txt` stays the golden
+  byte for byte. `edo_sfmc` is unchanged (its SFMC reference goldens are CREATE OR
+  REPLACE).
+- **Scored vs prod D1** (`tools/ddl_shape.py`, structure only, a scratch copy deleted
+  after): pair 11's DDL is stage 11/12, standard 10/11 (post104: 6/12, 6/11). The one
+  DIFF on each layer is column-comment coverage (the fixture's audit rows state no
+  description). Prod's current set is itself `IF NOT EXISTS` and terminated.
+- **`tools/ddl_shape.py`**: a file's leading `<env>_<dlk|stg|std>_` prefix decides
+  its layer over layer words in the document title (`…_STTM_STG_STD_…`). Before
+  this, 5 of the 6 D1 stage files were scored as standard.
+- Still open (asked 2026-10-23): stage column types (all STRING like most prod files,
+  or as the STTM states) and the table COMMENT's content; one file per layer vs the
+  combined file.
+
 ## 0.5.8.post104 — 2026-10-23 (DDL: column COMMENTs, primary-key notes, the load strategy, standard TBLPROPERTIES)
 
 Nikshit's review (2026-10-23), decided with Soham: the `acfc_prx` combined DDL

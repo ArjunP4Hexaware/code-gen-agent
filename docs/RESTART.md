@@ -4,21 +4,23 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-26, post104)
+## State (2026-10-26, post105 built, not pushed)
 
 - **Branch** `feature/multi-table`. GitHub is at `34699db` (post104 + the test
-  tooling). ONE local commit is NOT pushed: `5010c50` (the CI workflow +
-  `tools/ddl_shape.py`) — GitHub refused it: the container's `gh` login lacks the
-  `workflow` scope, which any push adding `.github/workflows/` needs. Soham runs
-  `gh auth refresh -h github.com -s workflow` (interactive), then `git push`. Do not
-  work around it (no moving the file, no other token).
+  tooling). THREE local commits are NOT pushed: `5010c50` (the CI workflow +
+  `tools/ddl_shape.py`), `d0eb5f6` (docs) and the post105 commit (run-safe DDL).
+  GitHub refuses the push: the container's `gh` login lacks the `workflow` scope,
+  which any push adding `.github/workflows/` needs (re-checked 2026-10-26: scopes
+  `gist, read:org, repo`). Soham runs `gh auth refresh -h github.com -s workflow`
+  (interactive), then `git push`, then the deploy (below). Do not work around it (no
+  moving the file, no other token).
 - **App** `codegen-agent` deployed 2026-10-26 from `34699db`; `/api/health` reports
   `0.5.8.post104`. The DDL comments / PK notes / load strategy / standard TBLPROPERTIES
   are live (the 2026-10-26 morning redeploy was still post103: nothing had been pushed).
-- **Suite on the pushed tree:** `.venv` 2093 passed, `.venv-d1` 1786 passed (parallel,
-  `-n 4 --dist loadgroup`); ruff clean.
-- **Current work:** the DDL must be RUN-SAFE (below, first item). Then IIG scoring vs
-  prod goldens (pair_2 first, for Venu).
+- **Suite on the post105 commit:** see the commit's session note below; ruff clean.
+- **Current work:** the run-safe DDL is built (post105); waiting on the push and on
+  Soham's answers to the three DDL questions below. Then IIG scoring vs prod goldens
+  (pair_2 first, for Venu).
 - **Today 2026-10-26:** the session with Rama (child pipelines: parallel vs sequential,
   children per feed) — the child-pipeline item waits for his answers.
 - **Decided by Soham (2026-10-22), not built:** the four Databricks workspace / cluster
@@ -27,31 +29,31 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
 ## Next up — Nikshit's review (2026-10-23)
 
-**DDL — make it run-safe (start here).** Soham, 2026-10-26: the agent's DDL GETS RUN
-(not a reference only). post104 (four `acfc_prx` knobs: column COMMENT = the STTM Field
-Description, else the source Description, never Comments, audit rows too; PK note from
-the STTM Primary Key cell; the load strategy in the table COMMENT; the 13 standard
-TBLPROPERTIES; quotes escaped `\'`) is deployed. Still to build, from ACFC's prod
-template (`/Volumes/d1_dlk/stg_ddls/ddls/`: 6 STTMs × d1 / q1 / pr × stage + standard =
-36 files, plus SFMC — all one template, `edo_sfmc`'s, not the pair-1 PRX outlier):
-- `CREATE TABLE IF NOT EXISTS` (not `CREATE OR REPLACE`: rerunning would empty a
-  deployed table) and a `;` after every statement — the two that make it runnable;
-- `CLUSTER BY AUTO` (standard; stage too unless it has a LOCATION), the 4 stage
-  TBLPROPERTIES (autoCompact, optimizeWrite, minReaderVersion 1, minWriterVersion 2),
-  `ALTER TABLE … SET TAGS ('DOMAIN', 'SUBDOMAIN')` from the FRD's domain / sub-domain
-  (blank = no tag + a flag, as `edo_sfmc` does);
-- one file per layer or the combined file: prod is one per layer; keep the combined
-  file behind a knob the pair-1 overlay pins (its golden stays byte-identical).
-- **Two questions asked 2026-10-23, unanswered (the session ended):** (1) stage column
-  types: all STRING like prod (recommended — the notebook lands stage as STRING too) or
-  as the STTM states; (2) table COMMENT: description + load strategy (recommended),
-  description only (prod), or load strategy only (post104).
-- Score after building: `tools/ddl_shape.py --reference <prod DDL dir> --agent <agent
-  DDL>` (structure only; copy the prod files to a /tmp scratch dir, delete after).
-  2026-10-23: acfc_prx post104 = 6/12 stage, 6/11 standard features; the SFMC files
-  (edo_sfmc) 9/12 and 10/11. Prod has no PK and no load strategy; `q1` there vs our `A2`
-  (ask Soham). The Pharmacy EDH RFC DDLs are warehouse dims (identity key, NOT NULL,
-  `ADD CONSTRAINT PRIMARY KEY`, CDF) — a different pattern, not the target.
+**DDL — run-safe: BUILT (post105, 2026-10-26), not pushed.** Soham, 2026-10-26: the
+agent's DDL GETS RUN. post104 (column COMMENTs, PK notes, load strategy, standard
+TBLPROPERTIES, `\'` escapes) is deployed; post105 adds five `acfc_prx` knobs (on in
+config.yaml, off in the pair-1 overlay — golden byte-identical): `CREATE TABLE IF NOT
+EXISTS`, `;` after every statement, `CLUSTER BY AUTO` on both layers, the 4 stage
+TBLPROPERTIES, `ALTER TABLE … SET TAGS ('DOMAIN', 'SUBDOMAIN')` from the FRD (blank =
+none + `ddl_tags_blank`). Tests: `tests/test_ddl_runsafe.py`.
+- **Scored 2026-10-26** vs prod D1 (`/Volumes/d1_dlk/stg_ddls/ddls/d1_*`, scratch copy
+  deleted): stage 11/12, standard 10/11 (post104: 6/12, 6/11). The one DIFF per layer
+  is column-comment coverage (pair 11's audit rows state no description). Prod's
+  current set is itself `IF NOT EXISTS` + terminated, CLUSTER BY AUTO on stage, no
+  LOCATION. `tools/ddl_shape.py` had scored 5 of 6 D1 stage files as standard (layer
+  from `STTM_STG_STD` in the title) — fixed: the `<env>_<layer>_` prefix wins.
+- **Three questions for Soham, unanswered** (two asked 2026-10-23): (1) stage column
+  types: all STRING (recommended — the notebook lands stage as STRING too) or as the
+  STTM states (today); (2) table COMMENT: description + load strategy (recommended),
+  description only (prod), or load strategy only (today); (3) one file per layer (prod)
+  or the combined `<ABBREV>_DDL.txt` (today; the combined set, App listing and
+  `run_artefacts` read `_DDL.txt`, so a split touches all three) — keep the combined
+  file behind a knob the pair-1 overlay pins either way.
+- Prod has no PK and no load strategy; `q1` there vs our `A2` (ask Soham). The Pharmacy
+  EDH RFC DDLs are warehouse dims (identity key, NOT NULL, `ADD CONSTRAINT PRIMARY
+  KEY`, CDF) — a different pattern, not the target.
+- `edo_sfmc` still writes `CREATE OR REPLACE` (its SFMC reference goldens do); ACFC runs
+  `acfc_prx` (the overlay pins it), so left as is.
 - Keep the stage DDL (Nikshit thinks the framework doesn't need it; do not deprecate).
 - The segmented extractor reads the Primary Key cell but never stores `primary_key`, so
   that dialect gets no PK notes. Left as is.

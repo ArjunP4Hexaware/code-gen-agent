@@ -603,7 +603,7 @@ def _role_col(sp: SheetProfile, key: str) -> int | None:
 
 
 CELL_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.columns\[(\d+)\]\.([a-z_]+)$")
-VALUE_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.(file_format|source_system)$")
+VALUE_KEY_RE = re.compile(r"^feeds\[(\d+)\]\.(file_format|source_system|recycle\.applies_to)$")
 
 
 def parse_cell_answers(gaps: dict | None) -> dict[str, str]:
@@ -1338,6 +1338,17 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
     frequency = (details or {}).get("frequency") or sheet.meta.get("frequency") or feed.frequency
     source_system = answered("source_system", (details or {}).get("vendor")
                              or sheet.meta.get("file_generator") or feed.source_system)
+    recycle = _recycle(sheet, config, disc)
+    if recycle is not None and recycle.applies_to not in {f.source_column for f in fields}:
+        # post117 (codeflow audit #3): the recycle_unknown_column QUESTION's answer
+        # (the rule's column is no source column) - it used to be dropped unread,
+        # so the feed could only ask again
+        answer = (cell_answers or {}).get(prefix + "recycle.applies_to")
+        if answer:
+            flags.append(f"answered_value:{prefix}recycle.applies_to — the recycle rule's "
+                         f"column {recycle.applies_to!r} is no source column of the sheet; "
+                         f"the person answered {answer!r}")
+            recycle = recycle.model_copy(update={"applies_to": answer})
 
     try:
         return SttmFeed(
@@ -1354,7 +1365,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                 natural_key=_rule_columns(fields, segmented, lambda f: f.primary_key),
                 mandatory_columns=_rule_columns(fields, segmented, lambda f: f.mandatory),
                 phi_columns=_rule_columns(fields, segmented, lambda f: f.phi),
-                recycle=_recycle(sheet, config, disc),
+                recycle=recycle,
             ),
             audit_columns=audit,
             field_count=len(fields),

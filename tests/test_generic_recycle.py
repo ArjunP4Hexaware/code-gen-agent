@@ -68,3 +68,38 @@ def test_an_unreadable_flag_cell_stops_the_extraction(config, cell, reason):
         _read(config, "N", cell)
     assert caught.value.reason == reason
     assert "row 11" in str(caught.value)
+
+
+# -- post117 (codeflow audit #3): the recycle_unknown_column answer is applied -- #
+
+
+def test_a_recycle_column_answer_is_applied(tmp_path, monkeypatch):
+    """A recycle rule whose column is no source column of the sheet (the flag on a
+    row the extractor does not keep as a field) asks feeds[i].recycle.applies_to.
+    The answer was dropped unread (the answers parser kept only file_format /
+    source_system), so the feed could only ask again."""
+    from codegen.contracts.sttm import RecycleSpec
+    from codegen.extract import NeedsAnswersError, extract_contract, generic
+    from codegen.extract.generic import parse_cell_answers
+    from test_layout_discovery import GENERATED_DATE, STTM, _frd, _write_frd
+
+    config = load_config(REPO / "config" / "config.yaml")
+    stray = RecycleSpec(applies_to="NOT_A_SOURCE_COLUMN", enabled=True,
+                        validation="Check with MBR_ID from SYN_MEMBERS for 7 days",
+                        on_match="m", on_no_match="n", recycle_window_days=7)
+    monkeypatch.setattr(generic, "_recycle", lambda *_a: stray)
+    frd = _write_frd(tmp_path, _frd("FEED_4 remit", ["feed_4_remit_YYYYMMDD.dat"],
+                                    ["feed_4_remit"], ["feed_4_remit"], fmt="dat", delimiter="|",
+                                    stage_schema="stg_remit", std_schema="remit"))
+    workbook = STTM / "pair_4_family_d.xlsx"
+    key = "feeds[0].recycle.applies_to"
+    with pytest.raises(NeedsAnswersError) as asked:
+        extract_contract(workbook, frd, config, generated_date=GENERATED_DATE)
+    assert key in [p.key for p in asked.value.pending]
+    assert parse_cell_answers({key: "REMIT_ID"}) == {key: "REMIT_ID"}
+    contract = extract_contract(workbook, frd, config, generated_date=GENERATED_DATE,
+                                gaps={key: "REMIT_ID"})
+    assert not contract.needs_answers
+    (feed,) = contract.feeds
+    assert feed.load_rules.recycle.applies_to == "REMIT_ID"
+    assert any(f.startswith(f"answered_value:{key}") for f in feed.extraction_flags)

@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post117 — 2026-10-26 (the recycle-column question can be answered)
+
+Codeflow audit #3 (medium), verified. When a recycle rule's column is not a source
+column of its sheet (the `Y (…)` flag sits on a row the extractor does not keep as a
+field), contract validation asks `feeds[i].recycle.applies_to` (`recycle_unknown_column`,
+NEEDS_ANSWERS). The answer was dropped twice: `generic.parse_cell_answers` kept only
+`file_format` / `source_system` keys, and nothing applied it. The feed could only ask
+again, on every rerun.
+- `VALUE_KEY_RE` accepts `recycle.applies_to`. `generic._build_feed` uses the answer
+  when the rule's column is no source column, with an `answered_value:` flag, as the
+  other answered values do.
+- Test: the question is asked, the answer is parsed and applied, and the flag is
+  written. The old code drops the answer at the parse step.
+
 ## 0.5.8.post116 — 2026-10-26 (answers file: a quoted column index is an index)
 
 Codeflow audit #21 (low), verified. The answers template writes `column: ""` with the

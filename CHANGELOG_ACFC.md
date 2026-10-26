@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post122 — 2026-10-26 (gate check ddl_identifiers: the DDL identifier rule, enforced)
+
+Found by the first live run with the post107 parse gate (pair_11 on the App, post121):
+one feed failed `ddl_parses` with "Expecting ) at line 44, col 19". The cause is an STTM
+Standard-band column name with a stray space ("Word _Word"), copied as stated, as the
+agent copies every name. The DDL had carried that invalid column since the feed was
+first generated, including the post105 DDL on the App. CLAUDE.md's rule ("a DDL column
+identifier must match `^[A-Za-z_][A-Za-z0-9_]*$`") was never a gate check (codeflow
+audit #43): only `scripts/run_round.py` called it. Its text scan also read a spaced
+name as its first word and passed it (#44).
+- New gate check `ddl_identifiers` (`gate/ddl_names.check_ddl_identifiers`), run on
+  the table definitions the DDL is rendered from, stage and standard, audit columns
+  included. A FAIL names the layer, the table, the column position and the name as
+  stated, and says to correct the STTM's column name. Violations count as
+  `ddl_identifier`. The agent never rewrites the name.
+- `ddl_parses` still runs; the new check is the one that says what to fix.
+- For that pair_11 feed: the run stays GATE_FAIL until the STTM's column name is
+  corrected. That's the right outcome, because the DDL would fail when run.
+
 ## 0.5.8.post121 — 2026-10-26 (acfc_run.py honours the answers file's pairing:)
 
 Codeflow audit, medium #19, verified by reading. `acfc_run.py` (the one-pair notebook

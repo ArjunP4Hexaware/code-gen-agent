@@ -311,7 +311,7 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   profile: a key under `conventions.profiles`, a golden under
   `fixtures/acfc_shapes/<pair>/golden/`, a byte-identity test like
   `tests/test_m4_acceptance.py`. A DDL column identifier must match
-  `^[A-Za-z_][A-Za-z0-9_]*$` (`gate/ddl_names.py`).
+  `^[A-Za-z_][A-Za-z0-9_]*$` (gate check `ddl_identifiers`, `gate/ddl_names.py`).
 - **The DDL is RUN by the engineer** (Soham, 2026-10-26), not a reference only: every
   statement must be safe to re-run against deployed tables (`CREATE TABLE IF NOT EXISTS`,
   never `CREATE OR REPLACE` there) and terminated. ACFC's prod DDL template is the

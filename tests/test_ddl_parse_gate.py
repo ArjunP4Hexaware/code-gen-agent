@@ -92,3 +92,41 @@ def test_create_or_replace_fails_the_gate(pair11_ddl):
     check = check_ddl_parses([("VC_DDL.txt", unsafe)], "databricks")
     assert not check.passed
     assert "statement 1 is CREATE OR REPLACE" in check.details
+
+
+# -- post122: the identifier rule, as a gate check -------------------------------- #
+
+
+def _definitions(shipped, spec):
+    from codegen.emit.framework import table_definitions
+
+    return table_definitions(spec, shipped.conventions.get("acfc_prx"), [], shipped)
+
+
+def test_plain_identifiers_pass(shipped):
+    from codegen.gate.ddl_names import check_ddl_identifiers
+
+    specs, _ = _pair11_specs(FRD_CATALOG, Path(tempfile.mkdtemp()), shipped)
+    check = check_ddl_identifiers(_definitions(shipped, specs[0]))
+    assert check.passed and check.name == "ddl_identifiers"
+
+
+def test_a_column_name_with_a_space_fails_naming_table_layer_and_position(shipped):
+    # the live pair_11 case (2026-10-26): an STTM Standard-band column name with a
+    # stray space ("Word _Word") - sqlglot only said "Expecting )", the old text
+    # scan read it as its first word and passed it
+    from codegen.gate.ddl_names import check_ddl_identifiers, ddl_column_identifiers
+
+    specs, _ = _pair11_specs(FRD_CATALOG, Path(tempfile.mkdtemp()), shipped)
+    spec = specs[0]
+    segment = spec.segments[0]
+    bad = segment.fields[1].model_copy(update={"standard_column": "SYN_MEMBER _NAME"})
+    spec = spec.model_copy(update={"segments": [
+        segment.model_copy(update={"fields": [segment.fields[0], bad, *segment.fields[2:]]}),
+        *spec.segments[1:]]})
+    check = check_ddl_identifiers(_definitions(shipped, spec))
+    assert not check.passed and check.violations == {"ddl_identifier": 1}
+    assert "standard table" in check.details and "column 2 'SYN_MEMBER _NAME'" in check.details
+    ddl = _combined_ddl_text(spec, shipped.conventions.get("acfc_prx"), [], shipped)
+    assert "SYN_MEMBER" in ddl_column_identifiers(ddl)            # the old scan: passed
+    assert not check_ddl_parses([("x_DDL.txt", ddl)], "databricks").passed

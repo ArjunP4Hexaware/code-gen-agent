@@ -192,7 +192,9 @@ def _name_match(name: str, candidate: str) -> bool:
     a, b = normalize(name), normalize(candidate)
     if not a or not b:
         return False
-    if a in b:
+    # post114 (codeflow audit #20): the whole name on word boundaries — a raw
+    # substring test let "FEED_8" match "FEED_80" and "CM" match "PCM"
+    if f" {a} " in f" {b} ":
         return True
     words = b.split()
 

@@ -4,6 +4,18 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post114 — 2026-10-26 (pairing: a document name matches on word boundaries)
+
+Codeflow audit #20 (medium), verified. `pairing._name_match` decides whether an FRD feed
+name appears in an STTM's text when the agent pairs documents automatically. Its
+whole-name branch was a raw substring test on the normalized texts, so "FEED_8" matched
+"FEED_80_…" and "CM" matched "PCM_…", even though its docstring promises the opposite.
+A false positive pairs the WRONG documents.
+- The whole name now has to appear on word boundaries. The token rule (short tokens
+  exactly, longer ones by stem) is unchanged.
+- Regression check, all 12 real pairs (mock harness, old vs new code): identical pairing
+  report and outcomes.
+
 ## 0.5.8.post113 — 2026-10-26 (delimiter agreement: compared as characters)
 
 Codeflow audit #8 (high) and the medium #8, one root cause, verified. Agreement

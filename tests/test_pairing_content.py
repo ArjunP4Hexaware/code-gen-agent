@@ -125,6 +125,11 @@ def test_names_alone_still_pair_when_no_document_speaks(config, tmp_path):
     ("Member Eligibility", "Eligibility of members", True),
     ("Risk", "Risk", True),
     ("", "anything", False),
+    # post114: the whole name on word boundaries, never a raw substring
+    ("FEED_8", "FEED_80_elig_YYYYMMDD.txt", False),
+    ("CM", "PCM_daily.txt", False),
+    ("CM", "CM_daily.txt", True),
+    ("Care Mgmt", "SYN Care Mgmt Data", True),
 ])
 def test_name_match_is_strict_about_short_tokens(name, text, expected):
     assert _name_match(name, text) is expected

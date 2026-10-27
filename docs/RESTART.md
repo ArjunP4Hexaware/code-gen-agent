@@ -4,11 +4,13 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post124 deployed)
+## State (2026-10-27, post126 pushed, post124 deployed)
 
-- **Branch** `feature/multi-table` at `cad3698` (post124: "Generate Documents" button;
-  iig_diff sorts its `--agent` files) + docs, pushed. Suites on post124: `.venv` 2164,
-  `.venv-d1` 1857 passed.
+- **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
+  #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
+  disagreement is a conflict; a gaps: answer wins over the STTM). Suites on post126:
+  `.venv` 2176, `.venv-d1` 1869 passed. **App still on post124 — post126 needs
+  a deploy.**
 - **App** `codegen-agent` deployed from `cad3698` (Soham, 2026-10-27), `/api/health` =
   `0.5.8.post124`, serving the dist with the new button label. The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
@@ -35,7 +37,9 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   badged a convention, post121 acfc_run.py honours `pairing:`, post122 gate
   `ddl_identifiers`.
 - **Real-pair regression checks** (mock container harness, all 12 pairs, old vs new code,
-  client copies in /tmp deleted after): run for post110, post113, post114, post118 —
+  client copies in /tmp deleted after): run for post110, post113, post114, post118,
+  post126 (vs post124: 12/12 same outcome, 170/170 artefacts identical — no real pair
+  has either shape) —
   same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
   standard tables their Load Strategy STD implies; artefacts unchanged).
 - **Newly seen flake:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_never_
@@ -47,6 +51,10 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   `repo_shared_state` group, so likely state left by an earlier module there); passes
   alone 3/3, the full rerun was green. If it recurs, find which module leaves the
   selection behind.
+- **Harness lesson (2026-10-27):** never run the old and new harness IN PARALLEL on one
+  state dir — they share the layout cache, so one side reads a layout by `synonyms`, the
+  other from `cache`: the contracts' provenance and every banner sha then differ (9
+  false diffs on pair_01). Run them one after the other, or re-run one side warm.
 - **Lesson (this session):** a push was once chained after a suite with 1 failure (the
   flake above; the tree was green on rerun) — read the result, then push, never chained.
 
@@ -74,14 +82,15 @@ not measured), then the cache makes it free.
 - **The "high" list's other seven** (numbering of `/tmp/trace/high.json`; #15 = #12's
   duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
   medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
-  probes + reading): ALL SEVEN STILL PRESENT, none fixed, all codeable:
+  probes + reading): all seven were still present. FIXED 2026-10-27: #5 (post125),
+  #7 (post126). Still open, all codeable: #2 #6 #10 #13 #14.
   - #2 `extract/segmented.py:703` recycle window `or 15` (config default 7, no document
     states 15) -> `RECYCL_RETN_DAYS`;
-  - #5 `frd_docx.py:1241` sentinel `unstated` -> IIG SOURCE cell badged from_frd
+  - (fixed, post125) #5 `frd_docx.py:1241` sentinel `unstated` -> IIG SOURCE cell badged from_frd
     (`metadata_template._source_cell`; probe: `{'value': 'unstated'}`);
   - #6 `layout/resolve.py:954` checks only the normalized label: the model's spelling
     reaches provenance and rule text (probe: `'FREQUENCY ::'` for `Frequency`);
-  - #7 `resolve/resolver.py:528` STTM `|` vs VDD `,` -> `|`, no flag, no conflict;
+  - (fixed, post126) #7 `resolve/resolver.py:528` STTM `|` vs VDD `,` -> `|`, no flag, no conflict;
   - #10 `primary_key.py:180` a corpus key never checked against the table's columns
     (probe: `NOT_A_COLUMN_X` in every key cell, rc 0; D1 only — goldens there);
   - #13 `emit/framework.py:689` edo_sfmc invents a title-cased COMMENT and uses

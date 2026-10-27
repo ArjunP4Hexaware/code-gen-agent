@@ -14,7 +14,13 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   2188, `.venv-d1` 1881 passed.
 - **App** `codegen-agent` deployed from `3a9fb28` (by Claude, 2026-10-27 — Soham is the
   App's only user, so Claude deploys after every green push), `/api/health` =
-  `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors. The redeploy wiped the
+  `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors.
+- **Live pair_11 run on post128** (2026-10-27, `demo_20261027_204003`): 0 model calls / 0
+  tokens; GATE_FAIL — 4 feeds PASS_WITH_FLAGS, the stray-space-column feed FAIL
+  (`ddl_identifiers` + `ddl_parses` + now `ddl_tests_read_only`: its test SQL names the
+  same invalid column). Combined `_DDL_TestCases.txt`: 4 feeds, 104 cases, 69 read-only
+  statements, 0 OPEN. The layout dialog asked only `pair.vdd` (4 candidates, none in
+  pair_11's folder) — proceeded with no VDD, as before. The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
   outcome GATE_FAIL — 4 feeds
   PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM

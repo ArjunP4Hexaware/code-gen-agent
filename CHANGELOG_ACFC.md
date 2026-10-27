@@ -4,6 +4,15 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post124 — 2026-10-27 (the run button reads "Generate Documents")
+
+Nikshit's review (2026-10-23): the blue button on the Generate page, formerly
+"Generate from this STTM…", now reads "Generate Documents". The click opens the
+same confirm dialog as before. The App's `dist` is rebuilt, and the port kit, the
+demo scripts and the UX skill use the new label. Nothing generated changes (no
+`src/` change). The same push carries `tools/iig_diff.py` sorting its `--agent`
+files itself, so a score no longer depends on the order the files are named in.
+
 ## 0.5.8.post123 — 2026-10-27 (Layer-2 review switched OFF for ACFC)
 
 Soham, 2026-10-27: Layer 2 (the AI suggestions for FRD rules the compiler cannot map:

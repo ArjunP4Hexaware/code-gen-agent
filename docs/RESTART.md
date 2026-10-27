@@ -129,7 +129,7 @@ filled with the feed's own values (target table, real location):
 - Soham may ask Jinesh / Suganya which file needs which cases.
 
 **UX**
-- DONE 2026-10-27 (`95360b0`, dist rebuilt, not yet deployed): the blue button reads
+- DONE 2026-10-27 (post124, `95360b0`, dist rebuilt, pushed, not yet deployed): the blue button reads
   "Generate Documents"; port kit / demo scripts / UX skill updated.
 - On that click, a disclaimer with the approximate DBU / token cost of the run, computed
   from the actual documents (tokenizer over them → input / output tokens, priced against

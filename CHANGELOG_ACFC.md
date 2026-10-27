@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post125 — 2026-10-27 (an unstated source stays blank, never the word "unstated"; audit #5)
+
+When a .docx FRD has no Data Source / Vendor label, the reader stores the
+placeholder `unstated`. That word went into the IIG SOURCE column (every row),
+`config_rows.xlsx`, `config_inserts.xlsx`, `metadata_inserts.sql` and the v2
+notebook's title table, badged as coming from the FRD. That broke the "never
+invent a value" rule.
+- The placeholder now has one definition (`codegen.contracts.frd.UNSTATED_SOURCE`)
+  and one reader (`stated_source`: blank or the placeholder means None).
+- iig_v2 SOURCE, and iig_v1 SOURCE / APPLICATION_NAME / SUPPLIER / vendor_name, are
+  BLANK with badge `needs_template`, so the gate lists them under `iig_blank:` and
+  the review copy routes them to the BSA as "no input states it". The v2 notebook
+  title copies that blank. Naming tokens and the DDL table comment read it as unstated.
+- A feed whose STTM or the user's answer supplies the source is unchanged.
+- Test: `tests/test_unstated_source.py` (pair 4 with the placeholder, both output
+  modes, every artefact searched); it fails with only the fix reverted.
+
 ## 0.5.8.post124 — 2026-10-27 (the run button reads "Generate Documents")
 
 Nikshit's review (2026-10-23): the blue button on the Generate page, formerly

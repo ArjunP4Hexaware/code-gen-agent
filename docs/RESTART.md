@@ -4,13 +4,14 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post127 pushed, post126 deployed)
+## State (2026-10-27, post128 pushed, post126 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
   disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
-  (segmented recycle window: the config default, never a hard-coded 15). Suites on
-  post127: `.venv` 2178, `.venv-d1` 1871 passed. **App on post126 — post127 needs a deploy.**
+  (segmented recycle window: the config default, never a hard-coded 15), post128 = DDL
+  test cases (`<DDL>_TestCases.txt`, Venu's separate file). Suites on post128: `.venv`
+  2188, `.venv-d1` 1881 passed. **App on post126 — post127 + post128 need a deploy.**
 - **App** `codegen-agent` deployed from `871aff4` (Soham, 2026-10-27), `/api/health` =
   `0.5.8.post126` (post124's "Generate Documents" button included). The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
@@ -39,7 +40,10 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 - **Real-pair regression checks** (mock container harness, all 12 pairs, old vs new code,
   client copies in /tmp deleted after): run for post110, post113, post114, post118,
   post126 (vs post124) and post127 (vs post126): 12/12 same outcome, 170/170 artefacts
-  identical each time — no real pair has those shapes —
+  identical each time — no real pair has those shapes; post128 (vs post127): 12/12 same
+  outcome after a fix it found (an STTM column name with a line break split a test-case
+  comment -> pair_01 GATE_FAIL), +17 `_TestCases` files, 7 listing files changed
+  (combined LOG rows, GATE_FAIL.md counts), every DDL / IIG / insert identical —
   same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
   standard tables their Load Strategy STD implies; artefacts unchanged).
 - **Flake fixed 2026-10-27:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_
@@ -166,7 +170,11 @@ filled with the feed's own values (target table, real location):
   inside the DDL — named like the DDL with `_TestCases` appended: per feed
   `<ABBREV>_DDL_TestCases.txt` next to `<ABBREV>_DDL.txt`, and in the combined set
   `<STTM>_DDL_TestCases.txt` next to `<STTM>_DDL.txt` (`run_artefacts`, the App
-  listing). The DDL stays run-safe SQL only. Soham is designing the cases.
+  listing). The DDL stays run-safe SQL only. **BUILT post128:** Nikshit's six + record
+  count, key unique, structure checks (`conventions.profiles.acfc_prx.ddl_test_cases`);
+  read-only SQL, gate `ddl_tests_read_only`. Open: the framework's real reject behaviour
+  ("fails or rejects" today) and whether it validates the header row — ask Jinesh /
+  Suganya; a per-table grouping if 55 cases per 3-table feed reads too long.
 
 **UX**
 - DONE 2026-10-27 (post124, `95360b0`, deployed): the blue button reads

@@ -99,7 +99,7 @@ not measured), then the cache makes it free.
   duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
   medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
   probes + reading): all seven were still present. FIXED 2026-10-27: #5 (post125),
-  #7 (post126), #2 (post127), #6 (post129). Still open, all codeable: #10 #13 #14.
+  #7 (post126), #2 (post127), #6 (post129), #10 (post130). Still open, all codeable: #13 #14.
   - **New, found fixing #2 — needs Soham:** in ALL three readers a recycle rule with no
     day count gets `defaults.recycle_window_days` (7), and the IIG `RECYCL_RETN_DAYS`
     cell's tooltip says "the recycle window the STTM states" (badge from_sttm) — a false
@@ -112,7 +112,7 @@ not measured), then the cache makes it free.
   - (fixed, post129) #6 `layout/resolve.py:954` checks only the normalized label: the model's spelling
     reaches provenance and rule text (probe: `'FREQUENCY ::'` for `Frequency`);
   - (fixed, post126) #7 `resolve/resolver.py:528` STTM `|` vs VDD `,` -> `|`, no flag, no conflict;
-  - #10 `primary_key.py:180` a corpus key never checked against the table's columns
+  - (fixed, post130) #10 `primary_key.py:180` a corpus key never checked against the table's columns
     (probe: `NOT_A_COLUMN_X` in every key cell, rc 0; D1 only — goldens there);
   - #13 `emit/framework.py:689` edo_sfmc invents a title-cased COMMENT and uses
     `f.description` (Comments text) not `ddl_description` (ACFC runs acfc_prx);

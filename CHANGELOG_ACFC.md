@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post130 — 2026-10-27 (a corpus primary key is checked against the table's columns; audit #10)
+
+On D1, where the prod IIG goldens are loaded as a corpus, a golden row's
+`TGT_PRIMARY_KEY` was the last key signal and was taken exactly as written. A key
+naming no column of the table became a profile default, written unasked into
+every key cell of the ADLS / STGDELTA rows and `metadata_inserts.sql`, and the run
+still exited 0 (probe: `NOT_A_COLUMN_X`).
+- The corpus key now gets the same check as the FRD key statement and the FAQ:
+  it is used only when **every** name is one of the table's columns, written as
+  the layer names it (a source spelling becomes the stage / standard column).
+- Otherwise there is no proposal, and the key is asked for as when no signal exists.
+- Outside D1 (no corpus) nothing changes.
+- Test: `tests/test_primary_key_corpus.py`.
+
 ## 0.5.8.post129 — 2026-10-27 (the layout model's spelling never reaches a contract; audit #6)
 
 When the synonyms cannot place an FRD field, the layout model says where it is.

@@ -322,7 +322,7 @@ workbook first`); `Output` toggles with `Framework artefacts` active and `Notebo
 disabled (tooltip `Option A emitter not built in this workspace (SPEC L16)`); `Input
 documents` card `Some reference documents are missing` with two `✓` rows and the rest `☐`;
 NO `Input requirements check` and NO `Reference-architecture checks` sections; `Known input
-gaps` call-out with `Provide…`; the button `Generate from this STTM…` disabled with tooltip
+gaps` call-out with `Provide…`; the button `Generate Documents` disabled with tooltip
 `Choose an STTM workbook first`; `Past live runs` reading either `No past live runs on this
 machine yet.` or the A8/A9 runs (the A9 run carries `failed — not loadable`).
 
@@ -341,7 +341,7 @@ chip now reads `sttm · selected`, the footer reads `Done`. Click `syn_widget_fr
 for this run`, then `Done`.
 
 Expected after closing: `STTM workbook: syn_widget_sttm.xlsx`; `FRD contract: syn_widget_frd`
-without the default hint; no warning pill; `Inspect pair` and `Generate from this STTM…`
+without the default hint; no warning pill; `Inspect pair` and `Generate Documents`
 enabled.
 
 ### 12. A pair that does not match warns, never blocks
@@ -400,7 +400,7 @@ summary back to check 14's; `<<outputs_volume>>/faq/` holds no `syn_gadget_event
 
 ### 16. The cost modal under the mock lock, then the run and its stages
 
-Click path: `Generate from this STTM…`.
+Click path: `Generate Documents`.
 
 Expected: title `Generate a pipeline from this STTM?`; `Input: syn_widget_sttm.xlsx`; the
 sentence `This deployment is **locked to the mock provider** — the run makes **zero model
@@ -440,7 +440,7 @@ two-line mismatch text of A9 verbatim; the stage list shows `extracting workbook
 ### 19. Segmented pair: CONFIRM items ride the same review flow
 
 Click path: `Choose STTM…`, pick `syn_segmented_sttm.xlsx`; under `FRD for this run` pick
-`syn_segmented_frd`; `Done`; `Inspect pair`; `Generate from this STTM…`; `Confirm — run
+`syn_segmented_frd`; `Done`; `Inspect pair`; `Generate Documents`; `Confirm — run
 live`; `View results →`; sidebar `synthetic_segmented_feed`; tab `Layer-2 review`.
 
 Expected: the inspection table lists one feed with three stage tables; the run's `publishing

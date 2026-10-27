@@ -510,7 +510,7 @@ block "Live is unavailable: <reason from the backend> (provider: <p>)".
 The reason is provider-specific ("Databricks workspace config does not
 resolve", "databricks.serving_endpoint is not configured", "no
 ANTHROPIC_API_KEY in the backend env") — never hard-code one. Otherwise a
-primary button "Generate from this STTM…" (disabled until an STTM is
+primary button "Generate Documents" (disabled until an STTM is
 chosen — tooltip "Choose an STTM workbook first" — and while running,
 where it reads "Live run in progress…"). Click opens the **cost
 confirmation modal** (§2.4.5).

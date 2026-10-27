@@ -21,7 +21,7 @@ evidence column. The rest are the engineer's; we leave this feed untouched on pu
 Switch to `syn_widget_risk`: "This one is fully answered."
 
 **4 — Generate.** Say: "One click. Every stage is named as it starts; Layer 2 is a mock today
-— the modal says zero model calls." `Generate from this STTM…`, `Confirm — run live`. Watch
+— the modal says zero model calls." `Generate Documents`, `Confirm — run live`. Watch
 the stage list tick down to `publishing results — 2 feed(s), 0 failure(s)`.
 
 **5 — Progress → results.** `View results →`. The badge reads `LIVE · <<run_id>>`; the banner

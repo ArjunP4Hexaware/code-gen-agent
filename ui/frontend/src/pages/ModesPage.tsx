@@ -819,7 +819,7 @@ export function ModesPage({
                 }
                 onClick={() => setConfirming(true)}
               >
-                {running ? "Live run in progress…" : "Generate from this STTM…"}
+                {running ? "Live run in progress…" : "Generate Documents"}
               </button>
             )}{" "}
             <button

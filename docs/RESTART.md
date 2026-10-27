@@ -9,8 +9,8 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
   disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
-  (segmented recycle window: the config default, never a hard-coded 15). Suites: see
-  the push commit. **App on post126 — post127 needs a deploy.**
+  (segmented recycle window: the config default, never a hard-coded 15). Suites on
+  post127: `.venv` 2178, `.venv-d1` 1871 passed. **App on post126 — post127 needs a deploy.**
 - **App** `codegen-agent` deployed from `871aff4` (Soham, 2026-10-27), `/api/health` =
   `0.5.8.post126` (post124's "Generate Documents" button included). The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had

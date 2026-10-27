@@ -125,6 +125,40 @@ def test_recycle_built_from_frd_dq_with_citation(pair):
     assert "retained for 15 days" in note.citation
 
 
+
+def test_a_recycle_rule_with_no_day_count_takes_the_config_default_not_15(pair):
+    """Audit #2 (post127): an FRD recycle rule that states no "N days" used to
+    get a hard-coded 15 (no document states it; config.defaults says 7) and its
+    own on_match / on_no_match strings. Now the same as the flat and generic
+    readers: config.defaults.recycle_window_days and config.extractor's texts,
+    and the provenance note says the window is the config default."""
+    workbook_path, frd_path, scoped, _ = pair
+    data = json.loads(frd_path.read_text(encoding="utf-8"))
+    data["feeds"][0]["recycle_rule"] = "Invalid records will be moved to Recycle table."
+    frd_path.write_text(json.dumps(data), encoding="utf-8")
+    (feed,) = _extract(pair).feeds
+    recycle = feed.load_rules.recycle
+    days = scoped.defaults.recycle_window_days
+    assert days != 15
+    assert recycle.recycle_window_days == days
+    assert recycle.on_match == scoped.extractor.recycle_on_match.format(window_days=days)
+    assert recycle.on_no_match == scoped.extractor.recycle_on_no_match.format(window_days=days)
+    note = next(n for n in feed.segmented.provenance_notes
+                if "existence checked against" in n.note)
+    assert f"recycle for {days} days" in note.note
+    assert "the FRD states no window" in note.note
+    assert "defaults.recycle_window_days" in note.note
+
+
+def test_a_stated_window_still_wins_with_the_config_texts(pair):
+    (feed,) = _extract(pair).feeds                       # the FRD says 15 days
+    recycle = feed.load_rules.recycle
+    assert recycle.recycle_window_days == 15
+    assert recycle.on_no_match == pair[2].extractor.recycle_on_no_match.format(window_days=15)
+    note = next(n for n in feed.segmented.provenance_notes
+                if "existence checked against" in n.note)
+    assert "defaults.recycle_window_days" not in note.note
+
 def test_missing_trailer_marker_refuses_with_override_remedy(pair, tmp_path):
     workbook = build_workbook()
     ws = workbook.active

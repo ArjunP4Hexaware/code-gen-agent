@@ -537,7 +537,7 @@ def extract_segmented_contract(
 
     # ---- recycle from the FRD's stated DQ requirement ----------------------
     recycle = _build_recycle(frd_feed, fields_by_segment, blocks, seg_config,
-                             provenance_notes)
+                             provenance_notes, config)
 
     detail_audit = audit_by_segment.get("Detail", [])
     if not detail_audit:
@@ -661,7 +661,8 @@ def _first_standard(fields_by_segment, blocks: _Blocks, which: str) -> str | Non
 
 def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
                    seg_config: SegmentedExtractorConfig,
-                   provenance_notes: list[ProvenanceNote]) -> RecycleSpec | None:
+                   provenance_notes: list[ProvenanceNote],
+                   config: Config) -> RecycleSpec | None:
     """The FRD's stated member-existence DQ requirement, via the existing
     recycle pattern. Built ONLY when the FRD states both the recycle rule and
     the member-validation rule; the reference table name is a config knob
@@ -700,12 +701,16 @@ def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
     stage_schema = _cell(member_field.values, blocks.stage["schema"])
     reference = ".".join(p for p in (
         stage_catalog, stage_schema, seg_config.member_reference_table) if p)
-    days = window_days or 15
+    # post127 (audit #2): an unstated window is the cited config default, as in
+    # the flat and generic readers - never a number no document states
+    days = window_days or config.defaults.recycle_window_days
+    window_note = ("" if window_days else
+                   " (the FRD states no window: config defaults.recycle_window_days)")
     provenance_notes.append(ProvenanceNote(
         note=(
             f"Recycle: {seg_config.member_field!r} existence checked against "
             f"{reference} in the stage layer; invalid records recycle for "
-            f"{days} days."
+            f"{days} days{window_note}."
         ),
         citation=(
             f"FRD validation rule: {member_rules[0]!r}; FRD recycle_rule: "
@@ -719,11 +724,8 @@ def _build_recycle(frd_feed: FrdFeed, fields_by_segment, blocks: _Blocks,
             f"Check with {stage_column} from {reference}, per FRD rule "
             f"{member_rules[0]!r}"
         ),
-        on_match="Process record into stage table",
-        on_no_match=(
-            f"Load record to Recycle Table with recycle flag enabled for "
-            f"{days} days; retry on subsequent runs"
-        ),
+        on_match=config.extractor.recycle_on_match.format(window_days=days),
+        on_no_match=config.extractor.recycle_on_no_match.format(window_days=days),
         recycle_window_days=days,
     )
 

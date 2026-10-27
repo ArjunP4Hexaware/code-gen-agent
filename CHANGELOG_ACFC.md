@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post126 — 2026-10-27 (a VDD / STTM delimiter disagreement is a conflict; audit #7)
+
+When the FRD states no delimiter, the resolver fills it from the STTM and the VDD
+only when they agree. A disagreement (STTM `|`, VDD FILES `,`) used to fall
+through to the STTM's character with no flag and no error.
+- It is now a `value.conflict` naming both cells (`the FRD states no delimiter
+  and the other documents disagree: STTM … says '|'; VDD FILES row 3 says ','`).
+  This matches the existing file-format rule. Documents that agree (`Pipe` = `|`)
+  or a single statement still fill, flagged `frd_unstated:delimiter`.
+- The answer the error asks for (`feeds[<n>].delimiter` under `gaps:`, or the
+  layout dialog) settles it either way. A delimiter the user answered now wins over
+  the STTM, flagged `delimiter_answered:<char> — the answer overrides the STTM,
+  which states <value>`. Before, siding against the STTM raised "delimiter
+  disagrees" again. The existing FRD-format-cell conflict had the same dead end;
+  this fixes that too.
+- Test: `tests/test_delimiter_vdd_conflict.py`; the conflict and the `,` answer
+  fail with only the fix reverted.
+
 ## 0.5.8.post125 — 2026-10-27 (an unstated source stays blank, never the word "unstated"; audit #5)
 
 When a .docx FRD has no Data Source / Vendor label, the reader stores the

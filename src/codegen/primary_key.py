@@ -178,9 +178,12 @@ def proposal(table: TableKey, spec, faq=None,
         if columns:
             return KeyProposal(columns, "the load-pattern FAQ natural_key_columns", "faq")
     stated = (corpus or {}).get(table.table.split(".")[-1].casefold())
-    if stated:
-        return KeyProposal(tuple(statement_names(stated)) or (stated,),
-                           f"a corpus row for table {table.table!r}", "corpus")
+    # post130 (audit #10): like the FRD and FAQ signals, the key only when EVERY
+    # name is one of the table's columns, written as the layer names it - a corpus
+    # row naming another table's columns is no key for this one
+    columns = _match(statement_names(stated), table)
+    if columns:
+        return KeyProposal(columns, f"a corpus row for table {table.table!r}", "corpus")
     return KeyProposal()
 
 

@@ -4,6 +4,35 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post128 — 2026-10-27 (DDL test cases: a separate `<DDL>_TestCases.txt`)
+
+Nikshit's review (2026-10-23) asked for DDL test cases. Venu (2026-10-27) said
+they go in a **separate framework file, never inside the DDL**, named like the
+DDL with `_TestCases`.
+- Per feed (acfc_prx): `<ABBREV>_DDL_TestCases.txt` next to `<ABBREV>_DDL.txt`.
+  Per STTM: `combined/<STTM>_DDL_TestCases.txt`, every kept feed's cases in turn.
+  The App lists it right after the DDL (`output.app_files: ddl_tests`), and the RFC
+  package carries it with the DDL.
+- **What it is:** read-only SQL plus `--` comments the engineer runs **after** the
+  DDL, in a Databricks SQL editor. The agent writes it and never runs it. Each case
+  has an ID (TC01…), what it checks, the negative variant, where its values come
+  from, then its SQL and the expected result.
+- **The cases, in order** (`conventions.profiles.acfc_prx.ddl_test_cases`):
+  - Nikshit's six: file available; file in the right location; column mapping
+    (source → stage → standard, per table); required columns populated; column
+    shift; columns matched by name or by position (a question for the framework
+    owners: Spark applies a schema by position unless the header is validated).
+  - Then: record count; primary key unique; and the structure checks (table exists,
+    columns and types, comments present, table properties, tags, the DDL is safe to
+    re-run).
+- Every value comes from the resolved feed or from the DDL the same run wrote. An
+  unstated value (e.g. no landing location) is `OPEN` and raises
+  `ddl_tests_open:<case>`.
+- New gate check `ddl_tests_read_only` (sqlglot): every statement is a SELECT,
+  DESCRIBE or SHOW. The DDL checks (`ddl_parses`, `sql_literals`) never read this
+  file. The DDL and IIG are unchanged; the pair-1 golden stays byte-identical.
+- Test: `tests/test_ddl_test_cases.py`.
+
 ## 0.5.8.post127 — 2026-10-27 (segmented recycle window: the config default, never 15; audit #2)
 
 When a segmented (H/D/T) pair's FRD recycle rule stated no day count, the

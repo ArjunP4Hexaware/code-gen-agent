@@ -4,12 +4,14 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post123 deployed)
+## State (2026-10-27, post124 deployed)
 
-- **Branch** `feature/multi-table` at `574d8ae` (post123: Layer-2 review OFF) + docs,
-  pushed. Suites on post123: `.venv` 2163, `.venv-d1` 1856 passed.
-- **App** `codegen-agent` deployed from `574d8ae`, `/api/health` = `0.5.8.post123`. A
-  fresh LIVE pair_11 run is loaded (dashboard badge LIVE; 0 model calls, 0 tokens):
+- **Branch** `feature/multi-table` at `cad3698` (post124: "Generate Documents" button;
+  iig_diff sorts its `--agent` files) + docs, pushed. Suites on post124: `.venv` 2164,
+  `.venv-d1` 1857 passed.
+- **App** `codegen-agent` deployed from `cad3698` (Soham, 2026-10-27), `/api/health` =
+  `0.5.8.post124`, serving the dist with the new button label. The redeploy wiped the
+  App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
   outcome GATE_FAIL — 4 feeds
   PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM
   Standard-band column name with a stray space ("Word _Word", column 8 of that feed's
@@ -129,7 +131,7 @@ filled with the feed's own values (target table, real location):
 - Soham may ask Jinesh / Suganya which file needs which cases.
 
 **UX**
-- DONE 2026-10-27 (post124, `95360b0`, dist rebuilt, pushed, not yet deployed): the blue button reads
+- DONE 2026-10-27 (post124, `95360b0`, deployed): the blue button reads
   "Generate Documents"; port kit / demo scripts / UX skill updated.
 - On that click, a disclaimer with the approximate DBU / token cost of the run, computed
   from the actual documents (tokenizer over them → input / output tokens, priced against

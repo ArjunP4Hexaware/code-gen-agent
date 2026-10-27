@@ -40,6 +40,11 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   block_the_list_and_are_listed_unreadable` — a healthy STTM gets a 0.4 s classify
   timeout; under `-n 4` load it once took longer (passes alone, 3/3; the full rerun was
   green). Widen its timeout margin if it recurs.
+- **Second flake (2026-10-27):** `tests/test_frd_default.py::test_a_paired_sttm_
+  preselects_its_frd_labelled_paired` — `frd_name` None once under `-n 4` (it is in the
+  `repo_shared_state` group, so likely state left by an earlier module there); passes
+  alone 3/3, the full rerun was green. If it recurs, find which module leaves the
+  selection behind.
 - **Lesson (this session):** a push was once chained after a suite with 1 failure (the
   flake above; the tree was green on rerun) — read the result, then push, never chained.
 
@@ -124,8 +129,8 @@ filled with the feed's own values (target table, real location):
 - Soham may ask Jinesh / Suganya which file needs which cases.
 
 **UX**
-- Rename the blue button "Generate from this STTM…" to "Generate Documents"
-  (`ui/frontend/src/pages/ModesPage.tsx`); rebuild + commit `dist`.
+- DONE 2026-10-27 (`95360b0`, dist rebuilt, not yet deployed): the blue button reads
+  "Generate Documents"; port kit / demo scripts / UX skill updated.
 - On that click, a disclaimer with the approximate DBU / token cost of the run, computed
   from the actual documents (tokenizer over them → input / output tokens, priced against
   Opus 5.5), replacing the static estimate.
@@ -171,8 +176,8 @@ filled with the feed's own values (target table, real location):
   pre-push version guard on the pushed range) — in the unpushed `5010c50`; starts on its
   first push (needs the `workflow` scope, State above). Actions minutes bill the GitHub
   repo owner. Reproduced in a clean clone: the container's counts.
-- `tools/iig_diff.py` depends on the `--agent` file order (30.0 sorted vs 30.3
-  unsorted; run_round sorts). Sort internally.
+- DONE 2026-10-27 (`8a60ece`): `tools/iig_diff.py` sorts the `--agent` files itself;
+  `feed#n` labels follow the sorted order. A score taken unsorted before this may move.
 - STGDELTA SRC_ADLS_PATH uses the standard table's name — wrong only when stage ≠
   standard names; no such pair found yet, so wait for one.
 - RECYCL_ADLS_PATH on pair_11 (4 cells): the golden states a recycle no document does.

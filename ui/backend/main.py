@@ -364,9 +364,10 @@ def list_feeds() -> dict:
 
 
 # post91: the order the combined files are offered in
-_COMBINED_ORDER = ("ddl", "iig", "review", "log")
+_COMBINED_ORDER = ("ddl", "ddl_tests", "iig", "review", "log")
 # post98: a combined-set kind -> its output.app_files name
-_COMBINED_APP_FILE = {"ddl": "ddl", "iig": "iig", "review": "iig_review", "log": "log"}
+_COMBINED_APP_FILE = {"ddl": "ddl", "ddl_tests": "ddl_tests", "iig": "iig",
+                      "review": "iig_review", "log": "log"}
 
 
 def _combined_sets(served, shown=None) -> list[dict]:

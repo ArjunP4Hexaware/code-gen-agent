@@ -10,6 +10,8 @@ import type { Layer2State } from "./api";
 
 const PRESENTED: [string, (name: string) => boolean][] = [
   ["ddl", (name) => name.endsWith("_DDL.txt")],
+  /* post128: the DDL test cases, a separate file next to the DDL (Venu) */
+  ["ddl_tests", (name) => name.endsWith("_TestCases.txt")],
   ["iig", (name) => name.endsWith("_IIG.xlsx")],
   ["iig_review", (name) => name.endsWith("_IIG_REVIEW.xlsx")],
   ["addition", (name) => name === "ADDITION.md"],

@@ -44,8 +44,8 @@ output:
   # post98 (Soham, 2026-10-22): the framework files the App lists - the IIG review
   # workbook (<STTM>_IIG_REVIEW.xlsx / <feed>_IIG_REVIEW.xlsx) is HIDDEN; it is still
   # written. To show it again:
-  #   app_files: [ddl, iig, iig_review, addition, log]
-  app_files: [ddl, iig, addition, log]
+  #   app_files: [ddl, ddl_tests, iig, iig_review, addition, log]
+  app_files: [ddl, ddl_tests, iig, addition, log]
   # post101 (Soham, 2026-10-22): the artefacts panel names only the IDs the data
   # engineer assigns (METADATA_DB_SEMANTICS.md §1-2); the rest (load timestamps,
   # the Databricks workspace / cluster settings, columns of empty sheets, OBJECT_ID
@@ -1054,6 +1054,15 @@ conventions:
         delta.minReaderVersion: "1"
         delta.minWriterVersion: "2"
       domain_tags: true
+      # post128 (Nikshit's review 2026-10-23; Venu 2026-10-27: a separate file next to
+      # the DDL, named <DDL name>_TestCases): read-only SQL + comments the engineer
+      # runs AFTER the DDL; every value from the documents, an unstated one OPEN +
+      # a ddl_tests_open flag. The cases, in file order (codegen.emit.ddl_tests).
+      ddl_test_cases: [file_available, file_location, column_mapping, columns_populated,
+                       column_shift, mapping_mode, record_count, key_unique, table_exists,
+                       columns_match, comments_present, table_properties, table_tags,
+                       ddl_rerun]
+      ddl_test_cases_suffix: "_TestCases"
       # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
       # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
       # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.

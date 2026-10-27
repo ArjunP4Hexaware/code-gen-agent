@@ -1,0 +1,25 @@
+{#- post128: the DDL test cases (codegen.emit.ddl_tests) - read-only SQL and
+    comments, one case per block; every value is filled in by the emitter from
+    the resolved feed and the DDL the same run wrote. The environment trims
+    block tags (trim_blocks / lstrip_blocks), so each tag sits on its own line. #}
+-- DDL TEST CASES for {{ ddl_name }} (feed {{ feed }})
+-- Run by the engineer AFTER the DDL, in a Databricks SQL editor or notebook. Read-only:
+-- every statement is a SELECT or a SHOW. The agent writes these cases; it never runs them.
+{% for key, value in banner %}
+-- {{ key }}: {{ value }}
+{% endfor %}
+-- Each case says what it checks, the negative variant, and where its values come from,
+-- then its SQL (if any) and the expected result.
+{% for case in cases %}
+
+-- {{ case.id }} {{ case.title }}
+{% for line in case.lines %}
+--   {{ line }}
+{% endfor %}
+{% for q in case.sql %}
+{{ q.statement }};
+{% for line in q.expected %}
+--   {{ "Expected: " if loop.first else "          " }}{{ line }}
+{% endfor %}
+{% endfor %}
+{% endfor %}

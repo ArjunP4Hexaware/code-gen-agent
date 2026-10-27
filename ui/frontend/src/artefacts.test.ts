@@ -32,6 +32,16 @@ describe("presentedArtefacts", () => {
     );
   });
 
+  it("lists the DDL test cases right after the DDL (post128: a separate file)", () => {
+    const written = ["CV_RISK_DDL_TestCases.txt", "cv_risk_IIG.xlsx", "CV_RISK_DDL.txt"];
+    expect(presentedArtefacts(written, ["ddl", "ddl_tests", "iig"])).toEqual([
+      "CV_RISK_DDL.txt",
+      "CV_RISK_DDL_TestCases.txt",
+      "cv_risk_IIG.xlsx",
+    ]);
+    expect(presentedArtefacts(written, ["ddl", "iig"])).not.toContain("CV_RISK_DDL_TestCases.txt");
+  });
+
   it("lists what exists, never a file that was not written", () => {
     expect(presentedArtefacts(["ADDITION.md", "config_rows.xlsx"])).toEqual(["ADDITION.md"]);
   });

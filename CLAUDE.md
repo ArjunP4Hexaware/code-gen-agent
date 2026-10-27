@@ -314,8 +314,10 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   metadata-driven framework. Per feed: the deployment DDL (per conventions profile),
   the IIG workbook + its BSA review copy, `framework/metadata_inserts.sql` (one INSERT
   per IIG row; an open cell = unquoted `<<COLUMN#n>>`), `config_rows.xlsx`,
-  `ADDITION.md`. Per run and STTM, `<out>/combined/<STTM>_{IIG.xlsx, IIG_REVIEW.xlsx,
-  DDL.txt, LOG.md}` (`codegen.run_artefacts`; the STTM token is dropped from the name;
+  `ADDITION.md`, and (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a
+  SEPARATE file, never inside the DDL (Venu): read-only SQL the engineer runs after the
+  DDL, gate `ddl_tests_read_only`. Per run and STTM, `<out>/combined/<STTM>_{IIG.xlsx,
+  IIG_REVIEW.xlsx, DDL.txt, DDL_TestCases.txt, LOG.md}` (`codegen.run_artefacts`; the STTM token is dropped from the name;
   run-level rows written once, children never merged). Framework mode still renders the
   full pipeline in a scratch tree so gate verdicts match across modes. The master
   notebook is ACFC's own — the agent never generates, edits or ships it.

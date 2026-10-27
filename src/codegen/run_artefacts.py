@@ -15,6 +15,8 @@ Beside the per-feed files (``<out>/<feed>/framework/``, which the harness,
   N") is moved to the merged row.
 - ``<STTM>_DDL.txt`` - every table block once; two blocks for one table with
   different text are both kept under a ``-- CONFLICT`` line (never chosen).
+- ``<STTM>_DDL_TestCases.txt`` (post128) - every kept feed's DDL test cases,
+  feed by feed (the file is read-only SQL + comments; nothing is merged).
 - ``<STTM>_LOG.md`` - what ADDITION.md said, once for the run: the inputs, the
   files, the feeds (and those left out, with why), the rows per feed, what was
   merged, the conflicts, the blank framework IDs, the review flow.
@@ -265,6 +267,7 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
     names = {"iig": cfg.iig_file_pattern.format(sttm=sttm),
              "review": cfg.review_file_pattern.format(sttm=sttm),
              "ddl": cfg.ddl_file_pattern.format(sttm=sttm),
+             "ddl_tests": cfg.ddl_test_cases_file_pattern.format(sttm=sttm),
              "log": cfg.log_file_pattern.format(sttm=sttm)}
     with_payload = [k for k in kept if getattr(k.artefacts, "payload", None)]
     written: dict[str, str] = {}
@@ -290,11 +293,20 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
                   check_iig_workbooks_single_value([folder / names["iig"]],
                                                    config.gate.derivations)]
         failed_checks = [c.name for c in checks if not c.passed]
-    ddl_texts = []
+    from codegen.emit.framework import is_ddl_test_cases
+
+    ddl_texts, test_texts = [], []
     for k in kept:
         for path in getattr(k.artefacts, "files", []):
             if path.name.endswith("_DDL.txt") and Path(path).is_file():
                 ddl_texts.append((k.slug, Path(path).read_text(encoding="utf-8")))
+            elif is_ddl_test_cases(path.name) and Path(path).is_file():
+                test_texts.append(Path(path).read_text(encoding="utf-8").rstrip("\n"))
+    if test_texts:
+        # post128: each feed's cases as written, one after the other
+        (folder / names["ddl_tests"]).write_text("\n\n\n".join(test_texts) + "\n",
+                                                 encoding="utf-8", newline="\n")
+        written["ddl_tests"] = names["ddl_tests"]
     ddl_skipped, conflicts = 0, []
     if ddl_texts:
         banners = tuple(b for b in (getattr(profile, "stage_banner", None),
@@ -364,6 +376,10 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
         lines.append(f"| `{written['ddl']}` | The Databricks (Unity Catalog) table DDL, every "
                      "table once. **Applied by the CI/CD pipeline after the IIG is "
                      "approved** — the agent never creates target tables. |")
+    if "ddl_tests" in written:
+        lines.append(f"| `{written['ddl_tests']}` | The DDL test cases, feed by feed: "
+                     "read-only SQL the engineer runs after the DDL (the agent never runs "
+                     "them). |")
     if "iig" in written:
         lines.append(f"| `{written['iig']}` | The IIG: the template's sheets and columns, "
                      "values only — the file the BSA certifies and the CI/CD pipeline "

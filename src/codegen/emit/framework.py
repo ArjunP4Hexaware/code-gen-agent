@@ -40,7 +40,7 @@ from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
 from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
 from codegen.gate.ddl_names import check_ddl_identifiers
-from codegen.gate.ddl_parse import check_ddl_parses
+from codegen.gate.ddl_parse import check_ddl_parses, check_ddl_tests_read_only
 from codegen.gate.derivations import (
     check_iig_derivations,
     check_iig_workbooks_single_line,
@@ -95,10 +95,19 @@ TARGET_DDL = "DDL — Databricks (Unity Catalog)"
 TARGET_DML = "DML — SQL Server metadata DB (run from notebook)"
 TARGET_REVIEW = "Review sheets"
 TARGET_NOTES = "Notes"
+TARGET_TESTS = "DDL test cases — run by the engineer after the DDL (read-only)"
+# post128: the test-cases file's name ends so (the profile suffix + .txt)
+DDL_TEST_CASES_SUFFIX = "_TestCases.txt"
+
+
+def is_ddl_test_cases(name: str) -> bool:
+    return name.endswith(DDL_TEST_CASES_SUFFIX)
 DDL_TARGET_HEADER = "-- TARGET SYSTEM = Databricks (Unity Catalog) — run in SQL editor/notebook"
 
 
 def artefact_group(name: str) -> str:
+    if is_ddl_test_cases(name):
+        return TARGET_TESTS
     if name.endswith("_table_creation.txt") or name.endswith("_DDL.txt"):
         return TARGET_DDL
     if name == METADATA_INSERTS_FILE:
@@ -953,6 +962,18 @@ def emit_framework(
             txt_path = framework_dir / ddl_names[0]
             txt_path.write_text(combined, encoding="utf-8", newline="")
             files.append(txt_path)
+            if profile.ddl_test_cases:
+                # post128 (Venu): the test cases in their OWN file, never in the DDL
+                from codegen.emit.ddl_tests import build, ddl_test_cases_name
+
+                tags = ((spec.domain, spec.sub_domain)
+                        if profile.domain_tags and spec.domain and spec.sub_domain else None)
+                cases = build(spec, definitions, profile, ddl_names[0], banner, tags)
+                test_cases_path = framework_dir / ddl_test_cases_name(
+                    ddl_names[0], profile.ddl_test_cases_suffix)
+                test_cases_path.write_text(cases.text, encoding="utf-8", newline="\n")
+                files.append(test_cases_path)
+                flags.extend(cases.flags)
         else:
             ddl_names = []
     else:
@@ -999,11 +1020,17 @@ def emit_framework(
     if unqualified:
         checks.append(GateCheck(name="qualified_names", passed=False,
                                 details="; ".join(unqualified)))
-    ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files if p.suffix == ".txt"]
+    # post128: the DDL test cases are no DDL - their own read-only check
+    test_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
+                  if is_ddl_test_cases(p.name)]
+    ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
+                 if p.suffix == ".txt" and not is_ddl_test_cases(p.name)]
     checks.append(check_sql_literals(ddl_texts, config, path_whitespace))
     checks.append(check_ddl_identifiers(definitions))
     if config.gate.ddl_parse_dialect:
         checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect))
+        if test_texts:
+            checks.append(check_ddl_tests_read_only(test_texts, config.gate.ddl_parse_dialect))
     checks.append(check_iig_derivations(payload, config, path_whitespace))
 
     rows_workbook = build_workbook(payload)
@@ -1172,6 +1199,7 @@ def presented_files(files: list[Path]) -> list[Path]:
     framework files are still written; they are not listed."""
     tests = (
         lambda name: name.endswith(("_DDL.txt", "_table_creation.txt")),
+        is_ddl_test_cases,
         lambda name: name.endswith("_IIG.xlsx"),
         lambda name: name.endswith("_IIG_REVIEW.xlsx"),
         lambda name: name == "ADDITION.md",

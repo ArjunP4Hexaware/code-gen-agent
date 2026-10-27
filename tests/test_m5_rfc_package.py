@@ -161,7 +161,7 @@ def test_pair1_prx_package_file_set_and_names(pair1_rfc, pair1_spec):
     assert gate.verdict == "PASS_WITH_FLAGS"
     assert package.name == "RFC######_ACCUM"
     assert sorted(p.name for p in package.iterdir()) == sorted([
-        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
+        "ACCUM_DDL.txt", "ACCUM_DDL_TestCases.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
         "RFC######_ACCUM_Deployment_Playbook.xlsx"])
     # The DDL is the golden, byte for byte; framework/ still holds the sources.
     assert (package / "ACCUM_DDL.txt").read_bytes() == GOLDEN_DDL.read_bytes()
@@ -231,7 +231,7 @@ def test_answered_rfc_number_names_the_package(pair1_rfc, pair1_config, pair1_sp
                            playbook_template="main_single")
     assert rfc.package_dir.name == "RFCSYN001_ACCUM"
     assert sorted(p.name for p in rfc.files) == sorted([
-        "ACCUM_DDL.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
+        "ACCUM_DDL.txt", "ACCUM_DDL_TestCases.txt", "ACCUM_IIG.xlsx", *DML_FILES, "MANIFEST.md",
         "RFCSYN001_ACCUM_Deployment_Playbook.xlsx"])
     assert not any(f.startswith("rfc_") for f in rfc.flags)
     wb = load_workbook(rfc.package_dir / "RFCSYN001_ACCUM_Deployment_Playbook.xlsx")

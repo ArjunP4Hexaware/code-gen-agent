@@ -72,7 +72,8 @@ def test_the_shipped_app_hides_the_iig_review_workbook():
     iig_review back to output.app_files shows it again. The model default lists
     every kind, so a config without the line changes nothing."""
     config = load_config(REPO / "config" / "config.yaml")
-    assert config.output.app_files == ["ddl", "iig", "addition", "log"]
+    # post128: the DDL test cases (a separate file next to the DDL) are listed
+    assert config.output.app_files == ["ddl", "ddl_tests", "iig", "addition", "log"]
     assert "iig_review" in type(config.output).model_fields["app_files"].default
 
 

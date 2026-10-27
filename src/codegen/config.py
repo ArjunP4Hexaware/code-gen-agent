@@ -85,8 +85,8 @@ class OutputConfig(BaseModel):
     # post98: the framework files the App LISTS (its artefacts panel and combined
     # set); every file is still written and the CLI is not affected. Drop a kind to
     # hide it, add it back to show it again.
-    app_files: list[Literal["ddl", "iig", "iig_review", "addition", "log"]] = [
-        "ddl", "iig", "iig_review", "addition", "log"]
+    app_files: list[Literal["ddl", "ddl_tests", "iig", "iig_review", "addition", "log"]] = [
+        "ddl", "ddl_tests", "iig", "iig_review", "addition", "log"]
     # post101: the blank IDs the App's artefacts panel tells the engineer to assign,
     # each with a short hint (column -> hint), shown only when a feed leaves it
     # blank. Empty = every framework-assigned blank column (the old long line). The
@@ -1198,6 +1198,13 @@ class InputsConfig(BaseModel):
         return self
 
 
+# post128: the DDL test cases a conventions profile may write (codegen.emit.ddl_tests)
+DdlTestCase = Literal["file_available", "file_location", "column_mapping",
+                      "columns_populated", "column_shift", "mapping_mode", "record_count",
+                      "key_unique", "table_exists", "columns_match", "comments_present",
+                      "table_properties", "table_tags", "ddl_rerun"]
+
+
 class ConventionsProfileConfig(BaseModel):
     """One client conventions profile (M4): how the deployment DDL is laid
     out. ``edo_sfmc`` (two files, the SFMC reference goldens) is today's
@@ -1272,6 +1279,13 @@ class ConventionsProfileConfig(BaseModel):
     # the FRD's Domain / Sub-Domain; either blank = no tag statement + one
     # ddl_tags_blank flag per feed.
     domain_tags: bool = False
+    # post128 (Nikshit's review; Venu: a SEPARATE file, never inside the DDL): the
+    # DDL test cases written next to the combined DDL, named like it with
+    # ``ddl_test_cases_suffix`` before the extension (ACCUM_DDL.txt ->
+    # ACCUM_DDL_TestCases.txt) - read-only SQL + comments the ENGINEER runs after
+    # the DDL (the agent never runs them). The cases, in file order; [] = no file.
+    ddl_test_cases: list[DdlTestCase] = Field(default_factory=list)
+    ddl_test_cases_suffix: str = "_TestCases"
     # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
     # datatypes extract-sttm accepts (workbook spelling, normalized). Every
     # audit column: audit_datatypes; a column ending in one of
@@ -2298,6 +2312,8 @@ class CombinedConfig(BaseModel):
     iig_file_pattern: str = "{sttm}_IIG.xlsx"
     review_file_pattern: str = "{sttm}_IIG_REVIEW.xlsx"
     ddl_file_pattern: str = "{sttm}_DDL.txt"
+    # post128: every kept feed's DDL test cases, feed by feed
+    ddl_test_cases_file_pattern: str = "{sttm}_DDL_TestCases.txt"
     log_file_pattern: str = "{sttm}_LOG.md"
     dedup_sheets: list[str] = Field(default_factory=list)
     # post99: rows written once on an otherwise per-feed sheet - a row whose

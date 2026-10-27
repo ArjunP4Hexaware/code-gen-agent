@@ -4,16 +4,17 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post128 pushed, post126 deployed)
+## State (2026-10-27, post128 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
   disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
   (segmented recycle window: the config default, never a hard-coded 15), post128 = DDL
   test cases (`<DDL>_TestCases.txt`, Venu's separate file). Suites on post128: `.venv`
-  2188, `.venv-d1` 1881 passed. **App on post126 — post127 + post128 need a deploy.**
-- **App** `codegen-agent` deployed from `871aff4` (Soham, 2026-10-27), `/api/health` =
-  `0.5.8.post126` (post124's "Generate Documents" button included). The redeploy wiped the
+  2188, `.venv-d1` 1881 passed.
+- **App** `codegen-agent` deployed from `3a9fb28` (by Claude, 2026-10-27 — Soham is the
+  App's only user, so Claude deploys after every green push), `/api/health` =
+  `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors. The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
   outcome GATE_FAIL — 4 feeds
   PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM

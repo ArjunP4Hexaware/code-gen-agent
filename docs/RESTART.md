@@ -4,15 +4,14 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post126 pushed, post124 deployed)
+## State (2026-10-27, post126 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
   disagreement is a conflict; a gaps: answer wins over the STTM). Suites on post126:
-  `.venv` 2176, `.venv-d1` 1869 passed. **App still on post124 — post126 needs
-  a deploy.**
-- **App** `codegen-agent` deployed from `cad3698` (Soham, 2026-10-27), `/api/health` =
-  `0.5.8.post124`, serving the dist with the new button label. The redeploy wiped the
+  `.venv` 2176, `.venv-d1` 1869 passed.
+- **App** `codegen-agent` deployed from `871aff4` (Soham, 2026-10-27), `/api/health` =
+  `0.5.8.post126` (post124's "Generate Documents" button included). The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
   outcome GATE_FAIL — 4 feeds
   PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM

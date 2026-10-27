@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post133 — 2026-10-27 (layout rejections carry coordinates, never model or cell text; audit medium #9)
+
+When the layout validator rejects a claim, the reason goes to the state role's
+rejection log (promised to hold no workbook cell and no model string), the run's
+`REJECTED` lines, `layout_rejected:` flags, and the `--report-unresolved` file
+("structural labels only"). Several reasons quoted text instead:
+- a sheet name the model invented (it may echo header text it was shown);
+- the label cell and the model's label, for STTM meta rows and FRD fields;
+- a data cell's value, when the claimed header row was really a data row;
+- the model's FRD section and inline label;
+- the input values inside a cached profile's schema error.
+
+Now:
+- Each of those reasons gives coordinates and vocabulary only.
+- A model FRD claim under a path it was not asked about (an invented key) is
+  dropped and counted, never merged. This is the FRD side of the STTM's existing
+  `_strip_unknown_roles`.
+- Layouts and contracts are unchanged; only the wording of rejection messages
+  changes, plus the dropped invented FRD claims.
+- Test: `tests/test_rejection_text.py`.
+
 ## 0.5.8.post132 — 2026-10-27 (a rerun never leaves a stale combined set; audit #14)
 
 The per-STTM combined set (`<out>/combined/<STTM>_{IIG.xlsx, IIG_REVIEW.xlsx,

@@ -928,9 +928,14 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
     return questions
 
 
+# post129 (audit #6): the paths whose DQ-section rows read "<label>: <value>" -
+# the synonym path's own rule (extract.frd_docx, the positional DQ rule rows)
+_LABELLED_RULE_PATH = re.compile(r"\.(validation_rules\[\d+\]|recycle_rule)$")
+
+
 def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
                   check_sources: set[str]) -> tuple[FrdLayoutProfile, list[Rejection]]:
-    from codegen.extract.frd_docx import normalize_label
+    from codegen.extract.frd_docx import _inline_pairs, normalize_label
 
     sections = {normalize_label(s): key for key, spellings in
                 config.extractor.frd.section_titles.items() for s in spellings}
@@ -958,6 +963,29 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
                 reason = "value column is not to the right of the label"
             elif source.section is not None and source.section not in set(sections.values()):
                 reason = f"section {source.section!r} is not a known metadata section"
+            else:
+                # post129 (audit #6): the model said WHERE; what the contract
+                # quotes is the document's - its label cell as written, the
+                # inline pair as the cell spells it, labelled_rule as the
+                # synonym path derives it (never the model's flag).
+                update = {"label": row[source.col],
+                          "labelled_rule": bool(source.section == "data_quality"
+                                                and _LABELLED_RULE_PATH.search(path))}
+                if source.inline_label is not None:
+                    text = (row[source.value_col] if source.value_col is not None
+                            and source.value_col < len(row) else "")
+                    stated = next((label for label, _value in _inline_pairs(
+                        text, config.extractor.frd)
+                        if normalize_label(label) == normalize_label(source.inline_label)),
+                        None)
+                    if stated is None:
+                        reason = (f"inline label {source.inline_label!r} names no 'Label: "
+                                  f"value' pair in the value cell (table {source.table} row "
+                                  f"{source.row} col {source.value_col})")
+                    else:
+                        update["inline_label"] = stated
+                if reason is None:
+                    fields[path] = source.model_copy(update=update)
         if reason:
             rejections.append(Rejection("frd", None, None, path, reason))
             fields.pop(path)

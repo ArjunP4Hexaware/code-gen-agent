@@ -229,3 +229,29 @@ def test_all_stage_tables_come_first_then_all_standard_tables():
     assert skipped == 1
     # every block keeps its own banner, in the client's format
     assert text.count(STG) == 2 and text.count(STD) == 2
+
+
+def test_a_rerun_that_keeps_no_feed_leaves_no_stale_combined_set(tmp_path):
+    """Audit #14 (post132): the combined folder was written only for STTMs with a
+    kept feed and never cleared, so a rerun into the same output folder whose
+    every feed now GATE_FAILs kept the previous run's deployable-looking
+    <STTM>_IIG.xlsx / _DDL.txt. A full run now clears the earlier set first."""
+    config, _spec, pair = _pair(tmp_path)
+    assert _generate(config, pair, only_feed=None) == 0
+    folder = tmp_path / "out" / config.combined.dir
+    first = sorted(p.name for p in folder.iterdir())
+    assert any(n.endswith("_IIG.xlsx") for n in first)
+    (folder / "notes_by_a_person.txt").write_text("kept", encoding="utf-8")
+    import codegen.cli as cli_module
+    real = cli_module.generate_feed_result
+
+    def failing(*args, **kwargs):
+        result = real(*args, **kwargs)
+        gate = result.gate.model_copy(update={"verdict": "FAIL"})
+        return result.__class__(**{**result.__dict__, "gate": gate})
+    import pytest as _pytest
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(cli_module, "generate_feed_result", failing)
+        _generate(config, pair, only_feed=None)
+    left = sorted(p.name for p in folder.iterdir())
+    assert left == ["notes_by_a_person.txt"]          # the old set is gone, nothing else

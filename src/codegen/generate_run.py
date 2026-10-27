@@ -256,10 +256,11 @@ class GenerateRun:
     def write_combined(self) -> list[dict]:
         """post91: the combined set of each STTM with a kept feed (none for a
         partial run, or when ``combined.enabled`` is off)."""
-        from codegen.run_artefacts import write_combined
+        from codegen.run_artefacts import clear_combined, write_combined
 
         if self.partial or not self.config.combined.enabled:
             return []
+        clear_combined(self.out_root, self.config)
         profile = self.config.conventions.get(self.conventions_profile)
         blocks = []
         for sttm in dict.fromkeys(s for s, _spec, _k in self.kept_feeds):

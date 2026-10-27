@@ -249,6 +249,24 @@ def merge_ddl(texts: list[tuple[str, str]], banners: tuple[str, ...]
     return "\n\n".join(parts) + "\n", skipped, conflicts
 
 
+def clear_combined(out_root: Path, config: Config) -> list[str]:
+    """post132 (audit #14): a full run starts its combined set afresh - every
+    file an earlier run wrote there (the configured patterns) is removed, so a
+    rerun whose feeds now all fail leaves no deployable-looking set behind. Only
+    those names: any other file in the folder is left alone. Returns what went."""
+    cfg = config.combined
+    folder = out_root / cfg.dir
+    if not folder.is_dir():
+        return []
+    patterns = [p.format(sttm="*") for p in (
+        cfg.iig_file_pattern, cfg.review_file_pattern, cfg.ddl_file_pattern,
+        cfg.ddl_test_cases_file_pattern, cfg.log_file_pattern)]
+    removed = sorted({f for pattern in patterns for f in folder.glob(pattern) if f.is_file()})
+    for f in removed:
+        f.unlink()
+    return [f.name for f in removed]
+
+
 def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
                    excluded: list[tuple[str, str]], config: Config,
                    provenance: list[tuple[str, str]], profile=None) -> dict:

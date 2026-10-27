@@ -4,14 +4,15 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post128 deployed)
+## State (2026-10-27, post129 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
   disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
   (segmented recycle window: the config default, never a hard-coded 15), post128 = DDL
-  test cases (`<DDL>_TestCases.txt`, Venu's separate file). Suites on post128: `.venv`
-  2188, `.venv-d1` 1881 passed.
+  test cases (`<DDL>_TestCases.txt`, Venu's separate file), post129 = audit #6 (the
+  layout model's spelling never reaches a contract). Suites on post129: `.venv` 2192,
+  `.venv-d1` 1885 passed.
 - **App** `codegen-agent` deployed from `3a9fb28` (by Claude, 2026-10-27 — Soham is the
   App's only user, so Claude deploys after every green push), `/api/health` =
   `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors.
@@ -50,7 +51,8 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   identical each time — no real pair has those shapes; post128 (vs post127): 12/12 same
   outcome after a fix it found (an STTM column name with a line break split a test-case
   comment -> pair_01 GATE_FAIL), +17 `_TestCases` files, 7 listing files changed
-  (combined LOG rows, GATE_FAIL.md counts), every DDL / IIG / insert identical —
+  (combined LOG rows, GATE_FAIL.md counts), every DDL / IIG / insert identical; post129
+  (vs post128, both trees warmed): 12/12, 187/187 identical —
   same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
   standard tables their Load Strategy STD implies; artefacts unchanged).
 - **Flake fixed 2026-10-27:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_
@@ -66,7 +68,9 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   run on a fresh state copy reads pair_01 by `synonyms` and every later one from `cache`
   — the contracts' provenance and every banner sha then differ (9 false diffs on
   pair_01, seen twice: in parallel AND in sequence). Warm the cache first (one throwaway
-  run), or re-run the cold side warm, and compare layout `source` before hashes.
+  run), or re-run the cold side warm, and compare layout `source` before hashes. The cache
+  key differs per code TREE: warm EACH side (`/tmp/t/pair_check.sh <old-sha>` does: one
+  pair-1 run per tree, then both full runs, then the comparison, then deletes the copies).
 - **Lesson (this session):** a push was once chained after a suite with 1 failure (the
   flake above; the tree was green on rerun) — read the result, then push, never chained.
 
@@ -95,7 +99,7 @@ not measured), then the cache makes it free.
   duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
   medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
   probes + reading): all seven were still present. FIXED 2026-10-27: #5 (post125),
-  #7 (post126), #2 (post127). Still open, all codeable: #6 #10 #13 #14.
+  #7 (post126), #2 (post127), #6 (post129). Still open, all codeable: #10 #13 #14.
   - **New, found fixing #2 — needs Soham:** in ALL three readers a recycle rule with no
     day count gets `defaults.recycle_window_days` (7), and the IIG `RECYCL_RETN_DAYS`
     cell's tooltip says "the recycle window the STTM states" (badge from_sttm) — a false
@@ -105,7 +109,7 @@ not measured), then the cache makes it free.
     states 15) -> `RECYCL_RETN_DAYS`;
   - (fixed, post125) #5 `frd_docx.py:1241` sentinel `unstated` -> IIG SOURCE cell badged from_frd
     (`metadata_template._source_cell`; probe: `{'value': 'unstated'}`);
-  - #6 `layout/resolve.py:954` checks only the normalized label: the model's spelling
+  - (fixed, post129) #6 `layout/resolve.py:954` checks only the normalized label: the model's spelling
     reaches provenance and rule text (probe: `'FREQUENCY ::'` for `Frequency`);
   - (fixed, post126) #7 `resolve/resolver.py:528` STTM `|` vs VDD `,` -> `|`, no flag, no conflict;
   - #10 `primary_key.py:180` a corpus key never checked against the table's columns

@@ -150,7 +150,8 @@ filled with the feed's own values (target table, real location):
     ingestion. A new READ seam (the never-writes doctrine still holds).
 - Child pipelines: Nikshit doubts every feed has its own children (pair_11: 12 rows per
   the standards doc vs 10 in the prod IIG). Find which groups run in parallel and which
-  in sequence. **Hold this until after the session with Rama on Monday 2026-10-26.**
+  in sequence. **Hold this until after the session with Rama — planned for Mon 2026-10-26, not yet
+  held (Soham, 2026-10-27); no new date yet.**
 - Next level: how GROUP_ID / PIPELINE_ID and the other IDs get assigned (blank today by
   the never-invent-IDs rule).
 

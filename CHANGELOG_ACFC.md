@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post129 — 2026-10-27 (the layout model's spelling never reaches a contract; audit #6)
+
+When the synonyms cannot place an FRD field, the layout model says where it is.
+The validator checked only that the model's label matched the cell after
+normalizing, then copied the model's spelling into the contract. A claim of
+`FREQUENCY ::` for a cell reading `Frequency` put `FREQUENCY ::` into the
+provenance, and with the model's `labelled_rule` flag the rule text became
+`FREQUENCY ::: Daily`. A model `inline_label` reached the provenance the same way.
+- A validated claim now carries the document's own label cell text.
+- `labelled_rule` is derived as the synonym path derives it (a Data Quality rule
+  row); the model's flag is ignored.
+- An `inline_label` naming no `Label: value` pair in the value cell is rejected
+  and goes back to the user as unresolved.
+- Synonym-resolved layouts are unchanged. Only layouts the model placed (live
+  runs, or a cached model layout) can change, and then to the document's wording.
+- Test: `tests/test_layout_model_label.py`.
+
 ## 0.5.8.post128 — 2026-10-27 (DDL test cases: a separate `<DDL>_TestCases.txt`)
 
 Nikshit's review (2026-10-23) asked for DDL test cases. Venu (2026-10-27) said

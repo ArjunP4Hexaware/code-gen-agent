@@ -4,7 +4,7 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post131 deployed)
+## State (2026-10-27, post132 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
@@ -13,7 +13,8 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   test cases (`<DDL>_TestCases.txt`, Venu's separate file), post129 = audit #6 (the
   layout model's spelling never reaches a contract), post130 = audit #10 (a corpus key
   is checked against the table's columns), post131 = audit #13 (edo_sfmc COMMENTs only
-  as stated). Suites on post131: `.venv` 2197, `.venv-d1` 1890 passed.
+  as stated), post132 = audit #14 (a full run clears the earlier combined set).
+  Suites on post132: `.venv` 2198, `.venv-d1` 1891 passed.
 - **App** `codegen-agent` deployed from `3a9fb28` (by Claude, 2026-10-27 — Soham is the
   App's only user, so Claude deploys after every green push), `/api/health` =
   `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors.
@@ -53,7 +54,7 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   outcome after a fix it found (an STTM column name with a line break split a test-case
   comment -> pair_01 GATE_FAIL), +17 `_TestCases` files, 7 listing files changed
   (combined LOG rows, GATE_FAIL.md counts), every DDL / IIG / insert identical; post129
-  (vs post128, both trees warmed), post130 and post131: 12/12, 187/187 identical —
+  (vs post128, both trees warmed), post130, post131, post132: 12/12, 187/187 identical —
   same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
   standard tables their Load Strategy STD implies; artefacts unchanged).
 - **Flake fixed 2026-10-27:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_
@@ -133,8 +134,32 @@ not measured), then the cache makes it free.
   repeat across sheets; #27 / blind spots: 23 of 25 notebook v2 tests skip (fixtures
   removed); dead code `_reject_segmented_family`, `_frd_required`, `band_layer_answers`
   (#5 #11 #26); #42 `ddl_parses` checks framework `.txt` only; #7 width questions
-  keyed by sheet index; 18 medium/low still unverified. The CLI/App flag differences
-  (#40 #41) are partly by design.
+  keyed by sheet index. The CLI/App flag differences (#40 #41) are partly by design.
+- **The 18 unverified medium/low, checked 2026-10-27 against post132 (reading; #10 #24 #28
+  #34 also have the audit's probes): ALL 18 still present.** Numbering = the medium/low
+  list (`/tmp/trace/rest_verdicts.json`, which now records each verdict). By weight:
+  - medium, on paths ACFC runs: #9 a model-invented sheet name / a quoted FRD or meta
+    label cell goes into the rejection log, REJECTED lines and the "structural labels
+    only" unresolved report (privacy doctrine); #10 an FRD user answer for a field
+    already placed is dropped silently (the STTM side overrides); #31 an Upsert
+    non-detail (segmented H/T) table with no key signal gets a blank key under acfc_env
+    (NA in the PRX family) with no QUESTION; #34 `config_inserts.xlsx` ("review copy of
+    metadata_inserts.sql") builds its own INSERTs with the retired logic (NULL for an
+    open cell, iig_v1 blank list, no db_value_map) — they differ from the script; #7
+    width answers keyed by sheet index but read by the paired FRD feed index; #24
+    `codegen pair` / acfc_run lack the App's same-folder FRD rescue (NONE, exit 0);
+    #16(b) spec.lobs from the FRD while the files expand from the STTM header's LOBs.
+  - CLI-only (the layout stage already asks): #14 a layerless STTM load strategy
+    filled silently from the FAQ; #15 FRD vs STTM load strategy never compared; #16(a)
+    LOBs asked although the STTM header states them.
+  - low: #4 the classic reader ignores an overlay's audit_datatypes; #18 null-reject
+    rule naming a source column flagged "contracts disagree"; #28 corpus keys folded
+    to the bare table name (narrowed by post130); #32 the key cell's corpus from the
+    default profile + CWD; #36 notebook v2 drops a non-digit fixed-width entry,
+    unflagged; #39 literals copying config defaults (name-token cap 32, timezone,
+    cell limit); #45 a TemplateGapError crash missing from the combined LOG's
+    exclusions; #46 a withheld notebook-only GATE_FAIL recorded `written: true`; #47
+    pair_outcome can read a stale manifest after an early exit 1.
 - The 11 audit areas never searched (config, edges, App runner / API, frontend, the
   cross-cutting lenses) — if resumed: one area at a time, inline or with a hard budget.
 

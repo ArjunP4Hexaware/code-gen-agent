@@ -134,3 +134,20 @@ def test_the_combined_set_carries_every_feeds_cases(tmp_path):
         assert own.read_text(encoding="utf-8").rstrip("\n") in text
     log = (out / config.combined.dir / block["files"]["log"]).read_text(encoding="utf-8")
     assert f"`{name}`" in log
+
+
+def test_a_value_with_a_line_break_never_leaves_its_comment(pair4_config, pair4_spec, tmp_path):
+    """The 12-pair check (post128): an STTM source column name spanning two lines
+    ("Name\\n(Type)") split a mapping line, its second half outside the comment -
+    the file stopped parsing and the gate failed the feed."""
+    segments = [s.model_copy(update={"fields": [
+        f.model_copy(update={"source_column": f"{f.source_column}\n(two lines)"})
+        for f in s.fields]}) for s in pair4_spec.segments]
+    spec = pair4_spec.model_copy(update={"segments": segments,
+                                         "domain": f"{pair4_spec.domain}\nsecond line"})
+    gate, framework = _run(pair4_config, spec, tmp_path)
+    text = next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8")
+    stray = [line for line in text.splitlines()
+             if line and not line.startswith("--") and not re.match(r"(SELECT|SHOW) ", line)]
+    assert stray == []
+    assert {c.name: c for c in gate.checks}["ddl_tests_read_only"].passed

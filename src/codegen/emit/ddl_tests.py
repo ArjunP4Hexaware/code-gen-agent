@@ -44,6 +44,12 @@ def _prose(value) -> str:
     return re.sub(r"\s+", " ", str(value)).strip()
 
 
+def _line(value: str) -> str:
+    """One comment line: inner whitespace collapsed, a leading indent kept."""
+    indent = value[:len(value) - len(value.lstrip(" "))]
+    return indent + _prose(value)
+
+
 def _literal(value: str) -> str:
     from codegen.emit.framework import _sql_comment
 
@@ -230,6 +236,13 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                 "From: the DDL."]))
     for number, case in enumerate(cases, start=1):
         case["id"] = f"TC{number:02d}"
+        # every comment line ONE physical line: a document value spanning lines (an
+        # STTM cell "Name\n(Type)") must never leave its '--' (the 12-pair check)
+        case["title"] = _prose(case["title"])
+        case["lines"] = [_line(line) for line in case["lines"]]
+        for q in case["sql"]:
+            q["statement"] = _prose(q["statement"])
+            q["expected"] = [_line(line) for line in q["expected"]]
     text = _environment().get_template("framework/ddl_test_cases.txt.j2").render(
         ddl_name=ddl_name, feed=spec.feed_slug, banner=banner, cases=cases)
     return DdlTestCases(text=text, flags=flags)

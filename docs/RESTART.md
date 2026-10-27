@@ -4,12 +4,13 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post126 deployed)
+## State (2026-10-27, post127 pushed, post126 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
-  disagreement is a conflict; a gaps: answer wins over the STTM). Suites on post126:
-  `.venv` 2176, `.venv-d1` 1869 passed.
+  disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
+  (segmented recycle window: the config default, never a hard-coded 15). Suites: see
+  the push commit. **App on post126 — post127 needs a deploy.**
 - **App** `codegen-agent` deployed from `871aff4` (Soham, 2026-10-27), `/api/health` =
   `0.5.8.post126` (post124's "Generate Documents" button included). The redeploy wiped the
   App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
@@ -37,23 +38,24 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   `ddl_identifiers`.
 - **Real-pair regression checks** (mock container harness, all 12 pairs, old vs new code,
   client copies in /tmp deleted after): run for post110, post113, post114, post118,
-  post126 (vs post124: 12/12 same outcome, 170/170 artefacts identical — no real pair
-  has either shape) —
+  post126 (vs post124) and post127 (vs post126): 12/12 same outcome, 170/170 artefacts
+  identical each time — no real pair has those shapes —
   same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
   standard tables their Load Strategy STD implies; artefacts unchanged).
-- **Newly seen flake:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_never_
-  block_the_list_and_are_listed_unreadable` — a healthy STTM gets a 0.4 s classify
-  timeout; under `-n 4` load it once took longer (passes alone, 3/3; the full rerun was
-  green). Widen its timeout margin if it recurs.
+- **Flake fixed 2026-10-27:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_
+  never_block_the_list_and_are_listed_unreadable` recurred (a healthy STTM over the 0.4 s
+  classify timeout under `-n 4` + a harness run); its margin is now 1.5 s timeout vs a
+  5 s slow download (test-only).
 - **Second flake (2026-10-27):** `tests/test_frd_default.py::test_a_paired_sttm_
   preselects_its_frd_labelled_paired` — `frd_name` None once under `-n 4` (it is in the
   `repo_shared_state` group, so likely state left by an earlier module there); passes
   alone 3/3, the full rerun was green. If it recurs, find which module leaves the
   selection behind.
-- **Harness lesson (2026-10-27):** never run the old and new harness IN PARALLEL on one
-  state dir — they share the layout cache, so one side reads a layout by `synonyms`, the
-  other from `cache`: the contracts' provenance and every banner sha then differ (9
-  false diffs on pair_01). Run them one after the other, or re-run one side warm.
+- **Harness lesson (2026-10-27):** the layout cache lives in the STATE dir, so the first
+  run on a fresh state copy reads pair_01 by `synonyms` and every later one from `cache`
+  — the contracts' provenance and every banner sha then differ (9 false diffs on
+  pair_01, seen twice: in parallel AND in sequence). Warm the cache first (one throwaway
+  run), or re-run the cold side warm, and compare layout `source` before hashes.
 - **Lesson (this session):** a push was once chained after a suite with 1 failure (the
   flake above; the tree was green on rerun) — read the result, then push, never chained.
 
@@ -82,8 +84,13 @@ not measured), then the cache makes it free.
   duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
   medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
   probes + reading): all seven were still present. FIXED 2026-10-27: #5 (post125),
-  #7 (post126). Still open, all codeable: #2 #6 #10 #13 #14.
-  - #2 `extract/segmented.py:703` recycle window `or 15` (config default 7, no document
+  #7 (post126), #2 (post127). Still open, all codeable: #6 #10 #13 #14.
+  - **New, found fixing #2 — needs Soham:** in ALL three readers a recycle rule with no
+    day count gets `defaults.recycle_window_days` (7), and the IIG `RECYCL_RETN_DAYS`
+    cell's tooltip says "the recycle window the STTM states" (badge from_sttm) — a false
+    citation; fixing it needs the RecycleSpec contract to record whether the window was
+    stated.
+  - (fixed, post127) #2 `extract/segmented.py:703` recycle window `or 15` (config default 7, no document
     states 15) -> `RECYCL_RETN_DAYS`;
   - (fixed, post125) #5 `frd_docx.py:1241` sentinel `unstated` -> IIG SOURCE cell badged from_frd
     (`metadata_template._source_cell`; probe: `{'value': 'unstated'}`);

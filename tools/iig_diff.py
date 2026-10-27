@@ -1920,7 +1920,8 @@ def diff_workbooks(
     self_check: bool = False,
 ) -> list[SheetDiff]:
     g = read_workbook(golden, keys)
-    paths = agent if isinstance(agent, list) else [agent]
+    # the files are one union: sorted here, so the --agent order never moves a score
+    paths = sorted(agent) if isinstance(agent, list) else [agent]
     a = read_agent_workbooks(paths, keys)
     tables = (ObjectTables(g, keys), ObjectTables(a, keys))
     scope = FeedScope(a, g, keys, enabled=scope_mode == "feeds")
@@ -2467,6 +2468,8 @@ def _run_pair(golden: Path, agent: Path | list[Path], out: Path, keys_path: Path
               scope_mode: str = "feeds", group_index: list[Path] | None = None
               ) -> tuple[dict, list[SheetDiff], KeyConfig]:
     keys = load_keys(keys_path)
+    if isinstance(agent, list):
+        agent = sorted(agent)
     diffs = diff_workbooks(golden, agent, keys, pair_mode=pair_mode, scope_mode=scope_mode,
                            group_index=group_index)
     payload = score_payload(golden, agent, keys_path, diffs,
@@ -3536,7 +3539,7 @@ def main(argv: list[str] | None = None) -> int:
             ap.error("the following arguments are required: --out")
     if not (args.golden and args.agent):
         ap.error("--golden and --agent are required (or --batch)")
-    agents = list(args.agent)
+    agents = sorted(args.agent)
     build, why = agent_build(agents)
     if build is None:
         print(f"{why} ({BUILD_FILES[0]} / run_meta.json 'build' must sit next to each "

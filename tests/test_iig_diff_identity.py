@@ -263,8 +263,11 @@ def test_key_samples_and_the_export_show_identities(tmp_path: Path, capsys) -> N
                           "--export-scrubbed", str(export)]) == 0
     printed = capsys.readouterr().out
     sheet = json.loads((out / "score.json").read_text(encoding="utf-8"))["sheets"][PIPE]
-    assert sheet["key_samples"]["golden"][:2] == ["feed#1 | file_to_stg", "feed#1 | stg_to_std"]
-    assert sheet["key_samples"]["agent"][:2] == ["feed#1 | file_to_stg", "feed#1 | stg_to_std"]
+    # feeds are numbered in sorted agent-file order (never the --agent order);
+    # a golden row takes the number of the agent feed it matches
+    for side in ("golden", "agent"):
+        assert {"feed#1 | file_to_stg", "feed#1 | stg_to_std"} <= set(
+            sheet["key_samples"][side]), side
     assert f"{PIPE}: score" in printed and "paired by identity 4, position 0" in printed
     assert "PAIRING: identity 16, order 0, position 0, key 0 row(s)" in printed
     assert "KEY CONVENTIONS (D1 only - unscrubbed" in printed
@@ -383,3 +386,25 @@ def test_rule_sheet_diagnostic_classes_identities_and_component_overlap(tmp_path
     sheets_md = (tmp_path / "export" / "sheets.md").read_text(encoding="utf-8")
     assert "Rows per RULE_TYPE x RULE_CLASS" in sheets_md
     assert "SOURCE_COLUMN 2/2/0" in sheets_md and "zzmemberid" not in sheets_md
+
+
+def test_the_agent_file_order_never_changes_the_score(tmp_path: Path) -> None:
+    """RESTART.md: a pair scored 30.0 with the --agent files sorted and 30.3
+    unsorted. The files are one union, so their order must not matter: the
+    tool sorts them itself (same payload, same per-row diff either way)."""
+    golden = _golden(tmp_path / "golden.xlsx")
+    run = tmp_path / "run"
+    agents = [_agent(run, feed, domain) for feed, (domain, _pkg) in FEEDS.items()]
+    keys = iig_diff.load_keys(KEYS)
+    index = _index(tmp_path / "index.csv")
+
+    def rows(order: list[Path]) -> list:
+        return [(d.name, [(c.agent_row, c.golden_row, c.column, c.status) for c in d.cells])
+                for d in iig_diff.diff_workbooks(golden, order, keys, group_index=[index])]
+
+    assert rows(agents) == rows(agents[::-1])
+    (tmp_path / "f").mkdir()
+    (tmp_path / "b").mkdir()
+    forward = _run(tmp_path / "f", golden, agents)
+    backward = _run(tmp_path / "b", golden, agents[::-1])
+    assert forward == backward

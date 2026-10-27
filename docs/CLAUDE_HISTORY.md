@@ -2859,3 +2859,64 @@ one-line copy above or below with its § pointer. From the first pass:
   columns of DATABRICKS_NOTEBOOK_DETAILS stay blank and out of the panel; TEMPLATE_ID
   out of the IDs line.
 
+
+
+## §[H12] Session 2026-10-26 → 27: run-safe DDL, the codeflow audit, post104–post122
+
+What one session did, in order (per-version detail: `CHANGELOG_ACFC.md`; open items:
+`docs/RESTART.md`).
+
+**DDL (Nikshit's review).** post104 (column / table COMMENTs, PK notes, standard
+TBLPROPERTIES) was live; post105 made the `acfc_prx` DDL run-safe after Soham's word
+that the engineer RUNS it: `CREATE TABLE IF NOT EXISTS`, `;` after every statement,
+`CLUSTER BY AUTO` on both layers, the 4 stage TBLPROPERTIES, `ALTER TABLE … SET TAGS`
+from the FRD. Scored vs prod D1 (`tools/ddl_shape.py`, scratch copy deleted): stage
+11/12, standard 10/11 (was 6/12, 6/11); `ddl_shape.py` itself had scored 5 of 6 D1 stage
+files as standard (layer read from "STTM_STG_STD" in the title) — fixed. Deployed and
+verified on the App with a live pair_11 run; shown to Nikshit. post106: the PK note's
+separator " — " (a `;` inside a COMMENT breaks a naive split). A Databricks-capabilities
+review (managed tables + predictive optimization ON for both D1 catalogs, CLUSTER BY
+AUTO effective; the stage protocol properties and the 13 standard ones are prod parity,
+not need) led to post107: notebook v2 never `partitionBy` (clustering is incompatible
+with partitioning) and gate check `ddl_parses` (sqlglot, now a base dependency). The
+review page for Nikshit was written (/tmp, synthetic examples) but not published — the
+Artifact tool needs a claude.ai login. The "Requiremnt" typo Nikshit saw is in the STTM
+itself (6 cells); the agent copies descriptions verbatim.
+
+**Codeflow audit.** Phase 1, deterministic (/tmp/trace): static import graph and
+layering, coverage with per-test contexts (91 functions never run; 153 CLI-only / 112
+App-only src functions), vulture, config-knob audit, duplicate bodies / regexes, churn,
+CLAUDE.md claims as checks, API routes vs frontend calls; 62 skipped tests (33+ for
+fixtures removed 2026-08-22). Phase 2, a multi-agent workflow under "ultracode", was
+launched without a budget and stopped at 1.7M tokens with 7 of 18 finders done — the
+rule against that is in CLAUDE.md now. Its 62 unverified findings were then checked BY
+HAND (reading + probes): of 15 high, 13 real, 1 minor, 1 duplicate; 29 of 47
+medium / low triaged.
+
+**Fixes, one version each, each with a test that fails with only the fix reverted:**
+post108 a key only the Standard band marks gets its input (an Upsert leg shipped a blank
+key, exit 0); post109 segmented "Pipe delimited (|)" read as `(`; post110 the generic
+reader's recycle rule hidden by an N cell (a real pair has 462 N + 1 Y); post111 the
+layout model got up to 25 rows of a header-less sheet (privacy; fingerprint unchanged);
+post112 `edo_sfmc` run-safe + the gate fails CREATE OR REPLACE; post113 identical
+delimiters "disagreed" and any two punctuation delimiters "agreed"; post114 pairing
+matched FEED_8 in FEED_80; post115 an answered load strategy must name one; post116 a
+quoted column index; post117 the recycle-column answer was dropped unread; post118 the
+.docx reader took layer scope from the Target Schema block (doctrine); post119 edo
+tags escaped; post120 a family-convention N badged from_frd; post121 acfc_run.py
+ignored `pairing:`; post122 gate check `ddl_identifiers`.
+
+**Real-pair regression checks** (mock harness, all 12 pairs, old vs new): post110,
+post113, post114, post118 — same outcomes, byte-identical DDL / IIG except post118
+(three FRD contracts gain the standard tables their Load Strategy STD implies).
+
+**Found by the first live run with the parse gate (post121 on the App):** one pair_11
+feed's STTM Standard-band column name has a stray space ("Word _Word"); the DDL had
+carried it since that feed was first generated, including the post105 DDL shown to
+Nikshit. post122 names it; the run is GATE_FAIL for that feed until the STTM is fixed.
+App left on post122 with that live run loaded.
+
+**Lessons.** A push was once chained after a suite with 1 failure (a timing flake; the
+rerun was green) — read, then push. A red check that fails on an ImportError proves
+nothing — revert only the fix. Editing source while a parallel suite runs produced 519
+spurious failures once — the tree stays untouched while suites run.

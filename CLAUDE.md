@@ -5,7 +5,7 @@ elsewhere:
 - **Where the work is now** (state, next up, open items, container recipes):
   `docs/RESTART.md` — read it first, update it at the end of a session.
 - **What each version did:** `CHANGELOG_ACFC.md`.
-- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H10]; §[H9] = everything
+- **Older notes, verbatim:** `docs/CLAUDE_HISTORY.md` (§[H2]–§[H12]; §[H9] = everything
   this file carried before the 2026-10-23 clean-up, §[H10] = retired RESTART.md blocks).
   The pre-clean-up file itself: `git show fa79a28:CLAUDE.md`.
 
@@ -106,6 +106,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   tests/` stays clean; generated code must be ruff-clean too. Frontend: `cd ui/frontend
   && npx vitest run` (or `node node_modules/vitest/vitest.mjs run` where `npx` is
   missing).
+- **Proving a fix:** its test must fail with ONLY the fix reverted (`git show HEAD:<file>`
+  over the fixed file, run, restore) — a failure from a missing import proves nothing.
+  A fix that can change generated output also gets the real-pair check: the container
+  harness, mock, on every pair, old code vs new, comparing outcomes and the artefacts'
+  hashes; client copies go to /tmp and are deleted after; report counts only.
+- **Multi-agent workflows / fan-outs:** never without a hard token budget and effort
+  caps — an uncapped audit burned 1.7M tokens on 7 of 18 finders (2026-10-26).
+  Deterministic tools first (coverage with test contexts, static graph), agents only on
+  the hotspots they rank, every finding verified before it is believed.
 - **`.venv-d1`** mirrors ACFC's D1 environment: Python 3.12, `-e ".[dev,databricks]"`, no
   `ui` extra, pinned by `constraints/acfc_d1.txt` (pydantic 2.8.2 / openpyxl 3.1.2 /
   ruff 0.17.0 …; `docs/acfc/ENVIRONMENT_ACFC.md` §0). `model_*` pydantic fields need
@@ -206,7 +215,10 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   decides WHERE things are, code copies the values, a validator sits between. Order:
   cache → synonyms → model → validate → user. The model sees only fingerprint material
   (header regions, table labels — never a data row) and no model string reaches a
-  contract, DDL or IIG cell. Families A, C and E may legitimately leave roles unresolved
+  contract, DDL or IIG cell. A sheet with no header row (no 3+ cell row in 25: a
+  lookup / valid-values sheet) is CAPPED: the fingerprint hashes it, the model gets its
+  summary line only (`fingerprint.model_region`) — keep the cache key and the prompt
+  separate there. Families A, C and E may legitimately leave roles unresolved
   under synonyms alone (`tests/acfc_shapes/layout_truth.py`) — do not widen the synonym
   tables to force them; a header seen in a client document is evidence, one invented to
   close a fixture gap is not.
@@ -219,7 +231,14 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   table names are always a QUESTION. Trailing `NA` rows → `audit_columns`. A Length cell
   is a byte width only when it is an INTEGER. An empty schema never reaches a contract.
   Segmented (H/D/T) files: segments are tables in both layers, identification derived
-  from the STTM (`extract/segmented.py`, `docs/SEGMENTED_MODE_DESIGN.md`).
+  from the STTM (`extract/segmented.py`, `docs/SEGMENTED_MODE_DESIGN.md`). A stated
+  delimiter (any document) is read by `resolver.delimiter_char` (quoted character, else
+  `extractor.delimiter_words`) — never "the character after a word". Recycle Flag
+  cells: a `no_values` word is an unflagged row, every other non-empty cell must be a
+  `Y ( <validation> )` flag; differing rules stop the extraction, never a silent pick.
+- **Agreement between documents** goes through `gapfill.same_value(a, b, words)`: a
+  punctuation-only value normalizes to '' — compare delimiters as characters (pass
+  `extractor.delimiter_words`), never by `normalize` substring tests.
 - **Gap fill** (`resolve/gapfill.py`): each fill is a `frd_unstated:<field>
   source_used:<cell>` flag; the STTM stage band is authoritative for catalog / schema /
   tables; the dialog asks only when sources disagree or are ambiguous.
@@ -299,9 +318,11 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   notebook is ACFC's own — the agent never generates, edits or ships it.
 - **Notebook mode** (Option A, ~10% case): a standalone PySpark pipeline; `acfc_prx` uses
   notebook v2 (`emit/notebook_v2.py` + `templates/notebook_v2/`, rendered from the IIG
-  rows). Known, accepted: under
+  rows). It never calls `partitionBy` — the DDL clusters every table (`CLUSTER BY AUTO`)
+  and Delta clustering is incompatible with partitioning; `TGT_PARTITION_COLUMN` /
+  `_VALUE` only scope an Overwrite (`replaceWhere`). Open conflict (RESTART.md): under
   `acfc_prx` the DDL types stage columns as the STTM states them while the notebook lands
-  every stage column as STRING.
+  every stage column as STRING — now that the DDL is run first, that append fails.
 - **Conventions profiles** (`conventions.profile`; default `edo_sfmc`): `edo_sfmc` = two
   `.txt` DDL files with per-column COMMENTs, CLUSTER BY AUTO + TBLPROPERTIES;
   `acfc_prx` = ONE combined `<ABBREV>_DDL.txt`, stage columns typed as the STTM states,
@@ -314,7 +335,15 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   `^[A-Za-z_][A-Za-z0-9_]*$` (gate check `ddl_identifiers`, `gate/ddl_names.py`).
 - **The DDL is RUN by the engineer** (Soham, 2026-10-26), not a reference only: every
   statement must be safe to re-run against deployed tables (`CREATE TABLE IF NOT EXISTS`,
-  never `CREATE OR REPLACE` there) and terminated. ACFC's prod DDL template is the
+  never `CREATE OR REPLACE` there) and terminated — `create_statement` (default `CREATE
+  TABLE IF NOT EXISTS`) feeds BOTH layouts; only the pair-1 fixture overlay pins OR
+  REPLACE for its golden. Two gate checks enforce it: `ddl_parses` (sqlglot, dialect
+  `gate.ddl_parse_dialect`; a parse error, an unrecognised statement or a CREATE OR
+  REPLACE fails; sqlglot is a base dependency, absent = `sqlglot_unavailable`, never
+  FAIL; the pair-1 overlay sets the dialect null — its golden is unterminated) and
+  `ddl_identifiers` (on the table definitions; a name as stated that is no identifier
+  fails, naming layer / table / position — the agent never rewrites it, the STTM is
+  fixed). ACFC's prod DDL template is the
   target; `tools/ddl_shape.py` scores the agent's DDL structure against it (counts and
   property names only — prod files read into a scratch dir, never the repo).
 - **DDL string literals** escape a quote with a backslash (`\'`); `''` is no escape in

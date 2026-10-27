@@ -621,14 +621,22 @@ def _sql_comment(text: str) -> str:
 
 
 def _description_map(spec: ResolvedFeedSpec) -> dict[str, str]:
-    """column name -> STTM description, for the per-column COMMENT clauses."""
+    """column name -> STTM description, for the per-column COMMENT clauses.
+    post131 (audit #13): ``ddl_description`` - never a Comments cell (rule
+    text) - and the audit columns from their own STTM rows, as acfc_prx."""
     descriptions: dict[str, str] = {}
     for segment in spec.segments:
         for f in segment.fields:
-            if f.description:
-                descriptions.setdefault(f.stage_column, f.description)
+            if f.ddl_description:
+                descriptions.setdefault(f.stage_column, f.ddl_description)
                 if f.standard_column:
-                    descriptions.setdefault(f.standard_column, f.description)
+                    descriptions.setdefault(f.standard_column, f.ddl_description)
+        for a in segment.audit_columns or []:
+            if a.description:
+                descriptions.setdefault(a.column, a.description)
+    for a in spec.audit_columns:
+        if a.description:
+            descriptions.setdefault(a.column, a.description)
     return descriptions
 
 
@@ -691,15 +699,16 @@ def _table_creation_text(layer: str, entries: list[tuple[str, str, str]],
                              "under gaps: (n = the feed's FRD index) and re-run layout, or set "
                              "the profile's default_catalog in a config overlay")
                 continue
+        # post131 (audit #13): a column no document describes gets NO COMMENT
+        # (never its name title-cased) and one ddl_comment_blank flag per table
         rendered_columns = [
-            {
-                "name": name,
-                "dtype": dtype,
-                "comment": _sql_comment(
-                    descriptions.get(name, name.replace("_", " ").title())),
-            }
+            {"name": name, "dtype": dtype,
+             "comment": _sql_comment(descriptions[name]) if name in descriptions else None}
             for name, dtype in columns
         ]
+        blank = [name for name, _dtype in columns if name not in descriptions]
+        if blank:
+            flags.append(_comment_blank_flag(layer, qualified, blank))
         tables.append({
             "qualified": qualified,
             "columns": rendered_columns,

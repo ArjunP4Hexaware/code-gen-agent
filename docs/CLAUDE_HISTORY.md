@@ -2920,3 +2920,19 @@ App left on post122 with that live run loaded.
 rerun was green) — read, then push. A red check that fails on an ImportError proves
 nothing — revert only the fix. Editing source while a parallel suite runs produced 519
 spurious failures once — the tree stays untouched while suites run.
+
+
+**Addendum, 2026-10-27 (same session, after the standup).** Cost questions for Venu,
+answered from measurement: a pair_11 run uses 0 model tokens (layout by synonyms even
+with the cache off; DDL / IIG / log are deterministic code); the only per-run cost is
+App time (Medium = 0.5 DBU/h while running, ≈0.006 DBU per ~45 s run). Layer 2, run
+live once on pair_11 to measure it: 4 calls, 5,757 input + 9,860 output tokens = 3.15
+DBU at Opus 5.5's FMAPI rates (57.143 / 285.714 DBU per 1M in / out; +10% with
+regional processing) ≈ $0.22 at $0.07/DBU. A new pair whose layout the rules cannot
+read pays one layout call per document once (pair 8 / 10 STTM + FRD requests measured
+offline: ≈23k / 32k characters; est. 1.5–4.5 DBU per pair, output not measured). Then
+Soham switched Layer 2 OFF (post123): a `reasoning:` block in acfc_env.yaml sets
+`layer2_app` / `layer2_cli` to `skip`; delete it to turn back on. The claim that the
+suite runs without that overlay was wrong for one App test (it loads the overlay) —
+the test now pins `defer` itself. App redeployed on post123; a fresh live pair_11 run
+loaded (0 model calls).

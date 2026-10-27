@@ -4,13 +4,13 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27 ~00:45 UTC, post122 deployed)
+## State (2026-10-27, post123 deployed)
 
-- **Branch** `feature/multi-table` at `2ad00eb` (post122) + this note, pushed; CI green
-  through post121 (post122's run started on push). Suites on post122: `.venv` 2163,
-  `.venv-d1` 1856 passed.
-- **App** `codegen-agent` deployed from `2ad00eb`, `/api/health` = `0.5.8.post122`. A
-  fresh LIVE pair_11 run is loaded (dashboard badge LIVE): outcome GATE_FAIL — 4 feeds
+- **Branch** `feature/multi-table` at `574d8ae` (post123: Layer-2 review OFF) + docs,
+  pushed. Suites on post123: `.venv` 2163, `.venv-d1` 1856 passed.
+- **App** `codegen-agent` deployed from `574d8ae`, `/api/health` = `0.5.8.post123`. A
+  fresh LIVE pair_11 run is loaded (dashboard badge LIVE; 0 model calls, 0 tokens):
+  outcome GATE_FAIL — 4 feeds
   PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM
   Standard-band column name with a stray space ("Word _Word", column 8 of that feed's
   standard table). The agent copies names as stated, so that invalid column was in the

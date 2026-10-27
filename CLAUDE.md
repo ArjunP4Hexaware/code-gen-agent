@@ -262,7 +262,10 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
 - **Layer 2** is its own stage after the outcome (`codegen.layer2_stage`, one request per
   feed): `--layer2 now | defer | skip`; config `reasoning.layer2_cli: now`,
   `reasoning.layer2_app: defer` (pending = `<feed>/candidates/layer2_pending.json`, asked
-  by `codegen layer2` or `POST /api/demo/layer2`).
+  by `codegen layer2` or `POST /api/demo/layer2`). For ACFC it is OFF: the
+  `reasoning:` block at the top of `config/overlays/acfc_env.yaml` sets both to `skip`
+  (Soham, 2026-10-27) — delete that block to turn it back on. Tests that exercise a
+  Layer-2 mode with the ACFC overlay loaded pin the mode on their config.
 - **One generate entry point:** `cli.generate_feed_result` + `codegen.generate_run
   .GenerateRun`, driven by the CLI and the App alike (the App's
   `GenerationStore._generate_feed` wraps it); manifests are byte-identical for the same

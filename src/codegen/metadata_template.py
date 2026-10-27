@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from codegen.config import PATH_FAMILY_DEFAULT, Config, MetadataTemplateConfig, is_placeholder
-from codegen.contracts.frd import FrdFeed
+from codegen.contracts.frd import FrdFeed, stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable, SegmentSpec
 from codegen.contracts.sttm import SttmField
 from codegen.contracts.tables import FeedFile
@@ -87,8 +87,7 @@ def _derive(tpl: MetadataTemplateConfig, tab: str, cells: dict, context: dict) -
 def _source_value(feed: FrdFeed) -> str:
     """The {source} token: the SOURCE cell's value; '' when the FRD states no
     source (the docx reader's 'unstated' is a placeholder, never a name)."""
-    value = str(_source_cell(feed)["value"] or "").strip()
-    return "" if value.lower() == "unstated" else value
+    return str(_source_cell(feed)["value"] or "").strip()
 
 
 _OPEN_OFFER_TOOLTIP = ("open — no input states it; candidate, NOT written (confirm before "
@@ -571,8 +570,8 @@ def landing_proposal(tpl: MetadataTemplateConfig, spec: ResolvedFeedSpec) -> str
 
     def stated(value: str | None) -> str:
         # the reader's "unstated" sentinel / a placeholder is no token to propose with
-        text = (value or "").strip()
-        return "" if text.lower() == "unstated" or is_placeholder(text) else text
+        text = stated_source(value) or ""
+        return "" if is_placeholder(text) else text
 
     values = {"domain": stated(spec.domain), "sub_domain": stated(spec.sub_domain),
               "source": stated(spec.source_system)}
@@ -1173,8 +1172,12 @@ def _source_cell(feed: FrdFeed) -> dict:
     """SOURCE = the vendor's display name (first real-row scorecard): a
     trailing vendor id / code after an en-dash or a spaced hyphen ('Vendor C
     \u2013 VC 00000') is dropped; the full label stays in the tooltip. A tail
-    that is a word, not a code, is kept."""
-    full = (feed.source_system or "").strip()
+    that is a word, not a code, is kept. post125 (audit #5): no source stated
+    (blank, or the docx reader's placeholder) -> blank and flagged, never the
+    placeholder badged from_frd."""
+    full = stated_source(feed.source_system)
+    if full is None:
+        return _unstated_source_cell()
     parts = list(_VENDOR_SEPARATOR_RE.finditer(full))
     if parts:
         last = parts[-1]
@@ -1183,7 +1186,13 @@ def _source_cell(feed: FrdFeed) -> dict:
                               or re.fullmatch(r"[A-Z0-9_#/. ]{1,15}", tail)):
             return _cell(name, "from_frd", f"vendor display name — the FRD states {full!r} "
                                            f"(trailing vendor id / code {tail!r} dropped)")
-    return _cell(feed.source_system, "from_frd")
+    return _cell(full, "from_frd")
+
+
+def _unstated_source_cell() -> dict:
+    from codegen.metadata_sheet import unstated_source_cell
+
+    return unstated_source_cell()
 
 
 def _faq_cell(faq, name: str, label: str) -> dict | None:

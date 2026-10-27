@@ -34,7 +34,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 from codegen.config import Config
-from codegen.contracts.frd import FrdContract, FrdFeed
+from codegen.contracts.frd import FrdContract, FrdFeed, stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.demo_sources import feed_source_files
 from codegen.resolve.resolver import normalize_feed_name
@@ -86,6 +86,20 @@ def _cell(value, badge: str, tooltip: str | None = None) -> dict:
     if tooltip:
         entry["tooltip"] = tooltip
     return {"value": "" if value is None else value, "badge_entry": entry}
+
+
+def unstated_source_cell() -> dict:
+    """post125 (audit #5): a source cell when no input states the source —
+    blank and flagged (``iig_blank:``), never the docx reader's placeholder."""
+    return _cell("", "needs_template",
+                 "the FRD states no source (no Data Source / Vendor label) - to be "
+                 "filled by the BSA")
+
+
+def _source_system_cell(feed: FrdFeed) -> dict:
+    """The FRD's source system as a cell; blank and flagged when unstated."""
+    source = stated_source(feed.source_system)
+    return _cell(source, "from_frd") if source is not None else unstated_source_cell()
 
 
 def feed_lob_cell(lobs: list[str], why: str | None = None, tab: str | None = None) -> dict:
@@ -168,7 +182,7 @@ def _file_layout_row(feed: FrdFeed, config: Config,
     landing = source["landing_root"]
     cells = {
         "feed_name": _cell(feed.feed_name, "from_frd"),
-        "source_system": _cell(feed.source_system, "from_frd"),
+        "source_system": _source_system_cell(feed),
         "landing_path": _cell(
             landing["value"],
             "synthetic" if landing["synthetic"] else "from_frd",
@@ -382,7 +396,7 @@ def _adls_delta_row(feed: FrdFeed, config: Config, spec, faq,
         "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
-        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "SOURCE": _source_system_cell(feed),
         "FREQUENCY": _frequency_cell(feed, faq),
         "LOB": feed_lob_cell(list(feed.lobs)),
         "SRC_CONTAINER_NAME": container,
@@ -497,7 +511,7 @@ def _stg_std_leg_row(feed: FrdFeed, config: Config, spec, faq,
         "OBJECT_NAME": _cell(feed.feed_name, "from_frd"),
         "DOMAIN": _cell(feed.domain or "", "from_frd"),
         "SUBDOMAIN": _cell(feed.sub_domain or "", "from_frd"),
-        "SOURCE": _cell(feed.source_system, "from_frd"),
+        "SOURCE": _source_system_cell(feed),
         "FREQUENCY": _frequency_cell(feed, faq),
         "LOB": feed_lob_cell(list(feed.lobs)),
         "SRC_CATALOG_NAME": _cell(stage.catalog or "", "from_frd",
@@ -570,7 +584,7 @@ def _pipeline_schedule_rows(feed: FrdFeed, config: Config, spec, faq,
                 _cell(frequency_word, "from_frd",
                       f"FRD frequency: {feed.frequency!r}")
                 if frequency_word else _frequency_cell(feed, faq)),
-            "APPLICATION_NAME": _cell(feed.source_system, "from_frd"),
+            "APPLICATION_NAME": _source_system_cell(feed),
             "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),
             "LAYER_NAME": _cell(layer, "from_frd"),
             **({"DAY_OF_SCHEDULE": _cell(day_of_schedule, "from_frd",
@@ -726,8 +740,8 @@ def _static_information_rows(feed: FrdFeed, config: Config, spec, faq,
         "DESCRIPTION": _cell(feed.feed_name, "from_frd"),
         "LOB": feed_lob_cell(list(feed.lobs)),
         "FILE_TYPE": _cell(feed.file_format, "from_frd"),
-        "SUPPLIER": _cell(feed.source_system, "from_frd"),
-        "vendor_name": _cell(feed.source_system, "from_frd"),
+        "SUPPLIER": _source_system_cell(feed),
+        "vendor_name": _source_system_cell(feed),
         "FREQUENCY": _frequency_cell(feed, faq),
         "ACTIVE_TERM_STATUS": _cell("Y", "synthetic", _FRAMEWORK_VOCAB_TOOLTIP),
         "PROCESS_NAME": _cell(feed.feed_name, "from_frd"),

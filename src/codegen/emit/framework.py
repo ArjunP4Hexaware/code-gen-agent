@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codegen.config import Config, ConventionsProfileConfig
+from codegen.contracts.frd import stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
 from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
 from codegen.emit.metadata_inserts import emit_metadata_inserts
@@ -640,8 +641,8 @@ def _source_fragment(spec: ResolvedFeedSpec) -> str:
     """" (source: <vendor>)" for the table COMMENT — the vendor / source-
     system value only (Data Source / Vendor Metadata labels); omitted when
     unstated, multi-line or a label-prefixed description (M7 §2 h)."""
-    source = (spec.source_system or "").strip()
-    if not source or source.lower() == "unstated" or "\n" in source or "=" in source:
+    source = stated_source(spec.source_system) or ""
+    if not source or "\n" in source or "=" in source:
         return ""
     return f" (source: {source})"
 

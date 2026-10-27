@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from codegen.config import Config, EngineeringStandardsConfig
+from codegen.contracts.frd import stated_source
 from codegen.contracts.resolved import ResolvedFeedSpec, SegmentSpec
 from codegen.faq import WRITER_BEHAVIOR, LoadPatternFaq, summarize
 from codegen.run_errors import Coord, located
@@ -257,7 +258,7 @@ def _name_components(
         "feed": _sanitize_name_part(slug),
         "product": _sanitize_name_part(standards.product_code),
         "subproduct": _sanitize_name_part(standards.sub_product_code),
-        "source": _abbreviate(source, standards.source_abbreviations),
+        "source": _abbreviate(stated_source(source), standards.source_abbreviations),
         "domain": _abbreviate(domain, standards.domain_abbreviations),
         "subdomain": _abbreviate(sub_domain, standards.domain_abbreviations),
         "lob": lob,

@@ -36,6 +36,7 @@ from xml.etree import ElementTree as ET
 
 from codegen.config import Config, FrdExtractorConfig
 from codegen.contracts.frd import (
+    UNSTATED_SOURCE,
     AcdItem,
     FieldEvidence,
     FrdContract,
@@ -1238,7 +1239,7 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                                           frd_config, flags, cell_of)
         feeds.append(FrdFeed(
             feed_name=feed_name or unnamed_feed_name(document_name, feed_index),
-            source_system=source_system or "unstated",
+            source_system=source_system or UNSTATED_SOURCE,
             file_name_patterns=file_name_patterns,
             file_format=get(f"{prefix}.file_format") or None,
             delimiter=None,

@@ -21,6 +21,17 @@ RecordSegment = Literal["Header", "Detail", "Trailer"]
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
+# post125 (audit #5): what the .docx reader stores in the required
+# ``FrdFeed.source_system`` when no Data Source / Vendor label is found. A
+# placeholder, never a name: read it through ``stated_source``.
+UNSTATED_SOURCE = "unstated"
+
+
+def stated_source(value: str | None) -> str | None:
+    """The source system an input states, or None (blank, or the placeholder)."""
+    text = (value or "").strip()
+    return None if not text or text.casefold() == UNSTATED_SOURCE else text
+
 
 class ProjectInfo(BaseModel):
     model_config = _MODEL_CONFIG

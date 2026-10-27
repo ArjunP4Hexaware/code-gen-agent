@@ -31,6 +31,9 @@ DDL with `_TestCases`.
 - New gate check `ddl_tests_read_only` (sqlglot): every statement is a SELECT,
   DESCRIBE or SHOW. The DDL checks (`ddl_parses`, `sql_literals`) never read this
   file. The DDL and IIG are unchanged; the pair-1 golden stays byte-identical.
+- Found by the 12-pair check before release: an STTM column name with a line break
+  inside split a comment line, so the file stopped parsing and the gate failed that
+  feed. Every comment line is now one line, whatever the documents contain.
 - Test: `tests/test_ddl_test_cases.py`.
 
 ## 0.5.8.post127 — 2026-10-27 (segmented recycle window: the config default, never 15; audit #2)

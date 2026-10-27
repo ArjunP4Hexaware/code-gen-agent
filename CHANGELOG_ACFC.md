@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post131 — 2026-10-27 (edo_sfmc DDL: only the COMMENTs a document states; audit #13)
+
+The two-file `edo_sfmc` DDL wrote a COMMENT on every column. A column with no
+description got its own name title-cased (`LOB` → `'Lob'`, `SRC_FILE_NAME` →
+`'Src File Name'`), and the text came from the STTM `description`, which may be a
+Comments cell (rule text).
+- The COMMENT is now the STTM description (`ddl_description`, never a Comments
+  cell). Audit columns take theirs from their own STTM rows, as `acfc_prx` does.
+- A column no document describes gets no COMMENT, and one `ddl_comment_blank` flag
+  per table.
+- ACFC runs `acfc_prx`, which already followed this rule, so its output is
+  unchanged. Only `edo_sfmc` runs change.
+- Test: `tests/test_edo_sfmc_comments.py`.
+
 ## 0.5.8.post130 — 2026-10-27 (a corpus primary key is checked against the table's columns; audit #10)
 
 On D1, where the prod IIG goldens are loaded as a corpus, a golden row's

@@ -252,12 +252,14 @@ def test_a_changed_file_is_read_again_once(ws):
 
 def test_slow_and_failing_downloads_never_block_the_list_and_are_listed_unreadable(
         monkeypatch, tmp_path):
-    ws = _Workspace(monkeypatch, tmp_path, classify_timeout=0.4)
+    # 2026-10-27: 1.5 s, not 0.4 - under `-n 4` + a harness run a HEALTHY
+    # workbook once took longer than 0.4 s and was listed unreadable (twice)
+    ws = _Workspace(monkeypatch, tmp_path, classify_timeout=1.5)
     try:
         ws.pairs("pair_1")
         ws.put("pair_2", "STTM_slow.xlsx", TREE["pair_2"]["STTM_delta.xlsx"])
         ws.put("pair_3", "STTM_broken.xlsx", TREE["pair_3"]["STTM_golf.xlsx"])
-        ws.slow["STTM_slow.xlsx"] = 2.0                        # longer than the 0.4 s timeout
+        ws.slow["STTM_slow.xlsx"] = 5.0                        # longer than the 1.5 s timeout
         ws.broken["STTM_broken.xlsx"] = RuntimeError("403 Forbidden: no access to the object")
         runner = ws.runner()
         started = time.monotonic()
@@ -270,7 +272,7 @@ def test_slow_and_failing_downloads_never_block_the_list_and_are_listed_unreadab
         assert len(rows) == 4                                  # nothing omitted
         assert rows["STTM_alpha.xlsx"]["kind"] == "sttm"       # the healthy ones are classified
         assert rows["STTM_slow.xlsx"]["kind"] == "unreadable"
-        assert "not read within 0.4s" in rows["STTM_slow.xlsx"]["kind_reason"]
+        assert "not read within 1.5s" in rows["STTM_slow.xlsx"]["kind_reason"]
         assert rows["STTM_broken.xlsx"]["kind"] == "unreadable"
         assert "403 Forbidden: no access to the object" in rows["STTM_broken.xlsx"]["kind_reason"]
         # Never retried in a loop: more listings, no more download attempts.

@@ -106,3 +106,4 @@ def test_an_inline_label_the_cell_does_not_carry_is_rejected(config):
     assert target not in validated.fields
     assert [r.role for r in rejections] == [target]
     assert "names no 'Label: value' pair" in rejections[0].reason
+    assert "Syn Invented Label" not in rejections[0].reason        # post133: never quoted

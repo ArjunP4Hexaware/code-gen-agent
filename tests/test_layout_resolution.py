@@ -223,7 +223,8 @@ def test_adversarial_mock_profiles_are_rejected_with_the_right_reason(file_name,
     assert sheet is not None
     assert len(sheet.band("source").roles) >= 8 and len(sheet.band("rules").roles) == 6
     assert "PHANTOM_SHEET" not in [s.name for s in doc.profile.sheets] or any(
-        r.reason == "sheet does not exist in the workbook" for r in doc.rejections)
+        r.reason.startswith("a sheet the answer names does not exist")
+        and "PHANTOM_SHEET" not in r.render() for r in doc.rejections)   # post133: not echoed
 
 
 def test_swapped_spans_and_wrong_header_row_leave_specific_roles_unresolved(pre_m9, no_cache):
@@ -433,7 +434,7 @@ def test_frd_adversarial_claim_is_rejected_by_the_document_validator(config, no_
     validated, rejections = _validate_frd(doctored, read_docx(FRD / "f1_pair_1.docx"), config,
                                           {"model"})
     assert [r.role for r in rejections] == ["feeds[0].frequency"]
-    assert "label cell reads" in rejections[0].reason
+    assert "does not read as the claimed label" in rejections[0].reason   # post133
     assert "feeds[0].frequency" not in validated.fields
     assert any(u.field == "feeds[0].frequency" for u in validated.unresolved)
 

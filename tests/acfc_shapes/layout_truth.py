@@ -85,7 +85,7 @@ ADVERSARIAL: dict[str, dict] = {
     },
     "adversarial_invented_sheet.json": {
         "mutation": "phantom_sheet",
-        "reason_fragment": "sheet does not exist",
+        "reason_fragment": "a sheet the answer names does not exist",
     },
     "adversarial_free_text_column.json": {
         "mutation": "free_text",

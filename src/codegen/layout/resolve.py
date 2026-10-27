@@ -348,6 +348,20 @@ def _schema_errors(exc: ValidationError) -> list[dict]:
             for e in exc.errors(include_input=False, include_url=False)]
 
 
+def _canonical(key: str) -> str:
+    from codegen.answer_keys import canonical_key
+
+    return canonical_key(key)
+
+
+def _cached_schema_reason(exc: ValidationError) -> str:
+    """post133 (audit #9): pydantic's text quotes the input values (labels a
+    document holds) - only the masked error locations and messages are kept."""
+    errors = _schema_errors(exc)
+    first = f"; first: {_error_line(errors[0])}" if errors else ""
+    return f"cached profile failed schema validation: {len(errors)} error(s){first}"
+
+
 def _error_line(error: dict) -> str:
     where = ".".join(str(p) for p in error["loc"]) or "<answer>"
     return f"model answer schema error at {where}: {error['msg']}"
@@ -752,7 +766,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
             return doc, workbook
         except ValidationError as exc:
             rejections.append(Rejection(document, None, None, None,
-                                        f"cached profile failed schema validation: {exc}"))
+                                        _cached_schema_reason(exc)))
         except _StaleCache as exc:
             rejections.append(Rejection(document, None, None, None, str(exc)))
 
@@ -957,12 +971,13 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
             if source.col >= len(row):
                 reason = f"row {source.row} has no column {source.col}"
             elif normalize_label(row[source.col]) != normalize_label(source.label):
-                reason = (f"label cell reads {row[source.col]!r}, not {source.label!r} "
-                          f"(table {source.table} row {source.row} col {source.col})")
+                # post133 (audit #9): coordinates only - never the cell, never the claim
+                reason = (f"the label cell (table {source.table} row {source.row} col "
+                          f"{source.col}) does not read as the claimed label")
             elif source.value_col is not None and source.value_col <= source.col:
                 reason = "value column is not to the right of the label"
             elif source.section is not None and source.section not in set(sections.values()):
-                reason = f"section {source.section!r} is not a known metadata section"
+                reason = "the claimed section is not a known metadata section"
             else:
                 # post129 (audit #6): the model said WHERE; what the contract
                 # quotes is the document's - its label cell as written, the
@@ -979,9 +994,9 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
                         if normalize_label(label) == normalize_label(source.inline_label)),
                         None)
                     if stated is None:
-                        reason = (f"inline label {source.inline_label!r} names no 'Label: "
-                                  f"value' pair in the value cell (table {source.table} row "
-                                  f"{source.row} col {source.value_col})")
+                        reason = (f"the claimed inline label names no 'Label: value' pair "
+                                  f"in the value cell (table {source.table} row {source.row} "
+                                  f"col {source.value_col})")
                     else:
                         update["inline_label"] = stated
                 if reason is None:
@@ -999,7 +1014,10 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
 
 
 def _merge_frd(profile: FrdLayoutProfile, claims: dict[str, dict], source: str,
-               confidence: float) -> FrdLayoutProfile:
+               confidence: float, *, allowed: set[str] | None = None) -> FrdLayoutProfile:
+    """``allowed`` (post133, audit #9): the paths that may be claimed - for the
+    model, the fields it was asked about; a claim under any other path (a key
+    the model invented) is dropped, never merged nor quoted."""
     from codegen.answer_keys import canonical_key
 
     fields = dict(profile.fields)
@@ -1010,6 +1028,8 @@ def _merge_frd(profile: FrdLayoutProfile, claims: dict[str, dict], source: str,
         # ("feeds[0].Delimiter") is the role's path ("feeds[0].delimiter")
         path = canonical_key(claimed)
         if path in fields or not isinstance(claim, dict):
+            continue
+        if allowed is not None and path not in allowed:
             continue
         try:
             fields[path] = FrdFieldSource.model_validate(claim)
@@ -1077,8 +1097,7 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
             doc.questions = _frd_questions(doc.profile, content, config)
             return doc, content
         except ValidationError as exc:
-            rejections.append(Rejection("frd", None, None, None,
-                                        f"cached profile failed schema validation: {exc}"))
+            rejections.append(Rejection("frd", None, None, None, _cached_schema_reason(exc)))
 
     profile = discover_frd(content, config.extractor.frd)
     profile = profile.model_copy(update={"field_sources": {k: "synonyms" for k in profile.fields}})
@@ -1104,7 +1123,15 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
                                [json.dumps(answer, ensure_ascii=False)[:RAW_LOG_CHARS]])
         else:
             claims = {k: v.model_dump(mode="json") for k, v in model_profile.fields.items()}
-            profile = _merge_frd(profile, claims, "model", config.layout.placed_confidence)
+            asked = {u.field for u in profile.unresolved}
+            dropped = sum(1 for k in claims
+                          if _canonical(k) not in asked and _canonical(k) not in profile.fields)
+            if dropped:
+                rejections.append(Rejection("frd", None, None, None,
+                                            f"{dropped} claim(s) for fields not asked dropped "
+                                            "from the model answer (not repeated)"))
+            profile = _merge_frd(profile, claims, "model", config.layout.placed_confidence,
+                                 allowed=asked)
             profile = profile.model_copy(update={"source": "model"})
             profile, model_rejections = _validate_frd(profile, content, config, {"model"})
             rejections += model_rejections

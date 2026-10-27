@@ -114,7 +114,9 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
 
     for sp in profile.sheets:
         if sp.name not in workbook.sheetnames:
-            reject(sp.name, None, None, "sheet does not exist in the workbook")
+            # post133 (audit #9): a name the workbook lacks is the model's - never echoed
+            reject(None, None, None, "a sheet the answer names does not exist in the workbook "
+                                     "(its name is not repeated)")
             continue
         ws = workbook[sp.name]
         if sp.kind not in ROLE_BEARING_KINDS:
@@ -147,8 +149,8 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
                     # A header is text; a numeric cell means the claimed
                     # header row is a data row.
                     reject(sp.name, band.layer, role,
-                           f"header cell at column {col} is not text ({raw!r}) — row "
-                           f"{sp.header_row} is a data row")
+                           f"header cell at column {col} is not text "
+                           f"({type(raw).__name__}) — row {sp.header_row} is a data row")
                     continue
                 if col in seen_cols:
                     reject(sp.name, band.layer, role,
@@ -283,7 +285,8 @@ def _validate_meta_rows(sp: SheetProfile, ws, disc, reject) -> list[MetaRow]:
         if label is None or (normalize(label) != normalize(entry.label)
                              and synonyms.get(normalize(label)) != entry.key):
             reject(sp.name, None, None,
-                   f"meta row {entry.row}: label cell reads {label!r}, not {entry.label!r}")
+                   f"meta row {entry.row}: the label cell (column {entry.col}) does not read "
+                   "as the claimed label")
             continue
         if entry.value_col is not None and entry.value_col <= entry.col:
             reject(sp.name, None, None,
@@ -293,7 +296,8 @@ def _validate_meta_rows(sp: SheetProfile, ws, disc, reject) -> list[MetaRow]:
             continue
         if entry.key is not None and synonyms.get(normalize(label)) != entry.key:
             reject(sp.name, None, None,
-                   f"meta row {entry.row}: label {label!r} is not a synonym of {entry.key!r}")
+                   f"meta row {entry.row}: the label cell (column {entry.col}) is not a "
+                   f"synonym of {entry.key!r}")
             out.append(entry.model_copy(update={"key": None}))
             continue
         out.append(entry)

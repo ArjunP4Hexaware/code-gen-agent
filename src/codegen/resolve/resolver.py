@@ -353,9 +353,18 @@ def delimiter_char(value: str | None, words: dict[str, str]) -> str | None:
 
 
 def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str],
-                       config: Config | None = None, flags: list[str] | None = None) -> str:
+                       config: Config | None = None, flags: list[str] | None = None,
+                       *, answered: bool = False) -> str:
     flags = flags if flags is not None else []
     words = config.extractor.delimiter_words if config is not None else {}
+    if answered and (char := delimiter_char(frd_feed.delimiter, words)) is not None:
+        # post126 (audit #7): the user's gaps: answer settles a conflict the
+        # documents raised - it wins over the STTM, and the override is cited
+        stated = sttm_feed.source_file.delimiter
+        if stated and delimiter_char(stated, words) not in (None, char):
+            flags.append(f"delimiter_answered:{char!r} — the answer overrides the STTM, "
+                         f"which states {stated!r}")
+        return char
     explicit = []
     for label, stated in (("STTM", sttm_feed.source_file.delimiter),
                           ("FRD", frd_feed.delimiter)):
@@ -528,6 +537,16 @@ def _fill_frd_gaps(frd_feed: FrdFeed, sttm_feed: SttmFeed, config: Config, vdd,
         elif len(others) == 1:
             feed = feed.model_copy(update={"delimiter": others[0].value})
             flags.append(fill_flag("delimiter", others[0]))
+        elif len(others) > 1:
+            # post126 (audit #7): the file format's rule — documents that
+            # disagree are a conflict, never the STTM's character taken silently
+            key = f"feeds[{feed_index}].delimiter"
+            errors.append(mismatch_item(
+                "value.conflict",
+                "the FRD states no delimiter and the other documents disagree: "
+                + "; ".join(f"{s.source} {s.cell} says {s.value!r}" for s in others)
+                + f" — answer {key} under gaps: in answers.yaml, or choose one in the "
+                "layout dialog"))
     if feed.frequency is None:
         sttm_frequency = sttm_feed.source_file.frequency or meta.get("frequency")
         if sttm_frequency:
@@ -967,7 +986,9 @@ def _resolve_one(
 
     frd_feed, stated_flags = stated_values(frd_feed, feed_index, frd, config)
     answered_flags: list[str] = []
+    stated_delimiter = frd_feed.delimiter
     frd_feed = _answered_unstated(frd_feed, gaps, feed_index, answered_flags)
+    answered_delimiter = not stated_delimiter and bool(frd_feed.delimiter)
     frd_feed, gap_flags, gap_errors = _fill_frd_gaps(frd_feed, sttm_feed, config, vdd,
                                                      feed_index=feed_index, frd=frd)
     gap_flags = [*answered_flags, *gap_flags]
@@ -982,7 +1003,8 @@ def _resolve_one(
     sttm_feed = _resolve_widths(sttm_feed, vdd, feed_index, width_flags)
 
     delimiter_flags: list[str] = []
-    delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config, delimiter_flags)
+    delimiter = _resolve_delimiter(frd_feed, sttm_feed, errors, config, delimiter_flags,
+                                   answered=answered_delimiter)
     provenance_flags: list[str] = []
     segment_names: list[str] | None = None
     if not frd_feed.is_segmented and sttm_feed.is_segmented:

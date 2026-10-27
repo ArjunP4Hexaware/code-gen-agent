@@ -4,15 +4,16 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-27, post129 deployed)
+## State (2026-10-27, post130 deployed)
 
 - **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
   #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
   disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
   (segmented recycle window: the config default, never a hard-coded 15), post128 = DDL
   test cases (`<DDL>_TestCases.txt`, Venu's separate file), post129 = audit #6 (the
-  layout model's spelling never reaches a contract). Suites on post129: `.venv` 2192,
-  `.venv-d1` 1885 passed.
+  layout model's spelling never reaches a contract), post130 = audit #10 (a corpus key
+  is checked against the table's columns). Suites on post130: `.venv` 2195, `.venv-d1`
+  1888 passed.
 - **App** `codegen-agent` deployed from `3a9fb28` (by Claude, 2026-10-27 — Soham is the
   App's only user, so Claude deploys after every green push), `/api/health` =
   `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors.
@@ -52,7 +53,7 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   outcome after a fix it found (an STTM column name with a line break split a test-case
   comment -> pair_01 GATE_FAIL), +17 `_TestCases` files, 7 listing files changed
   (combined LOG rows, GATE_FAIL.md counts), every DDL / IIG / insert identical; post129
-  (vs post128, both trees warmed): 12/12, 187/187 identical —
+  (vs post128, both trees warmed) and post130 (vs post129): 12/12, 187/187 identical —
   same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
   standard tables their Load Strategy STD implies; artefacts unchanged).
 - **Flake fixed 2026-10-27:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_

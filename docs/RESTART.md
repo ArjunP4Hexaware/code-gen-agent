@@ -100,8 +100,8 @@ not measured), then the cache makes it free.
   duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
   medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
   probes + reading): all seven were still present. FIXED 2026-10-27: #5 (post125),
-  #7 (post126), #2 (post127), #6 (post129), #10 (post130), #13 (post131). Still open,
-  codeable: #14.
+  #7 (post126), #2 (post127), #6 (post129), #10 (post130), #13 (post131), #14 (post132)
+  — all seven done.
   - **New, found fixing #2 — needs Soham:** in ALL three readers a recycle rule with no
     day count gets `defaults.recycle_window_days` (7), and the IIG `RECYCL_RETN_DAYS`
     cell's tooltip says "the recycle window the STTM states" (badge from_sttm) — a false
@@ -118,7 +118,7 @@ not measured), then the cache makes it free.
     (probe: `NOT_A_COLUMN_X` in every key cell, rc 0; D1 only — goldens there);
   - (fixed, post131) #13 `emit/framework.py:689` edo_sfmc invents a title-cased COMMENT and uses
     `f.description` (Comments text) not `ddl_description` (ACFC runs acfc_prx);
-  - #14 `generate_run.write_combined` never clears `<out>/combined/`: a CLI / harness
+  - (fixed, post132) #14 `generate_run.write_combined` never clears `<out>/combined/`: a CLI / harness
     rerun into the same dir that GATE_FAILs keeps the old combined IIG / DDL (App runs
     get a fresh folder).
 - **Open — needs Soham:** high #4 (multi-file FRD split renames standard tables to the

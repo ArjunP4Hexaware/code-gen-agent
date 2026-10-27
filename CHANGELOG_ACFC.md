@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post132 — 2026-10-27 (a rerun never leaves a stale combined set; audit #14)
+
+The per-STTM combined set (`<out>/combined/<STTM>_{IIG.xlsx, IIG_REVIEW.xlsx,
+DDL.txt, DDL_TestCases.txt, LOG.md}`) was written only for STTMs with a kept feed
+and never cleared. A CLI or harness rerun into the same output folder whose feeds
+now all failed the gate (or crashed) therefore kept the previous run's
+deployable-looking IIG and DDL, while the run itself exited 1.
+- A full run now first removes the combined files an earlier run wrote. Only the
+  configured name patterns are removed; any other file in the folder is left alone.
+- A `--feed` (partial) run still writes no combined set and clears nothing.
+- The App was never affected (each App run has its own folder).
+- Test: `tests/test_run_artefacts.py::test_a_rerun_that_keeps_no_feed_leaves_no_stale_combined_set`.
+
 ## 0.5.8.post131 — 2026-10-27 (edo_sfmc DDL: only the COMMENTs a document states; audit #13)
 
 The two-file `edo_sfmc` DDL wrote a COMMENT on every column. A column with no

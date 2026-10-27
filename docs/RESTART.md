@@ -71,6 +71,24 @@ not measured), then the cache makes it free.
   budget set; do not rerun it without one). Its 62 findings were verified BY HAND: 15
   high (13 real, 1 minor, 1 duplicate) and 29 of 47 medium/low triaged. Fixed: high
   #11 #3 #1 #9 #12/#15 #8; medium #8 #20 #21 #17 #3 #1 #37 #30 #19 #43/#44.
+- **The "high" list's other seven** (numbering of `/tmp/trace/high.json`; #15 = #12's
+  duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
+  medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
+  probes + reading): ALL SEVEN STILL PRESENT, none fixed, all codeable:
+  - #2 `extract/segmented.py:703` recycle window `or 15` (config default 7, no document
+    states 15) -> `RECYCL_RETN_DAYS`;
+  - #5 `frd_docx.py:1241` sentinel `unstated` -> IIG SOURCE cell badged from_frd
+    (`metadata_template._source_cell`; probe: `{'value': 'unstated'}`);
+  - #6 `layout/resolve.py:954` checks only the normalized label: the model's spelling
+    reaches provenance and rule text (probe: `'FREQUENCY ::'` for `Frequency`);
+  - #7 `resolve/resolver.py:528` STTM `|` vs VDD `,` -> `|`, no flag, no conflict;
+  - #10 `primary_key.py:180` a corpus key never checked against the table's columns
+    (probe: `NOT_A_COLUMN_X` in every key cell, rc 0; D1 only — goldens there);
+  - #13 `emit/framework.py:689` edo_sfmc invents a title-cased COMMENT and uses
+    `f.description` (Comments text) not `ddl_description` (ACFC runs acfc_prx);
+  - #14 `generate_run.write_combined` never clears `<out>/combined/`: a CLI / harness
+    rerun into the same dir that GATE_FAILs keeps the old combined IIG / DDL (App runs
+    get a fresh folder).
 - **Open — needs Soham:** high #4 (multi-file FRD split renames standard tables to the
   stage names and pairs files by name guess, silently; both the classic and the .docx
   copy) — tied to the multi-table decision; medium #29 ACTIVE_START_DATE = run date

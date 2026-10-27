@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post127 — 2026-10-27 (segmented recycle window: the config default, never 15; audit #2)
+
+When a segmented (H/D/T) pair's FRD recycle rule stated no day count, the
+segmented reader wrote a recycle window of **15 days**, a number no document and
+no config states. It went into the IIG's `RECYCL_RETN_DAYS`, and the reader used
+its own copies of the match / no-match texts.
+- The window now follows the flat and generic readers: a window the FRD states
+  wins, otherwise `config.defaults.recycle_window_days` (7). The texts are
+  `config.extractor.recycle_on_match` / `recycle_on_no_match`. The provenance
+  note says when the window is the config default.
+- A pair whose FRD states the window (e.g. "retained for 15 days") is unchanged.
+- Test: `tests/test_segmented_extraction.py::test_a_recycle_rule_with_no_day_count_
+  takes_the_config_default_not_15`; it fails with only the fix reverted.
+- **Not changed, raised with Soham:** in all three readers a defaulted window still
+  reaches `RECYCL_RETN_DAYS` with the tooltip "the recycle window the STTM states".
+
 ## 0.5.8.post126 — 2026-10-27 (a VDD / STTM delimiter disagreement is a conflict; audit #7)
 
 When the FRD states no delimiter, the resolver fills it from the STTM and the VDD

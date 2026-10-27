@@ -162,6 +162,11 @@ filled with the feed's own values (target table, real location):
   every column populated; column shift (negative: shuffle the columns);
 - does the framework map by column name or by position?
 - Soham may ask Jinesh / Suganya which file needs which cases.
+- **Where they go (Venu, via Soham, 2026-10-27):** a SEPARATE framework artefact, never
+  inside the DDL — named like the DDL with `_TestCases` appended: per feed
+  `<ABBREV>_DDL_TestCases.txt` next to `<ABBREV>_DDL.txt`, and in the combined set
+  `<STTM>_DDL_TestCases.txt` next to `<STTM>_DDL.txt` (`run_artefacts`, the App
+  listing). The DDL stays run-safe SQL only. Soham is designing the cases.
 
 **UX**
 - DONE 2026-10-27 (post124, `95360b0`, deployed): the blue button reads

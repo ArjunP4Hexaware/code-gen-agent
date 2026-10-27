@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post123 — 2026-10-27 (Layer-2 review switched OFF for ACFC)
+
+Soham, 2026-10-27: Layer 2 (the AI suggestions for FRD rules the compiler cannot map:
+`candidates.json` and the App's review panel) is not used. It never changed the DDL,
+IIG or log, and nothing consumes its suggestions in framework mode.
+- `config/overlays/acfc_env.yaml` gains a labelled `reasoning:` block, `layer2_app:
+  skip` and `layer2_cli: skip`, so neither the App nor an ACFC CLI / harness run
+  prepares or asks Layer 2. The code and config.yaml are unchanged. One App test,
+  which builds its config with the ACFC overlay, now pins `layer2_app: defer` itself,
+  because it tests the defer path.
+- **To turn it back on:** delete that block (config.yaml's defaults return: App `defer`,
+  CLI `now`), then bump, push and redeploy.
+- Checked offline (pair_11, mock harness): the same outcome as before, with 0
+  `candidates.json` and 0 `layer2_pending.json` (4 candidates files before).
+- Measured before switching off (pair_11 live, 2026-10-27): 4 calls, 5,757 input +
+  9,860 output tokens = 3.15 DBU.
+
 ## 0.5.8.post122 — 2026-10-26 (gate check ddl_identifiers: the DDL identifier rule, enforced)
 
 Found by the first live run with the post107 parse gate (pair_11 on the App, post121):

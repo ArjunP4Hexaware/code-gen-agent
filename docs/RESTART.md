@@ -43,6 +43,17 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 - **Lesson (this session):** a push was once chained after a suite with 1 failure (the
   flake above; the tree was green on rerun) — read the result, then push, never chained.
 
+## Layer-2 review: OFF (2026-10-27, post123)
+
+`config/overlays/acfc_env.yaml` → `reasoning: {layer2_app: skip, layer2_cli: skip}`.
+To turn it back on: delete that block, bump, push, redeploy. Cost when it was on
+(pair_11 live, measured): 4 calls, 5,757 in / 9,860 out tokens = 3.15 DBU. Without it,
+a pair_11 run uses 0 model tokens (layout by synonyms; DDL / IIG / log are code); App
+hosting is the cost (Medium, 0.5 DBU/h while running). A new pair whose layout the
+rules cannot read pays one layout call per document once (STTM + FRD measured offline:
+pair 8 ≈ 23k chars of requests, pair 10 ≈ 32k; est. 1.5–4.5 DBU per pair, output side
+not measured), then the cache makes it free.
+
 ## Codeflow audit (2026-10-26) — where it stands
 
 - Phase 1 (deterministic, /tmp/trace — lost on a container reset): static graph,

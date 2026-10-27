@@ -309,6 +309,10 @@ def test_the_app_defers_and_its_review_panel_asks_later(app, tmp_path, monkeypat
     from ui.backend.main import _summary
 
     config, specs, (frd, _sttm) = _five(tmp_path / "pair", monkeypatch)
+    # post123: the ACFC overlay switches Layer 2 off (skip); this test is about the
+    # defer path, config.yaml's App default
+    config = config.model_copy(update={"reasoning": config.reasoning.model_copy(
+        update={"layer2_app": "defer"})})
     monkeypatch.setattr(cli, "build_provider",
                         lambda *_a, **_kw: pytest.fail("the App defers Layer 2"))
     app._store.config = config                                       # noqa: SLF001

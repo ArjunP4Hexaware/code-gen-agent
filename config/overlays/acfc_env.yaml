@@ -42,6 +42,15 @@
 # default, never from the STTM) still blank or a placeholder is a QUESTION
 # run.environment.<key>: exit 3 (NEEDS_ANSWERS), its cells written open.
 # Synthetic example profile: config/environments/example.yaml.
+# LAYER-2 REVIEW: OFF (Soham, 2026-10-27). The AI suggestions for FRD rules the
+# compiler cannot map (candidates.json + the App's review panel) are not prepared or
+# asked, in the App or the CLI; they never changed the DDL / IIG / log. TO TURN IT
+# BACK ON: delete this `reasoning:` block (back to the config.yaml defaults: App
+# `defer`, CLI `now`), bump, push, redeploy.
+reasoning:
+  layer2_app: skip
+  layer2_cli: skip
+
 environment_schema:
   required: [storage_account, containers.landing, containers.stage, containers.standard]
   fields:

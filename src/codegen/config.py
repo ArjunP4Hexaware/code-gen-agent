@@ -1286,6 +1286,13 @@ class ConventionsProfileConfig(BaseModel):
     # the DDL (the agent never runs them). The cases, in file order; [] = no file.
     ddl_test_cases: list[DdlTestCase] = Field(default_factory=list)
     ddl_test_cases_suffix: str = "_TestCases"
+    # post134: the columns_match case compares the DDL's types with the catalog's
+    # information_schema.columns.full_data_type, which spells each type its own
+    # canonical way (INTEGER -> int). Type names the catalog renames (lower case,
+    # the part before any "(...)"), and bare names it stores with defaults
+    # (DECIMAL -> decimal(10,0)); None = compared as the DDL writes them.
+    ddl_test_type_names: dict[str, str] | None = None
+    ddl_test_type_defaults: dict[str, str] | None = None
     # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
     # datatypes extract-sttm accepts (workbook spelling, normalized). Every
     # audit column: audit_datatypes; a column ending in one of

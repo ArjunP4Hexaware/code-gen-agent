@@ -151,3 +151,75 @@ def test_a_value_with_a_line_break_never_leaves_its_comment(pair4_config, pair4_
              if line and not line.startswith("--") and not re.match(r"(SELECT|SHOW) ", line)]
     assert stray == []
     assert {c.name: c for c in gate.checks}["ddl_tests_read_only"].passed
+
+
+def _cases(text: str) -> list[tuple[str, list[str]]]:
+    """(case id, its statements) per case block."""
+    blocks = re.split(r"^-- (TC\d+) ", text, flags=re.M)[1:]
+    # each block opens with the rest of its title line
+    return [(blocks[i], _statements(blocks[i + 1].partition("\n")[2]))
+            for i in range(0, len(blocks), 2)]
+
+
+def test_every_select_checks_itself(pair4_run):
+    """post134: a SELECT returns one row - test_id, result PASS / FAIL (NO DATA on an
+    empty table), found, expected - instead of a value the engineer compares by eye."""
+    _gate, framework = pair4_run
+    cases = _cases(next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8"))
+    selects = [(tc, s) for tc, statements in cases for s in statements
+               if s.startswith("SELECT ")]
+    assert len(selects) > 20
+    for tc, statement in selects:
+        assert statement.startswith(f"SELECT '{tc}' AS test_id, CASE "), statement
+        assert "THEN 'PASS' ELSE 'FAIL' END AS result" in statement, statement
+        assert " AS found, " in statement and " AS expected FROM " in statement, statement
+    # the data checks say NO DATA on an empty table, never a vacuous PASS
+    populated = [s for _tc, s in selects if "required column empty" in s]
+    assert populated and all("THEN 'NO DATA'" in s for s in populated)
+
+
+def test_each_record_count_case_has_its_own_parameter(pair4_run):
+    _gate, framework = pair4_run
+    cases = _cases(next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8"))
+    counted = [(tc, s) for tc, statements in cases for s in statements
+               if "AS BIGINT)" in s]
+    assert len(counted) == 3                     # pair 4: header / detail / trailer
+    for tc, statement in counted:
+        assert set(re.findall(r":(\w+)", statement)) == {f"expected_rows_{tc.lower()}"}
+
+
+def test_the_column_check_lists_the_ddls_columns_in_the_catalogs_spelling(pair4_run):
+    _gate, framework = pair4_run
+    ddl = next(framework.glob("*_DDL.txt")).read_text(encoding="utf-8")
+    text = next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8")
+    assert re.search(r"\bCOB_ORDER\s+INT(EGER)?\b", ddl, flags=re.I)   # the standard table
+    assert "(13, 'cob_order', 'int')" in text
+    assert "(1, 'record_type', 'string')" in text
+    assert "full_data_type" in text and "FULL OUTER JOIN VALUES" in text
+
+
+def test_a_ddl_type_in_the_catalogs_spelling(pair4_config):
+    from codegen.emit.ddl_tests import catalog_type
+
+    profile = pair4_config.conventions.profiles["acfc_prx"]
+    for ddl_type, spelled in (("INTEGER", "int"), ("Long", "bigint"), ("STRING", "string"),
+                              ("DECIMAL(10, 2)", "decimal(10,2)"), ("DECIMAL", "decimal(10,0)"),
+                              ("NUMERIC", "decimal(10,0)"), ("dec(5,2)", "decimal(5,2)"),
+                              ("VARCHAR(50)", "varchar(50)"), ("TIMESTAMP", "timestamp")):
+        assert catalog_type(ddl_type, profile) == spelled, ddl_type
+
+
+def test_catalog_names_are_compared_in_lower_case(pair4_config):
+    """Unity Catalog stores schema and table names in lower case: a DDL naming
+    STG.MY_TABLE is found as stg / my_table in information_schema."""
+    from codegen.emit.ddl_tests import _schema_case
+
+    profile = pair4_config.conventions.profiles["acfc_prx"]
+    table = {"qualified": "D1_DLK.STG_X.MY_TABLE", "parts": ("D1_DLK", "STG_X", "MY_TABLE"),
+             "layer": "stage", "columns": [("ID", "INTEGER")], "comment_count": 0,
+             "table_comment": None}
+    for name in ("table_exists", "columns_match", "table_tags"):
+        (statement, _expected), = [(q["statement"], q["expected"])
+                                   for q in _schema_case(name, table, ("D", "S"), profile)["sql"]]
+        assert "'stg_x'" in statement and "'my_table'" in statement, name
+        assert "'STG_X'" not in statement and "'MY_TABLE'" not in statement, name

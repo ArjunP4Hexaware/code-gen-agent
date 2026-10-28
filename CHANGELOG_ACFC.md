@@ -4,6 +4,34 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post134 — 2026-10-28 (DDL test cases: every SELECT checks itself)
+
+The post128 test-cases file printed the expected result as a comment, and the
+engineer compared each query's output with it by eye. Now each SELECT returns one
+row: `test_id`, `result`, `found`, `expected`.
+- `result` is PASS, FAIL, or NO DATA (the table has no rows yet; load a test file
+  first). NO DATA keeps an empty table from passing the required-columns and
+  key checks without testing anything.
+- Required columns: the number of rows with a required column empty (PASS = 0).
+- Record count: the engineer enters the expected count as a parameter, one per
+  case (`:expected_rows_tc16`), and the query compares it.
+- Primary key: the number of duplicated keys (PASS = 0).
+- Table exists, comments, tags: compared with what the DDL writes.
+- Columns and types: the DDL's columns, in order, are compared with
+  `information_schema.columns`; a FAIL lists every difference. Types are
+  compared in the catalog's spelling (INTEGER = int, a bare DECIMAL =
+  decimal(10,0)), from two new profile knobs, `ddl_test_type_names` and
+  `ddl_test_type_defaults`.
+- Schema and table names are compared in lower case, as Unity Catalog stores
+  them. Before this, a DDL naming a table in upper case would not have been
+  found by the structure queries.
+- Unchanged: the load cases with no SQL (file present, location, column
+  mapping, column shift, name or position), and the table properties SHOW,
+  which is still checked by eye (a query cannot read table properties).
+- The file stays read-only (gate `ddl_tests_read_only`). The DDL, the IIG and
+  the pair-1 golden are unchanged.
+- Test: `tests/test_ddl_test_cases.py` (five new tests).
+
 ## 0.5.8.post133 — 2026-10-27 (layout rejections carry coordinates, never model or cell text; audit medium #9)
 
 When the layout validator rejects a claim, the reason goes to the state role's

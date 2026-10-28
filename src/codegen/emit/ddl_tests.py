@@ -108,6 +108,35 @@ def _case(title: str, lines: list[str], sql: list[tuple[str, list[str]]] | None 
             "sql": [{"statement": s, "expected": e} for s, e in (sql or [])]}
 
 
+# the case ID inside a check's SQL, and a parameter the engineer enters (one per
+# case: expected_rows_tc15), both set when the cases are numbered
+_ID = "'__TEST_ID__'"
+_ROWS = "__EXPECTED_ROWS__"
+
+
+def _check(source: str, passed: str, found: str, expected: str,
+           empty: str | None = None) -> tuple[str, list[str]]:
+    """post134: a self-checking SELECT - one row: test_id, result (PASS / FAIL, or
+    NO DATA when ``empty`` holds: the table has no rows to test), found, expected."""
+    no_data = f"WHEN {empty} THEN 'NO DATA' " if empty else ""
+    return (f"SELECT {_ID} AS test_id, CASE {no_data}WHEN {passed} THEN 'PASS' ELSE 'FAIL' "
+            f"END AS result, CAST({found} AS STRING) AS found, {expected} AS expected "
+            f"FROM {source}", [])
+
+
+def catalog_type(ddl_type: str, profile) -> str:
+    """The catalog's spelling of a DDL type (``information_schema.columns.
+    full_data_type``): lower case, no spaces, aliases renamed, bare defaults filled."""
+    spelled = re.sub(r"\s+", "", ddl_type).lower()
+    if spelled in (profile.ddl_test_type_defaults or {}):
+        return profile.ddl_test_type_defaults[spelled]
+    base, paren, rest = spelled.partition("(")
+    base = (profile.ddl_test_type_names or {}).get(base, base)
+    if not paren and base in (profile.ddl_test_type_defaults or {}):
+        return profile.ddl_test_type_defaults[base]
+    return base + paren + rest
+
+
 def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
           banner: list[tuple[str, str]], tags: tuple[str, str] | None) -> DdlTestCases:
     """The test-cases text for one feed's combined DDL (``ddl_name``)."""
@@ -158,14 +187,17 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                         "No document marks a column of this table required or as a key: no "
                         "check."]))
                     continue
-                select = ", ".join(f"SUM(CASE WHEN {c} IS NULL THEN 1 ELSE 0 END) AS "
-                                   f"{c}_missing" for c in table["required"])
+                missing = " OR ".join(f"{c} IS NULL" for c in table["required"])
                 cases.append(_case(f"Required columns populated — {table['qualified']}", [
                     f"Check: every row fills {', '.join(table['required'])}.",
                     f"Negative: a test file with {table['required'][0]} blank -> the row is "
                     "rejected or flagged, never loaded with a NULL.",
                     "From: the STTM / FRD required (not-null) and primary-key columns."],
-                    [(f"SELECT {select} FROM {table['qualified']}", ["every column 0"])]))
+                    [_check(table["qualified"],
+                            f"SUM(CASE WHEN {missing} THEN 1 ELSE 0 END) = 0",
+                            f"SUM(CASE WHEN {missing} THEN 1 ELSE 0 END)",
+                            "'0 rows with a required column empty'",
+                            empty="COUNT(*) = 0")]))
         elif name == "column_shift":
             for table in stage_tables:
                 columns = [c for c, _t in table["columns"]]
@@ -191,10 +223,12 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
             for table in stage_tables:
                 cases.append(_case(f"Record count — {table['qualified']}", [
                     "Check: every data record of the file is loaded (or rejected and counted).",
+                    f"Enter {_ROWS} when asked: the file's data record count minus the "
+                    "rows the load rejected, after a first load into the empty table.",
                     "From: the file itself at test time (its trailer count where it has one)."],
-                    [(f"SELECT COUNT(*) AS rows_loaded FROM {table['qualified']}",
-                      ["the file's data record count minus the rows the load rejected, "
-                       "after a first load into the empty table"])]))
+                    [_check(table["qualified"],
+                            f"COUNT(*) = CAST(:{_ROWS} AS BIGINT)", "COUNT(*)",
+                            f"CAST(:{_ROWS} AS STRING)")]))
         elif name == "key_unique":
             for table in tables:
                 if not table["key"]:
@@ -208,11 +242,13 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                     "Negative: load the same file twice -> the key stays unique (an Upsert "
                     "updates the row; an Append is stopped by the processed-files check).",
                     "From: the STTM Primary Key cells; the FRD load strategy."],
-                    [(f"SELECT {key}, COUNT(*) AS copies FROM {table['qualified']} "
-                      f"GROUP BY {key} HAVING COUNT(*) > 1", ["no rows"])]))
+                    [_check(f"(SELECT {key} FROM {table['qualified']} GROUP BY {key} "
+                            "HAVING COUNT(*) > 1) AS duplicates", "COUNT(*) = 0", "COUNT(*)",
+                            "'0 duplicated keys'",
+                            empty=f"(SELECT COUNT(*) FROM {table['qualified']}) = 0")]))
         elif name in ("table_exists", "columns_match", "comments_present", "table_tags"):
             for table in tables:
-                case = _schema_case(name, table, tags)
+                case = _schema_case(name, table, tags, profile)
                 if case is not None:
                     cases.append(case)
                 elif table["parts"] is None:
@@ -224,6 +260,8 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                     continue
                 cases.append(_case(f"Table properties — {table['qualified']}", [
                     "Check: the TBLPROPERTIES the DDL sets are on the deployed table.",
+                    "Checked by eye: SHOW returns no PASS / FAIL row (a query cannot read "
+                    "table properties).",
                     "From: the DDL (the profile's table properties)."],
                     [(f"SHOW TBLPROPERTIES {table['qualified']}",
                       [f"includes {k} = {v}" for k, v in table["properties"]])]))
@@ -239,45 +277,65 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
         # every comment line ONE physical line: a document value spanning lines (an
         # STTM cell "Name\n(Type)") must never leave its '--' (the 12-pair check)
         case["title"] = _prose(case["title"])
-        case["lines"] = [_line(line) for line in case["lines"]]
+        rows = f"expected_rows_{case['id'].lower()}"
+        case["lines"] = [_line(line).replace(_ROWS, rows) for line in case["lines"]]
         for q in case["sql"]:
-            q["statement"] = _prose(q["statement"])
+            q["statement"] = (_prose(q["statement"]).replace(_ID, f"'{case['id']}'")
+                              .replace(_ROWS, rows))
             q["expected"] = [_line(line) for line in q["expected"]]
     text = _environment().get_template("framework/ddl_test_cases.txt.j2").render(
         ddl_name=ddl_name, feed=spec.feed_slug, banner=banner, cases=cases)
     return DdlTestCases(text=text, flags=flags)
 
 
-def _schema_case(name: str, table: dict, tags: tuple[str, str] | None) -> dict | None:
-    """A structure case read from the catalog's information_schema."""
+def _schema_case(name: str, table: dict, tags: tuple[str, str] | None, profile) -> dict | None:
+    """A structure case read from the catalog's information_schema; Unity Catalog
+    stores schema and table names in lower case, so they are compared that way."""
     if table["parts"] is None:
         return None
     catalog, schema, table_name = table["parts"]
-    where = (f"WHERE table_schema = {_literal(schema)} AND table_name = "
-             f"{_literal(table_name)}")
+    where = (f"WHERE table_schema = {_literal(schema.lower())} AND table_name = "
+             f"{_literal(table_name.lower())}")
     label = f"{table['qualified']} ({table['layer']})"
     if name == "table_exists":
         return _case(f"Table exists — {label}", [
             "Check: the DDL created the table in the stated catalog and schema.",
             "From: the DDL."],
-            [(f"SELECT COUNT(*) AS tables_found FROM {catalog}.information_schema.tables "
-              f"{where}", ["1"])])
+            [_check(f"{catalog}.information_schema.tables {where}", "COUNT(*) = 1",
+                    "COUNT(*)", "'1'")])
     if name == "columns_match":
+        columns = table["columns"]
+        expected = ", ".join(f"({i}, {_literal(c.lower())}, {_literal(catalog_type(t, profile))})"
+                             for i, (c, t) in enumerate(columns, start=1))
+        deployed = (f"(SELECT ordinal_position AS col_position, lower(column_name) AS col_name, "
+                    f"replace(lower(full_data_type), ' ', '') AS col_type FROM "
+                    f"{catalog}.information_schema.columns {where}) AS deployed")
+        source = (f"{deployed} FULL OUTER JOIN VALUES {expected} AS ddl(col_position, col_name, "
+                  "col_type) ON deployed.col_position = ddl.col_position AND deployed.col_name "
+                  "= ddl.col_name AND deployed.col_type = ddl.col_type WHERE deployed.col_name "
+                  "IS NULL OR ddl.col_name IS NULL")
+        found = ("CASE WHEN COUNT(*) = 0 THEN '0 differences' ELSE concat_ws(', ', "
+                 "array_sort(collect_list(concat(CASE WHEN ddl.col_name IS NULL THEN 'deployed "
+                 "' ELSE 'DDL ' END, CAST(coalesce(deployed.col_position, ddl.col_position) AS "
+                 "STRING), ' ', coalesce(deployed.col_name, ddl.col_name), ' ', "
+                 "coalesce(deployed.col_type, ddl.col_type))))) END")
         return _case(f"Columns and types match the DDL — {label}", [
-            "Check: the deployed columns, their order and types are the DDL's (compare the "
-            "type names case-insensitively).",
+            f"Check: the deployed table has the DDL's {len(columns)} columns, in its order, "
+            "with its types (names and types compared in lower case; a type in the catalog's "
+            "spelling, e.g. INTEGER = int).",
+            "A FAIL lists each difference: 'DDL n name type' is missing or different on the "
+            "table, 'deployed n name type' is what the table has instead.",
             "From: the DDL (the STTM columns and types)."],
-            [(f"SELECT ordinal_position, column_name, full_data_type FROM "
-              f"{catalog}.information_schema.columns {where} ORDER BY ordinal_position",
-              [f"{len(table['columns'])} rows, in this order:",
-               *(f"  {i} {c} {t}" for i, (c, t) in enumerate(table["columns"], start=1))])])
+            [_check(source, "COUNT(*) = 0", found, "'0 differences'")])
     if name == "comments_present":
-        sql = [(f"SELECT COUNT(*) AS columns_with_comment FROM "
-                f"{catalog}.information_schema.columns {where} AND comment IS NOT NULL",
-                [str(table["comment_count"])])]
+        sql = [_check(f"{catalog}.information_schema.columns {where} AND comment IS NOT NULL",
+                      f"COUNT(*) = {table['comment_count']}", "COUNT(*)",
+                      f"'{table['comment_count']}'")]
         if table["table_comment"]:
-            sql.append((f"SELECT comment FROM {catalog}.information_schema.tables {where}",
-                        [_prose(table["table_comment"])]))
+            comment = _literal(table["table_comment"])
+            sql.append(_check(f"{catalog}.information_schema.tables {where}",
+                              f"max(comment) = {comment}",
+                              "coalesce(max(comment), '(no table comment)')", comment))
         return _case(f"Comments present — {label}", [
             "Check: the column and table COMMENTs the DDL writes are on the deployed table.",
             "From: the DDL (the STTM descriptions, primary-key notes, the FRD load "
@@ -285,11 +343,17 @@ def _schema_case(name: str, table: dict, tags: tuple[str, str] | None) -> dict |
     if name == "table_tags":
         if tags is None:
             return None
+        domain, subdomain = _literal(tags[0]), _literal(tags[1])
         return _case(f"Tags — {label}", [
             "Check: the DOMAIN / SUBDOMAIN tags the DDL sets are on the deployed table.",
             "From: the FRD Domain / Sub-Domain."],
-            [(f"SELECT tag_name, tag_value FROM {catalog}.information_schema.table_tags "
-              f"WHERE schema_name = {_literal(schema)} AND table_name = "
-              f"{_literal(table_name)} ORDER BY tag_name",
-              [f"DOMAIN = {tags[0]}", f"SUBDOMAIN = {tags[1]}"])])
+            [_check(f"{catalog}.information_schema.table_tags WHERE schema_name = "
+                    f"{_literal(schema.lower())} AND table_name = "
+                    f"{_literal(table_name.lower())}",
+                    f"SUM(CASE WHEN (tag_name = 'DOMAIN' AND tag_value = {domain}) OR "
+                    f"(tag_name = 'SUBDOMAIN' AND tag_value = {subdomain}) THEN 1 ELSE 0 END) "
+                    "= 2",
+                    "coalesce(concat_ws(', ', array_sort(collect_list(concat(tag_name, ' = ', "
+                    "tag_value)))), '')",
+                    _literal(f"DOMAIN = {tags[0]}, SUBDOMAIN = {tags[1]}"))])
     return None

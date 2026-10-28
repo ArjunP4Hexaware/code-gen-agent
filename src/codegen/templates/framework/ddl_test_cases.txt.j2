@@ -9,7 +9,12 @@
 -- {{ key }}: {{ value }}
 {% endfor %}
 -- Each case says what it checks, the negative variant, and where its values come from,
--- then its SQL (if any) and the expected result.
+-- then its SQL, if it has any.
+-- Every SELECT checks itself: it returns one row (test_id, result, found, expected).
+--   result PASS = as expected; FAIL = not as expected (compare found with expected);
+--   NO DATA = the table has no rows yet (load a test file first).
+-- SHOW statements are checked by eye against their Expected lines. A case with no SQL
+-- is a load test: run it with a test file through the framework.
 {% for case in cases %}
 
 -- {{ case.id }} {{ case.title }}

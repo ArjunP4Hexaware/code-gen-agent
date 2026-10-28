@@ -1063,6 +1063,12 @@ conventions:
                        columns_match, comments_present, table_properties, table_tags,
                        ddl_rerun]
       ddl_test_cases_suffix: "_TestCases"
+      # post134: the catalog's spelling of a DDL type, for the columns_match check
+      # (Spark SQL type aliases: docs.databricks.com sql-ref-datatypes; a bare
+      # DECIMAL is decimal(10,0)). Compared lower case, spaces removed.
+      ddl_test_type_names: {integer: int, long: bigint, short: smallint, byte: tinyint,
+                            real: float, dec: decimal, numeric: decimal}
+      ddl_test_type_defaults: {decimal: "decimal(10,0)"}
       # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
       # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
       # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.

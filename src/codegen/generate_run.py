@@ -181,12 +181,14 @@ class GenerateRun:
             self.template_items += choices_mod.shared_template_items(spec.feed_id, owed)
             self.open_items += [run_stages.open_item("INPUT_NEEDED", item.key, feed=spec.feed_id)
                                 for item in owed if item.is_open]
-            # 2026-10-14 (D1 pair_12): ONE blocking question for the feed whose
-            # files the LOB lookup keyed to no single LOB (its LOB cells open)
+            # 2026-10-14 (D1 pair_12): ONE question for the feed whose files the
+            # LOB lookup keyed to no single LOB. post138 (Soham): asked once, never
+            # blocking - unanswered, those LOB cells stay open + flagged and the run
+            # generates everything else (PASS_WITH_OPEN_INPUTS)
             lob_item = _lob_question(spec, say=self.say)
             if lob_item is not None:
                 self.template_items.append(lob_item)
-                self.open_items.append(run_stages.open_item("QUESTION", lob_item.key,
+                self.open_items.append(run_stages.open_item("INPUT_NEEDED", lob_item.key,
                                                             feed=spec.feed_id))
             # post70: a merge load with no key signal — ONE blocking question
             key_item = _key_question(

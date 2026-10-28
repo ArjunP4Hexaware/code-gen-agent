@@ -105,26 +105,35 @@ def test_a_plan_id_column_keys_every_file_one_lob_shared_by_five(tmp_path, capsy
 def test_the_home_caqh_shape_asks_one_question_with_18_keys(tmp_path, capsys):
     """A region-only table (no plan ids, no region token in the file names):
     ONE question for the feed, the 18 files as keys, the FRD codes as
-    candidates; exit 3; the workbook is written with the LOB cells open."""
+    candidates; the workbook is written with the LOB cells open.
+
+    post138 (Soham, D1 pair_12): asked ONCE and never blocking - unanswered,
+    the run is PASS_WITH_OPEN_INPUTS (exit 0), not NEEDS_ANSWERS (exit 3): the
+    App re-asked the same question after every "proceed without" and the pair
+    never got past it."""
     config, feed, pair = _with_feed(tmp_path, lob_table=REGION_TABLE)
     code = _generate(config, pair, feed)
     out = capsys.readouterr().out
-    assert code == cli.EXIT_NEEDS_ANSWERS
-    # post58: blocking in the manifest, the workbook marked written for the App
+    assert code == cli.EXIT_OK, out
     manifest = run_stages.read_stage_manifest(tmp_path / "out")
-    assert manifest["stages"]["generate"]["status"] == "NEEDS_ANSWERS"
+    assert manifest["stages"]["generate"]["status"] == "PASS_WITH_OPEN_INPUTS"
     (lob,) = [q for q in manifest["questions"] if q["key"].endswith(".lob_by_file")]
-    assert lob == {"line": "QUESTION", "key": lob["key"], "scope": "feed", "blocking": True}
+    assert lob == {"line": "INPUT_NEEDED", "key": lob["key"], "scope": "feed",
+                   "blocking": False}
+    assert not [q for q in manifest["questions"] if q["blocking"]]
     (entry,) = manifest["feeds"]
-    assert entry["written"] is True and entry["open"]["blocking"] == 1
-    questions = [ln for ln in out.splitlines() if ln.startswith("QUESTION")]
+    assert entry["written"] is True and entry["open"]["blocking"] == 0
+    assert "QUESTION" not in out
+    questions = [ln for ln in out.splitlines() if ln.startswith("INPUT_NEEDED")
+                 and ".lob_by_file" in ln]
     assert len(questions) == 1
-    assert questions[0].startswith("QUESTION       feeds[")
+    assert questions[0].startswith("INPUT_NEEDED   feeds[")
     assert ".lob_by_file — file-to-LOB mapping for 18 files; FRD lists LOB codes " \
            + ", ".join(CODES) in questions[0]
     from test_harness_answer_lines import _NEEDED_KEY_RE
 
-    assert _NEEDED_KEY_RE.match(questions[0]) is not None
+    # the harness reads it as no blocking line (post138)
+    assert _NEEDED_KEY_RE.match(questions[0]) is None
     template = yaml.safe_load((tmp_path / "out" / "answers_template.yaml")
                               .read_text(encoding="utf-8"))
     ((key, entry),) = template["gaps"].items()
@@ -134,7 +143,7 @@ def test_the_home_caqh_shape_asks_one_question_with_18_keys(tmp_path, capsys):
     rows = _rows(_xlsx(tmp_path, feed), ADLS)
     assert all(r["LOB"][0] in (None, "") for r in rows)       # never the table
     report = next((tmp_path / "reports").glob("*.md")).read_text(encoding="utf-8")
-    assert "**Answers owed** — questions: 1," in report
+    assert "**Answers owed** — questions: 0," in report
     # one answers block fills all 18 (values quoted: YAML would read 0100 as 64)
     entry["files"] = {name: PLAN_LOB[_plan(name)] for name in FILES}
     answers = tmp_path / "answers.yaml"
@@ -300,3 +309,78 @@ def test_the_app_asks_the_lob_question_as_one_files_block_and_applies_it(tmp_pat
     raw = yaml.safe_load(text)["gaps"][question["key"]]["files"]
     assert raw[FILES[0]] == "0100" and all(isinstance(v, str) for v in raw.values())
     assert load_answers(path).gaps[question["key"]]["value"] == value
+
+
+def test_the_app_asks_the_lob_question_once_and_a_skipped_answer_never_blocks(
+        tmp_path, monkeypatch):
+    """post138 (Soham, D1 pair_12): the App asked the LOB question before
+    generating, then — after "proceed" without an answer — listed it again as an
+    answer the finished run waited for (NEEDS_ANSWERS, no View results), so the
+    pair never got past it. Asked ONCE: skipped, the run is done
+    (PASS_WITH_OPEN_INPUTS), nothing blocks, the feed is served with its LOB
+    cells open and flagged."""
+    import time
+
+    pytest.importorskip("fastapi")
+    from ui.backend.demo import DemoRunner
+    from ui.backend.service import GenerationStore
+
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_PROVIDER", "1")
+    monkeypatch.setenv("CODEGEN_FORCE_MOCK_LAYOUT", "1")
+    for role in ("state", "outputs"):
+        (tmp_path / role).mkdir()
+        monkeypatch.setenv(f"CODEGEN_STORAGE_{role.upper()}",
+                           f"local:{(tmp_path / role).as_posix()}")
+    # the App reads an STTM workbook: the look-alike sheet test_app_needs_answers
+    # runs, its FRD given the 18 files + the region-only LOB table
+    from acfc_shapes import bands
+    from acfc_shapes.common import xlsx_bytes
+
+    contract = bands.frd_contract(stage_schema="nb_land")
+    first = contract["feeds"][0]
+    first["stage_target"]["catalog"] = "nb_dlk"
+    first["standard_target"]["catalog"] = "nb_std"
+    first["file_name_patterns"] = list(FILES)
+    first["lobs"] = list(CODES)
+    first["lob_table"] = REGION_TABLE
+    frd = tmp_path / "frd.contract.json"
+    frd.write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    sttm = tmp_path / f"STTM_{bands.FEED}.xlsx"
+    sttm.write_bytes(xlsx_bytes(bands.three_lookalike()))
+    band_answers = {f"{bands.SHEET}/band[{n}]/layer": layer
+                    for n, layer in zip((1, 2, 3), ("source", "stage", "standard"), strict=True)}
+    store = GenerationStore(str(Path(__file__).resolve().parents[1] / "config" / "config.yaml"))
+    runner = DemoRunner(store, index_warmup=False)
+    runner.selected_workbook = sttm
+    runner.select_frd(frd, frd.name)
+
+    def wait(*states):
+        deadline = time.monotonic() + 300
+        while runner.state not in states:
+            assert time.monotonic() < deadline, runner.stages[-3:]
+            time.sleep(0.05)
+        return runner.state
+
+    runner.start_live()
+    asked = []
+    while wait("needs_layout", "needs_answers", "done", "failed") == "needs_layout":
+        keys = [q["key"] for q in runner.status()["layout_questions"]]
+        asked += keys
+        seen = len(runner.stages)
+        # the band layers answered (the sheet is held back without them);
+        # everything else - the LOB question included - answered NOTHING
+        runner.answer_layout({"sttm": {k: band_answers[k] for k in keys if k in band_answers}},
+                             proceed=True)
+        deadline = time.monotonic() + 300
+        while runner.state == "needs_layout" and len(runner.stages) == seen:
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+    status = runner.status()
+    assert runner.state == "done", (runner.error, runner.stages[-3:])
+    lob_keys = [k for k in asked if k.endswith(".lob_by_file")]
+    assert len(lob_keys) == 1                                 # asked once
+    assert status["outcome"] == "PASS_WITH_OPEN_INPUTS"
+    assert status["blocking"] == []
+    assert not [i for i in status["needs_answers"] if i["key"] in lob_keys]
+    assert store.runs, "no feed was served"
+    assert any(f.startswith("lob_unkeyed:") for r in store.runs.values() for f in r.gate.flags)

@@ -172,7 +172,8 @@ class ResolvedFeedSpec(BaseModel):
     frequency_mentions: list[str] = Field(default_factory=list)
     # 2026-10-14 (D1 pair_12): files the FRD's LOB table keys to no single LOB
     # (their LOB cells stay open) and the answers key that asks for them
-    # (``feeds[<i>].lob_by_file`` — a blocking QUESTION). Empty / None otherwise.
+    # (``feeds[<i>].lob_by_file`` — asked once, INPUT_NEEDED, never blocking:
+    # post138). Empty / None otherwise.
     lob_unkeyed: list[str] = Field(default_factory=list)
     lob_question_key: str | None = None
     # post70: the FRD's key statement (FrdFeed.key_statement) — one of the

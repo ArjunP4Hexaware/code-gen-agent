@@ -742,9 +742,9 @@ def _file_lob_cell(tpl: MetadataTemplateConfig, tab: str, file, spec: ResolvedFe
     unkeyed = spec.lob_question_key and file.pattern in spec.lob_unkeyed
     if unkeyed and tpl.family_conventions.lob == "codes":
         cell = _cell("", "needs_template", f"open — the FRD LOB table keys no single LOB for "
-                                           f"this file; QUESTION {spec.lob_question_key}")
+                                           f"this file; INPUT_NEEDED {spec.lob_question_key}")
         cell["badge_entry"]["note"] = (f"iig_lob:{tab}.LOB — open for {len(spec.lob_unkeyed)} "
-                                       f"file(s) the LOB lookup did not key (QUESTION "
+                                       f"file(s) the LOB lookup did not key (INPUT_NEEDED "
                                        f"{spec.lob_question_key})")
         return cell
     return _feed_lob(tpl, tab, list(spec.lobs),

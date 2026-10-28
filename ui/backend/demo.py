@@ -2960,7 +2960,6 @@ class DemoRunner:
         # chosen BEFORE resolving — the catalogs are the environment's — and the
         # run-level inputs listed once (scope "run"), never per feed.
         from codegen.environments import with_environment
-        from codegen.resolve.resolver import lob_question_item
 
         # post80: every blocking question known BEFORE generating (a required
         # environment value, a value no document states, the LOB per file, the
@@ -2996,14 +2995,10 @@ class DemoRunner:
                 _unstated_question(unstated), feed_name=unstated.feed_id,
                 reason=unstated.reason))
         # post47: a feed whose files no document keys to ONE LOB asks ONE question
-        # (every file a key, the FRD's codes a dropdown) — its LOB cells stay open
-        for spec in specs:
-            question = lob_question_item(spec)
-            if question is not None:
-                self._run_items.append(needs_answer_item(
-                    question, feed_name=spec.feed_id,
-                    reason=(f"generated with its {len(spec.lob_unkeyed)} file rows' LOB cells "
-                            "OPEN — answer each file's LOB and re-run")))
+        # (every file a key, the FRD's codes a dropdown) before generating.
+        # post138 (Soham): asked ONCE - left unanswered, its LOB cells stay open
+        # and flagged (lob_unkeyed, iig_lob) and the run is not held for it, so
+        # it is never re-listed here (this list reads as blocking on the page).
 
         runs, failures, manifest = self._generate_specs(
             specs, config, run_env=run_env, frd_path=frd_path, run_root=run_root,

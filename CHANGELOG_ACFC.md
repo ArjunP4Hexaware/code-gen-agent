@@ -4,6 +4,26 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post138 — 2026-10-28 (the LOB question is asked once and never blocks)
+
+A feed whose files the FRD's LOB table keys to no single LOB (D1 pair_12) asks
+ONE question, `feeds[<i>].lob_by_file`. It was a blocking QUESTION, so in the
+App "proceed" without an answer ended the run as NEEDS_ANSWERS. The same
+question was listed again as an answer the run still waited for, with no
+View results, and the pair never got past it. The CLI exited 3.
+- Now it is INPUT_NEEDED: asked once, before generating. Unanswered, those
+  files' LOB cells stay open and flagged (`lob_unkeyed`; the IIG note reads
+  INPUT_NEEDED). The run generates everything else and ends
+  PASS_WITH_OPEN_INPUTS (exit 0). The answers template still lists the files,
+  so the LOBs can be given on a later run.
+- An answer, when given, keys each file as before.
+- Only feeds with unkeyed LOB files change: their outcome, and the IIG note
+  word. On the 12 ACFC pairs (mock) that is pair_12.
+- Tests: `tests/test_lob_lookup.py`, `test_the_home_caqh_shape_asks_one_
+  question_with_18_keys` (CLI) and `test_the_app_asks_the_lob_question_once_
+  and_a_skipped_answer_never_blocks` (App). Both fail with only the fix
+  reverted.
+
 ## 0.5.8.post137 — 2026-10-28 (the feed page's flags, in sections)
 
 The feed page's "Flags — needs a human" panel was one list of every gate flag

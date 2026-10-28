@@ -118,6 +118,16 @@ def display_path(path: Path) -> str:
         return path.as_posix()
 
 
+def provider_of(config: Config) -> str:
+    """post136: ``live`` when a run would call a model (the transport resolves to
+    Databricks FMAPI or the Anthropic API), else ``mock`` - the same resolution
+    the Generate card shows (``codegen.reasoning.transport``)."""
+    from codegen.reasoning.transport import resolve_transport
+
+    return "live" if resolve_transport(config).kind in ("databricks_fmapi", "anthropic") \
+        else "mock"
+
+
 class GenerationStore:
     """In-memory results of the latest run, plus persisted review decisions."""
 
@@ -131,6 +141,11 @@ class GenerationStore:
         # from their own isolated roots; mock is the default.
         self.mode: RunMode = "mock"
         self.label: str | None = None
+        # post136: the provider the served run used ("live" | "mock"; None = no
+        # demo run served, or a replay). ``mode`` says what KIND of result set
+        # is served and drives behaviour; this only labels it truthfully - a
+        # Generate-page run under the mock lock is mode "live", provider "mock".
+        self.run_provider: str | None = None
         self.out_root: Path = REPO_ROOT / self.config.output.dir
         self.reports_root: Path = REPO_ROOT / self.config.output.reports_dir
         # The served run's layout-stage record (None: the run started from
@@ -161,9 +176,11 @@ class GenerationStore:
         reports_root: Path,
         layout_usage=None,
         iig_template: str | None = None,
+        run_provider: str | None = None,
     ) -> None:
         """Atomically swap the served state for a demo (live/replay) run."""
         with self._lock:
+            self.run_provider = run_provider
             self.layout_usage = layout_usage
             self.iig_template = iig_template
             self.runs = runs
@@ -196,6 +213,7 @@ class GenerationStore:
             self.failures = []
             self.mode = "mock"
             self.label = None
+            self.run_provider = None
             self.layout_usage = None
             self.iig_template = None
             self.out_root = REPO_ROOT / self.config.output.dir
@@ -225,6 +243,7 @@ class GenerationStore:
             # A plain generate returns the UI to mock state and default roots.
             self.mode = "mock"
             self.label = None
+            self.run_provider = None
             self.layout_usage = None
             self.iig_template = None
             self.out_root = REPO_ROOT / self.config.output.dir

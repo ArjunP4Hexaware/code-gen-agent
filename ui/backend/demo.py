@@ -33,7 +33,14 @@ from ui.backend.docindex import (
 )
 from ui.backend.errors import error_detail
 from ui.backend.run_history import LiveRunHistory, run_entry
-from ui.backend.service import REPO_ROOT, STATE_DIR, FailedRun, FeedRun, GenerationStore
+from ui.backend.service import (
+    REPO_ROOT,
+    STATE_DIR,
+    FailedRun,
+    FeedRun,
+    GenerationStore,
+)
+from ui.backend.service import provider_of as run_provider_of
 
 # State files under the default (local) state role — module constants so tests
 # can point them elsewhere, like service.DECISIONS_PATH.
@@ -3039,5 +3046,6 @@ class DemoRunner:
             reports_root=reports_root,
             layout_usage=layout_usage,
             iig_template=self.iig_template or config.metadata.template,
+            run_provider=run_provider_of(config),
         )
         self.last_run_label = label

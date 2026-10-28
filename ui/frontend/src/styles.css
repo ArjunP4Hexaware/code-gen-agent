@@ -961,6 +961,8 @@ table.data tr:last-child td { border-bottom: none; }
 }
 .mode-banner.live { background: color-mix(in srgb, var(--critical) 10%, transparent); color: var(--critical-text); border: 1px solid color-mix(in srgb, var(--critical) 30%, transparent); }
 .mode-banner.replay { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--accent-deep); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent); }
+/* post136: a Generate-page run answered by the mock provider */
+.mode-banner.mock-run { background: color-mix(in srgb, var(--muted) 10%, transparent); color: var(--ink-2); border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); }
 
 .mode-cards { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
 
@@ -1229,3 +1231,6 @@ button:not([class]) {
 }
 button:not([class]):hover { background: var(--accent-tint); }
 button:not([class]):disabled { opacity: 0.55; cursor: default; }
+
+/* post136: the Generate card's "How this was chosen" detail */
+details.hint > summary { cursor: pointer; font-size: 12.5px; color: var(--accent); width: fit-content; }

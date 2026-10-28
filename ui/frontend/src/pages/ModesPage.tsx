@@ -21,6 +21,7 @@ import { PairingLines, SelectionTrace } from "../components/SelectionTrace";
 import { StorageRoots } from "../components/StorageRoots";
 import { fmtKb } from "../format";
 import { liveEstimate } from "../liveEstimate";
+import { runWillUse } from "../runLabels";
 import {
   api,
   ApiError,
@@ -616,10 +617,14 @@ export function ModesPage({
           </div>
           <div className="panel-body">
             {transport ? (
-              <p className="hint" style={{ marginTop: 0 }}>
-                <strong>A run will use:</strong> {transport.label}.{" "}
-                <span className="hint">
-                  Detected by {transport.detected_by}
+              <div style={{ marginBottom: 10 }}>
+                <p className="hint" style={{ margin: 0 }}>
+                  <strong>A run will use:</strong> {runWillUse(transport)}
+                </p>
+                {/* post136: the detection detail, one click away */}
+                <details className="hint">
+                  <summary>How this was chosen</summary>
+                  {transport.label}. Detected by {transport.detected_by}
                   {transport.runtime === "databricks_app"
                     ? " (Databricks App runtime)"
                     : transport.runtime === "databricks"
@@ -628,8 +633,8 @@ export function ModesPage({
                   {transport.overridden
                     ? ` — config says ${transport.configured}; the endpoint is used inside Databricks.`
                     : "."}
-                </span>
-              </p>
+                </details>
+              </div>
             ) : null}
             <p className="hint" style={{ marginTop: 0 }}>
               Choose the STTM workbook, its FRD (a contract or the .docx itself) and,
@@ -866,11 +871,11 @@ export function ModesPage({
                   {status.state === "needs_layout" && status.pause_kind !== "before_generate" &&
                     "Paused — the layout needs a human decision before any value is read:"}
                   {status.state === "done" && blocking &&
-                    "Last live run stopped at blocking questions — complete them first, then run again."}
+                    "Last run stopped at blocking questions — complete them first, then run again."}
                   {status.state === "done" && !blocking &&
                     (status.set_aside?.length
-                      ? `Last live run completed with ${status.set_aside.length} feed(s) set aside.`
-                      : "Last live run completed.")}
+                      ? `Last run completed with ${status.set_aside.length} feed(s) set aside.`
+                      : "Last run completed.")}
                   {status.state === "done" && status.set_aside?.length ? (
                     <ul className="hint" style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
                       {status.set_aside.map((f) => (
@@ -881,12 +886,12 @@ export function ModesPage({
                     </ul>
                   ) : null}
                   {status.state === "needs_answers" &&
-                    "Last live run is waiting for answers — every feed is held back; nothing was published."}
+                    "Last run is waiting for answers — every feed is held back; nothing was published."}
                 </div>
                 {status.state === "failed" ? (
                   <ErrorCard
                     error={status.error_detail ?? status.error ?? "the run failed without a message"}
-                    title="Last live run FAILED — nothing was published."
+                    title="Last run FAILED — nothing was published."
                   >
                     {status.error_hint ? (
                       <div style={{ marginTop: 8 }}>

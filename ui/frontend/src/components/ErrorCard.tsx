@@ -112,7 +112,7 @@ export function ErrorCard({
   children,
 }: {
   error: unknown;
-  // what failed, in the page's words ("Last live run FAILED — nothing was published.")
+  // what failed, in the page's words ("Last run FAILED — nothing was published.")
   title?: ReactNode;
   componentStack?: string | null;
   // actions (buttons) or extra lines under the card

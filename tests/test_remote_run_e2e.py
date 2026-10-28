@@ -179,3 +179,6 @@ def test_a_remote_run_whose_every_feed_is_held_back_asks_then_completes(remote_p
     assert store.runs and all(run.written_files for run in store.runs.values())
     pushed = [p for p in fake.vol.files if p.startswith(VOLUME)]
     assert any(p.endswith("/run_meta.json") for p in pushed), sorted(pushed)[:5]
+    # post136: a Generate-page run is served as mode "live" (behaviour) but says
+    # which provider answered it - the suite runs on the mock
+    assert store.mode == "live" and store.run_provider == "mock"

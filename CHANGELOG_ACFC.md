@@ -4,6 +4,36 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post136 — 2026-10-28 (the App says which provider a run uses)
+
+Four things the App said that were not true, or not plain, when presented:
+- **The sidebar badge** showed the served result set's mode, so after every
+  deploy (no run loaded) it read MOCK on an App that runs live. It now shows
+  the provider a run started now would use: LIVE or MOCK (`/api/feeds`
+  `provider`, from the same resolution the Generate card shows).
+- **A run answered by the mock was labelled LIVE RUN** (banner, the
+  Generate-all confirmation). The store now records which provider answered
+  the served run (`run_provider`). Such a run reads "MOCK RUN — generated now
+  with the mock provider; no model was called" (grey banner), and the
+  confirmation says "Replace the current MOCK RUN results?". The Generate page's
+  "Last live run …" lines read "Last run …".
+- **The Generate card** said "Detected by provider=live (CODEGEN_PROVIDER)
+  (Databricks App runtime)". It now says, e.g., "A run will use: Claude Opus
+  5.5, through Databricks. A model is called only when the documents need it;
+  those calls are billed." The detection detail sits one click away under
+  "How this was chosen".
+- **The Generate-all confirmation** pointed at the "Run modes page"; it is
+  the Generate page.
+
+A provider label that cannot resolve gives `provider: null` (the old badge),
+never a failed `/api/feeds`.
+
+Unchanged: the served `mode` (mock / live / replay) and everything keyed on it
+(the confirmation's trigger, which folders files are read from, View results).
+`provider` / `run_provider` are additions to `/api/feeds`; an older frontend
+ignores them. Tests: `tests/test_provider_labels.py`,
+`tests/test_remote_run_e2e.py` (the held-back run), `ui/frontend/src/runLabels.test.ts`.
+
 ## 0.5.8.post135 — 2026-10-28 (the App in ACFC's visual identity)
 
 The App is presented inside ACFC, so it now uses ACFC's own design tokens: the

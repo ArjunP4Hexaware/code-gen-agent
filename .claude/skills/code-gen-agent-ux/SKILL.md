@@ -130,8 +130,13 @@ as a requirement, not a style preference.
 - **Brand block:** a 4px light-blue (`--accent-light`) rule on top; product
   name "CodeGen · Data Engineer Agent" (16px, weight 700), sub-line "Contracts → Databricks pipelines" (12px muted),
   then the **mode badge** (2px-radius tag, 10.5px, weight 750, letter-spacing
-  0.08em; solid on the navy sidebar — see 4.1): text is the mode upper-cased plus ` · <label>` when a label
-  exists. Title attribute carries the mode copy (see Part 4).
+  0.08em; solid on the navy sidebar — see 4.1): the provider a run started NOW
+  would use (`/api/feeds` `provider`): `LIVE` (live red) or `MOCK` (grey), title
+  "Runs call the model when the documents need it; those calls are billed." /
+  "Runs use the mock provider: no model is called." Never the served result
+  set's mode (post136: that read MOCK after every deploy of a live App). An
+  older backend that omits `provider` gets the pre-post136 badge (mode
+  upper-cased + ` · <label>`).
 - **Nav:** section headers are 11px uppercase letter-spaced muted text
   ("Overview", "Feeds"). Nav items are 14px square rows with a 4px
   left border, hover = 6% white, active = 12% white + weight 700 + a
@@ -143,11 +148,17 @@ as a requirement, not a style preference.
   - `error-banner` (red tint) reads "Backend error: <message>" when the
     feeds fetch failed.
   - `mode-banner` for LIVE (red tint) or REPLAY (blue tint): the mode
-    copy plus ` · <code>label</code>`.
+    copy plus ` · <code>label</code>`. A Generate-page run the mock answered
+    (mode `live`, `/api/feeds` `run_provider` `mock`) is a grey `mock-run`
+    banner: "MOCK RUN — generated now with the mock provider; no model was
+    called" — never "LIVE RUN". `mode` itself (and every behaviour keyed on
+    it) is unchanged.
   - **Generate-all confirm modal** (opened only when the current mode is
-    not mock): title "Replace the current LIVE|REPLAY results?", body
-    "This replaces the current live|replayed results (<label>) with a
-    fresh **mock** run.", buttons "Continue — run mock" (primary) / "Cancel".
+    not mock): title "Replace the current LIVE|MOCK RUN|REPLAY results?", body
+    "This replaces the current live|mock-run|replayed results (<label>) with a
+    fresh **dry-run** generate (a dry-run never calls a model). You can reload
+    them afterwards from the Generate page.", buttons "Continue — dry-run
+    generate" (primary) / "Cancel".
 - **Routes:** `/` Dashboard · `/modes` Generate ·
   `/feeds/:slug` Feed detail (`/demo` removed 2026-09-18) (accepts `?tab=` one of `overview | rules |
   candidates | notebook | code | report`). Client-side routing with an
@@ -385,10 +396,13 @@ On mount the page fires, in parallel: `liveAvailable` (with the detected
 Layer-2 `transport`), `demoStatus`, `generationOptions`, `sourceFiles`,
 `inputRequirements`, `governanceChecks`. Everything is a live read.
 
-Card order, top to bottom: the transport line ("Model transport: Databricks
-Foundation Model serving endpoint `<endpoint>` (<model>). Detected by
-DATABRICKS_APP_PORT (Databricks App runtime)." — or the Anthropic / mock
-variants); one hint sentence; **Choose documents…** (primary) with the
+Card order, top to bottom: the transport line in plain words (post136) —
+"**A run will use:** Claude Opus 5.5, through Databricks. A model is called
+only when the documents need it; those calls are billed." (Anthropic: "…,
+through the Anthropic API. …"; mock / locked: "the mock provider. No model is
+called and nothing is billed.") — with the detection detail (transport label,
+"Detected by <setting>", the runtime, any override) under a collapsed
+"How this was chosen"; one hint sentence; **Choose documents…** (primary) with the
 STTM / FRD / VDD status + a Clear each; the source-files table; **Output**
 mode buttons + the conventions-profile / IIG-template / playbook-template
 selects; the Generate button and run progress (layout dialog included);
@@ -519,8 +533,8 @@ confirmation modal** (§2.4.5).
 **Run progress** (shown once `status.state !== "idle"`):
 
 - Lead hint: running → "Running — stages appear as they start:"; done →
-  "Last live run completed."; failed → "Last live run FAILED — nothing
-  was published."
+  "Last run completed."; failed → "Last run FAILED — nothing
+  was published." (post136: "Last run", whatever the provider)
 - Failed: red banner with `status.error`; when `error_hint` exists, add
   its message and a secondary button `Choose companion FRD "<doc id,
   middle-truncated to 36>"` which selects that upstream FRD and reopens
@@ -964,8 +978,8 @@ number/boolean `--code-number` `#003da5`; function/class/decorator
   merge into generated code remains a manual (v2) step` · `Soft
   confirmation — the run proceeds; a source-team answer closes it`.
 - Live unavailable: `Live is unavailable: <reason> (provider: <p>)`.
-- Run states: `Running — stages appear as they start:` · `Last live run
-  completed.` · `Last live run FAILED — nothing was published.`
+- Run states: `Running — stages appear as they start:` · `Last run
+  completed.` · `Last run FAILED — nothing was published.`
 - Chooser: `FRD document — extracted at run start` · `looks like a
   pair — confirm` · `companion FRD` ·
   `includes companion FRD — fetched together` · `differs from local copy`.
@@ -1001,7 +1015,9 @@ number/boolean `--code-number` `#003da5`; function/class/decorator
 
 ### 4.4 Acceptance checklist (a rebuild is not done until every line holds)
 
-1. Sidebar mode badge on every route; LIVE/REPLAY banner with label.
+1. Sidebar provider badge (LIVE / MOCK = what the next run uses) on every
+   route; LIVE / MOCK RUN / REPLAY banner with label, the word from the
+   provider that answered the served run.
 2. Dashboard tiles, cards, rule strip order and foot line match §2.2;
    empty state and 409 banner behave as specified.
 3. Generate-all from LIVE/REPLAY prompts; from mock it runs directly.

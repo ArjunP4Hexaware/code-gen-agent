@@ -9,14 +9,7 @@ import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
 import { FeedDetailPage } from "./pages/FeedDetailPage";
 import { ModesPage } from "./pages/ModesPage";
-
-// What kind of result set is loaded. WHICH provider produced it is never
-// written here: it renders from the run's own record (data.model_usage).
-const MODE_COPY = {
-  mock: "GENERATED — dry-run from the configured contracts",
-  live: "LIVE RUN — generated now",
-  replay: "REPLAY — recorded live run",
-} as const;
+import { modeCopy, providerBadge, servedBanner, servedWords } from "./runLabels";
 
 export function App() {
   const [data, setData] = useState<FeedsResponse | null>(null);
@@ -66,14 +59,25 @@ export function App() {
           <div className="product">CodeGen · Data Engineer Agent</div>
           <div className="org">Contracts → Databricks pipelines</div>
           {data ? (
-            <span
-              className={`mode-badge mode-${data.mode}`}
-              title={[MODE_COPY[data.mode], usageSummary(data.model_usage)]
-                .filter(Boolean).join(" · ")}
-            >
-              {data.mode.toUpperCase()}
-              {data.label ? ` · ${data.label}` : ""}
-            </span>
+            // post136: the provider a run started now would use - never the
+            // served result set's mode (MOCK after every deploy, though live)
+            (() => {
+              const badge = providerBadge(data.provider);
+              return badge ? (
+                <span className={`mode-badge ${badge.className}`} title={badge.title}>
+                  {badge.text}
+                </span>
+              ) : (
+                <span
+                  className={`mode-badge mode-${data.mode}`}
+                  title={[modeCopy(data.mode), usageSummary(data.model_usage)]
+                    .filter(Boolean).join(" · ")}
+                >
+                  {data.mode.toUpperCase()}
+                  {data.label ? ` · ${data.label}` : ""}
+                </span>
+              );
+            })()
           ) : null}
         </div>
         <div className="sidebar-section">Overview</div>
@@ -112,8 +116,8 @@ export function App() {
       <main className="main">
         {error ? <ErrorCard error={error} title="The backend did not answer." /> : null}
         {data && data.mode !== "mock" ? (
-          <div className={`mode-banner ${data.mode}`}>
-            {MODE_COPY[data.mode]}
+          <div className={`mode-banner ${servedBanner(data.mode, data.run_provider).className}`}>
+            {servedBanner(data.mode, data.run_provider).text}
             {data.model_usage && data.model_usage.length ? (
               <> · {usageSummary(data.model_usage)}</>
             ) : null}
@@ -128,9 +132,9 @@ export function App() {
         {confirmGenerate && data ? (
           <div className="modal-overlay" role="dialog" aria-modal="true">
             <div className="modal">
-              <h2>Replace the current {data.mode.toUpperCase()} results?</h2>
+              <h2>Replace the current {servedWords(data.mode, data.run_provider).heading} results?</h2>
               <p>
-                This replaces the current {data.mode === "live" ? "live" : "replayed"} results
+                This replaces the current {servedWords(data.mode, data.run_provider).text} results
                 {data.label ? (
                   <>
                     {" "}
@@ -139,7 +143,7 @@ export function App() {
                 ) : null}{" "}
                 with a fresh <strong>dry-run</strong> generate (a dry-run never calls a model).
                 You can reload them afterwards from
-                the Run modes page.
+                the Generate page.
               </p>
               <div className="decision-row" style={{ marginTop: 14 }}>
                 <button className="btn primary" onClick={doGenerateAll}>

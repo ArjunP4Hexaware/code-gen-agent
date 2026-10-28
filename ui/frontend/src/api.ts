@@ -153,6 +153,9 @@ export interface FeedsResponse {
   mode: RunMode;
   label: string | null;
   model_usage?: StageUsage[];
+  /* post136: the provider the next run uses / the one the served run used */
+  provider?: "live" | "mock" | null;
+  run_provider?: "live" | "mock" | null;
   /* post91: the run's combined framework artefacts, one set per STTM */
   combined?: CombinedSet[];
   /* post91: what the App offers (output.app_options) */

@@ -54,6 +54,7 @@ from ui.backend.service import (
     FeedRun,
     GenerationStore,
     NothingToGenerateError,
+    provider_of,
 )
 
 # Same .env resolution as the CLI. Inert while the UI hardwires dry_run=True
@@ -332,6 +333,17 @@ def health_facts() -> dict:
     return {**facts, "health_line": ui_errors.health_line(facts)}
 
 
+def _provider_label(config) -> str | None:
+    """post136: the sidebar badge's provider. A label only - the provider a run
+    USES is decided (and fails loudly) at startup and run time, never here - so
+    a config this cannot resolve gives None (the frontend's pre-post136 badge)
+    rather than failing /api/feeds, which every page reads."""
+    try:
+        return provider_of(config)
+    except Exception:  # noqa: BLE001 — a display label never breaks the feeds route
+        return None
+
+
 @app.get("/api/feeds")
 def list_feeds() -> dict:
     if store is None:
@@ -341,6 +353,8 @@ def list_feeds() -> dict:
             "mode": "mock",
             "label": None,
             "model_usage": [],
+            "provider": None,
+            "run_provider": None,
         }
     decisions = store.load_decisions()
     return {
@@ -348,6 +362,11 @@ def list_feeds() -> dict:
         "failures": [f.model_dump() for f in store.failures],
         "mode": store.mode,
         "label": store.label,
+        # post136: the provider the NEXT run uses (the sidebar badge) and the one
+        # the served run used (the banner) - "live" | "mock"; run_provider None =
+        # no Generate-page run served
+        "provider": _provider_label(store.config),
+        "run_provider": getattr(store, "run_provider", None),
         # Per stage, what the served run did with a model (label included).
         "model_usage": store.model_usage,
         # post91: the run's combined set per STTM (codegen.run_artefacts)

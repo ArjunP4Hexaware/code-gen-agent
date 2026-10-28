@@ -4,23 +4,19 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-28, post132 deployed; post133 committed, checks running)
+## State (2026-10-28, post134 deployed)
 
-- **Branch** `feature/multi-table`: pushed to `1b40db9` (post132). Local, NOT pushed:
-  `1ad5368` + `6faf484` = **post133** (audit medium #9: a layout rejection carries
-  coordinates, never model or cell text). Its checks were started 2026-10-27 in the
-  background, in this order: 12-pair check vs `1b40db9` (`/tmp/t/pc133.log`), then the
-  `.venv` suite (`/tmp/t/venv13.log`), then `.venv-d1` (`/tmp/t/d113.log`); each log ends
-  with `EXIT <n>` / `client copies deleted`. **Next session: read all three; if green,
-  update this block, push, deploy, smoke.** If `/tmp` was wiped (container reset), rerun
-  them (recipes below).
-- **App** `codegen-agent` deployed from `1b40db9`, `/api/health` = `0.5.8.post132`, smoke
+- **Branch** `feature/multi-table`: pushed to `1431a75` (post134). Nothing local.
+  post133 + post134 checks, all green: 12-pair 12/12 same outcome (post134: only the 17
+  `_TestCases` files differ, by design; 345 SELECTs, every one self-checking, 0 bad),
+  `.venv` 2207 passed, `.venv-d1` 1900 passed.
+- **App** `codegen-agent` deployed from `1431a75`, `/api/health` = `0.5.8.post134`, smoke
   green. Claude deploys after every green push (CLAUDE.md "Deploying").
 - **What the versions since post123 did** (one bump per fix, each test fails with only
   the fix reverted; CHANGELOG_ACFC.md has the detail; session log in CLAUDE_HISTORY
   §[H14]): post124 "Generate Documents" button; post125–132 the seven re-rated audit
   "high" findings (#5 #7 #2 #6 #10 #13 #14); post128 the DDL test cases file; post133
-  medium #9.
+  medium #9; post134 every DDL test-case SELECT checks itself (PASS / FAIL / NO DATA).
 - **Every real-pair check since post126:** 12/12 same outcome, 187/187 artefacts
   identical (post128 added the 17 `_TestCases` files and caught one bug before release).
 - **Known flakes** (pass alone, under `-n 4` + a parallel harness they can fail once):
@@ -39,7 +35,8 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   Rebuild it from that description if lost.
 - **Smoke test:** `/tmp/t/smoke/smoke.js <url> <png>` (Playwright from
   `ui/frontend/node_modules`, `LD_LIBRARY_PATH=/tmp/pwlibs/... PLAYWRIGHT_BROWSERS_PATH=
-  /tmp/pw`; `CODEGEN_BEARER` = the OAuth token for the deployed App, never written).
+  /tmp/pw`, LD_LIBRARY_PATH = all three lib dirs under /tmp/pwlibs (lib/x86_64-linux-gnu,
+  usr/lib/x86_64-linux-gnu, its nss/) or Chromium exits 127; `CODEGEN_BEARER` = the OAuth token for the deployed App, never written).
 - **A live run on the App by API:** `/tmp/t/drive_pair11.py select|run|proceed` (status
   fields are top-level: `state`, `outcome`, `pause_kind`, `layout_questions`). pair_11's
   run asks only `pair.vdd` (no candidate in its folder): proceed with none.
@@ -135,7 +132,13 @@ filled with the feed's own values (target table, real location):
   `<STTM>_DDL_TestCases.txt` next to `<STTM>_DDL.txt` (`run_artefacts`, the App
   listing). The DDL stays run-safe SQL only. **BUILT post128:** Nikshit's six + record
   count, key unique, structure checks (`conventions.profiles.acfc_prx.ddl_test_cases`);
-  read-only SQL, gate `ddl_tests_read_only`. Open: the framework's real reject behaviour
+  read-only SQL, gate `ddl_tests_read_only`. **post134:** every SELECT returns one row
+  (test_id, result PASS / FAIL / NO DATA, found, expected); record count takes a per-case
+  parameter `:expected_rows_tcNN`; columns_match compares with information_schema in the
+  catalog's type spelling (`ddl_test_type_names` / `_defaults`); names lower-cased. Still
+  manual: the load cases (no SQL) and SHOW TBLPROPERTIES. Not verified on a warehouse
+  (no Java here; an EXPLAIN on D1 would check them — ask Soham, it wakes the warehouse).
+  Option 2 (a runnable load-test notebook) waits on Jinesh / Suganya. Open: the framework's real reject behaviour
   ("fails or rejects" today) and whether it validates the header row — ask Jinesh /
   Suganya; a per-table grouping if 55 cases per 3-table feed reads too long.
 

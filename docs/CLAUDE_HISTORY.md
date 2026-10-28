@@ -2936,3 +2936,197 @@ Soham switched Layer 2 OFF (post123): a `reasoning:` block in acfc_env.yaml sets
 suite runs without that overlay was wrong for one App test (it loads the overlay) —
 the test now pins `defer` itself. App redeployed on post123; a fresh live pair_11 run
 loaded (0 model calls).
+
+## §[H13] RESTART.md State + audit blocks, post123–post132 (moved verbatim 2026-10-28)
+
+### State (2026-10-27, post132 deployed)
+
+- **Branch** `feature/multi-table` at `8808a55` (post126) + docs, pushed. post125 = audit
+  #5 (an unstated source stays blank + flagged), post126 = audit #7 (VDD / STTM delimiter
+  disagreement is a conflict; a gaps: answer wins over the STTM), post127 = audit #2
+  (segmented recycle window: the config default, never a hard-coded 15), post128 = DDL
+  test cases (`<DDL>_TestCases.txt`, Venu's separate file), post129 = audit #6 (the
+  layout model's spelling never reaches a contract), post130 = audit #10 (a corpus key
+  is checked against the table's columns), post131 = audit #13 (edo_sfmc COMMENTs only
+  as stated), post132 = audit #14 (a full run clears the earlier combined set).
+  Suites on post132: `.venv` 2198, `.venv-d1` 1891 passed.
+- **App** `codegen-agent` deployed from `3a9fb28` (by Claude, 2026-10-27 — Soham is the
+  App's only user, so Claude deploys after every green push), `/api/health` =
+  `0.5.8.post128`; Playwright smoke (Dashboard + Generate): 200, no console errors.
+- **Live pair_11 run on post128** (2026-10-27, `demo_20261027_204003`): 0 model calls / 0
+  tokens; GATE_FAIL — 4 feeds PASS_WITH_FLAGS, the stray-space-column feed FAIL
+  (`ddl_identifiers` + `ddl_parses` + now `ddl_tests_read_only`: its test SQL names the
+  same invalid column). Combined `_DDL_TestCases.txt`: 4 feeds, 104 cases, 69 read-only
+  statements, 0 OPEN. The layout dialog asked only `pair.vdd` (4 candidates, none in
+  pair_11's folder) — proceeded with no VDD, as before. The redeploy wiped the
+  App's run state; the last LIVE pair_11 run (post123; 0 model calls, 0 tokens) had
+  outcome GATE_FAIL — 4 feeds
+  PASS_WITH_FLAGS, ONE feed FAIL on the new `ddl_identifiers` check: an STTM
+  Standard-band column name with a stray space ("Word _Word", column 8 of that feed's
+  standard table). The agent copies names as stated, so that invalid column was in the
+  DDL since the feed was first generated (also in the post105 DDL shown to Nikshit);
+  `ddl_parses` (post107) caught it, post122 names it. Fix belongs in the STTM (BSA).
+  The combined DDL on the dashboard = the 4 good feeds: 8 CREATE IF NOT EXISTS, 8 SET
+  TAGS, no OR REPLACE.
+- **Today's versions (2026-10-26, one bump per fix, each with a test that fails without
+  it; details in CHANGELOG_ACFC.md):** post104–105 DDL comments + run-safe DDL;
+  post106 PK-note separator " — "; post107 notebook v2 never `partitionBy` + gate
+  `ddl_parses`; then codeflow-audit fixes — post108 Standard-band-only key gets its
+  input (#11), post109 segmented File Type delimiter (#3), post110 generic recycle rule
+  behind an N cell (#1), post111 the layout model gets no cells of a header-less sheet
+  (#9, privacy), post112 edo_sfmc run-safe + the gate fails CREATE OR REPLACE (#12/#15),
+  post113 delimiter agreement compared as characters (#8 + medium #8), post114 pairing
+  name match on word boundaries, post115 an answered load strategy must name one,
+  post116 a quoted column index in the answers file, post117 the recycle-column
+  question can be answered, post118 .docx FRD Load Strategy STD makes the feed
+  two-layer (doctrine), post119 edo_sfmc tags escaped, post120 the unstated-recycle N
+  badged a convention, post121 acfc_run.py honours `pairing:`, post122 gate
+  `ddl_identifiers`.
+- **Real-pair regression checks** (mock container harness, all 12 pairs, old vs new code,
+  client copies in /tmp deleted after): run for post110, post113, post114, post118,
+  post126 (vs post124) and post127 (vs post126): 12/12 same outcome, 170/170 artefacts
+  identical each time — no real pair has those shapes; post128 (vs post127): 12/12 same
+  outcome after a fix it found (an STTM column name with a line break split a test-case
+  comment -> pair_01 GATE_FAIL), +17 `_TestCases` files, 7 listing files changed
+  (combined LOG rows, GATE_FAIL.md counts), every DDL / IIG / insert identical; post129
+  (vs post128, both trees warmed), post130, post131, post132: 12/12, 187/187 identical —
+  same outcomes; byte-identical DDL / IIG except post118 (3 pairs' FRD contracts gain the
+  standard tables their Load Strategy STD implies; artefacts unchanged).
+- **Flake fixed 2026-10-27:** `tests/test_m93_chooser.py::test_slow_and_failing_downloads_
+  never_block_the_list_and_are_listed_unreadable` recurred (a healthy STTM over the 0.4 s
+  classify timeout under `-n 4` + a harness run); its margin is now 1.5 s timeout vs a
+  5 s slow download (test-only).
+- **Second flake (2026-10-27):** `tests/test_frd_default.py::test_a_paired_sttm_
+  preselects_its_frd_labelled_paired` — `frd_name` None once under `-n 4` (it is in the
+  `repo_shared_state` group, so likely state left by an earlier module there); passes
+  alone 3/3, the full rerun was green. If it recurs, find which module leaves the
+  selection behind.
+- **Harness lesson (2026-10-27):** the layout cache lives in the STATE dir, so the first
+  run on a fresh state copy reads pair_01 by `synonyms` and every later one from `cache`
+  — the contracts' provenance and every banner sha then differ (9 false diffs on
+  pair_01, seen twice: in parallel AND in sequence). Warm the cache first (one throwaway
+  run), or re-run the cold side warm, and compare layout `source` before hashes. The cache
+  key differs per code TREE: warm EACH side (`/tmp/t/pair_check.sh <old-sha>` does: one
+  pair-1 run per tree, then both full runs, then the comparison, then deletes the copies).
+- **Lesson (this session):** a push was once chained after a suite with 1 failure (the
+  flake above; the tree was green on rerun) — read the result, then push, never chained.
+
+### Codeflow audit (2026-10-26) — where it stands
+
+- Phase 1 (deterministic, /tmp/trace — lost on a container reset): static graph,
+  coverage with per-test contexts (91 functions never run; 153 CLI-only / 112 App-only
+  src functions), vulture, config-knob audit (6 knobs never read, 55 defaults absent
+  from the YAML), 62 skipped tests (33+ for fixtures removed 2026-08-22).
+- Phase 2: a multi-agent workflow was STOPPED at 7 of 18 finders (1.7M tokens — no
+  budget set; do not rerun it without one). Its 62 findings were verified BY HAND: 15
+  high (13 real, 1 minor, 1 duplicate) and 29 of 47 medium/low triaged. Fixed: high
+  #11 #3 #1 #9 #12/#15 #8; medium #8 #20 #21 #17 #3 #1 #37 #30 #19 #43/#44.
+- **The "high" list's other seven** (numbering of `/tmp/trace/high.json`; #15 = #12's
+  duplicate): the 2026-10-26 triage confirmed them but re-rated #2 #5 #7 #10 #13 #14
+  medium and #6 low (partly confirmed). Re-checked on post124 (2026-10-27, the old
+  probes + reading): all seven were still present. FIXED 2026-10-27: #5 (post125),
+  #7 (post126), #2 (post127), #6 (post129), #10 (post130), #13 (post131), #14 (post132)
+  — all seven done.
+  - **New, found fixing #2 — needs Soham:** in ALL three readers a recycle rule with no
+    day count gets `defaults.recycle_window_days` (7), and the IIG `RECYCL_RETN_DAYS`
+    cell's tooltip says "the recycle window the STTM states" (badge from_sttm) — a false
+    citation; fixing it needs the RecycleSpec contract to record whether the window was
+    stated.
+  - (fixed, post127) #2 `extract/segmented.py:703` recycle window `or 15` (config default 7, no document
+    states 15) -> `RECYCL_RETN_DAYS`;
+  - (fixed, post125) #5 `frd_docx.py:1241` sentinel `unstated` -> IIG SOURCE cell badged from_frd
+    (`metadata_template._source_cell`; probe: `{'value': 'unstated'}`);
+  - (fixed, post129) #6 `layout/resolve.py:954` checks only the normalized label: the model's spelling
+    reaches provenance and rule text (probe: `'FREQUENCY ::'` for `Frequency`);
+  - (fixed, post126) #7 `resolve/resolver.py:528` STTM `|` vs VDD `,` -> `|`, no flag, no conflict;
+  - (fixed, post130) #10 `primary_key.py:180` a corpus key never checked against the table's columns
+    (probe: `NOT_A_COLUMN_X` in every key cell, rc 0; D1 only — goldens there);
+  - (fixed, post131) #13 `emit/framework.py:689` edo_sfmc invents a title-cased COMMENT and uses
+    `f.description` (Comments text) not `ddl_description` (ACFC runs acfc_prx);
+  - (fixed, post132) #14 `generate_run.write_combined` never clears `<out>/combined/`: a CLI / harness
+    rerun into the same dir that GATE_FAILs keeps the old combined IIG / DDL (App runs
+    get a fresh folder).
+- **Open — needs Soham:** high #4 (multi-file FRD split renames standard tables to the
+  stage names and pairs files by name guess, silently; both the classic and the .docx
+  copy) — tied to the multi-table decision; medium #29 ACTIVE_START_DATE = run date
+  (post81, intended) vs the byte-stable rule; #12 any "as is" FRD rule turns every
+  column STRING in both layers, unflagged; #13 the rule classifier stops at its first
+  match.
+- **Open — codeable later:** #36 notebook v2 drops fixed-width columns whose start /
+  length is not a digit, unflagged; #35 notebook v2 several ADLS rows into one stage
+  table overwrite each other (needs Spark to prove); #33 `<<COLUMN#n>>` placeholders
+  repeat across sheets; #27 / blind spots: 23 of 25 notebook v2 tests skip (fixtures
+  removed); dead code `_reject_segmented_family`, `_frd_required`, `band_layer_answers`
+  (#5 #11 #26); #42 `ddl_parses` checks framework `.txt` only; #7 width questions
+  keyed by sheet index. The CLI/App flag differences (#40 #41) are partly by design.
+- **The 18 unverified medium/low, checked 2026-10-27 against post132 (reading; #10 #24 #28
+  #34 also have the audit's probes): ALL 18 still present.** Numbering = the medium/low
+  list (`/tmp/trace/rest_verdicts.json`, which now records each verdict). By weight:
+  - medium, on paths ACFC runs: #9 a model-invented sheet name / a quoted FRD or meta
+    label cell goes into the rejection log, REJECTED lines and the "structural labels
+    only" unresolved report (privacy doctrine); #10 an FRD user answer for a field
+    already placed is dropped silently (the STTM side overrides); #31 an Upsert
+    non-detail (segmented H/T) table with no key signal gets a blank key under acfc_env
+    (NA in the PRX family) with no QUESTION; #34 `config_inserts.xlsx` ("review copy of
+    metadata_inserts.sql") builds its own INSERTs with the retired logic (NULL for an
+    open cell, iig_v1 blank list, no db_value_map) — they differ from the script; #7
+    width answers keyed by sheet index but read by the paired FRD feed index; #24
+    `codegen pair` / acfc_run lack the App's same-folder FRD rescue (NONE, exit 0);
+    #16(b) spec.lobs from the FRD while the files expand from the STTM header's LOBs.
+  - CLI-only (the layout stage already asks): #14 a layerless STTM load strategy
+    filled silently from the FAQ; #15 FRD vs STTM load strategy never compared; #16(a)
+    LOBs asked although the STTM header states them.
+  - low: #4 the classic reader ignores an overlay's audit_datatypes; #18 null-reject
+    rule naming a source column flagged "contracts disagree"; #28 corpus keys folded
+    to the bare table name (narrowed by post130); #32 the key cell's corpus from the
+    default profile + CWD; #36 notebook v2 drops a non-digit fixed-width entry,
+    unflagged; #39 literals copying config defaults (name-token cap 32, timezone,
+    cell limit); #45 a TemplateGapError crash missing from the combined LOG's
+    exclusions; #46 a withheld notebook-only GATE_FAIL recorded `written: true`; #47
+    pair_outcome can read a stale manifest after an early exit 1.
+- The 11 audit areas never searched (config, edges, App runner / API, frontend, the
+  cross-cutting lenses) — if resumed: one area at a time, inline or with a hard budget.
+
+## §[H14] Session 2026-10-27 → 28: Nikshit's UX item, the audit's re-rated highs, DDL test cases, post124–post133
+
+**Versions** (one bump per fix, each with a test that fails with only the fix reverted;
+CHANGELOG_ACFC.md has the detail): post124 the run button reads "Generate Documents"
+(+ `tools/iig_diff.py` sorts its `--agent` files: the 30.0 vs 30.3 score); post125 #5 an
+unstated FRD source stays blank + flagged (`stated_source`); post126 #7 a VDD / STTM
+delimiter disagreement is a conflict, and a gaps: answer wins over the STTM (the old
+"answer the conflict" path was a dead end); post127 #2 segmented recycle window = the
+config default, never 15; post128 DDL test cases — `<DDL>_TestCases.txt` (Venu: a
+separate file, never in the DDL), Nikshit's six + record count / key unique / structure
+checks, gate `ddl_tests_read_only`; post129 #6 the layout model's spelling never reaches
+a contract; post130 #10 a corpus key must name the table's columns; post131 #13 edo_sfmc
+COMMENTs only as stated; post132 #14 a full run clears the earlier combined set; post133
+medium #9 rejections carry coordinates only (+ model FRD claims for unasked paths
+dropped).
+
+**How the high list's "13 real" was accounted for:** the 2026-10-26 triage had
+confirmed the seven non-fixed highs but re-rated them medium/low, and RESTART.md listed
+only the open highs, so they dropped out of the notes. Re-derived from
+`/tmp/trace/high.json` with the old probes (all seven still present), then fixed one by
+one. The 18 never-verified medium/low findings were then checked by reading (all still
+present; verdicts in `rest_verdicts.json`).
+
+**Real-pair checks:** post128's caught a bug before release (an STTM column name with a
+line break split a test-case comment, so the file stopped parsing and pair_01 went
+GATE_FAIL). Two false alarms taught the cache rule now in CLAUDE.md: the layout cache is
+per code tree, and the first comparison deleted the client copies before the differing
+files were classified.
+
+**Live run:** pair_11 on post128 (0 model tokens): GATE_FAIL as before (the stray-space
+STTM column); combined `_DDL_TestCases.txt` 104 cases, 69 read-only statements, 0 OPEN.
+
+**Process:** Soham said he is the App's only user — Claude now deploys after every green
+push. While suites ran, the next fix was built in a worktree with PYTHONPATH on its src
+(rule in CLAUDE.md). The Arjun status spreadsheet (`amerihealth-agents-update.xlsx`) was
+condensed to Arjun's style — short feature rows, Yes / No / Partial, in Soham's voice.
+Also answered: typical DDL test cases (exa), Citrix alternatives for ACFC access (AVD /
+Windows 365 / Entra guest access; a proposal for ACFC IT, not a workaround).
+
+**Still with Soham:** the three DDL questions (stage types, table COMMENT, one file or
+two), the cost disclaimer, #4 / the multi-table decision, the recycle-days citation, the
+Rama session (not yet held), Jinesh / Suganya on the framework's reject behaviour and
+header validation.

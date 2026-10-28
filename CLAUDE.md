@@ -92,6 +92,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   after a deploy, `/api/health` must name the pushed version. A push that adds or
   changes `.github/workflows/` needs the `workflow` scope on the `gh` login (`gh auth
   refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
+- **Deploying:** Soham is the App's only user, so Claude deploys after every green push
+  (recipe in RESTART.md), then checks `/api/health` names the pushed version and runs the
+  Playwright smoke (Dashboard + Generate: 200, no console errors). A RUN on the deployed
+  App is live (client documents go to the model) — never start one without asking.
 - **CI** (`.github/workflows/tests.yml`): both venvs' suites, vitest + tsc and the
   version guard on every push; offline, no secrets. It never replaces the local
   full-suite run before a push.
@@ -110,7 +114,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   over the fixed file, run, restore) — a failure from a missing import proves nothing.
   A fix that can change generated output also gets the real-pair check: the container
   harness, mock, on every pair, old code vs new, comparing outcomes and the artefacts'
-  hashes; client copies go to /tmp and are deleted after; report counts only.
+  hashes; client copies go to /tmp and are deleted after; report counts only. The
+  layout cache lives in the state dir and is keyed per code TREE: warm EACH side (one
+  pair-1 run per tree) before the comparison, and compare the contracts' layout
+  `source` before hashes — a cold side differs on every banner sha. Classify any
+  differing file before the copies are deleted.
+- **Working while a suite runs:** never edit `src/` or `tests/` under a running suite.
+  Develop the next fix in a worktree (`git worktree add -b wip/<x> /tmp/t/<x> HEAD`, run
+  with `PYTHONPATH=/tmp/t/<x>/src` and `-p no:cacheprovider`), then cherry-pick it onto
+  the branch once the running checks are read, and delete the worktree and branch.
 - **Multi-agent workflows / fan-outs:** never without a hard token budget and effort
   caps — an uncapped audit burned 1.7M tokens on 7 of 18 finders (2026-10-26).
   Deterministic tools first (coverage with test contexts, static graph), agents only on
@@ -142,6 +154,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
     the push login; it prints what needs a person (OAuth);
   - `isolation: "worktree"` agents branch from the default branch — reset each to the
     working branch first, cherry-pick back, delete the `worktree-agent-*` branch;
+  - running the App locally inside this container: the container is itself a Databricks
+    App and sets `DATABRICKS_APP_PORT=8000`, which the backend reads before
+    `CODEGEN_UI_PORT` — override `DATABRICKS_APP_PORT` (and point the storage roles at
+    /tmp) or the server fails to bind;
   - on Windows hosts, `;`-separated path lists get MSYS-converted (`export
     MSYS2_ENV_CONV_EXCL=CODEGEN_CONFIG_OVERLAYS`), and the symlink test
     `test_state_volume_mirror.py` fails (WinError 1314) — passes on Linux.
@@ -218,7 +234,12 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   contract, DDL or IIG cell. A sheet with no header row (no 3+ cell row in 25: a
   lookup / valid-values sheet) is CAPPED: the fingerprint hashes it, the model gets its
   summary line only (`fingerprint.model_region`) — keep the cache key and the prompt
-  separate there. Families A, C and E may legitimately leave roles unresolved
+  separate there. A model claim that validates carries the DOCUMENT's wording (the label
+  cell as written, the inline pair as the cell spells it; `labelled_rule` derived, never
+  the model's flag), and a model FRD claim under a path it was not asked about is
+  dropped. A layout `Rejection` holds coordinates and vocabulary only — never a cell's
+  text, a model string or a model-invented sheet name (it reaches the state log, the
+  REJECTED lines and the "structural labels only" report). Families A, C and E may legitimately leave roles unresolved
   under synonyms alone (`tests/acfc_shapes/layout_truth.py`) — do not widen the synonym
   tables to force them; a header seen in a client document is evidence, one invented to
   close a fixture gap is not.
@@ -275,7 +296,10 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
 
 - **Every knob lives in config;** no numeric literals in generator logic; the loader is
   loud on typo'd keys. Pydantic v2 models are `frozen=True` + `extra="forbid"`; missing
-  is `None`, never a default. PHI masked to last-4 at every egress.
+  is `None`, never a default. PHI masked to last-4 at every egress. A placeholder a
+  reader stores for "no document states it" (the .docx reader's `unstated` source,
+  `contracts.frd.UNSTATED_SOURCE`) is read through its helper (`stated_source`) — it
+  never reaches an artefact as a value; the cell is blank + flagged.
 - **Overlays:** `config/overlays/acfc_env.yaml` is committed and ALWAYS applied first by
   `load_config`; `CODEGEN_CONFIG_OVERLAYS` adds on top (later wins); client-shaped
   vocabulary lives in overlays, never in the tracked config.yaml. It pins the SD / CAQH

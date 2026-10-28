@@ -4,20 +4,26 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-28, post136 deployed)
+## State (2026-10-28, post141 deployed)
 
-- **Branch** `feature/multi-table`: pushed to `636349a` (post136). Nothing local.
-  post135 = the App in ACFC's visual identity (visual only); post136 = the App says which
-  provider a run uses (sidebar badge = next run's provider via `/api/feeds` `provider`;
-  a mock-answered run reads MOCK RUN via `run_provider`; plain "A run will use" line;
-  confirm modal names the Generate page). Checks: `.venv` 2214 passed, `.venv-d1` 1904,
-  vitest 119, tsc clean, local synthetic Playwright tour + modals, no console errors.
-- **App** `codegen-agent` deployed from `636349a`, `/api/health` = `0.5.8.post136`; with no
-  run served `/api/feeds` = mode mock / provider live and the badge reads LIVE; smoke
-  green. The App's compute had been STOPPED (between post135 and post136, cause unknown);
-  Soham asked to start it (2026-10-28). Claude deploys after every green push.
-- **UX item still open (ask Soham):** the Overview tab's flag list is one long wall
-  (dozens of rows) — collapse by group?
+- **Branch** `feature/multi-table`: pushed to `8ef2f9a` (post141). Nothing local.
+  App deployed from it, `/api/health` = `0.5.8.post141`, smoke green. Every version
+  below: both suites green, its tests fail with only the fix reverted.
+- post137 the feed page's flags in collapsible sections (`flagGroups.ts`; the 12 pairs'
+  1,648 flags all land in a named section); post138 the LOB question (`lob_by_file`)
+  asked once, INPUT_NEEDED, never blocking (the pair_12 loop; the harness never shows
+  it - `answers/pair_12/answers.yaml` in the state volume answers it); post139 a
+  Comments cell repeating the Field Description no longer drops the DDL column COMMENT
+  (pair_11: 61 of 62 fields had none; 154 column lines gained one); post140 the table
+  COMMENT = Table Description + load strategy (Soham's answer to DDL question 2);
+  post141 Choose documents: Cancel restores the selection the dialog opened on.
+- **Real-pair checks (post139 / post140):** 12/12 same outcome; every differing file
+  classified (`/tmp/t/classify_rest.py`: banner sha256 only, or COMMENTs only, or the
+  test-case COMMENT counts). Classify BEFORE the copies are deleted (pair_check script
+  runs the classifier inside).
+- **pair_11's billing sheet stays GATE_FAIL:** its standard column 8 is stated with a
+  space (`word _word`) - not an identifier; the STTM must be corrected (BSA).
+- **UX items still open:** none from the 2026-10-28 list.
 - **EXPLAIN check of the DDL test cases on D1: blocked** — the DEFAULT PAT has no Can Use
   on warehouse `172877b5178f7bb7`; nothing ran. `/tmp/t/explain_tc.py` must count a
   refused call as a failure before it is rerun (it counted refusals as "compiles").
@@ -94,28 +100,8 @@ Detail of every finding: `/tmp/trace/high.json`, `/tmp/trace/rest.json` +
 - The 11 audit areas never searched (config, edges, App runner / API, frontend, the
   cross-cutting lenses) — if resumed: one area at a time, inline or with a hard budget.
 
-## Next up — Soham's notes (2026-10-28), not started
-
-1. **Choose documents dialog: a Cancel button** (Aruna). Today it closes only
-   with Done; a pair picked by mistake cannot be backed out of. Cancel should
-   restore the selection as it was when the dialog opened (STTM / FRD / VDD),
-   Done keeps it. Check what selecting already does server-side
-   (`POST /api/demo/workbook` downloads + pairs at once) - Cancel may need to
-   re-select the previous pair or clear, not just close.
-2. **pair_12 loops on LOBs (a bug).** A run asks for the LOBs; proceeding without
-   them sends the user back to the same question, so the run never happens. The
-   rule (CLAUDE.md "Answers"): ask ONCE; an unanswered value is left blank and
-   flagged and the run generates what it can. Find why the LOB question is
-   blocking (QUESTION / UNRESOLVED) instead of INPUT_NEEDED for this pair, or
-   why a skipped answer is re-asked; reproduce with the harness (mock) first,
-   then write the failing test.
-3. **DDL column COMMENTs from the description column.** Every column definition
-   should carry its STTM description as a COMMENT on the same line. Example:
-   pair_11, the STTM's monthly billing mapping sheet, cells T10 and AD10 (read
-   in place, scratch copy, never into the repo). post104 already writes
-   COMMENTs from the STTM description, so first find why these cells do not
-   reach the DDL: is that sheet's description column recognised (layout role),
-   and which layer each of T / AD feeds. Then the real-pair check.
+## Soham's notes (2026-10-28) - all three DONE: Cancel (post141), pair_12 LOB loop
+(post138), DDL description COMMENTs (post139 column, post140 table).
 
 ## Next up — Nikshit's review (2026-10-23)
 
@@ -136,10 +122,10 @@ none + `ddl_tags_blank`). Tests: `tests/test_ddl_runsafe.py`.
   current set is itself `IF NOT EXISTS` + terminated, CLUSTER BY AUTO on stage, no
   LOCATION. `tools/ddl_shape.py` had scored 5 of 6 D1 stage files as standard (layer
   from `STTM_STG_STD` in the title) — fixed: the `<env>_<layer>_` prefix wins.
-- **Three questions for Soham, unanswered** (two asked 2026-10-23): (1) stage column
+- **Questions for Soham** (asked 2026-10-23): (1) stage column
   types: all STRING (recommended — the notebook lands stage as STRING too) or as the
-  STTM states (today); (2) table COMMENT: description + load strategy (recommended),
-  description only (prod), or load strategy only (today); (3) one file per layer (prod)
+  STTM states (today) - unanswered; (2) table COMMENT - ANSWERED 2026-10-28: description
+  + load strategy (post140); (3) - unanswered: one file per layer (prod)
   or the combined `<ABBREV>_DDL.txt` (today; the combined set, App listing and
   `run_artefacts` read `_DDL.txt`, so a split touches all three) — keep the combined
   file behind a knob the pair-1 overlay pins either way.

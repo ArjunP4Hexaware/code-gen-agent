@@ -1304,6 +1304,30 @@ def clear_workbook() -> dict:
     return {"workbooks": _require_runner().workbook_choices()}
 
 
+@app.post("/api/demo/choosing")
+def begin_choosing() -> dict:
+    """post141: "Choose documents" opened - remember the selection Cancel restores."""
+    try:
+        _require_runner().begin_choosing()
+    except LiveRunInProgress as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True}
+
+
+@app.post("/api/demo/choosing/cancel")
+def cancel_choosing() -> dict:
+    """post141: Cancel - the selection as it was when the dialog opened."""
+    restored = _require_runner().cancel_choosing()
+    return {"restored": restored, "status": _require_runner().status()}
+
+
+@app.post("/api/demo/choosing/done")
+def end_choosing() -> dict:
+    """post141: Done - the new selection stands."""
+    _require_runner().end_choosing()
+    return {"ok": True}
+
+
 @app.get("/api/demo/input-documents")
 def input_documents() -> dict:
     """The documents card's data: reference documents + the FRD stand-in.

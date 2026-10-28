@@ -1265,3 +1265,13 @@ details.hint > summary { cursor: pointer; font-size: 12.5px; color: var(--accent
 }
 .flag-section-hint { flex-basis: 100%; font-size: 12.5px; color: var(--muted); }
 .flag-section > .flag-list { padding: 4px 14px 6px; }
+
+/* post141: Done / Cancel stay in view at the bottom of a long dialog */
+.modal-actions {
+  position: sticky;
+  bottom: -22px;               /* the dialog's bottom padding */
+  margin: 14px -24px -22px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-top: 1px solid var(--hairline);
+}

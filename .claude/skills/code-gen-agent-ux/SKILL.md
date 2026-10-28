@@ -646,8 +646,15 @@ bottom:
      FRD `.docx` (standalone doctrine, 2026-09-18).
    - no-contract rows: retired — `no_contract[]` is always empty now that
      a .docx is selectable; the frontend block remains for API compatibility.
-8. Footer button reads **"Done"** once an STTM is chosen, **"Cancel"**
-   before.
+8. Footer (post141, Aruna): two buttons, pinned to the bottom of the dialog
+   so they stay in view (`.modal-actions`, sticky, hairline above): **"Done"**
+   (primary; disabled until an STTM is chosen and while a pick is still
+   selecting) keeps the selection — `POST /api/demo/choosing/done`;
+   **"Cancel"** puts back the documents chosen when the dialog opened
+   (STTM, FRD, VDD and their pairing; a pick still downloading is superseded)
+   — `POST /api/demo/choosing/cancel`, then a status read. Opening the dialog
+   calls `POST /api/demo/choosing` (the backend remembers the selection). A
+   pick still applies at once, as before; only Cancel undoes it.
 
 #### 2.4.5 Modal — cost confirmation
 

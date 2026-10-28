@@ -1009,6 +1009,11 @@ export const api = {
     }),
   clearWorkbook: () =>
     request<{ workbooks: SttmWorkbook[] }>("/api/demo/workbook", { method: "DELETE" }),
+  // post141: Choose documents - the selection Cancel goes back to
+  beginChoosing: () => request<{ ok: boolean }>("/api/demo/choosing", { method: "POST" }),
+  cancelChoosing: () =>
+    request<{ restored: boolean }>("/api/demo/choosing/cancel", { method: "POST" }),
+  endChoosing: () => request<{ ok: boolean }>("/api/demo/choosing/done", { method: "POST" }),
   frdChoices: () => request<FrdChoicesResponse>("/api/demo/frd-choices"),
   // local: selected on return; upstream: 202 + a job (like the STTM).
   selectFrd: (kind: "upstream" | "local", id: string) =>

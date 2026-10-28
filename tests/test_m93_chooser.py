@@ -1141,3 +1141,69 @@ def test_a_file_that_is_not_a_workbook_is_unclassified_with_the_error(config, tm
     broken.write_bytes(b"PK\x03\x04 not a real workbook")
     verdict = classify_workbook(broken, config.extractor)
     assert verdict.kind == "unclassified" and verdict.reason.startswith("could not be read")
+
+
+# ------------------------------------------- post141: Cancel in Choose documents
+
+
+def _selection(status: dict) -> tuple:
+    return (status["selection"], status["frd_name"], status["vdd_name"])
+
+
+def test_cancel_restores_the_pair_chosen_before_the_dialog_opened(monkeypatch, ws):
+    """post141 (Aruna, via Soham): a pair picked by mistake can be backed out of.
+    Picking applies at once (download, classify, pair), so Cancel restores the
+    whole selection - STTM, its FRD and VDD, the pairing - as it was when the
+    dialog opened; Done keeps the new one."""
+    ws.pairs()
+    client, _main = _api(monkeypatch, ws)
+    before = _selection(select_sttm(client, "STTM_alpha.xlsx"))
+    assert before[0] == {"sttm": "STTM_alpha.xlsx", "frd": "FRD_bravo.docx",
+                         "vdd": "VDD_charlie.xlsx"}
+
+    assert client.post("/api/demo/choosing").status_code == 200
+    changed = _selection(select_sttm(client, "STTM_delta.xlsx"))
+    assert changed[0]["sttm"] == "STTM_delta.xlsx" and changed != before
+    body = client.post("/api/demo/choosing/cancel").json()
+    assert body["restored"] is True
+    assert _selection(client.get("/api/demo/status").json()) == before
+    rows = client.get("/api/demo/workbooks").json()["workbooks"]
+    assert [r["name"] for r in rows if r["selected"]] == ["STTM_alpha.xlsx"]
+
+    # Done: the new pick stands, and a later Cancel has nothing to restore
+    client.post("/api/demo/choosing")
+    after = _selection(select_sttm(client, "STTM_golf.xlsx"))
+    client.post("/api/demo/choosing/done")
+    assert client.post("/api/demo/choosing/cancel").json()["restored"] is False
+    assert _selection(client.get("/api/demo/status").json()) == after
+
+
+def test_cancel_from_none_chosen_goes_back_to_none(monkeypatch, ws):
+    ws.pairs()
+    client, _main = _api(monkeypatch, ws)
+    empty = _selection(client.get("/api/demo/status").json())
+    assert empty[0] == {"sttm": None, "frd": None, "vdd": None}
+    client.post("/api/demo/choosing")
+    select_sttm(client, "STTM_alpha.xlsx")
+    assert client.post("/api/demo/choosing/cancel").json()["restored"] is True
+    assert _selection(client.get("/api/demo/status").json()) == empty
+
+
+def test_cancel_drops_a_selection_still_running(monkeypatch, ws):
+    """A pick still downloading when Cancel is pressed is superseded: it ends on
+    its own and changes nothing - the selection is the one the dialog opened on."""
+    ws.pairs()
+    client, _main = _api(monkeypatch, ws)
+    before = _selection(select_sttm(client, "STTM_alpha.xlsx"))
+    client.post("/api/demo/choosing")
+    ws.blocked["STTM_delta.xlsx"] = threading.Event()        # its download hangs
+    assert client.post("/api/demo/workbook", json={"name": "STTM_delta.xlsx"}).status_code \
+        in (200, 202)
+    assert client.post("/api/demo/choosing/cancel").json()["restored"] is True
+    deadline = time.monotonic() + 30
+    while ws.downloads("STTM_delta.xlsx") == 0:               # the stale job is mid-download
+        assert time.monotonic() < deadline, "the second pick never started its download"
+        time.sleep(0.05)
+    ws.blocked["STTM_delta.xlsx"].set()                      # ...and finishes now
+    time.sleep(2.0)                                           # its remaining steps (bounded)
+    assert _selection(client.get("/api/demo/status").json()) == before

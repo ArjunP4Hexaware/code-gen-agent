@@ -256,6 +256,8 @@ export function ModesPage({
 
   const openChooser = useCallback(() => {
     setChoosing(true);
+    // post141: the backend remembers the selection now - Cancel goes back to it
+    api.beginChoosing().catch(() => {});
     setWorkbooks(null);
     api.demoWorkbooks().then((r) => setWorkbooks(r.workbooks)).catch(() => setWorkbooks([]));
     loadDbDocs();
@@ -1553,9 +1555,33 @@ export function ModesPage({
                 ))}
               </>
             ) : null}
-            <div className="decision-row" style={{ marginTop: 14 }}>
-              <button className="btn" onClick={() => setChoosing(false)}>
-                {chosen.sttm ? "Done" : "Cancel"}
+            <div className="decision-row modal-actions" style={{ marginTop: 14 }}>
+              {/* post141 (Aruna): Done keeps the pick; Cancel puts back the
+                  documents chosen when the dialog opened */}
+              <button
+                className="btn primary"
+                disabled={!chosen.sttm || selecting}
+                title={!chosen.sttm ? "Choose an STTM first" : undefined}
+                onClick={() => {
+                  setChoosing(false);
+                  api.endChoosing().catch(() => {});
+                }}
+              >
+                Done
+              </button>
+              <button
+                className="btn"
+                onClick={async () => {
+                  setChoosing(false);
+                  try {
+                    await api.cancelChoosing();
+                    setStatus(await api.demoStatus());
+                  } catch (e) {
+                    setError(e);
+                  }
+                }}
+              >
+                Cancel
               </button>
             </div>
            </ErrorBoundary>

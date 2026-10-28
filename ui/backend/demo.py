@@ -422,6 +422,8 @@ class DemoRunner:
         # nothing is selected until every step has succeeded. ``_lock`` guards
         # state mutation only; no I/O ever happens under it.
         self.selection_job: dict | None = None
+        # post141: the selection "Choose documents" opened on (Cancel restores it)
+        self._choosing_snapshot: dict | None = None
         self._job_started = 0.0                    # time.monotonic() of the current job
         self._job_seq = 0
         self._job_done = threading.Event()
@@ -1885,6 +1887,57 @@ class DemoRunner:
         if self.selection_error and self.selection_error.get("kind") == "vdd":
             self.selection_error = None
         return local
+
+    # post141 (Aruna, via Soham 2026-10-28): "Choose documents" gets a Cancel. A
+    # pick applies at once (download, classify, pair), so Cancel restores the
+    # selection as it was when the dialog opened - every field a pick or its
+    # pairing sets - and Done keeps the new one.
+    _SELECTION_FIELDS = ("selected_workbook", "selected_frd", "selected_frd_label",
+                         "frd_auto_paired", "selected_vdd", "vdd_auto_paired", "pair_decisions",
+                         "selection_error", "last_pairing", "_vdd_watch", "_deferred_vdd_plan",
+                         "selection_job")
+
+    def begin_choosing(self) -> None:
+        """The dialog opened: remember the selection a Cancel goes back to."""
+        import copy
+
+        with self._lock:
+            if self.state in ("running", "needs_layout"):
+                raise LiveRunInProgress("cannot change the documents while a live run is "
+                                        "in progress")
+            snapshot = {}
+            for name in self._SELECTION_FIELDS:
+                value = getattr(self, name, None)
+                try:
+                    snapshot[name] = copy.deepcopy(value)
+                except Exception:  # noqa: BLE001 — an opaque plan object: kept as is
+                    snapshot[name] = copy.copy(value)
+            self._choosing_snapshot = snapshot
+
+    def cancel_choosing(self) -> bool:
+        """Cancel: the selection goes back to what it was when the dialog opened.
+        A selection still running is superseded first (its results are dropped).
+        False = nothing to restore (no dialog was open)."""
+        with self._lock:
+            snapshot = self._choosing_snapshot
+            if snapshot is None:
+                return False
+            job = self.selection_job
+            if job is not None and job["state"] == "running" \
+                    and job is not snapshot["selection_job"]:
+                self._supersede(job, "cancelled in Choose documents")
+            for name, value in snapshot.items():
+                setattr(self, name, value)
+            self._choosing_snapshot = None
+            self._job_done.set()
+            self._pairing_done.set()
+        self._record_later()
+        return True
+
+    def end_choosing(self) -> None:
+        """Done: the new selection stands; nothing to go back to."""
+        with self._lock:
+            self._choosing_snapshot = None
 
     def clear_workbook(self) -> None:
         """Back to 'none chosen' — the presenter's reset for the choose step. A

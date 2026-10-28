@@ -4,6 +4,27 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post141 — 2026-10-28 (Choose documents: a Cancel button)
+
+Aruna (via Soham): the Choose documents dialog closed only with Done, so a
+pair picked by mistake could not be backed out of. Picking a document applies
+at once (download, classify, pair), so closing the dialog was never an undo.
+- When the dialog opens, the backend remembers the selection
+  (`POST /api/demo/choosing`).
+- **Cancel** restores it exactly (`POST /api/demo/choosing/cancel`): STTM, FRD,
+  VDD, the automatic pairing and the selection job. There is no re-download
+  and no re-pairing. A pick still downloading is superseded and changes
+  nothing.
+- **Done** keeps the new selection (`POST /api/demo/choosing/done`). It is
+  disabled until an STTM is chosen and while a pick is still selecting.
+- Both buttons are pinned to the bottom of the dialog, so they stay in view
+  without scrolling.
+- The UX skill's chooser spec follows.
+- Tests: `tests/test_m93_chooser.py` (cancel after a pick, cancel from "none
+  chosen", cancel during a running pick). The first two fail when Cancel only
+  closes the dialog. Browser click-through on a local synthetic App (pick +
+  Done, pick + Cancel, pick + Done): no console errors.
+
 ## 0.5.8.post140 — 2026-10-28 (the DDL table COMMENT: the Table Description + the load strategy)
 
 Soham (2026-10-28), answering the open DDL question 2 from 2026-10-23: the

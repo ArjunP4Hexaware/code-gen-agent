@@ -4,20 +4,20 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-28, post135 deployed)
+## State (2026-10-28, post136 deployed)
 
-- **Branch** `feature/multi-table`: pushed to `08b3ae3` (post135). Nothing local.
-  post135 = the App restyled in ACFC's visual identity (visual only; CHANGELOG). Checks:
-  `.venv` 2207 passed, `.venv-d1` 1900 passed, vitest 111 passed, tsc clean; Playwright tour
-  of every screen + both modals on a local synthetic App, before vs after, no console errors.
-- **App** `codegen-agent` deployed from `08b3ae3`, `/api/health` = `0.5.8.post135`, smoke
-  green, fonts served (`font/woff2`). Claude deploys after every green push.
-- **UX items found while restyling, NOT changed (behaviour / copy — ask Soham):** the
-  sidebar mode badge shows the served run's mode, so it reads MOCK after every deploy
-  while the provider is live; a run forced to mock is labelled "LIVE RUN"; the Overview
-  tab's flag list is one long wall (dozens of rows) — collapse by group?; the Generate-all
-  confirm says "Run modes page" (renamed Generate); dense developer wording on the
-  Generate card ("Detected by provider=live (CODEGEN_PROVIDER)").
+- **Branch** `feature/multi-table`: pushed to `636349a` (post136). Nothing local.
+  post135 = the App in ACFC's visual identity (visual only); post136 = the App says which
+  provider a run uses (sidebar badge = next run's provider via `/api/feeds` `provider`;
+  a mock-answered run reads MOCK RUN via `run_provider`; plain "A run will use" line;
+  confirm modal names the Generate page). Checks: `.venv` 2214 passed, `.venv-d1` 1904,
+  vitest 119, tsc clean, local synthetic Playwright tour + modals, no console errors.
+- **App** `codegen-agent` deployed from `636349a`, `/api/health` = `0.5.8.post136`; with no
+  run served `/api/feeds` = mode mock / provider live and the badge reads LIVE; smoke
+  green. The App's compute had been STOPPED (between post135 and post136, cause unknown);
+  Soham asked to start it (2026-10-28). Claude deploys after every green push.
+- **UX item still open (ask Soham):** the Overview tab's flag list is one long wall
+  (dozens of rows) — collapse by group?
 - **EXPLAIN check of the DDL test cases on D1: blocked** — the DEFAULT PAT has no Can Use
   on warehouse `172877b5178f7bb7`; nothing ran. `/tmp/t/explain_tc.py` must count a
   refused call as a failure before it is rerun (it counted refusals as "compiles").

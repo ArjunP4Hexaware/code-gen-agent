@@ -94,6 +94,29 @@ Detail of every finding: `/tmp/trace/high.json`, `/tmp/trace/rest.json` +
 - The 11 audit areas never searched (config, edges, App runner / API, frontend, the
   cross-cutting lenses) — if resumed: one area at a time, inline or with a hard budget.
 
+## Next up — Soham's notes (2026-10-28), not started
+
+1. **Choose documents dialog: a Cancel button** (Aruna). Today it closes only
+   with Done; a pair picked by mistake cannot be backed out of. Cancel should
+   restore the selection as it was when the dialog opened (STTM / FRD / VDD),
+   Done keeps it. Check what selecting already does server-side
+   (`POST /api/demo/workbook` downloads + pairs at once) - Cancel may need to
+   re-select the previous pair or clear, not just close.
+2. **pair_12 loops on LOBs (a bug).** A run asks for the LOBs; proceeding without
+   them sends the user back to the same question, so the run never happens. The
+   rule (CLAUDE.md "Answers"): ask ONCE; an unanswered value is left blank and
+   flagged and the run generates what it can. Find why the LOB question is
+   blocking (QUESTION / UNRESOLVED) instead of INPUT_NEEDED for this pair, or
+   why a skipped answer is re-asked; reproduce with the harness (mock) first,
+   then write the failing test.
+3. **DDL column COMMENTs from the description column.** Every column definition
+   should carry its STTM description as a COMMENT on the same line. Example:
+   pair_11, the STTM's monthly billing mapping sheet, cells T10 and AD10 (read
+   in place, scratch copy, never into the repo). post104 already writes
+   COMMENTs from the STTM description, so first find why these cells do not
+   reach the DDL: is that sheet's description column recognised (layout role),
+   and which layer each of T / AD feeds. Then the real-pair check.
+
 ## Next up — Nikshit's review (2026-10-23)
 
 **DDL — run-safe: DEPLOYED (post105, 2026-10-26).** Verified on the App: a live pair_11

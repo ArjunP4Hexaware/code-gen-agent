@@ -4,14 +4,23 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-28, post134 deployed)
+## State (2026-10-28, post135 deployed)
 
-- **Branch** `feature/multi-table`: pushed to `1431a75` (post134). Nothing local.
-  post133 + post134 checks, all green: 12-pair 12/12 same outcome (post134: only the 17
-  `_TestCases` files differ, by design; 345 SELECTs, every one self-checking, 0 bad),
-  `.venv` 2207 passed, `.venv-d1` 1900 passed.
-- **App** `codegen-agent` deployed from `1431a75`, `/api/health` = `0.5.8.post134`, smoke
-  green. Claude deploys after every green push (CLAUDE.md "Deploying").
+- **Branch** `feature/multi-table`: pushed to `08b3ae3` (post135). Nothing local.
+  post135 = the App restyled in ACFC's visual identity (visual only; CHANGELOG). Checks:
+  `.venv` 2207 passed, `.venv-d1` 1900 passed, vitest 111 passed, tsc clean; Playwright tour
+  of every screen + both modals on a local synthetic App, before vs after, no console errors.
+- **App** `codegen-agent` deployed from `08b3ae3`, `/api/health` = `0.5.8.post135`, smoke
+  green, fonts served (`font/woff2`). Claude deploys after every green push.
+- **UX items found while restyling, NOT changed (behaviour / copy — ask Soham):** the
+  sidebar mode badge shows the served run's mode, so it reads MOCK after every deploy
+  while the provider is live; a run forced to mock is labelled "LIVE RUN"; the Overview
+  tab's flag list is one long wall (dozens of rows) — collapse by group?; the Generate-all
+  confirm says "Run modes page" (renamed Generate); dense developer wording on the
+  Generate card ("Detected by provider=live (CODEGEN_PROVIDER)").
+- **EXPLAIN check of the DDL test cases on D1: blocked** — the DEFAULT PAT has no Can Use
+  on warehouse `172877b5178f7bb7`; nothing ran. `/tmp/t/explain_tc.py` must count a
+  refused call as a failure before it is rerun (it counted refusals as "compiles").
 - **What the versions since post123 did** (one bump per fix, each test fails with only
   the fix reverted; CHANGELOG_ACFC.md has the detail; session log in CLAUDE_HISTORY
   §[H14]): post124 "Generate Documents" button; post125–132 the seven re-rated audit

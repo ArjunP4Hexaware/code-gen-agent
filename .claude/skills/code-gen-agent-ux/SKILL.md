@@ -295,11 +295,32 @@ Overview | Rules (7) | Layer-2 review (1) | Notebook | Generated code (30) | Rep
    `debug_patterns`, `secrets`, `test_per_module` (+ `generated_tests`
    when run).
 2. *Flags — needs a human* (only when `flags` non-empty; hint "`n`
-   open"): a list; each row has an amber dot. A flag containing
-   "pending engineer approval" is the **HITL centrepiece**: the row gets
-   an amber background and a `PENDING ENGINEER APPROVAL` tag (10px,
+   open"): the flags in collapsible SECTIONS (post137, `ui/frontend/src/
+   flagGroups.ts` + `components/FlagSections.tsx`), grouped by each flag's
+   leading code, in this order — first matching rule wins; a section shows
+   only when it has flags; each summary = navy title, a count tag ("`n` flags",
+   "`n` sheets" for `iig_blank`) and a muted one-line hint:
+   1. **Rules an engineer must decide** (OPEN): every flag containing
+      "pending engineer approval" (the gate writes it for every unmapped rule,
+      Layer 2 on or off), `layer2_*`, `unimplemented_rule_has_candidate`,
+      `rule classified …`, `confirm item pending …`;
+   2. **From the documents (FRD / STTM / VDD)** (OPEN): `frd_` `sttm_` `vdd_`
+      `layout_` `lob_` `delimiter_` `file_pattern_` `format_` `length_`
+      `width_` `field_` … (the full prefix list is in `flagGroups.ts`);
+   3. **IIG workbook cells**: `iig_` (but `iig_blank`) `stgdelta_` `pipeline_`
+      `rfc_` `file_log_`; 4. **DDL and its test cases**: `ddl_` `sql_`;
+   5. **Metadata inserts**: `dml_` `metadata_` `config_`; 6. **Environment**;
+   7. **Generation and checks**: `generated` `ruff_` `sqlglot_` `load_mode_`
+      `test_`; then **Other** (any code no rule names — never dropped), then the
+      collapsed housekeeping families `faq_unanswered` and `iig_blank`.
+   "Expand all" / "Collapse all" (small secondary buttons, right) when there
+   are 2+ sections. Inside a section each row has an amber dot. A flag
+   containing "pending engineer approval" is the **HITL centrepiece**: the
+   row gets an amber background and a `PENDING ENGINEER APPROVAL` tag (10px,
    weight 750, warning background) before the text. Flag strings come
-   verbatim from the gate (see Part 4 copy bank).
+   verbatim from the gate (see Part 4 copy bank); grouping never edits one.
+   On the 12 ACFC pairs (2026-10-28) every flag lands in a named section
+   ("Other" empty).
 3. *Source contracts* (hint "provenance embedded in every generated
    file"): definition list — FRD name + `sha256 <hash>` line; STTM name
    (+ `synthetic` tag) + sha256; File patterns (one `<code>` per line);

@@ -4,6 +4,28 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post137 — 2026-10-28 (the feed page's flags, in sections)
+
+The feed page's "Flags — needs a human" panel was one list of every gate flag
+(dozens per feed; 1,648 over the 12 ACFC pairs). It is now in collapsible
+sections, grouped by each flag's leading code:
+- Rules an engineer must decide (open): the unmapped rules (the gate's
+  "pending engineer approval" flag, written with Layer 2 on or off) and the
+  rules the gate marks for a human (`rule classified …`, `confirm item
+  pending …`).
+- From the documents (FRD / STTM / VDD) (open).
+- IIG workbook cells · DDL and its test cases · Metadata inserts ·
+  Environment · Generation and checks.
+- Other: any code no rule names. Nothing is ever dropped.
+- Then the two housekeeping families the page already folded away
+  (`faq_unanswered`, `iig_blank`).
+Each section shows its count and a one-line hint. "Expand all" / "Collapse
+all" open or close every section. Flag text is shown exactly as before, and
+the PENDING ENGINEER APPROVAL tag is kept. Frontend only: no flag, verdict or
+API changed. On the 12 pairs (mock, counts only) every flag lands in a named
+section. Tests: `ui/frontend/src/flagGroups.test.ts`,
+`ui/frontend/src/components/FlagSections.test.tsx`.
+
 ## 0.5.8.post136 — 2026-10-28 (the App says which provider a run uses)
 
 Four things the App said that were not true, or not plain, when presented:

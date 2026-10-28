@@ -1234,3 +1234,34 @@ button:not([class]):disabled { opacity: 0.55; cursor: default; }
 
 /* post136: the Generate card's "How this was chosen" detail */
 details.hint > summary { cursor: pointer; font-size: 12.5px; color: var(--accent); width: fit-content; }
+
+/* post137: the feed page's flags, in sections (components/FlagSections) */
+.flag-section-tools { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px; }
+.flag-section {
+  border: 1px solid var(--hairline);
+  border-bottom: 2px solid var(--border);
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+.flag-section > summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  background: var(--page);
+}
+.flag-section[open] > summary { border-bottom: 1px solid var(--hairline); }
+.flag-section-title { font-weight: 700; color: var(--heading); }
+.flag-section-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--accent-tint);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.flag-section-hint { flex-basis: 100%; font-size: 12.5px; color: var(--muted); }
+.flag-section > .flag-list { padding: 4px 14px 6px; }

@@ -16,6 +16,7 @@ import { DownloadButton } from "../components/DownloadButton";
 import { NotebookView } from "../components/NotebookView";
 import { notebooksOffered } from "../appOptions";
 import { VerdictChip } from "../components/VerdictChip";
+import { FlagSections } from "../components/FlagSections";
 
 type TabId = "overview" | "rules" | "candidates" | "notebook" | "code" | "report";
 
@@ -160,54 +161,7 @@ function OverviewTab({ feed }: { feed: FeedDetail }) {
             <span className="hint">{feed.flags.length} open</span>
           </div>
           <div className="panel-body">
-            {(() => {
-              // M6: housekeeping families collapse behind a count so the
-              // substantive flags are visible without scrolling past them.
-              const families: Record<string, { title: string; items: string[] }> = {
-                faq_unanswered: { title: "Load-pattern FAQ questions unanswered", items: [] },
-                iig_blank: { title: "IIG columns left blank (framework-assigned / unstated)", items: [] },
-                playbook_blank: { title: "Playbook cells left blank (dates, owners, contacts)", items: [] },
-              };
-              const substantive: string[] = [];
-              for (const f of feed.flags) {
-                const family = f.split(":", 1)[0];
-                if (family in families) families[family].items.push(f);
-                else substantive.push(f);
-              }
-              const renderFlag = (f: string) => {
-                // The HITL centerpiece: candidates awaiting a human decision
-                // get called out distinctly from housekeeping flags.
-                const hitl = f.includes("pending engineer approval");
-                return (
-                  <li key={f} className={hitl ? "flag-hitl" : undefined}>
-                    <span className="verdict-dot PASS_WITH_FLAGS fdot" />
-                    <span>
-                      {hitl ? <span className="hitl-tag">PENDING ENGINEER APPROVAL</span> : null}
-                      {f}
-                    </span>
-                  </li>
-                );
-              };
-              return (
-                <>
-                  <ul className="flag-list">{substantive.map(renderFlag)}</ul>
-                  {Object.entries(families)
-                    .filter(([, g]) => g.items.length > 0)
-                    .map(([key, g]) => (
-                      <details key={key} className="shell-block" style={{ marginTop: 8 }}>
-                        <summary>
-                          <code>{key}</code> — {g.title}{" "}
-                          <span className="hint">
-                            ({g.items.length} {key === "iig_blank" ? "sheet" : "item"}
-                            {g.items.length === 1 ? "" : "s"})
-                          </span>
-                        </summary>
-                        <ul className="flag-list">{g.items.map(renderFlag)}</ul>
-                      </details>
-                    ))}
-                </>
-              );
-            })()}
+            <FlagSections flags={feed.flags} />
           </div>
         </div>
       )}

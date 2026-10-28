@@ -325,7 +325,7 @@ export function EnvironmentSelector({
       {!other && keys.length ? (
         <details
           aria-label="environment values"
-          style={{ marginTop: 4, border: "1px solid #ccc", borderRadius: 4, padding: "4px 8px" }}
+          style={{ marginTop: 4, border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "4px 8px" }}
           open={open || missingKeys.length > 0}
           onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
         >

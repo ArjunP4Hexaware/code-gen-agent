@@ -101,7 +101,7 @@ as a requirement, not a style preference.
 
 ```
 ┌──────────────────┬──────────────────────────────────────────────────────────┐
-│ SIDEBAR (dark)   │ MAIN (light, max-width 1240px, padding 28px 36px 64px)   │
+│ SIDEBAR (navy)   │ MAIN (light, max-width 1240px, padding 28px 36px 64px)   │
 │ 264px, sticky,   │                                                          │
 │ 100vh, scrolls   │ [error banner — only when the last API call failed]      │
 │                  │ [mode banner — only LIVE or REPLAY]                      │
@@ -127,14 +127,15 @@ as a requirement, not a style preference.
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
-- **Brand block:** product name "CodeGen · Data Engineer Agent" (15px,
-  weight 650), sub-line "Contracts → Databricks pipelines" (12px muted),
-  then the **mode badge** (pill, 10.5px, weight 750, letter-spacing
-  0.08em): text is the mode upper-cased plus ` · <label>` when a label
+- **Brand block:** a 4px light-blue (`--accent-light`) rule on top; product
+  name "CodeGen · Data Engineer Agent" (16px, weight 700), sub-line "Contracts → Databricks pipelines" (12px muted),
+  then the **mode badge** (2px-radius tag, 10.5px, weight 750, letter-spacing
+  0.08em; solid on the navy sidebar — see 4.1): text is the mode upper-cased plus ` · <label>` when a label
   exists. Title attribute carries the mode copy (see Part 4).
 - **Nav:** section headers are 11px uppercase letter-spaced muted text
-  ("Overview", "Feeds"). Nav items are 13px rows with 8px radius, hover
-  = 6% white, active = 12% white + weight 600. "Generate" carries a right-aligned
+  ("Overview", "Feeds"). Nav items are 14px square rows with a 4px
+  left border, hover = 6% white, active = 12% white + weight 700 + a
+  light-blue (`--accent-light`) left bar. "Generate" carries a right-aligned
   10.5px hint ("STTM · FRD · VDD"). Feed items show the slug (ellipsised) and a right-aligned
   8px verdict dot.
 - **Footer:** the two-line doctrine sentence above, 11.5px muted.
@@ -706,39 +707,46 @@ agent never inserts unapproved rows."
 
 ### 2.8 Shared primitives
 
-- **VerdictChip:** pill, 12px weight 650, icon + label. PASS = check
+- **VerdictChip:** 2px-radius tag, 12px weight 650, icon + label. PASS = check
   glyph, green tint; PASS WITH FLAGS = flag glyph, amber tint; FAIL = ×
   glyph, red tint. **VerdictDot:** 8px circle in the status colour with
   the label as title.
-- **ClassBadge:** outlined pill, 11.5px weight 600, 7px identity dot +
+- **ClassBadge:** outlined 2px-radius tag, 11.5px weight 600, 7px identity dot +
   label (`mappable`, `orchestration`, `notification`, `out of scope`,
   `flagged`, `unmapped → L2`).
-- **StatTile:** surface card; 11.5px uppercase muted label; 26px weight
-  650 value; 12px hint.
+- **StatTile:** surface card; 11.5px uppercase muted label; 28px weight
+  700 value in `--heading`; 12px hint.
 - **Pill:** outlined 11.5px weight 600; variants `grounded` (green),
   `ungrounded` (red), `synthetic` (amber), `req-*`, `gc-*`.
-- **Buttons:** 13px weight 550, 8px radius, 7px×14px padding; `.primary`
-  = deep accent fill, white text; `.approve` green outline; `.reject`
+- **Buttons:** 14px weight 600, square, 8px×16px padding. Default = ACFC
+  secondary (white, 1px accent border, accent text, accent-tint hover);
+  `.primary` = accent fill, white text, `--accent-hover` (navy) on hover. A
+  `<button>` with no class (inline actions, e.g. "Change defaults") is a small
+  secondary (13px, 2px×10px); `.approve` green outline; `.reject`
   red outline; disabled = 55% opacity. Spinner = 13px ring.
-- **Panel:** surface, 1px border, 10px radius; `.panel-head` (13px×18px
-  padding, hairline below, `h2` 14px + right-aligned 12px muted hint);
+- **Panel:** surface, 1px border, square; `.panel-head` (13px×18px
+  padding, wraps on narrow screens, hairline below, `h2` 16px weight 700 navy +
+  right-aligned 12px muted hint); the Dashboard's `.dash-section` blocks are
+  white with a 2px `--border` bottom rule (the style guide's accordion);
   `.panel-body` 16px×18px. `.panel-subhead` = uppercase 12px weight 700
   with a hairline above (used inside the live card).
-- **Modal:** fixed overlay `rgba(15,23,32,.45)`; dialog white, 12px
-  radius, 22px×24px padding, width `min(460px, 100vw − 32px)`,
+- **Modal:** fixed overlay `--heading` at 45%; dialog white, square, 22px×24px padding, width `min(460px, 100vw − 32px)`,
   max-height 80vh with internal scroll; `role="dialog" aria-modal`.
 - **Tables:** `table.data` (13px, uppercase 11.5px muted headers,
   hairline rows) for rules; `.source-files-table` (12px, nowrap cells,
   `.sf-wrap` for the one prose column at 240–340px) inside a
   horizontally scrolling `.source-files-scroll`.
 - **Empty state:** centred muted 13.5px with 48px vertical padding.
-- **Error banner:** red 8% tint, red 35% border, critical text, 8px
-  radius.
+- **Error banner:** red 8% tint, red 35% border, critical text, square.
 - **`tag-synthetic`:** 10.5px uppercase weight 700, burnt-orange text and
-  outline, 4px radius.
+  outline, 2px radius.
 - **`flag-hitl`:** amber 10% background block; **`hitl-tag`:** 10px
   weight 750 warning-filled pill.
-- **Shell block:** dark sidebar palette, mono, `summary` clickable.
+- **Shell block:** sidebar (navy) palette, mono, `summary` clickable.
+- **Form fields:** `select` / text inputs square, 1px `--border`, 5px×8px,
+  accent outline on focus; checkboxes / radios in the accent colour.
+- **Headings** (`h1`–`h3`) are `--heading` (navy); page `h1` 26px weight 700;
+  every focusable element shows a 2px accent outline on keyboard focus.
 - **Middle truncation** for file names: keep the last 16 characters (the
   ticket/copy suffix distinguishes files), elide the middle with `…`,
   full name in `title`.
@@ -886,33 +894,51 @@ interface FeedDetail extends FeedSummary {
 
 ### 4.1 Design tokens (light theme only; the App renders light)
 
+The palette is ACFC's own: the Brand, Text and Accents, and UI colour sets of
+the public style guide on ACFC's web properties (2026-10-28). Typography is
+its secondary typeface, Open Sans (self-hosted from `@fontsource/open-sans`,
+latin 400 / 600 / 700, so the App never fetches fonts at runtime); its primary
+typeface (`area-normal`) is a licensed web font, first in the stack and used
+only when the browser already has it. Corners are square, as on ACFC's sites.
+
 | Token | Value | Use |
 |---|---|---|
-| `--page` | `#f9f9f7` | body background |
-| `--surface` | `#fcfcfb` | cards, panels, buttons |
-| `--ink` / `--ink-2` / `--muted` | `#0b0b0b` / `#52514e` / `#898781` | text hierarchy |
-| `--hairline` / `--border` | `#e1e0d9` / `rgba(11,11,11,.1)` | dividers / card borders |
-| `--accent` / `--accent-deep` | `#2a78d6` / `#1c5cab` | links, active tabs, primary buttons (hover `#174e91`) |
-| `--good` / `--good-text` | `#0ca30c` / `#006300` | PASS, verified, grounded |
-| `--warning` / `--warning-text` | `#fab219` / `#7a5300` | PASS_WITH_FLAGS, synthetic, attention, HITL |
-| `--critical` / `--critical-text` | `#d03b3b` / `#8f2222` | FAIL, ungrounded, errors |
-| `--sidebar-bg` / `--sidebar-ink` / `--sidebar-muted` | `#16181d` / `#e8e8e4` / `#9a9aa2` | sidebar + shell block |
+| `--page` | `#f4f6f9` | body background |
+| `--surface` | `#ffffff` | cards, panels, buttons |
+| `--ink` / `--ink-2` / `--muted` | `#2d2d2d` / `#455560` / `#66727d` | text hierarchy (ink = the guide's Copy) |
+| `--heading` | `#0a2458` | headings, tile values (the guide's Primary Dark) |
+| `--hairline` / `--border` (`--line` = hairline) | `#dfe3ea` / `#cbd2dc` | dividers / card borders |
+| `--accent` / `--accent-deep` | `#003da5` / `#003da5` | links, active tabs, buttons (the guide's Primary); hover `--accent-hover` `#0a2458` |
+| `--accent-light` / `--accent-tint` | `#69b3e7` / `#e8eef8` | sidebar active bar + brand rule / secondary-button hover |
+| `--good` / `--good-text` / `--good-bg` | `#006d30` / `#006d30` / `#ccf0dc` | PASS, verified, grounded (the guide's Confirmation) |
+| `--warning` / `--warning-text` / `--warning-bg` | `#ffcb05` / `#6b5200` / `#fcf3cc` | PASS_WITH_FLAGS, synthetic, attention, HITL (Warning) |
+| `--critical` / `--critical-text` / `--critical-bg` | `#d22730` / `#a81f27` / `#f6d4d6` | FAIL, ungrounded, errors, LIVE (Error) |
+| `--info` / `--info-bg` | `#17496a` / `#d4e4ef` | informational notes (Info) |
+| `--flag` / `--flag-text` | `#f7921e` / `#9a4a00` | `tag-synthetic` (the guide's orange accent) |
+| `--sidebar-bg` / `--sidebar-ink` / `--sidebar-muted` | `#0a2458` / `#ffffff` / `#b8c4d9` | sidebar + shell block |
 | `--mono` | `ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace` | slugs, paths, code, hashes |
-| body font | `system-ui, -apple-system, "Segoe UI", sans-serif` 14px / 1.5 | — |
-| `--radius` | 10px | cards, panels |
+| `--font` (body) | `area-normal, "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif` 15px / 1.55 | — |
+| `--radius` / `--radius-sm` | 0 / 2px | cards, panels, buttons, fields / tags, chips, badges |
 
-**Classification identity colours (fixed, never cycled):** mappable
-`#2a78d6` · orchestration_config `#1baf7a` · notification `#4a3aa7` ·
-out_of_scope `#898781` · flagged `#eb6834` · unmapped `#eda100`.
+Tints are `color-mix(in srgb, var(<token>) N%, transparent)` of these tokens
+(the pre-restyle alphas kept). Every text / background pair above meets WCAG
+AA (≥ 4.5:1; checked 2026-10-28).
 
-**Mode badge colours:** mock grey (`rgba(110,122,135,.16)` / `#4a5560`),
-live red (`rgba(217,72,63,.14)` / `#a2231b`), replay blue
-(`rgba(42,120,214,.14)` / accent-deep). Mode banners use the same hues
-at 9–10% with a 28–30% border.
+**Classification identity colours (fixed, never cycled; the guide's accent
+set, kept clear of its UI status colours):** mappable `#0099d8` ·
+orchestration_config `#27a27a` · notification `#8c4b9d` · out_of_scope
+`#8a96a3` · flagged `#ec4761` · unmapped `#f7921e`.
 
-**Prism token colours:** comment muted italic; keyword/builtin `#4a3aa7`;
-string `#006300`; number/boolean `#1c5cab`; function/class/decorator
-`#b3400f`; operator/punctuation ink-2.
+**Mode badge colours:** in the main area, tints as before — mock muted 16%
+/ ink-2, live critical 14% / critical-text, replay accent 14% / accent. On the
+navy sidebar, solid: mock 16% white / white, live `--critical` / white,
+replay `--accent-light` / `--heading`. Mode banners use the same hues at
+9–10% with a 28–30% border.
+
+**Prism token colours:** comment muted italic; keyword/builtin
+`--code-keyword` `#8c4b9d`; string `--code-string` `#006d30`;
+number/boolean `--code-number` `#003da5`; function/class/decorator
+`--code-function` `#9a4a00`; operator/punctuation ink-2.
 
 ### 4.2 Copy bank (exact strings; do not paraphrase)
 

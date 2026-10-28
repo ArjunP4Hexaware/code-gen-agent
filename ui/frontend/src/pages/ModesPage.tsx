@@ -708,7 +708,7 @@ export function ModesPage({
                 </span>
               ))}
               {Object.entries(status?.input_errors ?? {}).map(([root, message]) => (
-                <span key={`root-${root}`} className="hint" style={{ color: "var(--warn, #b45309)" }}>
+                <span key={`root-${root}`} className="hint" style={{ color: "var(--warning-text)" }}>
                   Input folder <code>{root}</code> could not be listed: {message}
                 </span>
               ))}

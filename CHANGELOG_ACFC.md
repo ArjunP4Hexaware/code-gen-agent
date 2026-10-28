@@ -4,6 +4,29 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post135 — 2026-10-28 (the App in ACFC's visual identity)
+
+The App is presented inside ACFC, so it now uses ACFC's own design tokens: the
+Brand, Text and Accents, and UI colour sets of the public style guide on ACFC's
+web properties. Visual only: no screen, control, route, copy or API changed.
+- Colours: primary blue for actions and links, navy headings, a navy sidebar
+  with a light-blue bar on the current page, and ACFC's UI colours for the
+  gate verdicts (confirmation green, warning yellow, error red). Every text /
+  background pair meets WCAG AA (≥ 4.5:1).
+- Type: Open Sans (ACFC's secondary typeface), bundled with the App
+  (`@fontsource/open-sans` 5.2.7, latin 400 / 600 / 700), so the browser never
+  fetches fonts at runtime. ACFC's primary typeface is a licensed web font: it
+  is first in the stack and used only when the browser already has it.
+- Shape: square corners, as on ACFC's sites. Secondary buttons are blue
+  outlines; form fields and plain inline buttons, which had browser defaults
+  on the Generate page, now match.
+- Every hard-coded colour in the stylesheet is a token now (tints via
+  `color-mix`), so a palette change is one block.
+- Fixed while restyling: the mode badge is readable on the navy sidebar, and
+  a card header wraps on a narrow window instead of running off the edge.
+- No logo and no company name: client terms stay out of the repo.
+- The UX skill's token tables and component specs follow (Part 4.1, 2.8).
+
 ## 0.5.8.post134 — 2026-10-28 (DDL test cases: every SELECT checks itself)
 
 The post128 test-cases file printed the expected result as a comment, and the

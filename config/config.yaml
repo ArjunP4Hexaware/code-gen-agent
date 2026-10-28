@@ -1024,6 +1024,9 @@ conventions:
       column_comment_separator: " — "
       # Table COMMENT: the layer's FRD Load Strategy, in the FRD's words.
       load_strategy_comment: "Load strategy: {strategy} (FRD Load Strategy {layer})"
+      # post140 (Soham, 2026-10-28): the table COMMENT = the STTM Table Description
+      # + the separator + the load strategy above ("description + load strategy").
+      table_description_comment: true
       # Standard-table TBLPROPERTIES, transcribed in order from ACFC's own
       # production standard DDL for the SFMC feed
       # (fixtures/reference/SFMC_standard_table_creation.txt, scrubbed). Open with

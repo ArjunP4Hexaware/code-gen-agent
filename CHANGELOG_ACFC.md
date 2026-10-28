@@ -4,6 +4,32 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post140 — 2026-10-28 (the DDL table COMMENT: the Table Description + the load strategy)
+
+Soham (2026-10-28), answering the open DDL question 2 from 2026-10-23: the
+table COMMENT is "description + load strategy". Until now it was the load
+strategy alone. The STTM's Table Description column was recognised by the
+layout (`table_description` role) but read by no reader.
+- The content-driven reader keeps each target table's Table Description
+  (`SttmFeed.table_descriptions`, keyed `<layer>.<table>`). It is usually stated
+  once per table. The resolver carries it to the spec.
+- The `acfc_prx` table COMMENT opens with it, then the load-strategy text,
+  joined by the column separator (" — "). Example: `COMMENT '<description> —
+  Load strategy: Append (FRD Load Strategy STG)'`. New knob
+  `table_description_comment` (on in config.yaml, off in the pair-1 overlay,
+  so that golden stays byte-identical).
+- If a table's rows state two different descriptions, none is used (never a
+  silent pick) and the `table_description_differs` flag is raised.
+- If no description is stated, the COMMENT is the load strategy alone, with one
+  `ddl_table_comment_no_description` flag per feed.
+- The DDL test cases' comments check follows automatically (it reads the
+  COMMENT the DDL writes). The feed page files the new flag under "From the
+  documents".
+- Contracts with no Table Description are byte-identical (the map is left out
+  of the JSON when empty).
+- Test: `tests/test_table_comment.py`. All three tests fail with only the fix
+  reverted.
+
 ## 0.5.8.post139 — 2026-10-28 (a Comments cell repeating the Field Description no longer drops the column COMMENT)
 
 The DDL's column COMMENT is the target band's Field Description (post104). The

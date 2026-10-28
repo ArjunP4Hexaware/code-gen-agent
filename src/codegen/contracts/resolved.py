@@ -176,6 +176,9 @@ class ResolvedFeedSpec(BaseModel):
     # post138). Empty / None otherwise.
     lob_unkeyed: list[str] = Field(default_factory=list)
     lob_question_key: str | None = None
+    # post140: the STTM's Table Description per target table, keyed
+    # "<layer>.<table>" (SttmFeed.table_descriptions) - the DDL table COMMENT.
+    table_descriptions: dict[str, str] = Field(default_factory=dict)
     # post70: the FRD's key statement (FrdFeed.key_statement) — one of the
     # explicit key signals codegen.primary_key reads; None = the FRD states none.
     frd_key_statement: str | None = None

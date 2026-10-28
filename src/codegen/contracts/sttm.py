@@ -351,6 +351,10 @@ class SttmFeed(BaseModel):
     # cites its cell; the resolver carries them to the gate. Empty (and absent
     # from the JSON) on every feed that raised none.
     extraction_flags: list[str] = Field(default_factory=list)
+    # post140 (Soham, 2026-10-28): each target table's Table Description as the
+    # band states it, keyed "<layer>.<table>" (stage / standard); the DDL table
+    # COMMENT reads it. Empty (and absent from the JSON) when no band states one.
+    table_descriptions: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> SttmFeed:

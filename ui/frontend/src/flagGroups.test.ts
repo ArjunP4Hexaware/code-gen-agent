@@ -15,6 +15,7 @@ const FLAGS = [
   "rule classified flagged: 'x'",
   "confirm item pending (document-derived, cited): y",
   "sibling_type_mismatch:z",
+  "table_description_differs:SHEET stage.t — 2 different Table Description cells",
 ];
 
 describe("groupFlags", () => {
@@ -29,6 +30,7 @@ describe("groupFlags", () => {
     expect(byId.review.flags).toEqual(["candidate #1 pending engineer approval: rule 3",
       "rule classified flagged: 'x'", "confirm item pending (document-derived, cited): y"]);
     expect(byId.documents.flags).toContain("sibling_type_mismatch:z");
+    expect(byId.documents.flags.some((f) => f.startsWith("table_description_differs"))).toBe(true);
     expect(byId.documents.flags[0]).toMatch(/^frd_unstated/);
     expect(byId.ddl.flags[0]).toMatch(/^ddl_comment_blank/);
     expect(byId.inserts.flags[0]).toMatch(/^dml_/);

@@ -45,6 +45,7 @@ conventions:
       column_comments: false
       primary_key_note: null
       load_strategy_comment: null
+      table_description_comment: false
       standard_tblproperties: null
       # post105: nor is it run-safe - CREATE OR REPLACE, no ';', no CLUSTER BY /
       # stage TBLPROPERTIES / tags (the run-safe shape: tests/test_ddl_runsafe.py)

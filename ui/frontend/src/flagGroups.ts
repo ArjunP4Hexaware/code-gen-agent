@@ -46,7 +46,7 @@ const RULES: SectionRule[] = [
                   "audit_column", "segments_", "recycle", "drag_fill", "edh_", "decimal_",
                   "source_names_", "answered_", "catalog_", "schema_", "standards_",
                   "file_details_", "sibling_type_", "src_type_", "path_normalised", "frequency_",
-                  "skipped_rows", "landing_"),
+                  "skipped_rows", "landing_", "table_description"),
   },
   {
     id: "iig", title: "IIG workbook cells",

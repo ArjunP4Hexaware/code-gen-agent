@@ -1262,6 +1262,12 @@ class ConventionsProfileConfig(BaseModel):
     # a table COMMENT naming the layer's FRD Load Strategy, a template over
     # {strategy} (the FRD's words) and {layer} (STG / STD); None = none;
     load_strategy_comment: str | None = None
+    # post140 (Soham, 2026-10-28: "description + load strategy"): the table
+    # COMMENT opens with the STTM's Table Description for the layer's table,
+    # joined to the load-strategy text by column_comment_separator; a table
+    # whose band states none keeps the load strategy alone + one
+    # ddl_table_comment_no_description flag per feed naming the tables.
+    table_description_comment: bool = False
     # the standard tables' TBLPROPERTIES, in order (None = none; an overlay
     # switches them off with null - an empty mapping merges as no change).
     standard_tblproperties: dict[str, str] | None = None

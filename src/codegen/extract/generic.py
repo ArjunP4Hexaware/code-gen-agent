@@ -373,6 +373,35 @@ def _first(row: FieldRow, *keys: str) -> str | None:
     return None
 
 
+def _table_descriptions(sheet, band_tables: dict, sheet_name: str,
+                        flags: list[str]) -> dict[str, str]:
+    """post140: each target table's Table Description cell (``<layer>.table_description``),
+    keyed ``<layer>.<table>`` - the row's own table, else the band's. Usually
+    stated once per table; a table whose rows state two different texts gets
+    none (never a silent pick) and one ``table_description_differs`` flag."""
+    found: dict[str, list[str]] = {}
+    for row in sheet.fields:
+        for layer, band_table in band_tables.items():
+            if band_table is None and row.values.get(f"{layer}.table") is None:
+                continue
+            text = row.values.get(f"{layer}.table_description")
+            if text is None or not str(text).strip():
+                continue
+            table = row.values.get(f"{layer}.table") or band_table
+            seen = found.setdefault(f"{layer}.{table}", [])
+            value = re.sub(r"\s+", " ", str(text)).strip()
+            if value not in seen:
+                seen.append(value)
+    out: dict[str, str] = {}
+    for key, values in found.items():
+        if len(values) == 1:
+            out[key] = values[0]
+        else:
+            flags.append(f"table_description_differs:{sheet_name} {key} — {len(values)} "
+                         "different Table Description cells; the table COMMENT carries none")
+    return out
+
+
 _AUDIT_RULE_ROLES = ("rules.load_rule", "source.load_rule", "stage.transformation",
                      "source.business_rule")
 
@@ -1358,6 +1387,9 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
                          f"the person answered {answer!r}")
             recycle = recycle.model_copy(update={"applies_to": answer})
 
+    table_descriptions = _table_descriptions(
+        sheet, {"stage": stage_table, "standard": standard_table if has_standard else None},
+        name, flags)
     try:
         return SttmFeed(
             feed_id=feed_id,
@@ -1381,6 +1413,7 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
             meta_rows=dict(sheet.meta),
             source_table=_dominant([r.values.get("source.source_table") for r in sheet.fields]),
             extraction_flags=flags,
+            table_descriptions=table_descriptions,
         )
     except ValueError as exc:
         # post74 (D1 post73 pair_10): the rules by name. Every hit a

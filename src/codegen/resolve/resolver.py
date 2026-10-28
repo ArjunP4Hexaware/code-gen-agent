@@ -1281,6 +1281,7 @@ def _resolve_one(
         frequency_mentions=list(frd_feed.frequency_mentions),
         lob_unkeyed=lob_unkeyed,
         lob_question_key=lob_key if lob_unkeyed else None,
+        table_descriptions=dict(sttm_feed.table_descriptions),
     )
 
 

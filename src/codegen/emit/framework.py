@@ -336,6 +336,22 @@ def _load_strategy_comment(profile, strategy, layer_label: str) -> str | None:
     return profile.load_strategy_comment.format(strategy=strategy, layer=layer_label)
 
 
+def _table_comment(profile, spec, layer: str, table, strategy, layer_label: str,
+                   undescribed: list[str]) -> str | None:
+    """post140: the table COMMENT - the STTM Table Description (when the profile
+    asks for it and the band states one), then the load-strategy text, joined by
+    the column separator. A table with no description is named in
+    ``undescribed`` (one flag per feed); its COMMENT is the load strategy alone."""
+    load = _load_strategy_comment(profile, strategy, layer_label)
+    if not profile.table_description_comment:
+        return load
+    description = spec.table_descriptions.get(f"{layer}.{getattr(table, 'table', table)}")
+    if not description:
+        undescribed.append(f"{layer} {getattr(table, 'table', table)}")
+        return load
+    return profile.column_comment_separator.join(p for p in (description, load) if p)
+
+
 def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None = None,
                       config: Config | None = None) -> list[TableDefinition]:
     """Every table the feed defines, one entry per distinct stage (catalog,
@@ -367,6 +383,7 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
 
     flags = flags if flags is not None else []
     out: list[TableDefinition] = []
+    undescribed: list[str] = []         # post140: tables whose band states no Table Description
     for group in _table_groups(spec):
         stage_columns: list[tuple[str, str]] = []
         standard_columns: list[tuple[str, str]] = []
@@ -420,7 +437,8 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
             qualified=_qualify(group.stage, "stage", profile, spec, flags, config),
             business=tuple(stage_columns), audit=audit,
             comments=(*stage_comments.items(), *audit_comments.items()),
-            table_comment=_load_strategy_comment(profile, spec.stage_load_strategy, "STG"))
+            table_comment=_table_comment(profile, spec, "stage", group.stage,
+                                         spec.stage_load_strategy, "STG", undescribed))
         if stage_blank or audit_blank:
             flags.append(_comment_blank_flag("stage", stage.label, stage_blank + audit_blank))
         standard = None
@@ -430,13 +448,18 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
                 qualified=_qualify(group.standard, "standard", profile, spec, flags, config),
                 business=tuple(standard_columns), audit=audit,
                 comments=(*standard_comments.items(), *audit_comments.items()),
-                table_comment=_load_strategy_comment(profile, spec.standard_load_strategy,
-                                                     "STD"))
+                table_comment=_table_comment(profile, spec, "standard", group.standard,
+                                             spec.standard_load_strategy, "STD",
+                                             undescribed))
             if standard_blank or audit_blank:
                 flags.append(_comment_blank_flag("standard", standard.label,
                                                  standard_blank + audit_blank))
         out.append(TableDefinition(segments=tuple(s.segment for s in group.segments),
                                    stage=stage, standard=standard))
+    if undescribed:
+        flags.append(f"ddl_table_comment_no_description:{spec.feed_id} — the STTM states no "
+                     f"Table Description for {', '.join(dict.fromkeys(undescribed))}; their "
+                     "table COMMENT is the load strategy alone")
     return out
 
 

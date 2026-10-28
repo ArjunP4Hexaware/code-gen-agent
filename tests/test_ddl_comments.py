@@ -219,3 +219,33 @@ def test_audit_columns_are_commented_from_their_own_sttm_rows(shipped, tmp_path,
     assert len(blank) == 2
     assert all("REC_CREATION_TIME, REC_UPDATED_TIME" in f and "SRC_FILE_NAME" not in f
                for f in blank)
+
+
+def test_a_comments_cell_repeating_the_field_description_keeps_the_column_comment(tmp_path):
+    """post139 (D1 pair_11): the content-driven reader kept the target band's
+    Field Description only when it differed from ``description`` - but with no
+    source Description column, ``description`` is the Comments cell. A Comments
+    cell repeating the Field Description word for word (Family E writes the same
+    text in both) dropped it as a duplicate, and the DDL wrote no COMMENT for a
+    description the STTM states twice. Every column now carries its Field
+    Description on its own line, both layers."""
+    import json
+
+    from post51_pairs import FIELDS, family_e_frd, family_e_workbook
+    from test_iig_cell_counts import _run
+
+    workbook = family_e_workbook(tmp_path / "e.xlsx", [None])
+    _run(tmp_path, workbook, family_e_frd(tmp_path / "frd.json"))
+    contract = json.loads((tmp_path / "sttm.json").read_text(encoding="utf-8"))
+    fields = [f for feed in contract["feeds"] for f in feed["fields"]]
+    assert [f["source_column"] for f in fields] == FIELDS
+    # the shape under test: Comments = Field Description, no source Description
+    assert all(f["description_from_comments"] for f in fields)
+    assert [f.get("field_description") for f in fields] == FIELDS
+    (ddl,) = [p for p in (tmp_path / "out").rglob("*_DDL.txt") if "combined" not in p.parts]
+    text = ddl.read_text(encoding="utf-8")
+    for name in FIELDS:
+        column = name.upper().replace(" ", "_")
+        lines = [ln for ln in text.splitlines() if ln.strip().startswith(f"{column} ")]
+        assert len(lines) == 2, (column, lines)                  # stage + standard
+        assert all(f" COMMENT '{name}" in ln for ln in lines), lines

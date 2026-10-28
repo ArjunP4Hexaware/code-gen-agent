@@ -4,6 +4,25 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post139 — 2026-10-28 (a Comments cell repeating the Field Description no longer drops the column COMMENT)
+
+The DDL's column COMMENT is the target band's Field Description (post104). The
+content-driven STTM reader (`extract/generic.py`) kept that Field Description
+only when it differed from the field's `description`. With no source
+Description column, `description` is the source Comments cell, which is rule
+text and never a COMMENT. So on a row whose Comments cell repeats the Field
+Description word for word, the Field Description was dropped as a "duplicate".
+The DDL then wrote no COMMENT at all for a description the STTM states twice.
+- On D1 pair_11 that hit 61 of 62 fields: most column lines had no COMMENT, or
+  only the primary-key note.
+- Now the Field Description is kept unless `description` is that same text
+  read from a real description column. Every column whose band states a Field
+  Description carries it as a COMMENT on its own line, on both layers.
+- The segmented (H/D/T) reader already kept it; only the content-driven reader
+  changes. The pair-1 golden is unchanged.
+- Test: `tests/test_ddl_comments.py::test_a_comments_cell_repeating_the_field_
+  description_keeps_the_column_comment`. It fails with only the fix reverted.
+
 ## 0.5.8.post138 — 2026-10-28 (the LOB question is asked once and never blocks)
 
 A feed whose files the FRD's LOB table keys to no single LOB (D1 pair_12) asks

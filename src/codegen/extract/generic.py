@@ -1205,12 +1205,20 @@ def _build_feed(sheet: SheetData, ir: GenericIR, frd: FrdContract, config: Confi
         # apart when description is other text; a Comments cell is rule text.
         field_description = _first(row, "stage.field_description",
                                    "standard.field_description")
+        # post139 (D1 pair_11): kept apart unless ``description`` IS that text
+        # read from a description column. A Comments cell repeating the Field
+        # Description word for word made ``description`` the Comments text
+        # (description_from_comments) and dropped the Field Description as its
+        # duplicate - the DDL then wrote no COMMENT at all for a description the
+        # STTM states twice.
+        from_comments = source_description is None and comments is not None
         fields.append(SttmField(
             source_column=field_name,
             description=description,
-            field_description=(field_description if field_description != description
+            field_description=(field_description
+                               if field_description != description or from_comments
                                else None),
-            description_from_comments=source_description is None and comments is not None,
+            description_from_comments=from_comments,
             sample_value=_first(row, "source.sample_value", "source.example_value"),
             source_datatype=_first(row, "source.source_type") or "unstated",
             nullable=not (not_null or mandatory),

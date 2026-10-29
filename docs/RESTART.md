@@ -4,10 +4,10 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-29 — post147 deployed)
+## State (2026-10-29 — post153 deployed)
 
 - **Branch** `feature/multi-table`: pushed, working tree clean. App `codegen-agent`
-  deployed from post147, `/api/health` = `0.5.8.post147`, smoke green (Generate `/` +
+  deployed from post153, `/api/health` = `0.5.8.post153`, smoke green (Generate `/` +
   Results `/results`: 200, no console errors). Both suites green on every version.
 - **This session's App work** (CHANGELOG_ACFC.md): post143 the guided look of the STTM
   agent's App (UX skill Part 1 "Design pillars"); post144 Generate is `/` (Results
@@ -16,7 +16,10 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   post145 the confirm dialog's new-pair layout cost in DBUs (`reasoning.dbu_rates`,
   `demo.new_pair_layout_estimate` until a run measures it — 6–8 DBU since post148, Venu's
   conservative approximation); post146 the run's
-  progress bar; post147 the environment line inside Advanced.
+  progress bar; post147 the environment line inside Advanced; post148 the feed Overview
+  in the Results layout, new-pair estimate 6–8 DBU; post149/150 client-facing text and
+  generated files name no person; post151 "Generate Documents" again; post152 the run
+  card under the Generate button; post153 the DDL test cases' column check (0-based).
 - **DDL test on D1 (Soham, 2026-10-29; Venu asked whether the DDL is functional).**
   Schema `d1_dlk.soham_test` created (owner Soham's account, managed, comment says
   disposable; empty again after the test). Warehouse: Serverless Starter
@@ -35,6 +38,10 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
     `information_schema.columns.ordinal_position` from 0, the agent counted from 1 —
     fixed in post153 (`ddl_test_ordinal_base: 0`); on D1 synthetic pair 4 then 30 PASS,
     6 NO DATA (empty tables), 0 FAIL. Tag checks pass. NO DATA = empty tables, expected.
+  - Rerun on post153 output (same 12 pairs, same warehouse): pairs 01, 02, 04, 11, 12 —
+    DDL OK twice, test cases 0 FAIL (11 / 33 / 11 / 44 / 33 PASS; NO DATA = empty
+    tables); pair_03 unchanged. 12-pair check post152 vs post153: 12/12 same outcome,
+    187 files both sides, 17 differ — all `_DDL_TestCases.txt`, only by the `+ 1`.
   - Not tested yet: loading a real file through the framework (the load cases are
     written steps); pair_03's DDL.
 - **Open (UI, optional):** the feed page's Overview kept its panels (restyled), not

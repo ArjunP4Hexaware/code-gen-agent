@@ -17,6 +17,26 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   `demo.new_pair_layout_estimate` until a run measures it — 6–8 DBU since post148, Venu's
   conservative approximation); post146 the run's
   progress bar; post147 the environment line inside Advanced.
+- **DDL test on D1 (Soham, 2026-10-29; Venu asked whether the DDL is functional).**
+  Schema `d1_dlk.soham_test` created (owner Soham's account, managed, comment says
+  disposable; empty again after the test). Warehouse: Serverless Starter
+  `063a5140dc0f34b1` (Soham's choice). Runner: `/tmp/t/ddlt_run.py <work dir> <warehouse>`
+  — scratch copies of each combined `_DDL.txt` / `_DDL_TestCases.txt` retargeted to
+  `d1_dlk.soham_test.<schema>__<table>` (information_schema filters follow, record-count
+  parameters bound to 0), DDL run twice (the re-run proves it is safe to re-run), every
+  test-case statement run, counts / test ids / error classes printed only, tables dropped.
+  Results (mock harness on the 12 client pairs, code post152; client copies deleted):
+  - DDL: pairs 01, 02, 04, 11, 12 — every statement OK on the first run AND the re-run
+    (48 statements; tags set). pair_03 (GATE_FAIL, quarantined) — 2 statements do not
+    parse, 2 depend on them: the DDL the gate already refused; its STTM needs a look.
+    Pairs 05, 06, 09 (FAIL) and 07, 08, 10 (NEEDS_ANSWERS) wrote no DDL — same outcome
+    on the old code (12-pair check).
+  - Test cases: every FAIL was the column/type check (columns_match): Databricks numbers
+    `information_schema.columns.ordinal_position` from 0, the agent counted from 1 —
+    fixed in post153 (`ddl_test_ordinal_base: 0`); on D1 synthetic pair 4 then 30 PASS,
+    6 NO DATA (empty tables), 0 FAIL. Tag checks pass. NO DATA = empty tables, expected.
+  - Not tested yet: loading a real file through the framework (the load cases are
+    written steps); pair_03's DDL.
 - **Open (UI, optional):** the feed page's Overview kept its panels (restyled), not
   the issue-card layout of Results. The new-pair DBU figure stays an estimate until a
   live first run on an unmapped pair is recorded. Tours: `/tmp/t/ux/tour143.js`,

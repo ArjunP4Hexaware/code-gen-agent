@@ -26,12 +26,12 @@ FRD"). Now:
   STTM's source table, `file_pattern_from_source_table`); the DDL test cases speak of
   loads from the source table and drop the file-only cases (location, delimiter /
   position, column shift, several files).
-- extract-sttm splits an unsplit one-feed contract by the same rule (its split ran only
-  for 2+ mapping sheets; the harness writes the FRD contract in the layout stage, a CLI
-  user may not).
 - Tests: `tests/test_one_sheet_tables_split.py` (the chain on a synthetic pair_09-shaped
-  pair, the extract-sttm path, the split's rules), `tests/test_table_source_hold.py` (the
-  wording).
+  pair + the split's rules), `tests/test_table_source_hold.py` (the wording).
+- Deliberately NOT here: extract-sttm splitting an unsplit one-feed contract. Tried: at
+  extract time pair_09's contract carries its 36 tables (gap-filled from the STTM), so it
+  split there and generate stopped at a TemplateGapError (a value only the answers file
+  can supply, contract segment 1 field 1) = CRASHED, worse than the FAIL; reverted.
 - **Not yet the real pair_09.** Its FRD states no table, no file pattern and no format: the
   36 tables come from the STTM, the 36 file patterns from the VDD FILES sheet (gap fill
   gives a multi-feed FRD the WHOLE list per feed), the format from the pair's answers. The

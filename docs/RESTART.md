@@ -74,6 +74,9 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   still FAILs. To finish: split when the FRD names no table (STTM authoritative), and in
   the gap fill give each table source its own object (exact identity with its source
   table / the STTM source table), never the VDD's whole list - do it with the RDMS sheet.
+  Clue (2026-10-29): letting extract-sttm split it (its contract carries the 36 tables by
+  then) reaches generate, which stops at a TemplateGapError (contract segment 1 field 1,
+  "a value only the answers file can supply") - counted CRASHED; reverted, see post156.
 - **Open, needs others:**
   - pair_03 is GATE_FAIL (`ddl_identifiers` 8 + `ddl_parses`): four column names in its
     STTM carry a stray space after an underscore (`WORD_WORD_ 9_WORD`; third sheet,

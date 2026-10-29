@@ -151,25 +151,3 @@ class TestTheRules:
                                                             ("t_c", None, None)]))
         assert not any("frd_feeds_split_per_table" in f for f in flags)
 
-
-def test_extract_sttm_splits_an_unsplit_contract_too(env, capsys):
-    """post156: a one-feed FRD contract written WITHOUT the layout stage's split (an
-    extract-frd contract) is split by extract-sttm by the same rule - the split
-    travels in the STTM contract so generate joins it."""
-    from codegen.extract.frd_docx import contract_to_json, extract_frd_contract
-
-    sttm, frd_docx = env / "STTM_nb_provider_x.xlsx", env / "FRD_nb_provider_x.docx"
-    ost.build_sttm().save(sttm)
-    frd_docx.write_bytes(ost.build_frd())
-    contract, _profile = extract_frd_contract(frd_docx, load_config(CONFIG))
-    assert len(contract.feeds) == 1                          # unsplit
-    frd_out, sttm_out = env / "frd_x.contract.json", env / "sttm_x.contract.json"
-    frd_out.write_text(contract_to_json(contract), encoding="utf-8")
-    capsys.readouterr()
-    code = cli.main(["extract-sttm", "--workbook", str(sttm), "--frd-contract", str(frd_out),
-                     "--out", str(sttm_out), "--generated-date", DATE])
-    assert code == 0, capsys.readouterr().out
-    sttm_contract = SttmContract.model_validate(json.loads(sttm_out.read_text(encoding="utf-8")))
-    assert sttm_contract.frd_split is not None
-    assert [f.stage_target.tables for f in sttm_contract.frd_split.feeds] == [[t] for t in STAGES]
-    assert sorted(f.stage.table for f in sttm_contract.feeds) == sorted(STAGES)

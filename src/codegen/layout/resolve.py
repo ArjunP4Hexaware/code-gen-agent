@@ -2519,13 +2519,9 @@ def split_single_frd_feed(frd: FrdContract, profile: LayoutProfile, workbook, co
     from codegen.contracts.sttm import FrdFeedSplit
 
     if (len(frd.feeds) != 1 or not isinstance(profile, LayoutProfile)
-            or profile.strategy != "content"):
+            or profile.strategy != "content" or len(profile.mapping_sheets) < 2):
         return None
     facts = _sttm_facts(profile, workbook, config)
-    # post156: ONE sheet mapping the FRD's N tables splits here too (the harness's
-    # extract-frd -> extract-sttm path never runs the layout stage's split)
-    if len(profile.mapping_sheets) < 2 and _split_per_table(frd, facts["sheet_tables"]) is None:
-        return None
     split, flags, questions = split_frd_feeds_by_sttm(frd, facts, gaps or {}, config,
                                                       force=True,
                                                       remember=dict(profile.file_choices))

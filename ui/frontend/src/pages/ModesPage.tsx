@@ -601,6 +601,10 @@ export function ModesPage({
   };
   const dropDisabled = uploading !== null || running;
   const docsChosen = (chosen.sttm ? 1 : 0) + (status?.frd_name ? 1 : 0);
+  // post147: the environment, named on the Advanced summary
+  const envName = envOptions
+    ? envOptions.source === "custom" ? "custom" : envOptions.selected ?? envOptions.default : null;
+  const envMissing = envOptions?.missing_required?.length ?? 0;
 
   return (
     <div className="landing">
@@ -1151,20 +1155,30 @@ export function ModesPage({
             {notice}
           </p>
         ))}
-        {envOptions ? (
-          <EnvironmentSelector
-            options={envOptions}
-            disabled={running}
-            onChoose={chooseEnvironment}
-          />
-        ) : null}
-        {genOptions || (status && !running) ? (
-          <details className="fold">
+        {envOptions || genOptions || (status && !running) ? (
+          // post147: the environment lives in Advanced too; a required value
+          // missing opens it and says so, so the fold never hides a problem
+          <details className="fold" open={envMissing > 0 || undefined}>
             <summary>
               Advanced
-              <span className="fold-hint">conventions, templates, layout cache</span>
+              <span className="fold-hint">
+                {envName ? `environment ${envName}` : null}
+                {envMissing > 0
+                  ? ` — ${envMissing} required value${envMissing === 1 ? "" : "s"} missing`
+                  : null}
+                {envName ? " · " : null}conventions, templates, layout cache
+              </span>
             </summary>
             <div className="fold-body">
+              {envOptions ? (
+                <div style={{ marginBottom: 12 }}>
+                  <EnvironmentSelector
+                    options={envOptions}
+                    disabled={running}
+                    onChoose={chooseEnvironment}
+                  />
+                </div>
+              ) : null}
               {genOptions ? (
                 <div className="settings-grid">
                   {(

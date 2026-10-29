@@ -24,6 +24,7 @@ function json(status: number, body: unknown): Response {
 
 let status: Record<string, unknown>;
 let uploads: string[];
+let environment: Record<string, unknown> | null;
 
 const routes = (): Record<string, (init?: RequestInit) => Response> => ({
   "GET /api/demo/status": () => json(200, status),
@@ -31,6 +32,8 @@ const routes = (): Record<string, (init?: RequestInit) => Response> => ({
     kind: "mock", label: "mock provider", detected_by: "test stub", runtime: null } }),
   "GET /api/demo/output-options": () => json(200, ["framework"]),
   "GET /api/demo/workbooks": () => json(200, { workbooks: [] }),
+  "GET /api/demo/environment": () =>
+    environment ? json(200, environment) : json(404, { detail: "not found" }),
   "POST /api/demo/upload": (init) => {
     const form = init?.body as FormData;
     uploads.push(`${form.get("kind")}:${(form.get("file") as File).name}`);
@@ -44,6 +47,7 @@ let root: Root;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   uploads = [];
+  environment = null;
   status = { state: "idle", stages: [], error: null, last_run_label: null,
              layout_refresh: false, selection: { sttm: null, frd: null, vdd: null },
              output_parts: ["framework"] };
@@ -147,5 +151,38 @@ describe("the confirm dialog under the mock", () => {
     const modal = host.querySelector(".modal")!;
     expect(modal.textContent).toContain("Confirm — generate with the mock");
     expect(modal.textContent).not.toContain("run live");
+  });
+});
+
+// post147: the environment line sits in Advanced, named on its summary; a
+// required value missing opens the fold and says so
+describe("the environment in Advanced", () => {
+  const env = (missing: string[]) => ({
+    options: [{ name: "D1", default: true, description: "synthetic", values: {} }],
+    default: "D1", selected: null, source: "default", custom: null, fields: ["storage_account"],
+    required: ["storage_account"], missing_required: missing, origin: null,
+  });
+  const advanced = () => [...host.querySelectorAll<HTMLDetailsElement>("details.fold")]
+    .find((d) => d.querySelector("summary")?.textContent?.startsWith("Advanced"))!;
+
+  it("is inside the folded Advanced section, named on its summary", async () => {
+    environment = env([]);
+    await renderPage();
+    const fold = advanced();
+    expect(fold.open).toBe(false);
+    expect(fold.querySelector("summary")!.textContent).toContain("environment D1");
+    expect(fold.querySelector(".fold-body")!.textContent).toContain("Environment");
+    // and nowhere outside it
+    const settings = host.querySelector('[aria-label="settings"]')!;
+    const outside = [...settings.children].filter((c) => c !== fold).map((c) => c.textContent).join("");
+    expect(outside).not.toContain("Environment");
+  });
+
+  it("opens and says so when a required value is missing", async () => {
+    environment = env(["storage_account"]);
+    await renderPage();
+    const fold = advanced();
+    expect(fold.open).toBe(true);
+    expect(fold.querySelector("summary")!.textContent).toContain("1 required value missing");
   });
 });

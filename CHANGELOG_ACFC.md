@@ -4,6 +4,16 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post147 — 2026-10-29 (Generate: the environment line in Advanced)
+
+Soham (2026-10-29): the environment line (selector, profile path, values) moves from
+the Settings card into its folded "Advanced" section. The fold's summary names the
+environment in use ("environment D1 · conventions, templates, layout cache"); when a
+required environment value is missing the fold starts open and its summary says how
+many, so folding never hides a problem.
+- Tests: `GuidedGenerate.test.tsx` (inside Advanced and named on its summary; open
+  when a required value is missing).
+
 ## 0.5.8.post146 — 2026-10-29 (Generate: a progress bar while the run works)
 
 Soham (2026-10-29): a minute of waiting needs feedback. The run card shows a blue bar

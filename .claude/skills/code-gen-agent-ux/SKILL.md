@@ -480,7 +480,8 @@ tables bordered, code inline chips). "Loading report…" while pending.
 > required chosen", the drop zone while STTM or FRD is missing, one row each
 > for STTM / FRD / VDD with Clear, the pairing and folder notes,
 > "Choose documents…"); **2. Settings** (the output badge, "A run will use",
-> output toggles when more than one, the environment, "Advanced" folded:
+> output toggles when more than one, "Advanced" folded: the environment
+> (post147; named on the summary, open when a required value is missing),
 > conventions / IIG / playbook selects and Re-resolve layout); the action bar;
 > "Details for the team" folded (the requirement and governance tables). The
 > chooser is a 640px dialog. The confirm button reads "Confirm — run live"

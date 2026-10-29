@@ -4,6 +4,13 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post151 — 2026-10-29 (the run button reads "Generate Documents" again)
+
+The post143 redesign shortened the run button to "Generate"; it had been renamed to
+"Generate Documents" at a stakeholder's request (an action item marked done). The label
+is back; nothing else changes. Tests: the confirm-dialog and guided-page tests find the
+button by that label.
+
 ## 0.5.8.post150 — 2026-10-29 (generated files name no person)
 
 Found while making the App's text client-safe (post149): one config VALUE, the

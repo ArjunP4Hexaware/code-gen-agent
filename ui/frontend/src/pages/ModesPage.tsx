@@ -1272,7 +1272,8 @@ export function ModesPage({
             }
             onClick={() => setConfirming(true)}
           >
-            {running ? "Generating…" : "Generate"}
+            {/* post151: the label a stakeholder asked for (post143 had shortened it) */}
+            {running ? "Generating…" : "Generate Documents"}
           </button>
         )}
       </div>

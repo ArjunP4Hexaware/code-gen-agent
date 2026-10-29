@@ -1098,7 +1098,8 @@ number/boolean `--code-number` `#003da5`; function/class/decorator
 - Generate (post143): title `Generate a pipeline from your STTM and FRD`;
   steps `Choose documents` · `Check the settings` · `Answer questions` ·
   `Get the results`; cards `1. Documents` (`n of 2 required chosen`) and
-  `2. Settings`; button `Generate` (`Generating…`); action hint `Nothing runs
+  `2. Settings`; button `Generate Documents` (`Generating…`; post151 — the label a
+  stakeholder asked for); action hint `Nothing runs
   until you confirm. A live run sends the documents' content to the model.`;
   why-disabled `Choose the STTM workbook first.`
 - Results (post143): title `Results`; tiles `feeds` · `passed` · `passed with

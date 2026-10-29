@@ -145,7 +145,7 @@ describe("the confirm dialog under the mock", () => {
                frd_name: "FRD_syn.docx", frd_chosen: true };
     await renderPage();
     const generate = [...host.querySelectorAll<HTMLButtonElement>(".action-bar button")]
-      .find((b) => b.textContent?.trim() === "Generate")!;
+      .find((b) => b.textContent?.trim() === "Generate Documents")!;
     await act(async () => { generate.click(); });
     await settle();
     const modal = host.querySelector(".modal")!;

@@ -4,64 +4,69 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-29, post142 deployed)
+## State (2026-10-29, end of session — post142 deployed)
 
-- **Branch** `feature/multi-table`: pushed to `bdc173e` (post142). Nothing local.
-  App deployed from it, `/api/health` = `0.5.8.post142`, smoke green. post142 = notebook
-  v2 casts stage columns to the ADLS row's TGT_DATA_TYPE (the DDL's types; a non-blank
-  unreadable value stops the load); 12-pair check in NOTEBOOK mode: 12/12, only the
-  stage cell + the title's version differ. Every version
-  below: both suites green, its tests fail with only the fix reverted.
-- post137 the feed page's flags in collapsible sections (`flagGroups.ts`; the 12 pairs'
-  1,648 flags all land in a named section); post138 the LOB question (`lob_by_file`)
-  asked once, INPUT_NEEDED, never blocking (the pair_12 loop; the harness never shows
-  it - `answers/pair_12/answers.yaml` in the state volume answers it); post139 a
-  Comments cell repeating the Field Description no longer drops the DDL column COMMENT
-  (pair_11: 61 of 62 fields had none; 154 column lines gained one); post140 the table
-  COMMENT = Table Description + load strategy (Soham's answer to DDL question 2);
-  post141 Choose documents: Cancel restores the selection the dialog opened on.
-- **Real-pair checks (post139 / post140):** 12/12 same outcome; every differing file
-  classified (`/tmp/t/classify_rest.py`: banner sha256 only, or COMMENTs only, or the
-  test-case COMMENT counts). Classify BEFORE the copies are deleted (pair_check script
-  runs the classifier inside).
-- **pair_11's billing sheet stays GATE_FAIL:** its standard column 8 is stated with a
-  space (`word _word`) - not an identifier; the STTM must be corrected (BSA).
-- **UX items still open:** none from the 2026-10-28 list.
-- **EXPLAIN check of the DDL test cases on D1: blocked** — the DEFAULT PAT has no Can Use
-  on warehouse `172877b5178f7bb7`; nothing ran. `/tmp/t/explain_tc.py` must count a
-  refused call as a failure before it is rerun (it counted refusals as "compiles").
-- **What the versions since post123 did** (one bump per fix, each test fails with only
-  the fix reverted; CHANGELOG_ACFC.md has the detail; session log in CLAUDE_HISTORY
-  §[H14]): post124 "Generate Documents" button; post125–132 the seven re-rated audit
-  "high" findings (#5 #7 #2 #6 #10 #13 #14); post128 the DDL test cases file; post133
-  medium #9; post134 every DDL test-case SELECT checks itself (PASS / FAIL / NO DATA).
-- **Every real-pair check since post126:** 12/12 same outcome, 187/187 artefacts
-  identical (post128 added the 17 `_TestCases` files and caught one bug before release).
+- **Branch** `feature/multi-table`: pushed, nothing local, working tree clean. App
+  `codegen-agent` deployed from post142, `/api/health` = `0.5.8.post142`, smoke green.
+  Every version this session: both suites green, its tests fail with only the fix
+  reverted; output-changing ones had the 12-pair check with every diff classified.
+  Session log + what each version did: CLAUDE_HISTORY §[H15]; detail: CHANGELOG_ACFC.md.
+- **Decided by Soham this session** (all in CLAUDE.md): stage column types as the STTM
+  states; ONE combined `<ABBREV>_DDL.txt`; table COMMENT = Table Description + load
+  strategy; the LOB question asked once, never blocking; ACFC's visual identity.
+- **Open, needs others:**
+  - pair_11's billing sheet is GATE_FAIL: its standard column 8 is stated with a space
+    (`word _word`) — the STTM must be corrected (BSA); the agent never renames.
+  - DDL test cases: Jinesh / Suganya on the framework's reject behaviour and header
+    validation; then whether the load cases become runnable tests (option 2).
+  - EXPLAIN check of the test-case SQL on D1: the DEFAULT PAT has no Can Use on warehouse
+    `172877b5178f7bb7`. Needs a grant or another warehouse id from Soham.
+  - The Rama session (child pipelines, then the ID assignment) — no date yet.
+  - #4 multi-file FRD split / the multi-table decision; the recycle-days citation.
+- **Open, codeable:** a fixed-width segment with its OWN stage table states no types in
+  its IIG row (notebook lands it STRING + `notebook_segment_types_unstated`; none of the
+  12 pairs has one); the medium/low audit list below (#31 first); the sheet's NYS rows
+  (connection IDs, RDMS sheet, new vs existing process).
 - **Known flakes** (pass alone, under `-n 4` + a parallel harness they can fail once):
-  `test_m93_chooser.py` (`slow_and_failing_downloads…` — margin widened to 1.5 s / 5 s;
+  `test_m93_chooser.py` (`slow_and_failing_downloads…`;
   `index_writes_never_run_inside_a_selection_step`), `test_frd_default.py::
   test_a_paired_sttm_preselects_its_frd_labelled_paired`. Rerun alone before believing.
 
 ## Recipes this session relied on (`/tmp` is lost on a container reset)
 
-- **12-pair check:** `/tmp/t/pair_check.sh <old-sha>` — copies the state
-  (`environments overlays leakgate answers` from `dbfs:/Volumes/d1_dlk/codegen/state/`)
-  and the pairs (`/Workspace/Users/<me>/frd_sttm_pairs`) into `/tmp/t/rp`, adds a
-  worktree of `<old-sha>`, runs the harness `--pairs 1` once per tree (cache warm-up),
-  then all 12 pairs per tree, compares (layout source, outcomes, artefact sha256 —
-  `/tmp/t/cmp2.py`, `/tmp/t/cmp_kinds.py`), removes the worktree and deletes the copies.
-  Rebuild it from that description if lost.
+- **12-pair check:** `/tmp/t/pair_check.sh <old-sha>` (variants `pair_check139b.sh` = one
+  pair, `pair_check142.sh` = notebook mode) — copies the state (`environments overlays
+  leakgate answers` from `dbfs:/Volumes/d1_dlk/codegen/state/`) and the pairs
+  (`/Workspace/Users/<me>/frd_sttm_pairs`) into `/tmp/t/rp`, adds a worktree of
+  `<old-sha>`, runs the harness `--pairs 1` once per tree (cache warm-up), then all 12 per
+  tree, compares (`cmp2.py`, `cmp_kinds.py`), then the CLASSIFIERS — `tc_check.py`
+  (test-case SELECTs), `ddl_comment_diff.py` (DDLs differ only in COMMENTs),
+  `classify_rest.py` (every other file: banner sha only vs real), `classify_nb.py`
+  (which notebook cells differ) — and only then removes the worktree and deletes the
+  copies. Rebuild from this description if lost; never pass a placeholder sha.
+- **Local App on scratch data:** `/tmp/t/ui/serve.sh` (port 8599, mock, storage roles and
+  state in `/tmp/t/ui`, synthetic pair 4 as the input folder; `DATABRICKS_APP_PORT`
+  overridden). A copy pointed at a worktree: `cd` + `PYTHONPATH=<worktree>/src:<worktree>`.
+  Drive it by API (`/tmp/t/p12/drive.py` answers nothing each round and prints keys /
+  kinds only) or Playwright (`/tmp/t/ui/tour.js` every screen, `dialogs.js`,
+  `flags.js`, `cancel.js`). A client pair copied for it lives in `/tmp/t/<x>` and is
+  deleted after.
 - **Smoke test:** `/tmp/t/smoke/smoke.js <url> <png>` (Playwright from
-  `ui/frontend/node_modules`, `LD_LIBRARY_PATH=/tmp/pwlibs/... PLAYWRIGHT_BROWSERS_PATH=
-  /tmp/pw`, LD_LIBRARY_PATH = all three lib dirs under /tmp/pwlibs (lib/x86_64-linux-gnu,
-  usr/lib/x86_64-linux-gnu, its nss/) or Chromium exits 127; `CODEGEN_BEARER` = the OAuth token for the deployed App, never written).
-- **A live run on the App by API:** `/tmp/t/drive_pair11.py select|run|proceed` (status
-  fields are top-level: `state`, `outcome`, `pause_kind`, `layout_questions`). pair_11's
-  run asks only `pair.vdd` (no candidate in its folder): proceed with none.
-- **The spreadsheet for Arjun:** `/tmp/t/xl/make_update.py` builds
-  `amerihealth-agents-update.xlsx` (sheets `codegen_agent` / `sttm_agent`, written in
-  Soham's voice — "I", never "Soham"); uploaded to `/Workspace/Users/<me>/` with
-  `databricks workspace import … --overwrite`. Soham reconciles it with Arjun in Teams.
+  `ui/frontend/node_modules`; `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw`; LD_LIBRARY_PATH = all
+  three lib dirs under /tmp/pwlibs (lib/x86_64-linux-gnu, usr/lib/x86_64-linux-gnu, its
+  nss/) or Chromium exits 127; `CODEGEN_BEARER` = the OAuth token for the deployed App,
+  never written).
+- **Deploy / start:** `DATABRICKS_CONFIG_FILE=/tmp/cgs/oauth.cfg databricks apps deploy
+  codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT","git_source":{"branch":
+  "feature/multi-table"}}'`; a stopped App: `databricks apps start codegen-agent -p
+  codegen-oaut` first (Soham's go — it bills compute).
+- **The spreadsheet for Arjun** (`/Workspace/Users/<me>/amerihealth-agents-update.xlsx`,
+  sheets `codegen_agent` / `sttm_agent`, Soham's voice — "I", never "Soham"; status
+  vocabulary Yes / NYS / WIP; plain wording on purpose): download it, edit IN PLACE with
+  a small openpyxl script (`/tmp/xl_work/update_*.py`), check it is unchanged since the
+  last upload, upload with `databricks workspace import … --overwrite`, download again
+  and compare. `/tmp/t/xl/make_update.py` (rebuilds from scratch) is OBSOLETE — it would
+  wipe later edits.
 
 ## Layer-2 review: OFF (2026-10-27, post123)
 

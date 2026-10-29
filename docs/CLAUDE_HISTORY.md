@@ -3130,3 +3130,94 @@ Windows 365 / Entra guest access; a proposal for ACFC IT, not a workaround).
 two), the cost disclaimer, #4 / the multi-table decision, the recycle-days citation, the
 Rama session (not yet held), Jinesh / Suganya on the framework's reject behaviour and
 header validation.
+
+## §[H15] Session 2026-10-28 → 29: the spreadsheet, self-checking test cases, the App's ACFC look, Soham's notes, post134–post142
+
+**Versions** (one bump per fix, each with a test that fails with only the fix reverted;
+CHANGELOG_ACFC.md has the detail): post134 every DDL test-case SELECT returns test_id /
+result (PASS / FAIL / NO DATA) / found / expected; record count takes a per-case
+parameter; schema / table names compared lower case. post135 the App in ACFC's visual
+identity (tokens from ACFC's public style guide, Open Sans bundled, square; every
+hard-coded colour a token). post136 the sidebar badge = the next run's provider, a
+mock-answered run reads MOCK RUN, plain "A run will use" sentence, the confirm modal
+names the Generate page; `/api/feeds` `provider` / `run_provider` (a label that cannot
+resolve is `null`, never a failed route — caught by the first suite run). post137 the
+feed page's flags in collapsible sections. post138 the LOB question `lob_by_file` is
+INPUT_NEEDED, asked once (the pair_12 loop: the App re-listed it as blocking after
+"proceed"). post139 a Comments cell repeating the Field Description no longer drops the
+DDL column COMMENT (generic reader). post140 table COMMENT = Table Description + load
+strategy. post141 Choose documents: Cancel restores the selection. post142 notebook v2
+casts stage columns to the STTM types (a non-blank unreadable value stops the load).
+
+**Lessons:** a check script deleted the client copies before the differing files were
+classified (post139) — the classifier now runs inside the script; a pair-check was
+started with a placeholder sha (stopped, cleaned up); the EXPLAIN detector counted
+refused calls as "compiles" — caught by a bad-query sanity probe, never reported as a
+pass. pair_12's LOB loop never showed in the harness because the state volume answers
+it (`answers/pair_12/answers.yaml`); the App path had to be reproduced through its API.
+
+**The spreadsheet** (Arjun): status vocabulary Yes / NYS / WIP (Venu), day / date / why
+columns, rows 5 / 7 / 13 reworded, six rows added 2026-10-29, the sttm_agent header too.
+
+**The RESTART.md State block this replaced (verbatim):**
+
+## State (2026-10-29, post142 deployed)
+
+- **Branch** `feature/multi-table`: pushed to `bdc173e` (post142). Nothing local.
+  App deployed from it, `/api/health` = `0.5.8.post142`, smoke green. post142 = notebook
+  v2 casts stage columns to the ADLS row's TGT_DATA_TYPE (the DDL's types; a non-blank
+  unreadable value stops the load); 12-pair check in NOTEBOOK mode: 12/12, only the
+  stage cell + the title's version differ. Every version
+  below: both suites green, its tests fail with only the fix reverted.
+- post137 the feed page's flags in collapsible sections (`flagGroups.ts`; the 12 pairs'
+  1,648 flags all land in a named section); post138 the LOB question (`lob_by_file`)
+  asked once, INPUT_NEEDED, never blocking (the pair_12 loop; the harness never shows
+  it - `answers/pair_12/answers.yaml` in the state volume answers it); post139 a
+  Comments cell repeating the Field Description no longer drops the DDL column COMMENT
+  (pair_11: 61 of 62 fields had none; 154 column lines gained one); post140 the table
+  COMMENT = Table Description + load strategy (Soham's answer to DDL question 2);
+  post141 Choose documents: Cancel restores the selection the dialog opened on.
+- **Real-pair checks (post139 / post140):** 12/12 same outcome; every differing file
+  classified (`/tmp/t/classify_rest.py`: banner sha256 only, or COMMENTs only, or the
+  test-case COMMENT counts). Classify BEFORE the copies are deleted (pair_check script
+  runs the classifier inside).
+- **pair_11's billing sheet stays GATE_FAIL:** its standard column 8 is stated with a
+  space (`word _word`) - not an identifier; the STTM must be corrected (BSA).
+- **UX items still open:** none from the 2026-10-28 list.
+- **EXPLAIN check of the DDL test cases on D1: blocked** — the DEFAULT PAT has no Can Use
+  on warehouse `172877b5178f7bb7`; nothing ran. `/tmp/t/explain_tc.py` must count a
+  refused call as a failure before it is rerun (it counted refusals as "compiles").
+- **What the versions since post123 did** (one bump per fix, each test fails with only
+  the fix reverted; CHANGELOG_ACFC.md has the detail; session log in CLAUDE_HISTORY
+  §[H14]): post124 "Generate Documents" button; post125–132 the seven re-rated audit
+  "high" findings (#5 #7 #2 #6 #10 #13 #14); post128 the DDL test cases file; post133
+  medium #9; post134 every DDL test-case SELECT checks itself (PASS / FAIL / NO DATA).
+- **Every real-pair check since post126:** 12/12 same outcome, 187/187 artefacts
+  identical (post128 added the 17 `_TestCases` files and caught one bug before release).
+- **Known flakes** (pass alone, under `-n 4` + a parallel harness they can fail once):
+  `test_m93_chooser.py` (`slow_and_failing_downloads…` — margin widened to 1.5 s / 5 s;
+  `index_writes_never_run_inside_a_selection_step`), `test_frd_default.py::
+  test_a_paired_sttm_preselects_its_frd_labelled_paired`. Rerun alone before believing.
+
+**Its recipes block (verbatim):**
+
+## Recipes this session relied on (`/tmp` is lost on a container reset)
+
+- **12-pair check:** `/tmp/t/pair_check.sh <old-sha>` — copies the state
+  (`environments overlays leakgate answers` from `dbfs:/Volumes/d1_dlk/codegen/state/`)
+  and the pairs (`/Workspace/Users/<me>/frd_sttm_pairs`) into `/tmp/t/rp`, adds a
+  worktree of `<old-sha>`, runs the harness `--pairs 1` once per tree (cache warm-up),
+  then all 12 pairs per tree, compares (layout source, outcomes, artefact sha256 —
+  `/tmp/t/cmp2.py`, `/tmp/t/cmp_kinds.py`), removes the worktree and deletes the copies.
+  Rebuild it from that description if lost.
+- **Smoke test:** `/tmp/t/smoke/smoke.js <url> <png>` (Playwright from
+  `ui/frontend/node_modules`, `LD_LIBRARY_PATH=/tmp/pwlibs/... PLAYWRIGHT_BROWSERS_PATH=
+  /tmp/pw`, LD_LIBRARY_PATH = all three lib dirs under /tmp/pwlibs (lib/x86_64-linux-gnu,
+  usr/lib/x86_64-linux-gnu, its nss/) or Chromium exits 127; `CODEGEN_BEARER` = the OAuth token for the deployed App, never written).
+- **A live run on the App by API:** `/tmp/t/drive_pair11.py select|run|proceed` (status
+  fields are top-level: `state`, `outcome`, `pause_kind`, `layout_questions`). pair_11's
+  run asks only `pair.vdd` (no candidate in its folder): proceed with none.
+- **The spreadsheet for Arjun:** `/tmp/t/xl/make_update.py` builds
+  `amerihealth-agents-update.xlsx` (sheets `codegen_agent` / `sttm_agent`, written in
+  Soham's voice — "I", never "Soham"); uploaded to `/Workspace/Users/<me>/` with
+  `databricks workspace import … --overwrite`. Soham reconciles it with Arjun in Teams.

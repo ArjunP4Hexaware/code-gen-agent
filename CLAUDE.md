@@ -94,8 +94,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   refresh -s workflow`, interactive — Soham runs it); never route around a refused push.
 - **Deploying:** Soham is the App's only user, so Claude deploys after every green push
   (recipe in RESTART.md), then checks `/api/health` names the pushed version and runs the
-  Playwright smoke (Dashboard + Generate: 200, no console errors). A RUN on the deployed
-  App is live (client documents go to the model) — never start one without asking.
+  Playwright smoke (Dashboard + Generate: 200, no console errors). For ~30 s after a
+  deploy `/api/health` may answer non-JSON and the Dashboard time out — retry before
+  believing it. A RUN on the deployed App is live (client documents go to the model) —
+  never start one without asking. A STOPPED App refuses a deploy ("not in RUNNING
+  state"): starting it bills compute — ask Soham first.
 - **CI** (`.github/workflows/tests.yml`): both venvs' suites, vitest + tsc and the
   version guard on every push; offline, no secrets. It never replaces the local
   full-suite run before a push.
@@ -118,7 +121,10 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   layout cache lives in the state dir and is keyed per code TREE: warm EACH side (one
   pair-1 run per tree) before the comparison, and compare the contracts' layout
   `source` before hashes — a cold side differs on every banner sha. Classify any
-  differing file before the copies are deleted.
+  differing file before the copies are deleted — run the classifier INSIDE the check
+  script, before its cleanup (kinds and counts only; a changed contract moves every
+  banner sha256, so separate "sha only" from real changes). A notebook change runs the
+  check in notebook mode (`--output-mode notebook`).
 - **Working while a suite runs:** never edit `src/` or `tests/` under a running suite.
   Develop the next fix in a worktree (`git worktree add -b wip/<x> /tmp/t/<x> HEAD`, run
   with `PYTHONPATH=/tmp/t/<x>/src` and `-p no:cacheprovider`), then cherry-pick it onto
@@ -149,6 +155,11 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
     and run them as files; write commit messages to a file and `git commit -F`;
   - `fixtures/** -text` commits raw bytes — patch fixtures with `read_bytes` /
     `write_bytes`, keep each file's EOL, check `git diff --cached --stat` for churn;
+  - the container harness applies the state volume's `answers/<pair>/answers.yaml`, so a
+    question the App asks (it applies none) may never appear in a harness run — check an
+    App-path fix through the App's API (a local server on a scratch copy, mock);
+  - a worktree has no `ui/frontend/node_modules`: symlink the main tree's for vitest /
+    tsc / `npm run build`, remove the link before committing;
   - after a container reset, `scripts/dev_bootstrap.sh` rebuilds the venvs, Chromium,
     the git hooks (repo pre-push + the container's Workspace-sync post-commit, both) and
     the push login; it prints what needs a person (OAuth);
@@ -433,6 +444,17 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   not a PAT.
 - Deprecated, no UI consumer (kept for API compatibility; nothing new may depend on
   them): `/api/replay/*`, `/api/demo/live-runs`, `/api/demo/input-documents`.
+- **Look:** ACFC's own design tokens (its public style guide: Brand / Text and Accents /
+  UI colours, Open Sans bundled via `@fontsource`, square corners), defined ONCE in
+  `ui/frontend/src/styles.css` `:root`. No hard-coded colour anywhere else (tints are
+  `color-mix` of a token); status colours are reserved for verdicts / checks; every
+  text pair WCAG AA. No ACFC logo or name in the repo. The spec: the UX skill §4.1.
+- **What the App says about providers:** the sidebar badge = the provider the NEXT run
+  uses (`/api/feeds` `provider`); a banner's LIVE / MOCK RUN word = the provider that
+  answered the served run (`run_provider`). The served `mode` drives behaviour only —
+  never show it as the provider (it read MOCK after every deploy of a live App).
+- Choose documents: a pick applies at once (download, classify, pair); Cancel restores
+  the selection the dialog opened on (`/api/demo/choosing*`), Done keeps it.
 - Layer-2 approve / reject decisions are recorded (`ui/backend/state/decisions.json`)
   but never merged into generated code and never gate.
 
@@ -444,6 +466,9 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   real integration task.
 - `FrdContract._provenance.ambiguities` accepts plain strings AND structured
   `GatedAmbiguity` objects.
+- Notebook v2's own tests mostly SKIP (their SFMC fixtures were removed 2026-08-22): a
+  notebook change needs its own test on a synthetic pair (pair 4 renders one), and no
+  generated Spark code is executed here (no Java).
 - Generated job JSON cluster shape / schedule is a config guess; output targets plain
   PySpark + Workflows, structured for a mechanical DLT port.
 

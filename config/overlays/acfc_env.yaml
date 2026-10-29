@@ -454,7 +454,7 @@ metadata:
               fixed_width_tpl: "file_to_stg: G16_G17_FixedWidthHandler,TPL_FileInvokeDQDeltaTable 9.7% of 248 rows (the TPL variant)"
               pipe_segmented: "file_to_stg: G17_PIPE_DELIMITED_SEGMENT_HNDLR,FileInvokeDQDeltaTable 13.7% of 248 rows (the pipe-delimited segment form)"
               pipe_segmented_tpl: "file_to_stg: the pipe-delimited segment form (13.7%) with the TPL notebook of the TPL variant (9.7%) — the corpus has the TPL variant only with the fixed-width handler: confirm on D1"
-              delimited: "file_to_stg: the single-notebook form FileInvokeDQDeltaTable_V0.1 7.3% of 248 rows (V0.2 4.0% — V0.1 picked, which version is current: flag for Nikshit); every non-EDI file_to_stg feed"
+              delimited: "file_to_stg: the single-notebook form FileInvokeDQDeltaTable_V0.1 7.3% of 248 rows (V0.2 4.0% — V0.1 picked; which version is current is to be confirmed); every non-EDI file_to_stg feed"
               delimited_tpl: "file_to_stg: the single-notebook form's TPL variant TPL_FileInvokeDQDeltaTable (9.7%, there with the EDI fixed-width handler) for a non-EDI TPL feed: confirm on D1"
             todo: "the handler-name prefix (corpus_tokens.handler_prefix / pipe_handler_prefix; patterns.json slots it as {domain} / {source})"
           DATABRICKS_NOTEBOOK_PATH:

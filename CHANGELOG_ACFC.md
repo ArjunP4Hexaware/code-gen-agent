@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post150 — 2026-10-29 (generated files name no person)
+
+Found while making the App's text client-safe (post149): one config VALUE, the
+corpus-share note behind the delimited feeds' notebook name (`acfc_env.yaml`,
+`DATABRICKS_NOTEBOOK_NAME` shares), ended "…which version is current: flag for
+<person>)". That note is copied into the gate flags and the IIG cell notes, so it
+reached every generated set with a non-EDI delimited feed. It now ends "…which
+version is current is to be confirmed)"; the values and the choice are unchanged.
+- Guard: `tests/test_config_names_no_person.py` — no value in config.yaml or an
+  overlay may name a person (who decided stays in YAML comments); fails with only the
+  overlay line reverted.
+- 12-pair check (mock, framework mode, post149 vs post150): see the session log.
+
 ## 0.5.8.post149 — 2026-10-29 (client-facing App text names no person)
 
 Soham (2026-10-29): the App is client-facing. Two texts it shows from config named a

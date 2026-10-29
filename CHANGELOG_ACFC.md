@@ -4,6 +4,17 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post152 — 2026-10-29 (Generate: the run shows up where you pressed Generate)
+
+Soham (2026-10-29): after pressing Generate (at the foot of the page) the progress
+bar and the questions appeared at the TOP, out of sight — a run paused for "Continue"
+(e.g. to go on without a VDD) looked like a run still working. The run card now sits
+directly under the Generate button, and the page brings it into view when the run
+starts, pauses for answers or ends (a change of state, never a poll tick; a page
+opened on a finished run stays where it is, one opened mid-run scrolls to it).
+- Tests: `GuidedGenerate.test.tsx` (the card after the Generate button; scrolled to
+  when paused; not when opened on a finished run) — fail with only the page reverted.
+
 ## 0.5.8.post151 — 2026-10-29 (the run button reads "Generate Documents" again)
 
 The post143 redesign shortened the run button to "Generate"; it had been renamed to

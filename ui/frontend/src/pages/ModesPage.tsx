@@ -504,6 +504,21 @@ export function ModesPage({
     || (status.needs_answers ?? []).length > 0
     || (status.inputs_needed ?? []).some((item) => item.required));
   const blockingRef = useRef<HTMLDivElement | null>(null);
+  // post152: bring the run card into view when the run changes state (started,
+  // paused for answers, ended) - never on a poll tick that changes nothing
+  const runCardRef = useRef<HTMLElement | null>(null);
+  const shownStateRef = useRef<string | null>(null);
+  const runPhase = !status || status.state === "idle" ? null
+    : `${status.state}:${status.pause_kind ?? ""}:${(status.layout_questions ?? []).length}`;
+  useEffect(() => {
+    const previous = shownStateRef.current;
+    shownStateRef.current = runPhase;
+    if (!runPhase || runPhase === previous) return;
+    // a page opened on a finished run stays where it is; a live or paused one is shown
+    if (previous === null && status?.state === "done") return;
+    runCardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runPhase]);
   // blocking lines no panel lists (the landing path): named in the alert itself
   const listed = new Set([...(status?.needs_answers ?? []), ...(status?.inputs_needed ?? [])]
     .map((item) => item.key));
@@ -628,308 +643,6 @@ export function ModesPage({
         </ErrorCard>
       ) : null}
 
-      {status && status.state !== "idle" ? (
-        <section
-          className={`card${status.state === "failed" ? " alert"
-            : status.state === "done" && !blocking ? " ok"
-              : !running ? " alert warn" : ""}`}
-          aria-label="this run"
-        >
-          <div className="card-head">
-            <h2>
-              {running
-                ? status.state === "needs_layout" ? "The agent needs your answers" : "Generating…"
-                : status.state === "failed" ? "The run didn't finish"
-                  : status.state === "needs_answers" || blocking ? "Answer the blocking questions"
-                    : "Your results are ready"}
-            </h2>
-            {status.label ? <code className="card-count muted">{status.label}</code> : null}
-          </div>
-          <div className="card-sub">
-            {status.state === "running" && "Running — the steps appear below as they start."}
-            {status.state === "needs_layout" && status.pause_kind === "before_generate" &&
-              "Paused before generating — answer the blocking questions and the run generates once:"}
-            {status.state === "needs_layout" && status.pause_kind !== "before_generate" &&
-              "Paused — the layout needs a human decision before any value is read:"}
-            {status.state === "done" && blocking &&
-              "Last run stopped at blocking questions — complete them first, then run again."}
-            {status.state === "done" && !blocking &&
-              (status.set_aside?.length
-                ? `Last run completed with ${status.set_aside.length} feed(s) set aside.`
-                : "Last run completed. Download the files and review the flags on the results page.")}
-            {status.state === "done" && status.set_aside?.length ? (
-              <ul style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
-                {status.set_aside.map((f) => (
-                  <li key={f.label}>
-                    <code>{f.label}</code>: {f.error}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {status.state === "needs_answers" &&
-              "Last run is waiting for answers — every feed is held back; nothing was published."}
-          </div>
-          {running ? (
-            // post146: a blue bar that fills as the run moves through its steps
-            <ProgressBar {...runProgress(status.stages, Date.now() / 1000,
-                                         status.live_history?.wall_seconds?.high ?? null,
-                                         status.state)} />
-          ) : null}
-          {status.state === "failed" ? (
-            <ErrorCard
-              error={status.error_detail ?? status.error ?? "the run failed without a message"}
-              title="Last run FAILED — nothing was published."
-            >
-              {status.error_hint ? (
-                <div style={{ marginTop: 8 }}>
-                  <div className="hint">{status.error_hint.message}</div>
-                  <button
-                    className="btn"
-                    style={{ marginTop: 6 }}
-                    onClick={async () => {
-                      await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
-                      openChooser();
-                    }}
-                  >
-                    Choose companion FRD "
-                    {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
-                  </button>
-                </div>
-              ) : null}
-            </ErrorCard>
-          ) : null}
-          <div ref={blockingRef} id="blocking-questions">
-          {!running && (status.inputs_needed ?? []).length ? (
-            <InputsNeededBanner
-              items={status.inputs_needed ?? []}
-              confirmed={status.input_choices ?? {}}
-              onConfirm={async (choices) => {
-                try {
-                  setStatus(await api.confirmInputChoices(choices));
-                } catch (e) {
-                  setError(e);
-                }
-              }}
-            />
-          ) : null}
-          {!running && (status.needs_answers ?? []).length ? (
-            <NeedsAnswersPanel
-              items={status.needs_answers ?? []}
-              state={status.state}
-              inputs={status.needs_answers_inputs}
-              stale={status.needs_answers_stale}
-              disabled={liveAvailable !== true || selecting}
-              onRerun={(answers, answered) => {
-                setPendingRerun({ answers, answered });
-                setConfirming(true);
-              }}
-            />
-          ) : null}
-          </div>
-          {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
-            <div className="flag-hitl" style={{ padding: "12px 14px", marginTop: 8 }}>
-              {(status.layout_fills ?? []).length ? (
-                <details className="shell-block" style={{ marginBottom: 10 }}>
-                  <summary>
-                    Taken from other documents{" "}
-                    <span className="hint">
-                      ({(status.layout_fills ?? []).length} FRD field
-                      {(status.layout_fills ?? []).length === 1 ? "" : "s"} filled without asking — each is a gate flag)
-                    </span>
-                  </summary>
-                  <ul className="flag-list">
-                    {(status.layout_fills ?? []).map((f) => (
-                      <li key={f.field}>
-                        <span className="verdict-dot PASS_WITH_FLAGS fdot" />
-                        <span>
-                          <strong>{f.title}</strong> ← {f.source} <code>{f.cell}</code>:{" "}
-                          <code>{f.value}</code>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
-              {(["run", "sttm", "frd", "vdd"] as const).map((doc) => {
-                const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
-                if (!qs.length) return null;
-                return (
-                  <div key={doc} style={{ marginBottom: 10 }}>
-                    <strong>
-                      {doc === "run" ? "This run (environment)"
-                        : doc === "sttm" ? "STTM workbook"
-                        : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
-                    </strong>
-                    {qs.map((q) => (
-                      <QuestionItem
-                        key={q.key}
-                        q={q}
-                        picks={picks}
-                        onChange={setPicks}
-                        scope="dialog"
-                        advice={status.layout_advice?.advice[q.key]}
-                        adviceLabel={status.layout_advice?.usage?.label ?? status.layout_advice?.provider}
-                      />
-                    ))}
-                  </div>
-                );
-              })}
-              <div className="decision-row" style={{ marginTop: 10, flexWrap: "wrap" }}>
-                <button className="btn primary"
-                        onClick={() => submitLayout(countPicks(picks) === 0)}
-                        title={countPicks(picks) === 0
-                          ? "Nothing picked: continue with the open roles read as empty (gate-flagged) — the same as Proceed with unresolved"
-                          : "Continue with the picks made"}>
-                  Continue
-                </button>
-                <button className="btn" onClick={() => submitLayout(true)}
-                        title="Continue with the remaining roles read as empty (gate-flagged)">
-                  Proceed with unresolved
-                </button>
-                <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(setError)}>
-                  Cancel run
-                </button>
-                {status.pause_kind !== "before_generate" ? (
-                  <>
-                <button className="btn"
-                        title="Resolve the layout again past every cached profile (synonyms, then the model); the cached entries are overwritten and the questions asked afresh"
-                        onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(setError)}>
-                  Re-resolve layout
-                </button>
-                <span style={{ flex: 1 }} />
-                <button
-                  className="btn"
-                  disabled={advising !== null}
-                  title="One model call over the question texts and candidate labels — no document rows"
-                  onClick={() => setAdvising("confirm")}
-                >
-                  {advising === "busy" ? "Asking the model…" : "Ask the model for advice…"}
-                </button>
-                <button
-                  className="btn"
-                  disabled={!status.layout_advice}
-                  title="Re-apply the model's advice as the pre-selection (an advised 'none' clears the pick; you still confirm with Continue)"
-                  onClick={() => applyAdvice(status)}
-                >
-                  Re-apply the model's picks
-                </button>
-                  </>
-                ) : null}
-              </div>
-              {advising === "confirm" ? (
-                <div className="note-line info">
-                  This makes one model call
-                  {transport?.kind === "databricks_fmapi" ? (
-                    <>
-                      {" "}through the Databricks Foundation Model endpoint{" "}
-                      <code>{transport.endpoint}</code> ({transport.model}), billed
-                    </>
-                  ) : transport?.kind === "anthropic" ? (
-                    " to the Anthropic API, billed"
-                  ) : (
-                    <> — {transport?.label ?? "no transport resolved"}; offline heuristics, no cost</>
-                  )}
-                  . It sees only the question texts, header strips and candidate labels — no
-                  document rows. Its advice is a pre-selection; you still confirm with Continue.
-                  <div className="decision-row" style={{ marginTop: 8 }}>
-                    <button className="btn primary" onClick={askAdvice}>
-                      Confirm — ask
-                    </button>
-                    <button className="btn" onClick={() => setAdvising(null)}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {status.stages.length ? (
-            <details className="fold" open={running}>
-              <summary>
-                What the agent did
-                <span className="fold-hint">
-                  {status.stages.length} step{status.stages.length === 1 ? "" : "s"}
-                </span>
-              </summary>
-              <div className="fold-body">
-                <ul className="stage-list">
-                  {status.stages.map((s, i) => (
-                    <li key={`${s.stage}-${s.at}`}>
-                      <span className="stage-mark">
-                        {i < status.stages.length - 1 || !running ? "✓" : "⋯"}
-                      </span>
-                      <span>
-                        <strong>{s.stage}</strong>
-                        {s.detail ? <span className="hint"> — {s.detail}</span> : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <ModelUsageList usage={status.model_usage} />
-              </div>
-            </details>
-          ) : (
-            <ModelUsageList usage={status.model_usage} />
-          )}
-          {status.state === "done" && blocking ? (
-            <div className="note-line" role="alert">
-              <strong>Complete the blocking questions first.</strong>{" "}
-              {unlisted.length < (status.blocking ?? []).length
-                || !(status.blocking ?? []).length ? (
-                <button
-                  className="btn primary"
-                  onClick={() => blockingRef.current?.scrollIntoView?.({ behavior: "smooth" })}
-                >
-                  Go to the blocking questions
-                </button>
-              ) : null}
-              {unlisted.length ? (
-                <div className="hint" aria-label="blocking not answerable here"
-                     style={{ marginTop: 4 }}>
-                  Not answerable on this page yet — give{" "}
-                  {unlisted.length === 1 ? "it" : "them"} under <code>inputs:</code> in
-                  the answers file and run again:
-                  <ul style={{ margin: "2px 0 0 0", paddingLeft: 18 }}>
-                    {unlisted.map((b) => (
-                      <li key={b.key}><code>{b.key}</code></li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {status.state === "done" && !blocking ? (
-            <div className="card-actions">
-              <button
-                className="btn primary lg"
-                disabled={loadingSet !== null}
-                onClick={async () => {
-                  onViewResults?.();
-                  // A just-finished run's results are ALREADY adopted in
-                  // the store — navigate straight there instead of
-                  // reloading from disk.
-                  if (
-                    status.last_run_label &&
-                    status.label === status.last_run_label &&
-                    status.mode === "live"
-                  ) {
-                    await onFeedsChanged();
-                    navigate("/results");
-                    return;
-                  }
-                  if (status.last_run_label) {
-                    loadLiveRun(status.last_run_label);
-                  } else {
-                    navigate("/results");
-                  }
-                }}
-              >
-                View results →
-              </button>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
 
       <section className="card" aria-label="documents">
         <div className="card-head">
@@ -1280,6 +993,313 @@ export function ModesPage({
       <p className="action-hint">
         Nothing runs until you confirm. A live run sends the documents' content to the model.
       </p>
+
+      {/* post152: the run card sits under the Generate button - where the person
+          is looking when they press it - and comes into view when the run starts,
+          pauses for answers or ends (it sat at the top of the page, out of sight) */}
+      {status && status.state !== "idle" ? (
+        <section
+          ref={runCardRef}
+          className={`card${status.state === "failed" ? " alert"
+            : status.state === "done" && !blocking ? " ok"
+              : !running ? " alert warn" : ""}`}
+          aria-label="this run"
+        >
+          <div className="card-head">
+            <h2>
+              {running
+                ? status.state === "needs_layout" ? "The agent needs your answers" : "Generating…"
+                : status.state === "failed" ? "The run didn't finish"
+                  : status.state === "needs_answers" || blocking ? "Answer the blocking questions"
+                    : "Your results are ready"}
+            </h2>
+            {status.label ? <code className="card-count muted">{status.label}</code> : null}
+          </div>
+          <div className="card-sub">
+            {status.state === "running" && "Running — the steps appear below as they start."}
+            {status.state === "needs_layout" && status.pause_kind === "before_generate" &&
+              "Paused before generating — answer the blocking questions and the run generates once:"}
+            {status.state === "needs_layout" && status.pause_kind !== "before_generate" &&
+              "Paused — the layout needs a human decision before any value is read:"}
+            {status.state === "done" && blocking &&
+              "Last run stopped at blocking questions — complete them first, then run again."}
+            {status.state === "done" && !blocking &&
+              (status.set_aside?.length
+                ? `Last run completed with ${status.set_aside.length} feed(s) set aside.`
+                : "Last run completed. Download the files and review the flags on the results page.")}
+            {status.state === "done" && status.set_aside?.length ? (
+              <ul style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
+                {status.set_aside.map((f) => (
+                  <li key={f.label}>
+                    <code>{f.label}</code>: {f.error}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {status.state === "needs_answers" &&
+              "Last run is waiting for answers — every feed is held back; nothing was published."}
+          </div>
+          {running ? (
+            // post146: a blue bar that fills as the run moves through its steps
+            <ProgressBar {...runProgress(status.stages, Date.now() / 1000,
+                                         status.live_history?.wall_seconds?.high ?? null,
+                                         status.state)} />
+          ) : null}
+          {status.state === "failed" ? (
+            <ErrorCard
+              error={status.error_detail ?? status.error ?? "the run failed without a message"}
+              title="Last run FAILED — nothing was published."
+            >
+              {status.error_hint ? (
+                <div style={{ marginTop: 8 }}>
+                  <div className="hint">{status.error_hint.message}</div>
+                  <button
+                    className="btn"
+                    style={{ marginTop: 6 }}
+                    onClick={async () => {
+                      await chooseFrd("upstream", status.error_hint!.candidate_doc_id);
+                      openChooser();
+                    }}
+                  >
+                    Choose companion FRD "
+                    {middleTruncate(status.error_hint.candidate_doc_id, 36)}"
+                  </button>
+                </div>
+              ) : null}
+            </ErrorCard>
+          ) : null}
+          <div ref={blockingRef} id="blocking-questions">
+          {!running && (status.inputs_needed ?? []).length ? (
+            <InputsNeededBanner
+              items={status.inputs_needed ?? []}
+              confirmed={status.input_choices ?? {}}
+              onConfirm={async (choices) => {
+                try {
+                  setStatus(await api.confirmInputChoices(choices));
+                } catch (e) {
+                  setError(e);
+                }
+              }}
+            />
+          ) : null}
+          {!running && (status.needs_answers ?? []).length ? (
+            <NeedsAnswersPanel
+              items={status.needs_answers ?? []}
+              state={status.state}
+              inputs={status.needs_answers_inputs}
+              stale={status.needs_answers_stale}
+              disabled={liveAvailable !== true || selecting}
+              onRerun={(answers, answered) => {
+                setPendingRerun({ answers, answered });
+                setConfirming(true);
+              }}
+            />
+          ) : null}
+          </div>
+          {status.state === "needs_layout" && (status.layout_questions ?? []).length ? (
+            <div className="flag-hitl" style={{ padding: "12px 14px", marginTop: 8 }}>
+              {(status.layout_fills ?? []).length ? (
+                <details className="shell-block" style={{ marginBottom: 10 }}>
+                  <summary>
+                    Taken from other documents{" "}
+                    <span className="hint">
+                      ({(status.layout_fills ?? []).length} FRD field
+                      {(status.layout_fills ?? []).length === 1 ? "" : "s"} filled without asking — each is a gate flag)
+                    </span>
+                  </summary>
+                  <ul className="flag-list">
+                    {(status.layout_fills ?? []).map((f) => (
+                      <li key={f.field}>
+                        <span className="verdict-dot PASS_WITH_FLAGS fdot" />
+                        <span>
+                          <strong>{f.title}</strong> ← {f.source} <code>{f.cell}</code>:{" "}
+                          <code>{f.value}</code>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              {(["run", "sttm", "frd", "vdd"] as const).map((doc) => {
+                const qs = (status.layout_questions ?? []).filter((q) => q.document === doc);
+                if (!qs.length) return null;
+                return (
+                  <div key={doc} style={{ marginBottom: 10 }}>
+                    <strong>
+                      {doc === "run" ? "This run (environment)"
+                        : doc === "sttm" ? "STTM workbook"
+                        : doc === "frd" ? "FRD document" : "Vendor data dictionary"}
+                    </strong>
+                    {qs.map((q) => (
+                      <QuestionItem
+                        key={q.key}
+                        q={q}
+                        picks={picks}
+                        onChange={setPicks}
+                        scope="dialog"
+                        advice={status.layout_advice?.advice[q.key]}
+                        adviceLabel={status.layout_advice?.usage?.label ?? status.layout_advice?.provider}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
+              <div className="decision-row" style={{ marginTop: 10, flexWrap: "wrap" }}>
+                <button className="btn primary"
+                        onClick={() => submitLayout(countPicks(picks) === 0)}
+                        title={countPicks(picks) === 0
+                          ? "Nothing picked: continue with the open roles read as empty (gate-flagged) — the same as Proceed with unresolved"
+                          : "Continue with the picks made"}>
+                  Continue
+                </button>
+                <button className="btn" onClick={() => submitLayout(true)}
+                        title="Continue with the remaining roles read as empty (gate-flagged)">
+                  Proceed with unresolved
+                </button>
+                <button className="btn" onClick={() => api.layoutAnswers({ answers: {}, cancel: true }).then(setStatus).catch(setError)}>
+                  Cancel run
+                </button>
+                {status.pause_kind !== "before_generate" ? (
+                  <>
+                <button className="btn"
+                        title="Resolve the layout again past every cached profile (synonyms, then the model); the cached entries are overwritten and the questions asked afresh"
+                        onClick={() => api.layoutAnswers({ answers: {}, refresh: true }).then(setStatus).catch(setError)}>
+                  Re-resolve layout
+                </button>
+                <span style={{ flex: 1 }} />
+                <button
+                  className="btn"
+                  disabled={advising !== null}
+                  title="One model call over the question texts and candidate labels — no document rows"
+                  onClick={() => setAdvising("confirm")}
+                >
+                  {advising === "busy" ? "Asking the model…" : "Ask the model for advice…"}
+                </button>
+                <button
+                  className="btn"
+                  disabled={!status.layout_advice}
+                  title="Re-apply the model's advice as the pre-selection (an advised 'none' clears the pick; you still confirm with Continue)"
+                  onClick={() => applyAdvice(status)}
+                >
+                  Re-apply the model's picks
+                </button>
+                  </>
+                ) : null}
+              </div>
+              {advising === "confirm" ? (
+                <div className="note-line info">
+                  This makes one model call
+                  {transport?.kind === "databricks_fmapi" ? (
+                    <>
+                      {" "}through the Databricks Foundation Model endpoint{" "}
+                      <code>{transport.endpoint}</code> ({transport.model}), billed
+                    </>
+                  ) : transport?.kind === "anthropic" ? (
+                    " to the Anthropic API, billed"
+                  ) : (
+                    <> — {transport?.label ?? "no transport resolved"}; offline heuristics, no cost</>
+                  )}
+                  . It sees only the question texts, header strips and candidate labels — no
+                  document rows. Its advice is a pre-selection; you still confirm with Continue.
+                  <div className="decision-row" style={{ marginTop: 8 }}>
+                    <button className="btn primary" onClick={askAdvice}>
+                      Confirm — ask
+                    </button>
+                    <button className="btn" onClick={() => setAdvising(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {status.stages.length ? (
+            <details className="fold" open={running}>
+              <summary>
+                What the agent did
+                <span className="fold-hint">
+                  {status.stages.length} step{status.stages.length === 1 ? "" : "s"}
+                </span>
+              </summary>
+              <div className="fold-body">
+                <ul className="stage-list">
+                  {status.stages.map((s, i) => (
+                    <li key={`${s.stage}-${s.at}`}>
+                      <span className="stage-mark">
+                        {i < status.stages.length - 1 || !running ? "✓" : "⋯"}
+                      </span>
+                      <span>
+                        <strong>{s.stage}</strong>
+                        {s.detail ? <span className="hint"> — {s.detail}</span> : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <ModelUsageList usage={status.model_usage} />
+              </div>
+            </details>
+          ) : (
+            <ModelUsageList usage={status.model_usage} />
+          )}
+          {status.state === "done" && blocking ? (
+            <div className="note-line" role="alert">
+              <strong>Complete the blocking questions first.</strong>{" "}
+              {unlisted.length < (status.blocking ?? []).length
+                || !(status.blocking ?? []).length ? (
+                <button
+                  className="btn primary"
+                  onClick={() => blockingRef.current?.scrollIntoView?.({ behavior: "smooth" })}
+                >
+                  Go to the blocking questions
+                </button>
+              ) : null}
+              {unlisted.length ? (
+                <div className="hint" aria-label="blocking not answerable here"
+                     style={{ marginTop: 4 }}>
+                  Not answerable on this page yet — give{" "}
+                  {unlisted.length === 1 ? "it" : "them"} under <code>inputs:</code> in
+                  the answers file and run again:
+                  <ul style={{ margin: "2px 0 0 0", paddingLeft: 18 }}>
+                    {unlisted.map((b) => (
+                      <li key={b.key}><code>{b.key}</code></li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {status.state === "done" && !blocking ? (
+            <div className="card-actions">
+              <button
+                className="btn primary lg"
+                disabled={loadingSet !== null}
+                onClick={async () => {
+                  onViewResults?.();
+                  // A just-finished run's results are ALREADY adopted in
+                  // the store — navigate straight there instead of
+                  // reloading from disk.
+                  if (
+                    status.last_run_label &&
+                    status.label === status.last_run_label &&
+                    status.mode === "live"
+                  ) {
+                    await onFeedsChanged();
+                    navigate("/results");
+                    return;
+                  }
+                  if (status.last_run_label) {
+                    loadLiveRun(status.last_run_label);
+                  } else {
+                    navigate("/results");
+                  }
+                }}
+              >
+                View results →
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {(requirements?.configured !== false && requirements?.check)
         || (governance && governance.configured !== false && governance.checks.length > 0) ? (

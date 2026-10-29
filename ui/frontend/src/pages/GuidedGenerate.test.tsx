@@ -186,3 +186,39 @@ describe("the environment in Advanced", () => {
     expect(fold.querySelector("summary")!.textContent).toContain("1 required value missing");
   });
 });
+
+// post152: the run card sits under the Generate button, not at the top of the
+// page, and comes into view when a run is live or paused for answers
+describe("where the run shows up", () => {
+  const chosen = { selection: { sttm: "STTM_syn.xlsx", frd: "FRD_syn.docx", vdd: null },
+                   frd_name: "FRD_syn.docx", frd_chosen: true };
+
+  it("puts the run card after the Generate button", async () => {
+    status = { ...status, ...chosen, state: "done", outcome: "PASS" };
+    await renderPage();
+    const bar = host.querySelector(".action-bar")!;
+    const card = host.querySelector('[aria-label="this run"]')!;
+    expect(bar.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(host.querySelector('[aria-label="documents"]')!
+      .compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("scrolls to a run paused for answers", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    status = { ...status, ...chosen, state: "needs_layout", pause_kind: "before_generate",
+               layout_questions: [] };
+    await renderPage();
+    expect(scroll).toHaveBeenCalled();
+    expect(scroll.mock.contexts.some((el) => (el as Element).getAttribute("aria-label") === "this run"))
+      .toBe(true);
+  });
+
+  it("leaves a page opened on a finished run where it is", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    status = { ...status, ...chosen, state: "done", outcome: "PASS" };
+    await renderPage();
+    expect(scroll).not.toHaveBeenCalled();
+  });
+});

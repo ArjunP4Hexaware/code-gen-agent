@@ -471,7 +471,8 @@ tables bordered, code inline chips). "Loading report…" while pending.
 > (`/`; `/modes` redirects to it, Results moved to `/results`).** Centred "Generate a pipeline from
 > your STTM and FRD" + lead, the step strip (Part 1 pillar 1: step 1 while no
 > STTM / FRD or a selection runs; 2 when chosen; 3 while running, paused or
-> blocked; 4 after a completed run), then top to bottom: the **run card**
+> blocked; 4 after a completed run), then top to bottom (post152: the run card
+> moved under the action bar, see below): the **run card**
 > (only once a run exists: "Generating…" / "The agent needs your answers" /
 > "Answer the blocking questions" / "The run didn't finish" / "Your results
 > are ready", the state sentences of §4.2, the inputs-needed and
@@ -483,7 +484,10 @@ tables bordered, code inline chips). "Loading report…" while pending.
 > output toggles when more than one, "Advanced" folded: the environment
 > (post147; named on the summary, open when a required value is missing),
 > conventions / IIG / playbook selects and Re-resolve layout); the action bar;
-> "Details for the team" folded (the requirement and governance tables). The
+> "Details for the team" folded (the requirement and governance tables).
+> **post152:** the run card renders directly UNDER the action bar (where the person
+> pressed Generate) and is scrolled into view when the run starts, pauses for
+> answers or ends — never at the top of the page. The
 > chooser is a 640px dialog. The confirm button reads "Confirm — run live"
 > only for a live transport, else "Confirm — generate with the mock". The
 > text below describes the pre-post143 card, kept as history.

@@ -4,6 +4,8 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ErrorCard } from "../components/ErrorCard";
 import { Icon } from "../components/Icons";
 import { StepStrip } from "../components/StepStrip";
+import { ProgressBar } from "../components/ProgressBar";
+import { runProgress } from "../runProgress";
 import {
   answersPayload,
   applyAdvicePicks,
@@ -640,12 +642,7 @@ export function ModesPage({
             {status.label ? <code className="card-count muted">{status.label}</code> : null}
           </div>
           <div className="card-sub">
-            {status.state === "running" && (
-              <span className="run-wait">
-                <span className="spinner sm" />
-                Running — the steps appear below as they start.
-              </span>
-            )}
+            {status.state === "running" && "Running — the steps appear below as they start."}
             {status.state === "needs_layout" && status.pause_kind === "before_generate" &&
               "Paused before generating — answer the blocking questions and the run generates once:"}
             {status.state === "needs_layout" && status.pause_kind !== "before_generate" &&
@@ -668,6 +665,12 @@ export function ModesPage({
             {status.state === "needs_answers" &&
               "Last run is waiting for answers — every feed is held back; nothing was published."}
           </div>
+          {running ? (
+            // post146: a blue bar that fills as the run moves through its steps
+            <ProgressBar {...runProgress(status.stages, Date.now() / 1000,
+                                         status.live_history?.wall_seconds?.high ?? null,
+                                         status.state)} />
+          ) : null}
           {status.state === "failed" ? (
             <ErrorCard
               error={status.error_detail ?? status.error ?? "the run failed without a message"}

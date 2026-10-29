@@ -182,6 +182,8 @@ export interface DemoStage {
   stage: string;
   detail: string;
   at: number;
+  // post146: a feed's own steps: which feed of how many
+  feed?: { n: number; of: number };
 }
 
 export interface LayoutQuestion {

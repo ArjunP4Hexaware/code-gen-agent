@@ -2410,13 +2410,16 @@ class DemoRunner:
         jobs: dict = {}                    # post76: each feed's Layer-2 work
         for feed_no, spec in enumerate(specs, 1):
             slug = spec.feed_slug
+            which = {"n": feed_no, "of": len(specs)}     # post146: the progress bar
             result = gen.feed(
                 spec, feed_no, len(specs), frd_path=frd_path, reraise=False,
                 sttm_path=sttm_path,
-                produce=lambda faq_answers, spec=spec, slug=slug: self._store._generate_feed(  # noqa: SLF001
+                produce=lambda faq_answers, spec=spec, slug=slug, which=which:
+                self._store._generate_feed(  # noqa: SLF001
                     spec, dry_run=False, skip_tests=True, out_root=run_root,
                     reports_dir=reports_root,
-                    on_stage=lambda detail, slug=slug: self._stage(f"{slug}: {detail}"),
+                    on_stage=lambda detail, slug=slug, which=which: self._stage(
+                        f"{slug}: {detail}", feed=which),
                     output_mode=parts, extra_flags=extra_flags,
                     conventions_profile=self.conventions_profile,
                     iig_template=self.iig_template, playbook_template=self.playbook_template,
@@ -2817,8 +2820,10 @@ class DemoRunner:
                 ),
             }
 
-    def _stage(self, name: str, detail: str = "") -> None:
-        self.stages.append({"stage": name, "detail": detail, "at": time.time()})
+    def _stage(self, name: str, detail: str = "", *, feed: dict | None = None) -> None:
+        # post146: a feed's own steps say which feed of how many (the progress bar)
+        self.stages.append({"stage": name, "detail": detail, "at": time.time(),
+                            **({"feed": feed} if feed else {})})
 
     def _execute(self) -> None:
         config = self._store.config

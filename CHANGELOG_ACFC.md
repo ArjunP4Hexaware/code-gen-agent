@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post146 — 2026-10-29 (Generate: a progress bar while the run works)
+
+Soham (2026-10-29): a minute of waiting needs feedback. The run card shows a blue bar
+that fills, the % beside it, and what the agent is doing under it in plain words
+("Reading the STTM workbook", "Writing the DDL and IIG for <feed> (feed 1 of 2)").
+- Honest about what the backend reports (`ui/frontend/src/runProgress.ts`): each known
+  step sets a floor; a feed's own steps split the generation band by "feed n of N"
+  (new: those steps carry `feed: {n, of}`); inside a step the bar creeps toward the next
+  floor, paced by how long completed runs took (`live_history.wall_seconds`). It never
+  goes backwards, holds at "Waiting for your answers" while paused, and shows 100 %
+  only when the run is done.
+- Tests: `runProgress.test.ts`, `ProgressBar.test.tsx`, `tests/test_run_progress_stages.py`.
+
 ## 0.5.8.post145 — 2026-10-29 (the confirm dialog: a new pair's first-run cost in DBUs)
 
 Soham (2026-10-29): the dialog read "0 calls · ≈ $0.00", because every recorded run

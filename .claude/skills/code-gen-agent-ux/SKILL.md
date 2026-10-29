@@ -486,6 +486,16 @@ tables bordered, code inline chips). "Loading report…" while pending.
 > chooser is a 640px dialog. The confirm button reads "Confirm — run live"
 > only for a live transport, else "Confirm — generate with the mock". The
 > text below describes the pre-post143 card, kept as history.
+>
+> **post146:** while the run works (running or paused) the run card shows a
+> progress bar under its heading: a 12px `--accent` fill on an `--accent-tint`
+> track, the % beside it, the current step in plain words under it
+> (`role=progressbar`, `aria-valuetext` "<n>% — <step>"). Floors per known step
+> (pairing 2, resolving layout 5, layout recognizer 15, FRD 22, VDD 28, workbook
+> 32, contracts 40, feeds 45–85 split by `feed {n, of}`, layer2 87, model usage
+> 90, storing 93, publishing 97); inside a step it creeps toward the next floor,
+> paced by completed runs' wall-clock; never backwards; "Waiting for your
+> answers" while paused; 100 only when done.
 
 ONE full-width card. Page head: `h1` "Generate a pipeline", subtitle
 "Choose the documents, pick the output, generate. Every run ends on the

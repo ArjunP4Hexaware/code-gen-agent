@@ -134,7 +134,9 @@ every screen keeps the doctrine above.
 ### 2.1 Application shell
 
 > **post143 (current):** a sticky white header (72px, 3px `--accent` rule):
-> the centred wordmark "CodeGen · Data Engineer Agent" / "From an approved
+> top-left, the client's logo when the state root carries one (post144:
+> `branding/logo.<ext>`, `GET /api/branding` → `{logo}`, the image at
+> `/api/branding/logo`; never in the repo), then the centred wordmark "CodeGen · Data Engineer Agent" / "From an approved
 > STTM and FRD to Databricks artefacts" (a link to Generate) and, right, the
 > provider badge (solid: LIVE `--critical`, MOCK hairline grey). Below it a
 > white 272px sidebar (hide / show kept) with "Generate a pipeline" and
@@ -203,7 +205,8 @@ every screen keeps the doctrine above.
     fresh **dry-run** generate (a dry-run never calls a model). You can reload
     them afterwards from the Generate page.", buttons "Continue — dry-run
     generate" (primary) / "Cancel".
-- **Routes:** `/` Dashboard · `/modes` Generate ·
+- **Routes:** `/` Generate · `/results` Results (post144; `/` was the Dashboard and
+  `/modes` Generate until then — `/modes` now redirects to `/`) ·
   `/feeds/:slug` Feed detail (`/demo` removed 2026-09-18) (accepts `?tab=` one of `overview | rules |
   candidates | notebook | code | report`). Client-side routing with an
   `index.html` fallback so deep links survive a refresh on the App.
@@ -464,7 +467,8 @@ tables bordered, code inline chips). "Loading report…" while pending.
 
 ### 2.4 Generate (`/modes`) — was "Run modes" until the 2026-09-18 ACFC trim
 
-> **post143 (current): the guided page.** Centred "Generate a pipeline from
+> **post143 (current): the guided page — the App's landing page since post144
+> (`/`; `/modes` redirects to it, Results moved to `/results`).** Centred "Generate a pipeline from
 > your STTM and FRD" + lead, the step strip (Part 1 pillar 1: step 1 while no
 > STTM / FRD or a selection runs; 2 when chosen; 3 while running, paused or
 > blocked; 4 after a completed run), then top to bottom: the **run card**

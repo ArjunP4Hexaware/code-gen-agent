@@ -223,7 +223,7 @@ export function ModesPage({
       try {
         await api.loadLiveRun(name);
         await onFeedsChanged();
-        navigate("/");
+        navigate("/results");
       } catch (e) {
         setError(e);
       } finally {
@@ -907,13 +907,13 @@ export function ModesPage({
                     status.mode === "live"
                   ) {
                     await onFeedsChanged();
-                    navigate("/");
+                    navigate("/results");
                     return;
                   }
                   if (status.last_run_label) {
                     loadLiveRun(status.last_run_label);
                   } else {
-                    navigate("/");
+                    navigate("/results");
                   }
                 }}
               >

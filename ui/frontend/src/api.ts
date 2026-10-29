@@ -942,6 +942,8 @@ export const api = {
   health: () => request<HealthResponse>("/api/health"),
   // The static half of /api/health (no storage probe) + the one-line form.
   healthFacts: () => request<{ health_line: string }>("/api/health/facts"),
+  // post144: whether the state root carries the header logo (never in the repo)
+  branding: () => request<{ logo: boolean }>("/api/branding"),
   feeds: () => request<FeedsResponse>("/api/feeds"),
   feed: (slug: string) => request<FeedDetail>(`/api/feeds/${slug}`),
   generate: (feedSlug?: string) =>

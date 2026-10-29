@@ -325,6 +325,38 @@ def health() -> dict:
             **probe_roots(REPO_ROOT, client_factory=factory)}
 
 
+# post144: the client's logo, top-left in the header. It is never in git (CLAUDE.md:
+# no client logo or name in the repo): the App reads it from the state root, which
+# the state mirror copies with everything else - <state root>/branding/logo.<ext>,
+# the first of these that exists. Absent = the header shows the wordmark alone.
+BRANDING_DIR = "branding"
+LOGO_TYPES = {"logo.svg": "image/svg+xml", "logo.png": "image/png",
+              "logo.jpg": "image/jpeg", "logo.jpeg": "image/jpeg", "logo.webp": "image/webp"}
+
+
+def _logo_file() -> Path | None:
+    from codegen.config import state_root
+
+    folder = state_root() / BRANDING_DIR
+    return next((folder / name for name in LOGO_TYPES if (folder / name).is_file()), None)
+
+
+@app.get("/api/branding")
+def branding() -> dict:
+    """Whether the state root carries a logo (the header asks once, so a missing
+    logo never shows as a failed image request)."""
+    return {"logo": _logo_file() is not None}
+
+
+@app.get("/api/branding/logo")
+def branding_logo() -> Response:
+    logo = _logo_file()
+    if logo is None:
+        raise HTTPException(status_code=404, detail="no logo in the state root's branding folder")
+    return Response(logo.read_bytes(), media_type=LOGO_TYPES[logo.name],
+                    headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/health/facts")
 def health_facts() -> dict:
     """The static half of /api/health — no storage probe, answers at once —

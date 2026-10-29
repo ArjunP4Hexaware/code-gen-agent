@@ -4,6 +4,19 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post144 — 2026-10-29 (the App opens on Generate; the client's logo top-left)
+
+Soham (2026-10-29), two changes to post143's App:
+- The App opens on "Generate a pipeline" (`/`). Results moved to `/results`; the old
+  Generate address `/modes` redirects to `/`, so a saved link still works.
+- The client's logo sits top-left in the header. It never enters the repo (CLAUDE.md):
+  the App reads `<state root>/branding/logo.<png|svg|jpg|webp>` (the state mirror copies
+  it with the rest of the state folder), `GET /api/branding` says whether there is one,
+  `GET /api/branding/logo` serves it. Without a file the header is the wordmark alone
+  and no image request fails.
+- Tests: `tests/test_branding_route.py` (none / served with its type / only a file named
+  logo), `App.test.tsx` (each address, the logo only when the state root has one).
+
 ## 0.5.8.post143 — 2026-10-29 (the App: the guided look of the STTM agent's App)
 
 Soham (2026-10-29): the App rebuilt in the style of the STTM agent's App, every

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { api, type FeedsResponse } from "./api";
 import { CollapsibleSidebar, useSidebarOpen } from "./components/CollapsibleSidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -30,6 +30,12 @@ export function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // post144: the logo lives in the state root, not the repo; asked once
+  const [logo, setLogo] = useState(false);
+  useEffect(() => {
+    api.branding().then((b) => setLogo(b.logo)).catch(() => setLogo(false));
+  }, []);
 
   const [confirmGenerate, setConfirmGenerate] = useState(false);
 
@@ -62,7 +68,12 @@ export function App() {
       {/* post143: a white header with the wordmark (no logo: the repo carries
           none) and the provider badge, visible on every page */}
       <header className="topbar">
-        <NavLink to="/modes" className="topbar-brand" title="Generate a pipeline">
+        {logo ? (
+          <NavLink to="/" className="topbar-logo" title="Generate a pipeline">
+            <img src="/api/branding/logo" alt="Logo" />
+          </NavLink>
+        ) : null}
+        <NavLink to="/" className="topbar-brand" title="Generate a pipeline">
           <span className="product">CodeGen · Data Engineer Agent</span>
           <span className="org">From an approved STTM and FRD to Databricks artefacts</span>
         </NavLink>
@@ -89,13 +100,14 @@ export function App() {
       <CollapsibleSidebar open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <nav className="primary-nav" aria-label="Sections">
           <NavLink
-            to="/modes"
+            to="/"
+            end
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
           >
             <Icon name="generate" />
             Generate a pipeline
           </NavLink>
-          <NavLink to="/" end className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+          <NavLink to="/results" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
             <Icon name="results" />
             Results
           </NavLink>
@@ -159,8 +171,17 @@ export function App() {
         {/* A render error inside a page degrades to a card; the shell stays. */}
         <ErrorBoundary label="This page">
           <Routes>
+            {/* post144: the App opens on Generate; Results moved to /results and
+                /modes (the old Generate address) still lands on Generate */}
             <Route
               path="/"
+              element={
+                <ModesPage onFeedsChanged={refresh} onViewResults={() => setSidebarOpen(false, false)} />
+              }
+            />
+            <Route path="/modes" element={<Navigate to="/" replace />} />
+            <Route
+              path="/results"
               element={
                 <Dashboard
                   data={data}
@@ -168,12 +189,6 @@ export function App() {
                   onGenerateAll={generateAll}
                   onFeedsChanged={refresh}
                 />
-              }
-            />
-            <Route
-              path="/modes"
-              element={
-                <ModesPage onFeedsChanged={refresh} onViewResults={() => setSidebarOpen(false, false)} />
               }
             />
             <Route

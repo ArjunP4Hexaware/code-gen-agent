@@ -230,7 +230,7 @@ export function Dashboard({
           <p className="empty" style={{ padding: "8px 0 16px" }}>
             No feeds generated yet — the backend generates on startup.
           </p>
-          <Link className="btn primary lg" to="/modes">Generate a pipeline</Link>
+          <Link className="btn primary lg" to="/">Generate a pipeline</Link>
         </div>
       ) : (
         <div className="run-stats" aria-label="run summary">

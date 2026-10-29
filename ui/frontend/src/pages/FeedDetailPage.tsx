@@ -87,7 +87,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
 
   return (
     <>
-      <Link to="/" className="back-link">← Results</Link>
+      <Link to="/results" className="back-link">← Results</Link>
       <div className="page-head">
         <div>
           <h1 style={{ fontFamily: "var(--mono)" }}>{feed.feed_slug}</h1>

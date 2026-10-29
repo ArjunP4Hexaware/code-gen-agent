@@ -110,6 +110,17 @@ code, pre { font-family: var(--mono); }
 .topbar-brand:hover { text-decoration: none; }
 .topbar-brand .product { font-size: 22px; font-weight: 600; letter-spacing: 0.005em; }
 .topbar-brand .org { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+/* post144: the client's logo (from the state root), top-left */
+.topbar-logo {
+  position: absolute;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding-right: 18px;
+  border-right: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.topbar-logo img { display: block; height: 54px; width: auto; }
 .topbar-status {
   position: absolute;
   right: 24px;
@@ -1561,6 +1572,9 @@ details.details-fold > .details-body { margin-top: 12px; }
   .topbar-brand .org { display: none; }
   .topbar { justify-content: space-between; padding: 0 12px; }
   .topbar-brand { align-items: flex-start; }
+  .topbar-logo { position: static; padding-right: 10px; margin-right: 10px; }
+  .topbar-logo img { height: 38px; }
+  .topbar-brand { flex: 1; min-width: 0; }
   .topbar-status { position: static; }
   /* the sidebar is a drawer over the page, never a column that squeezes it */
   .sidebar { position: fixed; left: 0; top: var(--header-h); z-index: 35; box-shadow: var(--shadow-card); }

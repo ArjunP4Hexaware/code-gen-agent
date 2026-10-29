@@ -4,6 +4,23 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post155 — 2026-10-29 (a table-sourced feed holds its IIG)
+
+Soham (2026-10-29): two client pairs state their source as a database table ("Database
+Table"), and the agent only writes FILE-ingestion IIG rows — table ingestion (the RDMS
+sheet) is not built. File rows for a table source would be values no document gives.
+Such a feed now:
+- writes its DDL and DDL test cases (the target tables do not depend on the source) and
+  runs their checks;
+- writes NO IIG, review copy, config rows or metadata inserts; ADDITION.md says HELD BACK
+  and why (the FRD's file format, as stated); flag `iig_held:table_ingestion`;
+- asks none of the IIG's inputs (containers, landing, LOB, key) — one NOTE line and one
+  non-blocking open item instead, so the run reads PASS_WITH_OPEN_INPUTS (exit 0), never
+  a clean PASS; the combined set carries no IIG for it.
+- Vocabulary: `framework.table_source_formats: ["database table"]` (cited).
+- Tests: `tests/test_table_source_hold.py` (4; fail with only the source reverted).
+- Prepares the pair_09 per-table split (next): its 36 tables are database tables.
+
 ## 0.5.8.post154 — 2026-10-29 (DDL test cases: the client's pipeline-level cases, and its workbook)
 
 Soham (2026-10-29), from the client's own DDL test workbook (Aruna): its cases test

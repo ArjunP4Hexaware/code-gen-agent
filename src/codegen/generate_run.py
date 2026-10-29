@@ -168,7 +168,14 @@ class GenerateRun:
         try:
             result = produce(faq_answers)
             gate = getattr(result, "gate", result)
-            owed = owed_mod.owed_inputs(
+            # post155: a table-sourced feed holds its IIG - no IIG input is owed;
+            # one NOTE + one non-blocking open line say so instead
+            from codegen.emit.framework import is_table_source
+
+            held = is_table_source(spec, config) and self._framework_output()
+            if held:
+                self._table_source_note(spec, index)
+            owed = [] if held else owed_mod.owed_inputs(
                 spec, config, index=index, output_mode=self.output_mode,
                 iig_template=self.iig_template,
                 faq=with_faq_answers(faq_for_spec(spec, config, base_dir=self.base),
@@ -185,13 +192,13 @@ class GenerateRun:
             # LOB lookup keyed to no single LOB. post138 (Soham): asked once, never
             # blocking - unanswered, those LOB cells stay open + flagged and the run
             # generates everything else (PASS_WITH_OPEN_INPUTS)
-            lob_item = _lob_question(spec, say=self.say)
+            lob_item = None if held else _lob_question(spec, say=self.say)
             if lob_item is not None:
                 self.template_items.append(lob_item)
                 self.open_items.append(run_stages.open_item("INPUT_NEEDED", lob_item.key,
                                                             feed=spec.feed_id))
             # post70: a merge load with no key signal — ONE blocking question
-            key_item = _key_question(
+            key_item = None if held else _key_question(
                 spec, config, with_faq_answers(faq_for_spec(spec, config, base_dir=self.base),
                                                faq_answers),
                 self.output_mode, self.iig_template, self.conventions_profile, say=self.say)
@@ -199,7 +206,8 @@ class GenerateRun:
                 self.template_items.append(key_item)
                 self.open_items.append(run_stages.open_item("QUESTION", key_item.key,
                                                             feed=spec.feed_id))
-            self._landing_input(spec, index)
+            if not held:
+                self._landing_input(spec, index)
             self._notebook_environment(spec, index)
         except TemplateGapError as exc:
             if self._fail is not None:
@@ -312,6 +320,23 @@ class GenerateRun:
         self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
         self.template_items.append(TemplateItem(key, reason, [], INPUTS_SECTION,
                                                 proposed=proposal))
+
+    def _framework_output(self) -> bool:
+        from codegen.output_modes import output_parts
+
+        return "framework" in output_parts(self.output_mode or self.config.output.mode)
+
+    def _table_source_note(self, spec, index=None) -> None:
+        """post155: the feed's source is a database table and table ingestion (the
+        RDMS sheet) is not built: its IIG is held. Said once - a NOTE line and one
+        non-blocking open item (the run reads PASS_WITH_OPEN_INPUTS, never PASS)."""
+        from codegen.cli import answer_line
+        from codegen.emit.framework import TABLE_SOURCE_HOLD
+
+        key = (f"feeds[{index}].iig_held" if isinstance(index, int)
+               else f"{spec.feed_id}.iig_held")
+        self.say(answer_line("NOTE", key, TABLE_SOURCE_HOLD.format(file_format=spec.file_format)))
+        self.open_items.append(run_stages.open_item("INPUT_NEEDED", key, feed=spec.feed_id))
 
     def _notebook_environment(self, spec, index=None) -> None:
         """post68: a value the notebook needs from the environment (a catalog,

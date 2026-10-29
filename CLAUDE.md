@@ -346,7 +346,11 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   `output.profile_mode: {acfc_prx: framework}`; the App offers only `output.app_options:
   [framework]` and shows `output.app_files`.
 - **Framework mode is what ACFC deploys:** an ADDITION to the client's existing
-  metadata-driven framework. Per feed: the deployment DDL (per conventions profile),
+  metadata-driven framework. A feed whose FRD states a database-table source
+  (`framework.table_source_formats`) is table ingestion, not built yet (the RDMS sheet):
+  it writes its DDL + test cases and HOLDS the IIG (no IIG / review / config rows /
+  inserts; a flag, a HELD BACK line, one non-blocking NOTE) - never file-ingestion rows
+  for a table (post155). Per feed: the deployment DDL (per conventions profile),
   the IIG workbook + its BSA review copy, `framework/metadata_inserts.sql` (one INSERT
   per IIG row; an open cell = unquoted `<<COLUMN#n>>`), `config_rows.xlsx`,
   `ADDITION.md`, and (acfc_prx) the DDL test cases `<ABBREV>_DDL_TestCases.txt` — a

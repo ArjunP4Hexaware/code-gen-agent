@@ -108,6 +108,21 @@ def is_ddl_test_cases(name: str) -> bool:
 
 def is_ddl_test_workbook(name: str) -> bool:
     return name.endswith(DDL_TEST_WORKBOOK_SUFFIX)
+
+
+def is_table_source(spec: ResolvedFeedSpec, config: Config) -> bool:
+    """post155: the FRD states the feed's source is a database table
+    (``framework.table_source_formats``) - table ingestion, whose RDMS sheet is
+    not built: the feed's IIG is held, never written as file-ingestion rows."""
+    def norm(value: str) -> str:
+        return " ".join(str(value or "").lower().split())
+
+    return norm(spec.file_format) in {norm(f) for f in config.framework.table_source_formats}
+
+
+TABLE_SOURCE_HOLD = ("the IIG, its review copy, config rows and metadata inserts are not "
+                     "written: the FRD states the source is a database table (file format "
+                     "{file_format!r}), and table ingestion (the RDMS sheet) is not built yet")
 DDL_TARGET_HEADER = "-- TARGET SYSTEM = Databricks (Unity Catalog) — run in SQL editor/notebook"
 
 
@@ -1044,13 +1059,40 @@ def emit_framework(
             ddl_names.append(txt_path.name)
         definitions = None
     dml_disabled_reason = _dml_disabled_reason(config, profile, conventions_profile)
+    # post155: a table-sourced feed writes its DDL + test cases and holds the IIG
+    table_source = is_table_source(spec, config)
+    checks: list[GateCheck] = []
+    if definitions is None:
+        definitions = table_definitions(spec, profile, [], config)
+    # post128: the DDL test cases are no DDL - their own read-only check
+    test_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
+                  if is_ddl_test_cases(p.name)]
+    ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
+                 if p.suffix == ".txt" and not is_ddl_test_cases(p.name)]
+    ddl_checks = [check_sql_literals(ddl_texts, config, path_whitespace),
+                  check_ddl_identifiers(definitions)]
+    if config.gate.ddl_parse_dialect:
+        ddl_checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect))
+        if test_texts:
+            ddl_checks.append(check_ddl_tests_read_only(test_texts,
+                                                        config.gate.ddl_parse_dialect))
+    if table_source:
+        held = TABLE_SOURCE_HOLD.format(file_format=spec.file_format)
+        flags.append(f"iig_held:table_ingestion — {held}")
+        unqualified = [f for f in flags if f.startswith(("catalog_unstated:",
+                                                         "schema_unstated:"))]
+        if unqualified:
+            checks.append(GateCheck(name="qualified_names", passed=False,
+                                    details="; ".join(unqualified)))
+        checks.extend(ddl_checks)
+        return _held_iig_artefacts(spec, config, files, framework_dir, banner, ddl_names,
+                                   flags, checks, held, dml_disabled_reason, empty_by_rule,
+                                   conventions_profile)
     # Multi-table step 6 (2026-10-08: on EVERY framework run): the metadata
     # INSERT rows that define the tables — the client's "DDL", rule 8 — from
     # the same payload as the IIG. The table index reuses the CREATE text's
     # definitions (flags raised once); another layout computes them for the
     # index only, its flags discarded (its own DDL path raised them).
-    if definitions is None:
-        definitions = table_definitions(spec, profile, [], config)
     metadata_inserts = emit_metadata_inserts(
         spec, payload, definitions, config, framework_dir, banner,
         ddl_name=" / ".join(ddl_names) or None, faq=faq)
@@ -1066,7 +1108,6 @@ def emit_framework(
         files.extend(dml_artefacts.files)
         flags.extend(dml_artefacts.flags)
     # M7 gate checks: unstated catalog / schema is a FAIL, not a flag.
-    checks: list[GateCheck] = []
     if dml_artefacts is not None:
         checks.extend(dml_artefacts.checks)
     checks.append(metadata_inserts.check)
@@ -1074,17 +1115,7 @@ def emit_framework(
     if unqualified:
         checks.append(GateCheck(name="qualified_names", passed=False,
                                 details="; ".join(unqualified)))
-    # post128: the DDL test cases are no DDL - their own read-only check
-    test_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
-                  if is_ddl_test_cases(p.name)]
-    ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
-                 if p.suffix == ".txt" and not is_ddl_test_cases(p.name)]
-    checks.append(check_sql_literals(ddl_texts, config, path_whitespace))
-    checks.append(check_ddl_identifiers(definitions))
-    if config.gate.ddl_parse_dialect:
-        checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect))
-        if test_texts:
-            checks.append(check_ddl_tests_read_only(test_texts, config.gate.ddl_parse_dialect))
+    checks.extend(ddl_checks)
     checks.append(check_iig_derivations(payload, config, path_whitespace))
 
     rows_workbook = build_workbook(payload)
@@ -1202,6 +1233,42 @@ def emit_framework(
     )
 
 
+def _held_iig_artefacts(spec, config, files, framework_dir, banner, ddl_names, flags,
+                        checks, held, dml_disabled_reason, empty_by_rule,
+                        conventions_profile) -> FrameworkArtefacts:
+    """post155: a table-sourced feed's framework output - the DDL and its test
+    cases (already written), and ADDITION.md saying the IIG is held and why. No
+    payload travels on, so the combined IIG never carries the feed."""
+    ddl_list = " / ".join(f"`{name}`" for name in ddl_names) or "the DDL"
+    ddl_row = (
+        f"| {ddl_list} | The Databricks (Unity Catalog) table DDL, in the client's "
+        "reference format. **Applied by the CI/CD pipeline after the IIG is approved** — "
+        "the agent never creates target tables. |"
+    )
+    held_back = [held]
+    addition_path = framework_dir / "ADDITION.md"
+    addition_path.write_text(
+        _ADDITION_TEMPLATE.format(
+            slug=spec.feed_slug,
+            banner="\n".join(f"- {k}: {v}" for k, v in banner),
+            ddl_row=ddl_row,
+            iig_rows="",
+            review_flow=f"- **HELD BACK**: {held}.",
+            id_placeholder=config.framework.id_placeholder,
+            blank_columns="- none (no IIG written)",
+            segmented_block="\n" + "\n".join(f"- **HELD BACK**: {h}" for h in held_back) + "\n",
+        ),
+        encoding="utf-8", newline="\n",
+    )
+    files.append(addition_path)
+    return FrameworkArtefacts(
+        files=files, row_counts={}, coverage={}, flagged_blank_columns=[],
+        assumed_notes=[], held_back=held_back, flags=flags, checks=checks, payload=None,
+        groups=artefact_groups(files), dml_disabled_reason=dml_disabled_reason,
+        empty_by_rule=empty_by_rule,
+    )
+
+
 def _iig_addition_rows(review_name: str, clean_name: str, config: Config) -> str:
     """IIG-first: the ADDITION.md rows for the two IIG workbooks (only when
     the profile emits them)."""
@@ -1297,6 +1364,9 @@ def report_section(artefacts: FrameworkArtefacts) -> str:
 
 def derived_line(coverage: dict[str, int]) -> str:
     """The labelled derived ratio of the report's framework section."""
+    if not coverage:
+        # post155: a held IIG (a table source) has no cells to count
+        return "cells derived from documents: none - no IIG written (held)"
     return (f"cells derived from documents: {coverage['derived']:,} of "
             f"{coverage['total']:,}; the rest are profile defaults, framework-assigned "
             "blanks, or open inputs")

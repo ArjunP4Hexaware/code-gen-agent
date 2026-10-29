@@ -144,6 +144,11 @@ class FrameworkConfig(BaseModel):
 
     metadata_layout: str = "demo.metadata_sheet"
     sql_dialect: Literal["sqlserver", "lakebase"] = "sqlserver"
+    # post155: the FRD file-format words that mean the source is a DATABASE TABLE
+    # (compared lower case, spaces collapsed). Table ingestion (the RDMS sheet) is
+    # not built: such a feed gets its DDL and test cases, never file-ingestion IIG
+    # rows. [] = every feed is file ingestion.
+    table_source_formats: list[str] = Field(default_factory=list)
     id_placeholder: str = "NULL"
     # Optional per-tab table override, e.g. {file_layout: dbo.ig_file_layout}.
     tables: dict[str, str] = Field(default_factory=dict)

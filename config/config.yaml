@@ -60,6 +60,11 @@ framework:
   # single source of truth (a stand-in until the client's template arrives;
   # values carry over).
   metadata_layout: demo.metadata_sheet
+  # post155: the FRD file formats that mean the source is a database table (two client
+  # pairs state "Database Table"; docs/acfc/SHAPES_FOR_PORT.md: "Source here is a
+  # database table (not a file)"). Table ingestion (the RDMS sheet) is not built, so
+  # such a feed writes its DDL + test cases and holds the IIG - never ADLS file rows.
+  table_source_formats: ["database table"]
   # sqlserver | lakebase — the framework DB the inserts target. The store is
   # moving toward Databricks-native; the adapter stays thin and swappable.
   sql_dialect: sqlserver

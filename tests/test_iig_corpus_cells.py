@@ -79,8 +79,8 @@ def test_email_four_status_rows_with_the_corpus_subjects_and_bodies(tmp_path):
 
 
 def test_notebook_names_paths_and_process_names_by_flow_and_format(tmp_path):
-    """pair_11 is a plain delimited feed: FileInvokeDQDeltaTable_V0.1 (V0.2 noted
-    for Nikshit); the standard leg DeltaInvokeDQStandardDeltaTable_V4."""
+    """pair_11 is a plain delimited feed: FileInvokeDQDeltaTable_V0.1 (V0.2 noted, to
+    be confirmed); the standard leg DeltaInvokeDQStandardDeltaTable_V4."""
     _spec, gate, xlsx = _run(FRD, _acfc(), tmp_path)
     stage, standard = _rows(xlsx, NB)
     application, _freq = _source_and_freq(xlsx)
@@ -99,7 +99,9 @@ def test_notebook_names_paths_and_process_names_by_flow_and_format(tmp_path):
         assert row["PIPELINE_NAME"][0] in (None, "") and row["PIPELINE_NAME"][1] == OPEN
     flags = _notes(gate)
     assert any(f.startswith("iig_corpus:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME")
-               and "V0.2 4.0%" in f and "Nikshit" in f for f in flags)
+               and "V0.2 4.0%" in f and "is to be confirmed" in f for f in flags)
+    # post150: the note reaches the client's files - it names no person
+    assert not any("Nikshit" in f for f in flags)
     assert any(f.startswith("iig_corpus:DATABRICKS_NOTEBOOK_DETAILS.DATABRICKS_NOTEBOOK_NAME")
                and "86.2%" in f for f in flags)
 

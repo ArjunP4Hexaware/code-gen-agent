@@ -67,6 +67,13 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 - **Decided by Soham this session** (all in CLAUDE.md): stage column types as the STTM
   states; ONE combined `<ABBREV>_DDL.txt`; table COMMENT = Table Description + load
   strategy; the LOB question asked once, never blocking; ACFC's visual identity; then (post143) the guided look of the STTM agent's App, rounded.
+- **pair_09 (one STTM sheet, 36 database tables) - parked with the RDMS sheet (Soham,
+  2026-10-29, option B).** post155 holds a table source's IIG; post156 splits a one-sheet,
+  N-table STTM per table when the FRD NAMES the tables. pair_09's FRD names none (tables
+  from the STTM, the 36 file patterns from the VDD, the format from its answers), so it
+  still FAILs. To finish: split when the FRD names no table (STTM authoritative), and in
+  the gap fill give each table source its own object (exact identity with its source
+  table / the STTM source table), never the VDD's whole list - do it with the RDMS sheet.
 - **Open, needs others:**
   - pair_03 is GATE_FAIL (`ddl_identifiers` 8 + `ddl_parses`): four column names in its
     STTM carry a stray space after an underscore (`WORD_WORD_ 9_WORD`; third sheet,

@@ -4,10 +4,10 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-29 — post153 deployed)
+## State (2026-10-29 — post154 deployed)
 
 - **Branch** `feature/multi-table`: pushed, working tree clean. App `codegen-agent`
-  deployed from post153, `/api/health` = `0.5.8.post153`, smoke green (Generate `/` +
+  deployed from post154, `/api/health` = `0.5.8.post154`, smoke green (Generate `/` +
   Results `/results`: 200, no console errors). Both suites green on every version.
 - **This session's App work** (CHANGELOG_ACFC.md): post143 the guided look of the STTM
   agent's App (UX skill Part 1 "Design pillars"); post144 Generate is `/` (Results
@@ -19,7 +19,10 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   progress bar; post147 the environment line inside Advanced; post148 the feed Overview
   in the Results layout, new-pair estimate 6–8 DBU; post149/150 client-facing text and
   generated files name no person; post151 "Generate Documents" again; post152 the run
-  card under the Generate button; post153 the DDL test cases' column check (0-based).
+  card under the Generate button; post153 the DDL test cases' column check (0-based);
+  post154 the client's pipeline-level test cases (load strategy on a second file, a
+  second file, several files, one email case per IIG status) + the test-record
+  workbook `<ABBREV>_DDL_TestCases.xlsx` (Aruna's layout; combined: one sheet per feed).
 - **DDL test on D1 (Soham, 2026-10-29; Venu asked whether the DDL is functional).**
   Schema `d1_dlk.soham_test` created (owner Soham's account, managed, comment says
   disposable; empty again after the test). Warehouse: Serverless Starter
@@ -44,6 +47,15 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
     187 files both sides, 17 differ — all `_DDL_TestCases.txt`, only by the `+ 1`.
   - Not tested yet: loading a real file through the framework (the load cases are
     written steps); pair_03's DDL.
+  - **Audit-log test case (item 4 of the post154 list): blocked on a name.** The
+    framework's audit DB (SQL Server, Bastion) is said to be cloned in Unity Catalog under
+    d1_dlk / d1_std, schema varying per pair. Searched 2026-10-29 (metadata only): no
+    catalog like it, no table with the audit sheet's columns (PIPELINE_EXEC_ID,
+    EXEC_STATUS, SRC_REC_COUNT, BATCH_CYCLE_NUMBER together); nearest
+    `d1_dlk.monitoring_temp.data_factory_pipeline_exec_log*_dev` (5 of 14 columns, a temp
+    dev table). information_schema shows only what the login may read - ask Soham for
+    ONE known example (a pair's audit table full name); the pattern goes in the
+    environment state file, never the repo.
 - **Open (UI, optional):** the feed page's Overview kept its panels (restyled), not
   the issue-card layout of Results. The new-pair DBU figure stays an estimate until a
   live first run on an unmapped pair is recorded. Tours: `/tmp/t/ux/tour143.js`,

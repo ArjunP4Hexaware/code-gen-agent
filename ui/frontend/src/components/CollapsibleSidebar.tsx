@@ -11,11 +11,17 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 export const SIDEBAR_ID = "app-sidebar";
 export const SIDEBAR_STORAGE_KEY = "codegen.sidebar.open.v2";
 
+// post143: below this width the sidebar is a drawer over the page (styles.css),
+// so a first visit there starts with it hidden
+export const NARROW_PX = 760;
+
 function readOpen(): boolean {
   try {
-    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) !== "false";
+    const saved = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (saved === null) return window.innerWidth > NARROW_PX;
+    return saved !== "false";
   } catch {
-    return true;
+    return window.innerWidth > NARROW_PX;
   }
 }
 

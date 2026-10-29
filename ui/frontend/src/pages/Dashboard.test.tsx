@@ -48,7 +48,9 @@ describe("Dashboard notebooks (post81)", () => {
       </MemoryRouter>));
     const panel = host.querySelector('[aria-label="notebooks"]')!;
     const links = [...panel.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual(["syn_a.ipynb"]);
+    // post143: one row per file, its Download button named for the file
+    expect(links.map((a) => a.getAttribute("aria-label"))).toEqual(["Download syn_a.ipynb"]);
+    expect(panel.textContent).toContain("syn_a.ipynb");
     expect(links[0].getAttribute("href")).toBe(
       "/api/feeds/syn_a/download?path=notebook%2Fsyn_a.ipynb");
     expect(host.textContent).toContain("Optional: the notebooks, DDL and");
@@ -64,10 +66,10 @@ describe("Dashboard notebooks (post81)", () => {
                    onFeedsChanged={() => undefined} />
       </MemoryRouter>));
     const links = [...host.querySelector('[aria-label="notebooks"]')!.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual(
-      ["Download all (2) .zip", "syn_a.ipynb", "syn_c.ipynb"]);
-    expect(links[0].getAttribute("href")).toBe("/api/notebooks.zip");
-    expect(links[0].hasAttribute("download")).toBe(true);
+    expect(links.map((a) => a.getAttribute("aria-label") ?? a.textContent)).toEqual(
+      ["Download syn_a.ipynb", "Download syn_c.ipynb", "Download all (2) .zip"]);
+    expect(links[2].getAttribute("href")).toBe("/api/notebooks.zip");
+    expect(links[2].hasAttribute("download")).toBe(true);
   });
 });
 
@@ -90,8 +92,9 @@ describe("Dashboard framework artefacts (post91)", () => {
                "STTM_Syn_LOG.md"] }] });
     expect(host.textContent).toContain("STTM_Syn DDL and IIG");
     const links = [...host.querySelectorAll('a[href^="/api/combined/"]')];
-    expect(links.map((a) => a.textContent)).toEqual([
-      "STTM_Syn_DDL.txt", "STTM_Syn_IIG.xlsx", "STTM_Syn_IIG_REVIEW.xlsx", "STTM_Syn_LOG.md"]);
+    expect(links.map((a) => a.getAttribute("aria-label"))).toEqual([
+      "Download STTM_Syn_DDL.txt", "Download STTM_Syn_IIG.xlsx",
+      "Download STTM_Syn_IIG_REVIEW.xlsx", "Download STTM_Syn_LOG.md"]);
     expect(host.querySelector('a[href^="/api/feeds/syn_a/download"]')).toBeNull();
   });
 
@@ -117,14 +120,21 @@ describe("Dashboard sections and the IDs to assign (post101)", () => {
                  onFeedsChanged={() => undefined} />
     </MemoryRouter>));
 
-  it("starts with the run summary and the feed cards collapsed", () => {
+  // post143 (the guided look): the counts first, then the files, then the feeds -
+  // nothing folded but the team's details
+  it("shows the counts, then the files, then the feed cards", () => {
     show({});
-    for (const name of ["run summary", "feeds"]) {
-      const section = host.querySelector<HTMLDetailsElement>(`details[aria-label="${name}"]`)!;
-      expect(section.open).toBe(false);
+    const order = ["run summary", "framework artefacts", "feeds"]
+      .map((name) => host.querySelector(`[aria-label="${name}"]`)!);
+    expect(order.every(Boolean)).toBe(true);
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
     }
-    expect(host.querySelector('details[aria-label="feeds"] summary')!.textContent).toContain(
-      "Feeds (2)");
+    expect(host.querySelector("details[aria-label]")).toBeNull();
+    expect(host.querySelector('[aria-label="feeds"] h2')!.textContent).toContain("Feeds (2)");
+    expect(host.querySelector('[aria-label="run summary"]')!.textContent).toContain(
+      "passed with flags2");
     expect(host.textContent).toContain("Framework artefacts");
   });
 

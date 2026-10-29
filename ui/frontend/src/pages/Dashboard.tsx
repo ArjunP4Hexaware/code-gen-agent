@@ -5,6 +5,7 @@ import { APPROVAL_NOTE, blankIdColumns, idsToAssign, layer2Line, presentedArtefa
 import { notebooksOffered } from "../appOptions";
 import { lobLabel } from "../lobs";
 import { CLASS_COLORS, CLASS_LABELS } from "../components/ClassBadge";
+import { Icon, fileIcon } from "../components/Icons";
 import { StatTile } from "../components/StatTile";
 import { VerdictChip } from "../components/VerdictChip";
 
@@ -157,30 +158,32 @@ export function Dashboard({
     0,
   );
 
+  const passWithFlags = byVerdict("PASS_WITH_FLAGS");
+  const failed = byVerdict("FAIL");
+  const fileRow = (name: string, href: string) => (
+    <li key={href} className="doc-row">
+      <span className="doc-row-icon"><Icon name={fileIcon(name)} size={24} /></span>
+      <span className="doc-row-main">
+        <span className="doc-row-name">{name}</span>
+      </span>
+      <span className="doc-row-actions">
+        <a className="btn" href={href} download aria-label={`Download ${name}`}>
+          <Icon name="download" size={16} />
+          Download
+        </a>
+      </span>
+    </li>
+  );
+
   return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>Generation gate</h1>
-          <div className="sub">
-            Pipelines generated from approved FRD + STTM contracts. Every rule is compiled
-            deterministically or routed to a reviewed Layer-2 candidate — nothing lands unreviewed.
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            className="btn"
-            onClick={() => setConfirmReset(true)}
-            disabled={resetting}
-            title="Clear all approve/reject decisions recorded for the currently loaded run"
-          >
-            Reset decisions
-          </button>
-          <button className="btn primary" onClick={onGenerateAll} disabled={generating}>
-            {generating ? <span className="spin" /> : null}
-            {generating ? "Generating…" : "Generate all feeds"}
-          </button>
-        </div>
+    <div className="landing">
+      <div className="landing-head">
+        <h1 className="landing-title">Results</h1>
+        <p className="landing-lead">
+          {feeds.length === 0
+            ? "No results yet. Generate a pipeline and its files appear here."
+            : "Download the files, then review each feed's flags before the DDL and the IIG go further."}
+        </p>
       </div>
 
       {confirmReset ? (
@@ -222,100 +225,132 @@ export function Dashboard({
         </div>
       ) : null}
 
-      {/* post101: the run summary and the feed cards start collapsed, so the
-          Framework artefacts are the first thing on the page */}
-      <details className="dash-section" aria-label="run summary">
-        <summary>
-          <strong>Run summary</strong>
-          <span className="hint">
-            {" "}
-            {feeds.length} feed(s) · {byVerdict("PASS")} pass, {byVerdict("PASS_WITH_FLAGS")} with
-            flags, {byVerdict("FAIL")} failed · {rules ? `${deterministic}/${rules}` : "—"} rules
-            compiled
-            {deferred.length ? " · Layer-2 review pending" : ""}
-          </span>
-        </summary>
-      <div className="tiles">
-        <StatTile label="Feeds" value={feeds.length} hint="from configured contract pairs" />
-        <StatTile
-          label="Pass"
-          value={byVerdict("PASS")}
-          hint={`${byVerdict("PASS_WITH_FLAGS")} with flags · ${byVerdict("FAIL")} failed`}
-        />
-        <StatTile
-          label="Rules compiled"
-          value={rules ? `${deterministic}/${rules}` : "—"}
-          hint="deterministic (Layer 1 + orchestration)"
-        />
-        <StatTile
-          label="Pending review"
-          value={pending}
-          hint="Layer-2 candidates awaiting an engineer"
-        />
-      </div>
+      {feeds.length === 0 ? (
+        <div className="card" style={{ textAlign: "center" }}>
+          <p className="empty" style={{ padding: "8px 0 16px" }}>
+            No feeds generated yet — the backend generates on startup.
+          </p>
+          <Link className="btn primary lg" to="/modes">Generate a pipeline</Link>
+        </div>
+      ) : (
+        <div className="run-stats" aria-label="run summary">
+          <StatTile label={feeds.length === 1 ? "feed" : "feeds"} value={feeds.length} />
+          <StatTile label="passed" value={byVerdict("PASS")} />
+          <StatTile label="passed with flags" value={passWithFlags}
+                    hint="flags are for a person to check" />
+          <StatTile label="failed" value={failed} tone={failed ? "bad" : undefined} />
+        </div>
+      )}
+
+      {feeds.some((f) => f.framework) ? (
+        <section className="card" aria-label="framework artefacts">
+          <div className="card-head">
+            <h2>Your files — Framework artefacts</h2>
+          </div>
+          <p className="card-sub">{APPROVAL_NOTE}</p>
+          {/* post87: said once for the run, not under every feed */}
+          {assign ? (
+            assign.length ? (
+              <div className="note-line" aria-label="ids to assign" style={{ marginBottom: 6 }}>
+                <strong>Assign before loading:</strong>{" "}
+                {assign.map((a, i) => (
+                  <span key={a.column}>
+                    {i ? " · " : ""}
+                    <code>{a.column}</code> ({a.hint})
+                  </span>
+                ))}
+              </div>
+            ) : null
+          ) : (
+            <div className="hint" style={{ marginBottom: 6, fontSize: 12 }}>
+              Framework-assigned IDs left blank: {blankIds.common.join(", ") || "none"} — the
+              agent never invents them.
+            </div>
+          )}
+          {/* post91: one set per STTM when the run wrote one; else per feed */}
+          {combined.map((set) => (
+            <div key={set.sttm ?? "run"}>
+              <div className="file-set-title">{set.sttm ?? "This run"} DDL and IIG</div>
+              <ul className="file-rows">
+                {set.files.map((name) =>
+                  fileRow(name, `/api/combined/${encodeURIComponent(name)}`))}
+              </ul>
+            </div>
+          ))}
+          {(combined.length ? [] : framed).map((f, i) => (
+            <div key={f.feed_slug}>
+              <div className="file-set-title"><code>{f.feed_slug}</code></div>
+              {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
+                  ADDITION.md — the other files are still written, not listed;
+                  post98: narrowed to output.app_files (review copy hidden) */}
+              <ul className="file-rows">
+                {presentedArtefacts(f.framework!.files, data?.app_files).map((name) =>
+                  fileRow(name, `/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`))}
+              </ul>
+              {!assign && blankIds.extra[i].length ? (
+                <div className="hint" style={{ marginTop: 4, fontSize: 12 }}>
+                  Also left blank for this feed: {blankIds.extra[i].join(", ")}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {/* post81: the notebooks one click from the results — never behind Layer 2 */}
       {notebooks.length ? (
-        <div className="panel" style={{ marginTop: 18 }} aria-label="notebooks">
-          <div className="panel-head">
+        <section className="card" aria-label="notebooks">
+          <div className="card-head">
             <h2>Notebooks</h2>
-            <span className="hint">ready to download — the Layer-2 review is optional</span>
+            <span className="card-count muted">ready to download — the Layer-2 review is optional</span>
           </div>
-          <div className="panel-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {/* post90: every notebook in one zip - still one file per feed inside */}
-            {notebooks.length > 1 ? (
+          <ul className="file-rows">
+            {notebooks.map((f) =>
+              fileRow(f.notebook!.slice(f.notebook!.lastIndexOf("/") + 1),
+                      `/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(f.notebook!)}`))}
+          </ul>
+          {/* post90: every notebook in one zip - still one file per feed inside */}
+          {notebooks.length > 1 ? (
+            <div className="card-actions">
               <a className="btn primary" href="/api/notebooks.zip" download>
                 Download all ({notebooks.length}) .zip
               </a>
-            ) : null}
-            {notebooks.map((f) => (
-              <a
-                key={f.feed_slug}
-                className="btn"
-                href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(f.notebook!)}`}
-                download
-              >
-                {f.notebook!.slice(f.notebook!.lastIndexOf("/") + 1)}
-              </a>
-            ))}
-          </div>
-        </div>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       {deferred.length ? (
-        <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-head">
+        <section className="card" aria-label="layer-2 review">
+          <div className="card-head">
             <h2>Layer-2 review</h2>
-            <span className="hint">
-              review candidates: pending — {deferred.reduce((n, f) => n + f.layer2!.rules, 0)}{" "}
-              unmapped rule(s) over {deferred.length} feed(s).{" "}
-              {notebooksOffered(data?.app_options)
-                ? "Optional: the notebooks, DDL and IIG are already written and downloadable; " +
-                  "asking adds the model's review candidates (and the notebook's trailing " +
-                  "review cell)"
-                : "Optional: the DDL and IIG are already written and downloadable; asking " +
-                  "adds the model's review candidates"}
+            <span className="card-count warn">
+              {deferred.reduce((n, f) => n + f.layer2!.rules, 0)} unmapped rule(s)
             </span>
           </div>
-          <div className="panel-body">
-            <button className="btn primary" onClick={askLayer2} disabled={asking}>
-              {asking ? <span className="spin" /> : null}
-              {asking ? "Asking…" : `Ask the model (${deferred.length} request(s))`}
-            </button>
-            {askError ? <div className="error-banner">{askError}</div> : null}
-          </div>
-        </div>
+          <p className="card-sub">
+            review candidates: pending — {deferred.reduce((n, f) => n + f.layer2!.rules, 0)}{" "}
+            unmapped rule(s) over {deferred.length} feed(s).{" "}
+            {notebooksOffered(data?.app_options)
+              ? "Optional: the notebooks, DDL and IIG are already written and downloadable; " +
+                "asking adds the model's review candidates (and the notebook's trailing " +
+                "review cell)"
+              : "Optional: the DDL and IIG are already written and downloadable; asking " +
+                "adds the model's review candidates"}
+          </p>
+          <button className="btn primary" onClick={askLayer2} disabled={asking}>
+            {asking ? <span className="spin" /> : null}
+            {asking ? "Asking…" : `Ask the model (${deferred.length} request(s))`}
+          </button>
+          {askError ? <div className="error-banner" style={{ marginTop: 10 }}>{askError}</div> : null}
+        </section>
       ) : null}
-      </details>
 
-      {feeds.length === 0 ? (
-        <div className="empty">No feeds generated yet — the backend generates on startup.</div>
-      ) : (
-        <details className="dash-section" aria-label="feeds">
-          <summary>
-            <strong>Feeds ({feeds.length})</strong>
-            <span className="hint">
-              {" "}
+      {feeds.length ? (
+        <section className="card" aria-label="feeds">
+          <div className="card-head">
+            <h2>Feeds ({feeds.length})</h2>
+            <span className={`card-count${passWithFlags || failed ? " warn" : ""}`}>
               {[
                 ["PASS", "pass"],
                 ["PASS_WITH_FLAGS", "with flags"],
@@ -325,91 +360,54 @@ export function Dashboard({
                 .map(([v, label]) => `${byVerdict(v)} ${label}`)
                 .join(" · ")}
             </span>
-          </summary>
+          </div>
+          <p className="card-sub">Open a feed to see its gate checks, flags, rules and generated code.</p>
           <div className="card-grid">
             {feeds.map((f) => (
               <FeedCard key={f.feed_slug} feed={f} />
             ))}
           </div>
-        </details>
-      )}
+        </section>
+      ) : null}
 
-      {feeds.some((f) => f.framework) ? (
-        <div className="panel" style={{ marginTop: 18 }}>
-          <div className="panel-head">
-            <h2>Framework artefacts</h2>
-            <span className="hint">{APPROVAL_NOTE}</span>
+      <details className="details-fold">
+        <summary>Details for the team</summary>
+        <div className="details-body card">
+          <div className="tiles" style={{ marginBottom: 14 }}>
+            <StatTile
+              label="Rules compiled"
+              value={rules ? `${deterministic}/${rules}` : "—"}
+              hint="deterministic (Layer 1 + orchestration)"
+            />
+            <StatTile
+              label="Pending review"
+              value={pending}
+              hint="Layer-2 candidates awaiting an engineer"
+            />
           </div>
-          <div className="panel-body">
-            {/* post87: said once for the run, not under every feed */}
-            {assign ? (
-              assign.length ? (
-                <div className="hint" aria-label="ids to assign" style={{ marginBottom: 12 }}>
-                  <strong>Assign before loading:</strong>{" "}
-                  {assign.map((a, i) => (
-                    <span key={a.column}>
-                      {i ? " · " : ""}
-                      <code>{a.column}</code> ({a.hint})
-                    </span>
-                  ))}
-                </div>
-              ) : null
-            ) : (
-              <div className="hint" style={{ marginBottom: 12, fontSize: 11 }}>
-                Framework-assigned IDs left blank: {blankIds.common.join(", ") || "none"} — the
-                agent never invents them.
-              </div>
-            )}
-            {/* post91: one set per STTM when the run wrote one; else per feed */}
-            {combined.map((set) => (
-              <div key={set.sttm ?? "run"} style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 650, marginBottom: 6 }}>
-                  {set.sttm ?? "This run"} DDL and IIG
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {set.files.map((name) => (
-                    <a
-                      key={name}
-                      className="btn"
-                      href={`/api/combined/${encodeURIComponent(name)}`}
-                      download
-                    >
-                      {name}
-                    </a>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {(combined.length ? [] : framed).map((f, i) => (
-              <div key={f.feed_slug} style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 650, marginBottom: 4 }}>
-                  <code>{f.feed_slug}</code>
-                </div>
-                {/* 2026-10-16: exactly the DDL, the IIG, its BSA review copy and
-                    ADDITION.md — the other files are still written, not listed;
-                    post98: narrowed to output.app_files (review copy hidden) */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                  {presentedArtefacts(f.framework!.files, data?.app_files).map((name) => (
-                    <a
-                      key={name}
-                      className="btn"
-                      href={`/api/feeds/${f.feed_slug}/download?path=${encodeURIComponent(`framework/${name}`)}`}
-                      download
-                    >
-                      {name}
-                    </a>
-                  ))}
-                </div>
-                {!assign && blankIds.extra[i].length ? (
-                  <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
-                    Also left blank for this feed: {blankIds.extra[i].join(", ")}
-                  </div>
-                ) : null}
-              </div>
-            ))}
+          <p className="hint" style={{ marginTop: 0 }}>
+            Layer 1 is deterministic (Jinja2); Layer 2 only writes review candidates. The gate
+            verdict is computed in code, never by judgment. Every rule is compiled
+            deterministically or routed to a reviewed Layer-2 candidate — nothing lands
+            unreviewed.
+          </p>
+          <div className="card-actions">
+            <button
+              className="btn"
+              onClick={() => setConfirmReset(true)}
+              disabled={resetting}
+              title="Clear all approve/reject decisions recorded for the currently loaded run"
+            >
+              Reset decisions
+            </button>
+            <button className="btn" onClick={onGenerateAll} disabled={generating}
+                    title="A dry-run over the configured contract pairs (config contracts.pairs)">
+              {generating ? <span className="spinner sm" /> : null}
+              {generating ? "Generating…" : "Generate all feeds"}
+            </button>
           </div>
         </div>
-      ) : null}
-    </>
+      </details>
+    </div>
   );
 }

@@ -438,18 +438,22 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   RESTART.md); every deploy restarts the container and wipes its local run state. The
   manifest `app.yaml` sets `CODEGEN_PROVIDER=live`, the storage roles and
   `CODEGEN_STATE_DIR`; re-lock to the mock with `CODEGEN_FORCE_MOCK_PROVIDER=1`.
-- One run page, "Generate" (`/modes`): "Choose documents…" (STTM / FRD / VDD), output
-  toggles, selectors, Generate, the dialog that asks blocking questions BEFORE
-  generating, then "View results" (the Dashboard). The App's API wants an OAuth token,
-  not a PAT.
+- One guided run page, "Generate a pipeline" (`/modes`): a step strip (Choose
+  documents → Check the settings → Answer questions → Get the results), a Documents
+  card (drop zone + "Choose documents…", STTM / FRD / VDD rows), a Settings card
+  (Advanced folded), the run card with the questions asked BEFORE generating, then
+  "View results" (Results, `/`). The App's API wants an OAuth token, not a PAT.
 - Deprecated, no UI consumer (kept for API compatibility; nothing new may depend on
   them): `/api/replay/*`, `/api/demo/live-runs`, `/api/demo/input-documents`.
 - **Look:** ACFC's own design tokens (its public style guide: Brand / Text and Accents /
-  UI colours, Open Sans bundled via `@fontsource`, square corners), defined ONCE in
+  UI colours, Open Sans bundled via `@fontsource`) in the guided style of the STTM
+  agent's App (Soham, 2026-10-29: white header, light sidebar, white ROUNDED cards with
+  a soft shadow, plain words, technical detail folded), defined ONCE in
   `ui/frontend/src/styles.css` `:root`. No hard-coded colour anywhere else (tints are
   `color-mix` of a token); status colours are reserved for verdicts / checks; every
-  text pair WCAG AA. No ACFC logo or name in the repo. The spec: the UX skill §4.1.
-- **What the App says about providers:** the sidebar badge = the provider the NEXT run
+  text pair WCAG AA. No ACFC logo or name in the repo (the header is a text wordmark).
+  The spec: the UX skill Part 1 "Design pillars" and §4.1.
+- **What the App says about providers:** the header badge = the provider the NEXT run
   uses (`/api/feeds` `provider`); a banner's LIVE / MOCK RUN word = the provider that
   answered the served run (`run_provider`). The served `mode` drives behaviour only —
   never show it as the provider (it read MOCK after every deploy of a live App).

@@ -86,7 +86,7 @@ async function openConfirm(): Promise<HTMLElement> {
   });
   await settle();
   const generate = [...host.querySelectorAll<HTMLButtonElement>("button")]
-    .find((b) => b.textContent?.trim() === "Generate Documents");
+    .find((b) => b.textContent?.trim() === "Generate");
   if (!generate) throw new Error(`no Generate button in: ${host.textContent}`);
   expect(generate.disabled).toBe(false);
   await act(async () => { generate.click(); });

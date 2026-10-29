@@ -4,6 +4,30 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post143 — 2026-10-29 (the App: the guided look of the STTM agent's App)
+
+Soham (2026-10-29): the App rebuilt in the style of the STTM agent's App, every
+capability kept. Frontend only; no backend route, generated file or verdict changes.
+- The look: a white header with the wordmark (no logo) and the provider badge, a light
+  sidebar with icons, white rounded cards with a soft shadow, brand-blue page titles.
+  The tokens stay ACFC's and stay in `styles.css` `:root`; corners are rounded now
+  (they were square, post135).
+- Generate is a guided page: a step strip (Choose documents → Check the settings →
+  Answer questions → Get the results), a Documents card with a drop zone (an .xlsx
+  uploads as the STTM, a .docx / .json as the FRD, anything else refused before an
+  upload), rows for STTM / FRD / VDD, a Settings card with Advanced folded, the run
+  card on top once a run exists, one action bar ("Generate"), and the requirement /
+  governance checks under "Details for the team". The confirm button says "run live"
+  only when a model can be called.
+- The Dashboard is "Results": four count tiles, the files as rows with a Download
+  button each (named for its file), Notebooks, Layer-2 review, the feeds; rules
+  compiled, the doctrine sentence, Reset decisions and Generate all feeds under
+  "Details for the team". The feed page gains "← Results".
+- Below 760px the sidebar is a drawer over the page, hidden on a first visit.
+- Tests: `GuidedGenerate.test.tsx` (step strip, drop-zone routing, the mock wording),
+  a narrow-screen sidebar test; Dashboard / confirm tests follow the new layout and
+  copy. The UX skill gains Part 1 "Design pillars"; CLAUDE.md's Look rule says rounded.
+
 ## 0.5.8.post142 — 2026-10-29 (notebook v2: stage columns land as the STTM types them)
 
 Soham (2026-10-29): stage columns keep the types the STTM states, and the DDL

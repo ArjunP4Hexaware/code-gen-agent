@@ -114,6 +114,19 @@ describe("CollapsibleSidebar", () => {
     expect(aside().hidden).toBe(false);
   });
 
+  // post143: on a phone the sidebar is a drawer over the page; a first visit
+  // starts with it hidden, a person's own choice still wins
+  it("starts hidden on a narrow screen unless the person showed it", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(390);
+    mount();
+    expect(aside().hidden).toBe(true);
+    act(() => root.unmount());
+    host.remove();
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "true");
+    mount();
+    expect(aside().hidden).toBe(false);
+  });
+
   it("works when storage throws (shown, toggles for the page)", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");

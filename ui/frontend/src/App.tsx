@@ -4,6 +4,7 @@ import { api, type FeedsResponse } from "./api";
 import { CollapsibleSidebar, useSidebarOpen } from "./components/CollapsibleSidebar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ErrorCard } from "./components/ErrorCard";
+import { Icon } from "./components/Icons";
 import { usageSummary } from "./components/ModelUsage";
 import { VerdictDot } from "./components/VerdictChip";
 import { Dashboard } from "./pages/Dashboard";
@@ -52,65 +53,66 @@ export function App() {
     else void doGenerateAll();
   }, [data, doGenerateAll]);
 
+  // post136: the provider a run started now would use - never the served
+  // result set's mode (MOCK after every deploy, though live)
+  const badge = data ? providerBadge(data.provider) : null;
+
   return (
-    <div className={`shell${sidebarOpen ? "" : " sidebar-collapsed"}`}>
-      <CollapsibleSidebar open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <div className="sidebar-brand">
-          <div className="product">CodeGen · Data Engineer Agent</div>
-          <div className="org">Contracts → Databricks pipelines</div>
+    <div className="app">
+      {/* post143: a white header with the wordmark (no logo: the repo carries
+          none) and the provider badge, visible on every page */}
+      <header className="topbar">
+        <NavLink to="/modes" className="topbar-brand" title="Generate a pipeline">
+          <span className="product">CodeGen · Data Engineer Agent</span>
+          <span className="org">From an approved STTM and FRD to Databricks artefacts</span>
+        </NavLink>
+        <div className="topbar-status">
           {data ? (
-            // post136: the provider a run started now would use - never the
-            // served result set's mode (MOCK after every deploy, though live)
-            (() => {
-              const badge = providerBadge(data.provider);
-              return badge ? (
-                <span className={`mode-badge ${badge.className}`} title={badge.title}>
-                  {badge.text}
-                </span>
-              ) : (
-                <span
-                  className={`mode-badge mode-${data.mode}`}
-                  title={[modeCopy(data.mode), usageSummary(data.model_usage)]
-                    .filter(Boolean).join(" · ")}
-                >
-                  {data.mode.toUpperCase()}
-                  {data.label ? ` · ${data.label}` : ""}
-                </span>
-              );
-            })()
+            badge ? (
+              <span className={`mode-badge ${badge.className}`} title={badge.title}>
+                {badge.text}
+              </span>
+            ) : (
+              <span
+                className={`mode-badge mode-${data.mode}`}
+                title={[modeCopy(data.mode), usageSummary(data.model_usage)]
+                  .filter(Boolean).join(" · ")}
+              >
+                {data.mode.toUpperCase()}
+                {data.label ? ` · ${data.label}` : ""}
+              </span>
+            )
           ) : null}
         </div>
-        <div className="sidebar-section">Overview</div>
-        <nav>
-          <NavLink to="/" end className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
-            Dashboard
-          </NavLink>
+      </header>
+    <div className={`shell${sidebarOpen ? "" : " sidebar-collapsed"}`}>
+      <CollapsibleSidebar open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <nav className="primary-nav" aria-label="Sections">
           <NavLink
             to="/modes"
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
           >
-            Generate
-            <span className="nav-hint">STTM · FRD · VDD</span>
+            <Icon name="generate" />
+            Generate a pipeline
+          </NavLink>
+          <NavLink to="/" end className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+            <Icon name="results" />
+            Results
           </NavLink>
         </nav>
-        <div className="sidebar-section">Feeds</div>
-        <nav>
+        {data?.feeds.length ? <div className="sidebar-section">Feeds in these results</div> : null}
+        <nav aria-label="Feeds">
           {data?.feeds.map((f) => (
             <NavLink
               key={f.feed_slug}
               to={`/feeds/${f.feed_slug}`}
-              className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+              className={({ isActive }) => `nav-item feed${isActive ? " active" : ""}`}
             >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{f.feed_slug}</span>
+              <span className="slug">{f.feed_slug}</span>
               <VerdictDot verdict={f.verdict} />
             </NavLink>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          Layer 1 deterministic (Jinja2) · Layer 2 review-only candidates.
-          <br />
-          Gate verdict computed in code, never by judgment.
-        </div>
       </CollapsibleSidebar>
 
       <main className="main">
@@ -134,20 +136,18 @@ export function App() {
             <div className="modal">
               <h2>Replace the current {servedWords(data.mode, data.run_provider).heading} results?</h2>
               <p>
-                This replaces the current {servedWords(data.mode, data.run_provider).text} results
+                The results on screen now ({servedWords(data.mode, data.run_provider).text}
                 {data.label ? (
                   <>
-                    {" "}
-                    (<code>{data.label}</code>)
+                    , <code>{data.label}</code>
                   </>
-                ) : null}{" "}
-                with a fresh <strong>dry-run</strong> generate (a dry-run never calls a model).
-                You can reload them afterwards from
-                the Generate page.
+                ) : null}
+                ) are replaced by a fresh <strong>dry-run</strong>. A dry-run never calls a model.
+                You can load them again from the Generate page.
               </p>
               <div className="decision-row" style={{ marginTop: 14 }}>
                 <button className="btn primary" onClick={doGenerateAll}>
-                  Continue — dry-run generate
+                  Replace them — dry-run
                 </button>
                 <button className="btn" onClick={() => setConfirmGenerate(false)}>
                   Cancel
@@ -183,6 +183,7 @@ export function App() {
           </Routes>
         </ErrorBoundary>
       </main>
+    </div>
     </div>
   );
 }

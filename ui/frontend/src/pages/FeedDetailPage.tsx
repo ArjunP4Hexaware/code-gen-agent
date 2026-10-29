@@ -1,6 +1,6 @@
 import { marked } from "marked";
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   api,
   downloadHref,
@@ -87,6 +87,7 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
 
   return (
     <>
+      <Link to="/" className="back-link">← Results</Link>
       <div className="page-head">
         <div>
           <h1 style={{ fontFamily: "var(--mono)" }}>{feed.feed_slug}</h1>

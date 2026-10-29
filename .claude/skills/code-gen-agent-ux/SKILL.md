@@ -93,11 +93,55 @@ as a requirement, not a style preference.
     `dry_run=True, skip_tests=True` (the only billed path is the confirmed
     live endpoint).
 
+### Design pillars (post143, 2026-10-29 — the guided look)
+
+Taken from the STTM agent's App (the program's other agent) by Soham's decision;
+every screen keeps the doctrine above.
+
+1. **One job, one path.** The landing page is the action. A step strip
+   (Choose documents → Check the settings → Answer questions → Get the
+   results) says where the person is; it is computed from the run state, never
+   a separate page per step.
+2. **Plain words.** Headings say what to do; leads are one sentence; "the
+   agent", not the pipeline's internals. Engineering detail (requirement and
+   governance checks, rules compiled, the Layer-1/2 doctrine, Reset / Generate
+   all) lives in a folded "Details for the team".
+3. **Summary first, detail on demand.** Stat tiles first; folding sections
+   (Advanced, What the agent did, flag sections) for the rest.
+4. **Calm and light.** White header with the wordmark and the provider badge;
+   white sidebar (icons, pale-blue active pill); white cards, 14px corners, a
+   soft blue-tinted shadow on the light page; centred 900px column; 32px
+   brand-blue page titles.
+5. **Status as tint + words.** Pills (ok / warn / bad / info), cards with a
+   coloured left bar (green done, orange waiting, red failed), counts at a
+   card's top right. Colour never alone.
+6. **Uploads where they are needed.** A dashed drop zone on the Documents card
+   while the STTM or FRD is missing: an `.xlsx` uploads as the STTM, a `.docx` /
+   `.json` as the FRD (STTM first); any other file is refused before anything
+   is sent. "Choose documents…" opens the full chooser.
+7. **One action bar.** Secondary on the left ("Clear past runs…"), the big
+   primary on the right ("Generate"), why it is disabled in words, a hint
+   below ("Nothing runs until you confirm. A live run sends the documents'
+   content to the model.").
+8. **Accessible.** A 3px focus ring, `prefers-reduced-motion`, ≤ 75ch lines,
+   a file's Download button named for the file; below 760px the sidebar is a
+   drawer over the page that starts hidden on a first visit.
+
 ---
 
 ## Part 2 — Screens
 
 ### 2.1 Application shell
+
+> **post143 (current):** a sticky white header (72px, 3px `--accent` rule):
+> the centred wordmark "CodeGen · Data Engineer Agent" / "From an approved
+> STTM and FRD to Databricks artefacts" (a link to Generate) and, right, the
+> provider badge (solid: LIVE `--critical`, MOCK hairline grey). Below it a
+> white 272px sidebar (hide / show kept) with "Generate a pipeline" and
+> "Results" (icons), then "Feeds in these results" with verdict dots; no
+> footer (its doctrine sentence is in Results → Details for the team). The
+> mode banner and error banner sit at the top of the main column. The
+> diagram below is the pre-post143 shell, kept as history.
 
 ```
 ┌──────────────────┬──────────────────────────────────────────────────────────┐
@@ -170,6 +214,18 @@ as a requirement, not a style preference.
   data URI). Document title "CodeGen · Data Engineer Agent".
 
 ### 2.2 Dashboard (`/`) — "Generation gate"
+
+> **post143 (current): "Results".** Centred title "Results" and one lead
+> ("Download the files, then review each feed's flags before the DDL and the
+> IIG go further." / none: "No results yet. …" + a "Generate a pipeline"
+> button). Then, unfolded: four stat tiles (feeds / passed / passed with flags /
+> failed — red when > 0); "Your files — Framework artefacts" (the approval note,
+> "Assign before loading", one row per file with a Download button named
+> "Download <file>"); Notebooks (rows, then "Download all (n) .zip"); Layer-2
+> review (when deferred); "Feeds (n)" with the feed cards. Folded at the foot:
+> "Details for the team" (rules compiled, pending review, the doctrine
+> sentence, Reset decisions, Generate all feeds — both confirms unchanged).
+> The rest of this section is the pre-post143 layout, kept as history.
 
 ```
 Generation gate                                   [Reset decisions] [Generate all feeds]
@@ -407,6 +463,25 @@ rendered with `marked` inside `.report-md` (13.5px, max-width 860px,
 tables bordered, code inline chips). "Loading report…" while pending.
 
 ### 2.4 Generate (`/modes`) — was "Run modes" until the 2026-09-18 ACFC trim
+
+> **post143 (current): the guided page.** Centred "Generate a pipeline from
+> your STTM and FRD" + lead, the step strip (Part 1 pillar 1: step 1 while no
+> STTM / FRD or a selection runs; 2 when chosen; 3 while running, paused or
+> blocked; 4 after a completed run), then top to bottom: the **run card**
+> (only once a run exists: "Generating…" / "The agent needs your answers" /
+> "Answer the blocking questions" / "The run didn't finish" / "Your results
+> are ready", the state sentences of §4.2, the inputs-needed and
+> answers-needed panels, the layout questions with their buttons, "What the
+> agent did" folded once done, "View results →"); **1. Documents** ("n of 2
+> required chosen", the drop zone while STTM or FRD is missing, one row each
+> for STTM / FRD / VDD with Clear, the pairing and folder notes,
+> "Choose documents…"); **2. Settings** (the output badge, "A run will use",
+> output toggles when more than one, the environment, "Advanced" folded:
+> conventions / IIG / playbook selects and Re-resolve layout); the action bar;
+> "Details for the team" folded (the requirement and governance tables). The
+> chooser is a 640px dialog. The confirm button reads "Confirm — run live"
+> only for a live transport, else "Confirm — generate with the mock". The
+> text below describes the pre-post143 card, kept as history.
 
 ONE full-width card. Page head: `h1` "Generate a pipeline", subtitle
 "Choose the documents, pick the output, generate. Every run ends on the
@@ -941,7 +1016,8 @@ the public style guide on ACFC's web properties (2026-10-28). Typography is
 its secondary typeface, Open Sans (self-hosted from `@fontsource/open-sans`,
 latin 400 / 600 / 700, so the App never fetches fonts at runtime); its primary
 typeface (`area-normal`) is a licensed web font, first in the stack and used
-only when the browser already has it. Corners are square, as on ACFC's sites.
+only when the browser already has it. Corners are rounded and cards carry a soft
+shadow (post143, the guided look — Part 1 "Design pillars"; square until then).
 
 | Token | Value | Use |
 |---|---|---|
@@ -957,10 +1033,12 @@ only when the browser already has it. Corners are square, as on ACFC's sites.
 | `--critical` / `--critical-text` / `--critical-bg` | `#d22730` / `#a81f27` / `#f6d4d6` | FAIL, ungrounded, errors, LIVE (Error) |
 | `--info` / `--info-bg` | `#17496a` / `#d4e4ef` | informational notes (Info) |
 | `--flag` / `--flag-text` | `#f7921e` / `#9a4a00` | `tag-synthetic` (the guide's orange accent) |
-| `--sidebar-bg` / `--sidebar-ink` / `--sidebar-muted` | `#0a2458` / `#ffffff` / `#b8c4d9` | sidebar + shell block |
+| `--sidebar-bg` / `--sidebar-ink` / `--sidebar-muted` | `--surface` / `--ink-2` / `--muted` | the light sidebar (post143; the shell block keeps `--heading`) |
+| `--surface-2` / `--border-soft` / `--border-btn` | `#f6f8fc` / `#d6deec` / `#c9d4ea` | drop zone and chosen rows / their border / secondary-button border |
 | `--mono` | `ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace` | slugs, paths, code, hashes |
 | `--font` (body) | `area-normal, "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif` 15px / 1.55 | — |
-| `--radius` / `--radius-sm` | 0 / 2px | cards, panels, buttons, fields / tags, chips, badges |
+| `--radius` / `--radius-sm` / `--radius-md` / `--radius-lg` / `--radius-pill` | 8 / 4 / 10 / 14px / 999px | buttons, fields / code, strips / rows, tiles, notes / cards, panels, dialogs / pills, chips, badges |
+| `--shadow-card` / `--shadow-soft` | `0 4px 24px` / `0 1px 3px` of `--accent` at 8% / 6% | cards, tiles / small lifts |
 
 Tints are `color-mix(in srgb, var(<token>) N%, transparent)` of these tokens
 (the pre-restyle alphas kept). Every text / background pair above meets WCAG
@@ -973,7 +1051,7 @@ orchestration_config `#27a27a` · notification `#8c4b9d` · out_of_scope
 
 **Mode badge colours:** in the main area, tints as before — mock muted 16%
 / ink-2, live critical 14% / critical-text, replay accent 14% / accent. On the
-navy sidebar, solid: mock 16% white / white, live `--critical` / white,
+header (post143), solid: mock `--hairline` / ink-2, live `--critical` / white,
 replay `--accent-light` / `--heading`. Mode banners use the same hues at
 9–10% with a 28–30% border.
 
@@ -987,10 +1065,20 @@ number/boolean `--code-number` `#003da5`; function/class/decorator
 - Mode copy: `MOCK — deterministic stand-in provider, zero network` ·
   `LIVE — generated now; each candidate card names its provider` ·
   `REPLAY — recorded live run`.
-- Sidebar footer: `Layer 1 deterministic (Jinja2) · Layer 2 review-only
-  candidates.` / `Gate verdict computed in code, never by judgment.`
-- Dashboard sub-line: `Pipelines generated from approved FRD + STTM
-  contracts. Every rule is compiled deterministically or routed to a
+- Header (post143): `CodeGen · Data Engineer Agent` / `From an approved STTM
+  and FRD to Databricks artefacts`. Nav: `Generate a pipeline` · `Results` ·
+  `Feeds in these results`.
+- Generate (post143): title `Generate a pipeline from your STTM and FRD`;
+  steps `Choose documents` · `Check the settings` · `Answer questions` ·
+  `Get the results`; cards `1. Documents` (`n of 2 required chosen`) and
+  `2. Settings`; button `Generate` (`Generating…`); action hint `Nothing runs
+  until you confirm. A live run sends the documents' content to the model.`;
+  why-disabled `Choose the STTM workbook first.`
+- Results (post143): title `Results`; tiles `feeds` · `passed` · `passed with
+  flags` · `failed`; `Your files — Framework artefacts`; `Details for the
+  team` holds the doctrine sentence: `Layer 1 is deterministic (Jinja2);
+  Layer 2 only writes review candidates. The gate verdict is computed in code,
+  never by judgment. Every rule is compiled deterministically or routed to a
   reviewed Layer-2 candidate — nothing lands unreviewed.`
 - Gate flags (from the verdict computation, shown verbatim):
   `Layer-2 candidate pending engineer approval: '<rule>'` ·
@@ -1043,8 +1131,8 @@ number/boolean `--code-number` `#003da5`; function/class/decorator
 
 ### 4.4 Acceptance checklist (a rebuild is not done until every line holds)
 
-1. Sidebar provider badge (LIVE / MOCK = what the next run uses) on every
-   route; LIVE / MOCK RUN / REPLAY banner with label, the word from the
+1. Header provider badge (LIVE / MOCK = what the next run uses) on every
+   route (post143; the sidebar until then); LIVE / MOCK RUN / REPLAY banner with label, the word from the
    provider that answered the served run.
 2. Dashboard tiles, cards, rule strip order and foot line match §2.2;
    empty state and 409 banner behave as specified.

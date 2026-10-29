@@ -350,9 +350,9 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   rows). It never calls `partitionBy` — the DDL clusters every table (`CLUSTER BY AUTO`)
   and Delta clustering is incompatible with partitioning; `TGT_PARTITION_COLUMN` /
   `_VALUE` only scope an Overwrite (`replaceWhere`). Under `acfc_prx` stage columns are
-  typed as the STTM states them (Soham, 2026-10-29) and the DDL is the reference; the
-  notebook still lands every stage column as STRING, so after the DDL its append fails —
-  the notebook is what must change (RESTART.md).
+  typed as the STTM states them (Soham, 2026-10-29) and the DDL is the reference: the
+  notebook casts each stage column to the ADLS row's TGT_DATA_TYPE before the write, and
+  a non-blank value the type cannot read stops the load — never a silent NULL.
 - **Conventions profiles** (`conventions.profile`; default `edo_sfmc`): `edo_sfmc` = two
   `.txt` DDL files with per-column COMMENTs, CLUSTER BY AUTO + TBLPROPERTIES;
   `acfc_prx` = ONE combined `<ABBREV>_DDL.txt` (Soham, 2026-10-29: never split per

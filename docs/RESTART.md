@@ -4,10 +4,13 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-28, post141 deployed)
+## State (2026-10-29, post142 deployed)
 
-- **Branch** `feature/multi-table`: pushed to `8ef2f9a` (post141). Nothing local.
-  App deployed from it, `/api/health` = `0.5.8.post141`, smoke green. Every version
+- **Branch** `feature/multi-table`: pushed to `bdc173e` (post142). Nothing local.
+  App deployed from it, `/api/health` = `0.5.8.post142`, smoke green. post142 = notebook
+  v2 casts stage columns to the ADLS row's TGT_DATA_TYPE (the DDL's types; a non-blank
+  unreadable value stops the load); 12-pair check in NOTEBOOK mode: 12/12, only the
+  stage cell + the title's version differ. Every version
   below: both suites green, its tests fail with only the fix reverted.
 - post137 the feed page's flags in collapsible sections (`flagGroups.ts`; the 12 pairs'
   1,648 flags all land in a named section); post138 the LOB question (`lob_by_file`)
@@ -127,10 +130,10 @@ none + `ddl_tags_blank`). Tests: `tests/test_ddl_runsafe.py`.
   STTM") - today's behaviour, no change; (2) table COMMENT = description + load
   strategy (2026-10-28, post140); (3) ONE combined `<ABBREV>_DDL.txt` per feed
   (2026-10-29) - today's behaviour, no change; do not split per layer.
-- **Follows from (1), not done (notebook mode only - ACFC deploys framework):** the
-  notebook v2 lands every stage column as STRING, so after the DDL is run its append
-  fails. The DDL is the reference: the notebook must land stage columns as the STTM
-  types them. Do it when notebook mode is next worked on (ask Soham first).
+- **Follows from (1): DONE post142** - the notebook lands stage columns as the STTM types
+  them. Left: a fixed-width segment with its OWN stage table states no types in its
+  IIG row, so it still lands as STRING (flag `notebook_segment_types_unstated`); none of
+  the 12 pairs has one. Not run on real Spark (no Java here).
 - Prod has no PK and no load strategy; `q1` there vs our `A2` (ask Soham). The Pharmacy
   EDH RFC DDLs are warehouse dims (identity key, NOT NULL, `ADD CONSTRAINT PRIMARY
   KEY`, CDF) — a different pattern, not the target.

@@ -1028,7 +1028,8 @@ def emit_framework(
                     for row in email_tab["rows"]
                     if str(row["values"].get("STATUS") or "").strip())))
                 cases = build(spec, definitions, profile, ddl_names[0], banner, tags,
-                              email_statuses=email_statuses)
+                              email_statuses=email_statuses,
+                              table_source=is_table_source(spec, config))
                 test_cases_path = framework_dir / ddl_test_cases_name(
                     ddl_names[0], profile.ddl_test_cases_suffix)
                 test_cases_path.write_text(cases.text, encoding="utf-8", newline="\n")
@@ -1038,8 +1039,9 @@ def emit_framework(
                     from codegen.emit.ddl_tests import workbook, workbook_rows
                     from codegen.metadata_sheet import stable_workbook_bytes
 
-                    book = workbook([(spec.feed_slug, workbook_rows(cases.cases, profile))],
-                                    profile, banner)
+                    rows = workbook_rows(cases.cases, profile,
+                                         table_source=is_table_source(spec, config))
+                    book = workbook([(spec.feed_slug, rows)], profile, banner)
                     book_path = test_cases_path.with_suffix(".xlsx")
                     book_path.write_bytes(stable_workbook_bytes(book))
                     files.append(book_path)

@@ -74,3 +74,20 @@ def test_the_hold_names_the_stated_format(tmp_path, capsys):
     addition = (out / spec.feed_slug / "framework" / "ADDITION.md").read_text(encoding="utf-8")
     assert f"(file format {spec.file_format!r})" in addition
     assert f"(file format {spec.file_format!r})" in printed
+
+
+def test_a_table_sources_test_cases_speak_of_loads_not_files(tmp_path, capsys):
+    """post156: no file, so no file cases - a source table that has rows, test loads,
+    a second load; never 'a file matching', the landing location or several files."""
+    import re
+
+    _config, spec, out, _exit, _printed = _held_run(tmp_path, capsys)
+    text = next((out / spec.feed_slug / "framework").glob("*_TestCases.txt")).read_text(
+        encoding="utf-8")
+    titles = re.findall(r"^-- TC\d+ (.+)$", text, flags=re.M)
+    assert "Source table available" in titles and "A second load" in titles
+    for gone in ("File available", "File in the right location", "Several files at once",
+                 "A second sample file", "Columns matched by name or by position?"):
+        assert gone not in titles
+    assert not any(t.startswith("Column shift") for t in titles)
+    assert "load a test file" not in text and "run a test load" in text

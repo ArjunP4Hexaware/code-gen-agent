@@ -887,6 +887,45 @@ def parse_audit_answers(gaps: dict | None) -> dict[int, list[tuple[str, str]]]:
     return out
 
 
+def _split_by_table(sheets: list[SheetData], frd: FrdContract) -> list[SheetData]:
+    """post156: a mapping sheet whose stage TableName column names several tables,
+    each of them ONE FRD feed's only stage table (the layout stage split the FRD
+    per table), is read as one sheet per table - the rows of each table, in sheet
+    order. A row with a blank table cell belongs to the table of the row above it
+    (a merged cell's anchor states it); an audit row to the block it sits in. A
+    segmented sheet (a table per record type) is never split here."""
+    own = {normalize(f.stage_target.tables[0]) for f in frd.feeds
+           if len(f.stage_target.tables) == 1}
+    out: list[SheetData] = []
+    for sheet in sheets:
+        tables = list(dict.fromkeys(
+            r.values.get("stage.table") for r in sheet.fields if r.values.get("stage.table")))
+        if (len(tables) < 2 or sheet.profile.segment_strategy != "none"
+                or not all(normalize(t) in own for t in tables)):
+            out.append(sheet)
+            continue
+        current: str | None = None
+        rows_of: dict[str, list[FieldRow]] = {t: [] for t in tables}
+        block_at: list[tuple[int, str]] = []
+        for row in sorted(sheet.fields, key=lambda r: r.row):
+            current = row.values.get("stage.table") or current
+            if current is None:
+                continue
+            rows_of[current].append(row)
+            block_at.append((row.row, current))
+        audit_of: dict[str, list[AuditRow]] = {t: [] for t in tables}
+        for audit in sheet.audit:
+            table = audit.table if audit.table in audit_of else next(
+                (t for r, t in reversed(block_at) if r < audit.row), tables[0])
+            audit_of[table].append(audit)
+        for n, table in enumerate(tables):
+            out.append(SheetData(profile=sheet.profile, meta=sheet.meta,
+                                 meta_raw=sheet.meta_raw, fields=rows_of[table],
+                                 audit=audit_of[table],
+                                 skipped=sheet.skipped if n == 0 else []))
+    return out
+
+
 def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
                            contract_name: str | None = None,
                            generated_date: str,
@@ -899,7 +938,7 @@ def build_generic_contract(ir: GenericIR, frd: FrdContract, config: Config, *,
     feeds: list[SttmFeed] = []
     pending: list[PendingAnswer] = []
     questions: list[PendingAnswer] = []
-    for sheet in ir.sheets:
+    for sheet in _split_by_table(ir.sheets, frd):
         try:
             open_bands = _open_band_layers(sheet, ir)
             if open_bands:

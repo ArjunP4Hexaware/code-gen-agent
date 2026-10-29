@@ -4,6 +4,42 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post156 — 2026-10-29 (one STTM sheet, several tables: a feed per table)
+
+Soham (2026-10-29), the pair_09 shape: the FRD's one block names N target tables and the
+STTM maps all N on ONE sheet (its stage TableName column, a table per block of rows).
+Read as one table, the other N-1 met nothing (ContractMismatchError "N-1 tables only in
+FRD"). Now:
+- **Layout stage** (`layout.resolve._split_per_table`, tried before the per-sheet split):
+  when one non-segmented sheet's tables are EXACTLY the FRD's, each table is its own FRD
+  feed, named after its table. Every pairing from the documents, never a guess: the
+  standard table = the one its rows name (else none + `table_split_standard_unpaired`);
+  the file pattern = the FRD pattern that IS the table / its source table by file
+  identity (else none + a flag). The token-overlap pairing of the per-sheet split
+  (audit #4) is not used on this path. A segmented sheet (a table per record type) and
+  a table set that differs from the FRD's keep the old behaviour.
+- **Extraction** (`extract.generic._split_by_table`): such a sheet is read as one sheet
+  per table; a row with a blank table cell belongs to the block above, an audit row to
+  the block it sits in.
+- **Table sources** (with post155): the resolver no longer demands a delimiter
+  (`delimiter_not_applicable:table_source`) or a file pattern (the feed's object is the
+  STTM's source table, `file_pattern_from_source_table`); the DDL test cases speak of
+  loads from the source table and drop the file-only cases (location, delimiter /
+  position, column shift, several files).
+- extract-sttm splits an unsplit one-feed contract by the same rule (its split ran only
+  for 2+ mapping sheets; the harness writes the FRD contract in the layout stage, a CLI
+  user may not).
+- Tests: `tests/test_one_sheet_tables_split.py` (the chain on a synthetic pair_09-shaped
+  pair, the extract-sttm path, the split's rules), `tests/test_table_source_hold.py` (the
+  wording).
+- **Not yet the real pair_09.** Its FRD states no table, no file pattern and no format: the
+  36 tables come from the STTM, the 36 file patterns from the VDD FILES sheet (gap fill
+  gives a multi-feed FRD the WHOLE list per feed), the format from the pair's answers. The
+  split needs the FRD to name the tables, so pair_09 still stops at "35 tables only in
+  FRD" (12-pair check: no pair changed). Finishing it - split when the FRD names no table
+  (the STTM band is authoritative), and give each table source its own object, not the
+  VDD's whole list - waits for the RDMS sheet (Soham, 2026-10-29, option B).
+
 ## 0.5.8.post155 — 2026-10-29 (a table-sourced feed holds its IIG)
 
 Soham (2026-10-29): two client pairs state their source as a database table ("Database

@@ -12,9 +12,15 @@
 -- then its SQL, if it has any.
 -- Every SELECT checks itself: it returns one row (test_id, result, found, expected).
 --   result PASS = as expected; FAIL = not as expected (compare found with expected);
+{% if table_source %}
+--   NO DATA = the table has no rows yet (run a test load first).
+-- SHOW statements are checked by eye against their Expected lines. A case with no SQL
+-- is a load test: run it with a test load from the source table through the framework.
+{% else %}
 --   NO DATA = the table has no rows yet (load a test file first).
 -- SHOW statements are checked by eye against their Expected lines. A case with no SQL
 -- is a load test: run it with a test file through the framework.
+{% endif %}
 {% for case in cases %}
 
 -- {{ case.id }} {{ case.title }}

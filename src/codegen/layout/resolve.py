@@ -1247,7 +1247,11 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                  and sp.band("stage").column(Role.TABLE) is not None,  # type: ignore[arg-type]
                  # 2026-10-13: the file THIS sheet maps, from its own meta row
                  # (family E: one mapping sheet per source file) — (name, cell).
-                 "own_files": _own_sheet_files(sp, ws, config)}
+                 "own_files": _own_sheet_files(sp, ws, config),
+                 # post156: row by row, which stage table goes with which standard /
+                 # source table (the per-table split pairs by these, never by names)
+                 "table_rows": [],
+                 "segmented": sp.segment_strategy != "none"}
         for layer, role, key in (("stage", Role.TABLE, "stage_table"),
                                  ("standard", Role.TABLE, "standard_table"),
                                  ("stage", Role.SCHEMA, "stage_schema"),
@@ -1261,6 +1265,19 @@ def _sttm_facts(profile: LayoutProfile, workbook, config: Config) -> dict:
                     # Chunk B: EVERY table the band names (a segmented sheet
                     # maps a table per record type), in sheet order.
                     entry[f"{layer}_tables"] = list(dict.fromkeys(v for v in values if v))
+        def _col(layer: str, role: Role, sp=sp) -> int | None:
+            band = sp.band(layer)  # type: ignore[arg-type]
+            return band.column(role) if band is not None else None
+
+        stage_col, standard_col = _col("stage", Role.TABLE), _col("standard", Role.TABLE)
+        source_col = _col("source", Role.SOURCE_TABLE)
+        if stage_col is not None:
+            def _cell_at(r, col):
+                return text(r[col - 1]) if col is not None and col - 1 < len(r) else None
+
+            entry["table_rows"] = [(_cell_at(r, stage_col), _cell_at(r, standard_col),
+                                    _cell_at(r, source_col))
+                                   for r in rows if _cell_at(r, stage_col)]
         if entry["stage_table"]:
             facts["sheet_tables"].append(entry)
         else:
@@ -2044,6 +2061,9 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     from codegen.layout.hints import frd_field_help
 
     sheet_tables = facts.get("sheet_tables") or []
+    per_table = _split_per_table(contract, sheet_tables)
+    if per_table is not None:
+        return per_table
     # Round 4 (2026-10-12): a copy of the STTM whose mapping sheets leave EVERY
     # Schema / TableName cell blank still splits — the mapping sheets alone say
     # how many feeds there are (one per sheet, named after it).
@@ -2351,6 +2371,69 @@ def split_frd_feeds_by_sttm(contract: FrdContract, facts: dict, gaps: dict, conf
     return contract.model_copy(update={"feeds": feeds}), flags, questions
 
 
+def _split_per_table(contract: FrdContract, sheet_tables: list[dict]
+                     ) -> tuple[FrdContract, list[str], list] | None:
+    """post156 (pair_09 shape): ONE FRD feed names N stage tables and ONE STTM
+    mapping sheet maps all N - its stage TableName column holds exactly the FRD's
+    N tables - on a sheet that is NOT segmented (a header / detail / trailer
+    sheet maps a table per record type: that stays one feed). Then each table is
+    its own feed, every pairing from the documents' own rows or an exact name,
+    never a guess:
+
+    - the feed is named after its stage table (a document value);
+    - its standard table = the one standard table its rows name, when exactly one
+      and the FRD names it (or names none); else none + a flag;
+    - its file pattern = the FRD pattern that IS the table (or its source table)
+      by file identity; else none + a flag (a test case then says OPEN).
+
+    None = not this shape (the per-sheet split decides as before)."""
+    if len(contract.feeds) != 1 or len(sheet_tables) != 1:
+        return None
+    entry = sheet_tables[0]
+    feed = contract.feeds[0]
+    tables = list(entry.get("stage_tables") or [])
+    if len(tables) < 2 or entry.get("segmented"):
+        return None
+    stated = {normalize(t) for t in feed.stage_target.tables}
+    if {normalize(t) for t in tables} != stated or len(stated) != len(tables):
+        return None
+    frd_standard = {normalize(t) for t in feed.standard_target.tables}
+    patterns = {file_identity(p): p for p in feed.file_name_patterns if normalize(p)}
+    flags = [f"frd_feeds_split_per_table: FRD feed {feed.feed_name[:60]!r} names "
+             f"{len(tables)} stage tables and STTM sheet {entry['sheet']!r} maps all of them "
+             f"(its stage TableName column); {len(tables)} feeds, one per table, paired by "
+             "exact table name"]
+    feeds = []
+    for index, table in enumerate(tables):
+        rows = [r for r in entry.get("table_rows") or [] if normalize(r[0]) == normalize(table)]
+        standards = list(dict.fromkeys(s for _t, s, _src in rows if s))
+        if len(standards) == 1 and (not frd_standard or normalize(standards[0]) in frd_standard):
+            standard = [standards[0]]
+        else:
+            standard = []
+            flags.append(f"table_split_standard_unpaired:{table} — its rows name "
+                         f"{len(standards)} standard table(s)"
+                         + ("" if len(standards) != 1 else ", one the FRD does not name")
+                         + "; no standard table for this feed")
+        sources = list(dict.fromkeys(src for _t, _s, src in rows if src))
+        keys = {file_identity(table), *(file_identity(s) for s in sources[:1])} - {""}
+        hits = list(dict.fromkeys(patterns[k] for k in keys if k in patterns))
+        if len(hits) == 1:
+            own = hits
+        else:
+            own = []
+            flags.append(f"frd_unstated:feeds[{index}].file_name_patterns — no FRD file pattern "
+                         f"is table {table!r}{' or its source table' if sources else ''} "
+                         "by name; left open")
+        feeds.append(feed.model_copy(update={
+            "feed_name": table,
+            "file_name_patterns": own,
+            "stage_target": feed.stage_target.model_copy(update={"tables": [table]}),
+            "standard_target": feed.standard_target.model_copy(update={"tables": standard}),
+        }))
+    return contract.model_copy(update={"feeds": feeds}), flags, []
+
+
 # ------------------------------------------------ M7: refused cells, per feed
 
 
@@ -2436,9 +2519,13 @@ def split_single_frd_feed(frd: FrdContract, profile: LayoutProfile, workbook, co
     from codegen.contracts.sttm import FrdFeedSplit
 
     if (len(frd.feeds) != 1 or not isinstance(profile, LayoutProfile)
-            or profile.strategy != "content" or len(profile.mapping_sheets) < 2):
+            or profile.strategy != "content"):
         return None
     facts = _sttm_facts(profile, workbook, config)
+    # post156: ONE sheet mapping the FRD's N tables splits here too (the harness's
+    # extract-frd -> extract-sttm path never runs the layout stage's split)
+    if len(profile.mapping_sheets) < 2 and _split_per_table(frd, facts["sheet_tables"]) is None:
+        return None
     split, flags, questions = split_frd_feeds_by_sttm(frd, facts, gaps or {}, config,
                                                       force=True,
                                                       remember=dict(profile.file_choices))

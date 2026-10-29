@@ -352,10 +352,26 @@ def delimiter_char(value: str | None, words: dict[str, str]) -> str | None:
     return quoted[0] if len(set(quoted)) == 1 else None
 
 
+def table_source_format(file_format: str | None, config: Config | None) -> bool:
+    """post156: the FRD states a database-table source (framework.table_source_formats)
+    - a table has no delimiter and no file name; neither is ever demanded."""
+    if config is None or not file_format:
+        return False
+    def norm(value: str) -> str:
+        return " ".join(str(value).lower().split())
+
+    return norm(file_format) in {norm(f) for f in config.framework.table_source_formats}
+
+
 def _resolve_delimiter(frd_feed: FrdFeed, sttm_feed: SttmFeed, errors: list[str],
                        config: Config | None = None, flags: list[str] | None = None,
                        *, answered: bool = False) -> str:
     flags = flags if flags is not None else []
+    if (table_source_format(frd_feed.file_format, config) and not frd_feed.delimiter
+            and not sttm_feed.source_file.delimiter):
+        flags.append(f"delimiter_not_applicable:table_source — the FRD states the source is "
+                     f"a database table ({frd_feed.file_format!r}): no delimiter")
+        return ""
     words = config.extractor.delimiter_words if config is not None else {}
     if answered and (char := delimiter_char(frd_feed.delimiter, words)) is not None:
         # post126 (audit #7): the user's gaps: answer settles a conflict the
@@ -1043,6 +1059,15 @@ def _resolve_one(
                     f"file_pattern_from_vdd: the FRD and the STTM name no file pattern; the VDD "
                     f"FILES sheet states {file_name_patterns} (File Name Pattern, row(s) "
                     f"{sorted({row for _p, row in vdd_patterns})})")
+            elif (table_source_format(frd_feed.file_format, config)
+                  and sttm_feed.source_table):
+                # post156: a database table has no file name - its object is the source
+                # table the STTM's own Table Name column states
+                file_name_patterns = [sttm_feed.source_table]
+                provenance_flags.append(
+                    f"file_pattern_from_source_table:{sttm_feed.source_table} — the FRD states "
+                    f"the source is a database table ({frd_feed.file_format!r}); its object is "
+                    "the STTM's source table (Table Name column), not a file")
             else:
                 errors.append(mismatch_item(
                     "value.unstated",

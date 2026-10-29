@@ -159,10 +159,15 @@ def catalog_type(ddl_type: str, profile) -> str:
 
 def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
           banner: list[tuple[str, str]], tags: tuple[str, str] | None,
-          email_statuses: list[str] | None = None) -> DdlTestCases:
+          email_statuses: list[str] | None = None,
+          table_source: bool = False) -> DdlTestCases:
     """The test-cases text for one feed's combined DDL (``ddl_name``).
     ``email_statuses`` = the EMAIL_TEMPLATE_CONFIG statuses the same run's IIG
-    writes (None = the run wrote no such sheet)."""
+    writes (None = the run wrote no such sheet). ``table_source`` (post156): the
+    source is a database table - the cases speak of loads from the source table,
+    and the file-only cases (location, delimiter / position, several files) are
+    not written."""
+    file_only = ("file_location", "mapping_mode", "column_shift", "multiple_files")
     from codegen.emit.emitter import _environment
 
     flags: list[str] = []
@@ -178,7 +183,17 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
         return OPEN
 
     for name in profile.ddl_test_cases:
-        if name == "file_available":
+        if table_source and name in file_only:
+            continue                                  # no file: nothing to check
+        if table_source and name == "file_available":
+            frequency = open_value(name, spec.frequency, "no document states the frequency")
+            cases.append(_case("Source table available", [
+                f"Check: the source table {patterns} has rows for the run (frequency: "
+                f"{frequency}).",
+                "Negative: the source table is empty or missing -> the load stops and reports "
+                "it; nothing is loaded.",
+                "From: the STTM source table; the FRD frequency."]))
+        elif name == "file_available":
             frequency = open_value(name, spec.frequency, "no document states the frequency")
             cases.append(_case("File available", [
                 f"Check: a file matching {patterns} arrives for the run (frequency: {frequency}).",
@@ -194,13 +209,16 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                 "picked up from there.",
                 "From: the FRD landing location."]))
         elif name == "column_mapping":
+            test_input = "run a test load" if table_source else "load a test file"
+            missing_input = ("the source table without one column" if table_source
+                             else "a test file missing one source column")
             for table in stage_tables:
                 cases.append(_case(f"Column mapping — {table['qualified']}", [
-                    "Check: load a test file; each source column lands in the column the STTM "
+                    f"Check: {test_input}; each source column lands in the column the STTM "
                     "maps it to (source -> stage -> standard):",
                     *(f"  {s} -> {st} -> {sd or '(stage only)'}" for s, st, sd in
                       table["mapping"]),
-                    "Negative: a test file missing one source column -> the load fails or "
+                    f"Negative: {missing_input} -> the load fails or "
                     "rejects the rows; no column is left silently empty.",
                     "From: the STTM mapping rows."]))
         elif name == "columns_populated":
@@ -244,11 +262,17 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                 "test is the one that matters most."]))
         elif name == "record_count":
             for table in stage_tables:
+                source_rows = ("the source table's row count" if table_source
+                               else "the file's data record count")
                 cases.append(_case(f"Record count — {table['qualified']}", [
-                    "Check: every data record of the file is loaded (or rejected and counted).",
-                    f"Enter {_ROWS} when asked: the file's data record count minus the "
+                    "Check: every " + ("row of the source table" if table_source
+                                       else "data record of the file")
+                    + " is loaded (or rejected and counted).",
+                    f"Enter {_ROWS} when asked: {source_rows} minus the "
                     "rows the load rejected, after a first load into the empty table.",
-                    "From: the file itself at test time (its trailer count where it has one)."],
+                    "From: " + ("the source table at test time." if table_source else
+                                "the file itself at test time (its trailer count where it "
+                                "has one).")],
                     [_check(table["qualified"],
                             f"COUNT(*) = CAST(:{_ROWS} AS BIGINT)", "COUNT(*)",
                             f"CAST(:{_ROWS} AS STRING)")]))
@@ -304,14 +328,34 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                         f"Load strategy: {_prose(strategy)}: no check written."]))
                     continue
                 behaviour, enter, negative = _SECOND_LOAD[strategy]
-                cases.append(_case(f"Load strategy on a second file — {label}", [
-                    f"Check: load a first test file, then a second; with the load strategy "
+                if table_source:
+                    behaviour, enter, negative = (
+                        behaviour.replace("second file's", "second load's")
+                        .replace("first file's", "first load's"),
+                        enter.replace("the second file's data record count",
+                                      "the source table's row count at the second load")
+                        .replace("both files' data record counts added up",
+                                 "both loads' row counts added up")
+                        .replace("both files", "both loads"),
+                        negative.replace("first file", "first load")
+                        .replace("a file loaded twice", "a load counted twice"))
+                first_then = ("load once, then again after the source table changes"
+                              if table_source else "load a first test file, then a second")
+                cases.append(_case(f"Load strategy on a second {'load' if table_source else 'file'}"
+                                   f" — {label}", [
+                    f"Check: {first_then}; with the load strategy "
                     f"{strategy}, {behaviour}.",
                     f"Enter {_ROWS} when asked: {enter}.",
                     f"Negative: {negative}.",
                     f"From: the FRD load strategy ({table['layer']})."],
                     [_check(table["qualified"], f"COUNT(*) = CAST(:{_ROWS} AS BIGINT)",
                             "COUNT(*)", f"CAST(:{_ROWS} AS STRING)")]))
+        elif name == "second_file" and table_source:
+            cases.append(_case("A second load", [
+                "Check: after the source table changes, load again and run every case "
+                "above; each still passes.",
+                "Negative: a case that passed on the first load fails on the second -> FAIL.",
+                "From: the STTM source table."]))
         elif name == "second_file":
             cases.append(_case("A second sample file", [
                 f"Check: load another sample file matching {patterns} (a later business "
@@ -366,11 +410,12 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                               .replace(_ROWS, rows))
             q["expected"] = [_line(line) for line in q["expected"]]
     text = _environment().get_template("framework/ddl_test_cases.txt.j2").render(
-        ddl_name=ddl_name, feed=spec.feed_slug, banner=banner, cases=cases)
+        ddl_name=ddl_name, feed=spec.feed_slug, banner=banner, cases=cases,
+        table_source=table_source)
     return DdlTestCases(text=text, flags=flags, cases=cases)
 
 
-def workbook_rows(cases: list[dict], profile) -> list[list[str]]:
+def workbook_rows(cases: list[dict], profile, table_source: bool = False) -> list[list[str]]:
     """post154: the cases as rows in the client's test-record layout
     (``ddl_test_workbook_headers``; each column filled by its
     ``ddl_test_workbook_columns`` kind). The tester fills the blank columns."""
@@ -382,8 +427,9 @@ def workbook_rows(cases: list[dict], profile) -> list[list[str]]:
         body = [ln for ln in lines if ln not in source and ln not in negative]
         expected = []
         if any(q["statement"].startswith("SELECT") for q in case["sql"]):
-            expected.append("Each query returns result PASS (NO DATA = load a test file "
-                            "first).")
+            expected.append("Each query returns result PASS (NO DATA = "
+                            + ("run a test load" if table_source else "load a test file")
+                            + " first).")
         expected += [ln for q in case["sql"] for ln in q["expected"]] + negative
         fill = {
             "id": case["id"],

@@ -168,5 +168,6 @@ describe("the new-pair line", () => {
   it("formats DBUs", () => {
     expect(fmtDbuRange({ low: 1.5, high: 4.5 })).toBe("≈ 1.5–4.5 DBU");
     expect(fmtDbuRange({ low: 12.4, high: 12.4 })).toBe("≈ 12 DBU");
+    expect(fmtDbuRange({ low: 6, high: 8 })).toBe("≈ 6–8 DBU");          // post148: the shipped estimate
   });
 });

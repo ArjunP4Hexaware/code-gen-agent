@@ -17,6 +17,7 @@ import { NotebookView } from "../components/NotebookView";
 import { notebooksOffered } from "../appOptions";
 import { VerdictChip } from "../components/VerdictChip";
 import { FlagSections } from "../components/FlagSections";
+import { StatTile } from "../components/StatTile";
 
 type TabId = "overview" | "rules" | "candidates" | "notebook" | "code" | "report";
 
@@ -134,137 +135,161 @@ export function FeedDetailPage({ onFeedsChanged }: { onFeedsChanged: () => void 
 /* ---------- Overview ---------- */
 
 function OverviewTab({ feed }: { feed: FeedDetail }) {
+  // post148: the Results page's layout - counts first, what needs a person as
+  // issue cards, the facts in cards below
+  const failed = feed.checks.filter((c) => !c.passed);
+  const passed = feed.checks.filter((c) => c.passed);
+  const tables = feed.tables.stage.length + (feed.tables.standard ? 1 : 0);
+  const codes = (cols: string[]) => cols.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>);
   return (
     <>
-      <div className="panel">
-        <div className="panel-head">
-          <h2>Gate checks</h2>
-          <span className="hint">verdict computed in code — never by judgment</span>
-        </div>
-        <div className="panel-body">
-          {feed.checks.map((c) => (
-            <div className="check-row" key={c.name}>
-              <span
-                className={`verdict-dot ${c.passed ? "PASS" : "FAIL"}`}
-                style={{ alignSelf: "center" }}
-              />
-              <span className="name">{c.name}</span>
-              <span className="details">{c.details}</span>
-            </div>
-          ))}
-        </div>
+      <div className="run-stats" aria-label="feed summary">
+        <StatTile label="gate checks passed" value={`${passed.length}/${feed.checks.length}`}
+                  tone={failed.length ? "bad" : undefined} />
+        <StatTile label={feed.flags.length === 1 ? "flag to check" : "flags to check"}
+                  value={feed.flags.length} tone={feed.flags.length ? "warn" : undefined} />
+        <StatTile label={tables === 1 ? "target table" : "target tables"} value={tables} />
+        <StatTile label={feed.rule_total === 1 ? "validation rule" : "validation rules"}
+                  value={feed.rule_total} />
       </div>
+
+      <section className="card" aria-label="gate checks">
+        <div className="card-head">
+          <h2>Gate checks</h2>
+          <span className={`card-count${failed.length ? " warn" : ""}`}>
+            {failed.length ? `${failed.length} failed` : `all ${feed.checks.length} passed`}
+          </span>
+        </div>
+        <p className="card-sub">Checked in code, never by judgment. A failed check fails the feed.</p>
+        {failed.map((c) => (
+          <div className="issue bad" key={c.name}>
+            <span className="issue-kind">failed</span>
+            <strong>{c.name}</strong> — {c.details}
+          </div>
+        ))}
+        {passed.length ? (
+          <details className="fold" open={false}>
+            <summary>
+              {passed.length} passed
+              <span className="fold-hint">what each check looked at</span>
+            </summary>
+            <div className="fold-body">
+              {passed.map((c) => (
+                <div className="check-row" key={c.name}>
+                  <span className="pill ok">passed</span>
+                  <span className="name">{c.name}</span>
+                  <span className="details">{c.details}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </section>
 
       {feed.flags.length > 0 && (
-        <div className="panel">
-          <div className="panel-head">
-            <h2>Flags — needs a human</h2>
-            <span className="hint">{feed.flags.length} open</span>
+        <section className="card" aria-label="flags">
+          <div className="card-head">
+            <h2>Flags to check</h2>
+            <span className="card-count warn">{feed.flags.length} open</span>
           </div>
-          <div className="panel-body">
-            <FlagSections flags={feed.flags} />
-          </div>
-        </div>
+          <p className="card-sub">
+            What the agent could not settle from the documents. Each flag is written into the run's
+            log; a person checks it before the DDL and the IIG go further.
+          </p>
+          <FlagSections flags={feed.flags} />
+        </section>
       )}
 
-      <div className="panel">
-        <div className="panel-head">
+      <section className="card" aria-label="source contracts">
+        <div className="card-head">
           <h2>Source contracts</h2>
-          <span className="hint">provenance embedded in every generated file</span>
+          <span className="card-count muted">provenance embedded in every generated file</span>
         </div>
-        <div className="panel-body">
-          <dl className="kv">
-            <dt>FRD</dt>
-            <dd>
-              <code>{feed.contracts.frd_name}</code>
-              <div className="sha">sha256 {feed.contracts.frd_sha256}</div>
-            </dd>
-            <dt>STTM</dt>
-            <dd>
-              <code>{feed.contracts.sttm_name}</code>{" "}
-              {feed.contracts.sttm_is_synthetic ? (
-                <span className="tag-synthetic">synthetic</span>
-              ) : null}
-              <div className="sha">sha256 {feed.contracts.sttm_sha256}</div>
-            </dd>
-            <dt>File patterns</dt>
-            <dd>
-              {feed.file_name_patterns.map((p) => (
-                <div key={p}>
-                  <code>{p}</code>
-                </div>
-              ))}
-            </dd>
-            <dt>Delimiter</dt>
-            <dd>
-              <code>{JSON.stringify(feed.delimiter)}</code>
-            </dd>
-            <dt>Lines of business</dt>
-            <dd>{feed.lobs.join(", ")}</dd>
-            {feed.frequency ? (
-              <>
-                <dt>Frequency</dt>
-                <dd>{feed.frequency}</dd>
-              </>
+        <dl className="kv" style={{ marginTop: 12 }}>
+          <dt>FRD</dt>
+          <dd>
+            <code>{feed.contracts.frd_name}</code>
+            <div className="sha">sha256 {feed.contracts.frd_sha256}</div>
+          </dd>
+          <dt>STTM</dt>
+          <dd>
+            <code>{feed.contracts.sttm_name}</code>{" "}
+            {feed.contracts.sttm_is_synthetic ? (
+              <span className="tag-synthetic">synthetic</span>
             ) : null}
-          </dl>
-        </div>
-      </div>
+            <div className="sha">sha256 {feed.contracts.sttm_sha256}</div>
+          </dd>
+          <dt>File patterns</dt>
+          <dd>
+            {feed.file_name_patterns.map((p) => (
+              <div key={p}>
+                <code>{p}</code>
+              </div>
+            ))}
+          </dd>
+          <dt>Delimiter</dt>
+          <dd>
+            <code>{JSON.stringify(feed.delimiter)}</code>
+          </dd>
+          <dt>Lines of business</dt>
+          <dd>{feed.lobs.join(", ")}</dd>
+          {feed.frequency ? (
+            <>
+              <dt>Frequency</dt>
+              <dd>{feed.frequency}</dd>
+            </>
+          ) : null}
+        </dl>
+      </section>
 
-      <div className="panel">
-        <div className="panel-head">
+      <section className="card" aria-label="target tables">
+        <div className="card-head">
           <h2>Target tables</h2>
         </div>
-        <div className="panel-body">
-          <dl className="kv">
-            <dt>Stage</dt>
-            <dd>
-              {feed.tables.stage.map((t) => (
-                <div key={t}>
-                  <code>{t}</code>
-                </div>
-              ))}
-            </dd>
-            <dt>Standard</dt>
-            <dd>{feed.tables.standard ? <code>{feed.tables.standard}</code> : <em>none — stage-only feed (load AS-IS)</em>}</dd>
-            <dt>Errors</dt>
-            <dd><code>{feed.tables.errors}</code></dd>
-            <dt>Recycle</dt>
-            <dd>{feed.tables.recycle ? <code>{feed.tables.recycle}</code> : <em>no recycle rule</em>}</dd>
-            <dt>Processed files</dt>
-            <dd><code>{feed.tables.processed_files}</code></dd>
-          </dl>
-        </div>
-      </div>
+        <dl className="kv" style={{ marginTop: 12 }}>
+          <dt>Stage</dt>
+          <dd>
+            {feed.tables.stage.map((t) => (
+              <div key={t}>
+                <code>{t}</code>
+              </div>
+            ))}
+          </dd>
+          <dt>Standard</dt>
+          <dd>{feed.tables.standard ? <code>{feed.tables.standard}</code> : <em>none — stage-only feed (load AS-IS)</em>}</dd>
+          <dt>Errors</dt>
+          <dd><code>{feed.tables.errors}</code></dd>
+          <dt>Recycle</dt>
+          <dd>{feed.tables.recycle ? <code>{feed.tables.recycle}</code> : <em>no recycle rule</em>}</dd>
+          <dt>Processed files</dt>
+          <dd><code>{feed.tables.processed_files}</code></dd>
+        </dl>
+      </section>
 
-      <div className="panel">
-        <div className="panel-head">
+      <section className="card" aria-label="load semantics">
+        <div className="card-head">
           <h2>Load semantics</h2>
         </div>
-        <div className="panel-body">
-          <dl className="kv">
-            <dt>Natural key</dt>
-            <dd>{feed.natural_key_columns.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>)}</dd>
-            <dt>Not-null columns</dt>
-            <dd>{feed.not_null_columns.length ? feed.not_null_columns.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>) : <em>none</em>}</dd>
-            <dt>PHI columns</dt>
-            <dd>
-              {feed.phi_columns.length
-                ? feed.phi_columns.map((c) => <code key={c} style={{ marginRight: 8 }}>{c}</code>)
-                : <em>none declared</em>}
-              {feed.phi_columns.length ? (
-                <div className="sha">masked to last-4 at every log / report / error egress</div>
-              ) : null}
-            </dd>
-            {feed.load_windows_sla.length ? (
-              <>
-                <dt>Load window / SLA</dt>
-                <dd>{feed.load_windows_sla.join("; ")}</dd>
-              </>
+        <dl className="kv" style={{ marginTop: 12 }}>
+          <dt>Natural key</dt>
+          <dd>{codes(feed.natural_key_columns)}</dd>
+          <dt>Not-null columns</dt>
+          <dd>{feed.not_null_columns.length ? codes(feed.not_null_columns) : <em>none</em>}</dd>
+          <dt>PHI columns</dt>
+          <dd>
+            {feed.phi_columns.length ? codes(feed.phi_columns) : <em>none declared</em>}
+            {feed.phi_columns.length ? (
+              <div className="sha">masked to last-4 at every log / report / error egress</div>
             ) : null}
-          </dl>
-        </div>
-      </div>
+          </dd>
+          {feed.load_windows_sla.length ? (
+            <>
+              <dt>Load window / SLA</dt>
+              <dd>{feed.load_windows_sla.join("; ")}</dd>
+            </>
+          ) : null}
+        </dl>
+      </section>
     </>
   );
 }

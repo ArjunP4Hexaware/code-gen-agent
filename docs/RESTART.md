@@ -14,7 +14,8 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   `/results`, `/modes` redirects) and the client's logo top-left, read from the state
   root `branding/logo.png` (uploaded to the App's workspace state folder; never in git);
   post145 the confirm dialog's new-pair layout cost in DBUs (`reasoning.dbu_rates`,
-  `demo.new_pair_layout_estimate` 1.5–4.5 DBU until a run measures it); post146 the run's
+  `demo.new_pair_layout_estimate` until a run measures it — 6–8 DBU since post148, Venu's
+  conservative approximation); post146 the run's
   progress bar; post147 the environment line inside Advanced.
 - **Open (UI, optional):** the feed page's Overview kept its panels (restyled), not
   the issue-card layout of Results. The new-pair DBU figure stays an estimate until a

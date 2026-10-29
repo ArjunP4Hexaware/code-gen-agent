@@ -75,4 +75,7 @@ def test_the_shipped_rate_reproduces_the_measured_layer2_run():
     config = load_config("config/config.yaml")
     rate = config.reasoning.dbu_rates["claude-opus-5-5"]
     assert round(rate.dbu(input_tokens=5_757, output_tokens=9_860), 2) == 3.15
-    assert config.demo.new_pair_layout_estimate.source
+    # post148: Venu's conservative approximation, its source named
+    estimate = config.demo.new_pair_layout_estimate
+    assert (estimate.dbu_low, estimate.dbu_high) == (6, 8)
+    assert "Venu" in estimate.source

@@ -604,10 +604,12 @@ demo:
   run_history_size: 10
   # post145: until a recorded run measured it, the dialog states this range for
   # a pair the agent has not mapped before (one layout call per document, once).
+  # post148: a conservative approximation (Venu, 2026-10-29: approximate, and err
+  # high so the client is never surprised), above the 2026-10-27 offline estimate.
   new_pair_layout_estimate:
-    dbu_low: 1.5
-    dbu_high: 4.5
-    source: "estimated offline from the layout requests of two client pairs (about 23k and 32k characters, 2026-10-27); output tokens not measured"
+    dbu_low: 6
+    dbu_high: 8
+    source: "a conservative approximation (Venu, 2026-10-29), above the offline estimate of 1.5–4.5 DBU from two client pairs' layout requests (2026-10-27), whose output tokens were not measured"
 
   # Reference documents the documents card checks for — DISPLAY ONLY in this
   # build; wiring these into generation is the next step. Filenames as they

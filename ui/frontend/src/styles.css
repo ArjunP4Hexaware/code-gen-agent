@@ -1607,3 +1607,9 @@ details.details-fold > .details-body { margin-top: 12px; }
   font-variant-numeric: tabular-nums;
 }
 .progress-label { margin-top: 6px; font-size: 14px; color: var(--ink-2); }
+
+/* post148: the feed page's flags as issue cards, inside their folding sections */
+.flag-issues { list-style: none; margin: 0; padding: 4px 14px 12px; }
+.flag-issues > .issue { margin-top: 8px; font-size: 13.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.flag-issues > .issue.flag-hitl { background: var(--surface); }
+.check-row .pill { flex-shrink: 0; }

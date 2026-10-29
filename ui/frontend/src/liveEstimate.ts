@@ -73,7 +73,7 @@ function stoppedLine(history: LiveHistory | null | undefined): string | null {
 }
 
 export function fmtDbuRange(range: ValueRange): string {
-  const fmt = (v: number) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+  const fmt = (v: number) => (Number.isInteger(v) || v >= 10 ? String(Math.round(v)) : v.toFixed(1));
   return range.low === range.high ? `≈ ${fmt(range.low)} DBU` : `≈ ${fmt(range.low)}–${fmt(range.high)} DBU`;
 }
 

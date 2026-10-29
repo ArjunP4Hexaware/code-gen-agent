@@ -13,14 +13,12 @@ export function FlagSections({ flags }: { flags: string[] }) {
   const renderFlag = (f: string) => {
     // The HITL centerpiece: candidates awaiting a human decision
     // get called out distinctly from housekeeping flags.
+    // post148: each flag is an issue card (orange bar; red for a human decision)
     const hitl = f.includes("pending engineer approval");
     return (
-      <li key={f} className={hitl ? "flag-hitl" : undefined}>
-        <span className="verdict-dot PASS_WITH_FLAGS fdot" />
-        <span>
-          {hitl ? <span className="hitl-tag">PENDING ENGINEER APPROVAL</span> : null}
-          {f}
-        </span>
+      <li key={f} className={`issue${hitl ? " bad flag-hitl" : ""}`}>
+        {hitl ? <span className="hitl-tag">PENDING ENGINEER APPROVAL</span> : null}
+        {f}
       </li>
     );
   };
@@ -58,7 +56,7 @@ export function FlagSections({ flags }: { flags: string[] }) {
             </span>
             {s.hint ? <span className="flag-section-hint">{s.hint}</span> : null}
           </summary>
-          <ul className="flag-list">{s.flags.map(renderFlag)}</ul>
+          <ul className="flag-issues">{s.flags.map(renderFlag)}</ul>
         </details>
       ))}
     </>

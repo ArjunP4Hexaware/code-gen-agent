@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post148 — 2026-10-29 (the feed page in the Results layout; the new-pair estimate 6–8 DBU)
+
+Soham (2026-10-29):
+- The feed page's Overview takes the Results layout: four count tiles (gate checks
+  passed — red when one fails, flags to check, target tables, validation rules); a
+  failed gate check is a red issue card, the passed ones fold under "N passed"; each
+  flag is an issue card inside its section (orange bar; red with its tag when it waits
+  for an engineer), its text still whole; Source contracts / Target tables / Load
+  semantics in cards.
+- The confirm dialog's new-pair layout estimate is 6–8 DBU (was 1.5–4.5): Venu said to
+  approximate, conservatively, so the client is never surprised. The config cites it
+  and keeps the offline figure it sits above. A measured first run still replaces it.
+- Tests: `FeedOverview.test.tsx`; `tests/test_new_pair_cost.py` pins the shipped 6–8.
+
 ## 0.5.8.post147 — 2026-10-29 (Generate: the environment line in Advanced)
 
 Soham (2026-10-29): the environment line (selector, profile path, values) moves from

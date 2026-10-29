@@ -4,18 +4,22 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-29 — post143 deployed)
+## State (2026-10-29 — post147 deployed)
 
 - **Branch** `feature/multi-table`: pushed, working tree clean. App `codegen-agent`
-  deployed from post143, `/api/health` = `0.5.8.post143`, smoke green (Results +
-  Generate: 200, no console errors). post143 = the App rebuilt in the guided look of
-  the STTM agent's App (frontend only; CHANGELOG_ACFC.md; the UX skill Part 1 "Design
-  pillars"). Both suites green on it (.venv 2225 passed, .venv-d1 1911 passed).
-- **post143 follow-ups (optional):** the Environment line on the Settings card still
-  shows the profile path in full — a candidate for the Advanced fold; the feed page's
-  Overview kept its panels (restyled), not yet the issue-card layout of Results. The
-  tour that drives the guided flow: `/tmp/t/ux/tour143.js <outdir>` (local App,
-  `/tmp/t/ui/serve.sh`).
+  deployed from post147, `/api/health` = `0.5.8.post147`, smoke green (Generate `/` +
+  Results `/results`: 200, no console errors). Both suites green on every version.
+- **This session's App work** (CHANGELOG_ACFC.md): post143 the guided look of the STTM
+  agent's App (UX skill Part 1 "Design pillars"); post144 Generate is `/` (Results
+  `/results`, `/modes` redirects) and the client's logo top-left, read from the state
+  root `branding/logo.png` (uploaded to the App's workspace state folder; never in git);
+  post145 the confirm dialog's new-pair layout cost in DBUs (`reasoning.dbu_rates`,
+  `demo.new_pair_layout_estimate` 1.5–4.5 DBU until a run measures it); post146 the run's
+  progress bar; post147 the environment line inside Advanced.
+- **Open (UI, optional):** the feed page's Overview kept its panels (restyled), not
+  the issue-card layout of Results. The new-pair DBU figure stays an estimate until a
+  live first run on an unmapped pair is recorded. Tours: `/tmp/t/ux/tour143.js`,
+  `/tmp/t/ux/bar.js` (local App, `/tmp/t/ui/serve.sh`).
 - Before post143, post142 was deployed (notebook stage types). Every version this
   session: both suites green, its tests fail with only the fix reverted; output-changing
   ones had the 12-pair check with every diff classified.

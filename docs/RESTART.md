@@ -4,16 +4,25 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-29, end of session — post142 deployed)
+## State (2026-10-29 — post143 deployed)
 
-- **Branch** `feature/multi-table`: pushed, nothing local, working tree clean. App
-  `codegen-agent` deployed from post142, `/api/health` = `0.5.8.post142`, smoke green.
-  Every version this session: both suites green, its tests fail with only the fix
-  reverted; output-changing ones had the 12-pair check with every diff classified.
+- **Branch** `feature/multi-table`: pushed, working tree clean. App `codegen-agent`
+  deployed from post143, `/api/health` = `0.5.8.post143`, smoke green (Results +
+  Generate: 200, no console errors). post143 = the App rebuilt in the guided look of
+  the STTM agent's App (frontend only; CHANGELOG_ACFC.md; the UX skill Part 1 "Design
+  pillars"). Both suites green on it (.venv 2225 passed, .venv-d1 1911 passed).
+- **post143 follow-ups (optional):** the Environment line on the Settings card still
+  shows the profile path in full — a candidate for the Advanced fold; the feed page's
+  Overview kept its panels (restyled), not yet the issue-card layout of Results. The
+  tour that drives the guided flow: `/tmp/t/ux/tour143.js <outdir>` (local App,
+  `/tmp/t/ui/serve.sh`).
+- Before post143, post142 was deployed (notebook stage types). Every version this
+  session: both suites green, its tests fail with only the fix reverted; output-changing
+  ones had the 12-pair check with every diff classified.
   Session log + what each version did: CLAUDE_HISTORY §[H15]; detail: CHANGELOG_ACFC.md.
 - **Decided by Soham this session** (all in CLAUDE.md): stage column types as the STTM
   states; ONE combined `<ABBREV>_DDL.txt`; table COMMENT = Table Description + load
-  strategy; the LOB question asked once, never blocking; ACFC's visual identity.
+  strategy; the LOB question asked once, never blocking; ACFC's visual identity; then (post143) the guided look of the STTM agent's App, rounded.
 - **Open, needs others:**
   - pair_11's billing sheet is GATE_FAIL: its standard column 8 is stated with a space
     (`word _word`) — the STTM must be corrected (BSA); the agent never renames.

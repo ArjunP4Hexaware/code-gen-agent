@@ -56,6 +56,12 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   states; ONE combined `<ABBREV>_DDL.txt`; table COMMENT = Table Description + load
   strategy; the LOB question asked once, never blocking; ACFC's visual identity; then (post143) the guided look of the STTM agent's App, rounded.
 - **Open, needs others:**
+  - pair_03 is GATE_FAIL (`ddl_identifiers` 8 + `ddl_parses`): four column names in its
+    STTM carry a stray space after an underscore (`WORD_WORD_ 9_WORD`; third sheet,
+    rows 157-160, stage column Z and standard column AG = DDL columns 152-155 of both
+    tables). The agent never renames; the BSA must remove the spaces. Proven on D1
+    (2026-10-29): with only those spaces removed the DDL runs twice and its test cases
+    pass (9 PASS, 0 FAIL).
   - pair_11's billing sheet is GATE_FAIL: its standard column 8 is stated with a space
     (`word _word`) — the STTM must be corrected (BSA); the agent never renames.
   - DDL test cases: Jinesh / Suganya on the framework's reject behaviour and header

@@ -122,13 +122,15 @@ none + `ddl_tags_blank`). Tests: `tests/test_ddl_runsafe.py`.
   current set is itself `IF NOT EXISTS` + terminated, CLUSTER BY AUTO on stage, no
   LOCATION. `tools/ddl_shape.py` had scored 5 of 6 D1 stage files as standard (layer
   from `STTM_STG_STD` in the title) — fixed: the `<env>_<layer>_` prefix wins.
-- **Questions for Soham** (asked 2026-10-23): (1) stage column
-  types: all STRING (recommended — the notebook lands stage as STRING too) or as the
-  STTM states (today) - unanswered; (2) table COMMENT - ANSWERED 2026-10-28: description
-  + load strategy (post140); (3) - unanswered: one file per layer (prod)
-  or the combined `<ABBREV>_DDL.txt` (today; the combined set, App listing and
-  `run_artefacts` read `_DDL.txt`, so a split touches all three) — keep the combined
-  file behind a knob the pair-1 overlay pins either way.
+- **The three DDL questions (2026-10-23) - all ANSWERED by Soham:** (1) stage column
+  types stay AS THE STTM STATES (2026-10-29: "the information is derived from the
+  STTM") - today's behaviour, no change; (2) table COMMENT = description + load
+  strategy (2026-10-28, post140); (3) ONE combined `<ABBREV>_DDL.txt` per feed
+  (2026-10-29) - today's behaviour, no change; do not split per layer.
+- **Follows from (1), not done (notebook mode only - ACFC deploys framework):** the
+  notebook v2 lands every stage column as STRING, so after the DDL is run its append
+  fails. The DDL is the reference: the notebook must land stage columns as the STTM
+  types them. Do it when notebook mode is next worked on (ask Soham first).
 - Prod has no PK and no load strategy; `q1` there vs our `A2` (ask Soham). The Pharmacy
   EDH RFC DDLs are warehouse dims (identity key, NOT NULL, `ADD CONSTRAINT PRIMARY
   KEY`, CDF) — a different pattern, not the target.

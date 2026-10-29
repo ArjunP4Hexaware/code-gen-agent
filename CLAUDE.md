@@ -349,12 +349,14 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   notebook v2 (`emit/notebook_v2.py` + `templates/notebook_v2/`, rendered from the IIG
   rows). It never calls `partitionBy` — the DDL clusters every table (`CLUSTER BY AUTO`)
   and Delta clustering is incompatible with partitioning; `TGT_PARTITION_COLUMN` /
-  `_VALUE` only scope an Overwrite (`replaceWhere`). Open conflict (RESTART.md): under
-  `acfc_prx` the DDL types stage columns as the STTM states them while the notebook lands
-  every stage column as STRING — now that the DDL is run first, that append fails.
+  `_VALUE` only scope an Overwrite (`replaceWhere`). Under `acfc_prx` stage columns are
+  typed as the STTM states them (Soham, 2026-10-29) and the DDL is the reference; the
+  notebook still lands every stage column as STRING, so after the DDL its append fails —
+  the notebook is what must change (RESTART.md).
 - **Conventions profiles** (`conventions.profile`; default `edo_sfmc`): `edo_sfmc` = two
   `.txt` DDL files with per-column COMMENTs, CLUSTER BY AUTO + TBLPROPERTIES;
-  `acfc_prx` = ONE combined `<ABBREV>_DDL.txt`, stage columns typed as the STTM states,
+  `acfc_prx` = ONE combined `<ABBREV>_DDL.txt` (Soham, 2026-10-29: never split per
+  layer), stage columns typed as the STTM states (Soham, 2026-10-29),
   every whitespace quirk of the pair-1 golden a knob, compared byte for byte; its column
   / table COMMENT, primary-key note and standard TBLPROPERTIES are knobs too (on in
   config.yaml, off in the pair-1 overlay so that golden stays exact). To add a

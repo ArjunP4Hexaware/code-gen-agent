@@ -4,6 +4,20 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post149 — 2026-10-29 (client-facing App text names no person)
+
+Soham (2026-10-29): the App is client-facing. Two texts it shows from config named a
+person, and now don't:
+- The confirm dialog's new-pair note read "estimated ≈ 6–8 DBU (a conservative
+  approximation (<name>, …), above the offline estimate …)". It now reads "estimated
+  ≈ 6–8 DBU (rounded up on purpose)". Who decided it, and the offline figure, stay in
+  the config comment, which the App never shows.
+- The environment's "Where these values come from" note for the storage account no
+  longer names who gave the D1 value.
+- Tests: `tests/test_new_pair_cost.py` checks that every config text the App shows (the
+  DBU sources, the environment provenance) names no person; it fails with only the
+  config reverted.
+
 ## 0.5.8.post148 — 2026-10-29 (the feed page in the Results layout; the new-pair estimate 6–8 DBU)
 
 Soham (2026-10-29):

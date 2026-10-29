@@ -605,11 +605,14 @@ demo:
   # post145: until a recorded run measured it, the dialog states this range for
   # a pair the agent has not mapped before (one layout call per document, once).
   # post148: a conservative approximation (Venu, 2026-10-29: approximate, and err
-  # high so the client is never surprised), above the 2026-10-27 offline estimate.
+  # high so the client is never surprised), above the 2026-10-27 offline estimate of
+  # 1.5-4.5 DBU (two client pairs' layout requests; output tokens not measured).
+  # post149: `source` is SHOWN in the App's confirm dialog (client-facing): no
+  # person's name and no internal detail there - the provenance stays in this comment.
   new_pair_layout_estimate:
     dbu_low: 6
     dbu_high: 8
-    source: "a conservative approximation (Venu, 2026-10-29), above the offline estimate of 1.5–4.5 DBU from two client pairs' layout requests (2026-10-27), whose output tokens were not measured"
+    source: "rounded up on purpose"
 
   # Reference documents the documents card checks for — DISPLAY ONLY in this
   # build; wiring these into generation is the next step. Filenames as they

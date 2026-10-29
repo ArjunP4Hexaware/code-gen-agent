@@ -753,8 +753,7 @@ bottom:
 > read 0 calls), and a blue note follows (`data-testid=live-estimate-new-pair`):
 > "A pair the agent has not seen before costs more on its first run: the model
 > maps where things are in each document (one call per document — STTM, FRD,
-> and the VDD if chosen): estimated ≈ 6–8 DBU (<source>; post148: Venu's conservative
-> approximation). Later runs of that
+> and the VDD if chosen): estimated ≈ 6–8 DBU (rounded up on purpose). Later runs of that
 > pair reuse the mapping and make no call." Measured runs replace the estimate
 > ("typically n calls, ≈ a–b DBU (measured from N runs; <rate source>)"): the
 > recorded runs whose `layout` stage sent FM API calls, tokens ×

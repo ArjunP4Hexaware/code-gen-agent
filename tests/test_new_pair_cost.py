@@ -9,6 +9,9 @@ no model is called.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
 from ui.backend.run_history import new_pair_cost, run_entry, summary
 
 from codegen.config import DbuRateConfig, NewPairLayoutEstimate, load_config
@@ -75,7 +78,22 @@ def test_the_shipped_rate_reproduces_the_measured_layer2_run():
     config = load_config("config/config.yaml")
     rate = config.reasoning.dbu_rates["claude-opus-5-5"]
     assert round(rate.dbu(input_tokens=5_757, output_tokens=9_860), 2) == 3.15
-    # post148: Venu's conservative approximation, its source named
+    # post148: the conservative approximation; post149: its source is shown to the
+    # client in the confirm dialog - plain words, no person's name
     estimate = config.demo.new_pair_layout_estimate
     assert (estimate.dbu_low, estimate.dbu_high) == (6, 8)
-    assert "Venu" in estimate.source
+    assert estimate.source == "rounded up on purpose"
+
+
+def test_the_shown_texts_name_no_person():
+    # post149: what the App shows from config (the dialog's DBU source, the
+    # environment's "where these values come from") is client-facing
+    import re
+    config = load_config("config/config.yaml")
+    shown = [config.demo.new_pair_layout_estimate.source,
+             *[r.source for r in config.reasoning.dbu_rates.values()]]
+    overlay = yaml.safe_load(Path("config/overlays/acfc_env.yaml").read_text(encoding="utf-8"))
+    for env in overlay["environments"].values():
+        shown += list((env.get("provenance") or {}).values())
+    people = re.compile(r"\b(Venu|Aruna|Soham|Jinesh|Suganya|Rama|Nikshit|Arjun|Saswata)\b")
+    assert [s for s in shown if people.search(s)] == []

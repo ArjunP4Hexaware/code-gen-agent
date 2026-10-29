@@ -260,7 +260,8 @@ def clear_combined(out_root: Path, config: Config) -> list[str]:
         return []
     patterns = [p.format(sttm="*") for p in (
         cfg.iig_file_pattern, cfg.review_file_pattern, cfg.ddl_file_pattern,
-        cfg.ddl_test_cases_file_pattern, cfg.log_file_pattern)]
+        cfg.ddl_test_cases_file_pattern, cfg.ddl_test_workbook_file_pattern,
+        cfg.log_file_pattern)]
     removed = sorted({f for pattern in patterns for f in folder.glob(pattern) if f.is_file()})
     for f in removed:
         f.unlink()
@@ -286,6 +287,7 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
              "review": cfg.review_file_pattern.format(sttm=sttm),
              "ddl": cfg.ddl_file_pattern.format(sttm=sttm),
              "ddl_tests": cfg.ddl_test_cases_file_pattern.format(sttm=sttm),
+             "ddl_tests_xlsx": cfg.ddl_test_workbook_file_pattern.format(sttm=sttm),
              "log": cfg.log_file_pattern.format(sttm=sttm)}
     with_payload = [k for k in kept if getattr(k.artefacts, "payload", None)]
     written: dict[str, str] = {}
@@ -311,20 +313,41 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
                   check_iig_workbooks_single_value([folder / names["iig"]],
                                                    config.gate.derivations)]
         failed_checks = [c.name for c in checks if not c.passed]
-    from codegen.emit.framework import is_ddl_test_cases
+    from codegen.emit.framework import is_ddl_test_cases, is_ddl_test_workbook
 
-    ddl_texts, test_texts = [], []
+    ddl_texts, test_texts, test_books = [], [], []
     for k in kept:
         for path in getattr(k.artefacts, "files", []):
             if path.name.endswith("_DDL.txt") and Path(path).is_file():
                 ddl_texts.append((k.slug, Path(path).read_text(encoding="utf-8")))
             elif is_ddl_test_cases(path.name) and Path(path).is_file():
                 test_texts.append(Path(path).read_text(encoding="utf-8").rstrip("\n"))
+            elif is_ddl_test_workbook(path.name) and Path(path).is_file():
+                test_books.append((k.slug, Path(path)))
     if test_texts:
         # post128: each feed's cases as written, one after the other
         (folder / names["ddl_tests"]).write_text("\n\n\n".join(test_texts) + "\n",
                                                  encoding="utf-8", newline="\n")
         written["ddl_tests"] = names["ddl_tests"]
+    if test_books and profile is not None and profile.ddl_test_workbook_headers:
+        # post154: one sheet per feed, each feed's rows as its own workbook wrote them
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        from codegen.emit.ddl_tests import workbook
+
+        sheets = []
+        for slug, path in test_books:
+            # openpyxl 3.1.2 keeps a load_workbook(path) open - read from bytes
+            source = load_workbook(BytesIO(path.read_bytes()))
+            sheet = source.worksheets[0]
+            rows = [[("" if v is None else str(v)) for v in row]
+                    for row in sheet.iter_rows(min_row=2, values_only=True)]
+            sheets.append((slug, rows))
+        book = workbook(sheets, profile, provenance)
+        (folder / names["ddl_tests_xlsx"]).write_bytes(stable_workbook_bytes(book))
+        written["ddl_tests_xlsx"] = names["ddl_tests_xlsx"]
     ddl_skipped, conflicts = 0, []
     if ddl_texts:
         banners = tuple(b for b in (getattr(profile, "stage_banner", None),
@@ -398,6 +421,9 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
         lines.append(f"| `{written['ddl_tests']}` | The DDL test cases, feed by feed: "
                      "read-only SQL the engineer runs after the DDL (the agent never runs "
                      "them). |")
+    if "ddl_tests_xlsx" in written:
+        lines.append(f"| `{written['ddl_tests_xlsx']}` | The same test cases as a test-record "
+                     "workbook, one sheet per feed: the tester fills in the result columns. |")
     if "iig" in written:
         lines.append(f"| `{written['iig']}` | The IIG: the template's sheets and columns, "
                      "values only — the file the BSA certifies and the CI/CD pipeline "

@@ -1234,7 +1234,12 @@ class InputsConfig(BaseModel):
 DdlTestCase = Literal["file_available", "file_location", "column_mapping",
                       "columns_populated", "column_shift", "mapping_mode", "record_count",
                       "key_unique", "table_exists", "columns_match", "comments_present",
-                      "table_properties", "table_tags", "ddl_rerun"]
+                      "table_properties", "table_tags", "ddl_rerun",
+                      # post154: the pipeline-level cases of the client's own test
+                      # workbook (the load strategy on a second file, a second file,
+                      # several files at once, one email per configured status)
+                      "load_strategy", "second_file", "multiple_files",
+                      "notification_emails"]
 
 
 class ConventionsProfileConfig(BaseModel):
@@ -1335,6 +1340,16 @@ class ConventionsProfileConfig(BaseModel):
     # starts counting (Databricks: 0); the columns_match check counts DDL columns
     # from 1, so it reads ordinal_position + (1 - base). None = read as it is.
     ddl_test_ordinal_base: int | None = Field(default=None, ge=0)
+    # post154: the test cases also as a workbook in the client's test-record layout
+    # (its column headers, transcribed; the tester fills the result columns). None =
+    # no workbook. ``ddl_test_workbook_columns`` maps each header to what fills it:
+    # id | case | expected | sql | from | blank.
+    ddl_test_workbook_headers: list[str] | None = None
+    ddl_test_workbook_columns: list[Literal["id", "case", "expected", "sql", "from",
+                                            "blank"]] | None = None
+    # post154: what makes the framework send each EMAIL_TEMPLATE_CONFIG status (the
+    # notification_emails cases); a status without an entry says only its name.
+    ddl_test_email_triggers: dict[str, str] | None = None
     # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
     # datatypes extract-sttm accepts (workbook spelling, normalized). Every
     # audit column: audit_datatypes; a column ending in one of
@@ -1451,6 +1466,16 @@ class ConventionsProfileConfig(BaseModel):
     # SFMC two-file DDL are compared byte for byte with client goldens; the
     # target system is labelled in ADDITION.md / MANIFEST.md instead.
     target_system_header: bool = False
+
+    @model_validator(mode="after")
+    def _workbook_columns_match(self):
+        # post154: one fill kind per workbook header - a typo is loud at load time
+        headers, columns = self.ddl_test_workbook_headers, self.ddl_test_workbook_columns
+        if (headers is None) != (columns is None) or (
+                headers is not None and len(headers) != len(columns)):
+            raise ValueError("ddl_test_workbook_headers and ddl_test_workbook_columns must "
+                             "both be set, one column kind per header")
+        return self
 
 
 class ConventionsConfig(BaseModel):
@@ -2363,6 +2388,8 @@ class CombinedConfig(BaseModel):
     ddl_file_pattern: str = "{sttm}_DDL.txt"
     # post128: every kept feed's DDL test cases, feed by feed
     ddl_test_cases_file_pattern: str = "{sttm}_DDL_TestCases.txt"
+    # post154: the same cases as a workbook, one sheet per feed
+    ddl_test_workbook_file_pattern: str = "{sttm}_DDL_TestCases.xlsx"
     log_file_pattern: str = "{sttm}_LOG.md"
     dedup_sheets: list[str] = Field(default_factory=list)
     # post99: rows written once on an otherwise per-feed sheet - a row whose

@@ -117,6 +117,11 @@ def test_the_read_only_check_fails_a_write():
     assert not check.passed and "statement 3 is not read-only (Drop)" in check.details
 
 
+def _sheet_rows(sheet) -> list[list[str]]:
+    return [[("" if v is None else str(v)) for v in row]
+            for row in sheet.iter_rows(values_only=True)]
+
+
 def test_the_combined_set_carries_every_feeds_cases(tmp_path):
     from codegen import run_stages
     from test_iig_corpus_cells import _generate
@@ -134,6 +139,21 @@ def test_the_combined_set_carries_every_feeds_cases(tmp_path):
         assert own.read_text(encoding="utf-8").rstrip("\n") in text
     log = (out / config.combined.dir / block["files"]["log"]).read_text(encoding="utf-8")
     assert f"`{name}`" in log
+    # post154: the workbook too - one sheet per feed, each feed's rows as its own
+    # workbook wrote them, then _provenance
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    book_name = block["files"]["ddl_tests_xlsx"]
+    assert book_name == config.combined.ddl_test_workbook_file_pattern.format(sttm=block["sttm"])
+    book = load_workbook(BytesIO((out / config.combined.dir / book_name).read_bytes()))
+    assert book.sheetnames == [*(f[:31] for f in block["feeds"]), "_provenance"]
+    for feed in block["feeds"]:
+        (own,) = (out / feed / "framework").glob("*_TestCases.xlsx")
+        mine = load_workbook(BytesIO(own.read_bytes())).worksheets[0]
+        assert _sheet_rows(book[feed[:31]]) == _sheet_rows(mine)
+    assert f"`{book_name}`" in log
 
 
 def test_a_value_with_a_line_break_never_leaves_its_comment(pair4_config, pair4_spec, tmp_path):
@@ -183,7 +203,9 @@ def test_each_record_count_case_has_its_own_parameter(pair4_run):
     cases = _cases(next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8"))
     counted = [(tc, s) for tc, statements in cases for s in statements
                if "AS BIGINT)" in s]
-    assert len(counted) == 3                     # pair 4: header / detail / trailer
+    # pair 4: header / detail / trailer record counts, and (post154) the load strategy on
+    # a second file for each of its 6 tables - every one with its own parameter
+    assert len(counted) == 3 + 6
     for tc, statement in counted:
         assert set(re.findall(r":(\w+)", statement)) == {f"expected_rows_{tc.lower()}"}
 
@@ -246,3 +268,87 @@ def test_the_column_check_counts_columns_as_the_ddl_does(pair4_config):
     (plain, _e), = [(q["statement"], q["expected"]) for q in
                     _schema_case("columns_match", table, None, as_is)["sql"]]
     assert "SELECT ordinal_position AS col_position" in plain
+
+
+# ---- post154: the pipeline-level cases of the client's own test workbook --------
+
+
+def _titles(text: str) -> list[str]:
+    return re.findall(r"^-- TC\d+ (.+)$", text, flags=re.M)
+
+
+def test_the_load_strategy_case_says_what_a_second_file_does_per_table(pair4_run, pair4_spec):
+    _gate, framework = pair4_run
+    text = next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8")
+    load = [t for t in _titles(text) if t.startswith("Load strategy on a second file")]
+    assert len(load) == 6                                    # every table, both layers
+    for strategy in {pair4_spec.stage_load_strategy, pair4_spec.standard_load_strategy}:
+        assert f"with the load strategy {strategy}," in text
+    assert "the table holds only the second file's rows" in text or \
+        "the table keeps every row of the first file" in text
+
+
+def test_a_second_file_and_several_files_at_once(pair4_run):
+    _gate, framework = pair4_run
+    titles = _titles(next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8"))
+    assert "A second sample file" in titles and "Several files at once" in titles
+
+
+def test_one_email_case_per_status_the_iig_writes(pair4_run):
+    """The statuses come from the same run's IIG rows - never a list of their own."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    _gate, framework = pair4_run
+    text = next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8")
+    iig = load_workbook(BytesIO(next(framework.glob("*_IIG.xlsx")).read_bytes()))
+    sheet = iig["EMAIL_TEMPLATE_CONFIG"]
+    headers = [c.value for c in sheet[1]]
+    statuses = list(dict.fromkeys(r[headers.index("STATUS")] for r in
+                                  sheet.iter_rows(min_row=2, values_only=True)
+                                  if r[headers.index("STATUS")]))
+    assert statuses
+    emails = [t.removeprefix("Email notification — ") for t in _titles(text)
+              if t.startswith("Email notification — ")]
+    assert emails == statuses
+
+
+def test_the_workbook_is_the_clients_test_record_layout(pair4_run, pair4_config):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    _gate, framework = pair4_run
+    profile = pair4_config.conventions.profiles["acfc_prx"]
+    text = next(framework.glob("*_TestCases.txt")).read_text(encoding="utf-8")
+    book = load_workbook(BytesIO(next(framework.glob("*_TestCases.xlsx")).read_bytes()))
+    sheet = book.worksheets[0]
+    assert [c.value for c in sheet[1]] == profile.ddl_test_workbook_headers
+    rows = list(sheet.iter_rows(min_row=2, values_only=True))
+    assert [r[0] for r in rows] == re.findall(r"^-- (TC\d+) ", text, flags=re.M)
+    columns = profile.ddl_test_workbook_columns
+    for row in rows:                       # the tester's columns start empty
+        assert all(row[i] in (None, "") for i, kind in enumerate(columns) if kind == "blank")
+    sql = [r[columns.index("sql")] for r in rows if r[columns.index("sql")]]
+    assert sql and all(s.lstrip().startswith(("SELECT", "SHOW")) for s in sql)
+    assert book.sheetnames[-1] == "_provenance"
+
+
+def test_the_workbook_is_byte_stable(pair4_config, pair4_spec, tmp_path):
+    _g1, first = _run(pair4_config, pair4_spec, tmp_path / "a")
+    _g2, second = _run(pair4_config, pair4_spec, tmp_path / "b")
+    assert (next(first.glob("*_TestCases.xlsx")).read_bytes()
+            == next(second.glob("*_TestCases.xlsx")).read_bytes())
+
+
+def test_headers_and_columns_must_match():
+    import pytest as _pytest
+
+    from codegen.config import ConventionsProfileConfig, load_config
+
+    profile = load_config("config/config.yaml").conventions.profiles["acfc_prx"]
+    data = profile.model_dump()
+    data["ddl_test_workbook_columns"] = data["ddl_test_workbook_columns"][:-1]
+    with _pytest.raises(ValueError, match="one column kind per header"):
+        ConventionsProfileConfig.model_validate(data)

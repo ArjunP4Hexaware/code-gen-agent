@@ -32,6 +32,26 @@ _SPARK_POSITIONAL = ("Spark applies a given schema to a delimited file BY POSITI
 class DdlTestCases:
     text: str
     flags: list[str] = field(default_factory=list)
+    # post154: the numbered cases (id, title, lines, sql) the workbook is built from
+    cases: list[dict] = field(default_factory=list)
+
+
+# post154: what each FRD load strategy (contracts.frd.LoadStrategy) does when a
+# SECOND file is loaded, the row count the engineer enters to check it, and the
+# failure
+_SECOND_LOAD = {
+    "Truncate and Load": ("the table holds only the second file's rows (the first file's "
+                          "rows are gone)",
+                          "the second file's data record count minus the rows the load "
+                          "rejected",
+                          "rows of the first file still in the table -> FAIL"),
+    "Append": ("the table keeps every row of the first file and adds the second file's",
+               "both files' data record counts added up, minus the rows the loads rejected",
+               "rows of the first file missing, or a file loaded twice -> FAIL"),
+    "Upsert": ("a key present in both files is updated, never duplicated; a new key is added",
+               "the number of distinct keys across both files",
+               "a key in the table twice -> FAIL (the key case checks it too)"),
+}
 
 
 def ddl_test_cases_name(ddl_name: str, suffix: str) -> str:
@@ -138,8 +158,11 @@ def catalog_type(ddl_type: str, profile) -> str:
 
 
 def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
-          banner: list[tuple[str, str]], tags: tuple[str, str] | None) -> DdlTestCases:
-    """The test-cases text for one feed's combined DDL (``ddl_name``)."""
+          banner: list[tuple[str, str]], tags: tuple[str, str] | None,
+          email_statuses: list[str] | None = None) -> DdlTestCases:
+    """The test-cases text for one feed's combined DDL (``ddl_name``).
+    ``email_statuses`` = the EMAIL_TEMPLATE_CONFIG statuses the same run's IIG
+    writes (None = the run wrote no such sheet)."""
     from codegen.emit.emitter import _environment
 
     flags: list[str] = []
@@ -265,6 +288,65 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
                     "From: the DDL (the profile's table properties)."],
                     [(f"SHOW TBLPROPERTIES {table['qualified']}",
                       [f"includes {k} = {v}" for k, v in table["properties"]])]))
+        elif name == "load_strategy":
+            for table in tables:
+                label = f"{table['qualified']} ({table['layer']})"
+                strategy = table["strategy"]
+                if not strategy:
+                    open_value(name, None, f"no load strategy stated for {table['qualified']}")
+                    cases.append(_case(f"Load strategy on a second file — {label}", [
+                        f"Load strategy: {OPEN}: no check until the FRD states it."]))
+                    continue
+                if strategy not in _SECOND_LOAD:
+                    flags.append(f"ddl_tests_load_strategy_unread:{table['qualified']} — "
+                                 f"{strategy!r} is not a strategy this case knows; no check")
+                    cases.append(_case(f"Load strategy on a second file — {label}", [
+                        f"Load strategy: {_prose(strategy)}: no check written."]))
+                    continue
+                behaviour, enter, negative = _SECOND_LOAD[strategy]
+                cases.append(_case(f"Load strategy on a second file — {label}", [
+                    f"Check: load a first test file, then a second; with the load strategy "
+                    f"{strategy}, {behaviour}.",
+                    f"Enter {_ROWS} when asked: {enter}.",
+                    f"Negative: {negative}.",
+                    f"From: the FRD load strategy ({table['layer']})."],
+                    [_check(table["qualified"], f"COUNT(*) = CAST(:{_ROWS} AS BIGINT)",
+                            "COUNT(*)", f"CAST(:{_ROWS} AS STRING)")]))
+        elif name == "second_file":
+            cases.append(_case("A second sample file", [
+                f"Check: load another sample file matching {patterns} (a later business "
+                "date) and run every case above again; each still passes.",
+                "Negative: a case that passed on the first file fails on the second -> FAIL.",
+                "From: the FRD / STTM file name pattern."]))
+        elif name == "multiple_files":
+            landing = open_value(name, spec.landing_location,
+                                 "no document states the landing location")
+            processed = getattr(spec.processed_files_table, "qualified", None)
+            cases.append(_case("Several files at once", [
+                f"Check: place two files matching {patterns} in {landing} at the same time; "
+                "both are loaded, each once"
+                + (f", and each appears once in {processed}." if processed else "."),
+                "Negative: a file skipped, or loaded twice -> FAIL.",
+                "From: the FRD file name pattern and landing location"
+                + ("; the processed-files table." if processed else ".")]))
+        elif name == "notification_emails":
+            if email_statuses is None:
+                continue                                  # no email sheet in this IIG
+            if not email_statuses:
+                flags.append("ddl_tests_open:notification_emails — the IIG configures no "
+                             "email status; the case says OPEN")
+                cases.append(_case("Email notifications", [f"Statuses: {OPEN}."]))
+                continue
+            triggers = profile.ddl_test_email_triggers or {}
+            for status in email_statuses:
+                when = triggers.get(status)
+                cases.append(_case(f"Email notification — {status}", [
+                    f"Check: the framework sends the {status!r} email"
+                    + (f" when {when}" if when else "") + ", to the recipients the IIG row "
+                    "states.",
+                    f"Negative: {when or 'the event happens'} and no {status!r} email "
+                    "arrives -> FAIL.",
+                    "From: the IIG's EMAIL_TEMPLATE_CONFIG row for this status."]))
         elif name == "ddl_rerun":
             cases.append(_case("The DDL is safe to run again", [
                 f"Check: run {ddl_name} a second time against the deployed tables -> no error, "
@@ -285,7 +367,68 @@ def build(spec: ResolvedFeedSpec, definitions, profile, ddl_name: str,
             q["expected"] = [_line(line) for line in q["expected"]]
     text = _environment().get_template("framework/ddl_test_cases.txt.j2").render(
         ddl_name=ddl_name, feed=spec.feed_slug, banner=banner, cases=cases)
-    return DdlTestCases(text=text, flags=flags)
+    return DdlTestCases(text=text, flags=flags, cases=cases)
+
+
+def workbook_rows(cases: list[dict], profile) -> list[list[str]]:
+    """post154: the cases as rows in the client's test-record layout
+    (``ddl_test_workbook_headers``; each column filled by its
+    ``ddl_test_workbook_columns`` kind). The tester fills the blank columns."""
+    rows = []
+    for case in cases:
+        lines = case["lines"]
+        source = [ln for ln in lines if ln.startswith("From:")]
+        negative = [ln for ln in lines if ln.startswith("Negative:")]
+        body = [ln for ln in lines if ln not in source and ln not in negative]
+        expected = []
+        if any(q["statement"].startswith("SELECT") for q in case["sql"]):
+            expected.append("Each query returns result PASS (NO DATA = load a test file "
+                            "first).")
+        expected += [ln for q in case["sql"] for ln in q["expected"]] + negative
+        fill = {
+            "id": case["id"],
+            "case": "\n".join([case["title"], *body]),
+            "expected": "\n".join(expected),
+            "sql": "".join(q["statement"] + ";\n" for q in case["sql"]).rstrip("\n"),
+            "from": "\n".join(ln.removeprefix("From:").strip() for ln in source),
+            "blank": "",
+        }
+        rows.append([fill[kind] for kind in profile.ddl_test_workbook_columns])
+    return rows
+
+
+def workbook(sheets: list[tuple[str, list[list[str]]]], profile, banner):
+    """post154: the test-record workbook - one sheet per feed (title, rows), the
+    headers bold and frozen, then a _provenance sheet (the same banner as the
+    text file). Byte-stable through metadata_sheet.stable_workbook_bytes."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    from codegen.metadata_sheet import _pin_workbook_properties
+
+    book = Workbook()
+    _pin_workbook_properties(book)
+    book.remove(book.active)
+    headers = profile.ddl_test_workbook_headers
+    widths = {"id": 12, "case": 60, "expected": 60, "sql": 80, "from": 40, "blank": 18}
+    for title, rows in sheets:
+        sheet = book.create_sheet(title=title[:31])
+        sheet.append(headers)
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+        for row in rows:
+            sheet.append(row)
+        for column, kind in enumerate(profile.ddl_test_workbook_columns, start=1):
+            letter = sheet.cell(row=1, column=column).column_letter
+            sheet.column_dimensions[letter].width = widths[kind]
+            for cell in sheet[letter][1:]:
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+        sheet.freeze_panes = "A2"
+    provenance = book.create_sheet(title="_provenance")
+    provenance.append(["input", "value"])
+    for key, value in banner:
+        provenance.append([key, value])
+    return book
 
 
 def _schema_case(name: str, table: dict, tags: tuple[str, str] | None, profile) -> dict | None:

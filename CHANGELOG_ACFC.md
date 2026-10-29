@@ -4,6 +4,32 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post154 — 2026-10-29 (DDL test cases: the client's pipeline-level cases, and its workbook)
+
+Soham (2026-10-29), from the client's own DDL test workbook (Aruna): its cases test
+the whole pipeline (a second file, several files, emails, overwrite vs append), ours
+the DDL. Four cases added, every value from the documents, and the cases as a workbook:
+- **Load strategy on a second file**, one per table: the FRD's strategy says what a
+  second load does (Truncate and Load = only the second file's rows; Append = both
+  files'; Upsert = keys updated, never duplicated) — a self-checking COUNT with its own
+  `expected_rows_tcNN` parameter. No strategy stated = OPEN + flag; an unknown one = a
+  `ddl_tests_load_strategy_unread` flag, no check.
+- **A second sample file** and **Several files at once** (written steps; the latter names
+  the processed-files table).
+- **Email notification**, one per EMAIL_TEMPLATE_CONFIG status THIS run's IIG writes
+  (`ddl_test_email_triggers` says what sends each; an IIG without the sheet = no case).
+- **`<ABBREV>_DDL_TestCases.xlsx`**: the cases in the client's test-record layout — its
+  headers transcribed (`ddl_test_workbook_headers`), then "SQL to run"; the tester fills
+  Actual Results / Executed By / Executed Date / Output(Pass/Fail). Byte-stable; the
+  combined set gets `<STTM>_DDL_TestCases.xlsx` with one sheet per feed, and the App lists
+  it with the other combined files.
+- The cases are renumbered (new ones sit after the record counts / before the key case).
+- On D1 (synthetic pair 4): 67 cases — 30 PASS, 6 NO DATA, 9 count checks pass with 0
+  rows, 0 FAIL, no error.
+- Not yet: the audit-log case (needs the Databricks clone's table name of the
+  framework's audit DB; it goes in the environment state file, never the repo).
+- Tests: `tests/test_ddl_test_cases.py` (7 new; fail with only the source reverted).
+
 ## 0.5.8.post153 — 2026-10-29 (DDL test cases: the column check counts as Databricks does)
 
 Found by running the generated DDLs on D1 (Soham, 2026-10-29: test schema

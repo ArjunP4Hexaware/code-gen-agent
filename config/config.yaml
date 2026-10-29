@@ -1078,10 +1078,27 @@ conventions:
       # the DDL, named <DDL name>_TestCases): read-only SQL + comments the engineer
       # runs AFTER the DDL; every value from the documents, an unstated one OPEN +
       # a ddl_tests_open flag. The cases, in file order (codegen.emit.ddl_tests).
+      # post154: + load_strategy / second_file / multiple_files / notification_emails,
+      # the pipeline-level cases of the client's own DDL test workbook (Aruna, 2026-10-29)
       ddl_test_cases: [file_available, file_location, column_mapping, columns_populated,
-                       column_shift, mapping_mode, record_count, key_unique, table_exists,
+                       column_shift, mapping_mode, record_count, load_strategy, second_file,
+                       multiple_files, key_unique, notification_emails, table_exists,
                        columns_match, comments_present, table_properties, table_tags,
                        ddl_rerun]
+      # post154: the cases also as <DDL name>_TestCases.xlsx in the client's test-record
+      # layout - its headers transcribed from the client's DDL test workbook (2026-10-29),
+      # then one column for the SQL to run; the tester fills the blank columns.
+      ddl_test_workbook_headers: ["Test Case #", "Test Case", "Expected Result",
+                                  "Actual Results", "Executed By", "Executed Date",
+                                  "Output(Pass/Fail)", "Comment", "SQL to run"]
+      ddl_test_workbook_columns: [id, case, expected, blank, blank, blank, blank, from, sql]
+      # post154: what sends each EMAIL_TEMPLATE_CONFIG status (the status names are the
+      # IIG's; the triggers are the corpus's meaning of each, patterns_post45 email)
+      ddl_test_email_triggers:
+        FilesNotReceived: "no file matching the pattern arrives for the run"
+        "New Files to Process": "a file matching the pattern arrives and is picked up"
+        Success: "the load completes"
+        Failed: "the load fails"
       ddl_test_cases_suffix: "_TestCases"
       # post134: the catalog's spelling of a DDL type, for the columns_match check
       # (Spark SQL type aliases: docs.databricks.com sql-ref-datatypes; a bare

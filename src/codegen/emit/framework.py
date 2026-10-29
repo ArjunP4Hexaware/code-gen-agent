@@ -98,15 +98,21 @@ TARGET_NOTES = "Notes"
 TARGET_TESTS = "DDL test cases — run by the engineer after the DDL (read-only)"
 # post128: the test-cases file's name ends so (the profile suffix + .txt)
 DDL_TEST_CASES_SUFFIX = "_TestCases.txt"
+# post154: the same cases as the client's test-record workbook
+DDL_TEST_WORKBOOK_SUFFIX = "_TestCases.xlsx"
 
 
 def is_ddl_test_cases(name: str) -> bool:
     return name.endswith(DDL_TEST_CASES_SUFFIX)
+
+
+def is_ddl_test_workbook(name: str) -> bool:
+    return name.endswith(DDL_TEST_WORKBOOK_SUFFIX)
 DDL_TARGET_HEADER = "-- TARGET SYSTEM = Databricks (Unity Catalog) — run in SQL editor/notebook"
 
 
 def artefact_group(name: str) -> str:
-    if is_ddl_test_cases(name):
+    if is_ddl_test_cases(name) or is_ddl_test_workbook(name):
         return TARGET_TESTS
     if name.endswith("_table_creation.txt") or name.endswith("_DDL.txt"):
         return TARGET_DDL
@@ -1000,12 +1006,28 @@ def emit_framework(
 
                 tags = ((spec.domain, spec.sub_domain)
                         if profile.domain_tags and spec.domain and spec.sub_domain else None)
-                cases = build(spec, definitions, profile, ddl_names[0], banner, tags)
+                # post154: the email cases name exactly the statuses this run's IIG writes
+                email_tab = payload["tabs"].get("EMAIL_TEMPLATE_CONFIG")
+                email_statuses = (None if email_tab is None else list(dict.fromkeys(
+                    str(row["values"].get("STATUS") or "").strip()
+                    for row in email_tab["rows"]
+                    if str(row["values"].get("STATUS") or "").strip())))
+                cases = build(spec, definitions, profile, ddl_names[0], banner, tags,
+                              email_statuses=email_statuses)
                 test_cases_path = framework_dir / ddl_test_cases_name(
                     ddl_names[0], profile.ddl_test_cases_suffix)
                 test_cases_path.write_text(cases.text, encoding="utf-8", newline="\n")
                 files.append(test_cases_path)
                 flags.extend(cases.flags)
+                if profile.ddl_test_workbook_headers and profile.ddl_test_workbook_columns:
+                    from codegen.emit.ddl_tests import workbook, workbook_rows
+                    from codegen.metadata_sheet import stable_workbook_bytes
+
+                    book = workbook([(spec.feed_slug, workbook_rows(cases.cases, profile))],
+                                    profile, banner)
+                    book_path = test_cases_path.with_suffix(".xlsx")
+                    book_path.write_bytes(stable_workbook_bytes(book))
+                    files.append(book_path)
         else:
             ddl_names = []
     else:

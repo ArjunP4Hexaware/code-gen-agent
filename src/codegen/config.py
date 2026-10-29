@@ -644,6 +644,32 @@ class PriceTableConfig(BaseModel):
         return None
 
 
+class DbuRateConfig(BaseModel):
+    """post145: what a model's tokens cost in DBUs through the Databricks
+    Foundation Model API, DBU per million tokens, and where the rate comes from."""
+
+    model_config = _MODEL_CONFIG
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+    source: str
+
+    def dbu(self, *, input_tokens: int, output_tokens: int) -> float:
+        return (input_tokens * self.input + output_tokens * self.output) / 1_000_000
+
+
+class NewPairLayoutEstimate(BaseModel):
+    """post145: the DBU range the confirm dialog states for a pair the agent has
+    not mapped before (its first run makes the layout calls) while no recorded
+    run has measured one; ``source`` says what the range rests on."""
+
+    model_config = _MODEL_CONFIG
+
+    dbu_low: float = Field(ge=0)
+    dbu_high: float = Field(ge=0)
+    source: str
+
+
 class ReasoningConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -665,6 +691,9 @@ class ReasoningConfig(BaseModel):
     # post67: what a live run's measured tokens cost (the App's confirm
     # dialog); a model missing from the table = no dollars shown, never a guess
     prices: PriceTableConfig | None = None
+    # post145: DBU per million tokens by model id for FM API calls (the dialog's
+    # new-pair layout cost); a model missing here = no measured DBU figure
+    dbu_rates: dict[str, DbuRateConfig] = Field(default_factory=dict)
     # post76: the Layer-2 stage (codegen.layer2_stage), run after the outcome:
     # now = one request per feed | defer = kept for `codegen layer2` / the App's
     # review panel | skip. --layer2 wins on the CLI.
@@ -797,6 +826,9 @@ class DemoConfig(BaseModel):
     # post67: the live-run confirm dialog shows ranges from the last N live
     # runs per conventions profile (ui/backend/run_history.py) — no constants.
     run_history_size: int = Field(default=10, gt=0)
+    # post145: the new-pair layout cost the dialog states until a recorded run
+    # measured one (then the measurement wins); None = the line says no figure
+    new_pair_layout_estimate: NewPairLayoutEstimate | None = None
     # Display-only panels (codegen.demo_sources); all default so an older
     # config still loads unchanged.
     # Shell-block source: live (list the real landing volume) | synthetic

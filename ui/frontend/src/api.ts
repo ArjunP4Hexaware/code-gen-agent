@@ -297,6 +297,15 @@ export interface LiveHistory {
   cost_basis: "workspace" | "list" | null;
   price_source: string | null;
   billed_in_dbus: boolean;
+  // post145: what a pair the agent has not mapped before costs (its first run's
+  // layout calls), in DBUs: measured from recorded runs, else the configured
+  // estimate (measured_runs 0); null = neither
+  new_pair?: {
+    measured_runs: number;
+    calls: ValueRange | null;
+    dbu: ValueRange;
+    source: string;
+  } | null;
 }
 
 export interface DemoStatus {

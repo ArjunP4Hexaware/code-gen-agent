@@ -49,7 +49,7 @@ def is_live(usage: dict) -> bool:
 def _stages(live: list[dict]) -> list[dict]:
     """What pricing needs per live stage that sent calls: who answered, which
     model, its tokens."""
-    return [{"provider": u.get("provider"), "model": u.get("model"),
+    return [{"stage": u.get("stage"), "provider": u.get("provider"), "model": u.get("model"),
              "calls": int(u.get("calls") or 0),
              **{n: int(u.get(n) or 0) for n in TOKEN_FIELDS}}
             for u in live if int(u.get("calls") or 0)]
@@ -122,7 +122,45 @@ def typical_range(values: list[float]) -> dict | None:
     return {"low": ordered[0], "high": ordered[-1]}
 
 
-def summary(entries: list[dict], *, profile: str, prices=None) -> dict:
+# post145: the stage whose calls map a document's layout (codegen.reasoning.usage)
+LAYOUT_STAGE = "layout"
+
+
+def new_pair_cost(entries: list[dict], *, dbu_rates=None, estimate=None) -> dict | None:
+    """What a pair the agent has not mapped before costs: its first run makes the
+    layout calls (later runs reuse the cached mapping). Measured from the
+    recorded runs (any outcome) whose layout stage sent calls, in DBUs at
+    ``dbu_rates`` (FM API calls of a model with a rate); else the configured
+    ``estimate``; None when there is neither."""
+    measured = []
+    for entry in entries:
+        layout = [s for s in entry.get("stages") or []
+                  if s.get("stage") == LAYOUT_STAGE and int(s.get("calls") or 0)]
+        rates = [(dbu_rates or {}).get(s.get("model") or "") for s in layout]
+        if not layout or not entry.get("tokens_measured") or None in rates \
+                or any(s.get("provider") != "databricks_fmapi" for s in layout):
+            continue
+        measured.append({
+            "calls": sum(int(s["calls"]) for s in layout),
+            "dbu": round(sum(r.dbu(input_tokens=int(s.get("input_tokens") or 0),
+                                   output_tokens=int(s.get("output_tokens") or 0))
+                             for s, r in zip(layout, rates, strict=True)), 2),
+            "source": rates[0].source,
+        })
+    if measured:
+        return {"measured_runs": len(measured),
+                "calls": typical_range([m["calls"] for m in measured]),
+                "dbu": typical_range([m["dbu"] for m in measured]),
+                "source": "; ".join(dict.fromkeys(m["source"] for m in measured))}
+    if estimate is not None:
+        return {"measured_runs": 0, "calls": None,
+                "dbu": {"low": estimate.dbu_low, "high": estimate.dbu_high},
+                "source": estimate.source}
+    return None
+
+
+def summary(entries: list[dict], *, profile: str, prices=None, dbu_rates=None,
+            new_pair_estimate=None) -> dict:
     """What the dialog shows for ``profile``: ranges over its COMPLETED runs
     (none under MIN_COMPLETED), and ``stopped`` — the NEEDS_ANSWERS /
     GATE_FAIL runs' wall-clock — when there are any.
@@ -132,6 +170,7 @@ def summary(entries: list[dict], *, profile: str, prices=None) -> dict:
     completed = [e for e in entries if e.get("outcome") in COMPLETED_OUTCOMES]
     view = {
         "profile": profile,
+        "new_pair": new_pair_cost(entries, dbu_rates=dbu_rates, estimate=new_pair_estimate),
         "runs": len(completed),
         "min_runs": MIN_COMPLETED,
         "stopped": ({"runs": len(stopped),
@@ -199,8 +238,11 @@ class LiveRunHistory:
         return sorted(runs, key=lambda e: str(e.get("at") or ""))
 
     def view(self, profile: str) -> dict:
+        config = self._config()
         return summary(self.entries(profile), profile=profile,
-                       prices=self._config().reasoning.prices)
+                       prices=config.reasoning.prices,
+                       dbu_rates=config.reasoning.dbu_rates,
+                       new_pair_estimate=config.demo.new_pair_layout_estimate)
 
     def record(self, profile: str, entry: dict) -> None:
         """Keep ``entry`` under (profile, its outcome): the last N per key."""
@@ -223,4 +265,5 @@ class LiveRunHistory:
 
 
 __all__ = ["COMPLETED_OUTCOMES", "HISTORY_FILE", "MIN_COMPLETED", "STOPPED_OUTCOMES",
-           "LiveRunHistory", "entry_cost", "run_entry", "summary", "typical_range"]
+           "LAYOUT_STAGE", "LiveRunHistory", "entry_cost", "new_pair_cost", "run_entry",
+           "summary", "typical_range"]

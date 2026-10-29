@@ -60,6 +60,8 @@ export interface LiveEstimate {
   detail: string;
   /** "runs that stopped for answers: typically 20–40 s"; null when none did. */
   stopped: string | null;
+  /** post145: the first run on a pair the agent has not mapped before. */
+  newPair: string;
 }
 
 function stoppedLine(history: LiveHistory | null | undefined): string | null {
@@ -70,9 +72,35 @@ function stoppedLine(history: LiveHistory | null | undefined): string | null {
     : `typically ${span}`}`;
 }
 
+export function fmtDbuRange(range: ValueRange): string {
+  const fmt = (v: number) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+  return range.low === range.high ? `≈ ${fmt(range.low)} DBU` : `≈ ${fmt(range.low)}–${fmt(range.high)} DBU`;
+}
+
+/** post145: the ranges above come from runs on pairs whose layout was already
+ * mapped (cached, or read by the synonyms) — those make no layout call. A pair
+ * the agent has not mapped before pays its layout calls once, on its first run;
+ * that cost is said in DBUs, measured when a recorded run made such calls,
+ * else the configured estimate, named as one. */
+export function newPairLine(history: LiveHistory | null | undefined): string {
+  const lead = "A pair the agent has not seen before costs more on its first run: the "
+    + "model maps where things are in each document (one call per document — STTM, FRD, "
+    + "and the VDD if chosen)";
+  const tail = " Later runs of that pair reuse the mapping and make no call.";
+  const np = history?.new_pair;
+  if (!np) return `${lead}; no DBU figure is configured.${tail}`;
+  if (np.measured_runs > 0) {
+    const calls = np.calls ? `${fmtCallsRange(np.calls)}, ` : "";
+    return `${lead}: typically ${calls}${fmtDbuRange(np.dbu)} (measured from `
+      + `${np.measured_runs} run${np.measured_runs === 1 ? "" : "s"}; ${np.source}).${tail}`;
+  }
+  return `${lead}: estimated ${fmtDbuRange(np.dbu)} (${np.source}).${tail}`;
+}
+
 export function liveEstimate(history: LiveHistory | null | undefined): LiveEstimate {
   const profile = history?.profile ?? "this profile";
   const stopped = stoppedLine(history);
+  const newPair = newPairLine(history);
   if (!history || history.runs < history.min_runs || !history.wall_seconds || !history.calls) {
     const recorded = history?.runs ?? 0;
     return {
@@ -82,6 +110,7 @@ export function liveEstimate(history: LiveHistory | null | undefined): LiveEstim
         : `${recorded} completed live run${recorded === 1 ? "" : "s"} recorded for profile `
           + `${profile}; a range is shown from ${history?.min_runs}.`,
       stopped,
+      newPair,
     };
   }
   const runs = `${history.runs} run${history.runs === 1 ? "" : "s"}`;
@@ -103,5 +132,5 @@ export function liveEstimate(history: LiveHistory | null | undefined): LiveEstim
   if (history.model_seconds && history.model_seconds.high > 0) {
     sources.push(`Model calls took ${fmtDurationRange(history.model_seconds)} of that.`);
   }
-  return { headline: parts.join(" · "), detail: sources.join(" "), stopped };
+  return { headline: parts.join(" · "), detail: sources.join(" "), stopped, newPair };
 }

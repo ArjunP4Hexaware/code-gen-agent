@@ -737,6 +737,18 @@ bottom:
 
 #### 2.4.5 Modal — cost confirmation
 
+> **post145:** under a live transport the measured headline is labelled
+> "Pairs the agent has mapped before:" (those runs make no layout call, so they
+> read 0 calls), and a blue note follows (`data-testid=live-estimate-new-pair`):
+> "A pair the agent has not seen before costs more on its first run: the model
+> maps where things are in each document (one call per document — STTM, FRD,
+> and the VDD if chosen): estimated ≈ 1.5–4.5 DBU (<source>). Later runs of that
+> pair reuse the mapping and make no call." Measured runs replace the estimate
+> ("typically n calls, ≈ a–b DBU (measured from N runs; <rate source>)"): the
+> recorded runs whose `layout` stage sent FM API calls, tokens ×
+> `reasoning.dbu_rates`; the estimate is `demo.new_pair_layout_estimate`; with
+> neither the note says "no DBU figure is configured" — never a made-up number.
+
 Title "Generate a pipeline from this STTM?". Body: "Input:
 `<workbook>`"; then either "This deployment is **locked to the mock
 provider** — the run makes **zero model calls** (deterministic mock

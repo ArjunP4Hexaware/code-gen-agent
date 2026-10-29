@@ -4,6 +4,24 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post145 — 2026-10-29 (the confirm dialog: a new pair's first-run cost in DBUs)
+
+Soham (2026-10-29): the dialog read "0 calls · ≈ $0.00", because every recorded run
+was on a pair whose layout was already mapped. A pair the agent has not seen
+before makes the layout calls on its first run, and the dialog now says so, in DBUs.
+- The measured headline is labelled "Pairs the agent has mapped before:". A note
+  follows: one layout call per document (STTM, FRD, the VDD if chosen) on a new pair's
+  first run, the cost in DBUs, and that later runs of that pair make no call.
+- The DBUs are MEASURED once a recorded run made layout calls: its `layout` stage's
+  tokens x `reasoning.dbu_rates` (new: Claude Opus 5.5 = 57.143 / 285.714 DBU per 1M
+  input / output tokens; it reproduces the measured 3.15 DBU of post123's Layer-2 run).
+  Until then the dialog states `demo.new_pair_layout_estimate` (new: 1.5–4.5 DBU, the
+  2026-10-27 offline estimate from two client pairs' layout requests, output tokens not
+  measured) and calls it an estimate. Neither configured = "no DBU figure is configured".
+- The run record now keeps each stage's name (older entries have none and never count).
+- Tests: `tests/test_new_pair_cost.py`, `liveEstimate.test.ts` (the new-pair line),
+  `LiveRunConfirm.test.tsx` (the note in the dialog).
+
 ## 0.5.8.post144 — 2026-10-29 (the App opens on Generate; the client's logo top-left)
 
 Soham (2026-10-29), two changes to post143's App:

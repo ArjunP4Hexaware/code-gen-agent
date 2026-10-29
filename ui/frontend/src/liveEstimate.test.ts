@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveHistory } from "./api";
-import { fmtCallsRange, fmtCostRange, fmtDurationRange, liveEstimate } from "./liveEstimate";
+import { fmtCallsRange, fmtCostRange, fmtDbuRange, fmtDurationRange, liveEstimate, newPairLine } from "./liveEstimate";
 
 function history(over: Partial<LiveHistory> = {}): LiveHistory {
   return {
@@ -133,5 +133,40 @@ describe("liveEstimate", () => {
     expect(estimate.headline).toBe("typically about 2 min · 4 calls · ≈ $0.13 at Anthropic list "
       + "price; Databricks bills in DBUs");
     expect(estimate.detail).toContain("Measured from 3 runs ");
+  });
+});
+
+// post145: the ranges come from pairs already mapped; a new pair's first run pays
+// its layout calls, said in DBUs - measured when a run recorded it, else the estimate
+describe("the new-pair line", () => {
+  it("says the configured estimate as an estimate, with its source, in DBUs", () => {
+    const line = newPairLine(history({ calls: { low: 0, high: 0 }, new_pair: {
+      measured_runs: 0, calls: null, dbu: { low: 1.5, high: 4.5 }, source: "offline estimate" } }));
+    expect(line).toContain("A pair the agent has not seen before costs more on its first run");
+    expect(line).toContain("one call per document — STTM, FRD, and the VDD if chosen");
+    expect(line).toContain("estimated ≈ 1.5–4.5 DBU (offline estimate)");
+    expect(line).toContain("Later runs of that pair reuse the mapping and make no call.");
+  });
+
+  it("prefers the measurement once runs recorded it", () => {
+    const line = newPairLine(history({ new_pair: {
+      measured_runs: 2, calls: { low: 2, high: 3 }, dbu: { low: 3.15, high: 6.29 },
+      source: "FM API rate" } }));
+    expect(line).toContain("typically 2–3 calls, ≈ 3.1–6.3 DBU (measured from 2 runs; FM API rate)");
+    expect(line).not.toContain("estimated");
+  });
+
+  it("says when no figure is configured, never a made-up one", () => {
+    expect(newPairLine(history({ new_pair: null }))).toContain("no DBU figure is configured");
+  });
+
+  it("travels with the estimate, history or not", () => {
+    expect(liveEstimate(null).newPair).toContain("no DBU figure is configured");
+    expect(liveEstimate(history()).newPair).toContain("A pair the agent has not seen before");
+  });
+
+  it("formats DBUs", () => {
+    expect(fmtDbuRange({ low: 1.5, high: 4.5 })).toBe("≈ 1.5–4.5 DBU");
+    expect(fmtDbuRange({ low: 12.4, high: 12.4 })).toBe("≈ 12 DBU");
   });
 });

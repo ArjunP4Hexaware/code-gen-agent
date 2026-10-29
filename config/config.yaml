@@ -579,6 +579,11 @@ reasoning:
     #   claude-opus-5-5: {input: <$>, output: <$>, cache_read: <$>,
     #                     source: "<workspace> DBU rate, <date>"}
     databricks_fmapi: {}
+  # post145: DBU per million tokens through the Databricks FM API, by model id —
+  # what a new pair's layout calls cost in the confirm dialog.
+  dbu_rates:
+    claude-opus-5-5: {input: 57.143, output: 285.714,
+                      source: "Databricks FM API rate for Claude Opus 5.5, 2026-10-27 (without the 10% regional-processing uplift)"}
 
 demo:
   # Inputs for the demo UI's Live and Replay modes (CV/golden universe).
@@ -594,8 +599,15 @@ demo:
   workbook: fixtures/workbooks/demo_sttm_cv_golden.xlsx
   # post67: the live-run confirm dialog shows what the last N live runs per
   # conventions profile took (wall-clock, calls, measured cost) — ranges from
-  # that record, "no history yet" when it is empty; no constant estimate.
+  # that record, "no history yet" when it is empty (post145: the one stated
+  # estimate is the new-pair layout cost below, named as an estimate).
   run_history_size: 10
+  # post145: until a recorded run measured it, the dialog states this range for
+  # a pair the agent has not mapped before (one layout call per document, once).
+  new_pair_layout_estimate:
+    dbu_low: 1.5
+    dbu_high: 4.5
+    source: "estimated offline from the layout requests of two client pairs (about 23k and 32k characters, 2026-10-27); output tokens not measured"
 
   # Reference documents the documents card checks for — DISPLAY ONLY in this
   # build; wiring these into generation is the next step. Filenames as they

@@ -98,6 +98,17 @@ async function openConfirm(): Promise<HTMLElement> {
 }
 
 describe("the live-run confirm dialog", () => {
+  // post145: 0 measured calls must never read as "a run always costs nothing"
+  it("names the first-run cost of a pair the agent has not mapped, in DBUs", async () => {
+    liveHistory = { ...HISTORY, calls: { low: 0, high: 0 }, cost_usd: { low: 0, high: 0 },
+                    new_pair: { measured_runs: 0, calls: null, dbu: { low: 1.5, high: 4.5 },
+                                source: "offline estimate" } };
+    const modal = await openConfirm();
+    expect(modal.textContent).toContain("Pairs the agent has mapped before:");
+    const line = modal.querySelector("[data-testid=live-estimate-new-pair]")!;
+    expect(line.textContent).toContain("estimated ≈ 1.5–4.5 DBU (offline estimate)");
+  });
+
   it("shows the measured ranges, wall-clock first", async () => {
     const modal = await openConfirm();
     const headline = modal.querySelector("[data-testid=live-estimate]")!;

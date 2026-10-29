@@ -1785,6 +1785,7 @@ export function ModesPage({
                 what actually happened when it finishes.
               </p>
             ) : (
+              <>
               <p>
                 {transport?.kind === "databricks_fmapi" ? (
                   <>
@@ -1795,6 +1796,8 @@ export function ModesPage({
                   "This makes real, billed Anthropic API calls:"
                 )}
                 <br />
+                {/* post145: these ranges are runs on pairs already mapped */}
+                <span className="hint">Pairs the agent has mapped before: </span>
                 <strong data-testid="live-estimate">{estimate.headline}</strong>
                 <br />
                 <span className="hint">{estimate.detail}</span>
@@ -1807,6 +1810,10 @@ export function ModesPage({
                   </>
                 ) : null}
               </p>
+              <p className="note-line info" data-testid="live-estimate-new-pair">
+                {estimate.newPair}
+              </p>
+              </>
             )}
             <p className="hint">
               The files go to a new run folder of their own; earlier runs are not changed.

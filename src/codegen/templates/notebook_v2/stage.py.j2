@@ -45,10 +45,49 @@ def write_table(df: DataFrame, target: str, row: dict) -> None:
     tally(f"written ({row['load_option']})", target, df.count())
 
 
+def cast_to_types(df: DataFrame, columns: list[str], types: list[str], target: str) -> DataFrame:
+    """Each column to its TGT_DATA_TYPE - the STTM's stage types, as the DDL creates
+    the table. A non-blank value the type cannot read would load as NULL: the load
+    stops instead, naming the column and the rows. char / varchar(n) cast as string
+    (the table's own column type holds the length)."""
+    typed = {}
+    for column, data_type in zip(columns, types, strict=False):
+        if data_type and column in df.columns:
+            spelled = data_type.strip().lower()
+            typed[column] = "string" if spelled.startswith(("char", "varchar")) else spelled
+    if not typed:
+        return df
+    cast = {column: F.col(column).cast(data_type) for column, data_type in typed.items()}
+    unreadable = (
+        df.select(
+            [
+                F.sum(
+                    F.when(
+                        (F.trim(F.col(column).cast("string")) != "") & expression.isNull(), 1
+                    ).otherwise(0)
+                ).alias(column)
+                for column, expression in cast.items()
+            ]
+        )
+        .first()
+        .asDict()
+    )
+    lost = {column: rows for column, rows in unreadable.items() if rows}
+    if lost:
+        raise ValueError(
+            f"{target}: values the stage data type cannot read (they would load as NULL): "
+            + "; ".join(f"{column} as {typed[column]}: {rows} row(s)" for column, rows in lost.items())
+        )
+    return df.withColumns(cast)
+
+
 def stage_frame(df: DataFrame, source: dict) -> DataFrame:
-    """The detail records with the audit columns, in TGT_COLUMN_NAMES order."""
+    """The detail records with the audit columns, in TGT_COLUMN_NAMES order, cast to
+    TGT_DATA_TYPE (Soham, 2026-10-29: stage columns keep the types the STTM states)."""
     df = with_audit(df.drop("_recycled_at"), source, AUDIT_COLUMNS)
-    return df.select(*source["target_columns"]) if source["target_columns"] else df
+    df = df.select(*source["target_columns"]) if source["target_columns"] else df
+    return cast_to_types(df, source["target_columns"], source["target_types"],
+                         f"{source['schema']}.{source['table']}")
 
 
 def write_stage(df: DataFrame, source: dict) -> None:

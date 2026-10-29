@@ -493,6 +493,7 @@ def build_context(spec, config, payload: dict, *, candidates, frd_path: Path | N
               "known value rule in the notebook" for c in unknown_audit]
     flags += [f"notebook_mapping_expression_not_implemented:{STD} row {s['row']}"
               for s in standards if s["mapping_expression"]]
+    flags += untyped_segment_flags(segments)
     review = [c for c in candidates if getattr(c, "kind", "layer2") == "layer2"
               and c.response is not None]
     context = {
@@ -576,6 +577,16 @@ def _environment() -> Environment:
 
 def _render(env: Environment, name: str, context: dict) -> str:
     return env.get_template(name).render(**context)
+
+
+def untyped_segment_flags(segments: list[dict]) -> list[str]:
+    """post142: the main stage table is cast to its ADLS row's TGT_DATA_TYPE; a
+    header / trailer segment loading into its OWN stage table has no type cell in
+    its fixed-width row - it lands as read (STRING), never a guessed type."""
+    return [f"notebook_segment_types_unstated:{s['table']} — the {s['segment']} segment's "
+            f"own stage table: its {FIXED} row states no data types, so the notebook loads "
+            "it as read (STRING); a DDL that types its columns rejects that write"
+            for s in segments if not s["shared"] and not s["detail"] and s["table"]]
 
 
 def render_cells(context: dict) -> list[nbf.Cell]:

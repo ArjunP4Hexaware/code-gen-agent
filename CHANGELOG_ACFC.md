@@ -4,6 +4,28 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post142 — 2026-10-29 (notebook v2: stage columns land as the STTM types them)
+
+Soham (2026-10-29): stage columns keep the types the STTM states, and the DDL
+is the reference. Notebook v2 read the file as strings and wrote the stage
+table unchanged, so every stage column landed as STRING. Once the DDL had
+created the typed stage table, the notebook's append failed.
+- `stage_frame` now casts each column to the ADLS row's TGT_DATA_TYPE, the
+  STTM's stage types (the same ones the DDL writes), right before the write.
+  The stage DQ rules (e.g. a stated date conversion) still run first.
+- A non-blank value the type cannot read would load as NULL. Instead the load
+  stops and names each column, its type and the row count. Blank cells (a
+  space-padded fixed-width field) are NULL as before. `char` / `varchar(n)`
+  cast as string, because the table's own column type holds the length.
+- A header / trailer segment that loads into its OWN stage table has no type
+  cell in its fixed-width IIG row. It still lands as read (STRING), never with
+  a guessed type, and raises `notebook_segment_types_unstated:<table>`.
+- Framework mode (what ACFC deploys) is unchanged.
+- Tests: `tests/test_notebook_stage_types.py`. On synthetic pair 4, the
+  notebook's stage types equal the DDL's, table by table. The guard runs
+  against a row-by-row stand-in (no Spark here). Fails with only the fix
+  reverted.
+
 ## 0.5.8.post141 — 2026-10-28 (Choose documents: a Cancel button)
 
 Aruna (via Soham): the Choose documents dialog closed only with Done, so a

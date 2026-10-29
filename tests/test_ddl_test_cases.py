@@ -223,3 +223,26 @@ def test_catalog_names_are_compared_in_lower_case(pair4_config):
                                    for q in _schema_case(name, table, ("D", "S"), profile)["sql"]]
         assert "'stg_x'" in statement and "'my_table'" in statement, name
         assert "'STG_X'" not in statement and "'MY_TABLE'" not in statement, name
+
+
+def test_the_column_check_counts_columns_as_the_ddl_does(pair4_config):
+    """post153: Databricks numbers information_schema.columns.ordinal_position from
+    0 and the expected list counts the DDL's columns from 1 - read as it was, every
+    columns_match case failed by one on D1 (2026-10-29, d1_dlk.soham_test). The
+    deployed side reads ordinal_position + 1, so a FAIL lists positions as the DDL."""
+    from codegen.emit.ddl_tests import _schema_case
+
+    profile = pair4_config.conventions.profiles["acfc_prx"]
+    assert profile.ddl_test_ordinal_base == 0
+    table = {"qualified": "d1_dlk.stg_x.t", "parts": ("d1_dlk", "stg_x", "t"), "layer": "stage",
+             "columns": [("ID", "INTEGER"), ("NAME", "STRING")], "comment_count": 0,
+             "table_comment": None}
+    (statement, _expected), = [(q["statement"], q["expected"]) for q in
+                               _schema_case("columns_match", table, None, profile)["sql"]]
+    assert "SELECT ordinal_position + 1 AS col_position" in statement
+    assert "(1, 'id', 'int'), (2, 'name', 'string')" in statement
+    # a profile that does not say how its catalog counts compares as it is
+    as_is = profile.model_copy(update={"ddl_test_ordinal_base": None})
+    (plain, _e), = [(q["statement"], q["expected"]) for q in
+                    _schema_case("columns_match", table, None, as_is)["sql"]]
+    assert "SELECT ordinal_position AS col_position" in plain

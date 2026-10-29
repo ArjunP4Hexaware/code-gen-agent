@@ -307,7 +307,12 @@ def _schema_case(name: str, table: dict, tags: tuple[str, str] | None, profile) 
         columns = table["columns"]
         expected = ", ".join(f"({i}, {_literal(c.lower())}, {_literal(catalog_type(t, profile))})"
                              for i, (c, t) in enumerate(columns, start=1))
-        deployed = (f"(SELECT ordinal_position AS col_position, lower(column_name) AS col_name, "
+        # post153: the catalog counts from ddl_test_ordinal_base (Databricks: 0); the
+        # DDL's columns are numbered from 1 above, so a FAIL reads the same way
+        base = profile.ddl_test_ordinal_base
+        position = ("ordinal_position" if base is None or base == 1
+                    else f"ordinal_position + {1 - base}")
+        deployed = (f"(SELECT {position} AS col_position, lower(column_name) AS col_name, "
                     f"replace(lower(full_data_type), ' ', '') AS col_type FROM "
                     f"{catalog}.information_schema.columns {where}) AS deployed")
         source = (f"{deployed} FULL OUTER JOIN VALUES {expected} AS ddl(col_position, col_name, "

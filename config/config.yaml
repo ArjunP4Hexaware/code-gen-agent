@@ -1089,6 +1089,10 @@ conventions:
       ddl_test_type_names: {integer: int, long: bigint, short: smallint, byte: tinyint,
                             real: float, dec: decimal, numeric: decimal}
       ddl_test_type_defaults: {decimal: "decimal(10,0)"}
+      # post153: Databricks numbers information_schema.columns.ordinal_position from
+      # 0 (docs.databricks.com information_schema columns: "the position (numbered
+      # from 0)"); seen on D1 2026-10-29, where every columns_match case failed by one.
+      ddl_test_ordinal_base: 0
       # D1 post51 pair_06: audit datatypes extract-sttm accepts; a column ending
       # in an audit_flag_suffix (DELETE_FLAG) may also carry audit_flag_datatypes.
       # Widen in an overlay (conventions.profiles.acfc_prx.*) — no code change.

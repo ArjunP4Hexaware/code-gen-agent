@@ -4,6 +4,22 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post153 — 2026-10-29 (DDL test cases: the column check counts as Databricks does)
+
+Found by running the generated DDLs on D1 (Soham, 2026-10-29: test schema
+`d1_dlk.soham_test`, scratch copies retargeted; the DDLs created every table and re-ran
+cleanly). Every "Columns and types match the DDL" case FAILED: Databricks numbers
+`information_schema.columns.ordinal_position` from 0, the expected list counts the DDL's
+columns from 1, so each column was off by one though names and types matched.
+- The deployed side now reads `ordinal_position + 1` (new knob
+  `conventions.profiles.acfc_prx.ddl_test_ordinal_base: 0`, cited; None = read as it is),
+  so a FAIL lists positions the way the DDL counts them.
+- On D1 (synthetic pair 4, Serverless Starter warehouse): 30 PASS, 6 NO DATA (empty
+  tables), 0 FAIL — was 12 FAIL before this fix and the runner's own tag-filter fix.
+- Changes only the `_DDL_TestCases.txt` files (12-pair check: see the session log).
+- Tests: `tests/test_ddl_test_cases.py::test_the_column_check_counts_columns_as_the_ddl_does`
+  (fails with only the generator reverted).
+
 ## 0.5.8.post152 — 2026-10-29 (Generate: the run shows up where you pressed Generate)
 
 Soham (2026-10-29): after pressing Generate (at the foot of the page) the progress

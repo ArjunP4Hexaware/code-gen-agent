@@ -1331,6 +1331,10 @@ class ConventionsProfileConfig(BaseModel):
     # (DECIMAL -> decimal(10,0)); None = compared as the DDL writes them.
     ddl_test_type_names: dict[str, str] | None = None
     ddl_test_type_defaults: dict[str, str] | None = None
+    # post153: where the catalog's information_schema.columns.ordinal_position
+    # starts counting (Databricks: 0); the columns_match check counts DDL columns
+    # from 1, so it reads ordinal_position + (1 - base). None = read as it is.
+    ddl_test_ordinal_base: int | None = Field(default=None, ge=0)
     # 2026-10-15 (D1 post51 pair_06, a DELETE_FLAG typed tinyint): the audit
     # datatypes extract-sttm accepts (workbook spelling, normalized). Every
     # audit column: audit_datatypes; a column ending in one of

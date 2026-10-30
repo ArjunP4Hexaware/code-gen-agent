@@ -584,11 +584,13 @@ def _merge_columns(profile: LayoutProfile, claims: dict[str, int], source: str,
     vocabulary = {r.value for r in Role}
     for sp in profile.sheets:
         bands = []
-        for band in sp.bands:
+        for index, band in enumerate(sp.bands):
             roles = dict(band.roles)
             for key, col in claims.items():
                 parts = key.split("/")
                 if len(parts) != 3 or parts[0] != sp.name or parts[1] != band.layer:
+                    continue
+                if isinstance(col, int) and _claim_band(sp.bands, band.layer, col) != index:
                     continue
                 role = parts[2]
                 if not isinstance(col, int) or role not in vocabulary:
@@ -633,6 +635,16 @@ def _merge_columns(profile: LayoutProfile, claims: dict[str, int], source: str,
                                         "role_sources": role_sources, "unresolved": unresolved,
                                         "notes": notes})
     return _list_missing_required(merged) if override else merged
+
+
+def _claim_band(bands, layer: str, col: int) -> int:
+    """post158 (live injection eval, 2026-10-30): the ONE band a ``<layer>``
+    column claim lands on - the band of that layer whose span holds the column,
+    else the first band of that layer. A claim used to land on EVERY band of its
+    layer: a stray band-row cell read as a second, empty ``source`` band took all
+    the source roles, and the validator then rejected each as outside its span."""
+    same = [i for i, b in enumerate(bands) if b.layer == layer]
+    return next((i for i in same if bands[i].col_start <= col <= bands[i].col_end), same[0])
 
 
 def _list_missing_required(profile: LayoutProfile) -> LayoutProfile:

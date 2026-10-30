@@ -366,7 +366,13 @@ def missing_required_roles(profile: LayoutProfile) -> list[str]:
     missing; such a profile is never cached and never trusted from a cache."""
     missing: list[str] = []
     for sheet in profile.role_sheets:
+        placed = {b.layer for b in sheet.bands if b.roles}
         for band in sheet.bands:
+            if not band.roles and band.layer in placed:
+                # post158 (live injection eval): an EMPTY band repeating a layer
+                # another band of the sheet places (a stray band-row cell that
+                # names the layer) carries nothing to read - it owes no roles
+                continue
             for role in REQUIRED_ROLES.get(band.layer, ()):
                 if band.column(role) is None:
                     missing.append(confidence_key(sheet.name, band.layer, role))

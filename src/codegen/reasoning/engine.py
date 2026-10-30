@@ -157,7 +157,7 @@ def reason_over_packs(packs: list[ContextPack], provider: Provider) -> list[Rule
         try:
             response = provider.complete(pack)
         except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
-            candidates.append(_failed(pack, provider, f"provider '{provider.name}' failed: {exc}"))
+            candidates.append(_failed(pack, provider, _failure_note(provider, exc)))
             continue
         candidates.append(_answered(pack, provider, response))
     return candidates
@@ -168,8 +168,12 @@ def _batch(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
     try:
         answers = provider.complete_batch(packs)       # type: ignore[attr-defined]
     except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
-        return [_failed(pack, provider, f"provider '{provider.name}' failed: {exc}")
-                for pack in packs]
+        if _content_filtered(exc) and len(packs) > 1 and hasattr(provider, "complete"):
+            # post158 (live injection eval): one rule whose text trips the
+            # endpoint's safety filter blanked every rule of the feed - ask
+            # rule by rule so only that rule fails, and it says why.
+            return [_one(pack, provider) for pack in packs]
+        return [_failed(pack, provider, _failure_note(provider, exc)) for pack in packs]
     candidates: list[RuleCandidate] = []
     for number, pack in enumerate(packs, 1):
         response = answers.get(number)
@@ -181,6 +185,28 @@ def _batch(packs: list[ContextPack], provider: Provider) -> list[RuleCandidate]:
             continue
         candidates.append(_answered(pack, provider, response))
     return candidates
+
+
+def _content_filtered(exc: BaseException) -> bool:
+    from codegen.databricks import ModelContentFilteredError
+
+    return isinstance(exc, ModelContentFilteredError)
+
+
+def _failure_note(provider: Provider, exc: BaseException) -> str:
+    if _content_filtered(exc):
+        return (f"provider '{provider.name}': the model's safety filter blocked this rule "
+                "- its text may carry instructions or code; read the rule before using it")
+    return f"provider '{provider.name}' failed: {exc}"
+
+
+def _one(pack: ContextPack, provider: Provider) -> RuleCandidate:
+    """One rule asked on its own (the batch fallback)."""
+    try:
+        response = provider.complete(pack)
+    except Exception as exc:  # noqa: BLE001 — recorded, never silently dropped
+        return _failed(pack, provider, _failure_note(provider, exc))
+    return _answered(pack, provider, response)
 
 
 def _answered(pack: ContextPack, provider: Provider, response) -> RuleCandidate:

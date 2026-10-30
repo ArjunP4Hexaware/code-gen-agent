@@ -53,6 +53,14 @@ class DatabricksTransportError(RuntimeError):
     """A volumes call failed; carries the SDK's message verbatim."""
 
 
+class ModelContentFilteredError(DatabricksTransportError):
+    """post158 (live injection eval, 2026-10-30): the serving endpoint's safety
+    filter blocked the reply (``finish_reason: content_filter``, no content).
+    On a request built from document text this usually means the text carries
+    instructions or code - named, so a caller can isolate the request that
+    tripped it instead of reporting an unexplained content shape."""
+
+
 @dataclass(frozen=True)
 class DatabricksVolumesConfig:
     """Every knob this seam uses. No secrets — auth is profile/env resolved
@@ -473,7 +481,13 @@ def chat(cfg: DatabricksConfig, messages: list[dict], endpoint: str | None = Non
             from codegen.reasoning.usage import completion_tokens
 
             usage.update(completion_tokens(response))
-        return _chat_content_text(response.choices[0].message.content)
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", None) == "content_filter":
+            raise ModelContentFilteredError(
+                f"the serving endpoint {name!r} blocked the reply (finish_reason "
+                "content_filter): the request's document text may carry instructions "
+                "or code - nothing was returned")
+        return _chat_content_text(choice.message.content)
     except (DatabricksConfigError, DatabricksTransportError):
         raise
     except Exception as exc:  # noqa: BLE001

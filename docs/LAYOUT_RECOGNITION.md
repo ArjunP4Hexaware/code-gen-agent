@@ -205,7 +205,18 @@ cache — the fingerprint hashes headers, not values: on every cache hit (the
 document entry AND the pair entry) `stale_value_evidence` re-runs the value
 chain (Catalog values, then Schema values) on the workbook in hand, and a
 cached layer or evidence kind the values no longer support is re-resolved (the
-report says why). A band-layer question is never put to the advice model.
+report says why). **P1-2 (2026-10-30, red team LM-2):** nor is a placement the
+model or a person made: on every hit (document entry, pair entry, VDD, FRD) the
+synonyms are re-run on the document in hand, every cached role they do not place
+the same way is re-validated (`validate_profile` / `_validate_frd`, header +
+plausibility, the checks a fresh claim meets), and one rejection makes the entry
+stale (`cached profile: N placement(s) ... do not validate`, coordinates only).
+An entry records each role's REAL provenance (`model` / `synonyms` / `user`,
+never `cache`; `DocumentResolution.placed_by` / `placed()`), and a model-placed
+role stays `model` through a hit, so the extractor can flag it. Knob
+`layout.cache_model_placements` (default true = cached as before): false keeps a
+profile with an unanswered model placement out of the cache (the next run asks
+the model again). A band-layer question is never put to the advice model.
 **answers.yaml** applies its band layers FIRST (`band_layer_answers`), so a
 column entry for a band that exists only once its layer is answered
 (`{sheet, layer: standard, role: table, column: …}`) finds that band.

@@ -972,6 +972,12 @@ layout:
   max_cell_chars: 500
   max_prompt_chars: 250000
   max_sheets_sent: 60
+  # P1-2 (2026-10-30): every cache hit re-validates the roles the model or a
+  # person placed against the CURRENT workbook (header + plausibility); a
+  # failure is a stale entry, re-resolved. true: a profile with model-placed
+  # roles is cached as before; false: it is not written until a person answers
+  # those roles (the next run asks the model again). Owner decision pending.
+  cache_model_placements: true
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

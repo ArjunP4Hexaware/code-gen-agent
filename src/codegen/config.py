@@ -1109,6 +1109,13 @@ class LayoutConfig(BaseModel):
     max_cell_chars: int = Field(default=500, gt=0)
     max_prompt_chars: int = Field(default=250_000, gt=0)
     max_sheets_sent: int = Field(default=60, gt=0)
+    # P1-2 (red team LM-2): whether a profile carrying a role the MODEL placed
+    # (no person answered it) is written to the runtime / state cache. true =
+    # the pre-P1-2 behaviour (the next run with the same fingerprint is served
+    # from the cache, no model call); every cache hit re-validates its model-
+    # and user-placed roles against the CURRENT workbook either way. false =
+    # such a profile is never written: the next run asks the model again.
+    cache_model_placements: bool = True
 
     @model_validator(mode="after")
     def _cache_paths_are_local(self) -> LayoutConfig:

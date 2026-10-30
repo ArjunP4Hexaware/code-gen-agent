@@ -161,6 +161,19 @@ class DocumentResolution:
     provider_calls: int = 0
     cache_hit: bool = False
     fingerprint: str = ""
+    # P1-2 (red team LM-2): who REALLY placed each role / field - synonyms,
+    # model or user - also on a cache hit, where the profile's own
+    # role_sources / field_sources read "cache" (what the contract records).
+    # Empty = the profile's sources are the truth (a fresh resolution).
+    placed_by: dict[str, str] = field(default_factory=dict)
+
+    def placed(self, key: str) -> str:
+        """The real provenance of one ``<sheet>/<layer>/<role>`` (or FRD path)."""
+        profile = self.profile
+        sources = (profile.role_sources if isinstance(profile, LayoutProfile)
+                   else profile.field_sources)
+        current = sources.get(key, profile.source)
+        return self.placed_by.get(key, current) if current == "cache" else current
 
     @property
     def sources(self) -> dict[str, int]:
@@ -505,10 +518,127 @@ def _save_runtime(payload: dict, runtime_cache_dir: Path | None, name: str) -> P
 
 
 def _as_cache(profile: LayoutProfile) -> LayoutProfile:
+    """A cached profile as served: ``source=cache`` and every role ``cache`` -
+    except a role the MODEL placed (P1-2, red team LM-2), which stays ``model``:
+    that provenance must survive a hit (the extractor flags it on the feed,
+    ``layout_model_placed:``), and nothing a person confirmed hides behind it."""
     keys = [confidence_key(s.name, b.layer, r) for s in profile.sheets for b in s.bands
             for r in b.roles]
-    return profile.model_copy(update={"source": "cache",
-                                      "role_sources": {k: "cache" for k in keys}})
+    return profile.model_copy(update={"source": "cache", "role_sources": {
+        k: ("model" if profile.role_sources.get(k, profile.source) == "model" else "cache")
+        for k in keys}})
+
+
+def _origin(stored: LayoutProfile | FrdLayoutProfile) -> dict[str, str]:
+    """P1-2: the provenance a cache entry records per role / field (what
+    ``_as_cache`` flattens to ``cache``); an entry that recorded none reads as
+    its profile ``source``."""
+    if isinstance(stored, LayoutProfile):
+        keys = [confidence_key(s.name, b.layer, r) for s in stored.sheets for b in s.bands
+                for r in b.roles]
+        return {k: stored.role_sources.get(k, stored.source) for k in keys}
+    return {k: stored.field_sources.get(k, stored.source) for k in stored.fields}
+
+
+# P1-2: the provenances a cache hit re-validates against the CURRENT document.
+# A synonym placement's evidence is the header / label text the fingerprint
+# pins (and synonyms are never plausibility-checked: a sparse field-name column
+# is still the field-name column). Which roles ARE the synonyms' is decided by
+# re-running the synonyms on the document in hand, not by the entry's own
+# record (an entry that recorded none reads "cache"): every other placement is
+# a model's or a person's claim, checked against ONE document's data.
+_REVALIDATED = {"model", "user"}
+
+
+def _true_sources(profile: LayoutProfile | FrdLayoutProfile,
+                  placed_by: dict[str, str]) -> LayoutProfile | FrdLayoutProfile:
+    """``profile`` with each ``cache`` source replaced by its real provenance."""
+    if isinstance(profile, LayoutProfile):
+        sources = {k: (placed_by.get(k, v) if v == "cache" else v)
+                   for k, v in profile.role_sources.items()}
+        return profile.model_copy(update={"role_sources": sources})
+    sources = {k: (placed_by.get(k, v) if v == "cache" else v)
+               for k, v in profile.field_sources.items()}
+    return profile.model_copy(update={"field_sources": sources})
+
+
+def _entry(profile: LayoutProfile | FrdLayoutProfile, placed_by: dict[str, str],
+           config: Config) -> dict | None:
+    """The cache payload of a profile: its REAL per-role provenance (P1-2 -
+    never ``cache``, so a later hit knows which roles to re-check), or None
+    when ``layout.cache_model_placements`` is false and a role the model
+    placed has no person's answer."""
+    true = _true_sources(profile, placed_by)
+    sources = (true.role_sources if isinstance(true, LayoutProfile) else true.field_sources)
+    if not config.layout.cache_model_placements and "model" in sources.values():
+        return None
+    return true.model_dump(mode="json")
+
+
+def _save_profile(caches: _Caches, digest: str, profile, placed_by: dict[str, str],
+                  config: Config) -> Path | None:
+    payload = _entry(profile, placed_by, config)
+    if payload is None or caches.runtime is None:
+        return None
+    return _save_runtime({**payload, "vocabulary": caches.vocabulary}, caches.runtime,
+                         f"{digest}.json")
+
+
+def _cached_placements_reason(profile: LayoutProfile, origin: dict[str, str], workbook,
+                              config: Config, document: str, path: Path,
+                              sttm_tables: list[str] | None = None) -> str | None:
+    """P1-2 (red team LM-2): a cache hit is served only when every role the
+    model or a person placed still validates against THIS workbook - the same
+    header + plausibility checks a fresh claim meets (the fingerprint hashes
+    headers, not data: a second workbook with the same header region and text
+    in a claimed integer column was served the first one's placement). The
+    reason names coordinates only."""
+    if set(origin.values()) <= {"synonyms"}:
+        return None
+    found = (discover_vdd(path, config.extractor, sttm_tables=sttm_tables) if document == "vdd"
+             else discover(path, config.extractor)).profile
+    synonyms = {(s.name, s.header_row, confidence_key(s.name, b.layer, r), c)
+                for s in found.sheets for b in s.bands for r, c in b.roles.items()}
+    sources = {}
+    for sp in profile.sheets:
+        for band in sp.bands:
+            for role, col in band.roles.items():
+                key = confidence_key(sp.name, band.layer, role)
+                sources[key] = ("synonyms" if (sp.name, sp.header_row, key, col) in synonyms
+                                else origin.get(key) if origin.get(key) in _REVALIDATED
+                                else "model")
+    if not _REVALIDATED & set(sources.values()):
+        return None
+    probe = profile.model_copy(update={"role_sources": sources})
+    _checked, rejections = validate_profile(probe, workbook, config.extractor,
+                                            check_sources=_REVALIDATED, document=document)
+    if not rejections:
+        return None
+    return (f"cached profile: {len(rejections)} placement(s) the model or a person made do "
+            f"not validate against this workbook (first: {rejections[0].render()}); "
+            "ignored and re-resolved")
+
+
+def _cached_frd_reason(profile: FrdLayoutProfile, origin: dict[str, str], content,
+                       config: Config) -> str | None:
+    """P1-2: the FRD side of :func:`_cached_placements_reason`."""
+    from codegen.extract.frd_docx import discover_frd
+
+    if set(origin.values()) <= {"synonyms"}:
+        return None
+    found = discover_frd(content, config.extractor.frd)
+    sources = {k: ("synonyms" if found.fields.get(k) == v
+                   else origin.get(k) if origin.get(k) in _REVALIDATED else "model")
+               for k, v in profile.fields.items()}
+    if not _REVALIDATED & set(sources.values()):
+        return None
+    probe = profile.model_copy(update={"field_sources": sources})
+    _checked, rejections = _validate_frd(probe, content, config, _REVALIDATED)
+    if not rejections:
+        return None
+    return (f"cached profile: {len(rejections)} placement(s) the model or a person made do "
+            f"not validate against this document (first: {rejections[0].render()}); "
+            "ignored and re-resolved")
 
 
 class _StaleCache(Exception):
@@ -739,13 +869,12 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
         profile = _list_missing_required(profile)
         doc = DocumentResolution(document, profile, rejections=rejections,
                                  provider_calls=prior.provider_calls,
-                                 cache_hit=prior.cache_hit, fingerprint=digest)
+                                 cache_hit=prior.cache_hit, fingerprint=digest,
+                                 placed_by=dict(prior.placed_by))
         doc.questions = _questions_for(profile, workbook, document)
         if not profile.unresolved:
-            if caches.runtime is not None and (refresh or prior.provider_calls or answers):
-                _save_runtime({**profile.model_dump(mode="json"),
-                               "vocabulary": caches.vocabulary}, caches.runtime,
-                              f"{digest}.json")
+            if refresh or prior.provider_calls or answers:
+                _save_profile(caches, digest, profile, doc.placed_by, config)
         elif refresh:
             _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
         return doc, workbook
@@ -754,15 +883,20 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
               if use_cache and not refresh and not band_answers else None)
     if cached is not None:
         try:
-            profile = _as_cache(LayoutProfile.model_validate(cached))
+            stored = LayoutProfile.model_validate(cached)
+            origin = _origin(stored)
+            profile = _as_cache(stored)
             # A layer read from catalog / schema VALUES is never trusted from
             # a cache (the fingerprint hashes headers, not values): re-derived.
+            # P1-2: nor is a model's / a person's placement - re-validated.
             stale = _stale_reason(profile) or (
                 stale_value_evidence(profile, workbook, config.extractor)
-                if document == "sttm" else None)
+                if document == "sttm" else None) or _cached_placements_reason(
+                    stored, origin, workbook, config, document, path, sttm_tables)
             if stale is not None:
                 raise _StaleCache(stale)
-            doc = DocumentResolution(document, profile, cache_hit=True, fingerprint=digest)
+            doc = DocumentResolution(document, profile, cache_hit=True, fingerprint=digest,
+                                     placed_by=origin)
             if answers:
                 profile = _merge_columns(profile, answers, "user", 1.0, override=True)
                 profile, user_rejections = validate_profile(
@@ -772,9 +906,7 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
                 doc.rejections += user_rejections
                 doc.profile = profile
                 if not profile.unresolved:
-                    _save_runtime({**profile.model_dump(mode="json"),
-                                   "vocabulary": caches.vocabulary},
-                                  caches.runtime, f"{digest}.json")
+                    _save_profile(caches, digest, profile, doc.placed_by, config)
             doc.questions = _questions_for(doc.profile, workbook, document)
             return doc, workbook
         except ValidationError as exc:
@@ -913,10 +1045,8 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     if not profile.unresolved:
         # Never reached by a profile with a required role missing (it is in
         # ``unresolved``). A refresh overwrites even a synonyms-only result.
-        if caches.runtime is not None and (refresh or calls + len(answers or {})
-                                           + len(band_answers)):
-            _save_runtime({**profile.model_dump(mode="json"), "vocabulary": caches.vocabulary},
-                          caches.runtime, f"{digest}.json")
+        if refresh or calls + len(answers or {}) + len(band_answers):
+            _save_profile(caches, digest, profile, doc.placed_by, config)
     elif refresh:
         _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
     return doc, workbook
@@ -1105,13 +1235,12 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
             rejections += user_rejections
         doc = DocumentResolution("frd", profile, rejections=rejections,
                                  provider_calls=prior.provider_calls,
-                                 cache_hit=prior.cache_hit, fingerprint=digest)
+                                 cache_hit=prior.cache_hit, fingerprint=digest,
+                                 placed_by=dict(prior.placed_by))
         doc.questions = _frd_questions(profile, content, config)
         if not profile.unresolved:
-            if caches.runtime is not None and (refresh or prior.provider_calls or answers):
-                _save_runtime({**profile.model_dump(mode="json"),
-                               "vocabulary": caches.vocabulary}, caches.runtime,
-                              f"{digest}.json")
+            if refresh or prior.provider_calls or answers:
+                _save_profile(caches, digest, profile, doc.placed_by, config)
         elif refresh:
             _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
         return doc, content
@@ -1119,10 +1248,17 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
     cached = _load_cached(digest, caches) if use_cache and not refresh else None
     if cached is not None:
         try:
-            profile = FrdLayoutProfile.model_validate(cached)
-            profile = profile.model_copy(update={
-                "source": "cache", "field_sources": {k: "cache" for k in profile.fields}})
-            doc = DocumentResolution("frd", profile, cache_hit=True, fingerprint=digest)
+            stored = FrdLayoutProfile.model_validate(cached)
+            origin = _origin(stored)
+            stale = _cached_frd_reason(stored, origin, content, config)    # P1-2
+            if stale is not None:
+                raise _StaleCache(stale)
+            profile = stored.model_copy(update={
+                "source": "cache", "field_sources": {
+                    k: ("model" if origin.get(k) == "model" else "cache")
+                    for k in stored.fields}})
+            doc = DocumentResolution("frd", profile, cache_hit=True, fingerprint=digest,
+                                     placed_by=origin)
             if answers:
                 profile = _merge_frd(profile, answers, "user", 1.0)
                 profile, user_rejections = _validate_frd(profile, content, config, {"user"})
@@ -1132,6 +1268,8 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
             return doc, content
         except ValidationError as exc:
             rejections.append(Rejection("frd", None, None, None, _cached_schema_reason(exc)))
+        except _StaleCache as exc:
+            rejections.append(Rejection("frd", None, None, None, str(exc)))
 
     profile = discover_frd(content, config.extractor.frd)
     profile = profile.model_copy(update={"field_sources": {k: "synonyms" for k in profile.fields}})
@@ -1188,9 +1326,8 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
                              fingerprint=digest)
     doc.questions = _frd_questions(profile, content, config)
     if not profile.unresolved:
-        if caches.runtime is not None and (refresh or calls + len(answers or {})):
-            _save_runtime({**profile.model_dump(mode="json"), "vocabulary": caches.vocabulary},
-                          caches.runtime, f"{digest}.json")
+        if refresh or calls + len(answers or {}):
+            _save_profile(caches, digest, profile, doc.placed_by, config)
     elif refresh:
         _invalidate_runtime(caches, f"{digest}.json", "fingerprint", digest)
     return doc, content
@@ -1575,29 +1712,53 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
                   if use_cache and not refresh and prior is None else None)
         if cached is not None and not answers:
             try:
-                profile = _as_cache(LayoutProfile.model_validate(cached["sttm"]))
+                stored = LayoutProfile.model_validate(cached["sttm"])
+                profile = _as_cache(stored)
                 if _stale_reason(profile) is not None:
                     raise KeyError("stale pair entry: a required role is missing")
                 workbook = load_document(sttm_path, config.extractor.used_range_empty_rows)
                 if stale_value_evidence(profile, workbook, config.extractor) is not None:
                     # Value-derived band layers are re-derived on every hit.
                     raise KeyError("stale pair entry: a band layer read from values")
-                sttm_doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=sttm_fp)
+                # P1-2: a model's / a person's placement is re-validated on every hit
+                if _cached_placements_reason(stored, _origin(stored), workbook, config,
+                                             "sttm", Path(sttm_path)) is not None:
+                    raise KeyError("stale pair entry: a cached placement does not validate")
+                sttm_doc = DocumentResolution("sttm", profile, cache_hit=True, fingerprint=sttm_fp,
+                                              placed_by=_origin(stored))
                 if cached.get("frd") is not None:
-                    frd_profile = FrdLayoutProfile.model_validate(cached["frd"])
-                    frd_profile = frd_profile.model_copy(update={
+                    frd_stored = FrdLayoutProfile.model_validate(cached["frd"])
+                    if frd_is_docx:
+                        from codegen.extract.frd_docx import read_docx
+
+                        content = read_docx(frd_path, prose_ok=True)
+                        if _cached_frd_reason(frd_stored, _origin(frd_stored), content,
+                                              config) is not None:
+                            raise KeyError("stale pair entry: a cached FRD placement does "
+                                           "not validate")
+                    frd_origin = _origin(frd_stored)
+                    frd_profile = frd_stored.model_copy(update={
                         "source": "cache",
-                        "field_sources": {k: "cache" for k in frd_profile.fields}})
+                        "field_sources": {k: ("model" if frd_origin.get(k) == "model"
+                                              else "cache") for k in frd_stored.fields}})
                     frd_doc = DocumentResolution("frd", frd_profile, cache_hit=True,
-                                                 fingerprint=frd_fp)
+                                                 fingerprint=frd_fp,
+                                                 placed_by=_origin(frd_stored))
                 if cached.get("vdd") is not None and has_vdd:
                     vdd_workbook = load_document(vdd_path, config.extractor.used_range_empty_rows)
+                    vdd_stored = LayoutProfile.model_validate(cached["vdd"])
+                    if _cached_placements_reason(
+                            vdd_stored, _origin(vdd_stored), vdd_workbook, config, "vdd",
+                            Path(vdd_path), _sttm_tables(profile, workbook)) is not None:
+                        raise KeyError("stale pair entry: a cached VDD placement does not "
+                                       "validate")
                     vdd_doc = DocumentResolution(
-                        "vdd", _as_cache(LayoutProfile.model_validate(cached["vdd"])),
-                        cache_hit=True, fingerprint=vdd_fp)
+                        "vdd", _as_cache(vdd_stored), cache_hit=True, fingerprint=vdd_fp,
+                        placed_by=_origin(vdd_stored))
                 pair_hit = True
             except (ValidationError, KeyError):
                 sttm_doc = frd_doc = vdd_doc = None
+                content = None
 
     if sttm_doc is None:
         sttm_doc, workbook = resolve_workbook(
@@ -1710,14 +1871,18 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             vdd_workbook=vdd_workbook)
         _apply_cross_checks(pair, pair.cross_checks, config)
     if pair_fp and caches.runtime is not None and not pair_hit:
-        if not pair.questions and (refresh or pair.provider_calls or answers
-                                   or (prior is not None and not prior.pair_cache_hit)):
+        entries = {d.document: _entry(d.profile, d.placed_by, config) for d in pair.documents}
+        # P1-2: None = layout.cache_model_placements false and a model placement unanswered
+        cacheable = None not in entries.values()
+        if cacheable and not pair.questions and (
+                refresh or pair.provider_calls or answers
+                or (prior is not None and not prior.pair_cache_hit)):
             _save_runtime({
                 "pair_fingerprint": pair_fp,
                 "vocabulary": caches.vocabulary,
-                "sttm": pair.sttm.profile.model_dump(mode="json"),
-                "frd": pair.frd.profile.model_dump(mode="json") if pair.frd else None,
-                "vdd": pair.vdd.profile.model_dump(mode="json") if pair.vdd else None,
+                "sttm": entries["sttm"],
+                "frd": entries.get("frd"),
+                "vdd": entries.get("vdd"),
             }, caches.runtime, f"pair_{pair_fp}.json")
         elif refresh and pair.questions:
             _invalidate_runtime(caches, f"pair_{pair_fp}.json", "pair_fingerprint", pair_fp)

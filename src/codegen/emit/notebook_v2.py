@@ -31,6 +31,7 @@ from typing import Any
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from codegen.emit import notebook_files as nbf
+from codegen.emit.metadata_inserts import comment1
 
 NOTEBOOK_DIR = "notebook"
 ADLS = "ADLS_DELTA_INGESTION_DETAILS"
@@ -577,6 +578,7 @@ def _environment() -> Environment:
     env.filters["mdcell"] = lambda v: md_cell(str(v))
     env.filters["mdinline"] = md_inline
     env.filters["mdfence"] = lambda code, info="": "\n".join(md_fence(str(code), info))
+    env.filters["comment1"] = comment1      # post159 (P1-4): text in a '#' comment
     return env
 
 

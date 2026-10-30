@@ -19,6 +19,7 @@ from typing import Any
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from codegen.emit.context import TemplateGapError
+from codegen.emit.metadata_inserts import comment1
 from codegen.emit.notebook import build_notebook
 from codegen.run_errors import Coord, located
 
@@ -85,6 +86,8 @@ def _environment() -> Environment:
     from codegen.report.generation_report import md_cell
 
     env.filters["mdcell"] = lambda v: md_cell(str(v))
+    # post159 (P1-4): document text inside a one-line comment / banner line
+    env.filters["comment1"] = comment1
     return env
 
 

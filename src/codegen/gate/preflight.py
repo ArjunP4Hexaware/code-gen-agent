@@ -266,6 +266,69 @@ def _judge_ruff(feed_dir: Path, findings, result) -> GateCheck:
                      + "\n" + "\n".join(lines))
 
 
+PYTHON_COMPILES = "python_compiles"
+
+
+def _compile_problem(source: str, label: str) -> str | None:
+    """``compile`` (parse + the compiler's own checks, never run) of one
+    generated Python source: None, or "<label>:<line>: <kind>". ``compile``,
+    not ``ast.parse``: a banner line broken out above ``from __future__``
+    parses, and only the compiler refuses it (what ruff F404 used to be the sole
+    guard for). ``dont_inherit``: this module's future flags never leak in."""
+    try:
+        compile(source, label, "exec", dont_inherit=True)
+    except SyntaxError as exc:
+        return f"{label}:{exc.lineno or '?'}: {type(exc).__name__}"
+    except ValueError:                       # a NUL byte in the source
+        return f"{label}:?: null byte"
+    return None
+
+
+def _python_compiles_check(feed_dir: Path) -> GateCheck:
+    """post159 (P1-4, CS-2): every generated ``.py`` file and every code cell
+    of every generated ``.ipynb`` compiles - a syntax break (a banner value
+    whose line break escaped its comment) FAILs the feed whether or not ruff
+    is installed. The details carry file / cell / line and the error KIND only,
+    never the source text."""
+    problems: list[str] = []
+    files = cells = 0
+    for path in sorted(feed_dir.rglob("*.py")):
+        files += 1
+        label = path.relative_to(feed_dir).as_posix()
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            problems.append(f"{label}:?: not UTF-8")
+            continue
+        problem = _compile_problem(source, label)
+        if problem:
+            problems.append(problem)
+    for path in sorted(feed_dir.rglob("*.ipynb")):
+        label = path.relative_to(feed_dir).as_posix()
+        try:
+            notebook = json.loads(path.read_text(encoding="utf-8"))
+            raw_cells = notebook.get("cells") or []
+        except (ValueError, AttributeError):
+            problems.append(f"{label}: not a notebook (JSON)")
+            continue
+        for index, cell in enumerate(raw_cells, start=1):
+            if not isinstance(cell, dict) or cell.get("cell_type") != "code":
+                continue
+            cells += 1
+            source = cell.get("source") or ""
+            text = "".join(source) if isinstance(source, list) else str(source)
+            problem = _compile_problem(text, f"{label}[cell {index}]")
+            if problem:
+                problems.append(problem)
+    if problems:
+        return GateCheck(name=PYTHON_COMPILES, passed=False,
+                         details=f"{len(problems)} generated Python source(s) do not compile: "
+                                 + "; ".join(problems),
+                         violations={"syntax": len(problems)})
+    return GateCheck(name=PYTHON_COMPILES, passed=True,
+                     details=f"{files} .py file(s) and {cells} notebook code cell(s) compile")
+
+
 def _debug_pattern_check(feed_dir: Path, patterns: list[str]) -> GateCheck:
     hits: list[str] = []
     for path in _generated_text_files(feed_dir):
@@ -325,6 +388,7 @@ def run_preflight(feed_dir: Path, config: Config) -> list[GateCheck]:
     if config.gate.ruff:
         checks.append(_ruff_check(feed_dir))
     if config.gate.structural_checks:
+        checks.append(_python_compiles_check(feed_dir))
         checks.append(_debug_pattern_check(feed_dir, config.gate.debug_patterns))
         checks.append(_secrets_check(feed_dir))
         checks.append(_test_per_module_check(feed_dir))

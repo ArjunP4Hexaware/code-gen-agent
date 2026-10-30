@@ -74,6 +74,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from codegen.config import Config
+from codegen.contracts.frd import banner_text_problem
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.emit.dml import _ident, _table, validate_tsql
 from codegen.gate.preflight import GateCheck
@@ -214,6 +215,20 @@ def _sheet_order(payload: dict, config: Config) -> list[str]:
 
 def _one_line(text) -> str:
     return " ".join(str(text).split())
+
+
+def comment1(value) -> str:
+    """post159 (P1-4, CS-2): document text placed in a ONE-line comment (``#`` /
+    ``--``), defence in depth behind the contract's single-line rule
+    (``contracts.frd.BannerText``). A value that is already one printable line
+    is returned UNCHANGED (byte-stable banners); one holding a line break or a
+    control character is collapsed by :func:`_one_line`, each refused character
+    read as a space - it can never end the comment it sits in. Any value is
+    read as ``str(value)``, exactly what the template printed before."""
+    text = str(value)
+    if banner_text_problem(text) is None:
+        return text
+    return _one_line("".join(" " if banner_text_problem(ch) else ch for ch in text))
 
 
 def _index_lines(definitions: list[TableDefinition]) -> list[str]:

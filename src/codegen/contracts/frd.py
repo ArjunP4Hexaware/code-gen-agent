@@ -7,10 +7,11 @@ validation loudly instead of being silently reinterpreted.
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 GateStatus = Literal["PASS", "PASS_WITH_FLAGS", "FAIL"]
 # "Upsert" added 2026-08-26: the SFMC Email Campaign FRD declares a standard-
@@ -31,6 +32,37 @@ def stated_source(value: str | None) -> str | None:
     """The source system an input states, or None (blank, or the placeholder)."""
     text = (value or "").strip()
     return None if not text or text.casefold() == UNSTATED_SOURCE else text
+
+
+# post159 (P1-4, CS-2): a value that reaches a generated file's provenance banner
+# or a comment line (``# Feed: …``, ``-- FRD contract: …``) must be ONE printable
+# line: a line break there ends the comment and the rest of the value becomes
+# generated code. Refused (never stripped): Cc (controls, incl. TAB / CR / LF /
+# NEL), Zl / Zp (U+2028 / U+2029). Format characters (Cf, bidi) are P2-3's.
+_BANNER_REFUSED_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
+BANNER_TEXT_REASON = "frd.value"
+
+
+def banner_text_problem(value: object) -> int | None:
+    """1-based position of the first line break / control character in a
+    banner-bound value, or None when it is one printable line. A position,
+    never the text (the coordinates tier may carry it)."""
+    text = value if isinstance(value, str) else ("" if value is None else str(value))
+    return next((i for i, ch in enumerate(text, start=1)
+                 if unicodedata.category(ch) in _BANNER_REFUSED_CATEGORIES), None)
+
+
+def _single_line(value: str) -> str:
+    position = banner_text_problem(value)
+    if position is not None:
+        raise ValueError(f"a line break or control character at character {position}: this "
+                         "value reaches generated-file banners / comments and must be one "
+                         "printable line (fix the document cell)")
+    return value
+
+
+# A str that must be one printable line (validated, never rewritten).
+BannerText = Annotated[str, AfterValidator(_single_line)]
 
 
 class ProjectInfo(BaseModel):
@@ -190,8 +222,8 @@ class FrdFeed(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    feed_name: str
-    source_system: str
+    feed_name: BannerText
+    source_system: BannerText
     # May be EMPTY only on docx-extracted contracts (M2): the F1/F2 label
     # families carry no file-pattern label, so the pattern comes from the
     # STTM at resolve time (M4). Upstream contracts always list >= 1.
@@ -240,7 +272,7 @@ class FrdContract(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    contract_name: str
+    contract_name: BannerText
     generated_from_frd: str
     generated_date: datetime
     generator: str

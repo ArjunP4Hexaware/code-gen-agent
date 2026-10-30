@@ -7,7 +7,7 @@
    CLUSTER BY AUTO, the layer's TBLPROPERTIES block, trailing SET TAGS.
    Plain SQL comments only — no markdown, no fences. #}
 {% for line in banner_lines %}
--- {{ line }}
+-- {{ line | comment1 }}
 {% endfor %}
 {% if not tables %}
 
@@ -15,7 +15,7 @@
 {% endif %}
 {% for t in tables %}
 
---{{ t.qualified }}
+--{{ t.qualified | comment1 }}
 
 {{ create_statement }} {{ t.qualified }} (
 {% for col in t.columns %}

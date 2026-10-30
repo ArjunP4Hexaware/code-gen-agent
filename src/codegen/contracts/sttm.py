@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from codegen.contracts.frd import FrdFeed
+from codegen.contracts.frd import BannerText, FrdFeed
 
 RecordSegment = Literal["Header", "Detail", "Trailer"]
 
@@ -136,7 +136,7 @@ class RecordIdentification(BaseModel):
     model_config = _MODEL_CONFIG
 
     method: Literal["derived_from_sttm", "declared_override"]
-    trailer_marker: str
+    trailer_marker: BannerText       # post159: printed in the generated banners
     header_rule: str
     detail_rule: str
     citation: str = Field(min_length=1)
@@ -435,7 +435,7 @@ class SttmContract(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    contract_name: str
+    contract_name: BannerText        # post159: printed in the generated banners
     generated_from_workbook: str
     sttm_version: str
     generated_date: str

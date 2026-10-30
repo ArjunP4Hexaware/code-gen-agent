@@ -36,6 +36,7 @@ from xml.etree import ElementTree as ET
 
 from codegen.config import Config, FrdExtractorConfig
 from codegen.contracts.frd import (
+    BANNER_TEXT_REASON,
     UNSTATED_SOURCE,
     AcdItem,
     FieldEvidence,
@@ -46,6 +47,7 @@ from codegen.contracts.frd import (
     ProjectInfo,
     Provenance,
     TargetSpec,
+    banner_text_problem,
 )
 from codegen.layout.frd_profile import (
     FrdFieldSource,
@@ -1251,9 +1253,14 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
                          "stage table names")
         lobs, lob_table = _lobs_and_table(content, profile, prefix, get(f"{prefix}.lobs"),
                                           frd_config, flags, cell_of)
+        named = feed_name or unnamed_feed_name(document_name, feed_index)
+        system = source_system or UNSTATED_SOURCE
+        for field, value in (("feed_name", named), ("source_system", system)):
+            path = f"{prefix}.{field}"
+            _require_one_line(path, value, evidence.get(path) or profile.fields.get(path))
         feeds.append(FrdFeed(
-            feed_name=feed_name or unnamed_feed_name(document_name, feed_index),
-            source_system=source_system or UNSTATED_SOURCE,
+            feed_name=named,
+            source_system=system,
             file_name_patterns=file_name_patterns,
             file_format=get(f"{prefix}.file_format") or None,
             delimiter=None,
@@ -1300,8 +1307,10 @@ def read_frd(content: DocxContent, profile: FrdLayoutProfile, config: Config, *,
     acd = _acd_items(content, frd_config)
     status = "PASS_WITH_FLAGS" if ambiguities else "PASS"
     sourced = len([k for k in evidence if "#" not in k])
+    contract_name = contract_name or f"FRD feed contract extracted from {document_name}"
+    _require_one_line("contract_name", contract_name, None)
     return FrdContract(
-        contract_name=contract_name or f"FRD feed contract extracted from {document_name}",
+        contract_name=contract_name,
         generated_from_frd=document_name,
         generated_date=datetime.fromisoformat(generated_date),
         generator=f"codegen extract-frd (docx family {profile.family}, layout "
@@ -1453,6 +1462,28 @@ def _split_multi_file_feeds(
         f"(one per target table); file→table pairings are PROPOSED by name "
         "similarity — confirm each")
     return split
+
+
+def _require_one_line(path: str, value: str,
+                      source: FieldEvidence | FrdFieldSource | None) -> None:
+    """post159 (P1-4, CS-2): a value that reaches the generated banners must be
+    one printable line (``contracts.frd.banner_text_problem``). A cell holding
+    a line break / control character the block readers did not take apart is
+    a located error naming the cell by position (0-based in the message like
+    every reader line, 1-based in the coordinates) - never stripped, never
+    guessed. ``source`` None = the value is no cell (the document's name, the
+    --contract-name argument)."""
+    position = banner_text_problem(value)
+    if position is None:
+        return
+    where = (f"table {source.table} row {source.row}" if source is not None
+             else "the document name / --contract-name")
+    coord = (Coord("FRD", table=source.table + 1, row=source.row + 1) if source is not None
+             else Coord("FRD"))
+    raise located(FrdDocxError(
+        f"{path}: {where} holds a line break or control character at character "
+        f"{position}; the value reaches the generated files' banners and must be one "
+        "printable line - fix the cell"), coord, BANNER_TEXT_REASON)
 
 
 def _plain_name(value: str) -> bool:

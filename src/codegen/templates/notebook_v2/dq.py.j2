@@ -83,7 +83,7 @@ def apply_stage_rules(frames: dict, source: dict) -> tuple[dict, list[str]]:
     detail = frames[DETAIL_SEGMENT]
     separate: list[str] = []
 {% for call in stage_calls %}
-    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence }}){% endif %}: {{ call.rule_class }}
+    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence | comment1 }}){% endif %}: {{ call.rule_class | comment1 }}
 {% if call.source is not none %}
     if source["index"] == {{ call.source }}:
 {% set pad = "        " %}
@@ -115,7 +115,7 @@ def apply_stage_rules(frames: dict, source: dict) -> tuple[dict, list[str]]:
 def apply_standard_rules(df: DataFrame, standard: dict) -> DataFrame:
     """The standard leg's rows (STDDelta), on the standard table's records."""
 {% for call in std_calls %}
-    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence }}){% endif %}: {{ call.rule_class }}
+    # DATA_QUALITY_RULES row {{ call.row }}{% if call.sequence %} (SEQUENCE_NO {{ call.sequence | comment1 }}){% endif %}: {{ call.rule_class | comment1 }}
     if standard["index"] == {{ call.standard }}:
 {% set pad = "        " %}
 {% if call.kind == "lr_trim" %}
@@ -131,7 +131,7 @@ def apply_standard_rules(df: DataFrame, standard: dict) -> DataFrame:
 {% elif call.kind == "dedup" %}
         df = rule_dedup(df, {{ call.columns | arg(pad | length) }})
 {% else %}
-        pass  # {{ call.rule_class }} applies to the stage leg's segments only
+        pass  # {{ call.rule_class | comment1 }} applies to the stage leg's segments only
 {% endif %}
 {% endfor %}
     return df

@@ -103,19 +103,50 @@ def check_ddl_parses(ddl_texts: list[tuple[str, str]], dialect: str,
 READ_ONLY_NAME = "ddl_tests_read_only"
 
 
+# post159 (P2-9, CS-2): the emitter writes every statement of the test-cases file
+# on ONE physical line (``ddl_tests._prose``) and every other line as a ``--``
+# comment; a line that is neither - document text whose line break escaped its
+# comment - fails whatever the parser makes of it.
+_READ_ONLY_LINE_STARTS = ("SELECT ", "SHOW ", "DESCRIBE ")
+
+
+def _stray_lines(text: str) -> list[int]:
+    """1-based numbers of the lines that are not blank, not a ``--`` comment and
+    not a whole read-only statement (``SELECT`` / ``SHOW`` / ``DESCRIBE`` ...
+    ``;``). Line breaks as Python reads them (``splitlines``: CR, VT, FF, NEL,
+    U+2028 too) - a SQL editor may break on any of them."""
+    stray = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        if stripped.upper().startswith(_READ_ONLY_LINE_STARTS) and stripped.endswith(";"):
+            continue
+        stray.append(number)
+    return stray
+
+
 def check_ddl_tests_read_only(texts: list[tuple[str, str]], dialect: str) -> GateCheck:
     """post128: every statement of the DDL test-cases file(s) is read-only - a
-    SELECT, a DESCRIBE or a SHOW - so the engineer may paste the file whole."""
+    SELECT, a DESCRIBE or a SHOW - so the engineer may paste the file whole.
+    post159 (P2-9): first, line by line (no parser needed): every line is a
+    ``--`` comment or one whole read-only statement."""
+    stray = [(name, numbers) for name, text in texts if (numbers := _stray_lines(text))]
+    problems: list[str] = [
+        f"{name}: line(s) {', '.join(map(str, numbers[:10]))}"
+        + (f" (+{len(numbers) - 10})" if len(numbers) > 10 else "")
+        + " neither a -- comment nor one read-only statement" for name, numbers in stray]
     try:
         import logging
 
         import sqlglot
         from sqlglot import exp
     except ImportError:
+        if problems:            # the line check needs no parser: still a FAIL
+            return GateCheck(name=READ_ONLY_NAME, passed=False, details="; ".join(problems))
         return GateCheck(name=READ_ONLY_NAME, passed=True, not_run=True,
                          flag=SQLGLOT_UNAVAILABLE,
                          details="sqlglot unavailable: the DDL test cases were not parsed")
-    problems: list[str] = []
     statements = 0
     for name, text in texts:
         logger = logging.getLogger("sqlglot")

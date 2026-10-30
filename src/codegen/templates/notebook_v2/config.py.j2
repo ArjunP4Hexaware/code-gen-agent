@@ -25,7 +25,7 @@ DRY_RUN = dbutils.widgets.get("dry_run") != "false"  # noqa: F821
 DRY_RUN_ROWS = {{ dry_run_rows }}
 DRY_RUN_SUFFIX = "_dryrun"
 
-# The run's environment profile{% if env_name %} ({{ env_name }}){% endif %}.
+# The run's environment profile{% if env_name %} ({{ env_name | comment1 }}){% endif %}.
 STORAGE_ACCOUNT = {{ storage_account | py }}
 _ADLS_HOST = "dfs.core.windows.net"
 

@@ -45,6 +45,14 @@ recorded provider request body.
 For a document: table titles and the label texts of each table (the
 section-prefix column and the label column), never a value cell.
 
+**FRD placements by the model** (P1-3, 2026-10-30; red team LM-3): a model claim
+is applied only when its label cell (or the inline label it claims) is one of
+the field's spellings in `extractor.frd.labels` / `fixed_rows`, read the way the
+synonyms read it (`frd_docx._paths_for`), in the section its table really is, and
+on a row the synonyms did not bind to another field. Anything else is a PROPOSAL:
+the field stays open (a question for a person, the model's row pre-selected with
+`suggested_reason`), the rejection names coordinates only.
+
 **Size caps** (P1-7, 2026-10-30; red team LM-5: a 296 KB STTM made a 12.2 MB
 request). `layout.max_cell_chars` clips every header-region cell, FRD label
 line and partial-profile string in the model's copy (`fingerprint.clip_text`,

@@ -1100,15 +1100,79 @@ def _frd_questions(profile: FrdLayoutProfile, content, config: Config) -> list[L
     questions = []
     for item in profile.unresolved:
         title, hint, suggested = frd_field_help(item.field, candidates, config)
+        suggested_reason = ""
+        proposed = next((i for i, c in enumerate(candidates)
+                         if f"{c['table']}:{c['row']}:{c['col']}" in item.candidates), None)
+        if item.reason.endswith(_PROPOSAL) and proposed is not None:
+            # P1-3: the layout model's placement, as a pre-selection a person confirms
+            suggested = proposed
+            suggested_reason = ("the layout model proposed this row; its label is not one "
+                                "of the field's known labels - confirm it or pick another")
         questions.append(LayoutQuestion(document="frd", sheet=None, layer=None, role=item.field,
                                         reason=item.reason, header=[], candidates=candidates,
-                                        title=title, hint=hint, suggested=suggested))
+                                        title=title, hint=hint, suggested=suggested,
+                                        suggested_reason=suggested_reason))
     return questions
 
 
 # post129 (audit #6): the paths whose DQ-section rows read "<label>: <value>" -
 # the synonym path's own rule (extract.frd_docx, the positional DQ rule rows)
 _LABELLED_RULE_PATH = re.compile(r"\.(validation_rules\[\d+\]|recycle_rule)$")
+_FEED_PREFIX = re.compile(r"^feeds\[\d+\]\.")
+_RULE_INDEX = re.compile(r"validation_rules\[\d+\]")
+
+
+_PROPOSAL = "kept as a proposal for a person, not placed"
+
+
+def _field_shape(path: str) -> str:
+    """``feeds[3].validation_rules[7]`` -> ``validation_rules[]``: a path with its
+    feed and rule positions dropped (both are positional, not the label's)."""
+    return _RULE_INDEX.sub("validation_rules[]", _FEED_PREFIX.sub("", path))
+
+
+def _model_label_reason(path: str, source: FrdFieldSource, label_cell: str,
+                        profile: FrdLayoutProfile, config: Config) -> str | None:
+    """P1-3 (red team LM-3): a MODEL placement of an FRD field must sit on a
+    label of THAT field - the label cell (or the inline label it claims) is one
+    of the field's spellings in ``extractor.frd.labels`` / ``fixed_rows``, read
+    the way the synonyms read it (``frd_docx._paths_for``), in the section the
+    table really is - and on a row the synonyms have not bound to another field.
+    The model says WHERE a field the synonyms missed sits; it never decides that
+    a label they do not know names the field. A reason (coordinates only) when
+    the claim is a proposal for a person, else None."""
+    from codegen.extract.frd_docx import _RULE_LABELS, _lookup, _paths_for, normalize_label
+
+    frd = config.extractor.frd
+    where = f"table {source.table} row {source.row} col {source.col}"
+    real_sections = {ref.table: ref.section for ref in profile.sections}
+    if real_sections.get(source.table) != source.section:
+        return (f"the claimed section is not the section of table {source.table}; kept as a "
+                "proposal for a person, not placed")
+    spelled = source.inline_label if source.inline_label is not None else label_cell
+    norm = normalize_label(spelled)
+    key = _lookup(frd.labels).get(norm) or _lookup(frd.fixed_rows).get(norm)
+    shapes = ({_field_shape(p) for p in _paths_for(key, source.feed_index, source.section, {})}
+              if key is not None else set())
+    if key == "functional_requirement" or key in _RULE_LABELS:
+        shapes |= {"validation_rules[]"}
+    if source.section == "data_quality" and source.inline_label is None:
+        # the positional DQ rule rows: every row of the section is a rule
+        shapes |= {"validation_rules[]"} | ({"recycle_rule"} if key == "recycle_process"
+                                            else set())
+    if key == "functional_requirement" and source.section == "recycle":
+        shapes |= {"recycle_rule"}
+    shape = _field_shape(path).split("#", 1)[0]
+    if shape in {s.split("#", 1)[0] for s in shapes}:
+        return None          # a label of the field (one label may state two: schema stg/std)
+    bound = {_field_shape(p).split("#", 1)[0] for p, f in profile.fields.items()
+             if profile.field_sources.get(p, profile.source) == "synonyms"
+             and (f.table, f.row) == (source.table, source.row)}
+    if bound - {shape}:
+        return (f"the label row ({where}) already carries another field the synonyms "
+                "placed; kept as a proposal for a person, not placed")
+    return (f"the label cell ({where}) is not a label of this field in "
+            "extractor.frd.labels; kept as a proposal for a person, not placed")
 
 
 def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
@@ -1163,6 +1227,10 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
                                   f"col {source.value_col})")
                     else:
                         update["inline_label"] = stated
+                if reason is None and field_sources.get(path, profile.source) == "model":
+                    # P1-3: the cell reads as claimed - is it a label of THIS field?
+                    reason = _model_label_reason(path, source.model_copy(update=update),
+                                                 row[source.col], profile, config)
                 if reason is None:
                     fields[path] = source.model_copy(update=update)
         if reason:
@@ -1170,8 +1238,13 @@ def _validate_frd(profile: FrdLayoutProfile, content, config: Config,
             fields.pop(path)
             confidence.pop(path, None)
             field_sources.pop(path, None)
+            # P1-3: a proposal keeps WHERE the model pointed (integers only), so
+            # the person's question can pre-select it - proposed, never applied
+            proposed = ([f"{source.table}:{source.row}:{source.col}"]
+                        if reason.endswith(_PROPOSAL) else [])
             unresolved.append(FrdUnresolved(field=path, feed_index=source.feed_index,
-                                            reason=f"rejected: {reason}"))
+                                            reason=f"rejected: {reason}",
+                                            candidates=proposed))
     return profile.model_copy(update={"fields": fields, "confidence": confidence,
                                       "field_sources": field_sources,
                                       "unresolved": unresolved}), rejections

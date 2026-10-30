@@ -64,7 +64,10 @@ def test_a_model_label_variant_carries_the_documents_spelling(config):
     extra = {f"feeds[0].validation_rules[{len(rules)}]": {
         **profile.fields[target].model_dump(mode="json"), **claim}}
     validated, rejections = _as_model_claim(content, profile, config, target, claim, extra)
-    assert rejections == []
+    # P1-3 (red team LM-3): the Frequency row is no rule row - that claim is a
+    # proposal for a person, not placed; the frequency claim itself stands
+    assert [r.role for r in rejections] == list(extra)
+    assert "not a label of this field" in rejections[0].reason
     assert validated.fields[target].label == stated              # the cell's text
     assert validated.fields[target].labelled_rule is False       # derived, not the model's
     contract = _contract(content, validated, config)

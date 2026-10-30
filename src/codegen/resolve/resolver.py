@@ -220,6 +220,45 @@ def _answered_unstated(frd_feed: FrdFeed, gaps: dict[str, str] | None, feed_inde
     return frd_feed
 
 
+class TableNameError(ValueError):
+    """post158 (pentest PPL-1): a catalog / schema / table name of the resolved
+    feed is no plain identifier. The names become DDL text AND output file names
+    (``<schema>.<table>.sql``), so a name like ``../x`` or ``/abs/path`` would
+    write outside the output folder: generation stops before anything is written."""
+
+
+# A catalog the environment has not given yet is an open placeholder (<<A2:...>>).
+_CATALOG_PLACEHOLDER_RE = re.compile(r"^<<[A-Za-z0-9_:.]+>>$")
+
+
+def check_table_names(spec: ResolvedFeedSpec, feed_index: int) -> None:
+    """Every resolved table (stage / standard per segment, the feed's standard,
+    errors, processed-files and recycle tables): schema and table must match
+    ``gate.ddl_names.IDENTIFIER_RE``; a catalog too, or be an open placeholder.
+    Raises :class:`TableNameError` located at the feed (coordinates only)."""
+    from codegen.gate.ddl_names import IDENTIFIER_RE
+
+    tables = [t for s in spec.segments for t in (s.stage_table, s.standard_table)]
+    tables += [spec.standard_table, spec.errors_table, spec.processed_files_table]
+    if spec.recycle is not None:
+        tables.append(spec.recycle.recycle_table)
+    bad: list[str] = []
+    for t in tables:
+        if t is None:
+            continue
+        parts = [("schema", t.schema_name), ("table", t.table)]
+        if t.catalog is not None and not _CATALOG_PLACEHOLDER_RE.match(t.catalog):
+            parts.append(("catalog", t.catalog))
+        bad += [f"{t.role} {kind} {value!r}" for kind, value in parts
+                if not IDENTIFIER_RE.match(value)]
+    if bad:
+        raise located(TableNameError(
+            f"feed {spec.feed_id!r}: {len(bad)} name(s) are no plain identifier "
+            f"(^[A-Za-z_][A-Za-z0-9_]*$): {'; '.join(dict.fromkeys(bad))} — correct the "
+            "STTM / FRD Catalog, Schema or TableName cell"),
+            Coord("feed", n=feed_index + 1), "sttm.value")
+
+
 def normalize_feed_name(name: str) -> str:
     """FRD display name -> join key: lowercase, runs of non-alphanumerics -> _."""
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
@@ -1260,7 +1299,7 @@ def _resolve_one(
                                       marked=_pk_marked)
     phi = _phi_stage_columns(segments, sttm_feed.load_rules.phi_columns)
 
-    return ResolvedFeedSpec(
+    spec = ResolvedFeedSpec(
         feed_id=feed_id,
         feed_slug=normalize_feed_name(feed_id),
         feed_name=frd_feed.feed_name,
@@ -1308,6 +1347,8 @@ def _resolve_one(
         lob_question_key=lob_key if lob_unkeyed else None,
         table_descriptions=dict(sttm_feed.table_descriptions),
     )
+    check_table_names(spec, feed_index)
+    return spec
 
 
 LOB_ANSWER_FIELD = "lob_by_file"

@@ -102,6 +102,28 @@ def _check_gaps(context: dict[str, Any], framework_only: bool = False) -> None:
         ), Coord("contract"), "template.gap")
 
 
+class UnsafeOutputPathError(ValueError):
+    """post158 (pentest PPL-1): an output file name built from document values
+    (schema / table names) would leave its folder - refused, nothing written."""
+
+
+def _inside(folder: Path):
+    """A name -> path function for ``folder`` that refuses a name with a path
+    separator, a NUL or ``..``, or one that resolves outside ``folder``. The
+    resolver already refuses such names (``check_table_names``); this keeps the
+    emitter safe on its own."""
+    root = folder.resolve()
+
+    def child(name: str) -> Path:
+        path = folder / name
+        if ("/" in name or "\\" in name or "\0" in name or ".." in Path(name).parts
+                or Path(name).is_absolute() or not path.resolve().is_relative_to(root)):
+            raise UnsafeOutputPathError(
+                f"output file name {name!r} would leave {folder.name}/ - not written")
+        return path
+    return child
+
+
 def emit_feed(context: dict[str, Any], output_root: Path,
               framework_only: bool = False) -> list[Path]:
     """Render every applicable template; returns the written paths.
@@ -117,12 +139,13 @@ def emit_feed(context: dict[str, Any], output_root: Path,
     renders: list[tuple[str, Path, dict[str, Any]]] = []
 
     ddl_dir = feed_dir / "ddl"
+    inside = _inside(ddl_dir)
     qualified_prefix = f"{context['default_catalog']}." if context["default_catalog"] else ""
     for seg in context.get("stage_tables", context["segments"]):
         renders.append(
             (
                 "ddl/stage_table.sql.j2",
-                ddl_dir / f"{context['stage_schema']}.{seg['stage_table']}.sql",
+                inside(f"{context['stage_schema']}.{seg['stage_table']}.sql"),
                 # Per-segment audit columns override the feed-wide set (equal
                 # on flat feeds, so their rendering is byte-identical).
                 {"seg": seg, "qualified_prefix": qualified_prefix,
@@ -132,14 +155,14 @@ def emit_feed(context: dict[str, Any], output_root: Path,
     renders.append(
         (
             "ddl/errors_table.sql.j2",
-            ddl_dir / f"{context['stage_schema']}.{context['errors_table']}.sql",
+            inside(f"{context['stage_schema']}.{context['errors_table']}.sql"),
             {"qualified_prefix": qualified_prefix},
         )
     )
     renders.append(
         (
             "ddl/processed_files_table.sql.j2",
-            ddl_dir / f"{context['stage_schema']}.{context['processed_files_table']}.sql",
+            inside(f"{context['stage_schema']}.{context['processed_files_table']}.sql"),
             {"qualified_prefix": qualified_prefix},
         )
     )
@@ -147,7 +170,7 @@ def emit_feed(context: dict[str, Any], output_root: Path,
         renders.append(
             (
                 "ddl/recycle_table.sql.j2",
-                ddl_dir / f"{context['stage_schema']}.{context['recycle']['table']}.sql",
+                inside(f"{context['stage_schema']}.{context['recycle']['table']}.sql"),
                 {"qualified_prefix": qualified_prefix},
             )
         )
@@ -158,7 +181,7 @@ def emit_feed(context: dict[str, Any], output_root: Path,
         renders.append(
             (
                 "ddl/standard_table.sql.j2",
-                ddl_dir / f"{standard['schema']}.{standard['table']}.standard.sql",
+                inside(f"{standard['schema']}.{standard['table']}.standard.sql"),
                 {"standard": standard, "standard_qualified_prefix": standard_prefix,
                  "audit_columns": standard.get("audit_columns",
                                                context["audit_columns"])},

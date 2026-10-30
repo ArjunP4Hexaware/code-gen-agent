@@ -96,6 +96,7 @@ class AnthropicProvider:
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
         self._truncation_max_tokens = config.reasoning.truncation_max_tokens
+        self._limits = config.reasoning.response_limits
         self.requests = 0
         self.failures: list[AttemptFailure] = []
 
@@ -121,7 +122,8 @@ class AnthropicProvider:
         return ask_candidate(timed(self, send), user_prompt, max_attempts=self._max_attempts,
                              max_tokens=self._max_tokens,
                              truncation_max_tokens=self._truncation_max_tokens,
-                             failures=self.failures, request=self.requests)
+                             failures=self.failures, request=self.requests,
+                         limits=self._limits)
 
     def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
         """post76: every unmapped rule of a feed in ONE request (rule n = packs[n-1])."""
@@ -141,4 +143,5 @@ class AnthropicProvider:
         return ask_batch(timed(self, send), batch_prompt(packs), len(packs),
                          max_attempts=self._max_attempts, max_tokens=self._max_tokens,
                          truncation_max_tokens=self._truncation_max_tokens,
-                         failures=self.failures, request=self.requests)
+                         failures=self.failures, request=self.requests,
+                         limits=self._limits)

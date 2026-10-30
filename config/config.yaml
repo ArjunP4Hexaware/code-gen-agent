@@ -560,6 +560,16 @@ reasoning:
   # states a condition ("must not be", "reject the file"); one word or a
   # stopword grounds nothing.
   min_citation_words: 3
+  # post159 (P2-2, L2-5): the longest Layer-2 answer the response schema takes
+  # (characters / items); over the limit = a schema failure, retried once,
+  # then a failed candidate - never a crash. Sized well above a real answer
+  # (rationale: a paragraph; code: a sketch; a citation: one rule) and far
+  # below what the transport can return (a 5 MB answer was accepted before).
+  response_limits:
+    rationale_max_chars: 4000
+    code_candidate_max_chars: 20000
+    citation_max_chars: 4000
+    citations_max_items: 20
   # Layer-2 transport: anthropic (default) | databricks_fmapi (same Claude
   # model via the databricks.serving_endpoint — transport only; needs the
   # [databricks] extra and resolvable workspace auth; mock still wins on

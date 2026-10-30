@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from codegen.contracts.resolved import ResolvedFeedSpec
 from codegen.reasoning.context import build_context_pack
 from codegen.reasoning.grounding import grounding_failures
 from codegen.reasoning.providers import Provider
-from codegen.reasoning.schema import CandidateResponse, ContextPack
+from codegen.reasoning.schema import CandidateResponse, ContextPack, limits_context
 from codegen.rules.compiler import RuleOutcome
 
 if TYPE_CHECKING:
@@ -221,6 +221,17 @@ def _one(pack: ContextPack, provider: Provider, reasoning: ReasoningConfig) -> R
 
 def _answered(pack: ContextPack, provider: Provider, response,
               reasoning: ReasoningConfig) -> RuleCandidate:
+    # post159 (P2-2): every answer within reasoning.response_limits — the ask
+    # loop's providers checked it already; one built in code (the mock, a
+    # stub) is checked here, and over the limit it is a failed candidate
+    try:
+        response = CandidateResponse.model_validate(
+            response.model_dump(include=set(CandidateResponse.model_fields)),
+            context=limits_context(reasoning.response_limits))
+    except ValidationError as exc:
+        from codegen.reasoning.providers.ask import schema_reason
+
+        return _failed(pack, provider, f"provider '{provider.name}' failed: {schema_reason(exc)}")
     failures = grounding_failures(pack, response,
                                   min_citation_words=reasoning.min_citation_words)
     return RuleCandidate(feed_id=pack.feed_id, rule_text=pack.rule_text,

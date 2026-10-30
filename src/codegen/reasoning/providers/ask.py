@@ -31,7 +31,7 @@ from codegen.layout.model import (
     parse_json_response,
 )
 from codegen.reasoning.providers import ProviderError
-from codegen.reasoning.schema import BatchResponse, CandidateResponse
+from codegen.reasoning.schema import BatchResponse, CandidateResponse, limits_context
 
 
 @dataclass(frozen=True)
@@ -61,12 +61,15 @@ def schema_reason(exc: ValidationError) -> str:
 
 def ask_candidate(send, user_prompt: str, *, max_attempts: int, max_tokens: int,
                   truncation_max_tokens: int, failures: list[AttemptFailure],
-                  request: int) -> CandidateResponse:
+                  request: int, limits) -> CandidateResponse:
     """``send(prompt, max_tokens) -> text`` until a schema-valid response;
     every failed attempt is appended to ``failures``. A transport error is
-    recorded and re-raised (the engine turns it into a failed candidate)."""
+    recorded and re-raised (the engine turns it into a failed candidate).
+    ``limits`` (``reasoning.response_limits``) bounds the answer's lengths."""
+    context = limits_context(limits)
+
     def validate(data, _last_attempt: bool):
-        return CandidateResponse.model_validate(data)
+        return CandidateResponse.model_validate(data, context=context)
 
     return _ask(send, user_prompt, validate, max_attempts=max_attempts,
                 max_tokens=max_tokens, truncation_max_tokens=truncation_max_tokens,
@@ -80,16 +83,17 @@ class _Incomplete(ValueError):
 
 def ask_batch(send, user_prompt: str, rules: int, *, max_attempts: int, max_tokens: int,
               truncation_max_tokens: int, failures: list[AttemptFailure],
-              request: int) -> dict[int, CandidateResponse]:
+              request: int, limits) -> dict[int, CandidateResponse]:
     """post76: ONE request for a feed's ``rules`` unmapped rules (numbered 1..n)
     — the same loop as :func:`ask_candidate`; the result maps a rule number to
     its answer. A response missing some rules is retried naming them; on the
     last attempt the answered rules are kept and the rest are absent (the
     engine records them as failed)."""
     wanted = set(range(1, rules + 1))
+    context = limits_context(limits)
 
     def validate(data, last_attempt: bool) -> dict[int, CandidateResponse]:
-        batch = BatchResponse.model_validate(data)
+        batch = BatchResponse.model_validate(data, context=context)
         answers: dict[int, CandidateResponse] = {}
         for item in batch.candidates:
             if item.rule not in wanted:
@@ -97,7 +101,7 @@ def ask_batch(send, user_prompt: str, rules: int, *, max_attempts: int, max_toke
             if item.rule in answers:
                 raise _Incomplete(f"rule {item.rule} answered twice")
             answers[item.rule] = CandidateResponse.model_validate(
-                item.model_dump(exclude={"rule"}))
+                item.model_dump(exclude={"rule"}), context=context)
         missing = sorted(wanted - set(answers))
         if missing and not last_attempt:
             raise _Incomplete("no candidate for rule(s) " + ", ".join(map(str, missing)))

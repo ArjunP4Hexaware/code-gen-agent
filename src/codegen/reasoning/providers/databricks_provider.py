@@ -48,6 +48,7 @@ class DatabricksFmapiProvider:
         self._max_tokens = config.reasoning.max_tokens
         self._max_attempts = config.reasoning.max_attempts
         self._truncation_max_tokens = config.reasoning.truncation_max_tokens
+        self._limits = config.reasoning.response_limits
         # What the run record reads (codegen.reasoning.usage).
         self.endpoint = self._endpoint
         self.model = config.reasoning.model
@@ -91,7 +92,8 @@ class DatabricksFmapiProvider:
         return ask_candidate(self._sender(_SYSTEM_PROMPT), user_prompt,
                              max_attempts=self._max_attempts, max_tokens=self._max_tokens,
                              truncation_max_tokens=self._truncation_max_tokens,
-                             failures=self.failures, request=self.requests)
+                             failures=self.failures, request=self.requests,
+                         limits=self._limits)
 
     def complete_batch(self, packs: list[ContextPack]) -> dict[int, CandidateResponse]:
         """post76: every unmapped rule of a feed in ONE request (rule n = packs[n-1])."""
@@ -99,4 +101,5 @@ class DatabricksFmapiProvider:
         return ask_batch(self._sender(_BATCH_SYSTEM_PROMPT), batch_prompt(packs), len(packs),
                          max_attempts=self._max_attempts, max_tokens=self._max_tokens,
                          truncation_max_tokens=self._truncation_max_tokens,
-                         failures=self.failures, request=self.requests)
+                         failures=self.failures, request=self.requests,
+                         limits=self._limits)

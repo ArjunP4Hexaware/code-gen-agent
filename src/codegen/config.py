@@ -675,6 +675,18 @@ class NewPairLayoutEstimate(BaseModel):
     source: str
 
 
+class ResponseLimitsConfig(BaseModel):
+    """post159 (P2-2, L2-5): the longest Layer-2 answer the schema accepts
+    (codegen.reasoning.schema); an over-limit answer is a schema failure."""
+
+    model_config = _MODEL_CONFIG
+
+    rationale_max_chars: int = Field(gt=0)
+    code_candidate_max_chars: int = Field(gt=0)
+    citation_max_chars: int = Field(gt=0)
+    citations_max_items: int = Field(gt=0)
+
+
 class ReasoningConfig(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -689,6 +701,7 @@ class ReasoningConfig(BaseModel):
     # whole rule / excerpt that is shorter still counts); at least one citation
     # must quote the candidate's own rule (codegen.reasoning.grounding).
     min_citation_words: int = Field(gt=0)
+    response_limits: ResponseLimitsConfig
     # Layer-2 transport: "anthropic" (default, direct API) or
     # "databricks_fmapi" (the same Claude model served by Databricks
     # Foundation Model APIs — a transport, not a vendor change; Anthropic

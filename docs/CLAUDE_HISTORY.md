@@ -3221,3 +3221,42 @@ columns, rows 5 / 7 / 13 reworded, six rows added 2026-10-29, the sttm_agent hea
   `amerihealth-agents-update.xlsx` (sheets `codegen_agent` / `sttm_agent`, written in
   Soham's voice — "I", never "Soham"); uploaded to `/Workspace/Users/<me>/` with
   `databricks workspace import … --overwrite`. Soham reconciles it with Arjun in Teams.
+
+## §[H16] Session 2026-10-29 → 30: the STTM agent's look, DDL tested on D1, the client's test cases, table sources, the UI audit, post143–post157
+
+**Versions** (one bump per fix, each with a test that fails with only the fix reverted;
+CHANGELOG_ACFC.md has the detail): post143 the App rebuilt in the guided style of the
+STTM agent's App (white header, light sidebar, rounded cards, plain words; design pillars
+written into the UX skill Part 1); post144 the App opens on Generate (`/`, Results
+`/results`) and the client's logo top-left, read from the state root
+(`branding/logo.*`, never in git); post145 the confirm dialog names a new pair's
+first-run layout cost in DBUs; post146 a blue progress bar with a % and the stage in
+words; post147 the environment line inside Advanced; post148 the feed Overview in the
+Results issue-card layout, new-pair estimate 6–8 DBU (conservative on purpose); post149 /
+post150 client-facing App text and generated files name no person; post151 "Generate
+Documents" again (an earlier rename had undone a stakeholder's ask); post152 the run card
+under the Generate button, not at the top of the page; post153 the DDL test cases' column
+check counts `ordinal_position` from 0 as Databricks does; post154 the client's
+pipeline-level test cases (load strategy on a second file, a second file, several files,
+one email case per IIG status) + the test-record workbook `<ABBREV>_DDL_TestCases.xlsx`;
+post155 a database-table-sourced feed writes its DDL + test cases and HOLDS its IIG;
+post156 one STTM sheet naming the FRD's N tables = a feed per table (the extract-path
+variant was reverted the same day: pair_09 went FAIL → CRASHED); post157 the UI audit
+fixes (loading cards, 390 px without sideways scroll, 24 px targets, one `h1`, the logo
+out of the tab order).
+
+**DDL on D1:** schema `d1_dlk.soham_test` (Serverless Starter warehouse); every pair with
+a clean DDL runs twice and its test cases pass after post153; pair_03's DDL fails on four
+STTM column names with a stray space (BSA to fix). Results in RESTART.md.
+
+**Lessons:** I told Soham pair_09's FRD lists 36 tables — it states none (they come from
+gap fill); corrected, Soham chose to park it with the RDMS sheet (option B). A ruff
+error was committed because a pipe hid the exit code (amended; read exit codes, never a
+piped tail). `pkill -f` matched its own shell (`pgrep -f 'python -m ui[.]backend[.]main'
+| xargs -r kill`). The audit-table clone was not found in Unity Catalog by metadata
+search — ask for one known name rather than keep searching.
+
+**The spreadsheet** moved to SharePoint (`amerihealth-agents-update-merged.xlsx`); Graph
+login was refused by Conditional Access (unmanaged device), so updates are Office
+Scripts Soham runs (`/tmp/t/graph/update_*.ts`: 29 Oct the full sheet + the DDL rows,
+30 Oct the App row). Bold in column C = updated today; the C1 header names the date.

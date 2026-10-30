@@ -135,7 +135,12 @@ CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
   codegen-agent -p codegen-oaut --json '{"mode":"SNAPSHOT","git_source":{"branch":
   "feature/multi-table"}}'`; a stopped App: `databricks apps start codegen-agent -p
   codegen-oaut` first (Soham's go — it bills compute).
-- **The spreadsheet for Arjun** (`/Workspace/Users/<me>/amerihealth-agents-update.xlsx`,
+- **The shared spreadsheet (current, since 2026-10-29):** SharePoint
+  `amerihealth-agents-update-merged.xlsx`, sheet `codegen_agent`. Graph is refused
+  (Conditional Access), so write an Office Script for Soham to run (rules in CLAUDE.md;
+  last ones `/tmp/t/graph/update_ui_row_30oct.ts`, `update_ddl_rows.ts`). As of 30 Oct
+  bold = the "App look and feel" row only; the D header still reads "from 29 Oct".
+- **The old spreadsheet** (`/Workspace/Users/<me>/amerihealth-agents-update.xlsx`,
   sheets `codegen_agent` / `sttm_agent`, Soham's voice — "I", never "Soham"; status
   vocabulary Yes / NYS / WIP; plain wording on purpose): download it, edit IN PLACE with
   a small openpyxl script (`/tmp/xl_work/update_*.py`), check it is unchanged since the

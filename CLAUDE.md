@@ -146,6 +146,15 @@ as the Databricks App `codegen-agent` and through the container harness (`docs/R
   `overlays=[…]`.
 - **`tests/test_remote_run_e2e.py`** is the only run test on remote storage roles —
   extend it when touching the run path. Nothing may assume a run lives under REPO_ROOT.
+- **Client-facing text names no person** (Soham, 2026-10-29): the App, generated files
+  and the shared spreadsheet never say whose estimate / ask a thing was ("a conservative
+  estimate", not "<name>'s"); the spreadsheet is in Soham's voice ("I", never "Soham").
+- **The shared progress spreadsheet** (SharePoint, sheet `codegen_agent`): Graph is
+  refused by ACFC's Conditional Access (managed devices only) — never route around it.
+  Write an Office Script Soham pastes into Automate: rows found by column A, a missing
+  row = nothing written, a `DRY_RUN` switch, bold in column C = updated today (clear the
+  previous day's bold, the C1 header names the date). Keep it short; detail goes to the
+  day's work.
 - **Never run the CLI from the repo root with outputs in `out/`;** use the harness or a
   scratch output dir. Shareable runs: `export
   CODEGEN_NOTIFICATION_EMAILS=syn.dl.prodsupport@synthetic.example` first (the CLI loads
@@ -262,6 +271,11 @@ Running the *generated* Spark tests (no `--skip-tests`) needs Java 17 (`JAVA_HOM
   <sheet>/band[<n>]/layer`). Blank Schema → from the FRD with a NOTE, else a QUESTION;
   table names are always a QUESTION. Trailing `NA` rows → `audit_columns`. A Length cell
   is a byte width only when it is an INTEGER. An empty schema never reaches a contract.
+  One non-segmented STTM sheet whose tables are EXACTLY the FRD's (post156): a feed per
+  table (`layout.resolve._split_per_table`, `extract.generic._split_by_table`), every
+  pairing from the documents (standard table from its rows, file pattern by file
+  identity) or blank + flagged - never token overlap. When the FRD names no table
+  (pair_09) it is not split (parked with the RDMS sheet; RESTART.md).
   Segmented (H/D/T) files: segments are tables in both layers, identification derived
   from the STTM (`extract/segmented.py`, `docs/SEGMENTED_MODE_DESIGN.md`). A stated
   delimiter (any document) is read by `resolver.delimiter_char` (quoted character, else
@@ -461,7 +475,11 @@ offline — **do not call Graph or Databricks from inside the extractors or the 
   text pair WCAG AA. No ACFC logo or name in the repo: the header's top-left logo is
   read at runtime from the state root, `branding/logo.<png|svg|jpg|webp>` (`GET
   /api/branding`, post144); without one the header is the wordmark alone.
-  The spec: the UX skill Part 1 "Design pillars" and §4.1.
+  The spec: the UX skill Part 1 "Design pillars" and §4.1. Every page (post157): a
+  loading card until its first answer (never "0 chosen" / "No results yet" before the
+  App knows), no sideways scroll at 390 px, targets of at least 24 px (WCAG 2.2 2.5.8),
+  ONE `h1` (rendered report headings are demoted), the logo is decoration (no tab
+  stop). Check with Playwright against a local mock App before claiming a UI fix.
 - **What the App says about providers:** the header badge = the provider the NEXT run
   uses (`/api/feeds` `provider`); a banner's LIVE / MOCK RUN word = the provider that
   answered the served run (`run_provider`). The served `mode` drives behaviour only —

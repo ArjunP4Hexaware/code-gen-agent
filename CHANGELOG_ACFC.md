@@ -4,6 +4,46 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post159 — 2026-10-30 (hardening, second round: layout, reports, Layer 2, App)
+
+The P1 items of the red-team plan plus two P2s; each with a test that fails with
+only its fix reverted:
+- **Layout model requests are capped** (`layout.max_cell_chars`,
+  `max_prompt_chars`, `max_sheets_sent`): long cells clipped in the model's copy
+  only, only sheets with open roles sent, an oversize request refused before the
+  call (`layout.request_too_large`). The fingerprint / cache key is unchanged.
+- **A cached layout profile is re-checked** against the current document on every
+  hit (a role the synonyms do not place the same way is validated again; a
+  rejection makes the entry stale); each role keeps its real source.
+  `layout.cache_model_placements: true` keeps today's caching.
+- **An FRD placement by the model must sit on a label of its field** in its own
+  section; anything else stays an open question with the model's row proposed.
+- **Model-placed catalog / schema are value-checked and contested:** a catalog
+  column must read as catalogs, a schema column must not; an STTM catalog equal to
+  the FRD's schema is flagged (`<layer>_identifier_swap`); a contradicted model
+  placement is asked, not applied. `layout_model_placed:` / `frd_crosscheck:` /
+  `layout_crosscheck:` flags reach the IIG review copy and the combined LOG.md
+  (`iig_review.review_flag_prefixes`).
+- **Generated code:** banner-bound FRD / STTM fields are one printable line (a
+  located error otherwise); a `comment1` filter keeps document text inside its
+  comment; the new `python_compiles` check compiles every generated `.py` and
+  notebook cell, so a break-out fails without ruff. The DDL test-cases check reads
+  line by line (P2-9).
+- **Reports and the notebook review cell:** document / model text is inert
+  markdown (no forged verdict, heading or link; code fenced so it cannot close
+  its fence); a NOT GROUNDED candidate shows no rationale or code; the Layer-2
+  section is found by sentinels. Placeholders such as `<<RFC_NUMBER>>` stay literal.
+- **Layer 2:** a citation must come from the candidate's own rule
+  (`reasoning.min_citation_words`, no bare column name); answers are bounded
+  (`reasoning.response_limits`). Layer 2 stays off for ACFC.
+- **App:** Content-Security-Policy (`script-src 'self'`), nosniff, no-referrer,
+  same-origin framing on every response.
+- **FRD .docx:** a document.xml declaring a DTD or an entity is refused (P2-10).
+
+Output: unchanged on the 12 client pairs (mock, framework and notebook); reports
+gain section markers and escaped flag lines. Snapshot `notebook_mode.json`
+regenerated deliberately (report hashes only).
+
 ## 0.5.8.post158 — 2026-10-30 (hardening against hostile text in the FRD / STTM)
 
 From a red-team pass (mock, synthetic pairs only) plus a live injection eval on

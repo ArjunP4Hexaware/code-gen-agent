@@ -212,6 +212,29 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CodeGen / Data Engineer Agent — demo UI", lifespan=lifespan)
 
+# post159 (pentest APP-CSP-1): every response carries a Content-Security-Policy and
+# the usual hardening headers, so an XSS that slipped past the sanitiser could not
+# load or run script from elsewhere, nor call out. The built shell (dist/index.html)
+# has no inline script; inline STYLE attributes are React's, hence 'unsafe-inline'
+# for style only. frame-ancestors 'self': the App is opened at its own URL.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; "
+        "frame-ancestors 'self'; form-action 'self'; img-src 'self' data: blob:; "
+        "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "SAMEORIGIN",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
 
 @app.exception_handler(Exception)
 async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:

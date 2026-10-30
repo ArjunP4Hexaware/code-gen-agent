@@ -1,7 +1,7 @@
-import { marked } from "marked";
 import Prism from "prismjs";
 import "prismjs/components/prism-python";
 import { useMemo } from "react";
+import { renderMarkdown } from "../markdown";
 
 interface NotebookCell {
   cell_type: string;
@@ -42,10 +42,7 @@ export function NotebookView({ content }: { content: string }) {
           <div
             key={c.id ?? i}
             className="nb-cell nb-md report-md"
-            // Assembled by our own notebook builder from contract data — trusted input.
-            dangerouslySetInnerHTML={{
-              __html: marked.parse(cellText(c.source), { async: false }) as string,
-            }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(cellText(c.source)) }}
           />
         ) : (
           <CodeCell key={c.id ?? i} source={cellText(c.source)} />

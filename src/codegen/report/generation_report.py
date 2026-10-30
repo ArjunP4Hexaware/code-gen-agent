@@ -25,6 +25,10 @@ from codegen.rules.compiler import RuleOutcome
 _LINE_BREAKS = re.compile(r"[\r\n\v\f\x85\u2028\u2029]+")
 # '<' that would open a tag, a comment, a declaration or an autolink
 _TAG_OPEN = re.compile(r"<(?=[A-Za-z/!?])")
+# The agent's own open-cell placeholders (<<RFC_NUMBER>>, <<COLUMN#3>>, <<D1:NAME>>)
+# stay literal: no tag (an '_' / '#' ends a tag name) and an environment prefix of
+# at most four characters is no URI scheme a viewer runs.
+_PLACEHOLDER = re.compile(r"<<(?:[A-Z][A-Z0-9]{0,3}:)?[A-Za-z0-9_#.]+>>")
 # '&' that would be read as an entity reference
 _ENTITY = re.compile(r"&(?=#[0-9]+;|#[xX][0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]*;)")
 # a forged verdict line: '**Verdict' / '__Verdict' anywhere
@@ -51,7 +55,8 @@ def md_inline(text: object, *, line_start: bool = True) -> str:
         return ""
     value = _LINE_BREAKS.sub(" ", str(text))
     value = _ENTITY.sub("&amp;", value)
-    value = _TAG_OPEN.sub("&lt;", value)
+    value = "".join(part if _PLACEHOLDER.fullmatch(part) else _TAG_OPEN.sub("&lt;", part)
+                    for part in re.split(f"({_PLACEHOLDER.pattern})", value))
     value = _VERDICT.sub(lambda m: "\\" + m.group(1)[0] + "\\" + m.group(1)[1], value)
     value = value.replace("](", "]\\(").replace("![", "!\\[").replace("][", "]\\[")
     if line_start:

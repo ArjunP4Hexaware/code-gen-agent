@@ -191,3 +191,15 @@ def test_mock_candidate_repeating_a_fence_in_its_rule_stays_fenced(tmp_path):
                                *EXPECTED_HEADINGS[6:]]
     assert _verdicts(text) == [
         "**Verdict: PASS_WITH_FLAGS**"]
+
+
+def test_the_agents_own_placeholders_stay_literal_and_tags_do_not():
+    """<<RFC_NUMBER>> / <<D1:NAME>> / <<COLUMN#n>> are the agent's open cells: a
+    reader must see them as written; a tag beside them is still escaped."""
+    from codegen.report.generation_report import md_inline
+
+    text = "fill <<RFC_NUMBER>>, <<D1:SRC_HOST>> or <<COLUMN#3>> <img src=x onerror=1>"
+    out = md_inline(text)
+    assert "<<RFC_NUMBER>>" in out and "<<D1:SRC_HOST>>" in out and "<<COLUMN#3>>" in out
+    assert "<img" not in out
+    assert "<<JAVASCRIPT:x>>" not in md_inline("<<JAVASCRIPT:x>>")

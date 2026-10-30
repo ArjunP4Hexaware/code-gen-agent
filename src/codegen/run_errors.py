@@ -317,6 +317,7 @@ REASONS: dict[str, str] = {
     "layout.model": "layout model call failed",
     "layout.cache": "layout profile cache invalid",
     "layout.answer": "layout answer does not fit the document",
+    "layout.request_too_large": "layout model request over the size cap",
     "publish": "publish failed",
     "verify": "verification mismatch",
 }

@@ -77,15 +77,34 @@ def sheet_region(ws, header_rows: int = HEADER_ROWS) -> SheetRegion:
     )
 
 
-def model_region(ws, header_rows: int = HEADER_ROWS) -> SheetRegion:
+def clip_text(value: str, max_chars: int | None) -> str:
+    """``value`` cut to ``max_chars`` characters plus a marker naming the full
+    length (P1-7: the model's copy only - never a hash input, never an artefact)."""
+    if max_chars is None or len(value) <= max_chars:
+        return value
+    return f"{value[:max_chars]}... [clipped, {len(value)} chars]"
+
+
+def model_region(ws, header_rows: int = HEADER_ROWS, *, max_cell_chars: int | None = None,
+                 withhold: bool = False) -> SheetRegion:
     """What the layout MODEL sees of one sheet: its header region, except a
     capped one. A sheet with no header row within ``header_rows`` (a two-column
     lookup, valid-values or member list) has no header region, and its first rows
     may be data rows, so none of its cells are sent - only the summary line
     (name, size, merged ranges). post111 (codeflow audit #9): up to 25 rows of such
-    a sheet used to reach the model."""
+    a sheet used to reach the model.
+
+    P1-7 (red team LM-5): ``withhold`` sends the summary line only for a bounded
+    sheet too (a sheet with no open role), and ``max_cell_chars`` clips each sent
+    cell's text (:func:`clip_text`). Neither touches :func:`sheet_region`, which
+    the fingerprint - the cache key - hashes."""
     region = sheet_region(ws, header_rows)
-    return replace(region, cells=(), withheld=True) if region.capped else region
+    if region.capped or withhold:
+        return replace(region, cells=(), withheld=True)
+    if max_cell_chars is not None:
+        region = replace(region, cells=tuple((coordinate, clip_text(value, max_cell_chars))
+                                             for coordinate, value in region.cells))
+    return region
 
 
 def render_region(region: SheetRegion) -> str:
@@ -95,7 +114,7 @@ def render_region(region: SheetRegion) -> str:
         f"sheet {region.name!r} rows={region.rows} cols={region.cols} "
         f"header_region=1..{region.last_row}"
         + ((" (capped, cells withheld)" if region.withheld else " (capped)")
-           if region.capped else ""),
+           if region.capped else (" (cells withheld)" if region.withheld else "")),
         "merged: " + (", ".join(region.merged) or "-"),
     ]
     lines += [f"{coordinate}: {text}" for coordinate, text in region.cells]
@@ -111,5 +130,5 @@ def fingerprint(workbook, header_rows: int = HEADER_ROWS) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["HEADER_ROWS", "SheetRegion", "fingerprint", "header_bound", "model_region",
-           "render_region", "sheet_region"]
+__all__ = ["HEADER_ROWS", "SheetRegion", "clip_text", "fingerprint", "header_bound",
+           "model_region", "render_region", "sheet_region"]

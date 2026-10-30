@@ -45,6 +45,17 @@ recorded provider request body.
 For a document: table titles and the label texts of each table (the
 section-prefix column and the label column), never a value cell.
 
+**Size caps** (P1-7, 2026-10-30; red team LM-5: a 296 KB STTM made a 12.2 MB
+request). `layout.max_cell_chars` clips every header-region cell, FRD label
+line and partial-profile string in the model's copy (`fingerprint.clip_text`,
+`... [clipped, N chars]`); cells go only for the sheets that still have an
+open role, at most `layout.max_sheets_sent` of them (the rest: summary line,
+`(cells withheld)`); a request whose JSON is over `layout.max_prompt_chars` is
+refused before the provider is called (rejection `layout.request_too_large`,
+integers only) and so never retried - its roles stay questions. The caps live
+under `layout:`, which the vocabulary hash does not read, and the fingerprint
+still hashes the full region: no cache key moves.
+
 ## Resolution order (`layout/resolve.py`)
 
 1. **Cache** — `layout.cache_dirs` (repo, `fixtures/layout_profiles/`) then

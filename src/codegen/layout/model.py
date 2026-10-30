@@ -157,11 +157,54 @@ _SYSTEM_PROMPT = (
 )
 
 
+# P1-7 (red team LM-5 / PPL-3): the REASONS code (codegen.run_errors) of a
+# layout request refused for its size - the rejection line names it, plus
+# integers only.
+REQUEST_TOO_LARGE = "layout.request_too_large"
+
+
+def _clip_strings(value, max_chars: int):
+    """Every string inside ``value`` (dicts, lists) clipped to ``max_chars``
+    (:func:`codegen.layout.fingerprint.clip_text`); keys and numbers unchanged.
+    The partial profile repeats document text (header strips, labels, notes):
+    capped like the header cells it came from."""
+    from codegen.layout.fingerprint import clip_text
+
+    if isinstance(value, str):
+        return clip_text(value, max_chars)
+    if isinstance(value, dict):
+        return {k: _clip_strings(v, max_chars) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clip_strings(v, max_chars) for v in value]
+    return value
+
+
+def request_chars(request: dict) -> int:
+    """The size the size cap reads: the request's JSON, as the providers send it."""
+    return len(json.dumps(request, indent=2))
+
+
+def request_too_large(request: dict, config: Config) -> str | None:
+    """The coordinates-only refusal line for a request over
+    ``layout.max_prompt_chars`` (P1-7), else None. Checked BEFORE the provider is
+    called: an oversized request is never sent, so never retried."""
+    size, cap = request_chars(request), config.layout.max_prompt_chars
+    if size <= cap:
+        return None
+    return (f"{REQUEST_TOO_LARGE}: the layout request is {size} characters, over "
+            f"layout.max_prompt_chars {cap} - not sent to the model; the open roles stay "
+            "questions")
+
+
 def build_sttm_request(fingerprint: str, regions: list[str], partial: LayoutProfile,
                        unresolved: list[UnresolvedRole], config: Config) -> dict:
     """The ONLY workbook content the model sees is ``regions`` — the rendered
-    header regions the fingerprint was hashed over."""
+    header regions the fingerprint was hashed over (P1-7: each cell clipped to
+    ``layout.max_cell_chars``, by the caller's ``model_region``). The partial
+    profile and the open roles repeat document text, so their strings are
+    clipped the same way."""
     disc = config.extractor.discovery
+    cap = config.layout.max_cell_chars
     return {
         "kind": "sttm_layout",
         "fingerprint": fingerprint,
@@ -169,21 +212,24 @@ def build_sttm_request(fingerprint: str, regions: list[str], partial: LayoutProf
         "roles": {role.value: definition for role, definition in ROLE_DEFINITIONS.items()},
         "synonym_hints": disc.roles,
         "band_tokens": disc.band_tokens,
-        "partial_profile": partial.model_dump(mode="json"),
-        "unresolved": [u.model_dump(mode="json") for u in unresolved],
+        "partial_profile": _clip_strings(partial.model_dump(mode="json"), cap),
+        "unresolved": _clip_strings([u.model_dump(mode="json") for u in unresolved], cap),
     }
 
 
 def build_frd_request(fingerprint: str, labels: list[str], partial: dict,
                       unresolved: list[dict], config: Config) -> dict:
+    """P1-7: the table labels, the partial profile and the open fields are
+    document text - every string clipped to ``layout.max_cell_chars``."""
+    cap = config.layout.max_cell_chars
     return {
         "kind": "frd_layout",
         "fingerprint": fingerprint,
-        "table_labels": labels,
+        "table_labels": _clip_strings(list(labels), cap),
         "label_hints": config.extractor.frd.labels,
         "section_titles": config.extractor.frd.section_titles,
-        "partial_profile": partial,
-        "unresolved": unresolved,
+        "partial_profile": _clip_strings(partial, cap),
+        "unresolved": _clip_strings(unresolved, cap),
     }
 
 
@@ -508,6 +554,7 @@ __all__ = [
     "LayoutModelProvider",
     "LayoutProviderError",
     "RAW_LOG_CHARS",
+    "REQUEST_TOO_LARGE",
     "RETRY_INSTRUCTION",
     "TRUNCATED",
     "MockLayoutProvider",
@@ -517,5 +564,7 @@ __all__ = [
     "build_layout_provider",
     "parse_json_response",
     "build_sttm_request",
+    "request_chars",
+    "request_too_large",
     "validate_advice",
 ]

@@ -963,6 +963,15 @@ layout:
   max_attempts: 2
   model_confidence: 0.8
   crosscheck_bonus: 0.1
+  # P1-7 (2026-10-30): caps on a layout MODEL request (never the fingerprint /
+  # cache key). Longer cell / label / profile strings are clipped; cells go for
+  # at most max_sheets_sent sheets with open roles (others: summary line); a
+  # request over max_prompt_chars (its JSON) is refused before the call
+  # (layout.request_too_large), never retried. Not under extractor:, so the
+  # runtime cache's vocabulary hash does not move.
+  max_cell_chars: 500
+  max_prompt_chars: 250000
+  max_sheets_sent: 60
 
 job:
   # EDO coding standard: EVERY pipeline must send both success and failure

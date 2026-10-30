@@ -1098,6 +1098,17 @@ class LayoutConfig(BaseModel):
     placed_confidence: float = Field(default=0.8, ge=0, le=1, alias="model_confidence")
     # Confidence bump a cross-document agreement adds (capped at 1.0).
     crosscheck_bonus: float = Field(default=0.1, ge=0, le=1)
+    # P1-7 (red team LM-5 / PPL-3, 2026-10-30): size caps on what a layout
+    # MODEL request carries. Applied to the model's copy only - the fingerprint
+    # (the cache key) still hashes the full header region. A cell / label /
+    # partial-profile string longer than ``max_cell_chars`` is clipped; cells
+    # are sent for at most ``max_sheets_sent`` sheets with open roles (the
+    # rest: summary line only); a request whose JSON is longer than
+    # ``max_prompt_chars`` is refused before the provider is called (REASONS
+    # ``layout.request_too_large``) and never retried.
+    max_cell_chars: int = Field(default=500, gt=0)
+    max_prompt_chars: int = Field(default=250_000, gt=0)
+    max_sheets_sent: int = Field(default=60, gt=0)
 
     @model_validator(mode="after")
     def _cache_paths_are_local(self) -> LayoutConfig:

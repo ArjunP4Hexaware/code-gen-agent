@@ -73,6 +73,7 @@ from codegen.layout.model import (
     LayoutProviderError,
     build_frd_request,
     build_sttm_request,
+    request_too_large,
 )
 from codegen.layout.profile import (
     BAND_LAYER_CHOICES,
@@ -809,13 +810,34 @@ def resolve_workbook(path: Path, config: Config, *, provider: LayoutModelProvide
     # is asked about column roles only.
     role_gaps = [u for u in profile.unresolved
                  if not (BAND_REF_RE.match(str(u.layer)) and u.role == BAND_LAYER_ROLE)]
+    request = None
     if role_gaps and provider is not None and model_allowed:
-        regions = [render_region(model_region(workbook[name])) for name in workbook.sheetnames]
+        # P1-7 (red team LM-5): cells go only for the sheets with an open role
+        # (at most layout.max_sheets_sent, workbook order), each clipped to
+        # layout.max_cell_chars; every other sheet is its summary line. The
+        # fingerprint above hashed the full regions - the cache key never moves.
+        open_sheets = [n for n in workbook.sheetnames if n in {u.sheet for u in role_gaps}]
+        sent = set(open_sheets[:config.layout.max_sheets_sent])
+        if len(open_sheets) > len(sent):
+            rejections.append(Rejection(
+                document, None, None, None,
+                f"{len(open_sheets) - len(sent)} of {len(open_sheets)} sheet(s) with open "
+                f"roles over layout.max_sheets_sent {config.layout.max_sheets_sent}: sent as "
+                "summary lines only, their roles stay questions"))
+        regions = [render_region(model_region(workbook[name],
+                                              max_cell_chars=config.layout.max_cell_chars,
+                                              withhold=name not in sent))
+                   for name in workbook.sheetnames]
         request = build_sttm_request(digest, regions, profile, role_gaps, config)
         if document == "vdd":
             request["kind"] = "vdd_layout"
             request["synonym_hints"] = {"files": config.extractor.vdd.files_roles,
                                         "fields": config.extractor.vdd.field_roles}
+        refused = request_too_large(request, config)
+        if refused is not None:
+            rejections.append(Rejection(document, None, None, None, refused))
+            request = None
+    if request is not None:
         calls += 1
         model_profile = None
         try:
@@ -1115,10 +1137,16 @@ def resolve_frd(path: Path, config: Config, *, provider: LayoutModelProvider | N
     profile = profile.model_copy(update={"field_sources": {k: "synonyms" for k in profile.fields}})
 
     model_from = len(rejections)
+    request = None
     if profile.unresolved and provider is not None:
         request = build_frd_request(digest, _frd_labels(content), profile.model_dump(mode="json"),
                                     [u.model_dump(mode="json") for u in profile.unresolved],
                                     config)
+        refused = request_too_large(request, config)       # P1-7: never sent, never retried
+        if refused is not None:
+            rejections.append(Rejection("frd", None, None, None, refused))
+            request = None
+    if request is not None:
         calls += 1
         try:
             answer = provider.complete_layout(request)

@@ -4,6 +4,38 @@ What each version marker changes for a run inside ACFC. Newest first. Values tha
 must not enter git (storage account, containers, notebook names, status sets) are
 named by field only — see `docs/acfc/OVERLAY_FIELDS.md`.
 
+## 0.5.8.post158 — 2026-10-30 (hardening against hostile text in the FRD / STTM)
+
+From a red-team pass (mock, synthetic pairs only) plus a live injection eval on
+synthetic documents (30 calls). The model obeyed no planted instruction; the gaps
+were in how document text reaches code, paths, the App and workbooks:
+- **DDL data types (P0-1):** a type the framework DDL writes as stated must be a
+  plain spelling (`gate.ddl_type_pattern`); otherwise it is never written
+  (`<<TYPE_NOT_WRITTEN>>`) and the new `ddl_types` check FAILs - a DataType cell
+  can no longer add `DROP` / `CREATE` statements to the DDL the engineer runs.
+- **`ddl_parses` is an allow-list (P0-2):** only `CREATE TABLE` / `ALTER TABLE ... SET`
+  on the feed's own tables (side tables included); DROP, DELETE, INSERT, GRANT,
+  CREATE AS SELECT or another table FAIL however well they parse.
+- **Table names (P0-3):** the resolver refuses a catalog / schema / table name that
+  is no plain identifier (`TableNameError`, coordinates only), and the emitter
+  refuses any file name that would leave `ddl/` - an STTM cell can no longer write
+  files outside the output folder.
+- **App (P0-4):** rendered markdown (Report tab, notebook view) is sanitised with
+  DOMPurify 3.4.17 - FRD text with `<img onerror>` or `javascript:` links no longer
+  runs in the signed-in user's browser. `dist` rebuilt.
+- **Workbooks (P0-5):** text starting `=`, `+`, `-`, `@` is stored as text with
+  quote-prefix in every emitted workbook (value unchanged); the new
+  `xlsx_no_formulas` check FAILs a workbook with a formula cell.
+- **Model safety filter:** a `content_filter` reply is named
+  (`ModelContentFilteredError`) and Layer 2 re-asks the feed rule by rule, so only
+  the rule that tripped it fails, with a note. Layer 2 stays off for ACFC.
+- **Layout:** a model column claim lands on one band (the band of its layer that
+  holds the column), and an empty band repeating a placed layer owes no roles - a
+  stray band-row cell can no longer turn a clean pair into blocking questions.
+
+Output: unchanged on the 12 client pairs (mock, outcomes and artefacts); a feed
+with a hostile cell now FAILs instead of shipping it.
+
 ## 0.5.8.post157 — 2026-10-30 (UI audit fixes: loading states, phone width, targets, headings)
 
 From a Playwright audit of the local App (mock, synthetic pair 4). Frontend only:

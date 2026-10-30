@@ -135,14 +135,28 @@ def _cell_text(tc) -> str:
     return "\n".join(paragraphs).strip()
 
 
+# A DOCTYPE / ENTITY declaration anywhere in the part (Word writes neither).
+_DTD_RE = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)", re.IGNORECASE)
+
+
 def read_docx(path: Path, prose_ok: bool = False) -> DocxContent:
     """``prose_ok`` (Chunk B): a document whose body is paragraphs only - the
     short free-form FRD - is returned with no tables (``discover_frd`` reads
     it as a ``prose`` FRD that places no field) instead of being refused."""
     try:
         with zipfile.ZipFile(path) as archive:
-            root = ET.fromstring(archive.read("word/document.xml"))
-    except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+            xml = archive.read("word/document.xml")
+    except (OSError, zipfile.BadZipFile, KeyError) as exc:
+        raise located(FrdDocxError(f"{path.name}: not a readable .docx ({exc})"),
+                      Coord("FRD"), "frd.docx") from exc
+    if _DTD_RE.search(xml):
+        # post159 (pentest P2-10): Word never writes a DTD; one in an uploaded
+        # FRD is an entity-expansion / external-entity attempt - refused unparsed.
+        raise located(FrdDocxError(f"{path.name}: document.xml declares a DTD or an "
+                                   "entity - refused"), Coord("FRD"), "frd.docx")
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as exc:
         raise located(FrdDocxError(f"{path.name}: not a readable .docx ({exc})"),
                       Coord("FRD"), "frd.docx") from exc
     body = root.find(f"{_W}body")

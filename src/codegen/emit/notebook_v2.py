@@ -571,7 +571,12 @@ def _environment() -> Environment:
     env.filters["block"] = _block
     env.filters["arg"] = lambda value, base: (_py(value) if len(_py(value)) <= 50
                                               else _block(value, base + 4))
-    env.filters["mdcell"] = lambda v: str(v).replace("|", "\\|").replace("\n", " ")
+    # post159 (P1-5): document / model text in a %md cell, made inert
+    from codegen.report.generation_report import md_cell, md_fence, md_inline
+
+    env.filters["mdcell"] = lambda v: md_cell(str(v))
+    env.filters["mdinline"] = md_inline
+    env.filters["mdfence"] = lambda code, info="": "\n".join(md_fence(str(code), info))
     return env
 
 
@@ -628,9 +633,13 @@ REVIEW_CELL = "review-candidates"
 
 
 def review_entries(candidates) -> list[dict]:
-    """The Layer-2 candidates the review cell shows (a model's answer only)."""
+    """The Layer-2 candidates the review cell shows (a model's answer only;
+    post159: a NOT GROUNDED answer shows its rule and why, never its rationale
+    or code)."""
     return [{"rule_text": c.rule_text, "classification": c.response.classification,
-             "code": c.response.code_candidate or "", "rationale": c.response.rationale}
+             "grounded": c.grounded,
+             "code": (c.response.code_candidate or "") if c.grounded else "",
+             "rationale": c.response.rationale if c.grounded else ""}
             for c in candidates
             if getattr(c, "kind", "layer2") == "layer2" and c.response is not None]
 

@@ -81,6 +81,10 @@ def _environment() -> Environment:
     )
     env.filters["py"] = _py_literal
     env.filters["pyconst"] = _py_const
+    # post159 (P1-5): document text in the README's markdown table, made inert
+    from codegen.report.generation_report import md_cell
+
+    env.filters["mdcell"] = lambda v: md_cell(str(v))
     return env
 
 

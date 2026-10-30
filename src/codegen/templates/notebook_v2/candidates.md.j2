@@ -3,15 +3,17 @@
 **Not executable.** Each entry is a model's proposal for a validation rule the deterministic compiler could not map (`candidates/candidates.json`). Nothing here runs — a reviewer decides, and an accepted rule reaches the IIG, then this notebook, through the documents.
 {% for c in candidates %}
 
-### {{ loop.index }}. {{ c.classification }}
+### {{ loop.index }}. {{ c.classification if c.grounded else "NOT GROUNDED" }}
 
-> {{ c.rule_text | mdcell }}
+> {{ c.rule_text | mdinline }}
 
-{{ c.rationale | mdcell }}
+{% if c.grounded %}
+{{ c.rationale | mdinline }}
 {% if c.code %}
 
-```text
-{{ c.code }}
-```
+{{ c.code | mdfence("text") }}
+{% endif %}
+{% else %}
+Withheld: the model's rationale and code - a citation failed grounding (`candidates/candidates.json` keeps the answer for review).
 {% endif %}
 {% endfor %}

@@ -5,9 +5,9 @@
 
 | | |
 |---|---|
-| Feed | `{{ feed.id }}` ({{ feed.name }}) |
-| Source system | {{ feed.source_system }} |
-| FRD contract | {{ provenance.frd_name }} — sha256 `{{ provenance.frd_sha[:16] }}` |
+| Feed | `{{ feed.id }}` ({{ feed.name | mdcell }}) |
+| Source system | {{ feed.source_system | mdcell }} |
+| FRD contract | {{ provenance.frd_name | mdcell }} — sha256 `{{ provenance.frd_sha[:16] }}` |
 | STTM contract | sha256 `{{ provenance.sttm_sha[:16] }}`{% if provenance.synthetic %} — **SYNTHETIC stand-in** — regenerate when the real mapping lands{% endif %} |
 | File format | `{{ file_format }}`, delimiter `{{ delimiter }}` |
 | Stage schema | `{{ stage_schema }}`{% if default_catalog %} (catalog `{{ default_catalog }}`){% endif %} |

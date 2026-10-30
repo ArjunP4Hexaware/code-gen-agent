@@ -109,7 +109,7 @@
   "out/cv_individual_risk/tests/test_run_report.py": "dd98e690d4c621bc44aafa06af73b77133a4272fcd33b2ad83cbf421f52646aa",
   "out/cv_individual_risk/tests/test_writer.py": "b2ec2f3924bb42598164611567f537a65ac9cff088e162ea7c6432da8f4c1056",
   "out/cv_individual_risk/tools/make_fixtures.py": "0e65e525422954fe8719e0a9553c994502ae75ec35e8f889b2b18bd8cc3149e1",
-  "reports/cv_community_demographic_risk.md": "38ee8bbeb42b1093dd99a914e73dd7e3dd6232dae94f92c18f1bc4a184891396",
-  "reports/cv_community_risk.md": "65a8c9453aeb49357f8ce7435b3d83798bb8eb0d622ad14d7dee94b6eec76584",
-  "reports/cv_individual_risk.md": "a77c41d105de04738ac00ab4decb5531478cf47115c985978a908ad7ab304868"
+  "reports/cv_community_demographic_risk.md": "8ff22b4c5708cdd2c75355850a5935df4b25f56bbea448df1427a9c9ca2f4921",
+  "reports/cv_community_risk.md": "470650171495d9177ca041bee06c2c7e948205939cf9612d002fb41e87466839",
+  "reports/cv_individual_risk.md": "4fc41ab87b8c6dc3763f80a7553cfef0e3ac6fd7376154a814b2f3f4f0b0a568"
 }

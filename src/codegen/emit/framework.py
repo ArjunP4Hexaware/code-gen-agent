@@ -39,7 +39,7 @@ from codegen.contracts.resolved import ResolvedFeedSpec, ResolvedTable
 from codegen.emit.metadata_inserts import FILE_NAME as METADATA_INSERTS_FILE
 from codegen.emit.metadata_inserts import emit_metadata_inserts
 from codegen.faq import LoadPatternFaq, summarize
-from codegen.gate.ddl_names import check_ddl_identifiers
+from codegen.gate.ddl_names import TYPE_NOT_WRITTEN, check_ddl_identifiers, check_ddl_types
 from codegen.gate.ddl_parse import check_ddl_parses, check_ddl_tests_read_only
 from codegen.gate.derivations import (
     check_iig_derivations,
@@ -248,6 +248,17 @@ def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
     return ".".join(p for p in (catalog, schema, name) if p)
 
 
+def _written_type(dtype: str, config: Config | None) -> str:
+    """post158 (pentest CS-1): a data type as the DDL writes it. A stated type
+    that is not a plain type spelling (``gate.ddl_type_pattern``) is NEVER
+    written - the column gets ``TYPE_NOT_WRITTEN`` and ``ddl_types`` FAILs - so
+    a DataType cell cannot add SQL to a DDL the engineer runs. Blank stays blank."""
+    pattern = config.gate.ddl_type_pattern if config is not None else None
+    if not dtype or pattern is None or re.fullmatch(pattern, dtype):
+        return dtype
+    return TYPE_NOT_WRITTEN
+
+
 def _sttm_row(f) -> str:
     """Where a field's mapping row sits in the STTM, for a flag's citation."""
     if f.provenance is None:
@@ -447,7 +458,9 @@ def table_definitions(spec: ResolvedFeedSpec, profile, flags: list[str] | None =
             seen.setdefault(a.column, profile.audit_type_casing.get(a.datatype, a.datatype))
             if not audit_descriptions.get(a.column):
                 audit_descriptions[a.column] = a.description
-        audit = tuple(seen.items())
+        audit = tuple((c, _written_type(t, config)) for c, t in seen.items())
+        stage_columns = [(c, _written_type(t, config)) for c, t in stage_columns]
+        standard_columns = [(c, _written_type(t, config)) for c, t in standard_columns]
         # post104: audit columns are commented from their own STTM rows
         audit_comments = {c: d for c, d in audit_descriptions.items()
                           if d and profile.column_comments}
@@ -1072,7 +1085,7 @@ def emit_framework(
     ddl_texts = [(p.name, p.read_text(encoding="utf-8")) for p in files
                  if p.suffix == ".txt" and not is_ddl_test_cases(p.name)]
     ddl_checks = [check_sql_literals(ddl_texts, config, path_whitespace),
-                  check_ddl_identifiers(definitions)]
+                  check_ddl_identifiers(definitions), check_ddl_types(definitions)]
     if config.gate.ddl_parse_dialect:
         ddl_checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect))
         if test_texts:

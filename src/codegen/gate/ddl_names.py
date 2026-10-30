@@ -19,6 +19,11 @@ from pathlib import Path
 from codegen.gate.preflight import GateCheck
 
 NAME = "ddl_identifiers"
+TYPES_NAME = "ddl_types"
+# post158 (pentest CS-1): what the framework DDL writes for a column whose stated
+# data type is no plain type spelling (gate.ddl_type_pattern) - the stated text
+# never reaches the DDL; ``check_ddl_types`` FAILs on it.
+TYPE_NOT_WRITTEN = "<<TYPE_NOT_WRITTEN>>"
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CREATE_RE = re.compile(r"^\s*CREATE\b.*\bTABLE\b", re.IGNORECASE)
 _NOT_A_COLUMN = ("constraint", "primary", "foreign", "key", "unique", "check", "index")
@@ -97,3 +102,26 @@ def check_ddl_identifiers(definitions) -> GateCheck:
                          violations={"ddl_identifier": len(problems)})
     return GateCheck(name=NAME, passed=True,
                      details="every DDL column name is a plain identifier")
+
+
+def check_ddl_types(definitions) -> GateCheck:
+    """post158 (pentest CS-1): no column of any table block carries
+    ``TYPE_NOT_WRITTEN`` - a stated data type that was not a plain type spelling
+    and so was left out of the DDL. A FAIL names the layer, table and column
+    position only (the cell text is not quoted: it may be SQL)."""
+    problems: list[str] = []
+    for definition in definitions:
+        for block in (definition.stage, definition.standard):
+            if block is None:
+                continue
+            for position, (_name, dtype) in enumerate(block.columns, start=1):
+                if dtype == TYPE_NOT_WRITTEN:
+                    problems.append(f"{block.layer} table {block.label}: column {position} "
+                                    "states a data type that is not a plain type spelling "
+                                    "(gate.ddl_type_pattern); not written to the DDL — "
+                                    f"correct the STTM's {block.layer} DataType cell")
+    if problems:
+        return GateCheck(name=TYPES_NAME, passed=False, details="; ".join(problems),
+                         violations={"ddl_type": len(problems)})
+    return GateCheck(name=TYPES_NAME, passed=True,
+                     details="every DDL data type is a plain type spelling")

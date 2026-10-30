@@ -1039,6 +1039,9 @@ class GateConfig(BaseModel):
     # 2026-10-26: the sqlglot dialect every emitted DDL text must parse under
     # (codegen.gate.ddl_parse); None = the check is not run.
     ddl_parse_dialect: str | None = None
+    # post158 (pentest CS-1): the spelling a stated DDL data type must have to be
+    # written as stated (codegen.gate.ddl_names.check_ddl_types); None = no check.
+    ddl_type_pattern: str | None = None
 
 
 class JobConfig(BaseModel):

@@ -835,6 +835,12 @@ gate:
   # under this sqlglot dialect (codegen.gate.ddl_parse: a parse error or an
   # unrecognised statement FAILs; sqlglot absent = sqlglot_unavailable flag).
   ddl_parse_dialect: databricks
+  # post158 (pentest CS-1): a DDL data type the framework DDL writes as the STTM
+  # states it (stage / standard / audit) must be a plain type spelling - one or
+  # two words, an optional numeric size: String, Decimal(10, 2), varchar(50).
+  # Anything else (quotes, ';', a comment, a newline, extra clauses) is NEVER
+  # written: the column gets the open marker and the ddl_types check FAILs.
+  ddl_type_pattern: '^[ \t]*[A-Za-z][A-Za-z0-9_]*(?:[ \t]+[A-Za-z][A-Za-z0-9_]*)?(?:[ \t]*\([ \t]*\d+[ \t]*(?:,[ \t]*\d+[ \t]*)?\))?[ \t]*$'
   # M7 (2026-09-18) derivation gate — codegen.gate.derivations. Every IIG
   # cell single-line; identifier columns charset + cap; path columns no
   # whitespace / empty segment / punctuation-ended segment / doubled

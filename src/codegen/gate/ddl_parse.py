@@ -11,6 +11,12 @@ post112 (codeflow audit #15): the same check enforces the run-safe rule — a
 file, so it fails the check (the pair-1 golden, which needs it, runs with the
 check off).
 
+post158 (pentest CS-3): with the feed's own table names (``expected_tables``) the
+check is an ALLOW-LIST - a statement is a ``CREATE TABLE`` (no ``AS SELECT``) or an
+``ALTER TABLE ... SET`` (tags / properties) on a table the feed defines. Anything
+else - a DROP, DELETE, INSERT, MERGE, GRANT, a CREATE of another table - FAILs,
+however well it parses.
+
 sqlglot not installed where the gate runs: a ``sqlglot_unavailable`` flag, never
 a FAIL (the ``ruff_unavailable`` rule). ``ddl_parse_dialect: null`` = no check.
 """
@@ -23,9 +29,42 @@ SQLGLOT_UNAVAILABLE = "sqlglot_unavailable"
 NAME = "ddl_parses"
 
 
-def check_ddl_parses(ddl_texts: list[tuple[str, str]], dialect: str) -> GateCheck:
+def _table_name(node) -> str | None:
+    """The lower-cased dotted name a CREATE / ALTER statement targets, quotes dropped."""
+    from sqlglot import exp
+
+    target = node.this.this if isinstance(node.this, exp.Schema) else node.this
+    if not isinstance(target, exp.Table):
+        return None
+    return ".".join(part.name for part in target.parts).lower()
+
+
+def _not_allowed(node, expected: set[str]) -> str | None:
+    """Why ``node`` is outside the allow-list, or None when it is allowed."""
+    from sqlglot import exp
+
+    kind = str(node.args.get("kind") or "").upper()
+    if isinstance(node, exp.Create):
+        if kind != "TABLE" or node.args.get("expression") is not None:
+            return "a CREATE that is not a plain CREATE TABLE"
+    elif isinstance(node, exp.Alter):
+        if kind != "TABLE" or not all(isinstance(a, exp.AlterSet)
+                                      for a in node.args.get("actions") or []):
+            return "an ALTER that is not ALTER TABLE ... SET"
+    else:
+        return f"a {type(node).__name__} statement"
+    if _table_name(node) not in expected:
+        return "on a table this feed does not define"
+    return None
+
+
+def check_ddl_parses(ddl_texts: list[tuple[str, str]], dialect: str,
+                     expected_tables: list[str] | None = None) -> GateCheck:
     """One check over every (file name, text) DDL of the feed (the caller runs it
-    only when ``gate.ddl_parse_dialect`` is set)."""
+    only when ``gate.ddl_parse_dialect`` is set). ``expected_tables``: the
+    feed's qualified table names - every statement must be allowed for them."""
+    expected = ({name.replace("`", "").lower() for name in expected_tables}
+                if expected_tables is not None else None)
     try:
         import sqlglot
         from sqlglot import exp
@@ -51,6 +90,9 @@ def check_ddl_parses(ddl_texts: list[tuple[str, str]], dialect: str) -> GateChec
                 problems.append(f"{name}: statement {index} is CREATE OR REPLACE — not safe "
                                 "to re-run against a deployed table (use the profile's "
                                 "create_statement: CREATE TABLE IF NOT EXISTS)")
+            elif expected is not None and (why := _not_allowed(node, expected)):
+                problems.append(f"{name}: statement {index} is {why} — the DDL may only "
+                                "CREATE TABLE / ALTER TABLE ... SET the feed's own tables")
     if problems:
         return GateCheck(name=NAME, passed=False, details="; ".join(problems))
     return GateCheck(name=NAME, passed=True,

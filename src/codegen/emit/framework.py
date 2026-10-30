@@ -248,6 +248,27 @@ def _qualify(table, layer: str, profile, spec: ResolvedFeedSpec,
     return ".".join(p for p in (catalog, schema, name) if p)
 
 
+def _defined_table_names(spec: ResolvedFeedSpec, definitions) -> list[str]:
+    """post158 (pentest CS-3): every name a DDL statement of this feed may
+    target - the table blocks' qualified names and each resolved table of the
+    spec (stage, standard and the side tables: errors, processed files,
+    recycle) two- and three-part - for the ``ddl_parses`` allow-list."""
+    names = [b.qualified for d in definitions for b in (d.stage, d.standard)
+             if b is not None and b.qualified]
+    resolved = [*(s.stage_table for s in spec.segments), spec.standard_table,
+                spec.errors_table, spec.processed_files_table]
+    if spec.recycle is not None:
+        resolved.append(spec.recycle.recycle_table)
+    for t in resolved:
+        if t is None:
+            continue
+        names.append(f"{t.schema_name}.{t.table}")
+        for catalog in (t.catalog, t.catalog_logical):
+            if catalog:
+                names.append(f"{catalog}.{t.schema_name}.{t.table}")
+    return names
+
+
 def _written_type(dtype: str, config: Config | None) -> str:
     """post158 (pentest CS-1): a data type as the DDL writes it. A stated type
     that is not a plain type spelling (``gate.ddl_type_pattern``) is NEVER
@@ -1087,7 +1108,8 @@ def emit_framework(
     ddl_checks = [check_sql_literals(ddl_texts, config, path_whitespace),
                   check_ddl_identifiers(definitions), check_ddl_types(definitions)]
     if config.gate.ddl_parse_dialect:
-        ddl_checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect))
+        tables = _defined_table_names(spec, definitions)
+        ddl_checks.append(check_ddl_parses(ddl_texts, config.gate.ddl_parse_dialect, tables))
         if test_texts:
             ddl_checks.append(check_ddl_tests_read_only(test_texts,
                                                         config.gate.ddl_parse_dialect))

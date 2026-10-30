@@ -4,11 +4,17 @@ Where the work is now. Update this file at the end of a session; when a block st
 being current, move it to `docs/CLAUDE_HISTORY.md` (rules still in force go to
 CLAUDE.md). What each version did: `CHANGELOG_ACFC.md`.
 
-## State (2026-10-29 — post154 deployed)
+## State (2026-10-30 — post157)
 
 - **Branch** `feature/multi-table`: pushed, working tree clean. App `codegen-agent`
-  deployed from post154, `/api/health` = `0.5.8.post154`, smoke green (Generate `/` +
-  Results `/results`: 200, no console errors). Both suites green on every version.
+  deployed from post157 (2026-10-30), smoke green (Generate `/` + Results `/results`:
+  200, no console errors). post155 / post156 went out first (deployed as post156). Both
+  suites green on every version.
+- **UI audit (2026-10-30, Playwright on the local App, mock, pair 4) -> post157:** loading
+  states on Generate / Results, no sideways scroll at 390 px, 24 px targets, the logo out
+  of the tab order, one `h1` on the Report tab. Not done (optional, not asked): lazy-load
+  prism / marked (one 374 kB bundle), the published source map in `dist`. Scripts:
+  `/tmp/t/ux/audit.js` (numbers only), `small.js`, `overflow.js`, `flash.js`.
 - **This session's App work** (CHANGELOG_ACFC.md): post143 the guided look of the STTM
   agent's App (UX skill Part 1 "Design pillars"); post144 Generate is `/` (Results
   `/results`, `/modes` redirects) and the client's logo top-left, read from the state

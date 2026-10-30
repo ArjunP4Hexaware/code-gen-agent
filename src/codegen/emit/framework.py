@@ -180,6 +180,9 @@ class FrameworkArtefacts:
     # post66: IIG sheets left empty BY RULE -> the reason (MFT / delimited),
     # in sheet order — the App's review summary lists them.
     empty_by_rule: dict[str, str] = field(default_factory=dict)
+    # P1-1: the feed flags a reviewer must see before approving
+    # (iig_review.review_flag_prefixes) - the review copy and the combined LOG.md.
+    review_flags: list[str] = field(default_factory=list)
 
 
 def _sanitize_abbrev(slug: str) -> str:
@@ -1194,12 +1197,15 @@ def emit_framework(
     # behind the profile's emit_iig_review switch (off: output as before).
     iig_rows = ""
     review_name = clean_name = ""
+    from codegen.iig_review import review_flags
+
+    to_review = review_flags(list(spec.provenance_flags), config)
     if profile.emit_iig_review:
         from codegen.iig_review import write_iig_workbooks
 
         review_path, clean_path, _open = write_iig_workbooks(
             payload, blank_list, config, framework_dir, spec.feed_slug, template_name,
-            empty_by_rule)
+            empty_by_rule, to_review)
         files.extend([review_path, clean_path])
         review_name, clean_name = review_path.name, clean_path.name
         iig_rows = _iig_addition_rows(review_name, clean_name, config)
@@ -1270,6 +1276,7 @@ def emit_framework(
         groups=artefact_groups(files),
         dml_disabled_reason=dml_disabled_reason,
         empty_by_rule=empty_by_rule,
+        review_flags=to_review,
     )
 
 

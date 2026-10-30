@@ -185,8 +185,16 @@ def clean_workbook(payload: dict) -> Workbook:
     return workbook
 
 
+def review_flags(flags: list[str], config: Config) -> list[str]:
+    """P1-1: the flags a reviewer must see before approving
+    (``iig_review.review_flag_prefixes``), in order, once each."""
+    prefixes = tuple(config.iig_review.review_flag_prefixes)
+    return list(dict.fromkeys(f for f in flags if prefixes and f.startswith(prefixes)))
+
+
 def review_workbook(payload: dict, cells: list[OpenCell], config: Config,
-                    empty_by_rule: dict[str, str] | None = None) -> Workbook:
+                    empty_by_rule: dict[str, str] | None = None,
+                    flags: list[str] | None = None) -> Workbook:
     """Summary sheet first, then the template sheets with open cells
     highlighted by owner and commented (reason, citation, owner). post89: a
     sheet in ``empty_by_rule`` ({sheet: reason}) gets one summary row saying why
@@ -204,6 +212,10 @@ def review_workbook(payload: dict, cells: list[OpenCell], config: Config,
     for sheet, reason in (empty_by_rule or {}).items():
         summary.append([sheet, "", review.empty_by_rule_label, review.empty_by_rule_owner, 0,
                         "", review.empty_by_rule_reasons.get(reason, reason)])
+    for flag in flags or []:
+        # P1-1: a model-placed column / an FRD-STTM disagreement, one row each
+        summary.append(["", "", review.review_flag_label, review.review_flag_owner, 0, "",
+                        flag])
     _template_sheets(workbook, payload)
     for cell in cells:
         target = workbook[cell.sheet].cell(row=cell.row, column=cell.col)
@@ -219,6 +231,7 @@ def review_workbook(payload: dict, cells: list[OpenCell], config: Config,
 def write_iig_workbooks(payload: dict, always_blank: list[str], config: Config,
                         framework_dir: Path, feed: str, template: str,
                         empty_by_rule: dict[str, str] | None = None,
+                        flags: list[str] | None = None,
                         ) -> tuple[Path, Path, list[OpenCell]]:
     """Write the review copy and the clean copy; return their paths + the
     open cells (for the report / tests)."""
@@ -229,7 +242,7 @@ def write_iig_workbooks(payload: dict, always_blank: list[str], config: Config,
     review_path = framework_dir / review.review_file_pattern.format(feed=feed)
     clean_path = framework_dir / review.clean_file_pattern.format(feed=feed)
     review_path.write_bytes(stable_workbook_bytes(review_workbook(payload, cells, config,
-                                                                  empty_by_rule)))
+                                                                  empty_by_rule, flags)))
     clean_path.write_bytes(stable_workbook_bytes(clean_workbook(payload)))
     return review_path, clean_path, cells
 

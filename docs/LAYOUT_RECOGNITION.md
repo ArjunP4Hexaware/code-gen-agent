@@ -294,6 +294,22 @@ Agreement adds `layout.crosscheck_bonus` to the involved confidences
 (capped at 1.0); disagreement is a gate flag `layout_crosscheck:<name>`
 citing both cells. A completed pair is cached under its pair fingerprint.
 
+**Model-placed identifiers** (P1-1, 2026-10-30; red team LM-1: header text
+steered the model into swapping the stage catalog and schema). (1) A catalog /
+schema column the MODEL placed is judged by its values through the catalog-value
+chain (`layer_evidence.catalog_words`, `discover.value_layers`): a catalog's
+values read as catalogs, a schema's do not (`validate._identifier_values`, counts
+only). (2) The cross-check `<layer>_identifier_swap` flags an STTM catalog equal
+to the FRD's schema (or the reverse). (3) A catalog / schema the model placed that
+a cross-check contradicts is NOT applied: it goes back to the person as a
+question (`_reopen_model_identifiers`); a synonym or a person's placement keeps
+the flag only. (4) Every identifier column the model placed (catalog, schema,
+table, column, target_type) is a feed flag `layout_model_placed:<sheet>/<layer>/
+<role>` (`extract.extractor.model_placed_flags`, also after a cache hit), and the
+flags named by `iig_review.review_flag_prefixes` (that one, `frd_crosscheck:`,
+`layout_crosscheck:`) are one summary row each in the review copy (per feed and
+combined) and a "Check before approving" section in the combined LOG.md.
+
 ### The file of each feed when one FRD block splits (2026-10-12)
 
 When one FRD block describes several STTM mapping sheets,

@@ -29,7 +29,7 @@ import re
 from dataclasses import dataclass
 
 from codegen.config import ExtractorConfig
-from codegen.layout.discover import _band_layer, _has_token, normalize, text
+from codegen.layout.discover import _band_layer, _has_token, normalize, text, value_layers
 from codegen.layout.profile import (
     REQUIRED_ROLES,
     ROLE_BEARING_KINDS,
@@ -163,6 +163,9 @@ def validate_profile(profile: LayoutProfile, workbook, config: ExtractorConfig, 
                     continue
                 column_values = [r[col - 1] if col - 1 < len(r) else None for r in data]
                 problem = _plausibility(role, column_values, thresholds, type_re)
+                if problem is None and role_sources.get(
+                        confidence_key(sp.name, band.layer, role), profile.source) == "model":
+                    problem = _identifier_values(role, column_values, disc)
                 if problem:
                     reject(sp.name, band.layer, role, problem)
                     continue
@@ -229,6 +232,30 @@ def _plausibility(role: str, values: list, thresholds, type_re) -> str | None:
         if ratio < thresholds.field_name_non_empty:
             return (f"only {ratio:.0%} of the field-name cells are non-empty "
                     f"(threshold {thresholds.field_name_non_empty:.0%})")
+    return None
+
+
+def _identifier_values(role: str, values: list, disc) -> str | None:
+    """P1-1 (red team LM-1): a catalog / schema column the MODEL placed is
+    judged by its values, through the same catalog-value chain discovery reads
+    layers by (``layer_evidence.catalog_words``): a catalog column's values read
+    as catalogs, a schema column's do not. Header text steered a model into
+    swapping the two, and identifier shape or distinct counts cannot tell them
+    apart - both are short identifiers. Counts only, never a value."""
+    if role not in (Role.CATALOG.value, Role.SCHEMA.value):
+        return None
+    sample = [str(v) for v in values if v is not None][:disc.layer_evidence.value_scan_rows]
+    if not sample:
+        return None
+    catalogs = sum(1 for v in sample if value_layers(v, "catalog_value", disc))
+    if role == Role.CATALOG.value and catalogs == 0:
+        return (f"none of the {len(sample)} values under the header reads as a catalog "
+                "(extractor.discovery.layer_evidence.catalog_words) - a model-placed catalog "
+                "column must")
+    if role == Role.SCHEMA.value and catalogs:
+        return (f"{catalogs} of the {len(sample)} values under the header read as a catalog "
+                "(extractor.discovery.layer_evidence.catalog_words) - a model-placed schema "
+                "column holds none")
     return None
 
 

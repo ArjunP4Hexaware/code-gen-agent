@@ -1127,20 +1127,25 @@ def _column_values(ws, header_row: int, col: int, limit: int) -> list[str]:
     return values
 
 
+def value_layers(value: str, kind: str, disc: DiscoveryConfig) -> set[str]:
+    """The layers ONE Catalog (``catalog_value``: a ``catalog_words`` word) or
+    Schema (``schema_value``: a ``schema_prefixes`` prefix) value names."""
+    ev = disc.layer_evidence
+    if kind == "catalog_value":
+        words = _words(value)
+        return {layer for layer, tokens in ev.catalog_words.items()
+                if words & {normalize(t) for t in tokens}}
+    lowered = value.strip().lower()
+    return {layer for layer, prefixes in ev.schema_prefixes.items()
+            if any(lowered.startswith(p.lower()) for p in prefixes if p)}
+
+
 def _value_layers(ws, header_row: int, col: int, kind: str, disc: DiscoveryConfig) -> set[str]:
     """The layers a band's Catalog (``catalog_value``) / Schema
     (``schema_value``) VALUES name — word / prefix matches."""
-    ev = disc.layer_evidence
     layers: set[str] = set()
-    for value in _column_values(ws, header_row, col, ev.value_scan_rows):
-        if kind == "catalog_value":
-            words = _words(value)
-            layers |= {layer for layer, tokens in ev.catalog_words.items()
-                       if words & {normalize(t) for t in tokens}}
-        else:
-            lowered = value.strip().lower()
-            layers |= {layer for layer, prefixes in ev.schema_prefixes.items()
-                       if any(lowered.startswith(p.lower()) for p in prefixes if p)}
+    for value in _column_values(ws, header_row, col, disc.layer_evidence.value_scan_rows):
+        layers |= value_layers(value, kind, disc)
     return layers
 
 

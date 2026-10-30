@@ -302,7 +302,7 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
         blank = [h for tab in payload["tabs"].values() for h in tab["headers"] if h in blank_list]
         empty = _empty_by_rule(with_payload, payload)
         cells = open_cells(payload, blank, config, template)
-        review = review_workbook(payload, cells, config, empty)
+        review = review_workbook(payload, cells, config, empty, _review_flags(with_payload))
         _mark_feed_starts(review, merge.ranges)
         (folder / names["iig"]).write_bytes(stable_workbook_bytes(clean_workbook(payload)))
         (folder / names["review"]).write_bytes(stable_workbook_bytes(review))
@@ -373,6 +373,11 @@ def write_combined(out_root: Path, sttm: str, kept: list[KeptFeed],
             "look_alike_rows": dict(merge.look_alike) if merge else {},
             "ddl_blocks_merged": ddl_skipped, "conflicts": conflicts,
             "failed_checks": failed_checks}
+
+
+def _review_flags(kept: list[KeptFeed]) -> list[str]:
+    """P1-1: every kept feed's review flags, feed by feed, each feed's once."""
+    return [f"{k.slug}: {flag}" for k in kept for flag in getattr(k.artefacts, "review_flags", [])]
 
 
 def _always_blank(config: Config, template: str) -> set[str]:
@@ -465,6 +470,12 @@ def _log_text(sttm, kept, excluded, names, written, merge, ddl_skipped, conflict
             lines += [f"- `{name}`" for name in shared]
     if ddl_skipped:
         lines.append(f"- DDL: {ddl_skipped} identical table block(s) written once")
+    to_check = _review_flags(kept)
+    if to_check:
+        # P1-1 (red team LM-1): a column the layout model placed, an FRD / STTM
+        # disagreement - what a reviewer checks before approving these files
+        lines += ["", "## Check before approving", ""]
+        lines += [f"- {line}" for line in to_check]
     lines += ["", "## Conflicts", ""]
     lines += [f"- DDL: different definitions of `{t}` — both kept under a `-- CONFLICT` "
               "line; resolve before deploying" for t in conflicts] or ["- none"]

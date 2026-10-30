@@ -114,6 +114,7 @@ def extract_contract(workbook_path: Path, frd_path: Path, config: Config, **kwar
     except NeedsAnswersError as exc:
         exc.pending = _indexed(exc.pending, _Names(workbook_sheet_names(workbook_path)))
         raise
+    contract = _with_model_placed_flags(contract, kwargs.get("layout"))
     if not contract.needs_answers:
         return contract
     return contract.model_copy(update={"needs_answers": _indexed(
@@ -123,6 +124,41 @@ def extract_contract(workbook_path: Path, frd_path: Path, config: Config, **kwar
 class _Names:
     def __init__(self, names: list[str]) -> None:
         self.sheetnames = names
+
+
+# P1-1 (red team LM-1): the roles whose values become DDL / IIG identifiers.
+_IDENTIFIER_ROLES = ("catalog", "schema", "table", "column", "target_type")
+MODEL_PLACED = "layout_model_placed"
+
+
+def model_placed_flags(profile: LayoutProfile | None, sheet: str) -> list[str]:
+    """``layout_model_placed:<sheet>/<layer>/<role>`` for every identifier role
+    of ``sheet``'s target bands the layout MODEL placed (validated against the
+    workbook, never confirmed by a person) - carried to the gate, the review copy
+    and the combined LOG.md. Only a resolved profile (``--layout``) can hold one:
+    discovery alone never places a role by model."""
+    if profile is None or (sp := profile.sheet(sheet)) is None:
+        return []
+    return [f"{MODEL_PLACED}:{sheet}/{band.layer}/{role} — the layout model placed this "
+            "column (validated against the workbook, not confirmed by a person); check the "
+            "values it supplies before approving"
+            for band in sp.bands if band.layer in ("stage", "standard")
+            for role in _IDENTIFIER_ROLES
+            if role in band.roles and profile.role_source(sheet, band.layer, role) == "model"]
+
+
+def _with_model_placed_flags(contract: SttmContract, profile: LayoutProfile | None
+                             ) -> SttmContract:
+    if profile is None:
+        return contract
+    feeds = []
+    for feed in contract.feeds:
+        added = [f for f in model_placed_flags(profile, feed.mapping_sheet)
+                 if f not in feed.extraction_flags]
+        feeds.append(feed.model_copy(update={"extraction_flags": [*feed.extraction_flags,
+                                                                  *added]})
+                     if added else feed)
+    return contract.model_copy(update={"feeds": feeds})
 
 
 def _extract_contract(

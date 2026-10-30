@@ -1690,6 +1690,20 @@ def cross_check(contract: FrdContract, sttm_profile: LayoutProfile, workbook, co
                 checks.append(CrossCheck(
                     f"{layer}_{role}", "agree" if agree else "disagree", citation,
                     sttm_value[1], f"{value!r} ↔ {sttm_value[0]!r}"))
+            # P1-1 (red team LM-1): the STTM's catalog is the FRD's schema (or its
+            # schema the FRD's catalog) - the catalog / schema swap a steered
+            # layout model makes. Checked whoever placed the roles.
+            for role, other, value in (("catalog", "schema", target.schema_name),
+                                       ("schema", "catalog", target.catalog)):
+                sttm_value = facts["schemas"].get(f"{layer}.{role}")
+                if value is None or sttm_value is None:
+                    continue
+                if normalize(value) == normalize(sttm_value[0]):
+                    checks.append(CrossCheck(
+                        f"{layer}_identifier_swap", "disagree",
+                        _frd_citation(contract, index, f"{layer}_target.{other}"),
+                        sttm_value[1],
+                        f"the STTM {role} {sttm_value[0]!r} is the FRD's {other}"))
         # 3. format / delimiter / frequency against the meta rows and the VDD FILES sheet.
         for key, value in (("file_format", feed.file_format), ("delimiter", feed.delimiter),
                            ("frequency", feed.frequency)):
@@ -1714,7 +1728,8 @@ def cross_check(contract: FrdContract, sttm_profile: LayoutProfile, workbook, co
     return checks
 
 
-def _apply_cross_checks(pair: PairResolution, checks: list[CrossCheck], config: Config) -> None:
+def _apply_cross_checks(pair: PairResolution, checks: list[CrossCheck], config: Config,
+                        workbook=None) -> None:
     bonus = config.layout.crosscheck_bonus
     profile = pair.sttm.profile
     assert isinstance(profile, LayoutProfile)
@@ -1742,6 +1757,64 @@ def _apply_cross_checks(pair: PairResolution, checks: list[CrossCheck], config: 
     pair.sttm.profile = profile.model_copy(update={"confidence": confidence})
     if pair.frd is not None:
         pair.frd.profile = pair.frd.profile.model_copy(update={"confidence": frd_conf})
+    _reopen_model_identifiers(pair, checks, workbook)
+
+
+# P1-1: the cross-checks whose STTM side is a target band's catalog / schema
+_IDENTIFIER_CHECK = re.compile(r"^(stage|standard)_(catalog|schema|identifier_swap)$")
+
+
+def _reopen_model_identifiers(pair: PairResolution, checks: list[CrossCheck],
+                              workbook) -> None:
+    """P1-1 (red team LM-1): a catalog / schema role the MODEL placed whose
+    values the FRD contradicts is not applied - it goes back to the person as a
+    question (a blocking line), with the cross-check named. A synonym or a
+    person's placement keeps its flag only (``layout_crosscheck:``): the STTM
+    band is authoritative, and only an unconfirmed model claim is in doubt."""
+    disputed: dict[str, dict[str, str]] = {}           # layer -> role -> the check's name
+    for c in checks:
+        if c.status == "disagree" and (m := _IDENTIFIER_CHECK.match(c.name)):
+            for role in (("catalog", "schema") if m.group(2) == "identifier_swap"
+                         else (m.group(2),)):
+                disputed.setdefault(m.group(1), {}).setdefault(role, c.name)
+    if not disputed or workbook is None:
+        return
+    profile = pair.sttm.profile
+    assert isinstance(profile, LayoutProfile)
+    sheets, unresolved, changed = [], list(profile.unresolved), False
+    for sp in profile.sheets:
+        bands = []
+        for band in sp.bands:
+            roles = dict(band.roles)
+            for role, check in disputed.get(band.layer, {}).items():
+                key = confidence_key(sp.name, band.layer, role)
+                if role in roles and pair.sttm.placed(key) == "model":
+                    del roles[role]
+                    changed = True
+                    unresolved.append(UnresolvedRole(
+                        sheet=sp.name, layer=band.layer, role=role,
+                        reason=(f"the layout model placed it and the FRD disagrees "
+                                f"(cross-check {check}); a person decides"),
+                        candidates=[c for c in range(band.col_start, band.col_end + 1)
+                                    if c not in roles.values()]))
+            bands.append(band.model_copy(update={"roles": roles}))
+        sheets.append(sp.model_copy(update={"bands": bands}))
+    if not changed:
+        return
+    reopened = _list_missing_required(profile.model_copy(update={"sheets": sheets,
+                                                                 "unresolved": unresolved}))
+    pair.sttm.profile = reopened
+    asked = {q.key for q in pair.sttm.questions}
+    new_keys = {confidence_key(u.sheet, u.layer, u.role) for u in unresolved
+                if u.reason.startswith("the layout model placed it and the FRD disagrees")}
+    pair.sttm.questions = [*pair.sttm.questions, *[
+        q for q in _questions_for(reopened, workbook, "sttm")
+        if q.key not in asked and confidence_key(q.sheet or "", q.layer or "", q.role)
+        in new_keys]]
+    for u in unresolved:
+        key = confidence_key(u.sheet, u.layer, u.role)
+        if key in new_keys:
+            pair.flags.append(f"layout_unresolved:sttm {key} — read as empty ({u.reason})")
 
 
 # ------------------------------------------------------------------ pair
@@ -1942,7 +2015,7 @@ def resolve_pair(sttm_path: Path, frd_path: Path | None, config: Config, *,
             frd_contract, sttm_doc.profile, workbook, config,
             vdd_profile=vdd_doc.profile if vdd_doc is not None else None,  # type: ignore[arg-type]
             vdd_workbook=vdd_workbook)
-        _apply_cross_checks(pair, pair.cross_checks, config)
+        _apply_cross_checks(pair, pair.cross_checks, config, workbook)
     if pair_fp and caches.runtime is not None and not pair_hit:
         entries = {d.document: _entry(d.profile, d.placed_by, config) for d in pair.documents}
         # P1-2: None = layout.cache_model_placements false and a model placement unanswered

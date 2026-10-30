@@ -2340,6 +2340,14 @@ class IigReviewConfig(BaseModel):
     # Keys of empty_by_rule_reasons = the reasons framework.py records.
     empty_by_rule_label: str = "empty by rule (no rows expected)"
     empty_by_rule_owner: str = "no action"
+    # P1-1 (red team LM-1, 2026-10-30): the feed flags a reviewer must see before
+    # approving - a column the layout MODEL placed, an FRD / STTM disagreement -
+    # reach the review copy's summary sheet ([ "", "", review_flag_label,
+    # review_flag_owner, 0, "", <flag> ]) and the combined LOG.md, by prefix.
+    review_flag_prefixes: list[str] = Field(default_factory=lambda: [
+        "layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:"])
+    review_flag_label: str = "check before approving (layout / cross-document)"
+    review_flag_owner: str = "engineer + BSA"
     empty_by_rule_reasons: dict[str, str] = Field(default_factory=lambda: {
         "MFT": "the file lands by MFT; MFT-landed feeds have no FILE_ADLS rows",
         "delimited": "a delimited file; the fixed-width handler applies only to "

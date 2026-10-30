@@ -1473,6 +1473,13 @@ iig_review:
     template_constant: engineer_confirms
     flagged_note: engineer            # e.g. iig_path_shape_on_uri
     additional_dq_rules: engineer     # one summary entry per file: rule classes not generated
+  # P1-1 (2026-10-30, red team LM-1): feed flags a reviewer must see before
+  # approving - a column the layout MODEL placed (validated, never confirmed by
+  # a person), an FRD / STTM disagreement - one summary row each in the review
+  # copy, and a "Check before approving" section in the combined LOG.md.
+  review_flag_prefixes: ["layout_model_placed:", "frd_crosscheck:", "layout_crosscheck:"]
+  review_flag_label: "check before approving (layout / cross-document)"
+  review_flag_owner: "engineer + BSA"
   owners:
     # Technical values no input states: the engineer, not the BSA.
     FILE_ADLS_INGESTION_DETAILS.SRC_ROOT_DIR: engineer
